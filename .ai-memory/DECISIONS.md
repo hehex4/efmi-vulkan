@@ -44,3 +44,22 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Date: 2026-10-11.
 - Decision: every probe feature gets a sandbox test with known expected values (the sandbox writes `expected.json`). Results from the sandbox are never reported as results from the game.
 - Reason: the game cannot be used for routine testing (anti-cheat, account risk, user's decision per run).
+
+## D-008: One Python build script instead of batch files
+
+- Date: 2026-10-11.
+- Decision: `scripts/build.py` finds `vcvars64.bat` (through `VCVARS` or `vswhere`) and the Vulkan headers, runs `cl` for the layer and the sandbox and writes the layer manifest. The regression suite calls it.
+- Reason: one place for the header search order of D-005; the tests can build into another directory with `--out` while a process still holds the DLL in `dist/`.
+
+## D-009: Two modes of the layer; draw records are always kept in probe mode
+
+- Date: 2026-10-11.
+- Decision: `EFMI_VK_MODE=passthrough` hooks only device destruction and present and starts no pipe; it is the mode for gate G1. In probe mode every command buffer keeps the records of its draws all the time, not only while a capture is armed.
+- Reason: a capture then never depends on when a command buffer was begun, which matters for engines that record ahead of the frame boundary. The cost is about 200 bytes and one vector push per draw; it has not been measured in a heavy scene yet (T-012).
+
+## D-010: Shadows are fed at submit time and only for index buffers by default
+
+- Date: 2026-10-11.
+- Decision: buffer writes recorded into a command buffer are applied to the shadow when that command buffer is submitted, reading the staging source at that moment. Only buffers with index usage get a shadow unless `EFMI_VK_SHADOW_USAGE` widens the mask.
+- Reason: what the staging buffer holds at submit time is what the GPU copies; a shadow for every buffer of a game would cost too much memory. The DX11 dump shows large shared index buffers bound at byte offsets (plan fact 14), so the shadow is per buffer with an interval set of known bytes, and hashes are taken over sub-ranges.
+- Open: whether the game's uploads are visible to the CPU at all is gate G3; LIMIT-007 lists what is not covered.

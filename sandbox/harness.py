@@ -48,7 +48,8 @@ def layer_env(log_path: str | None = None, mode: str = "probe", extra: dict | No
     Nothing is registered system-wide: the loader finds the manifest through
     VK_LAYER_PATH and enables it through VK_INSTANCE_LAYERS. Implicit layers of other
     software (overlays, capture hooks) are switched off for the child so that runs
-    are repeatable. An elevated process ignores these variables.
+    are repeatable. An elevated process ignores VK_LAYER_PATH, so this works only
+    for children without elevation.
     """
     env = dict(os.environ)
     env["VK_LAYER_PATH"] = DIST

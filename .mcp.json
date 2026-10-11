@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "efmi-vk": {
+      "command": "D:\\Python312\\python.exe",
+      "args": ["F:\\efmi vulkan\\server\\run_server.py"]
+    }
+  }
+}

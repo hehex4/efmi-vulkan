@@ -28,7 +28,7 @@ Previous version (v1, not in this repository): `D:\XXMI-Launcher-Portable-v2.1.6
 | 2 | The engine is a customised Unity 2021.3.34f5 whose Vulkan backend manages memory with VMA | Version of `UnityPlayer.dll`; `[VmaAllocator]` in Player.log | Buffers are sub-allocations of large memory blocks, so memory mapping and bind offsets must be tracked |
 | 3 | `boot.config` enables native graphics jobs; under DX11 the log says `jobified=0` | `gfx-enable-native-gfx-jobs=1` | Under Vulkan, command buffers are probably recorded on several threads; to be measured |
 | 4 | The game ships the ACE kernel anti-cheat | `AntiCheatExpert\ACE-BASE.sys` in the install directory | Whether the layer can load at all is the first gate |
-| 5 | The IB hash is a pure content hash: `crc32c_hw(0, ptr, size)` over the index bytes the draw uses | `track_region_hashes = 1` in `d3dx.ini`; `GetRegionHash` in XXMI `ResourceHash.cpp` | With the index bytes in hand the hash can be recomputed under Vulkan; no mapping table is needed |
+| 5 | The IB hash is a pure content hash: `crc32c_hw(0, ptr, size)` over the index bytes the draw uses, starting at bind offset plus first index | `track_region_hashes = 1` in `d3dx.ini`; `GetRegionHash` in XXMI `ResourceHash.cpp`; checked against data with `scripts/verify_region_hash.py`: all 336 distinct index regions of the DX11 dump match | With the index bytes in hand the hash can be recomputed under Vulkan; no mapping table is needed |
 | 6 | The two merged-skeleton compute shaders of Core only copy and patch | `MergedSkeleton_BoneDataImporter_RollingBuffer.hlsl`, `MergedSkeleton_InstanceConfigOverrider_RollingBuffer.hlsl` | They can be done on the CPU; no GPU compute is required |
 | 7 | For every replaced draw, Core runs a dispatch and a buffer copy inline | `CommandListMergedSkeleton_Apply` and `OverrideComponentSkeleton` in `MergedSkeleton.ini` | Both commands are illegal inside a Vulkan render pass, so the Core INI cannot run as it is |
 | 8 | The sample mod assigns textures directly to `ps-t12` through `ps-t18` | `arcane.ini` | A mapping from DX11 texture registers to Vulkan bindings is required |
@@ -37,6 +37,7 @@ Previous version (v1, not in this repository): `D:\XXMI-Launcher-Portable-v2.1.6
 | 11 | WWMI-DX12 hosts the XXMI engine behind a shim and implements shapekeys, rabbitfx, draw and dispatch as native modules | Directory layout of `lekarsenten/wwmi-dx12`, GPL-3.0 | The hosting approach can be followed; taking over the hard parts with native modules has a precedent |
 | 12 | The Vulkan events of ReShade do not include `vkMapMemory` | `map_buffer_region` in `reshade_events.hpp` lists only D3D and OpenGL | ReShade cannot see data uploaded from the CPU and is not a suitable entry point |
 | 13 | The existing DX11 frame dump contains no modded character draw | `FrameAnalysis-2026-10-07-123937\log.txt` has zero CustomShader executions | The comparison baseline has to be captured again |
+| 14 | Under DX11 the game packs many meshes into shared index buffers and binds them at a byte offset | The same dump: `IASetIndexBuffer(..., Format:57, Offset:2477008)` followed by a draw with `StartIndexLocation:390` | The layer must hash by (buffer, bind offset, first index, count) and keep shadows of large shared buffers, not of one buffer per mesh |
 
 ## 3 Design decisions
 
