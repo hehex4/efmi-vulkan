@@ -2,7 +2,7 @@
 
 Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield on the game's native Vulkan renderer, through a Vulkan layer of our own.
 
-The current 0.5.0 read-only probe is verified against the sandbox and available in `dist/`, with probe mode configured. It now tracks descriptor update templates and direct/template pushes. Historical game launches used 0.2.0 passthrough; the user accepts run 3 with scene changes as initial G1 loading evidence and defers the 30-minute observation. Long-duration stability, loading of newer builds in the game, probe-mode game data and mod rendering remain unverified. See the [current state](.ai-memory/CURRENT_STATE.md).
+The current 0.5.1 read-only probe is verified against the sandbox and available in `dist/`, with probe mode configured. It now tracks descriptor update templates and direct/template pushes. Historical game launches used 0.2.0 passthrough; the user accepts run 3 with scene changes as initial G1 loading evidence and defers the 30-minute observation. Long-duration stability, loading of newer builds in the game, probe-mode game data and mod rendering remain unverified. See the [current state](.ai-memory/CURRENT_STATE.md).
 
 ## Layout
 
@@ -47,7 +47,7 @@ The DLL gets in front of the Vulkan calls in one of two ways, selected by its fi
 - `efmi_vk_layer.dll` is loaded by the Vulkan loader as a layer, through the manifest.
 - `efmi_vk_inject.dll` is loaded with `LoadLibrary` by whatever injects libraries into the process, and redirects the exports of `vulkan-1.dll` in memory. It has to arrive before the application resolves its Vulkan functions; the status says whether it did.
 
-Settings can also be given in `efmi_vk.cfg` next to the DLL (`mode = passthrough`, `log = ...`), for processes that cannot be given environment variables.
+Settings can also be given in `efmi_vk.cfg` next to the DLL (`mode = passthrough`, `log = ...`), for processes that cannot be given environment variables. Two of them bound the probe in a large process: `shader_budget` (bytes of SPIR-V kept, default 512 MiB) and `resources = 0`, which keeps draws, buffers and hashes but no descriptor, image or shader metadata.
 
 Command line, one or more tools sharing a session:
 

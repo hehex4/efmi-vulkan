@@ -1,6 +1,20 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-11. Layer 0.5.0 (probe, protocol 1), server 0.1.0, verified in the sandbox and available in `dist/` with probe mode configured. The last game-loaded DLL was 0.2.0 passthrough. Historical run 3 is accepted as initial G1 loading evidence; the 30-minute observation is deferred (D-014). Long-duration stability is unverified. No probe-mode game data exists; G2/G3 remain open.
+> Last updated: 2026-10-11. Layer 0.5.1 (probe, protocol 1), server 0.1.0, verified in the sandbox and available in `dist/` with probe mode configured. The last game-loaded DLL was 0.2.0 passthrough. Historical run 3 is accepted as initial G1 loading evidence; the 30-minute observation is deferred (D-014). Long-duration stability is unverified. No probe-mode game data exists; G2/G3 remain open.
+
+## Review before the first probe session; layer 0.5.1 in `dist/` (2026-10-11; sandbox only)
+
+The 0.4.0 / 0.5.0 work of the sections below was reviewed before any of it goes into the game (session log, D-017). The suite passed as recorded and nothing the tracker reports for the sandbox was found wrong. What was changed is how the probe behaves in a process much larger than the sandbox:
+
+- SPIR-V is kept up to `shader_budget` (512 MiB by default), not without bound; hash and size stay for every module.
+- Destroying a module or pipeline, and resetting a descriptor pool, no longer scan every retained shader or every descriptor set.
+- A capture keeps at most `descriptor_budget` (64 MiB by default) of descriptor contents and counts what it left out.
+- `resources = 0` is a tracking level between full probe and passthrough.
+- Mesh pipelines, a collector crash on an unknown shader stage and inline modules under reduced tracking were corrected.
+
+Verification: whole suite against `build/next/`: Python 44, native tracker 78, the 17 probe configurations unchanged, modes 40, limits 100 (new, `sandbox/limits_test.py`), timing 84, validation 76, MCP 46, evidence 52. The tested files were copied to `dist/` (DLL SHA-256 `ce676f264ae4345535fda649766aa23f34a5241a6a9f90123d88ae3a4d009ca8`); the 0.5.0 package is in `build/backups/before-0.5.1-20261011-230051/`. A sandbox run against `dist/` with the settings file as it is (inject entry, push templates, two threads) reported 0.5.1 in probe mode and captured five draws with matching hashes; the historical game log is byte-identical before and after.
+
+Not established: anything about 0.5.1 in the game. The cost of full tracking there is unknown (LIMIT-014); `docs/first-probe-session.md` says what to read first and how to fall back. The numbers of the sections below that mention 0.5.0 describe that version.
 
 ## First-probe exporter ready; game-data boundary reached (2026-10-11)
 

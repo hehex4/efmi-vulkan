@@ -104,7 +104,9 @@ void track_stages_locked(Device* dev, PipeInfo& pipe, uint32_t count, const VkPi
         s.entry = in.pName ? in.pName : "";
         auto it = dev->shaders.find(in.module);
         if (it != dev->shaders.end()) s.shader = it->second;
-        else if (auto ci = find_next<VkShaderModuleCreateInfo>(in.pNext, VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO))
+        else if (!g_cfg.track_resources) {
+            // Reduced tracking keeps the stage and entry point, not the module passed inline.
+        } else if (auto ci = find_next<VkShaderModuleCreateInfo>(in.pNext, VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO))
             s.shader = make_shader_locked(dev, ci);
         pipe.shaders.push_back(std::move(s));
     }

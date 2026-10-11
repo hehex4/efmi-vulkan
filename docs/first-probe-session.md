@@ -9,11 +9,33 @@ Historical run 3 remains accepted as initial G1 loading evidence. No repeated 30
 The user chooses when to start the game and which account to use. Do not launch or inject it
 automatically. Use the recorded run-3 launcher configuration: Vulkan (no force-d3d11 argument),
 XXMI injection Skip, only this project's `dist/efmi_vk_inject.dll`. Launcher settings are read-only
-for the agent. The prepared layer is 0.5.0 with `mode = probe`; a running process keeps its loaded DLL.
+for the agent. The prepared layer is 0.5.1 with `mode = probe`; a running process keeps its loaded DLL.
 
 Show the character corresponding to `arcane fes 1.2`. Vulkan does not yet render the mod; the
 purpose is to observe the original character's data. First capture a stable view, then optionally
 a second distinct scene/view once the first result is saved. Duration alone cannot replace a frame.
+
+## Look at the status first
+
+Probe mode has never been in the game. Before collecting, read `efvk_status` and
+`efvk_api_usage` once and check:
+
+- `counts.shaders_not_retained`: above 0 means the 512 MiB SPIR-V budget was reached; the
+  shaders created after that have hash and size but no code.
+- `counts.descriptor_sets`, `counts.retained_shader_bytes`, `counts.shadow_bytes`: what the
+  probe holds in the game's memory.
+- `last_frame.unknown_writes`: index data the probe could not see on the CPU.
+- In `efvk_api_usage`, which descriptor update path is used and how often per frame.
+
+If the game is noticeably slower or uses much more memory than without the probe, quit the
+game normally and change `dist/efmi_vk.cfg` for the next launch, in this order:
+
+1. `resources = 0`: draws, buffers, hashes and call counters only. Gate items G2 and G3 a can
+   still be answered; descriptor contents and shaders cannot.
+2. `mode = passthrough`: no tracking and no pipe.
+
+A captured frame holds at most 64 MiB of descriptor contents; `descriptors_omitted` in
+`frame.json` and `summary.json` says how many sets were left out.
 
 ## Collect and preserve
 

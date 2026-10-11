@@ -1,4 +1,4 @@
-# Resource inspection in layer 0.5.0
+# Resource inspection in layer 0.5.0 and 0.5.1
 
 This read-only diagnostic feature is verified in the sandbox. It has not been
 loaded into the game, does not establish G3, and does not make a mod render.
@@ -74,6 +74,33 @@ Inline `VkShaderModuleCreateInfo` is also retained by the tracker.
 
 The pipe command is `shader` with `id` and `code` (0: metadata, 1: binary payload).
 Framing remains protocol 1. The additional MCP tool is `efvk_shader`.
+
+## Bounds added in 0.5.1
+
+A review before the first probe session in the game found that several parts scaled with the
+size of the observed process. None of this changes what is reported for the sandbox.
+
+- **SPIR-V budget.** Code is kept up to `shader_budget` bytes in total (default 512 MiB;
+  `EFMI_VK_SHADER_BUDGET` or the settings file). A module created past the budget keeps its
+  CRC-32C and size, `efvk_pipeline` shows `code_retained: false` for it, and `efvk_shader`
+  refuses to return code for it. The total is given back when the last reference dies. The
+  status shows `counts.retained_shader_bytes` and `counts.shaders_not_retained`.
+- **Destruction cost.** Destroying a module or pipeline looks only at the shader ids
+  involved. Resetting or destroying a descriptor pool looks only at that pool's sets.
+- **Capture budget.** The capture request takes `descriptor_budget` in bytes (default 64 MiB,
+  0 for none); `efvk_capture_frame` takes `descriptor_budget_mb`. Past the budget a set's
+  `contents` is `{"tracked": false, "reason": "capture_descriptor_budget"}`. The capture
+  reports `descriptor_bytes` and `descriptors_omitted`. Draws, hashes, set handles and
+  dynamic offsets are not affected by the budget.
+- **Reduced tracking.** With `resources = 0` (`EFMI_VK_RESOURCES`) nothing in this document
+  is kept: bound sets report `reason: "resource_tracking_off"`, and the dynamic offsets of a
+  bind call are recorded with its first set, as before 0.4.0. Draws, buffers, hashes, pipeline
+  vertex input and call counters are unchanged.
+- A pipeline with a mesh or task stage does not have its vertex input and input assembly
+  pointers read.
+
+Verified by `sandbox/limits_test.py` (100 checks through both entries) and 16 native tracker
+checks. How these costs behave in the game is unmeasured.
 
 ## Limits
 

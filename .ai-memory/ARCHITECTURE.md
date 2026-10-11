@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.5.0, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.5.1, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`.
 
 ## Data path of the development probe
 
@@ -91,6 +91,10 @@ Each setting is read from an environment variable and, when that is not set, fro
 | `EFMI_VK_LOG` | `log` | Log file; default `efmi_vk_layer.log` next to the DLL |
 | `EFMI_VK_SHADOW_USAGE` | `shadow_usage` | Hex `VkBufferUsageFlags` mask of buffers that get a shadow |
 | `EFMI_VK_UNMAP_SNAPSHOT_LIMIT` | `unmap_snapshot_limit` | Bytes; 0 disables the snapshot at unmap |
+| `EFMI_VK_RESOURCES` | `resources` | `0` or `off`: reduced tracking. Draws, buffers, hashes and call counters stay; descriptor, image and shader metadata are not kept |
+| `EFMI_VK_SHADER_BUDGET` | `shader_budget` | Bytes of SPIR-V kept in total (default 512 MiB); past it a module keeps hash and size only |
+
+Bounds that keep the probe's cost independent of the size of the observed process (0.5.1): the SPIR-V budget above, with the kept total given back when the last reference to a module dies; module and pipeline destruction look only at the shader ids involved (`forget_shaders_locked`), not at every retained shader; descriptor sets are indexed by pool (`Device::pool_sets`), so a pool reset touches only its own sets; a capture keeps descriptor contents only up to the `descriptor_budget` of the request (default 64 MiB of JSON, 0 for none) and marks the rest with the reason `capture_descriptor_budget`. The status reports `resources`, `shader_budget`, `counts.retained_shader_bytes` and `counts.shaders_not_retained`; a capture reports `descriptor_budget`, `descriptor_bytes` and `descriptors_omitted`.
 
 In the inject entry the pipe is started when the DLL is loaded, not at device creation, so that the status can be read even when the DLL came too late to see a device.
 

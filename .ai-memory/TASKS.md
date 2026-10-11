@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules in layer 0.5.0, verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The next backend milestone needs actual G2/G3 data. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). No probe-mode game data exists.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The next backend milestone needs actual G2/G3 data. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). No probe-mode game data exists.
 
 ## Tasks and follow-ups
 
@@ -24,11 +24,13 @@ Route: the inject entry through the launcher, no registry (D-011). Historical G1
 
 Done on 2026-10-11 (details in CURRENT_STATE): one DX11 launch with the DLL present, 78 s, clean exit; one Vulkan launch that crashed in the NVIDIA driver about 5 s after device creation, with XXMI's `d3d11.dll` and the DX11 probe also injected (BUG-001). Timing of the injection is confirmed to be early enough.
 
-Run 3 (20:38, only this DLL injected) passed the previous crash point. The user reports exiting before 30 minutes, with scene changes, and explicitly instructs the project to use that run's data. No game process remains; the layer log contains no device-destruction/frame-count record. This is accepted initial loading evidence, with long-duration stability still unverified. Do not require a repeat 30-minute run as a prerequisite. `dist/` now holds sandbox-verified 0.5.0 probe, ready for a user-initiated session; this version has not loaded in the real game.
+Run 3 (20:38, only this DLL injected) passed the previous crash point. The user reports exiting before 30 minutes, with scene changes, and explicitly instructs the project to use that run's data. No game process remains; the layer log contains no device-destruction/frame-count record. This is accepted initial loading evidence, with long-duration stability still unverified. Do not require a repeat 30-minute run as a prerequisite. `dist/` now holds sandbox-verified 0.5.1 probe, ready for a user-initiated session; this version has not loaded in the real game.
 
 What the user set in the launcher for run 3: the injection mode of the XXMI DLL to Skip (the Chinese label of that option is the one translated from "Skip"), leave only `F:\efmi vulkan\dist\efmi_vk_inject.dll` in the injected libraries, keep `d3d11_mode_cmd_args` empty, start. If the game still crashes: start it from the official launcher with nothing injected, to see whether Vulkan works by itself today. After each run read `dist\efmi_vk_layer.log`, `Player.log` and the launcher log.
 
 To restore normal EFMI afterwards: `d3d11_mode_cmd_args` back to `-force-d3d11`, injection mode back to the first option (Direct), `efmi_probe.dll` back in the list if wanted.
+
+The two launcher settings are independent (the user asked on 2026-10-11 whether the JSON value can go back once the injection mode is Skip; it cannot for a Vulkan session). `d3d11_mode_cmd_args` selects the game's renderer: with `-force-d3d11` the game runs Direct3D 11 and this DLL sees only the engine's probing instance. The injection mode decides whether XXMI's `d3d11.dll` is put into the process. A Vulkan session needs the value empty and the mode Skip; a normal EFMI session needs `-force-d3d11` and the mode Direct, preferably without this DLL in the injected libraries.
 
 Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` in `XXMI Launcher Config.json`; no control in the settings window, not a signed field (launcher source `core/game_launcher.py`, `build_cmd_args`).
 
