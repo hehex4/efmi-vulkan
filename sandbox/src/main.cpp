@@ -10,6 +10,7 @@
 //   efmi_vk_sandbox [--seconds S] [--threads N] [--expected FILE] [--trigger FILE] [--primary-screen]
 //                   [--inject DLL | --inject-late DLL | --inject-late-exports DLL]
 //                   [--descriptors ordinary|template|push|push-template]
+//                   [--draws N] [--timings FILE --warmup N --frames N]
 //
 // --inject loads a DLL before the program touches Vulkan, the way a launcher injects one at
 // process start. --inject-late loads it after the device exists, which is too late to intercept.
@@ -159,6 +160,12 @@ struct Worker {
 struct App {
     int seconds = 30;
     int threads = 2;
+    int draws = kDrawCount;
+    int warmup = 30, measured_frames = 120;
+    std::wstring timings_path;
+    struct Timing { double wait, record, submit, present, total; };
+    std::vector<Timing> timings;
+    VkPhysicalDeviceProperties properties = {};
     bool primary_screen = false;
     std::wstring expected_path;
     std::wstring trigger_path;
@@ -401,6 +408,7 @@ static bool create_device()
     }
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(g.phys, &props);
+    g.properties = props;
     printf("device: %s\n", props.deviceName);
     vkGetPhysicalDeviceMemoryProperties(g.phys, &g.mem_props);
 
@@ -917,7 +925,7 @@ static bool create_resources()
         ca.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
         CHECK(vkAllocateCommandBuffers(g.device, &ca, &w.cb));
         // Contiguous shares keep the order of the draws after vkCmdExecuteCommands.
-        int share = (kDrawCount - next + (g.threads - t) - 1) / (g.threads - t);
+        int share = (g.draws - next + (g.threads - t) - 1) / (g.threads - t);
         w.first = next;
         w.count = share;
         next += share;
@@ -994,8 +1002,9 @@ static bool write_expected()
     snprintf(line, sizeof(line), "  \"pid\": %lu,\n  \"threads\": %d,\n  \"rewrite_draw\": %d,\n  \"draws\": [\n",
              GetCurrentProcessId(), g.threads, kRewriteDraw);
     out += line;
-    for (int i = 0; i < kDrawCount; i++) {
-        const DrawDef& d = kDraws[i];
+    for (int i = 0; i < g.draws; i++) {
+        const int mesh = i % kDrawCount;
+        const DrawDef& d = kDraws[mesh];
         const uint8_t* data;
         size_t size;
         region_of(d, false, &data, &size);
@@ -1007,8 +1016,8 @@ static bool write_expected()
                  "\"count\": %u, \"instances\": %u, \"dyn\": %u, \"hash\": \"%08x\", \"hash_after_rewrite\": \"%08x\", "
                  "\"src\": \"%s\"}%s\n",
                  d.label, d.ib == 0 ? "A" : "B", d.ib == 0 ? 2 : 4, d.ib == 0 ? 0u : kPadB, d.first, d.count, d.instances,
-                 kUboSlot * static_cast<uint32_t>(i), before, after, d.ib == 0 ? "shadow" : "mapped",
-                 i + 1 < kDrawCount ? "," : "");
+                 kUboSlot * static_cast<uint32_t>(mesh), before, after, d.ib == 0 ? "shadow" : "mapped",
+                 i + 1 < g.draws ? "," : "");
         out += line;
     }
     snprintf(line, sizeof(line),
@@ -1043,6 +1052,7 @@ static void record_setup(VkCommandBuffer cb)
 
 static void record_draw(VkCommandBuffer cb, int i)
 {
+    i %= kDrawCount;
     const DrawDef& d = kDraws[i];
     if (d.ib == 0)
         vkCmdBindIndexBuffer(cb, g.ib_a.buf, 0, VK_INDEX_TYPE_UINT16);
@@ -1103,8 +1113,40 @@ static bool trigger_present()
     return !g.trigger_path.empty() && GetFileAttributesW(g.trigger_path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+static double clock_ms()
+{
+    if (g.timings_path.empty()) return 0;
+    static double scale = [] { LARGE_INTEGER hz; QueryPerformanceFrequency(&hz); return 1000.0 / hz.QuadPart; }();
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return now.QuadPart * scale;
+}
+
+static bool write_timings()
+{
+    if (g.timings_path.empty()) return true;
+    FILE* f = _wfopen(g.timings_path.c_str(), L"wb");
+    if (!f) return false;
+    // Raw samples allow independent statistics; these are host wall times, not GPU timestamps.
+    fprintf(f, "{\"draws\":%d,\"threads\":%d,\"descriptor_mode\":%d,\"warmup\":%d,"
+               "\"requested_frames\":%d,\"present_mode\":\"FIFO\",\"api_version\":%u,"
+               "\"driver_version\":%u,\"vendor_id\":%u,\"device_id\":%u,"
+               "\"columns_ms\":[\"wait\",\"record\",\"submit\",\"present\",\"total\"],\"samples\":[\n",
+            g.draws, g.threads, g.descriptor_mode, g.warmup, g.measured_frames,
+            g.properties.apiVersion, g.properties.driverVersion, g.properties.vendorID, g.properties.deviceID);
+    for (size_t i = 0; i < g.timings.size(); ++i) {
+        const auto& t = g.timings[i];
+        fprintf(f, "[%.6f,%.6f,%.6f,%.6f,%.6f]%s\n", t.wait, t.record, t.submit, t.present, t.total,
+                i + 1 < g.timings.size() ? "," : "");
+    }
+    fprintf(f, "]}\n");
+    const bool ok = !ferror(f);
+    return fclose(f) == 0 && ok && g.timings.size() == static_cast<size_t>(g.measured_frames);
+}
+
 static bool render_frame()
 {
+    const double start = clock_ms();
     CHECK(vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX));
     uint32_t image = 0;
     VkResult acquired = vkAcquireNextImageKHR(g.device, g.swapchain, UINT64_MAX, g.sem_acquire, VK_NULL_HANDLE, &image);
@@ -1116,6 +1158,7 @@ static bool render_frame()
         printf("FAILED: vkAcquireNextImageKHR = %d\n", static_cast<int>(acquired));
         return false;
     }
+    const double record_start = clock_ms();
     CHECK(vkResetFences(g.device, 1, &g.fence));
 
     bool rewrite_now = !g.rewritten && trigger_present();
@@ -1166,7 +1209,7 @@ static bool render_frame()
     if (g.threads == 0) {
         vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_INLINE);
         record_setup(g.primary);
-        for (int i = 0; i < kDrawCount; i++)
+        for (int i = 0; i < g.draws; i++)
             record_draw(g.primary, i);
     } else {
         vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
@@ -1182,6 +1225,7 @@ static bool render_frame()
     }
     vkCmdEndRenderPass(g.primary);
     CHECK(vkEndCommandBuffer(g.primary));
+    const double record_end = clock_ms();
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit = {};
@@ -1194,6 +1238,7 @@ static bool render_frame()
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &g.sem_render;
     CHECK(vkQueueSubmit(g.queue, 1, &submit, g.fence));
+    const double submit_end = clock_ms();
 
     VkPresentInfoKHR present = {};
     present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1203,6 +1248,7 @@ static bool render_frame()
     present.pSwapchains = &g.swapchain;
     present.pImageIndices = &image;
     VkResult presented = vkQueuePresentKHR(g.queue, &present);
+    const double end = clock_ms();
     if (presented == VK_ERROR_OUT_OF_DATE_KHR)
         g.quit = true;
     else if (presented != VK_SUCCESS && presented != VK_SUBOPTIMAL_KHR) {
@@ -1218,6 +1264,9 @@ static bool render_frame()
             CloseHandle(f);
         printf("index buffer A rewritten in frame %llu\n", static_cast<unsigned long long>(g.frame));
     }
+    if (!g.timings_path.empty() && g.frame > static_cast<uint64_t>(g.warmup))
+        g.timings.push_back({record_start - start, record_end - record_start, submit_end - record_end,
+                             end - submit_end, end - start});
     g.frame++;
     return true;
 }
@@ -1280,6 +1329,14 @@ int wmain(int argc, wchar_t** argv)
             g.seconds = _wtoi(argv[++i]);
         else if (a == L"--threads" && i + 1 < argc)
             g.threads = _wtoi(argv[++i]);
+        else if (a == L"--draws" && i + 1 < argc)
+            g.draws = _wtoi(argv[++i]);
+        else if (a == L"--timings" && i + 1 < argc)
+            g.timings_path = argv[++i];
+        else if (a == L"--warmup" && i + 1 < argc)
+            g.warmup = _wtoi(argv[++i]);
+        else if (a == L"--frames" && i + 1 < argc)
+            g.measured_frames = _wtoi(argv[++i]);
         else if (a == L"--descriptors" && i + 1 < argc) {
             std::wstring mode = argv[++i];
             if (mode == L"ordinary") g.descriptor_mode = 0;
@@ -1312,6 +1369,12 @@ int wmain(int argc, wchar_t** argv)
         g.threads = 0;
     if (g.threads > kDrawCount)
         g.threads = kDrawCount;
+    if (g.draws < 1 || g.draws > 100000 || g.warmup < 0 || g.warmup > 100000 ||
+        g.measured_frames < 1 || g.measured_frames > 100000) {
+        printf("draws/frames must be 1..100000 and warmup 0..100000\n");
+        return 2;
+    }
+    if (g.threads > g.draws) g.threads = g.draws;
 
     bool ok = true;
     if (!g.inject_path.empty() && !g.inject_late)
@@ -1329,12 +1392,14 @@ int wmain(int argc, wchar_t** argv)
 
     ULONGLONG start = GetTickCount64();
     while (ok && !g.quit) {
+        if (!g.timings_path.empty() && g.timings.size() >= static_cast<size_t>(g.measured_frames)) break;
         pump_messages();
         if (g.seconds > 0 && GetTickCount64() - start > static_cast<ULONGLONG>(g.seconds) * 1000)
             break;
         ok = render_frame();
     }
     printf("%s after %llu frames\n", ok ? "done" : "FAILED", static_cast<unsigned long long>(g.frame));
+    if (ok) ok = write_timings();
     cleanup();
     return ok ? 0 : 1;
 }

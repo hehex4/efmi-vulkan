@@ -25,6 +25,7 @@ STEPS = [
     ("native tracker tests", [os.path.join(HERE, "native_test.py")]),
     ("probe end to end", [os.path.join(HERE, "probe_test.py")]),
     ("modes", [os.path.join(HERE, "modes_test.py")]),
+    ("many-draw timing", [os.path.join(HERE, "timing_test.py")]),
     ("MCP end to end", [os.path.join(HERE, "mcp_test.py")]),
 ]
 

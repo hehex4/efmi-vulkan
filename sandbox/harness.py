@@ -73,7 +73,8 @@ def inject_env(log_path: str | None = None, mode: str | None = "probe", extra: d
     settings file next to the DLL.
     """
     env = dict(os.environ)
-    for name in ("VK_INSTANCE_LAYERS", "VK_LAYER_PATH", "EFMI_VK_MODE", "EFMI_VK_ENTRY", "EFMI_VK_LOG"):
+    for name in ("VK_INSTANCE_LAYERS", "VK_LAYER_PATH", "VK_ADD_LAYER_PATH", "VK_LOADER_LAYERS_ENABLE",
+                 "VK_LOADER_LAYERS_ALLOW", "VK_LAYER_SETTINGS_PATH", "EFMI_VK_MODE", "EFMI_VK_ENTRY", "EFMI_VK_LOG"):
         env.pop(name, None)
     env["VK_LOADER_LAYERS_DISABLE"] = "~implicit~"
     if mode is not None:
@@ -90,7 +91,7 @@ class Sandbox:
 
     def __init__(self, threads: int = 2, seconds: int = 60, with_layer: bool = True, mode: str | None = "probe",
                  env_extra: dict | None = None, entry: str = "layer", inject_dll: str | None = None,
-                 descriptors: str = "ordinary"):
+                 descriptors: str = "ordinary", draws: int = 5, extra_args: list[str] | None = None):
         """``entry``: ``layer`` (the Vulkan loader loads the layer), ``inject`` (the sandbox loads
         the DLL before it touches Vulkan), ``inject-late`` (after its device exists) or
         ``inject-late-exports`` (late, and the device functions are then resolved again through
@@ -104,6 +105,8 @@ class Sandbox:
         self.mode = mode
         self.env_extra = env_extra
         self.descriptors = descriptors
+        self.draws = draws
+        self.extra_args = extra_args or []
         self.dir = test_dir("sandbox-")
         self.expected_path = os.path.join(self.dir, "expected.json")
         self.trigger_path = os.path.join(self.dir, "rewrite.trigger")
@@ -117,9 +120,10 @@ class Sandbox:
         if not os.path.isfile(SANDBOX_EXE):
             raise RuntimeError("%s is missing; run scripts/build.py" % SANDBOX_EXE)
         args = [SANDBOX_EXE, "--seconds", str(self.seconds), "--threads", str(self.threads),
-                "--expected", self.expected_path, "--trigger", self.trigger_path, "--descriptors", self.descriptors]
+                "--expected", self.expected_path, "--trigger", self.trigger_path, "--descriptors", self.descriptors,
+                "--draws", str(self.draws)] + self.extra_args
         if not self.with_layer:
-            env = dict(os.environ)
+            env = inject_env(mode=None, extra=self.env_extra)
         elif self.entry == "layer":
             env = layer_env(self.log_path, self.mode, self.env_extra)
         else:
@@ -128,19 +132,23 @@ class Sandbox:
             env = inject_env(self.log_path, self.mode, self.env_extra)
             args += ["--" + self.entry, self.inject_dll]
         self._stdout = open(self.stdout_path, "wb")
-        self.proc = subprocess.Popen(
-            args,
-            env=env, stdout=self._stdout, stderr=subprocess.STDOUT, cwd=self.dir,
-        )
-        deadline = time.monotonic() + 30
-        while not os.path.isfile(self.expected_path):
-            if self.proc.poll() is not None:
-                raise RuntimeError("the sandbox exited early with code %s:\n%s" % (self.proc.returncode, self.output()))
-            if time.monotonic() > deadline:
-                raise RuntimeError("the sandbox did not become ready:\n%s" % self.output())
-            time.sleep(0.05)
-        with open(self.expected_path, "r", encoding="utf-8") as f:
-            self.expected = json.load(f)
+        try:
+            self.proc = subprocess.Popen(
+                args,
+                env=env, stdout=self._stdout, stderr=subprocess.STDOUT, cwd=self.dir,
+            )
+            deadline = time.monotonic() + 30
+            while not os.path.isfile(self.expected_path):
+                if self.proc.poll() is not None:
+                    raise RuntimeError("the sandbox exited early with code %s:\n%s" % (self.proc.returncode, self.output()))
+                if time.monotonic() > deadline:
+                    raise RuntimeError("the sandbox did not become ready:\n%s" % self.output())
+                time.sleep(0.05)
+            with open(self.expected_path, "r", encoding="utf-8") as f:
+                self.expected = json.load(f)
+        except BaseException:
+            self.__exit__()
+            raise
         return self
 
     @property
@@ -179,5 +187,6 @@ class Sandbox:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+                self.proc.wait(timeout=10)
         if self._stdout is not None:
             self._stdout.close()

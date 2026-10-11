@@ -44,9 +44,9 @@ Start by collecting `efvk_api_usage` to identify the engine's actual paths. G2 i
 
 **Remaining**: descriptor buffers, specialized descriptor types, dynamic inline pipeline layouts, swapchain image metadata and full SPIR-V reflection. Newer aliases and compute/texel push wrappers need GPU coverage. Prioritize extended paths using actual engine API usage when available. Buffer visibility is still measured at submit, even when push values are recorded earlier; G3 b/c require separate record-time byte-availability evidence.
 
-### T-012: Measure the overhead of the probe (open)
+### T-012: Measure the overhead of the probe (done in the sandbox)
 
-Frame time of the sandbox with many draws (it needs a `--draws N` mode) without the layer, in passthrough mode and in probe mode. Needed before a long run in the game.
+Implemented `--draws N`, warmup/sample control and host phase timings. `sandbox/benchmark.py` completed 36 runs at 500/2000 draws and 0/2 recording threads through the inject entry, comparing no layer/passthrough/probe. At 2000 draws, probe adds 0.424/0.553 ms to median recording plus submission. FIFO whole-frame time cannot measure CPU overhead by itself. Method and limits: `docs/probe-performance.md`. Timing regression: 84 checks. Game overhead and the M2 5% target remain unverified.
 
 ### T-015: Validation layers into `F:\vulkan` (open; before M2)
 
