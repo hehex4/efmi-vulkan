@@ -370,16 +370,21 @@ void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsP
     PipeInfo& p = dev->pipes[pipe];
     if (p.id)
         dev->pipe_by_id.erase(p.id);
+    std::vector<uint32_t> old_shaders = shader_ids_of(p);
     p = PipeInfo();
+    forget_shaders_locked(dev, old_shaders);
     p.id = dev->next_pipe_id++;
     auto layout = dev->pipeline_layouts.find(info->layout);
     if (layout != dev->pipeline_layouts.end()) p.layout = layout->second;
     track_stages_locked(dev, p, info->stageCount, info->pStages);
     for (uint32_t i = 0; i < info->stageCount; i++)
         p.stages |= info->pStages[i].stage;
-    if (info->pInputAssemblyState)
+    // A pipeline with a mesh or task stage ignores vertex input and input assembly state; the
+    // pointers may then be anything.
+    const bool mesh = (p.stages & (VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT)) != 0;
+    if (!mesh && info->pInputAssemblyState)
         p.topology = info->pInputAssemblyState->topology;
-    if (const VkPipelineVertexInputStateCreateInfo* vi = info->pVertexInputState) {
+    if (const VkPipelineVertexInputStateCreateInfo* vi = mesh ? nullptr : info->pVertexInputState) {
         for (uint32_t i = 0; i < vi->vertexBindingDescriptionCount; i++) {
             const VkVertexInputBindingDescription& b = vi->pVertexBindingDescriptions[i];
             p.bindings.push_back({b.binding, b.stride, b.inputRate == VK_VERTEX_INPUT_RATE_INSTANCE ? 1u : 0u});
@@ -400,7 +405,9 @@ void on_create_compute_pipeline(Device* dev, VkPipeline pipe, const VkComputePip
     PipeInfo& p = dev->pipes[pipe];
     if (p.id)
         dev->pipe_by_id.erase(p.id);
+    std::vector<uint32_t> old_shaders = shader_ids_of(p);
     p = PipeInfo();
+    forget_shaders_locked(dev, old_shaders);
     p.id = dev->next_pipe_id++;
     p.compute = true;
     p.stages = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -419,8 +426,9 @@ void on_destroy_pipeline(Device* dev, VkPipeline pipe)
     if (it == dev->pipes.end())
         return;
     dev->pipe_by_id.erase(it->second.id);
+    std::vector<uint32_t> shaders = shader_ids_of(it->second);
     dev->pipes.erase(it);
-    prune_shaders_locked(dev);
+    forget_shaders_locked(dev, shaders);
 }
 
 ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, uint8_t* out)
@@ -680,9 +688,15 @@ static void capture_draws(Device* dev, CmdBuf* cb, Capture& cap, uint32_t submit
             const SetBind& s = r.sets[i];
             if (s.dyn_count && static_cast<size_t>(s.dyn_first) + s.dyn_count <= cb->dyn.size())
                 c.dyn[i].assign(cb->dyn.begin() + s.dyn_first, cb->dyn.begin() + s.dyn_first + s.dyn_count);
-            JsonWriter descriptors;
-            write_descriptor_set_locked(descriptors, dev, s, c.dyn[i], r.pipeline, i);
-            c.descriptors[i] = std::move(descriptors.out);
+            if (cap.descriptor_bytes < cap.descriptor_budget) {
+                JsonWriter descriptors;
+                write_descriptor_set_locked(descriptors, dev, s, c.dyn[i], r.pipeline, i);
+                cap.descriptor_bytes += descriptors.out.size();
+                c.descriptors[i] = std::move(descriptors.out);
+            } else {
+                c.descriptors[i] = "{\"tracked\":false,\"reason\":\"capture_descriptor_budget\"}";
+                cap.descriptors_omitted++;
+            }
         }
         if (r.ib) {
             auto bit = dev->bufs.find(r.ib);
@@ -770,6 +784,7 @@ void on_present(Device* dev)
     } else if (dev->cap_state == 1) {
         dev->cap_state = 2;
         dev->cap_building = std::make_shared<Capture>();
+        dev->cap_building->descriptor_budget = dev->cap_descriptor_budget;
     }
 
     dev->cur = FrameStats();
@@ -849,6 +864,8 @@ std::string probe_status()
     w.kv("mode", g_cfg.mode == Mode::Passthrough ? "passthrough" : "probe");
     w.kv("crc", crc32c_uses_hardware() ? "sse4.2" : "table");
     w.kv("entry", g_cfg.entry == Entry::Inject ? "inject" : "layer");
+    w.kb("resources", g_cfg.track_resources);
+    w.kn("shader_budget", g_cfg.shader_budget);
     w.key("attach");
     w.begin_object();
     w.kb("loader_found", g_attach.loader_found.load() != 0);
@@ -928,6 +945,8 @@ std::string probe_status()
         w.kn("pipelines", dev->pipes.size());
         w.kn("shader_modules", dev->shaders.size());
         w.kn("retained_shaders", dev->shader_by_id.size());
+        w.kn("retained_shader_bytes", dev->shader_bytes->load(std::memory_order_relaxed));
+        w.kn("shaders_not_retained", dev->shaders_not_retained);
         w.kn("images", dev->images.size());
         w.kn("image_views", dev->image_views.size());
         w.kn("buffer_views", dev->buffer_views.size());
@@ -957,6 +976,9 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
     w.key("stats");
     write_stats(w, cap.stats);
     w.kn("draw_count", cap.draws.size());
+    w.kn("descriptor_budget", cap.descriptor_budget);
+    w.kn("descriptor_bytes", cap.descriptor_bytes);
+    w.kn("descriptors_omitted", cap.descriptors_omitted);
     if (with_draws) {
         w.key("draws");
         w.begin_array();
@@ -1032,7 +1054,7 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
     w.end_object();
 }
 
-std::string probe_capture(uint32_t timeout_ms, bool with_draws)
+std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget)
 {
     uint64_t before;
     {
@@ -1043,6 +1065,7 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws)
         before = ref.dev->cap_seq;
         if (ref.dev->cap_state == 0) {
             ResetEvent(cap_event());
+            ref.dev->cap_descriptor_budget = descriptor_budget;
             ref.dev->cap_state = 1;
         }
     }

@@ -73,6 +73,10 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
                 gaps.append({"pipeline": pipeline_id, "reason": str(exc)})
                 continue
             for stage in info.get("shaders", []):
+                if "id" not in stage:
+                    gaps.append({"pipeline": pipeline_id, "stage": stage.get("stage"),
+                                 "reason": "shader module was not seen by the probe"})
+                    continue
                 shader_id = int(stage["id"])
                 if shader_id in shaders:
                     continue
@@ -104,6 +108,7 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
             "mod_match_requested": mod is not None, "matched_draws": sorted(matched_draws),
             "matching_rules": sum(s["matched"] for m in matches for s in m["sections"]),
             "queried_pipelines": selected, "omitted_pipelines": ids[pipeline_limit:], "query_gaps": gaps,
+            "descriptor_bytes": frame.get("descriptor_bytes"), "descriptors_omitted": frame.get("descriptors_omitted"),
         }
         save("summary.json", summary)
     manifest = {

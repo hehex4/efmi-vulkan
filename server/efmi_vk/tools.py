@@ -34,7 +34,12 @@ TOOLS = [
         "description": "Records every draw of the next complete frame and keeps it for the other tools. Returns a "
                        "summary: frame statistics, draws per thread / command buffer / render pass, and how many "
                        "index regions could be hashed from mapped memory, from the shadow copy, or not at all.",
-        "inputSchema": _schema({**_PID, "timeout_ms": {"type": "integer", "description": "Default 5000."}}),
+        "inputSchema": _schema({
+            **_PID,
+            "timeout_ms": {"type": "integer", "description": "Default 5000."},
+            "descriptor_budget_mb": {"type": "integer", "description": "Upper bound for the descriptor contents kept "
+                                     "for the frame, in MiB (layer default 64). 0 captures draws without descriptor contents."},
+        }),
     },
     {
         "name": "efvk_list_draws",
@@ -195,8 +200,11 @@ class Session:
         result, _ = self._request(pid, "status")
         return {"server_version": __version__, "probes": probes, "status": result}
 
-    def efvk_capture_frame(self, pid=None, timeout_ms: int = 5000) -> dict:
-        result, _ = self._request(pid, "capture", timeout_ms=int(timeout_ms), draws=1)
+    def efvk_capture_frame(self, pid=None, timeout_ms: int = 5000, descriptor_budget_mb: int | None = None) -> dict:
+        params = {"timeout_ms": int(timeout_ms), "draws": 1}
+        if descriptor_budget_mb is not None:
+            params["descriptor_budget"] = int(descriptor_budget_mb) << 20
+        result, _ = self._request(pid, "capture", **params)
         self.capture = result
         self.capture_pid = self._client.pid if self._client else pid
         draws = result["draws"]
@@ -213,6 +221,8 @@ class Session:
             "index_buffers": len({d["ib"]["buf"] for d in indexed}),
             "distinct_region_hashes": len({d["ib"]["hash"] for d in indexed if d["ib"].get("hash")}),
             "hash_sources": _tally(d["ib"]["src"] for d in indexed),
+            "descriptor_bytes": result.get("descriptor_bytes"),
+            "descriptors_omitted": result.get("descriptors_omitted"),
         }
 
     def efvk_list_draws(self, kind=None, hash=None, tid=None, cb=None, rp=None, ib=None, min_count=None,

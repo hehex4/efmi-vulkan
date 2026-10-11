@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "0.5.0"
+#define EFVK_VERSION "0.5.1"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -46,6 +46,11 @@ struct Config {
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped
     uint32_t shadow_usage = 0;                   // VkBufferUsageFlags that get a CPU shadow (set in util.cpp)
+    // Probe mode keeps descriptor, image and shader metadata by default. Switching this off leaves
+    // draws, buffers and hashes, for the case that the extra tracking costs too much in a real process.
+    bool track_resources = true;
+    // Upper bound for SPIR-V kept in memory. Past it, modules keep their hash and size only.
+    uint64_t shader_budget = 512ull << 20;
 };
 
 extern Config g_cfg;

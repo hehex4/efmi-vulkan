@@ -22,36 +22,77 @@ template <typename Map, typename Handle> static uint32_t resource_id(const Map& 
     return it == map.end() ? 0 : it->second.id;
 }
 
+// Nothing is recorded for the passive device, nor when resource tracking is switched off.
+static bool skip(const Device* dev)
+{
+    return dev->passive || !g_cfg.track_resources;
+}
+
 static std::shared_ptr<const ShaderInfo> make_shader_locked(Device* dev, const VkShaderModuleCreateInfo* info)
 {
     auto s = std::make_shared<ShaderInfo>();
     s->id = dev->next_resource_id++;
-    s->code.assign(info->pCode, info->pCode + info->codeSize / 4);
-    s->hash = crc32c(0, s->code.data(), s->code.size() * 4);
+    const size_t words = info->pCode ? info->codeSize / 4 : 0;
+    const uint64_t bytes = static_cast<uint64_t>(words) * 4;
+    s->size = static_cast<uint32_t>(bytes);
+    s->hash = crc32c(0, info->pCode, static_cast<size_t>(bytes));
+    // An application can have tens of thousands of modules. Keep their code only up to the budget;
+    // hash and size are kept for all of them.
+    const uint64_t kept = dev->shader_bytes->load(std::memory_order_relaxed);
+    if (bytes && bytes <= g_cfg.shader_budget && kept <= g_cfg.shader_budget - bytes) {
+        s->code.assign(info->pCode, info->pCode + words);
+        s->retained_total = dev->shader_bytes;
+        dev->shader_bytes->fetch_add(bytes, std::memory_order_relaxed);
+    } else if (bytes) {
+        dev->shaders_not_retained++;
+    }
     dev->shader_by_id[s->id] = s;
     return s;
 }
 
-void on_create_shader(Device* dev, VkShaderModule h, const VkShaderModuleCreateInfo* info)
+std::vector<uint32_t> shader_ids_of(const PipeInfo& pipe)
 {
-    if (dev->passive) return;
-    std::unique_lock<std::shared_mutex> lock(dev->res_mx);
-    dev->shaders[h] = make_shader_locked(dev, info);
+    std::vector<uint32_t> ids;
+    for (const ShaderStage& s : pipe.shaders)
+        if (s.shader) ids.push_back(s.shader->id);
+    return ids;
 }
 
-void prune_shaders_locked(Device* dev)
+// Drops the id entries of shaders that nothing refers to any more. Looking only at the given
+// ids keeps the destruction of a module or pipeline independent of how many shaders exist.
+void forget_shaders_locked(Device* dev, const std::vector<uint32_t>& ids)
 {
-    for (auto it = dev->shader_by_id.begin(); it != dev->shader_by_id.end();)
-        if (it->second.expired()) it = dev->shader_by_id.erase(it);
-        else ++it;
+    for (uint32_t id : ids) {
+        auto it = dev->shader_by_id.find(id);
+        if (it != dev->shader_by_id.end() && it->second.expired()) dev->shader_by_id.erase(it);
+    }
+}
+
+void on_create_shader(Device* dev, VkShaderModule h, const VkShaderModuleCreateInfo* info)
+{
+    if (skip(dev)) return;
+    std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+    auto& slot = dev->shaders[h];
+    if (slot) {
+        // The handle was reused without a destroy being seen. Let go of the old module first, so
+        // that its bytes are back in the budget before the new one is measured against it.
+        std::vector<uint32_t> replaced{slot->id};
+        slot.reset();
+        forget_shaders_locked(dev, replaced);
+    }
+    slot = make_shader_locked(dev, info);
 }
 
 void on_destroy_shader(Device* dev, VkShaderModule h)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
-    dev->shaders.erase(h);
-    prune_shaders_locked(dev);
+    auto it = dev->shaders.find(h);
+    if (it == dev->shaders.end()) return;
+    std::vector<uint32_t> ids;
+    if (it->second) ids.push_back(it->second->id);
+    dev->shaders.erase(it);
+    forget_shaders_locked(dev, ids);
 }
 
 void track_stages_locked(Device* dev, PipeInfo& pipe, uint32_t count, const VkPipelineShaderStageCreateInfo* stages)
@@ -71,7 +112,7 @@ void track_stages_locked(Device* dev, PipeInfo& pipe, uint32_t count, const VkPi
 
 void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     ImageInfo image;
     image.id = dev->next_resource_id++;
@@ -87,7 +128,7 @@ void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info)
 
 void on_create_image_view(Device* dev, VkImageView h, const VkImageViewCreateInfo* info)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     ImageViewInfo view;
     view.id = dev->next_resource_id++;
@@ -102,7 +143,7 @@ void on_create_image_view(Device* dev, VkImageView h, const VkImageViewCreateInf
 
 void on_create_buffer_view(Device* dev, VkBufferView h, const VkBufferViewCreateInfo* info)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     BufferViewInfo view;
     view.id = dev->next_resource_id++;
@@ -116,7 +157,7 @@ void on_create_buffer_view(Device* dev, VkBufferView h, const VkBufferViewCreate
 
 void on_create_sampler(Device* dev, VkSampler h, const VkSamplerCreateInfo* info)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     SamplerInfo s;
     s.id = dev->next_resource_id++;
@@ -131,7 +172,7 @@ void on_create_sampler(Device* dev, VkSampler h, const VkSamplerCreateInfo* info
 
 #define DESTROY_RESOURCE(fn, Handle, map) \
     void fn(Device* dev, Handle h) { \
-        if (dev->passive) return; \
+        if (skip(dev)) return; \
         std::unique_lock<std::shared_mutex> lock(dev->res_mx); \
         dev->map.erase(h); \
     }
@@ -156,7 +197,7 @@ static bool is_buffer(uint32_t type)
 
 void on_create_set_layout(Device* dev, VkDescriptorSetLayout h, const VkDescriptorSetLayoutCreateInfo* info)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto layout = std::make_shared<DescriptorLayoutInfo>();
     layout->id = dev->next_resource_id++;
@@ -183,7 +224,7 @@ void on_create_set_layout(Device* dev, VkDescriptorSetLayout h, const VkDescript
 
 void on_create_pipeline_layout(Device* dev, VkPipelineLayout h, const VkPipelineLayoutCreateInfo* info)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto layout = std::make_shared<PipelineLayoutInfo>();
     layout->id = dev->next_resource_id++;
@@ -236,7 +277,7 @@ static bool compatible(const std::shared_ptr<const PipelineLayoutInfo>& a,
 
 void on_allocate_sets(Device* dev, const VkDescriptorSetAllocateInfo* info, const VkDescriptorSet* sets)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto variable = find_next<VkDescriptorSetVariableDescriptorCountAllocateInfo>(
         info->pNext, VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO);
@@ -264,24 +305,41 @@ void on_allocate_sets(Device* dev, const VkDescriptorSetAllocateInfo* info, cons
                 }
             }
         }
+        // A handle that is still known belongs to a set whose release was not seen.
+        auto old = dev->descriptor_sets.find(sets[i]);
+        if (old != dev->descriptor_sets.end() && old->second.pool != set.pool) {
+            auto owner = dev->pool_sets.find(old->second.pool);
+            if (owner != dev->pool_sets.end()) owner->second.erase(sets[i]);
+        }
+        dev->pool_sets[set.pool].insert(sets[i]);
         dev->descriptor_sets[sets[i]] = std::move(set);
     }
 }
 
 void on_free_sets(Device* dev, uint32_t count, const VkDescriptorSet* sets)
 {
-    if (dev->passive) return;
+    if (skip(dev) || !sets) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
-    for (uint32_t i = 0; i < count; i++) dev->descriptor_sets.erase(sets[i]);
+    for (uint32_t i = 0; i < count; i++) {
+        auto it = dev->descriptor_sets.find(sets[i]);
+        if (it == dev->descriptor_sets.end()) continue;
+        auto owner = dev->pool_sets.find(it->second.pool);
+        if (owner != dev->pool_sets.end()) owner->second.erase(sets[i]);
+        dev->descriptor_sets.erase(it);
+    }
 }
 
 void on_clear_descriptor_pool(Device* dev, VkDescriptorPool pool)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
-    for (auto it = dev->descriptor_sets.begin(); it != dev->descriptor_sets.end();)
-        if (it->second.pool == pool) it = dev->descriptor_sets.erase(it);
-        else ++it;
+    auto owner = dev->pool_sets.find(pool);
+    if (owner == dev->pool_sets.end()) return;
+    for (VkDescriptorSet h : owner->second) {
+        auto it = dev->descriptor_sets.find(h);
+        if (it != dev->descriptor_sets.end() && it->second.pool == pool) dev->descriptor_sets.erase(it);
+    }
+    dev->pool_sets.erase(owner);
 }
 
 // A write/copy can span consecutive bindings (including zero-sized ones).
@@ -381,7 +439,7 @@ static void apply_write_locked(Device* dev, DescriptorSetInfo& set, const VkWrit
 void on_update_sets(Device* dev, uint32_t write_count, const VkWriteDescriptorSet* writes,
                     uint32_t copy_count, const VkCopyDescriptorSet* copies)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     for (uint32_t n = 0; n < write_count; n++) {
         const auto& w = writes[n];
@@ -411,7 +469,7 @@ void on_update_sets(Device* dev, uint32_t write_count, const VkWriteDescriptorSe
 
 void on_create_descriptor_template(Device* dev, VkDescriptorUpdateTemplate h, const VkDescriptorUpdateTemplateCreateInfo* info)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     DescriptorTemplateInfo t;
     t.type = info->templateType;
@@ -438,7 +496,7 @@ static void apply_template_locked(Device* dev, DescriptorSetInfo& set, const Des
 
 void on_update_template(Device* dev, VkDescriptorSet h, VkDescriptorUpdateTemplate update, const void* data)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto s = dev->descriptor_sets.find(h);
     if (s == dev->descriptor_sets.end()) return;
@@ -493,7 +551,7 @@ static std::shared_ptr<DescriptorSetInfo> prepare_push_locked(CmdBuf* cb, VkPipe
 void on_push_descriptors(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkPipelineLayout handle,
                          uint32_t slot, uint32_t count, const VkWriteDescriptorSet* writes)
 {
-    if (dev->passive || (point != VK_PIPELINE_BIND_POINT_GRAPHICS && point != VK_PIPELINE_BIND_POINT_COMPUTE)) return;
+    if (skip(dev) || (point != VK_PIPELINE_BIND_POINT_GRAPHICS && point != VK_PIPELINE_BIND_POINT_COMPUTE)) return;
     std::shared_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->pipeline_layouts.find(handle);
     auto pushed = prepare_push_locked(cb, point, it == dev->pipeline_layouts.end() ? nullptr : it->second, slot);
@@ -503,7 +561,7 @@ void on_push_descriptors(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkP
 void on_push_template(Device* dev, CmdBuf* cb, VkDescriptorUpdateTemplate update, VkPipelineLayout handle,
                        uint32_t slot, const void* data)
 {
-    if (dev->passive) return;
+    if (skip(dev)) return;
     std::shared_lock<std::shared_mutex> lock(dev->res_mx);
     auto t = dev->descriptor_templates.find(update);
     if (t == dev->descriptor_templates.end() || t->second.type != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR) {
@@ -527,6 +585,21 @@ void on_bind_sets(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkPipeline
 {
     if (point != VK_PIPELINE_BIND_POINT_GRAPHICS && point != VK_PIPELINE_BIND_POINT_COMPUTE) return;
     auto* bound = point == VK_PIPELINE_BIND_POINT_GRAPHICS ? cb->sets : cb->comp_sets;
+    if (!g_cfg.track_resources) {
+        // No layouts are known, so the dynamic offsets cannot be split between the sets of the
+        // call. Keep the handles, and all offsets of the call with its first set.
+        uint32_t first_offset = static_cast<uint32_t>(cb->dyn.size());
+        if (dyn_count) cb->dyn.insert(cb->dyn.end(), dyn, dyn + dyn_count);
+        for (uint32_t i = 0; i < count && first + i < kMaxSets; i++) {
+            auto& s = bound[first + i];
+            s = SetBind();
+            s.set = sets[i];
+            s.dyn_first = first_offset;
+            s.dyn_count = i == 0 ? dyn_count : 0;
+            s.unsupported = "resource_tracking_off";
+        }
+        return;
+    }
     std::shared_lock<std::shared_mutex> lock(dev->res_mx);
     auto lit = dev->pipeline_layouts.find(handle);
     auto layout = lit == dev->pipeline_layouts.end() ? nullptr : lit->second;
@@ -715,8 +788,9 @@ void write_stages(JsonWriter& w, const PipeInfo& p)
         w.begin_object(); w.kn("stage", s.stage); w.kv("entry", s.entry);
         w.kb("known", s.shader != nullptr);
         if (s.shader) {
-            w.kn("id", s.shader->id); w.kn("size", s.shader->code.size() * 4);
+            w.kn("id", s.shader->id); w.kn("size", s.shader->size);
             w.key("hash"); w.hex32(s.shader->hash);
+            w.kb("code_retained", !s.shader->code.empty());
         }
         w.end_object();
     }
@@ -736,12 +810,17 @@ std::string probe_shader(uint32_t id, bool with_code, std::vector<uint8_t>& payl
     w.begin_object();
     if (!shader) {
         w.kb("ok", false); w.kv("error", "unknown shader id (module and all referencing pipelines may have been destroyed)");
+    } else if (with_code && shader->code.empty() && shader->size) {
+        w.kb("ok", false);
+        w.kv("error", "the SPIR-V of this shader was not kept: the shader budget was exhausted when it was created "
+                      "(setting shader_budget); hash and size are still reported by the pipeline");
     } else if (with_code && shader->code.size() * 4 > (64ull << 20)) {
         w.kb("ok", false); w.kv("error", "shader exceeds the 64 MiB payload limit");
     } else {
         w.kb("ok", true); w.key("result"); w.begin_object();
-        w.kn("id", shader->id); w.kn("size", shader->code.size() * 4);
+        w.kn("id", shader->id); w.kn("size", shader->size);
         w.key("hash"); w.hex32(shader->hash); w.kv("hash_algorithm", "crc32c");
+        w.kb("code_retained", !shader->code.empty());
         w.end_object();
         if (with_code) {
             const auto* bytes = reinterpret_cast<const uint8_t*>(shader->code.data());

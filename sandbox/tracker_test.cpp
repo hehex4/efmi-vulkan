@@ -414,6 +414,81 @@ static void shaders_and_views()
     dev_destroy(d);
 }
 
+// What keeps the tracker's work and memory bounded in a process with many pools and shaders.
+static void pools_and_budgets()
+{
+    Device d;
+    auto pool_a = h<VkDescriptorPool>(1), pool_b = h<VkDescriptorPool>(2);
+    auto sl = h<VkDescriptorSetLayout>(3);
+    layout(d, sl, {{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr}});
+    auto s1 = h<VkDescriptorSet>(10), s2 = h<VkDescriptorSet>(11), s3 = h<VkDescriptorSet>(12);
+    allocate(d, pool_a, sl, s1); allocate(d, pool_a, sl, s2); allocate(d, pool_b, sl, s3);
+    check(d.pool_sets.at(pool_a).size() == 2 && d.pool_sets.at(pool_b).size() == 1, "sets are indexed by their pool");
+    on_free_sets(&d, 1, &s1);
+    check(d.pool_sets.at(pool_a).size() == 1 && d.descriptor_sets.count(s1) == 0, "a freed set leaves the index of its pool");
+    // The handle of a set whose release was not seen comes back from another pool.
+    allocate(d, pool_b, sl, s2);
+    check(d.descriptor_sets.at(s2).pool == pool_b && d.pool_sets.at(pool_a).count(s2) == 0,
+          "a reused handle moves to its new pool");
+    on_clear_descriptor_pool(&d, pool_a);
+    check(d.descriptor_sets.count(s2) == 1 && d.descriptor_sets.count(s3) == 1 && d.pool_sets.count(pool_a) == 0,
+          "resetting the old pool keeps the reused handle");
+    on_clear_descriptor_pool(&d, pool_b);
+    check(d.descriptor_sets.empty() && d.pool_sets.empty(), "resetting the new pool removes its sets");
+    on_clear_descriptor_pool(&d, h<VkDescriptorPool>(99));
+    on_free_sets(&d, 0, nullptr);
+    check(d.descriptor_sets.empty(), "an unknown pool and an empty free are harmless");
+
+    auto code = spv::vertex_shader();
+    VkShaderModuleCreateInfo sm = {};
+    sm.codeSize = code.size() * 4; sm.pCode = code.data();
+    const uint64_t one = code.size() * 4;
+    const uint64_t saved = g_cfg.shader_budget;
+    g_cfg.shader_budget = one + one / 2; // room for one module
+    auto m1 = h<VkShaderModule>(20), m2 = h<VkShaderModule>(21), m3 = h<VkShaderModule>(22);
+    on_create_shader(&d, m1, &sm); on_create_shader(&d, m2, &sm);
+    check(!d.shaders.at(m1)->code.empty() && d.shaders.at(m2)->code.empty() && d.shaders.at(m2)->size == one &&
+          d.shaders.at(m2)->hash == d.shaders.at(m1)->hash, "over the budget the code is dropped, hash and size stay");
+    check(d.shader_bytes->load() == one && d.shaders_not_retained == 1, "kept bytes and dropped modules are counted");
+    std::vector<uint8_t> payload;
+    check(probe_shader(d.shaders.at(m2)->id, true, payload).find("\"ok\":true") == std::string::npos && payload.empty(),
+          "a module without code is not served as an empty shader");
+    on_destroy_shader(&d, m1);
+    check(d.shader_bytes->load() == 0, "destroying a module gives its bytes back");
+    on_create_shader(&d, m3, &sm);
+    check(!d.shaders.at(m3)->code.empty(), "the freed budget is used again");
+    const uint32_t old_id = d.shaders.at(m3)->id;
+    on_create_shader(&d, m3, &sm);
+    check(d.shader_by_id.count(old_id) == 0 && d.shader_bytes->load() == one && !d.shaders.at(m3)->code.empty(),
+          "a reused module handle releases the old entry before the new one is measured");
+    // A pipeline keeps a destroyed module alive; only the last reference releases it.
+    VkPipelineShaderStageCreateInfo stage = {};
+    stage.stage = VK_SHADER_STAGE_VERTEX_BIT; stage.module = m3; stage.pName = "main";
+    VkGraphicsPipelineCreateInfo info = {};
+    info.stageCount = 1; info.pStages = &stage;
+    auto pipe = h<VkPipeline>(30);
+    on_create_graphics_pipeline(&d, pipe, &info);
+    const uint32_t kept_id = d.shaders.at(m3)->id;
+    on_destroy_shader(&d, m3);
+    check(d.shader_by_id.count(kept_id) == 1 && d.shader_bytes->load() == one, "a pipeline keeps the code of a destroyed module");
+    on_create_graphics_pipeline(&d, pipe, &info); // handle reused; the module is gone, so no shader this time
+    check(d.shader_by_id.count(kept_id) == 0 && d.shader_bytes->load() == 0, "replacing the pipeline releases the old shader");
+    on_destroy_pipeline(&d, pipe); on_destroy_shader(&d, m2);
+    check(d.shader_by_id.empty() && d.shaders.empty() && d.shader_bytes->load() == 0, "every shader entry and byte is reclaimed");
+    g_cfg.shader_budget = saved;
+
+    // Vertex input and input assembly pointers of a mesh pipeline are ignored by Vulkan and may be garbage.
+    VkPipelineShaderStageCreateInfo mesh = {};
+    mesh.stage = VK_SHADER_STAGE_MESH_BIT_EXT; mesh.pName = "main";
+    VkGraphicsPipelineCreateInfo mi = {};
+    mi.stageCount = 1; mi.pStages = &mesh;
+    mi.pVertexInputState = reinterpret_cast<const VkPipelineVertexInputStateCreateInfo*>(static_cast<uintptr_t>(8));
+    mi.pInputAssemblyState = reinterpret_cast<const VkPipelineInputAssemblyStateCreateInfo*>(static_cast<uintptr_t>(8));
+    on_create_graphics_pipeline(&d, h<VkPipeline>(31), &mi);
+    check(d.pipes.at(h<VkPipeline>(31)).bindings.empty() && d.pipes.at(h<VkPipeline>(31)).topology == 0,
+          "a mesh pipeline does not read its vertex input pointers");
+}
+
 int main()
 {
     util_init(GetModuleHandleW(nullptr));
@@ -422,6 +497,7 @@ int main()
     descriptor_templates();
     pushed_descriptors();
     shaders_and_views();
+    pools_and_budgets();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

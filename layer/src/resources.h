@@ -12,7 +12,19 @@ namespace efvk {
 struct ShaderInfo {
     uint32_t id = 0;
     uint32_t hash = 0;
-    std::vector<uint32_t> code;
+    uint32_t size = 0;          // bytes of the module; known even when the code was not kept
+    std::vector<uint32_t> code; // empty when the bytecode budget was exhausted at creation
+    // Total of retained bytes of the owning device; given back when this object dies.
+    std::shared_ptr<std::atomic<uint64_t>> retained_total;
+
+    ShaderInfo() = default;
+    ShaderInfo(const ShaderInfo&) = delete;
+    ShaderInfo& operator=(const ShaderInfo&) = delete;
+    ~ShaderInfo()
+    {
+        if (retained_total)
+            retained_total->fetch_sub(code.size() * 4, std::memory_order_relaxed);
+    }
 };
 
 struct ShaderStage {
@@ -111,7 +123,9 @@ class JsonWriter;
 void on_create_shader(Device*, VkShaderModule, const VkShaderModuleCreateInfo*);
 void on_destroy_shader(Device*, VkShaderModule);
 void track_stages_locked(Device*, PipeInfo&, uint32_t, const VkPipelineShaderStageCreateInfo*);
-void prune_shaders_locked(Device*);
+// Ids of the shaders a pipeline refers to; pass them to forget_shaders_locked after dropping the pipeline.
+std::vector<uint32_t> shader_ids_of(const PipeInfo&);
+void forget_shaders_locked(Device*, const std::vector<uint32_t>& ids);
 void on_create_image(Device*, VkImage, const VkImageCreateInfo*);
 void on_destroy_image(Device*, VkImage);
 void on_create_image_view(Device*, VkImageView, const VkImageViewCreateInfo*);

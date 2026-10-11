@@ -9,6 +9,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace efvk {
@@ -269,6 +270,11 @@ struct CapDraw {
 
 struct Capture {
     uint64_t seq = 0;
+    // Descriptor contents are JSON text per draw and set. The budget bounds what one capture
+    // may add to the memory of the observed process; past it, contents are omitted and counted.
+    uint64_t descriptor_budget = 0;
+    uint64_t descriptor_bytes = 0;
+    uint32_t descriptors_omitted = 0;
     FrameStats stats;
     std::vector<CapDraw> draws;
 };
@@ -302,6 +308,8 @@ struct Device {
     uint32_t next_resource_id = 1;
     std::unordered_map<VkShaderModule, std::shared_ptr<const ShaderInfo>> shaders;
     std::unordered_map<uint32_t, std::weak_ptr<const ShaderInfo>> shader_by_id;
+    std::shared_ptr<std::atomic<uint64_t>> shader_bytes = std::make_shared<std::atomic<uint64_t>>(0); // SPIR-V kept
+    uint64_t shaders_not_retained = 0; // modules whose code was dropped because the budget was exhausted
     std::unordered_map<VkImage, ImageInfo> images;
     std::unordered_map<VkImageView, ImageViewInfo> image_views;
     std::unordered_map<VkBufferView, BufferViewInfo> buffer_views;
@@ -309,6 +317,8 @@ struct Device {
     std::unordered_map<VkDescriptorSetLayout, std::shared_ptr<const DescriptorLayoutInfo>> set_layouts;
     std::unordered_map<VkPipelineLayout, std::shared_ptr<const PipelineLayoutInfo>> pipeline_layouts;
     std::unordered_map<VkDescriptorSet, DescriptorSetInfo> descriptor_sets;
+    // Sets of each pool, so that a pool reset does not have to look at every set of the device.
+    std::unordered_map<VkDescriptorPool, std::unordered_set<VkDescriptorSet>> pool_sets;
     std::unordered_map<VkDescriptorUpdateTemplate, DescriptorTemplateInfo> descriptor_templates;
 
     // Command buffers. The content of one is touched only by the thread that
@@ -329,6 +339,7 @@ struct Device {
     uint64_t frame_no = 0;
     uint64_t total_draws = 0;
     int cap_state = 0; // 0 idle, 1 waiting for the next present, 2 recording this frame
+    uint64_t cap_descriptor_budget = 0; // of the capture that is armed
     std::shared_ptr<Capture> cap_building;
     std::shared_ptr<Capture> cap_last;
     uint64_t cap_seq = 0;
@@ -385,7 +396,7 @@ ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t
 
 // Probe requests, called on the pipe thread.
 std::string probe_status();
-std::string probe_capture(uint32_t timeout_ms, bool with_draws);
+std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget);
 std::string probe_buffers(uint32_t usage_mask, uint64_t min_size, uint32_t limit);
 std::string probe_read_buffer(uint32_t id, uint64_t off, uint64_t size, std::vector<uint8_t>& payload);
 std::string probe_hash(uint32_t id, uint64_t off, uint64_t size);

@@ -104,8 +104,13 @@ class ProbeClient:
     def status(self) -> dict:
         return self.request("status")[0]
 
-    def capture(self, timeout_ms: int = 5000, draws: bool = True) -> dict:
-        return self.request("capture", timeout_ms=timeout_ms, draws=1 if draws else 0)[0]
+    def capture(self, timeout_ms: int = 5000, draws: bool = True, descriptor_budget: int | None = None) -> dict:
+        """One complete frame. ``descriptor_budget`` bounds, in bytes, the descriptor contents the
+        layer keeps for the frame (its default is 64 MiB); 0 leaves the contents out."""
+        params = {"timeout_ms": timeout_ms, "draws": 1 if draws else 0}
+        if descriptor_budget is not None:
+            params["descriptor_budget"] = int(descriptor_budget)
+        return self.request("capture", **params)[0]
 
     def buffers(self, usage: int = 0, min_size: int = 0, limit: int = 1000) -> dict:
         return self.request("buffers", usage=usage, min_size=min_size, limit=limit)[0]
