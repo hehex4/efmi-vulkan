@@ -1,8 +1,21 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-11. Layer 0.4.0 (probe, protocol 1), server 0.1.0, built and verified in `dist/`; `dist/efmi_vk.cfg` now selects probe mode. The last game-loaded DLL was 0.2.0 passthrough. The user accepts historical run 3, including scene changes, as initial G1 loading evidence and defers the 30-minute observation (D-014). Long-duration stability is unverified. No probe-mode game data exists; G2/G3 remain open.
+> Last updated: 2026-10-11. Layer 0.5.0 (probe, protocol 1), server 0.1.0, verified in the sandbox and available in `dist/` with probe mode configured. The last game-loaded DLL was 0.2.0 passthrough. Historical run 3 is accepted as initial G1 loading evidence; the 30-minute observation is deferred (D-014). Long-duration stability is unverified. No probe-mode game data exists; G2/G3 remain open.
 
-## Prior game evidence accepted; probe prepared (2026-10-11)
+## Templates and push descriptors (2026-10-11; sandbox only)
+
+The user requested continued development without entering the game. T-011 now decodes descriptor update templates and direct/template push descriptors. Template definitions retain their layouts and copy their entries; offsets/strides, arrays, buffer/image/texel descriptors and immutable samplers share the ordinary-write decoder. Core/KHR and maintenance6 entry points feed the tracker. Unknown templates and unsupported layouts still discard stale knowledge.
+
+Push contents are immutable per recording update, retained by each draw and separate across command buffers and graphics/compute bind points. Partial writes retain compatible elements; disturbance/reset discards them. Immutable samplers must be explicitly pushed. Secondary draws retain their push contents; executing secondaries invalidates primary descriptor bindings. JSON distinguishes `snapshot: record` for pushes from `snapshot: submit` for ordinary sets. Resource metadata and buffer visibility remain submit-time observations (D-015).
+
+- **Built/verified**: 0.5.0 under `build/next/`; full `sandbox/run_all.py` passed. Python 44, native tracker 62, modes 40, MCP 46. Final probe tests pass 17 configurations: ordinary layer 416 / 418 / 418, inject 418 / 420; templates layer 420 / 422, inject 422 / 424; direct pushes and push templates each layer 427 / 429, inject 429 / 431. New paths run with 0 and 2 recording threads through both entries.
+- **Prepared in `dist/`**: copied the exact tested DLLs, manifest and sandbox/native executables and checked SHA-256 equality. Old 0.4.0 package/settings/log: `build/backups/before-0.5-20261011-214412-992/`. DLL SHA-256: `c9a8b41db3234ecebce64300d0c1dd34de259b6ebd23827516001df4c89a8005`.
+- **Configuration smoke test**: `dist/` inject entry, actual cfg with no mode override, push templates and 2 threads; reported 0.5.0 probe, captured five draws, exited 0 (`build/tests/sandbox-f6c4cx5r/`). The historical game log is unchanged. No game process was running before replacement; no game was launched or injected.
+- **Limits**: GPU coverage is core 1.1 templates plus KHR push commands on the existing NVIDIA GPU. Newer aliases and compute/texel pushes have tracker coverage only where described in `docs/probe-resources.md`; no wrapper/GPU coverage is claimed for them. Descriptor buffers, specialized descriptor types, dynamic inline pipeline layouts and full reflection remain open. No validation-layer, visual or overhead result was established.
+
+Next offline work: T-012 overhead measurement, T-015 validation layers, T-007 compatibility inventory. Real-game capture remains a separate user-chosen session; it is not required to continue these tasks.
+
+## Prior game evidence accepted; 0.4.0 probe prepared (historical, 2026-10-11)
 
 The user instructed the project to use the previous run's data. Do not require another 30-minute passthrough run before continuing development or preparing a short probe capture. Run 3 remains historical evidence of loading and scene changes; its exact duration and frame total are unknown. Its passthrough log contains no captured draws or descriptor data.
 
@@ -20,7 +33,7 @@ Pipelines retain stage entry points and SPIR-V after module destruction. `efvk_s
 - **Built**: layer, sandbox and native tracker test in `build/next/` (0.4.0).
 - **Verified during implementation**: full `sandbox/run_all.py`, using `D:/Python312/python.exe` and process-local `EFMI_VK_DIST=F:/efmi vulkan/build/next`; Python 44, native tracker 37, probe 385 / 387 / 387 (layer) and 387 / 389 (inject), modes 40, MCP 46. All passed. Test artifacts now stay under `build/tests/`.
 - **Not established**: game loading of 0.4.0, game captures, real-character data, G3 record-time CPU readability, validation-layer cleanliness, visual correctness or overhead.
-- **Still open in T-011**: decode update templates and push descriptors. Unsupported paths explicitly discard stale knowledge. Descriptor buffers, swapchain image metadata and full reflection remain limited; see `docs/probe-resources.md` and LIMIT-006.
+- **Follow-up**: templates and push descriptors were subsequently implemented in 0.5.0 above. Descriptor buffers, swapchain image metadata and full reflection remain limited; see `docs/probe-resources.md` and LIMIT-006.
 - **Deployment follow-up**: the initial implementation left `dist/` at 0.2.0 passthrough. D-014 supersedes that hold: 0.4.0 is now prepared in `dist/` with probe mode, as recorded above. A new game run still requires the user's on-the-spot instruction.
 
 ## Call counters, initially staged in `build/next/` (2026-10-11; sandbox only)
@@ -93,7 +106,7 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 
 ## Next
 
-1. T-011: add update-template and push-descriptor decoding with sandbox coverage; ordinary descriptors, shaders and images are now tracked.
-2. T-007: the M0 inventory of `arcane.ini` and Core 1.4.8, and the XXMI front-end separability assessment.
-3. T-008: a DX11 baseline capture with `arcane fes 1.2` on screen (needs the game under DX11 with EFMI; the EFMI MCP tools can take it).
+1. T-012: add a many-draw sandbox mode and measure probe overhead without the game.
+2. T-015: install validation layers entirely under `F:/vulkan` and validate the sandbox in a child process.
+3. T-007: the M0 inventory of `arcane.ini` and Core 1.4.8, and the XXMI front-end separability assessment. T-011's remaining specialized paths depend on actual usage; see TASKS.
 4. T-010: collect API usage and the first probe frame when the user chooses the next game session. Use the run-3 launcher configuration; show the character corresponding to `arcane fes 1.2` for G3 a. T-009's long-duration observation is deferred and does not block this step.

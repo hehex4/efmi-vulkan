@@ -2,7 +2,7 @@
 
 Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield on the game's native Vulkan renderer, through a Vulkan layer of our own.
 
-The current 0.4.0 read-only probe is built and verified against the sandbox in `dist/`, with probe mode configured. Historical game launches used 0.2.0 passthrough; the user accepts run 3 with scene changes as initial G1 loading evidence and defers the 30-minute observation. Long-duration stability, loading of 0.4.0 in the game, probe-mode game data and mod rendering remain unverified. See the [current state](.ai-memory/CURRENT_STATE.md).
+The current 0.5.0 read-only probe is verified against the sandbox and available in `dist/`, with probe mode configured. It now tracks descriptor update templates and direct/template pushes. Historical game launches used 0.2.0 passthrough; the user accepts run 3 with scene changes as initial G1 loading evidence and defers the 30-minute observation. Long-duration stability, loading of newer builds in the game, probe-mode game data and mod rendering remain unverified. See the [current state](.ai-memory/CURRENT_STATE.md).
 
 ## Layout
 
@@ -35,7 +35,7 @@ python sandbox\run_all.py
 In probe mode the layer forwards every Vulkan call unchanged and records what it sees:
 
 - memory maps, buffers, pipelines, command buffers, submits and presents;
-- ordinary descriptor set contents and dynamic buffer ranges; image/view/sampler metadata; retained shader SPIR-V;
+- ordinary/template descriptor set contents, dynamic buffer ranges and recorded push descriptors; image/view/sampler metadata; retained shader SPIR-V;
 - for index buffers a CPU shadow fed from staging copies, so that the CRC-32C hash of the index range of a draw can be computed. This is the hash XXMI calls the region hash and that mod INIs match on;
 - per frame: every draw with its bindings, recording thread, command buffer and render pass.
 
@@ -58,7 +58,7 @@ python server\efvk.py capture_frame -- match_mod path="D:\path\to\a mod"
 
 MCP server for agents: `python server\run_server.py` (registered for this workspace in `.mcp.json`). Tools: `efvk_status`, `efvk_capture_frame`, `efvk_list_draws`, `efvk_get_draw`, `efvk_find_hash`, `efvk_list_buffers`, `efvk_read_buffer`, `efvk_pipeline`, `efvk_shader`, `efvk_api_usage`, `efvk_match_mod`.
 
-See [resource inspection](docs/probe-resources.md) for the descriptor snapshot schema, SPIR-V export, verified paths and remaining limits. Templates and push descriptors still need decoding; snapshots describe submit-time state, not record-time buffer availability.
+See [resource inspection](docs/probe-resources.md) for the descriptor snapshot schema, SPIR-V export, verified paths and remaining limits. Ordinary set values resolve at submit; push values are retained when recorded. Resource visibility remains a submit-time observation, not evidence of record-time buffer availability.
 
 ## Offline analysis
 

@@ -4,7 +4,7 @@
 
 ## LIMIT-001: Probe data and long-duration stability are not verified in the real game
 
-Historical passthrough launches established injection timing and device interception with 0.2.0. Run 3 passed the earlier crash point and included scene changes, but the user exited before 30 minutes. The user accepts that run as initial G1 loading evidence (D-014); long-duration stability is deferred, not established. Layer 0.4.0 is prepared in `dist/`, but all its capture/resource-tracking results are sandbox-only; no probe-mode game capture or real-character verification exists. G2/G3 remain open.
+Historical passthrough launches established injection timing and device interception with 0.2.0. Run 3 passed the earlier crash point and included scene changes, but the user exited before 30 minutes. The user accepts that run as initial G1 loading evidence (D-014); long-duration stability is deferred, not established. Layer 0.5.0 is prepared in `dist/`, but all its capture/resource-tracking results are sandbox-only; no probe-mode game capture or real-character verification exists. G2/G3 remain open.
 
 ## LIMIT-002: No Vulkan SDK on this machine
 
@@ -22,9 +22,9 @@ Only the headers are present (`F:\vulkan\Vulkan-Headers`). There is no `glslc`, 
 
 Offsets now split using the set layouts in set/binding/array order. The sandbox checks two sets with a dynamic uniform buffer and a dynamic storage-buffer array, both multi-set and nonzero-firstSet binds, through both entries and with secondary command buffers. Missing layouts produce an explicit unknown reason instead of guessed offsets.
 
-## LIMIT-006: Resource tracking covers the ordinary descriptor path only
+## LIMIT-006: Extended descriptor paths and full reflection remain incomplete
 
-Layer 0.4.0 tracks ordinary descriptor writes/copies, images/views/samplers, buffer views, and pipeline shader modules. Templates, push descriptors and descriptor buffers are not decoded: intercepted paths discard stale knowledge and name the unsupported path. Unsupported descriptor types remain unknown. At most 256 stored elements per set per draw are emitted, with explicit counts/truncation. Swapchain images are not tracked as images yet. Unknown layout extensions have conservative compatibility across different handles.
+Layer 0.5.0 adds templates and direct/template push descriptors to ordinary writes/copies and resource metadata. Descriptor buffers, specialized descriptor types and dynamic inline pipeline layouts remain unknown; unsupported paths discard stale knowledge. Only graphics and compute bind points are tracked. At most 256 stored elements per set per draw are emitted, with explicit counts/truncation. Swapchain images are not tracked as images yet. Unknown layout extensions have conservative compatibility across different handles. Core 1.4 and maintenance6 push wrappers and KHR template lifecycle/update aliases lack GPU coverage; see LIMIT-011.
 
 `efvk_shader` exports retained SPIR-V and extracts direct declared names/bindings; it is not full reflection (no decoration groups, type/member layout, specializations, pipeline-library linkage or shader objects). See `docs/probe-resources.md`. G3 remains unverified in the game; b/c also need record-time availability evidence (LIMIT-008).
 
@@ -36,7 +36,7 @@ Sources are staging copies (source mapped when the copy is recorded or submitted
 
 The hashes of a captured frame are computed when the command buffer is submitted, after all of its recorded writes were applied; a copy recorded after a draw in the same command buffer already affects that draw's hash. `read_buffer` returns what the mapping or the shadow holds at the time of the request. For a host-visible buffer the application rewrites every frame, that is not what an earlier draw used.
 
-Descriptor contents and `src` visibility in 0.4.0 are snapshots at submit time. They are immutable after capture, but do not prove G3's record-time CPU-readability premise or track update-after-bind changes during GPU execution.
+Ordinary descriptor contents and all `src` visibility remain submit-time snapshots. Push descriptor values in 0.5.0 are retained when recorded, but retaining a handle/range does not prove record-time CPU byte availability. Neither path establishes G3's premise or tracks update-after-bind changes during GPU execution.
 
 ## LIMIT-009: What a draw record leaves out
 
@@ -48,7 +48,7 @@ An application that does not present makes a capture time out. With several devi
 
 ## LIMIT-011: Scope of the sandbox evidence
 
-One GPU and driver (NVIDIA RTX 5060 Laptop). The sandbox uses classic render passes, one queue/swapchain, `vkQueueSubmit`, `vkCmdCopyBuffer`, `vkMapMemory` and ordinary descriptor writes/copies. In 0.4.0 it exercises two sets, dynamic storage arrays, an immutable sampler, a sampled texture and shader modules destroyed before capture. Dynamic rendering, the `2` variants, indirect draws, dispatch, `vkCmdUpdateBuffer`, `vkCmdFillBuffer`, inline pipeline modules and specialized descriptor paths do not have sandbox GPU coverage. Native C++ tracker tests are separate CPU evidence. The rendered picture was not inspected, validation layers remain absent and overhead is not measured.
+One GPU and driver (NVIDIA RTX 5060 Laptop). The sandbox uses classic render passes, one queue/swapchain, `vkQueueSubmit`, `vkCmdCopyBuffer`, `vkMapMemory`, two descriptor slots, storage arrays, an immutable sampler, a sampled texture and shader modules destroyed before capture. In 0.5.0 it exercises ordinary writes/copies, core 1.1 templates and KHR direct/template pushes through both entries with primary and secondary command buffers. Dynamic rendering, `2`/maintenance6 variants, core 1.4 push wrappers, KHR template lifecycle/update aliases, indirect draws, dispatch, compute/texel pushes, `vkCmdUpdateBuffer`, `vkCmdFillBuffer` and inline pipeline modules have no GPU coverage. Native C++ tests are separate CPU evidence. The rendered picture was not inspected, validation layers remain absent and overhead is not measured.
 
 ## LIMIT-012: The layer entry needs a registry entry for an elevated process
 
@@ -56,7 +56,7 @@ The Vulkan loader ignores path variables such as `VK_LAYER_PATH` in an elevated 
 
 ## LIMIT-013: What is and is not known about the inject entry in the game
 
-Known from three historical launches on 2026-10-11 (CURRENT_STATE): injection precedes `vulkan-1.dll` by about 4 to 5.5 seconds, and the engine's creation calls reach the hooks. Only 0.2.0 passthrough has been in the game; probe mode and 0.4.0 have not.
+Known from three historical launches on 2026-10-11 (CURRENT_STATE): injection precedes `vulkan-1.dll` by about 4 to 5.5 seconds, and the engine's creation calls reach the hooks. Only 0.2.0 passthrough has been in the game; probe mode and later builds have not.
 
 Still open:
 

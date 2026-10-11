@@ -1,9 +1,10 @@
-// Metadata for shader modules, image resources and ordinary descriptor sets.
-// No Vulkan calls are made here. Captures resolve descriptor contents at submit.
+// Metadata for shader modules, image resources and descriptor bindings.
+// No Vulkan calls are made here. Ordinary sets resolve at submit; pushes at record.
 #include "state.h"
 #include "json.h"
 
 #include <algorithm>
+#include <cstddef>
 
 namespace efvk {
 
@@ -140,6 +141,7 @@ DESTROY_RESOURCE(on_destroy_buffer_view, VkBufferView, buffer_views)
 DESTROY_RESOURCE(on_destroy_sampler, VkSampler, samplers)
 DESTROY_RESOURCE(on_destroy_set_layout, VkDescriptorSetLayout, set_layouts)
 DESTROY_RESOURCE(on_destroy_pipeline_layout, VkPipelineLayout, pipeline_layouts)
+DESTROY_RESOURCE(on_destroy_descriptor_template, VkDescriptorUpdateTemplate, descriptor_templates)
 #undef DESTROY_RESOURCE
 
 static bool is_dynamic(uint32_t type)
@@ -305,6 +307,77 @@ static void set_element(Device* dev, DescriptorSetInfo& set, uint32_t binding, u
     set.values[{binding, element}] = value;
 }
 
+static size_t descriptor_data_size(uint32_t type)
+{
+    if (is_buffer(type)) return sizeof(VkDescriptorBufferInfo);
+    if (type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+        return sizeof(VkBufferView);
+    if (type <= VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || type == VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT)
+        return sizeof(VkDescriptorImageInfo);
+    return 0;
+}
+
+// The application controls template alignment and stride. Read only fields that
+// Vulkan consumes, using memcpy rather than dereferencing an unaligned structure.
+static DescriptorElement decode_element(Device* dev, const DescriptorBinding& binding, uint32_t type, const uint8_t* data)
+{
+    DescriptorElement e;
+    e.type = type;
+    if (!descriptor_data_size(type)) return e;
+    const bool immutable = !binding.immutable_samplers.empty();
+    if (type == VK_DESCRIPTOR_TYPE_SAMPLER && immutable) { e.known = true; return e; }
+    if (!data) return e;
+    e.known = true;
+    if (is_buffer(type)) {
+        VkDescriptorBufferInfo b;
+        memcpy(&b, data, sizeof(b));
+        e.buffer = b.buffer; e.offset = b.offset; e.range = b.range;
+        e.buffer_id = resource_id(dev->bufs, e.buffer);
+    } else if (type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) {
+        memcpy(&e.buffer_view, data, sizeof(e.buffer_view));
+        e.buffer_view_id = resource_id(dev->buffer_views, e.buffer_view);
+    } else {
+        if ((type == VK_DESCRIPTOR_TYPE_SAMPLER || type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) && !immutable) {
+            memcpy(&e.sampler, data + offsetof(VkDescriptorImageInfo, sampler), sizeof(e.sampler));
+            e.sampler_id = resource_id(dev->samplers, e.sampler);
+        }
+        if (type != VK_DESCRIPTOR_TYPE_SAMPLER) {
+            memcpy(&e.image_view, data + offsetof(VkDescriptorImageInfo, imageView), sizeof(e.image_view));
+            memcpy(&e.image_layout, data + offsetof(VkDescriptorImageInfo, imageLayout), sizeof(e.image_layout));
+            e.image_view_id = resource_id(dev->image_views, e.image_view);
+        }
+    }
+    return e;
+}
+
+static void apply_elements_locked(Device* dev, DescriptorSetInfo& set, uint32_t binding, uint32_t element,
+                                  uint32_t count, uint32_t type, const void* data, size_t offset, size_t stride)
+{
+    if (!set.layout) return;
+    size_t size = descriptor_data_size(type);
+    for (uint32_t i = 0; i < count && advance_element(set, binding, element); i++, element++) {
+        const auto& b = set.layout->bindings.at(binding);
+        const uint8_t* source = nullptr;
+        // Unknown descriptor types and immutable sampler-only writes consume no data.
+        if (size && data && !(type == VK_DESCRIPTOR_TYPE_SAMPLER && !b.immutable_samplers.empty()) &&
+            offset <= SIZE_MAX - size && (!i || stride <= (SIZE_MAX - size - offset) / i))
+            source = static_cast<const uint8_t*>(data) + offset + static_cast<size_t>(i) * stride;
+        set_element(dev, set, binding, element, decode_element(dev, b, type, source));
+    }
+    set.generation++;
+}
+
+static void apply_write_locked(Device* dev, DescriptorSetInfo& set, const VkWriteDescriptorSet& w)
+{
+    const void* data = nullptr;
+    if (is_buffer(w.descriptorType)) data = w.pBufferInfo;
+    else if (w.descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || w.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+        data = w.pTexelBufferView;
+    else if (descriptor_data_size(w.descriptorType)) data = w.pImageInfo;
+    apply_elements_locked(dev, set, w.dstBinding, w.dstArrayElement, w.descriptorCount,
+                          w.descriptorType, data, 0, descriptor_data_size(w.descriptorType));
+}
+
 void on_update_sets(Device* dev, uint32_t write_count, const VkWriteDescriptorSet* writes,
                     uint32_t copy_count, const VkCopyDescriptorSet* copies)
 {
@@ -314,39 +387,7 @@ void on_update_sets(Device* dev, uint32_t write_count, const VkWriteDescriptorSe
         const auto& w = writes[n];
         auto it = dev->descriptor_sets.find(w.dstSet);
         if (it == dev->descriptor_sets.end() || !it->second.layout) continue;
-        auto& set = it->second;
-        uint32_t binding = w.dstBinding, element = w.dstArrayElement;
-        for (uint32_t i = 0; i < w.descriptorCount && advance_element(set, binding, element); i++, element++) {
-            DescriptorElement e;
-            e.type = w.descriptorType;
-            e.known = true;
-            if (is_buffer(e.type)) {
-                const auto& b = w.pBufferInfo[i];
-                e.buffer = b.buffer;
-                e.buffer_id = resource_id(dev->bufs, e.buffer);
-                e.offset = b.offset;
-                e.range = b.range;
-            } else if (e.type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || e.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER) {
-                e.buffer_view = w.pTexelBufferView[i];
-                e.buffer_view_id = resource_id(dev->buffer_views, e.buffer_view);
-            } else if (e.type <= VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || e.type == VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT) {
-                const bool immutable = !set.layout->bindings.at(binding).immutable_samplers.empty();
-                if ((e.type == VK_DESCRIPTOR_TYPE_SAMPLER || e.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) && !immutable) {
-                    e.sampler = w.pImageInfo[i].sampler;
-                    e.sampler_id = resource_id(dev->samplers, e.sampler);
-                }
-                if (e.type != VK_DESCRIPTOR_TYPE_SAMPLER) {
-                    e.image_view = w.pImageInfo[i].imageView;
-                    e.image_view_id = resource_id(dev->image_views, e.image_view);
-                    e.image_layout = w.pImageInfo[i].imageLayout;
-                }
-            } else {
-                // Never reinterpret a pNext-based descriptor as an image or buffer.
-                e.known = false;
-            }
-            set_element(dev, set, binding, element, e);
-        }
-        set.generation++;
+        apply_write_locked(dev, it->second, w);
     }
     // Vulkan applies all writes first, then copies in array order.
     for (uint32_t n = 0; n < copy_count; n++) {
@@ -368,15 +409,117 @@ void on_update_sets(Device* dev, uint32_t write_count, const VkWriteDescriptorSe
     }
 }
 
-void on_unsupported_set_update(Device* dev, VkDescriptorSet h)
+void on_create_descriptor_template(Device* dev, VkDescriptorUpdateTemplate h, const VkDescriptorUpdateTemplateCreateInfo* info)
 {
     if (dev->passive) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
-    auto it = dev->descriptor_sets.find(h);
-    if (it == dev->descriptor_sets.end()) return;
-    it->second.values.clear();
-    it->second.unsupported = "descriptor_update_template";
-    it->second.generation++;
+    DescriptorTemplateInfo t;
+    t.type = info->templateType;
+    t.complete = info->pNext == nullptr;
+    if (info->descriptorUpdateEntryCount)
+        t.entries.assign(info->pDescriptorUpdateEntries, info->pDescriptorUpdateEntries + info->descriptorUpdateEntryCount);
+    if (t.type == VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET) {
+        auto it = dev->set_layouts.find(info->descriptorSetLayout);
+        if (it != dev->set_layouts.end()) t.layout = it->second;
+    } else if (t.type == VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR) {
+        t.point = info->pipelineBindPoint; t.set = info->set;
+        auto it = dev->pipeline_layouts.find(info->pipelineLayout);
+        if (it != dev->pipeline_layouts.end()) t.pipeline_layout = it->second;
+    }
+    dev->descriptor_templates[h] = std::move(t);
+}
+
+static void apply_template_locked(Device* dev, DescriptorSetInfo& set, const DescriptorTemplateInfo& t, const void* data)
+{
+    for (const auto& e : t.entries)
+        apply_elements_locked(dev, set, e.dstBinding, e.dstArrayElement, e.descriptorCount,
+                              e.descriptorType, data, e.offset, e.stride);
+}
+
+void on_update_template(Device* dev, VkDescriptorSet h, VkDescriptorUpdateTemplate update, const void* data)
+{
+    if (dev->passive) return;
+    std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+    auto s = dev->descriptor_sets.find(h);
+    if (s == dev->descriptor_sets.end()) return;
+    auto t = dev->descriptor_templates.find(update);
+    if (t == dev->descriptor_templates.end() || !t->second.complete || !t->second.layout || !s->second.layout ||
+        t->second.type != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET ||
+        !same_set_layout(*t->second.layout, *s->second.layout)) {
+        s->second.values.clear();
+        s->second.unsupported = "unknown_descriptor_template";
+        s->second.generation++;
+        return;
+    }
+    apply_template_locked(dev, s->second, t->second, data);
+}
+
+static void disturb_sets(SetBind* bound, const std::shared_ptr<const PipelineLayoutInfo>& layout, uint32_t slot)
+{
+    bool disturb_higher = slot < kMaxSets && bound[slot].layout && !compatible(bound[slot].layout, layout, slot);
+    for (uint32_t k = 0; k < kMaxSets; k++) {
+        if ((k < slot && bound[k].layout && !compatible(bound[k].layout, layout, k)) || (k > slot && disturb_higher)) {
+            bound[k] = SetBind();
+            bound[k].layout = layout;
+            bound[k].unsupported = "disturbed_pipeline_layout";
+        }
+    }
+}
+
+static std::shared_ptr<DescriptorSetInfo> prepare_push_locked(CmdBuf* cb, VkPipelineBindPoint point,
+    const std::shared_ptr<const PipelineLayoutInfo>& layout, uint32_t slot)
+{
+    auto* bound = point == VK_PIPELINE_BIND_POINT_GRAPHICS ? cb->sets : cb->comp_sets;
+    if (!layout || slot >= layout->sets.size() || !layout->sets[slot] ||
+        !(layout->sets[slot]->flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)) {
+        on_unsupported_descriptor_bind(cb, point, "unknown_push_layout");
+        return nullptr;
+    }
+    disturb_sets(bound, layout, slot);
+    if (slot >= kMaxSets) return nullptr;
+    auto previous = bound[slot].pushed;
+    auto pushed = previous && same_set_layout(*previous->layout, *layout->sets[slot])
+        ? std::make_shared<DescriptorSetInfo>(*previous) : std::make_shared<DescriptorSetInfo>();
+    pushed->layout = layout->sets[slot];
+    if (!previous || !same_set_layout(*previous->layout, *pushed->layout))
+        for (const auto& b : pushed->layout->bindings) pushed->counts[b.first] = b.second.count;
+    // In contrast to allocated sets, even immutable samplers are undefined until pushed.
+    bound[slot] = SetBind();
+    bound[slot].layout = layout;
+    bound[slot].pushed = pushed;
+    return pushed;
+}
+
+void on_push_descriptors(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkPipelineLayout handle,
+                         uint32_t slot, uint32_t count, const VkWriteDescriptorSet* writes)
+{
+    if (dev->passive || (point != VK_PIPELINE_BIND_POINT_GRAPHICS && point != VK_PIPELINE_BIND_POINT_COMPUTE)) return;
+    std::shared_lock<std::shared_mutex> lock(dev->res_mx);
+    auto it = dev->pipeline_layouts.find(handle);
+    auto pushed = prepare_push_locked(cb, point, it == dev->pipeline_layouts.end() ? nullptr : it->second, slot);
+    if (pushed) for (uint32_t i = 0; i < count; i++) apply_write_locked(dev, *pushed, writes[i]);
+}
+
+void on_push_template(Device* dev, CmdBuf* cb, VkDescriptorUpdateTemplate update, VkPipelineLayout handle,
+                       uint32_t slot, const void* data)
+{
+    if (dev->passive) return;
+    std::shared_lock<std::shared_mutex> lock(dev->res_mx);
+    auto t = dev->descriptor_templates.find(update);
+    if (t == dev->descriptor_templates.end() || t->second.type != VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR) {
+        on_unsupported_descriptor_bind(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, "unknown_push_template");
+        on_unsupported_descriptor_bind(cb, VK_PIPELINE_BIND_POINT_COMPUTE, "unknown_push_template");
+        return;
+    }
+    const auto& info = t->second;
+    if (info.point != VK_PIPELINE_BIND_POINT_GRAPHICS && info.point != VK_PIPELINE_BIND_POINT_COMPUTE) return;
+    auto lit = dev->pipeline_layouts.find(handle);
+    if (!info.complete || info.set != slot || lit == dev->pipeline_layouts.end() || !compatible(info.pipeline_layout, lit->second, slot)) {
+        on_unsupported_descriptor_bind(cb, info.point, "unknown_push_template_layout");
+        return;
+    }
+    auto pushed = prepare_push_locked(cb, info.point, lit->second, slot);
+    if (pushed) apply_template_locked(dev, *pushed, info, data);
 }
 
 void on_bind_sets(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkPipelineLayout handle,
@@ -393,14 +536,7 @@ void on_bind_sets(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkPipeline
     for (uint32_t i = 0; i < count; i++) {
         uint32_t slot = first + i;
         // Disturb lower sets and, when replacing an incompatible binding, higher sets.
-        bool disturb_higher = slot < kMaxSets && bound[slot].layout && !compatible(bound[slot].layout, layout, slot);
-        for (uint32_t k = 0; k < kMaxSets; k++) {
-            if ((k < slot && bound[k].layout && !compatible(bound[k].layout, layout, k)) || (k > slot && disturb_higher)) {
-                bound[k] = SetBind();
-                bound[k].layout = layout;
-                bound[k].unsupported = "disturbed_pipeline_layout";
-            }
-        }
+        disturb_sets(bound, layout, slot);
         auto sit = dev->descriptor_sets.find(sets[i]);
         uint32_t n = 0;
         if (sit == dev->descriptor_sets.end() || !sit->second.layout) offsets_known = false;
@@ -513,21 +649,25 @@ void write_descriptor_set_locked(JsonWriter& w, Device* dev, const SetBind& bind
                                  VkPipeline pipeline, uint32_t slot)
 {
     w.begin_object();
-    w.kv("snapshot", "submit");
+    w.kv("snapshot", bind.pushed ? "record" : "submit");
+    w.kv("resource_snapshot", "submit");
+    w.kv("kind", bind.pushed ? "push" : "set");
     w.kn("id", bind.id);
     if (pipeline) {
         auto p = dev->pipes.find(pipeline);
         w.kb("pipeline_compatible", p != dev->pipes.end() && compatible(bind.layout, p->second.layout, slot));
     }
     auto it = dev->descriptor_sets.find(bind.set);
-    bool tracked = !bind.unsupported && bind.id && it != dev->descriptor_sets.end() && it->second.id == bind.id && it->second.layout;
+    const DescriptorSetInfo* contents = bind.pushed.get();
+    if (!contents && bind.id && it != dev->descriptor_sets.end() && it->second.id == bind.id) contents = &it->second;
+    bool tracked = !bind.unsupported && contents && contents->layout;
     w.kb("tracked", tracked);
     if (!tracked) {
         w.kv("reason", bind.unsupported ? bind.unsupported : (bind.set ? "unknown_or_freed_set" : "unbound"));
         w.end_object();
         return;
     }
-    const auto& set = it->second;
+    const auto& set = *contents;
     w.kn("layout", set.layout->id);
     w.kn("generation", set.generation);
     if (set.unsupported) w.kv("unsupported_update", set.unsupported);

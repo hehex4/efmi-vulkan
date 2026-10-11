@@ -602,6 +602,10 @@ void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkComman
         for (uint32_t t : s->threads)
             add_thread(cb->threads, t);
     }
+    // Descriptor state in the primary is undefined after executing secondaries.
+    // Recorded draws retain their push snapshots independently of these bindings.
+    on_unsupported_descriptor_bind(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, "secondary_execution");
+    on_unsupported_descriptor_bind(cb, VK_PIPELINE_BIND_POINT_COMPUTE, "secondary_execution");
 }
 
 // ---------------------------------------------------------------------------
@@ -863,6 +867,8 @@ std::string probe_status()
     w.str("pipeline");
     w.str("api_usage");
     w.str("descriptor_sets");
+    w.str("descriptor_templates");
+    w.str("push_descriptors");
     w.str("shader");
     w.end_array();
 
@@ -928,6 +934,7 @@ std::string probe_status()
         w.kn("samplers", dev->samplers.size());
         w.kn("descriptor_sets", dev->descriptor_sets.size());
         w.kn("descriptor_set_layouts", dev->set_layouts.size());
+        w.kn("descriptor_templates", dev->descriptor_templates.size());
         w.kn("pipeline_layouts", dev->pipeline_layouts.size());
         w.kn("shadow_bytes", shadow);
         w.kn("shadow_known_bytes", known);

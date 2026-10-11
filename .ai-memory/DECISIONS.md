@@ -83,7 +83,7 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Date: 2026-10-11.
 - Decision: the first T-011 increment tracks ordinary descriptor writes/copies and snapshots contents when a captured command buffer is submitted. Dynamic offsets are taken at bind time and split by layout. Shader bytes have shared ownership between their live module and pipelines; ids do not rely on handles remaining unique.
 - Reason: descriptor sets are references, not inline copies of their contents. Querying them later from the pipe could silently return another frame's data; retaining immutable capture JSON avoids that. Module destruction after pipeline creation is normal and must not remove shader diagnostics prematurely.
-- Limits: submit-time visibility does not establish G3's record-time premise. Templates, push descriptors and descriptor buffers discard stale tracked knowledge until decoding is implemented. A small declared-binding SPIR-V reader is not full reflection. Details: `docs/probe-resources.md`.
+- Limits: submit-time visibility does not establish G3's record-time premise. In 0.4.0, templates, pushes and descriptor buffers discarded stale tracked knowledge; D-015 subsequently adds template/push decoding. Descriptor buffers remain unsupported. A small declared-binding SPIR-V reader is not full reflection. Details: `docs/probe-resources.md`.
 - Historical deployment choice, superseded by D-014: because run 3 ended before 30 minutes, this implementation round built/tested 0.4.0 under `build/next/` and kept `dist/` at 0.2.0 passthrough.
 
 ## D-014: Reuse run 3 as initial loading evidence; defer the long-duration observation
@@ -93,3 +93,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Evidence boundary: the historical run used 0.2.0 passthrough. Loading and device creation were logged; scene changes and the early exit were reported by the user. Exact duration, total frames, long-duration stability, probe-mode game behavior and real-character capture data remain unverified. Do not relabel historical results as a new test.
 - Deployment: after confirming no game process remained, preserved the old DLLs/settings/log under `build/backups/`, rebuilt and regression-tested 0.4.0 in `dist/`, and set `dist/efmi_vk.cfg` to probe. A sandbox using that actual configuration captured a frame successfully.
 - Boundary kept: this decision prepares the next session; it does not authorize the agent to start or inject the game. Each real-game launch still follows the user's on-the-spot instruction. Launcher settings remain read-only, and blocked loading still stops the project.
+
+## D-015: Push contents are retained at recording time; resource visibility stays at submit
+
+- Date: 2026-10-11 (implementation of the next T-011 increment).
+- Decision: template definitions own their copied entries and retained layout metadata. Ordinary template updates use the same decoder as writes. Each push update creates immutable contents retained by subsequent draw records, separate for each command buffer and bind point. Partial writes preserve compatible elements; layout disturbance and reset invalidate them. Immutable sampler-only push bindings start undefined.
+- Reason: looking up a push bank's final state at submit would give earlier draws the last update's descriptors. Recording immutable values prevents this and survives secondary-buffer flattening. A push template's bind point comes from its creation metadata, not from the currently bound graphics pipeline.
+- Diagnostic boundary: `snapshot` is `record` for pushes and `submit` for ordinary sets; `resource_snapshot` is always `submit`. Retaining a buffer handle/range is not evidence that its bytes were readable at record time. This does not satisfy G3 b/c by itself.
+- Scope: standard buffer/image/texel/sampler descriptors; unknown templates and unsupported layouts discard stale state. Descriptor buffers and specialized types remain unimplemented. GPU and CPU coverage are recorded separately in `docs/probe-resources.md`.

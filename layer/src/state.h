@@ -27,6 +27,8 @@ namespace efvk {
     X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout) X(DestroyPipelineLayout)        \
     X(DestroyDescriptorPool) X(ResetDescriptorPool) X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets) \
     X(UpdateDescriptorSetWithTemplate) X(UpdateDescriptorSetWithTemplateKHR)                                           \
+    X(CreateDescriptorUpdateTemplate) X(CreateDescriptorUpdateTemplateKHR)                                             \
+    X(DestroyDescriptorUpdateTemplate) X(DestroyDescriptorUpdateTemplateKHR)                                           \
     X(CmdPushDescriptorSet) X(CmdPushDescriptorSetKHR)                                                                 \
     X(CmdPushDescriptorSetWithTemplate) X(CmdPushDescriptorSetWithTemplateKHR)                                         \
     X(CmdPushDescriptorSet2) X(CmdPushDescriptorSet2KHR)                                                               \
@@ -53,7 +55,6 @@ namespace efvk {
 // for them exists.
 #define EFVK_COUNTED_FUNCS(X)                                                                                          \
     X(CreateDescriptorPool)                                                                                           \
-    X(CreateDescriptorUpdateTemplate) X(CreateDescriptorUpdateTemplateKHR)                                             \
     X(CmdBindDescriptorBuffersEXT) X(CmdPushConstants)                                                                 \
     X(CreateSwapchainKHR) X(CreateRenderPass) X(CreateRenderPass2) X(CreateRenderPass2KHR) X(CreateFramebuffer)        \
     X(CmdCopyBufferToImage) X(CmdCopyBufferToImage2) X(CmdCopyBufferToImage2KHR)                                       \
@@ -166,6 +167,7 @@ struct SetBind {
     uint32_t dyn_first = 0;
     uint32_t dyn_count = 0;
     std::shared_ptr<const PipelineLayoutInfo> layout;
+    std::shared_ptr<const DescriptorSetInfo> pushed; // values at record time, retained by each draw
     const char* unsupported = nullptr;
 };
 
@@ -307,6 +309,7 @@ struct Device {
     std::unordered_map<VkDescriptorSetLayout, std::shared_ptr<const DescriptorLayoutInfo>> set_layouts;
     std::unordered_map<VkPipelineLayout, std::shared_ptr<const PipelineLayoutInfo>> pipeline_layouts;
     std::unordered_map<VkDescriptorSet, DescriptorSetInfo> descriptor_sets;
+    std::unordered_map<VkDescriptorUpdateTemplate, DescriptorTemplateInfo> descriptor_templates;
 
     // Command buffers. The content of one is touched only by the thread that
     // records it, or by the submitting thread once recording has ended.

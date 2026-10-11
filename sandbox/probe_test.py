@@ -20,6 +20,7 @@ VK_BUFFER_USAGE_INDEX_BUFFER_BIT = 0x40
 
 
 def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: str) -> None:
+    pushed = expected["descriptor_mode"] >= 2
     draws = [d for d in capture["draws"] if d["kind"] == "indexed"]
     c.equal(len(draws), len(expected["draws"]), "%s: number of indexed draws" % tag)
     for i, (got, want) in enumerate(zip(draws, expected["draws"])):
@@ -34,12 +35,17 @@ def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: 
         c.equal(ib.get("src"), want["src"], label + " hash source")
         c.equal(got["sets"][0]["dyn"], [want["dyn"]], label + " dynamic offset")
         sets = got["sets"]
-        c.equal(sets[1]["dyn"], [256 * ((i + 1) % 5), 256 * (4 - i)], label + " second set dynamic array offsets")
+        c.equal(sets[1]["dyn"], [] if pushed else [256 * ((i + 1) % 5), 256 * (4 - i)], label + " second set dynamic array offsets")
         uniform = sets[0]["contents"]
         material = sets[1]["contents"]
         c.check(uniform["tracked"] and material["tracked"], label + " both sets are tracked")
         c.check(uniform["pipeline_compatible"] and material["pipeline_compatible"], label + " sets compatible with pipeline")
         c.equal(uniform["snapshot"], "submit", label + " descriptor snapshot timing is explicit")
+        c.equal(material["snapshot"], "record" if pushed else "submit", label + " material snapshot timing")
+        c.equal(material["resource_snapshot"], "submit", label + " resource visibility timing")
+        c.equal(material["kind"], "push" if pushed else "set", label + " material binding kind")
+        if pushed:
+            c.equal(sets[1]["set"], "0x0", label + " push descriptors have no allocated set handle")
         u = uniform["bindings"][0]["elements"][0]
         c.equal((u["effective_offset"], u["range"], u["src"]), (want["dyn"], 32, "mapped"), label + " uniform range")
         bindings = material["bindings"]
@@ -67,10 +73,11 @@ def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: 
         c.check(got["rp"] == 1, label + " inside the first render pass", got["rp"])
 
 
-def run(threads: int, entry: str) -> int:
-    c = Checks("probe_test entry=%s threads=%d" % (entry, threads))
-    with Sandbox(threads=threads, entry=entry) as sb:
+def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
+    c = Checks("probe_test entry=%s threads=%d descriptors=%s" % (entry, threads, descriptors))
+    with Sandbox(threads=threads, entry=entry, descriptors=descriptors) as sb:
         expected = sb.expected
+        pushed = expected["descriptor_mode"] >= 2
         c.check(sb.pid in list_probes(), "the sandbox serves a probe pipe", sb.log())
         with ProbeClient(sb.pid) as probe:
             status = probe.status()
@@ -157,7 +164,9 @@ def run(threads: int, entry: str) -> int:
                 c.equal(probe.shader(shader["id"], code=False)[1], b"", "metadata-only shader request omits bytes")
             counts = probe.status()["counts"]
             c.equal((counts["shader_modules"], counts["retained_shaders"]), (0, 2), "pipeline retains destroyed modules")
-            c.equal(counts["descriptor_sets"], 2, "freed copy source set is removed")
+            c.equal(counts["descriptor_sets"], 1 if pushed else 2, "only allocated live descriptor sets are counted")
+            c.equal(counts["descriptor_templates"], 1 if descriptors in ("template", "push-template") else 0,
+                    "only live descriptor templates are counted")
             c.equal(counts["images"], 1, "one non-swapchain image")
             c.equal(counts["samplers"], 1, "one immutable sampler")
             storage = draws[0]["sets"][1]["contents"]["bindings"][0]["elements"][0]
@@ -170,7 +179,14 @@ def run(threads: int, entry: str) -> int:
             c.check(calls.get("vkCmdDrawIndexed", 0) >= 5, "draw calls are counted", calls.get("vkCmdDrawIndexed"))
             c.check(calls.get("vkQueueSubmit", 0) >= 2, "submits are counted", calls.get("vkQueueSubmit"))
             c.check(calls.get("vkQueuePresentKHR", 0) >= 1, "presents are counted")
-            c.equal(calls.get("vkUpdateDescriptorSets"), 1, "the one descriptor update is counted")
+            c.equal(calls.get("vkUpdateDescriptorSets"), 2 if descriptors == "template" else 1, "ordinary updates are counted")
+            if descriptors == "template":
+                c.equal(calls.get("vkCreateDescriptorUpdateTemplate"), 2, "both update templates are counted")
+                c.equal(calls.get("vkDestroyDescriptorUpdateTemplate"), 1, "initial template was destroyed before drawing")
+                c.equal(calls.get("vkUpdateDescriptorSetWithTemplate"), 1, "initial material used a template")
+            if pushed:
+                name = "vkCmdPushDescriptorSetWithTemplateKHR" if descriptors == "push-template" else "vkCmdPushDescriptorSetKHR"
+                c.check(calls.get(name, 0) >= 5, "push descriptor calls reach the selected hook", calls.get(name))
             c.equal(calls.get("vkCreateShaderModule"), 2, "both shader modules are counted")
             c.equal(calls.get("vkAllocateDescriptorSets"), 1, "the descriptor set allocation is counted")
             c.equal(calls.get("vkCreateSwapchainKHR"), 1, "the swapchain creation is counted")
@@ -178,7 +194,7 @@ def run(threads: int, entry: str) -> int:
             c.check("vkCmdDispatch" not in calls, "a function that is never called has no entry")
             c.equal(calls.get("vkCmdExecuteCommands", 0) > 0, threads > 0, "secondary execution is counted when used")
             c.check("vkCmdDrawIndexed" in usage["resolved"], "resolved function names are listed")
-            c.equal(usage["extensions"], ["VK_KHR_swapchain"], "enabled device extensions")
+            c.equal(usage["extensions"], ["VK_KHR_swapchain"] + (["VK_KHR_push_descriptor"] if pushed else []), "enabled device extensions")
 
             try:
                 probe.read_buffer(999999)
@@ -197,6 +213,9 @@ def run(threads: int, entry: str) -> int:
             cap3 = probe.capture(timeout_ms=5000)
             c.equal(cap3["stats"]["unknown_writes"], 0, "no unknown writes after the rewrite")
             check_draws(c, cap3, expected, True, "after rewrite")
+            if descriptors == "template":
+                c.equal(probe.api_usage()["calls"].get("vkUpdateDescriptorSetWithTemplate"), 2,
+                        "rewrite uses the second template")
             info, data = probe.read_buffer(id_a)
             c.equal(struct.unpack("<12H", data), (0, 1, 2, 3, 5, 4, 3, 6, 5, 7, 8, 9), "buffer A content after the rewrite")
 
@@ -220,6 +239,10 @@ def main() -> int:
     worst = 0
     for entry, threads in (("layer", 0), ("layer", 2), ("layer", 5), ("inject", 0), ("inject", 2)):
         worst = max(worst, run(threads, entry))
+    for descriptors in ("template", "push", "push-template"):
+        for entry in ("layer", "inject"):
+            for threads in (0, 2):
+                worst = max(worst, run(threads, entry, descriptors))
     return worst
 
 

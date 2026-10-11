@@ -23,6 +23,10 @@ RESOURCE_HOOKS(Sampler, VkSampler, VkSamplerCreateInfo, on_create_sampler, on_de
 RESOURCE_HOOKS(DescriptorSetLayout, VkDescriptorSetLayout, VkDescriptorSetLayoutCreateInfo,
                on_create_set_layout, on_destroy_set_layout)
 RESOURCE_HOOKS(PipelineLayout, VkPipelineLayout, VkPipelineLayoutCreateInfo, on_create_pipeline_layout, on_destroy_pipeline_layout)
+RESOURCE_HOOKS(DescriptorUpdateTemplate, VkDescriptorUpdateTemplate, VkDescriptorUpdateTemplateCreateInfo,
+               on_create_descriptor_template, on_destroy_descriptor_template)
+RESOURCE_HOOKS(DescriptorUpdateTemplateKHR, VkDescriptorUpdateTemplate, VkDescriptorUpdateTemplateCreateInfo,
+               on_create_descriptor_template, on_destroy_descriptor_template)
 #undef RESOURCE_HOOKS
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateDescriptorSets(VkDevice device, const VkDescriptorSetAllocateInfo* info,
@@ -75,7 +79,7 @@ VKAPI_ATTR void VKAPI_CALL hk_UpdateDescriptorSets(VkDevice device, uint32_t wri
     VKAPI_ATTR void VKAPI_CALL hk_##Name(VkDevice device, VkDescriptorSet set, VkDescriptorUpdateTemplate update, const void* data) { \
         count_call(HI_##Name); \
         Device* dev = dev_of(device); \
-        on_unsupported_set_update(dev, set); \
+        on_update_template(dev, set, update, data); \
         dev->d.Name(device, set, update, data); \
     }
 UPDATE_TEMPLATE_HOOK(UpdateDescriptorSetWithTemplate)
@@ -105,7 +109,7 @@ BIND_SETS2_HOOK(CmdBindDescriptorSets2KHR)
                                         uint32_t set, uint32_t count, const VkWriteDescriptorSet* writes) { \
         count_call(HI_##Name); \
         Device* dev = dev_of(cmd); \
-        if (CmdBuf* cb = cb_of(dev, cmd)) on_unsupported_descriptor_bind(cb, point, "push_descriptors"); \
+        if (CmdBuf* cb = cb_of(dev, cmd)) on_push_descriptors(dev, cb, point, layout, set, count, writes); \
         dev->d.Name(cmd, point, layout, set, count, writes); \
     }
 PUSH_HOOK(CmdPushDescriptorSet)
@@ -117,15 +121,42 @@ PUSH_HOOK(CmdPushDescriptorSetKHR)
                                         VkPipelineLayout layout, uint32_t set, const void* data) { \
         count_call(HI_##Name); \
         Device* dev = dev_of(cmd); \
-        if (CmdBuf* cb = cb_of(dev, cmd)) { \
-            on_unsupported_descriptor_bind(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, "push_descriptor_template"); \
-            on_unsupported_descriptor_bind(cb, VK_PIPELINE_BIND_POINT_COMPUTE, "push_descriptor_template"); \
-        } \
+        if (CmdBuf* cb = cb_of(dev, cmd)) on_push_template(dev, cb, update, layout, set, data); \
         dev->d.Name(cmd, update, layout, set, data); \
     }
 PUSH_TEMPLATE_HOOK(CmdPushDescriptorSetWithTemplate)
 PUSH_TEMPLATE_HOOK(CmdPushDescriptorSetWithTemplateKHR)
 #undef PUSH_TEMPLATE_HOOK
+
+#define PUSH2_HOOK(Name) \
+    VKAPI_ATTR void VKAPI_CALL hk_##Name(VkCommandBuffer cmd, const VkPushDescriptorSetInfo* info) { \
+        count_call(HI_##Name); \
+        Device* dev = dev_of(cmd); \
+        if (CmdBuf* cb = cb_of(dev, cmd)) { \
+            if (info->stageFlags & VK_SHADER_STAGE_ALL_GRAPHICS) \
+                on_push_descriptors(dev, cb, VK_PIPELINE_BIND_POINT_GRAPHICS, info->layout, info->set, \
+                                     info->descriptorWriteCount, info->pDescriptorWrites); \
+            if (info->stageFlags & VK_SHADER_STAGE_COMPUTE_BIT) \
+                on_push_descriptors(dev, cb, VK_PIPELINE_BIND_POINT_COMPUTE, info->layout, info->set, \
+                                     info->descriptorWriteCount, info->pDescriptorWrites); \
+        } \
+        dev->d.Name(cmd, info); \
+    }
+PUSH2_HOOK(CmdPushDescriptorSet2)
+PUSH2_HOOK(CmdPushDescriptorSet2KHR)
+#undef PUSH2_HOOK
+
+#define PUSH_TEMPLATE2_HOOK(Name) \
+    VKAPI_ATTR void VKAPI_CALL hk_##Name(VkCommandBuffer cmd, const VkPushDescriptorSetWithTemplateInfo* info) { \
+        count_call(HI_##Name); \
+        Device* dev = dev_of(cmd); \
+        if (CmdBuf* cb = cb_of(dev, cmd)) \
+            on_push_template(dev, cb, info->descriptorUpdateTemplate, info->layout, info->set, info->pData); \
+        dev->d.Name(cmd, info); \
+    }
+PUSH_TEMPLATE2_HOOK(CmdPushDescriptorSetWithTemplate2)
+PUSH_TEMPLATE2_HOOK(CmdPushDescriptorSetWithTemplate2KHR)
+#undef PUSH_TEMPLATE2_HOOK
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdSetDescriptorBufferOffsetsEXT(VkCommandBuffer cmd, VkPipelineBindPoint point,
     VkPipelineLayout layout, uint32_t first, uint32_t count, const uint32_t* indices, const VkDeviceSize* offsets)
@@ -136,8 +167,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdSetDescriptorBufferOffsetsEXT(VkCommandBuffer c
     dev->d.CmdSetDescriptorBufferOffsetsEXT(cmd, point, layout, first, count, indices, offsets);
 }
 
-// Newer aliases also invalidate the tracked bindings. Do not leave old ordinary
-// descriptors visible when an application switches to a path not yet tracked.
+// Descriptor buffers are still unsupported. Do not leave stale descriptors visible.
 #define UNSUPPORTED_INFO_HOOK(Name, Info, reason) \
     VKAPI_ATTR void VKAPI_CALL hk_##Name(VkCommandBuffer cmd, const Info* info) { \
         count_call(HI_##Name); \
@@ -148,10 +178,6 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdSetDescriptorBufferOffsetsEXT(VkCommandBuffer c
         } \
         dev->d.Name(cmd, info); \
     }
-UNSUPPORTED_INFO_HOOK(CmdPushDescriptorSet2, VkPushDescriptorSetInfo, "push_descriptors")
-UNSUPPORTED_INFO_HOOK(CmdPushDescriptorSet2KHR, VkPushDescriptorSetInfo, "push_descriptors")
-UNSUPPORTED_INFO_HOOK(CmdPushDescriptorSetWithTemplate2, VkPushDescriptorSetWithTemplateInfo, "push_descriptor_template")
-UNSUPPORTED_INFO_HOOK(CmdPushDescriptorSetWithTemplate2KHR, VkPushDescriptorSetWithTemplateInfo, "push_descriptor_template")
 UNSUPPORTED_INFO_HOOK(CmdSetDescriptorBufferOffsets2EXT, VkSetDescriptorBufferOffsetsInfoEXT, "descriptor_buffers")
 UNSUPPORTED_INFO_HOOK(CmdBindDescriptorBufferEmbeddedSamplers2EXT, VkBindDescriptorBufferEmbeddedSamplersInfoEXT, "descriptor_buffers")
 #undef UNSUPPORTED_INFO_HOOK

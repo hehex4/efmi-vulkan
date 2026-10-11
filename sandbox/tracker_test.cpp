@@ -16,11 +16,12 @@ static void check(bool ok, const char* label)
 template <typename T> static T h(uintptr_t value) { return reinterpret_cast<T>(value); }
 
 static void layout(Device& d, VkDescriptorSetLayout handle, const std::vector<VkDescriptorSetLayoutBinding>& bindings,
-                   const void* next = nullptr)
+                   const void* next = nullptr, VkDescriptorSetLayoutCreateFlags flags = 0)
 {
     VkDescriptorSetLayoutCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     info.pNext = next;
+    info.flags = flags;
     info.bindingCount = static_cast<uint32_t>(bindings.size()); info.pBindings = bindings.data();
     on_create_set_layout(&d, handle, &info);
 }
@@ -108,10 +109,10 @@ static void descriptor_writes()
     on_destroy_buffer(&d, buffer); on_create_buffer(&d, buffer, &bi);
     check(d.bufs.at(buffer).id != old_buffer_id, "buffer ids change on handle reuse");
     check(snapshot(d, b).find("\"resource_known\":false") != std::string::npos, "reused buffer is not attributed to an old descriptor");
-    on_unsupported_set_update(&d, b);
-    check(bv.empty() && snapshot(d, b).find("descriptor_update_template") != std::string::npos,
-          "template updates clear stale ordinary descriptors and identify the gap");
-    check(before.find("descriptor_update_template") == std::string::npos, "previous capture is immutable after an update");
+    on_update_template(&d, b, h<VkDescriptorUpdateTemplate>(99), nullptr);
+    check(bv.empty() && snapshot(d, b).find("unknown_descriptor_template") != std::string::npos,
+          "unknown template updates clear stale ordinary descriptors and identify the gap");
+    check(before.find("unknown_descriptor_template") == std::string::npos, "previous capture is immutable after an update");
     on_free_sets(&d, 1, &a);
     check(d.descriptor_sets.count(a) == 0 && d.descriptor_sets.count(b) == 1, "free removes only the requested set");
     SetBind old;
@@ -188,6 +189,174 @@ static void descriptor_binding()
     check(!cb.comp_sets[0].set && !cb.sets[0].layout && cb.dyn.empty(), "reset releases both bind points and dynamic data");
 }
 
+static void descriptor_templates()
+{
+    Device d;
+    auto sl = h<VkDescriptorSetLayout>(1);
+    auto set = h<VkDescriptorSet>(2);
+    auto update = h<VkDescriptorUpdateTemplate>(3);
+    auto buffer = h<VkBuffer>(4);
+    auto sampler = h<VkSampler>(5);
+    auto view = h<VkImageView>(6);
+    auto texel = h<VkBufferView>(7);
+    VkBufferCreateInfo bi = {}; bi.size = 4096;
+    on_create_buffer(&d, buffer, &bi);
+    VkSamplerCreateInfo si = {}; on_create_sampler(&d, sampler, &si);
+    layout(d, sl, {
+        {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &sampler},
+        {8, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {9, VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK, 4, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+    });
+    allocate(d, h<VkDescriptorPool>(8), sl, set);
+    std::vector<uint8_t> data(160, 0);
+    VkDescriptorBufferInfo buffers[] = {{buffer, 64, 16}, {buffer, 128, VK_WHOLE_SIZE}};
+    memcpy(data.data() + 1, &buffers[0], sizeof(buffers[0]));
+    memcpy(data.data() + 41, &buffers[1], sizeof(buffers[1]));
+    VkDescriptorImageInfo image = {h<VkSampler>(999), view, VK_IMAGE_LAYOUT_GENERAL};
+    memcpy(data.data() + 89, &image, sizeof(image));
+    memcpy(data.data() + 130, &texel, sizeof(texel));
+    VkDescriptorUpdateTemplateEntry entries[] = {
+        {1, 1, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, 40},
+        {7, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 89, 0},
+        {8, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 130, 0},
+        {9, 0, 4, VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK, SIZE_MAX, SIZE_MAX},
+    };
+    VkDescriptorUpdateTemplateCreateInfo ci = {};
+    ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO;
+    ci.descriptorSetLayout = sl; ci.descriptorUpdateEntryCount = 4; ci.pDescriptorUpdateEntries = entries;
+    on_create_descriptor_template(&d, update, &ci);
+    entries[0].offset = 1000;
+    on_destroy_set_layout(&d, sl);
+    on_update_template(&d, set, update, data.data());
+    auto& values = d.descriptor_sets.at(set).values;
+    check(values.at({1, 1}).offset == 64 && values.at({2, 0}).offset == 128,
+          "template copies its entries and decodes padded unaligned data across bindings");
+    check(values.at({2, 0}).range == VK_WHOLE_SIZE && values.at({1, 1}).buffer_id == d.bufs.at(buffer).id,
+          "template retains full buffer ranges and allocation ids");
+    check(values.at({7, 0}).sampler == sampler && values.at({7, 0}).image_view == view &&
+          values.at({7, 0}).image_layout == VK_IMAGE_LAYOUT_GENERAL,
+          "template image fields and immutable sampler survive layout destruction");
+    check(values.at({8, 0}).buffer_view == texel, "template decodes texel-buffer handles");
+    check(!values.at({9, 0}).known && !values.at({9, 3}).known,
+          "unsupported template types never dereference their opaque payload");
+    std::string before = snapshot(d, set);
+    on_destroy_descriptor_template(&d, update);
+    check(d.descriptor_templates.empty() && snapshot(d, set) == before,
+          "destroying a template does not erase already updated descriptors");
+
+    // Reusing the handle must replace the old decoder, including its retained layout.
+    layout(d, sl, {{1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}});
+    allocate(d, h<VkDescriptorPool>(8), sl, set);
+    entries[0] = {1, 0, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, 0};
+    entries[1] = {1, 1, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 41, 0};
+    ci.descriptorUpdateEntryCount = 2;
+    on_create_descriptor_template(&d, update, &ci);
+    on_update_template(&d, set, update, data.data());
+    const auto& updated = d.descriptor_sets.at(set).values;
+    check(updated.at({1, 0}).offset == 64 && updated.at({1, 1}).offset == 128,
+          "zero template stride repeats data and overlapping entries apply in order");
+    check(updated.size() == 2, "reused template handle has no old image or texel entries");
+    auto other = h<VkDescriptorSetLayout>(10);
+    layout(d, other, {{3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}});
+    allocate(d, h<VkDescriptorPool>(8), other, set);
+    on_update_template(&d, set, update, reinterpret_cast<const void*>(1));
+    check(d.descriptor_sets.at(set).values.empty() && d.descriptor_sets.at(set).unsupported,
+          "incompatible template layout reports unknown without reading data");
+}
+
+static void pushed_descriptors()
+{
+    Device d;
+    auto ordinary = h<VkDescriptorSetLayout>(1), pushed = h<VkDescriptorSetLayout>(2);
+    auto pl = h<VkPipelineLayout>(3), twin = h<VkPipelineLayout>(4), incompatible = h<VkPipelineLayout>(5);
+    auto set = h<VkDescriptorSet>(6);
+    auto buffer = h<VkBuffer>(7);
+    auto sampler = h<VkSampler>(8);
+    VkBufferCreateInfo bi = {}; bi.size = 4096; on_create_buffer(&d, buffer, &bi);
+    VkSamplerCreateInfo si = {}; on_create_sampler(&d, sampler, &si);
+    layout(d, ordinary, {{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr}});
+    layout(d, pushed, {
+        {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+        {5, VK_DESCRIPTOR_TYPE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &sampler},
+    }, nullptr, VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR);
+    pipeline_layout(d, pl, {ordinary, pushed}); pipeline_layout(d, twin, {ordinary, pushed});
+    pipeline_layout(d, incompatible, {ordinary, pushed}, true);
+    allocate(d, h<VkDescriptorPool>(9), ordinary, set);
+    CmdBuf cb;
+    on_bind_sets(&d, &cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pl, 0, 1, &set, 0, nullptr);
+    VkDescriptorBufferInfo data = {buffer, 64, 16};
+    VkWriteDescriptorSet write = {};
+    write.dstSet = h<VkDescriptorSet>(999); // ignored for pushes
+    write.dstBinding = 2; write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; write.pBufferInfo = &data;
+    on_push_descriptors(&d, &cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pl, 1, 1, &write);
+    check(cb.sets[0].set == set && cb.sets[1].pushed->values.at({2, 0}).offset == 64,
+          "pushing a higher set preserves compatible ordinary bindings and ignores dstSet");
+    check(cb.sets[1].pushed->values.count({5, 0}) == 0, "immutable push sampler is undefined until explicitly pushed");
+    SetBind first_draw = cb.sets[1];
+    data.offset = 128; write.dstArrayElement = 1;
+    on_push_descriptors(&d, &cb, VK_PIPELINE_BIND_POINT_GRAPHICS, twin, 1, 1, &write);
+    check(cb.sets[1].pushed->values.at({2, 0}).offset == 64 && cb.sets[1].pushed->values.at({2, 1}).offset == 128,
+          "partial push with a compatible layout retains previous array elements");
+    check(first_draw.pushed->values.count({2, 1}) == 0 && first_draw.pushed->values.at({2, 0}).offset == 64,
+          "later push does not overwrite the values retained by an earlier draw");
+    VkWriteDescriptorSet sampler_write = {};
+    sampler_write.dstBinding = 5; sampler_write.descriptorCount = 1; sampler_write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    on_push_descriptors(&d, &cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pl, 1, 1, &sampler_write);
+    check(cb.sets[1].pushed->values.at({5, 0}).sampler == sampler && cb.sets[1].pushed->values.at({5, 0}).known,
+          "immutable sampler push reads the layout without touching ignored image data");
+    JsonWriter json;
+    write_descriptor_set_locked(json, &d, cb.sets[1], {});
+    check(json.out.find("\"snapshot\":\"record\"") != std::string::npos &&
+          json.out.find("\"resource_snapshot\":\"submit\"") != std::string::npos &&
+          json.out.find("\"kind\":\"push\"") != std::string::npos,
+          "push JSON distinguishes record-time values from submit-time resource metadata");
+    auto update = h<VkDescriptorUpdateTemplate>(10);
+    VkDescriptorUpdateTemplateEntry entry = {2, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0, sizeof(data)};
+    VkDescriptorUpdateTemplateCreateInfo ci = {};
+    ci.templateType = VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR;
+    ci.pipelineBindPoint = VK_PIPELINE_BIND_POINT_COMPUTE; ci.pipelineLayout = pl; ci.set = 1;
+    ci.descriptorUpdateEntryCount = 1; ci.pDescriptorUpdateEntries = &entry;
+    on_create_descriptor_template(&d, update, &ci);
+    data.offset = 256;
+    on_push_template(&d, &cb, update, twin, 1, &data);
+    check(cb.comp_sets[1].pushed->values.at({2, 0}).offset == 256 && cb.sets[1].pushed->values.at({2, 0}).offset == 64,
+          "push template uses its creation bind point without disturbing graphics");
+    CmdBuf other_cb;
+    data.offset = 512;
+    on_push_template(&d, &other_cb, update, pl, 1, &data);
+    check(cb.comp_sets[1].pushed->values.at({2, 0}).offset == 256,
+          "different command buffers never share mutable push contents");
+    on_push_template(&d, &other_cb, update, pl, 0, reinterpret_cast<const void*>(1));
+    check(!other_cb.comp_sets[1].pushed && other_cb.comp_sets[1].unsupported,
+          "wrong push template set clears the affected bind point without reading data");
+    on_destroy_descriptor_template(&d, update);
+    check(cb.comp_sets[1].pushed->values.at({2, 0}).offset == 256,
+          "push contents survive template destruction");
+    on_bind_sets(&d, &cb, VK_PIPELINE_BIND_POINT_GRAPHICS, incompatible, 0, 1, &set, 0, nullptr);
+    check(!cb.sets[1].pushed && cb.comp_sets[1].pushed, "incompatible lower bind disturbs graphics push state only");
+    write.dstArrayElement = 1;
+    on_push_descriptors(&d, &cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pl, 1, 1, &write);
+    check(cb.sets[1].pushed->values.count({2, 0}) == 0 && cb.sets[1].pushed->values.count({5, 0}) == 0,
+          "a push after disturbance begins with undefined descriptors");
+
+    auto child_handle = h<VkCommandBuffer>(11);
+    auto child = std::make_unique<CmdBuf>();
+    DrawRec draw; draw.sets[1] = first_draw; child->draws.push_back(draw);
+    d.cbs[child_handle] = std::move(child);
+    on_execute_commands(&d, &cb, 1, &child_handle);
+    d.cbs.at(child_handle)->reset_recording();
+    check(cb.draws[0].sets[1].pushed->values.at({2, 0}).offset == 64,
+          "flattened secondary draws retain their own immutable push values");
+    check(!cb.sets[1].pushed && !cb.comp_sets[1].pushed, "executing secondaries invalidates primary descriptor bindings");
+    on_destroy_pipeline_layout(&d, pl); on_destroy_set_layout(&d, pushed);
+    check(cb.draws[0].sets[1].pushed->layout->bindings.size() == 2, "recorded push retains its layout definition");
+    cb.reset_recording();
+    check(cb.draws.empty() && !cb.sets[1].pushed && !cb.comp_sets[1].pushed, "reset drops push draws and both bind points");
+}
+
 static void shaders_and_views()
 {
     // Only the dispatch key is inspected; no function is called on this fake device.
@@ -250,6 +419,8 @@ int main()
     util_init(GetModuleHandleW(nullptr));
     descriptor_writes();
     descriptor_binding();
+    descriptor_templates();
+    pushed_descriptors();
     shaders_and_views();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;

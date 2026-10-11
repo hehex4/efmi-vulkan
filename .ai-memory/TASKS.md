@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry, all verified in the sandbox. T-011 has its ordinary descriptor, image and shader path in layer 0.4.0, now rebuilt and fully regression-tested in `dist/` with probe mode configured. Three historical game launches used 0.2.0 passthrough. The user accepts run 3 as initial G1 loading evidence and defers the long-duration observation (D-014 / T-009). No probe-mode game data exists.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules in layer 0.5.0, verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. Next offline work is T-012, T-015 and T-007. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). No probe-mode game data exists.
 
 ## Open
 
@@ -24,7 +24,7 @@ Route: the inject entry through the launcher, no registry (D-011). Historical G1
 
 Done on 2026-10-11 (details in CURRENT_STATE): one DX11 launch with the DLL present, 78 s, clean exit; one Vulkan launch that crashed in the NVIDIA driver about 5 s after device creation, with XXMI's `d3d11.dll` and the DX11 probe also injected (BUG-001). Timing of the injection is confirmed to be early enough.
 
-Run 3 (20:38, only this DLL injected) passed the previous crash point. The user reports exiting before 30 minutes, with scene changes, and explicitly instructs the project to use that run's data. No game process remains; the layer log contains no device-destruction/frame-count record. This is accepted initial loading evidence, with long-duration stability still unverified. Do not require a repeat 30-minute run as a prerequisite. `dist/` now holds sandbox-verified 0.4.0 probe, ready for a user-initiated session; this version has not loaded in the real game.
+Run 3 (20:38, only this DLL injected) passed the previous crash point. The user reports exiting before 30 minutes, with scene changes, and explicitly instructs the project to use that run's data. No game process remains; the layer log contains no device-destruction/frame-count record. This is accepted initial loading evidence, with long-duration stability still unverified. Do not require a repeat 30-minute run as a prerequisite. `dist/` now holds sandbox-verified 0.5.0 probe, ready for a user-initiated session; this version has not loaded in the real game.
 
 What the user set in the launcher for run 3: the injection mode of the XXMI DLL to Skip (the Chinese label of that option is the one translated from "Skip"), leave only `F:\efmi vulkan\dist\efmi_vk_inject.dll` in the injected libraries, keep `d3d11_mode_cmd_args` empty, start. If the game still crashes: start it from the official launcher with nothing injected, to see whether Vulkan works by itself today. After each run read `dist\efmi_vk_layer.log`, `Player.log` and the launcher log.
 
@@ -36,11 +36,13 @@ Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` 
 
 Start by collecting `efvk_api_usage` to identify the engine's actual paths. G2 is answered by `efvk_status` and `efvk_capture_frame` (threads, command buffers, secondary buffers, submits, render pass kinds). G3 item a is answered by `efvk_match_mod` on `arcane fes 1.2`, with the corresponding character visible. Items b, c and d need T-011. Historical passthrough logs contain none of these captures; D-014 removes the repeated-duration prerequisite but does not supply missing frame data.
 
-### T-011: Track descriptor sets, shader modules and images (in progress, M1)
+### T-011: Track descriptor sets, shader modules and images (standard paths implemented; extended coverage open, M1)
 
 **Done in 0.4.0, sandbox evidence only**: ordinary `vkUpdateDescriptorSets` writes/copies, layouts and pool/set lifetimes; dynamic offset attribution (LIMIT-005 fixed), graphics/compute state separation, immutable samplers, descriptor arrays and variable counts; image/view/sampler and texel-buffer metadata; retained pipeline SPIR-V and `efvk_shader` export with declared names/bindings. The sandbox actually uses two sets, dynamic storage buffers and a sampled texture. Full suite passes; detailed evidence and limits: `docs/probe-resources.md`.
 
-**Next**: decode descriptor update templates and push descriptors, with deterministic sandbox tests. Their intercepted paths currently invalidate stale bindings and report the unsupported path explicitly. Descriptor buffers and specialized descriptor types remain unimplemented. Shader metadata extraction is not full SPIR-V reflection. Submit-time snapshots do not answer record-time readability for G3 b/c; assess that separately once a game capture exists.
+**Added in 0.5.0, sandbox evidence only**: template creation/destruction, copied layout/entry definitions, offset/stride decoding, direct and template pushes with immutable per-recording contents, partial updates and layout disturbance. Push state is separate for each command buffer and bind point; secondary execution clears primary descriptor bindings. Native tracker 62 checks; 17 GPU probe configurations cover ordinary sets, templates, pushes and push templates through both entries with primary/secondary recording. Full suite passes; exact scope is in `docs/probe-resources.md`.
+
+**Remaining**: descriptor buffers, specialized descriptor types, dynamic inline pipeline layouts, swapchain image metadata and full SPIR-V reflection. Newer aliases and compute/texel push wrappers need GPU coverage. Prioritize extended paths using actual engine API usage when available. Buffer visibility is still measured at submit, even when push values are recorded earlier; G3 b/c require separate record-time byte-availability evidence.
 
 ### T-012: Measure the overhead of the probe (open)
 

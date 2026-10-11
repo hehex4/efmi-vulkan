@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.4.0, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.5.0, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`.
 
 ## Data path of the development probe
 
@@ -28,7 +28,7 @@ The technique mirrors `bootstrap.cpp` of the EFMI MCP probe, which redirects two
 | `layer/src/layer.cpp` | `vkNegotiateLoaderLayerInterfaceVersion`, instance and device creation (walks the loader's link info, fills the dispatch table), `GetInstanceProcAddr` / `GetDeviceProcAddr`, every hook. A hook forwards the call and, in probe mode, feeds the tracker. Pins the module so the pipe thread survives the loader unloading the layer |
 | `layer/src/bootstrap.cpp` | Inject entry: loader notification, export table redirection of `vulkan-1.dll`, jump stubs |
 | `layer/src/state.h` / `state.cpp` | Device registry; tracking of memory, buffers, pipelines, command buffers; application of buffer writes to shadows at submit time; frame assembly and statistics; the capture state machine; the probe requests and their JSON |
-| `layer/src/resources.h` / `resources.cpp` | Descriptor layouts, sets and contents; pipeline layout compatibility; images/views/samplers; shader bytecode retention and inspection |
+| `layer/src/resources.h` / `resources.cpp` | Descriptor layouts, sets, templates and immutable push contents; pipeline layout compatibility; images/views/samplers; shader bytecode retention and inspection |
 | `layer/src/resource_hooks.h` | Resource lifetime/update hooks included inside `layer.cpp`; unimplemented descriptor paths invalidate stale tracked knowledge |
 | `layer/src/ipc.cpp` | Named pipe server thread and request dispatch |
 | `layer/src/util.cpp` / `common.h` | Configuration from environment variables, log file, CRC-32C (SSE4.2 with a table fallback) |
@@ -36,7 +36,7 @@ The technique mirrors `bootstrap.cpp` of the EFMI MCP probe, which redirects two
 
 ### Hooks and dispatch
 
-`EFVK_DEVICE_FUNCS` in `state.h` generates dispatch slots, hooks and counters. `EFVK_TRACKED_FUNCS` feed state or explicitly invalidate unsupported descriptor paths. `EFVK_COUNTED_FUNCS` only count/forward pool and template creation, descriptor-buffer binding, push constants, render passes/framebuffers, image uploads and additional draw/dispatch forms. `CountedHook` generates these wrappers. Every hook increments its counter; `vkGetDeviceProcAddr` records requested names. Promoted/extension aliases have separate next-pointers. Device proc lookup offers hooks only when the next chain element implements them. Passthrough hooks only device destruction and present beyond the instance/device creation entry points.
+`EFVK_DEVICE_FUNCS` in `state.h` generates dispatch slots, hooks and counters. `EFVK_TRACKED_FUNCS` feed state or explicitly invalidate unsupported descriptor paths, including template lifetime and push commands. `EFVK_COUNTED_FUNCS` only count/forward pool creation, descriptor-buffer binding, push constants, render passes/framebuffers, image uploads and additional draw/dispatch forms. `CountedHook` generates these wrappers. Every hook increments its counter; `vkGetDeviceProcAddr` records requested names. Promoted/extension aliases have separate next-pointers. Device proc lookup offers hooks only when the next chain element implements them. Passthrough hooks only device destruction and present beyond the instance/device creation entry points.
 
 A device is found from a dispatchable handle through its dispatch key (the first pointer of the handle); a single-device fast path avoids the registry lock.
 
@@ -45,9 +45,9 @@ A device is found from a dispatchable handle through its dispatch key (the first
 - **Memory** (`MemInfo`): size, type index, the current mapping (pointer, offset, size), the buffers bound to it.
 - **Buffers** (`BufInfo`): id, size, usage, memory binding, a shadow byte array with an interval set of known bytes, a generation counter, a count of unknown writes.
 - **Pipelines** (`PipeInfo`): id, stages, topology, vertex input, retained pipeline layout, and stage entry points with shared references to `ShaderInfo` SPIR-V. Destroying a module drops its live-handle entry; pipeline references keep its bytecode alive. Weak id lookup entries are pruned on destruction.
-- **Descriptor layouts and sets**: retained immutable layout definitions, pool ownership, allocation ids, variable counts and sparse element values. Ordinary writes/copies are tracked under `res_mx`; template updates discard old values and report the unsupported path. Resource ids guard against handle reuse.
+- **Descriptor layouts, sets and templates**: retained immutable layout definitions, pool ownership, allocation ids, variable counts and sparse element values. Template entries are copied at creation and decoded by offset/stride using the ordinary-write decoder. Destruction removes the decoder without erasing previous updates. Resource ids guard against handle reuse; unknown template/layout paths discard stale values.
 - **Images, image/buffer views and samplers**: creation metadata and identities, removed at destruction. Image bytes and swapchain image creation are not tracked.
-- **Command buffers** (`CmdBuf`): pipelines, IB, VB slots 0 to 3, and separate graphics/compute descriptor slots 0 to 3. Set binds retain layout definitions and dynamic ranges; layout compatibility can disturb previous bindings. `DrawRec` snapshots binding state; byte/descriptor contents are resolved at submit. Records also retain thread/CB ids, writes and render-pass counters. Executing secondary buffers copies records in execution order and rebases dynamic-offset ranges. Additional shared references increase per-draw overhead; T-012 must measure it.
+- **Command buffers** (`CmdBuf`): pipelines, IB, VB slots 0 to 3, and separate graphics/compute descriptor slots 0 to 3. Set binds retain layout definitions and dynamic ranges; layout compatibility can disturb previous bindings. Push updates create immutable `DescriptorSetInfo` contents, retained by each subsequent `DrawRec`; partial writes copy compatible previous values. Ordinary descriptor contents and resource metadata resolve at submit. Records also retain thread/CB ids, writes and render-pass counters. Executing secondary buffers copies records in execution order, rebases dynamic offsets and invalidates primary descriptor bindings. Reset releases push state and recorded draws. Additional shared references and push copies increase overhead; T-012 must measure it.
 
 Locks: `res_mx` (shared mutex) guards memory, buffers and pipelines; `cb_mx` guards only the map of command buffers, not their content (one command buffer is recorded by one thread at a time, and read by the submitting thread after recording ended); `frame_mx` guards the frame being assembled and the capture state. Order when nested: `frame_mx` then `res_mx`. The pipe thread holds the registry lock shared while it serves one request, except while it waits for a capture.
 
@@ -63,7 +63,7 @@ Unmap, free and destroy take `res_mx` exclusively before the call goes down, so 
 
 `vkQueueSubmit(2)` adds the submitted command buffers to the current frame's statistics. `vkQueuePresentKHR` closes the frame. A capture request arms the state machine; the frame that starts at the next present is recorded in full and published at the present after it. For each draw of a captured frame the handles are resolved to ids and, for a direct indexed draw, the CRC-32C of the index range (`bind offset + index size * first index`, `index size * index count` bytes) is computed.
 
-During an armed capture, each set's descriptor contents are serialized into immutable JSON under `res_mx` at submit time. The snapshot includes effective buffer ranges/CPU visibility and image metadata, with unknown/truncated states explicit. It is not evidence of record-time readability or later GPU consumption of update-after-bind descriptors. Slots remain limited to 0 through 3 and each set emits at most 256 stored elements per draw.
+During an armed capture, descriptor contents are serialized into immutable JSON under `res_mx` at submit time. Ordinary set values resolve then; pushes use the immutable values retained during recording. `snapshot` distinguishes these timings, while `resource_snapshot: submit` describes resource identities/visibility and image metadata in both cases. A recorded buffer handle/range is not evidence of record-time byte readability or later GPU consumption. Unknown/truncated states are explicit. Slots remain limited to 0 through 3 and each set emits at most 256 stored elements per draw.
 
 ## Probe protocol
 
@@ -109,6 +109,8 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 ## Sandbox
 
 `sandbox/src/main.cpp` loads Vulkan at run time and opens a 640 x 360 secondary-screen window without focus. It draws five indexed meshes: three from device-local 16-bit IB A uploaded through staging, two from mapped 32-bit IB B at byte offset 16. Each draw binds set 0 (dynamic UBO) and set 1 (dynamic storage array, immutable sampler, sampled 1x1 image), alternating multi-set and separate calls. Descriptors are copied from a set that is freed; shader modules are destroyed before drawing. The trigger rewrites six indices through an unmapped staging buffer and updates one storage descriptor. `expected.json` contains independent CRC-32C fingerprints of the index regions and SPIR-V. `--threads N` records on N secondary-buffer threads; the three inject options still exercise early, late and late-with-export-resolution loading.
+
+`--descriptors template` uses padded application data and destroys the initial template before drawing; a second template performs the rewrite. `push` and `push-template` replace material set 1 with non-dynamic storage descriptors whose base offsets vary per draw, using KHR push commands. Direct pushes separate buffer and image writes to exercise incremental updates. These modes are tested with primary/secondary command buffers through both entries. The standard suite requires push-descriptor support and does not silently skip those cases.
 
 `sandbox/src/spirv.h` assembles the vertex and fragment shader word by word, because there is no shader compiler on the machine.
 

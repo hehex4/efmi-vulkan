@@ -1,4 +1,5 @@
-// Resource metadata and ordinary descriptor sets. All maps are guarded by res_mx.
+// Resource metadata, descriptor sets, templates and push descriptors.
+// Device maps are guarded by res_mx; recorded push contents are immutable.
 #pragma once
 
 #include "common.h"
@@ -91,6 +92,16 @@ struct DescriptorSetInfo {
     const char* unsupported = nullptr;
 };
 
+struct DescriptorTemplateInfo {
+    VkDescriptorUpdateTemplateType type = VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET;
+    VkPipelineBindPoint point = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    uint32_t set = 0;
+    bool complete = true;
+    std::shared_ptr<const DescriptorLayoutInfo> layout;
+    std::shared_ptr<const PipelineLayoutInfo> pipeline_layout;
+    std::vector<VkDescriptorUpdateTemplateEntry> entries;
+};
+
 struct Device;
 struct CmdBuf;
 struct SetBind;
@@ -117,7 +128,12 @@ void on_allocate_sets(Device*, const VkDescriptorSetAllocateInfo*, const VkDescr
 void on_free_sets(Device*, uint32_t, const VkDescriptorSet*);
 void on_clear_descriptor_pool(Device*, VkDescriptorPool);
 void on_update_sets(Device*, uint32_t, const VkWriteDescriptorSet*, uint32_t, const VkCopyDescriptorSet*);
-void on_unsupported_set_update(Device*, VkDescriptorSet);
+void on_create_descriptor_template(Device*, VkDescriptorUpdateTemplate, const VkDescriptorUpdateTemplateCreateInfo*);
+void on_destroy_descriptor_template(Device*, VkDescriptorUpdateTemplate);
+void on_update_template(Device*, VkDescriptorSet, VkDescriptorUpdateTemplate, const void*);
+void on_push_descriptors(Device*, CmdBuf*, VkPipelineBindPoint, VkPipelineLayout, uint32_t, uint32_t,
+                         const VkWriteDescriptorSet*);
+void on_push_template(Device*, CmdBuf*, VkDescriptorUpdateTemplate, VkPipelineLayout, uint32_t, const void*);
 void on_bind_sets(Device*, CmdBuf*, VkPipelineBindPoint, VkPipelineLayout, uint32_t, uint32_t,
                   const VkDescriptorSet*, uint32_t, const uint32_t*);
 void on_unsupported_descriptor_bind(CmdBuf*, VkPipelineBindPoint, const char*);

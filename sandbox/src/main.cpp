@@ -9,6 +9,7 @@
 //
 //   efmi_vk_sandbox [--seconds S] [--threads N] [--expected FILE] [--trigger FILE] [--primary-screen]
 //                   [--inject DLL | --inject-late DLL | --inject-late-exports DLL]
+//                   [--descriptors ordinary|template|push|push-template]
 //
 // --inject loads a DLL before the program touches Vulkan, the way a launcher injects one at
 // process start. --inject-late loads it after the device exists, which is too late to intercept.
@@ -31,6 +32,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -56,6 +58,7 @@
     X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout)          \
     X(DestroyPipelineLayout) X(CreateGraphicsPipelines) X(DestroyPipeline) X(CreateDescriptorPool)                     \
     X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets) X(CreateBuffer) X(DestroyBuffer) \
+    X(CreateDescriptorUpdateTemplate) X(DestroyDescriptorUpdateTemplate) X(UpdateDescriptorSetWithTemplate)           \
     X(CreateImage) X(DestroyImage) X(GetImageMemoryRequirements) X(BindImageMemory) X(CreateSampler) X(DestroySampler) \
     X(CmdPipelineBarrier) X(CmdClearColorImage)                                                                         \
     X(GetBufferMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) X(MapMemory) X(UnmapMemory)     \
@@ -65,12 +68,15 @@
     X(CmdSetViewport) X(CmdSetScissor) X(QueueSubmit) X(QueueWaitIdle) X(CreateSemaphore) X(DestroySemaphore)          \
     X(CreateFence) X(DestroyFence) X(WaitForFences) X(ResetFences)
 
+#define VK_PUSH_FUNCS(X) X(CmdPushDescriptorSetKHR) X(CmdPushDescriptorSetWithTemplateKHR)
+
 static HMODULE g_vulkan_lib;
 static PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 static PFN_vkCreateInstance vkCreateInstance;
 #define X(n) static PFN_vk##n vk##n;
 VK_INSTANCE_FUNCS(X)
 VK_DEVICE_FUNCS(X)
+VK_PUSH_FUNCS(X)
 #undef X
 
 #define CHECK(call)                                                                                                    \
@@ -159,6 +165,7 @@ struct App {
     std::wstring inject_path;
     bool inject_late = false;
     bool reresolve_exports = false;
+    int descriptor_mode = 0; // ordinary, template, push, push-template
 
     HWND window = nullptr;
     bool quit = false;
@@ -186,6 +193,8 @@ struct App {
     VkDescriptorPool desc_pool = VK_NULL_HANDLE;
     VkDescriptorSet desc_set = VK_NULL_HANDLE;
     VkDescriptorSet material_set = VK_NULL_HANDLE;
+    VkDescriptorUpdateTemplate material_template = VK_NULL_HANDLE, rewrite_template = VK_NULL_HANDLE;
+    uint32_t material_base = kUboSlot;
     VkImage texture = VK_NULL_HANDLE;
     VkDeviceMemory texture_mem = VK_NULL_HANDLE;
     VkImageView texture_view = VK_NULL_HANDLE;
@@ -402,12 +411,12 @@ static bool create_device()
     qinfo.queueCount = 1;
     qinfo.pQueuePriorities = &priority;
 
-    const char* exts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const char* exts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
     VkDeviceCreateInfo dinfo = {};
     dinfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     dinfo.queueCreateInfoCount = 1;
     dinfo.pQueueCreateInfos = &qinfo;
-    dinfo.enabledExtensionCount = 1;
+    dinfo.enabledExtensionCount = g.descriptor_mode >= 2 ? 2 : 1;
     dinfo.ppEnabledExtensionNames = exts;
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
 
@@ -418,6 +427,7 @@ static bool create_device()
         return false;                                                                                                  \
     }
     VK_DEVICE_FUNCS(X)
+    if (g.descriptor_mode >= 2) { VK_PUSH_FUNCS(X) }
 #undef X
     vkGetDeviceQueue(g.device, g.queue_family, 0, &g.queue);
     return true;
@@ -566,7 +576,9 @@ static bool create_pipeline()
     // Deliberately unsorted bindings: dynamic offsets follow binding numbers, not creation order.
     VkDescriptorSetLayoutBinding material[2] = {};
     material[0] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &g.sampler};
-    material[1] = {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 2, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    material[1] = {2, g.descriptor_mode >= 2 ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+                   2, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    sl.flags = g.descriptor_mode >= 2 ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
     sl.bindingCount = 2;
     sl.pBindings = material;
     CHECK(vkCreateDescriptorSetLayout(g.device, &sl, nullptr, &g.material_layout));
@@ -725,6 +737,39 @@ static void destroy_buffer(Buffer& b)
     b = Buffer();
 }
 
+// Padded application data deliberately differs from a packed Vulkan array.
+struct PaddedDescriptor { VkDescriptorBufferInfo buffer; uint64_t padding; };
+struct MaterialData {
+    uint64_t prefix;
+    PaddedDescriptor storage[2];
+    uint64_t gap;
+    VkDescriptorImageInfo texture;
+};
+
+static bool create_material_templates()
+{
+    if (g.descriptor_mode != 1 && g.descriptor_mode != 3) return true;
+    VkDescriptorUpdateTemplateEntry entries[] = {
+        {2, 0, 2, g.descriptor_mode == 3 ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+         offsetof(MaterialData, storage), sizeof(PaddedDescriptor)},
+        {5, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, offsetof(MaterialData, texture), 0},
+    };
+    VkDescriptorUpdateTemplateCreateInfo ci = {};
+    ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO;
+    ci.templateType = g.descriptor_mode == 3 ? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR :
+                                             VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET;
+    ci.descriptorSetLayout = g.material_layout;
+    ci.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; ci.pipelineLayout = g.layout; ci.set = 1;
+    ci.descriptorUpdateEntryCount = 2; ci.pDescriptorUpdateEntries = entries;
+    CHECK(vkCreateDescriptorUpdateTemplate(g.device, &ci, nullptr, &g.material_template));
+    if (g.descriptor_mode == 1) {
+        entries[0] = {2, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 0, sizeof(VkDescriptorBufferInfo)};
+        ci.descriptorUpdateEntryCount = 1;
+        CHECK(vkCreateDescriptorUpdateTemplate(g.device, &ci, nullptr, &g.rewrite_template));
+    }
+    return true;
+}
+
 static bool create_resources()
 {
     if (!make_buffer(g.vb, sizeof(kVertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true, true))
@@ -803,8 +848,8 @@ static bool create_resources()
     da.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     da.descriptorPool = g.desc_pool;
     VkDescriptorSetLayout layouts[] = {g.set_layout, g.material_layout, g.material_layout};
-    VkDescriptorSet sets[3];
-    da.descriptorSetCount = 3;
+    VkDescriptorSet sets[3] = {};
+    da.descriptorSetCount = g.descriptor_mode >= 2 ? 1 : 3;
     da.pSetLayouts = layouts;
     CHECK(vkAllocateDescriptorSets(g.device, &da, sets));
     g.desc_set = sets[0];
@@ -837,8 +882,19 @@ static bool create_resources()
     copies[0].descriptorCount = 2;
     copies[1].srcBinding = copies[1].dstBinding = 5;
     copies[1].descriptorCount = 1;
-    vkUpdateDescriptorSets(g.device, 3, writes, 2, copies);
-    CHECK(vkFreeDescriptorSets(g.device, g.desc_pool, 1, &sets[2]));
+    if (!create_material_templates()) return false;
+    if (g.descriptor_mode == 1) {
+        MaterialData data = {};
+        data.storage[0].buffer = storage[0]; data.storage[1].buffer = storage[1]; data.texture = texture;
+        vkUpdateDescriptorSets(g.device, 1, writes, 0, nullptr);
+        vkUpdateDescriptorSetWithTemplate(g.device, sets[2], g.material_template, &data);
+        vkUpdateDescriptorSets(g.device, 0, nullptr, 2, copies);
+        // The template and copy source both die before any draw is recorded.
+        vkDestroyDescriptorUpdateTemplate(g.device, g.material_template, nullptr);
+        g.material_template = VK_NULL_HANDLE;
+    } else if (g.descriptor_mode >= 2) vkUpdateDescriptorSets(g.device, 1, writes, 0, nullptr);
+    else vkUpdateDescriptorSets(g.device, 3, writes, 2, copies);
+    if (g.descriptor_mode < 2) CHECK(vkFreeDescriptorSets(g.device, g.desc_pool, 1, &sets[2]));
 
     VkCommandPoolCreateInfo cp = {};
     cp.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -933,7 +989,7 @@ static bool write_expected()
 {
     if (g.expected_path.empty())
         return true;
-    std::string out = "{\n";
+    std::string out = "{\n  \"descriptor_mode\": " + std::to_string(g.descriptor_mode) + ",\n";
     char line[512];
     snprintf(line, sizeof(line), "  \"pid\": %lu,\n  \"threads\": %d,\n  \"rewrite_draw\": %d,\n  \"draws\": [\n",
              GetCurrentProcessId(), g.threads, kRewriteDraw);
@@ -996,7 +1052,26 @@ static void record_draw(VkCommandBuffer cb, int i)
                       kUboSlot * static_cast<uint32_t>(kDrawCount - i - 1)};
     VkDescriptorSet sets[] = {g.desc_set, g.material_set};
     // Exercise both a multi-set bind and a nonzero firstSet.
-    if (i % 2 == 0)
+    if (g.descriptor_mode >= 2) {
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 0, 1, sets, 1, dyn);
+        MaterialData data = {};
+        data.storage[0].buffer = {g.storage.buf, g.material_base + dyn[1], 16};
+        data.storage[1].buffer = {g.storage.buf, dyn[2], 16};
+        data.texture = {VK_NULL_HANDLE, g.texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        if (g.descriptor_mode == 3)
+            vkCmdPushDescriptorSetWithTemplateKHR(cb, g.material_template, g.layout, 1, &data);
+        else {
+            VkDescriptorBufferInfo buffers[] = {data.storage[0].buffer, data.storage[1].buffer};
+            VkWriteDescriptorSet w = {};
+            w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w.dstBinding = 2; w.descriptorCount = 2; w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            w.pBufferInfo = buffers;
+            vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 1, 1, &w);
+            w.dstBinding = 5; w.descriptorCount = 1; w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w.pImageInfo = &data.texture;
+            vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 1, 1, &w);
+        }
+    } else if (i % 2 == 0)
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 0, 2, sets, 3, dyn);
     else {
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 0, 1, sets, 1, dyn);
@@ -1059,7 +1134,9 @@ static bool render_frame()
         write.descriptorCount = 1;
         write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
         write.pBufferInfo = &bi;
-        vkUpdateDescriptorSets(g.device, 1, &write, 0, nullptr);
+        if (g.descriptor_mode == 1) vkUpdateDescriptorSetWithTemplate(g.device, g.material_set, g.rewrite_template, &bi);
+        else if (g.descriptor_mode == 0) vkUpdateDescriptorSets(g.device, 1, &write, 0, nullptr);
+        g.material_base = 0;
     }
 
     CHECK(vkResetCommandBuffer(g.primary, 0));
@@ -1160,6 +1237,8 @@ static void cleanup()
         vkDestroyCommandPool(g.device, g.pool, nullptr);
     if (g.desc_pool)
         vkDestroyDescriptorPool(g.device, g.desc_pool, nullptr);
+    if (g.material_template) vkDestroyDescriptorUpdateTemplate(g.device, g.material_template, nullptr);
+    if (g.rewrite_template) vkDestroyDescriptorUpdateTemplate(g.device, g.rewrite_template, nullptr);
     destroy_buffer(g.vb);
     destroy_buffer(g.ib_a);
     destroy_buffer(g.ib_b);
@@ -1201,6 +1280,14 @@ int wmain(int argc, wchar_t** argv)
             g.seconds = _wtoi(argv[++i]);
         else if (a == L"--threads" && i + 1 < argc)
             g.threads = _wtoi(argv[++i]);
+        else if (a == L"--descriptors" && i + 1 < argc) {
+            std::wstring mode = argv[++i];
+            if (mode == L"ordinary") g.descriptor_mode = 0;
+            else if (mode == L"template") g.descriptor_mode = 1;
+            else if (mode == L"push") g.descriptor_mode = 2;
+            else if (mode == L"push-template") g.descriptor_mode = 3;
+            else { printf("unknown descriptor mode\n"); return 2; }
+        }
         else if (a == L"--expected" && i + 1 < argc)
             g.expected_path = argv[++i];
         else if (a == L"--trigger" && i + 1 < argc)

@@ -56,7 +56,8 @@ TOOLS = [
     {
         "name": "efvk_get_draw",
         "description": "Everything recorded for one draw of the captured frame: bindings of index and vertex buffers, "
-                       "descriptor set contents at submit (buffers, effective ranges, image views, formats and sizes), "
+                       "ordinary descriptor contents at submit and push values at record time "
+                       "(buffer visibility and image metadata at submit), "
                        "dynamic offsets, pipeline vertex layout and shader ids. This does not prove record-time data availability.",
         "inputSchema": _schema({"n": {"type": "integer"}}, ["n"]),
     },

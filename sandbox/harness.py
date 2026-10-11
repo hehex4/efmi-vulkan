@@ -89,7 +89,8 @@ class Sandbox:
     """Runs the sandbox program and waits until it has written its expected values."""
 
     def __init__(self, threads: int = 2, seconds: int = 60, with_layer: bool = True, mode: str | None = "probe",
-                 env_extra: dict | None = None, entry: str = "layer", inject_dll: str | None = None):
+                 env_extra: dict | None = None, entry: str = "layer", inject_dll: str | None = None,
+                 descriptors: str = "ordinary"):
         """``entry``: ``layer`` (the Vulkan loader loads the layer), ``inject`` (the sandbox loads
         the DLL before it touches Vulkan), ``inject-late`` (after its device exists) or
         ``inject-late-exports`` (late, and the device functions are then resolved again through
@@ -102,6 +103,7 @@ class Sandbox:
         self.inject_dll = inject_dll or INJECT_DLL
         self.mode = mode
         self.env_extra = env_extra
+        self.descriptors = descriptors
         self.dir = test_dir("sandbox-")
         self.expected_path = os.path.join(self.dir, "expected.json")
         self.trigger_path = os.path.join(self.dir, "rewrite.trigger")
@@ -115,7 +117,7 @@ class Sandbox:
         if not os.path.isfile(SANDBOX_EXE):
             raise RuntimeError("%s is missing; run scripts/build.py" % SANDBOX_EXE)
         args = [SANDBOX_EXE, "--seconds", str(self.seconds), "--threads", str(self.threads),
-                "--expected", self.expected_path, "--trigger", self.trigger_path]
+                "--expected", self.expected_path, "--trigger", self.trigger_path, "--descriptors", self.descriptors]
         if not self.with_layer:
             env = dict(os.environ)
         elif self.entry == "layer":
