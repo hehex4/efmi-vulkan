@@ -28,6 +28,7 @@ STEPS = [
     ("many-draw timing", [os.path.join(HERE, "timing_test.py")]),
     ("Vulkan validation", [os.path.join(HERE, "validation_test.py")]),
     ("MCP end to end", [os.path.join(HERE, "mcp_test.py")]),
+    ("probe evidence", [os.path.join(HERE, "evidence_test.py")]),
 ]
 
 

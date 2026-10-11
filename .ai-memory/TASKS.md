@@ -34,6 +34,8 @@ Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` 
 
 ### T-010: Gates G2 and G3 in the real game (prepared; needs the first user-initiated probe session)
 
+Preparation complete: `scripts/collect_probe.py` and `docs/first-probe-session.md` preserve raw frames, API usage, matching evidence and bounded shader/pipeline exports in a labelled, hashed bundle. Sandbox evidence-export regression passes 52 checks; it cannot substitute for a game session. The next required step is actual data, not further duration-only testing.
+
 Start by collecting `efvk_api_usage` to identify the engine's actual paths. G2 is answered by `efvk_status` and `efvk_capture_frame` (threads, command buffers, secondary buffers, submits, render pass kinds). G3 item a is answered by `efvk_match_mod` on `arcane fes 1.2`, with the corresponding character visible. Items b, c and d need T-011. Historical passthrough logs contain none of these captures; D-014 removes the repeated-duration prerequisite but does not supply missing frame data.
 
 ### T-011: Track descriptor sets, shader modules and images (standard paths implemented; extended coverage open, M1)

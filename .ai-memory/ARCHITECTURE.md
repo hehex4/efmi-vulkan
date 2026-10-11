@@ -103,6 +103,7 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 | `server/efmi_vk/mods.py` | Reads the TextureOverride sections of mod INIs (hash, `match_first_index`, `match_index_count`) and matches them against captured draws |
 | `server/efmi_vk/tools.py` | `Session` (pipe connection, last capture) and eleven tools; `ToolError` |
 | `server/efmi_vk/spirv.py` | Limited declared-name and direct set/binding metadata; not full reflection |
+| `server/efmi_vk/evidence.py`, `scripts/collect_probe.py` | Explicit-target raw frame/counter/match export, bounded retained shaders, file fingerprints and query-gap reporting |
 | `server/efmi_vk/mcp_stdio.py` | JSON-RPC 2.0 over stdio: `initialize`, `ping`, `tools/list`, `tools/call` |
 | `server/run_server.py`, `server/efvk.py` | Entry points: MCP server, command line |
 

@@ -61,6 +61,10 @@ MCP server for agents: `python server\run_server.py` (registered for this worksp
 
 See [resource inspection](docs/probe-resources.md) for the descriptor snapshot schema, SPIR-V export, verified paths and remaining limits. Ordinary set values resolve at submit; push values are retained when recorded. Resource visibility remains a submit-time observation, not evidence of record-time buffer availability.
 
+`scripts/collect_probe.py` saves a complete frame observation and bounded pipeline/shader exports
+from an explicitly selected running probe. See [the first probe session](docs/first-probe-session.md)
+for evidence boundaries and the next game-data step. It never launches or injects a process.
+
 ## Offline analysis
 
 `python scripts\verify_region_hash.py <FrameAnalysis folder>` checks the region hash rule against an XXMI frame dump: for every indexed draw it recomputes the CRC-32C of the index range and compares it with the hash in the dump's file name.

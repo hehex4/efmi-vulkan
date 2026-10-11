@@ -2,6 +2,14 @@
 
 > Last updated: 2026-10-11. Layer 0.5.0 (probe, protocol 1), server 0.1.0, verified in the sandbox and available in `dist/` with probe mode configured. The last game-loaded DLL was 0.2.0 passthrough. Historical run 3 is accepted as initial G1 loading evidence; the 30-minute observation is deferred (D-014). Long-duration stability is unverified. No probe-mode game data exists; G2/G3 remain open.
 
+## First-probe exporter ready; game-data boundary reached (2026-10-11)
+
+`scripts/collect_probe.py` now saves raw frames, API counters/status before and after, INI fingerprints/matches, G2 summaries and bounded retained shader/pipeline exports. Explicit PID/target labels prevent treating a sandbox capture as game evidence; output cannot overwrite an earlier bundle. Missing post-capture objects and pipeline limits are explicit gaps; a manifest with file SHA-256 values is written last. The collector never launches or injects anything.
+
+Sandbox verification: 52 checks through both entries, push templates and secondary buffers, including failed-query retention, evidence hashes, wrong-scope and overwrite refusal. All current M0/M1 offline prerequisites (T-007/T-012/T-015 and capture preparation) are complete. The next backend decision needs real G2/G3 data; see `docs/first-probe-session.md`. Dist remains 0.5.0 probe with the corrected sandbox; real-game loading of this version and real-character capture remain unverified. Historical run 3 remains accepted initial G1 evidence; no repeated 30-minute run is required.
+
+Final regression against `dist/` passes: Python 44, native tracker 62, all 17 probe configurations, modes 40, timing 84, core/synchronization validation 76, MCP 46 and evidence export 52 (`build/final-offline-regression.txt`). Native tests now write only to their own `build/tests/` log. A test startup line appended to the historical game log was identified and preserved separately, and the exact original bytes were restored; the corrected native run passes 62 checks without changing that log (BUG-002). DLL and sandbox hashes match the tested `build/next/` copies.
+
 ## Compatibility inventory complete (2026-10-11; static evidence)
 
 T-007 is complete: docs/compatibility-inventory.md plus the metadata-only compatibility-inputs.json pin 46 Core files, 86 mod files, game binary/content indices and the matching XXMI source. The local 1.2.2.0 DLL exactly matches the official v1.2.2 archive; source commit a7847eae82aaac32175c9a7d199673d5c9323bcd. Game engine version is 2021.3.34.0; no marketing/content version label was recovered, so exact selected-file hashes identify the build. The reproducible inventory check matches all saved metadata.
@@ -120,7 +128,7 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 
 ## Workspace (2026-10-11)
 
-`docs/plan.md` is the English v2 plan; `.ai-memory/` and `AGENTS.md` are in place; `scripts/check_text.py` enforces the no-Chinese rule; the Git repository is on branch `main` with no remote; `.mcp.json` registers the MCP server `efmi-vk` for this workspace (a session picks it up when it starts).
+`docs/plan.md` is the English v2 plan; `.ai-memory/` and `AGENTS.md` are in place; `scripts/check_text.py` enforces the no-Chinese rule; the Git repository is on branch `main`. The final check found an existing `origin` at `https://github.com/loyal37/efmi-vulkan.git`, superseding the earlier no-remote observation. This round did not configure it or push anything; changes were committed locally. `.mcp.json` registers the MCP server `efmi-vk` for this workspace (a session picks it up when it starts).
 
 ## Next
 
