@@ -83,6 +83,7 @@ static std::unordered_map<void*, Device*> g_devs;
 static std::atomic<void*> g_fast_key{nullptr};
 static std::atomic<Device*> g_fast_dev{nullptr};
 static std::atomic<Device*> g_active{nullptr};
+static std::atomic<Device*> g_passive{nullptr};
 static HANDLE g_cap_event = nullptr;
 static std::once_flag g_cap_event_once;
 
@@ -132,9 +133,22 @@ Device* dev_of_key(void* key)
         if (d)
             return d;
     }
-    std::shared_lock<std::shared_mutex> lock(g_dev_mx);
-    auto it = g_devs.find(key);
-    return it == g_devs.end() ? nullptr : it->second;
+    {
+        std::shared_lock<std::shared_mutex> lock(g_dev_mx);
+        auto it = g_devs.find(key);
+        if (it != g_devs.end())
+            return it->second;
+    }
+    Device* passive = g_passive.load(std::memory_order_acquire);
+    if (passive)
+        g_attach.passive_calls.fetch_add(1, std::memory_order_relaxed);
+    return passive;
+}
+
+void dev_set_passive(Device* dev)
+{
+    dev->passive = true;
+    g_passive.store(dev, std::memory_order_release);
 }
 
 DeviceRef::DeviceRef() : lock(g_dev_mx)
@@ -174,6 +188,8 @@ CmdBuf* cb_of(Device* dev, VkCommandBuffer cb)
     static thread_local CmdBuf* t_cb = nullptr;
     static thread_local uint64_t t_epoch = 0;
 
+    if (dev->passive)
+        return nullptr;
     uint64_t epoch = dev->cb_epoch.load(std::memory_order_acquire);
     if (t_dev == dev && t_handle == cb && t_epoch == epoch)
         return t_cb;
@@ -199,6 +215,8 @@ static void add_thread(std::vector<uint32_t>& list, uint32_t tid)
 
 void on_alloc_memory(Device* dev, VkDeviceMemory mem, const VkMemoryAllocateInfo* info)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     MemInfo& m = dev->mems[mem];
     m = MemInfo();
@@ -208,6 +226,8 @@ void on_alloc_memory(Device* dev, VkDeviceMemory mem, const VkMemoryAllocateInfo
 
 void on_free_memory(Device* dev, VkDeviceMemory mem)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->mems.find(mem);
     if (it == dev->mems.end())
@@ -222,6 +242,8 @@ void on_free_memory(Device* dev, VkDeviceMemory mem)
 
 void on_map_memory(Device* dev, VkDeviceMemory mem, uint64_t off, uint64_t size, void* data)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->mems.find(mem);
     if (it == dev->mems.end())
@@ -234,6 +256,8 @@ void on_map_memory(Device* dev, VkDeviceMemory mem, uint64_t off, uint64_t size,
 
 void on_unmap_memory(Device* dev, VkDeviceMemory mem)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->mems.find(mem);
     if (it == dev->mems.end())
@@ -264,6 +288,8 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
 
 void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     BufInfo& b = dev->bufs[buf];
     if (b.id)
@@ -277,6 +303,8 @@ void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info)
 
 void on_destroy_buffer(Device* dev, VkBuffer buf)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->bufs.find(buf);
     if (it == dev->bufs.end())
@@ -294,6 +322,8 @@ void on_destroy_buffer(Device* dev, VkBuffer buf)
 
 void on_bind_buffer(Device* dev, VkBuffer buf, VkDeviceMemory mem, uint64_t off)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->bufs.find(buf);
     if (it == dev->bufs.end())
@@ -307,6 +337,8 @@ void on_bind_buffer(Device* dev, VkBuffer buf, VkDeviceMemory mem, uint64_t off)
 
 void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsPipelineCreateInfo* info)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     PipeInfo& p = dev->pipes[pipe];
     if (p.id)
@@ -332,6 +364,8 @@ void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsP
 
 void on_create_compute_pipeline(Device* dev, VkPipeline pipe)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     PipeInfo& p = dev->pipes[pipe];
     if (p.id)
@@ -345,6 +379,8 @@ void on_create_compute_pipeline(Device* dev, VkPipeline pipe)
 
 void on_destroy_pipeline(Device* dev, VkPipeline pipe)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->pipes.find(pipe);
     if (it == dev->pipes.end())
@@ -382,6 +418,8 @@ ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t
 
 void on_alloc_cbs(Device* dev, const VkCommandBufferAllocateInfo* info, const VkCommandBuffer* cbs)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->cb_mx);
     for (uint32_t i = 0; i < info->commandBufferCount; i++) {
         std::unique_ptr<CmdBuf> cb(new CmdBuf());
@@ -396,6 +434,8 @@ void on_alloc_cbs(Device* dev, const VkCommandBufferAllocateInfo* info, const Vk
 
 void on_free_cbs(Device* dev, uint32_t count, const VkCommandBuffer* cbs)
 {
+    if (dev->passive)
+        return;
     if (!cbs)
         return;
     std::unique_lock<std::shared_mutex> lock(dev->cb_mx);
@@ -407,6 +447,8 @@ void on_free_cbs(Device* dev, uint32_t count, const VkCommandBuffer* cbs)
 
 void on_destroy_pool(Device* dev, VkCommandPool pool)
 {
+    if (dev->passive)
+        return;
     std::unique_lock<std::shared_mutex> lock(dev->cb_mx);
     for (auto it = dev->cbs.begin(); it != dev->cbs.end();) {
         if (it->second->pool == pool)
@@ -419,6 +461,8 @@ void on_destroy_pool(Device* dev, VkCommandPool pool)
 
 void on_reset_pool(Device* dev, VkCommandPool pool)
 {
+    if (dev->passive)
+        return;
     std::shared_lock<std::shared_mutex> lock(dev->cb_mx);
     for (auto& kv : dev->cbs)
         if (kv.second->pool == pool)
@@ -624,6 +668,8 @@ static void capture_draws(Device* dev, CmdBuf* cb, Capture& cap, uint32_t submit
 
 void on_submit(Device* dev, uint32_t count, const VkCommandBuffer* cbs)
 {
+    if (dev->passive)
+        return;
     std::lock_guard<std::mutex> lock(dev->frame_mx);
     FrameStats& st = dev->cur;
     uint32_t submit = st.submits++;
@@ -662,6 +708,8 @@ void on_submit(Device* dev, uint32_t count, const VkCommandBuffer* cbs)
 
 void on_present(Device* dev)
 {
+    if (dev->passive)
+        return;
     std::lock_guard<std::mutex> lock(dev->frame_mx);
     dev->cur.frame = dev->frame_no;
     dev->total_draws += dev->cur.draws;
@@ -759,6 +807,16 @@ std::string probe_status()
     w.kv("exe", exe_name());
     w.kv("mode", g_cfg.mode == Mode::Passthrough ? "passthrough" : "probe");
     w.kv("crc", crc32c_uses_hardware() ? "sse4.2" : "table");
+    w.kv("entry", g_cfg.entry == Entry::Inject ? "inject" : "layer");
+    w.key("attach");
+    w.begin_object();
+    w.kb("loader_found", g_attach.loader_found.load() != 0);
+    w.kb("loader_was_loaded", g_attach.loader_was_loaded.load() != 0);
+    w.kn("exports_redirected", g_attach.exports_redirected.load());
+    w.kn("instances_created", g_attach.instances_created.load());
+    w.kn("devices_created", g_attach.devices_created.load());
+    w.kn("passive_calls", g_attach.passive_calls.load());
+    w.end_object();
     w.key("features");
     w.begin_array();
     w.str("capture");

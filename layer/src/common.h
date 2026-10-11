@@ -15,11 +15,13 @@
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_layer.h>
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
-#define EFVK_VERSION "0.1.0"
+#define EFVK_VERSION "0.2.0"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -32,14 +34,48 @@ enum class Mode {
     Probe,       // read-only tracking, frame capture and the named pipe
 };
 
+// How the DLL got its place in front of the Vulkan calls of the process.
+enum class Entry {
+    Layer,  // the Vulkan loader loaded it as a layer and chains it in
+    Inject, // something loaded it with LoadLibrary; it redirects the exports of vulkan-1.dll itself
+};
+
 struct Config {
     Mode mode = Mode::Probe;
+    Entry entry = Entry::Layer;
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped
     uint32_t shadow_usage = 0;                   // VkBufferUsageFlags that get a CPU shadow (set in util.cpp)
 };
 
 extern Config g_cfg;
+
+// What happened while attaching; reported by the status command.
+struct AttachInfo {
+    std::atomic<uint32_t> loader_found{0};        // vulkan-1.dll was seen
+    std::atomic<uint32_t> loader_was_loaded{0};   // it was already in the process when the DLL arrived
+    std::atomic<uint32_t> exports_redirected{0};  // export table entries pointed at the hooks
+    std::atomic<uint32_t> instances_created{0};
+    std::atomic<uint32_t> devices_created{0};
+    std::atomic<uint64_t> passive_calls{0};       // hooked calls for a device created before attaching
+};
+
+extern AttachInfo g_attach;
+
+// One export of vulkan-1.dll to redirect: where it should lead, and where to
+// store the address it had.
+struct ExportHook {
+    const char* name;
+    void* hook;
+    void** original;
+};
+
+// layer.cpp
+void collect_export_hooks(std::vector<ExportHook>& out);
+void exports_resolved();
+
+// bootstrap.cpp
+void bootstrap_start();
 
 void util_init(HMODULE self);
 void logf(const char* fmt, ...);

@@ -41,7 +41,12 @@ Previous version (v1, not in this repository): `D:\XXMI-Launcher-Portable-v2.1.6
 
 ## 3 Design decisions
 
-**D1 The entry point is our own Vulkan layer, not ReShade.** The project needs every detail of memory mapping, buffer binding, descriptor updates and pipeline creation, and ReShade exposes only part of that. The layer is registered as an implicit layer whose manifest uses `enable_environment`, so that only a process for which the launcher set the variable enables it; inside, the layer also checks the process name. Whether the game process is elevated changes which registration locations the loader reads; this is settled by G1.
+**D1 The entry point is our own DLL in front of the Vulkan calls, not ReShade.** The project needs every detail of memory mapping, buffer binding, descriptor updates and pipeline creation, and ReShade exposes only part of that. The same sources give two ways in:
+
+- *Inject entry, the one for the game.* The mod launcher loads the DLL with its ordinary injection, the way XXMI brings `d3d11.dll` and extra libraries into the game today (the launcher log shows `d3d11.dll, efmi_probe.dll` injected into `Endfield.exe` about two seconds after the process starts). The DLL then redirects, in memory, the export table entries of `vulkan-1.dll` to its hooks. No registry entry, no system-wide change, no dependence on whether the process is elevated. The condition is timing: the DLL has to be in the process before the engine resolves its Vulkan functions. The status command reports whether it was.
+- *Layer entry.* The Vulkan loader loads the DLL as a layer through a manifest. The sandbox tests use it, and it remains the fallback for the game. For an elevated process it needs an implicit layer entry under HKLM, which is a system-wide change.
+
+Settings for a process started by a launcher come from `efmi_vk.cfg` next to the DLL, because such a process cannot easily be given environment variables.
 
 **D2 The compatibility surface is "mod INI plus the EFMIv1 interface", not DX11 semantics.** Mods talk to Core through command lists, variables, callbacks and pools in the `\EFMIv1\` namespace. The project supplies a Vulkan edition of Core (Core-VK below) whose interface names and semantics match Core 1.4.8. Pure logic (the spatial identification state machine, variables, pools) keeps the original INI wherever possible; every command list that touches DX11 slots, compute shaders or buffer copies becomes a native built-in command.
 
@@ -117,9 +122,9 @@ All three are done within M1. G1 and G3 are stop conditions; G2 is an input to t
 
 ### G1 Can the layer load
 
-Procedure: a layer that passes everything through and writes one log line is loaded through the normal launch flow; the game runs for 30 minutes including scene changes. Record whether the game process is elevated and from which registration location the layer was finally loaded.
+Procedure: `efmi_vk_inject.dll` in passthrough mode (set in `efmi_vk.cfg`) is added to the launcher's extra libraries, and the game is started through the launcher without the `-force-d3d11` argument, so that it runs on Vulkan. The game runs for 30 minutes including scene changes. Record from the layer's log whether `vulkan-1.dll` was already loaded when the DLL arrived, how many exports were redirected, and whether instance and device creation were seen. Both launcher settings belong to the user and are changed by the user.
 
-Pass: the game behaves as it does without the layer; no dialog, crash or disconnect.
+Pass: the game behaves as it does without the DLL; no dialog, crash or disconnect; and the log shows that device creation was seen, which means the DLL arrived in time. If the DLL arrives too late, the game is unaffected but nothing is intercepted, and the layer entry is tried instead.
 
 Fail: the project stops.
 

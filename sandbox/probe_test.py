@@ -37,9 +37,9 @@ def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: 
         c.check(got["rp"] == 1, label + " inside the first render pass", got["rp"])
 
 
-def run(threads: int) -> int:
-    c = Checks("probe_test threads=%d" % threads)
-    with Sandbox(threads=threads) as sb:
+def run(threads: int, entry: str) -> int:
+    c = Checks("probe_test entry=%s threads=%d" % (entry, threads))
+    with Sandbox(threads=threads, entry=entry) as sb:
         expected = sb.expected
         c.check(sb.pid in list_probes(), "the sandbox serves a probe pipe", sb.log())
         with ProbeClient(sb.pid) as probe:
@@ -49,6 +49,16 @@ def run(threads: int) -> int:
             c.equal(status["exe"], "efmi_vk_sandbox.exe", "status exe")
             c.check(bool(status["device"]["name"]), "device name reported")
             c.check("capture" in status["features"], "capture feature listed")
+            c.equal(status["entry"], entry, "status entry")
+            attach = status["attach"]
+            c.equal(attach["devices_created"], 1, "one device seen at creation")
+            c.equal(attach["passive_calls"], 0, "no call for an unknown device")
+            if entry == "inject":
+                c.equal(attach["loader_found"], True, "vulkan-1.dll was found")
+                c.equal(attach["loader_was_loaded"], False, "the DLL arrived before vulkan-1.dll")
+                c.check(attach["exports_redirected"] >= 40, "exports were redirected", attach["exports_redirected"])
+            else:
+                c.equal(attach["exports_redirected"], 0, "a layer redirects no export")
 
             cap = probe.capture(timeout_ms=5000)
             stats = cap["stats"]
@@ -131,13 +141,14 @@ def run(threads: int) -> int:
         log = sb.log()
         c.check("loaded into efmi_vk_sandbox.exe" in log, "the layer logged that it was loaded")
         c.check("device created" in log, "the layer logged the device")
+        c.check("entry=%s" % entry in log, "the layer logged its entry")
     return c.finish()
 
 
 def main() -> int:
     worst = 0
-    for threads in (0, 2, 5):
-        worst = max(worst, run(threads))
+    for entry, threads in (("layer", 0), ("layer", 2), ("layer", 5), ("inject", 0), ("inject", 2)):
+        worst = max(worst, run(threads, entry))
     return worst
 
 

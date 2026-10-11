@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -20,6 +21,7 @@ VULKAN_ROOT = os.environ.get("EFMI_VK_VULKAN_ROOT", r"F:\vulkan")
 
 LAYER_NAME = "VK_LAYER_EFMI_probe"
 LAYER_DLL = "efmi_vk_layer.dll"
+INJECT_DLL = "efmi_vk_inject.dll"
 LAYER_JSON = "efmi_vk_layer.json"
 SANDBOX_EXE = "efmi_vk_sandbox.exe"
 
@@ -129,6 +131,9 @@ def build_layer(vcvars: str, include: str, out: str) -> str:
     with open(os.path.join(out, LAYER_JSON), "w", encoding="ascii", newline="\n") as f:
         json.dump(manifest, f, indent=2)
         f.write("\n")
+    # The file name selects the entry (see layer/src/util.cpp): the loader is given the layer
+    # DLL through the manifest, an injector is given this copy.
+    shutil.copyfile(dll, os.path.join(out, INJECT_DLL))
     return dll
 
 

@@ -12,6 +12,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.environ.get("EFMI_VK_DIST", os.path.join(ROOT, "dist"))
 SANDBOX_EXE = os.path.join(DIST, "efmi_vk_sandbox.exe")
+INJECT_DLL = os.path.join(DIST, "efmi_vk_inject.dll")
 LAYER_NAME = "VK_LAYER_EFMI_probe"
 
 sys.path.insert(0, os.path.join(ROOT, "server"))
@@ -51,11 +52,25 @@ def layer_env(log_path: str | None = None, mode: str = "probe", extra: dict | No
     are repeatable. An elevated process ignores VK_LAYER_PATH, so this works only
     for children without elevation.
     """
-    env = dict(os.environ)
+    env = inject_env(log_path, mode, extra)
     env["VK_LAYER_PATH"] = DIST
     env["VK_INSTANCE_LAYERS"] = LAYER_NAME
+    return env
+
+
+def inject_env(log_path: str | None = None, mode: str | None = "probe", extra: dict | None = None) -> dict:
+    """Environment of a child process into which the DLL is loaded with LoadLibrary.
+
+    No Vulkan loader variable points at the layer here; the variables only configure
+    the DLL once it is in the process. With ``mode=None`` the mode is left to the
+    settings file next to the DLL.
+    """
+    env = dict(os.environ)
+    for name in ("VK_INSTANCE_LAYERS", "VK_LAYER_PATH", "EFMI_VK_MODE", "EFMI_VK_ENTRY", "EFMI_VK_LOG"):
+        env.pop(name, None)
     env["VK_LOADER_LAYERS_DISABLE"] = "~implicit~"
-    env["EFMI_VK_MODE"] = mode
+    if mode is not None:
+        env["EFMI_VK_MODE"] = mode
     if log_path:
         env["EFMI_VK_LOG"] = log_path
     if extra:
@@ -66,11 +81,18 @@ def layer_env(log_path: str | None = None, mode: str = "probe", extra: dict | No
 class Sandbox:
     """Runs the sandbox program and waits until it has written its expected values."""
 
-    def __init__(self, threads: int = 2, seconds: int = 60, with_layer: bool = True, mode: str = "probe",
-                 env_extra: dict | None = None):
+    def __init__(self, threads: int = 2, seconds: int = 60, with_layer: bool = True, mode: str | None = "probe",
+                 env_extra: dict | None = None, entry: str = "layer", inject_dll: str | None = None):
+        """``entry``: ``layer`` (the Vulkan loader loads the layer), ``inject`` (the sandbox loads
+        the DLL before it touches Vulkan), ``inject-late`` (after its device exists) or
+        ``inject-late-exports`` (late, and the device functions are then resolved again through
+        the exports of vulkan-1.dll). Ignored when ``with_layer`` is false. ``inject_dll`` replaces
+        the DLL from dist/ for the inject entries."""
         self.threads = threads
         self.seconds = seconds
         self.with_layer = with_layer
+        self.entry = entry
+        self.inject_dll = inject_dll or INJECT_DLL
         self.mode = mode
         self.env_extra = env_extra
         self.dir = tempfile.mkdtemp(prefix="efvk-sandbox-")
@@ -85,11 +107,20 @@ class Sandbox:
     def __enter__(self):
         if not os.path.isfile(SANDBOX_EXE):
             raise RuntimeError("%s is missing; run scripts/build.py" % SANDBOX_EXE)
-        env = layer_env(self.log_path, self.mode, self.env_extra) if self.with_layer else dict(os.environ)
+        args = [SANDBOX_EXE, "--seconds", str(self.seconds), "--threads", str(self.threads),
+                "--expected", self.expected_path, "--trigger", self.trigger_path]
+        if not self.with_layer:
+            env = dict(os.environ)
+        elif self.entry == "layer":
+            env = layer_env(self.log_path, self.mode, self.env_extra)
+        else:
+            if not os.path.isfile(self.inject_dll):
+                raise RuntimeError("%s is missing; run scripts/build.py" % self.inject_dll)
+            env = inject_env(self.log_path, self.mode, self.env_extra)
+            args += ["--" + self.entry, self.inject_dll]
         self._stdout = open(self.stdout_path, "wb")
         self.proc = subprocess.Popen(
-            [SANDBOX_EXE, "--seconds", str(self.seconds), "--threads", str(self.threads),
-             "--expected", self.expected_path, "--trigger", self.trigger_path],
+            args,
             env=env, stdout=self._stdout, stderr=subprocess.STDOUT, cwd=self.dir,
         )
         deadline = time.monotonic() + 30

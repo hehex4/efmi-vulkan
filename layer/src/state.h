@@ -220,6 +220,9 @@ struct Capture {
 struct Device {
     VkDevice handle = VK_NULL_HANDLE;
     VkPhysicalDevice phys = VK_NULL_HANDLE;
+    // Stands for every device that was created before the DLL attached: calls are
+    // forwarded through the original exports and nothing is tracked.
+    bool passive = false;
     PFN_vkGetDeviceProcAddr next_gdpa = nullptr;
     DeviceDispatch d;
 
@@ -267,6 +270,7 @@ struct Device {
 // Device registry.
 Device* dev_create(VkDevice handle);
 void dev_destroy(Device* dev);
+void dev_set_passive(Device* dev);
 Device* dev_of_key(void* key);
 template <typename T> inline Device* dev_of(T handle)
 {

@@ -46,9 +46,18 @@ An application that does not present makes a capture time out. With several devi
 
 One GPU and driver (NVIDIA RTX 5060 Laptop). The sandbox uses classic render passes, one queue, one swapchain, `vkQueueSubmit`, `vkCmdCopyBuffer` and `vkMapMemory`; the hooks for dynamic rendering, the `2` variants of submit, copy, bind and map, indirect draws, dispatch, `vkCmdUpdateBuffer` and `vkCmdFillBuffer` compile but are not exercised by a test. The rendered picture was not inspected.
 
-## LIMIT-012: An elevated process ignores the environment variables the tests use
+## LIMIT-012: The layer entry needs a registry entry for an elevated process
 
-The Vulkan loader ignores path variables such as `VK_LAYER_PATH` in an elevated process, so the manifest in `dist/` would not be found there. The game probably runs elevated (EFMI's `d3dx.ini` has `require_admin = true`, and the EFMI MCP notes say the game runs as administrator). Loading the layer into the game therefore needs a registry entry for an implicit layer, which is a system-wide change that waits for the user (T-009).
+The Vulkan loader ignores path variables such as `VK_LAYER_PATH` in an elevated process, so the manifest in `dist/` would not be found there. The game probably runs elevated (EFMI's `d3dx.ini` has `require_admin = true`, and the EFMI MCP notes say the game runs as administrator). The layer entry would therefore need an implicit layer entry under HKLM, a system-wide change. The inject entry avoids this and is the entry planned for the game (D-011); the layer entry stays the fallback.
+
+## LIMIT-013: The inject entry has been exercised only by the sandbox loading the DLL itself
+
+The tests call `LoadLibrary` inside the sandbox before or after it uses Vulkan. No real cross-process injection was done, and nothing was injected into the game. Open for the game:
+
+- **Timing.** The launcher log shows libraries injected into `Endfield.exe` about 1.5 to 2 seconds after the process starts. Whether that is before the engine resolves its Vulkan functions is unknown. If the DLL comes too late the game is unaffected and nothing is intercepted; `attach.loader_was_loaded` and `attach.devices_created` in the status, and the log, show which case occurred.
+- **How the engine resolves functions.** The redirection covers both `GetProcAddress` on `vulkan-1.dll` and everything asked through a redirected `vkGetInstanceProcAddr` / `vkGetDeviceProcAddr`. A module that statically imports `vulkan-1.dll` and was loaded earlier keeps its old addresses.
+- **The launcher profile.** XXMI's EFMI profile starts the game with `-force-d3d11` and injects its own `d3d11.dll`. A Vulkan run needs the argument removed in the launcher by the user. What XXMI's `d3d11.dll` does in a process that never creates a D3D11 device is unverified.
+- **Other Vulkan users in the process** (Streamline, a web view) go through the same redirected exports. Devices they create after the redirection are tracked like the game's; the probe answers for the device that presented last.
 
 ## ISSUE-001: Other implicit Vulkan layers are registered on this machine
 

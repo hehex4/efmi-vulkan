@@ -8,6 +8,12 @@
 // The expected draws and their CRC-32C region hashes are written to a JSON file for the tests.
 //
 //   efmi_vk_sandbox [--seconds S] [--threads N] [--expected FILE] [--trigger FILE] [--primary-screen]
+//                   [--inject DLL | --inject-late DLL | --inject-late-exports DLL]
+//
+// --inject loads a DLL before the program touches Vulkan, the way a launcher injects one at
+// process start. --inject-late loads it after the device exists, which is too late to intercept.
+// --inject-late-exports does the same and then looks every device function up again through the
+// exports of vulkan-1.dll, like a second Vulkan user in the process that resolves its functions late.
 //
 // When the trigger file appears, the indices of the second mesh are rewritten through a staging
 // buffer that is unmapped before the copy is recorded, and FILE.done is created.
@@ -57,6 +63,7 @@
     X(CmdSetViewport) X(CmdSetScissor) X(QueueSubmit) X(QueueWaitIdle) X(CreateSemaphore) X(DestroySemaphore)          \
     X(CreateFence) X(DestroyFence) X(WaitForFences) X(ResetFences)
 
+static HMODULE g_vulkan_lib;
 static PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 static PFN_vkCreateInstance vkCreateInstance;
 #define X(n) static PFN_vk##n vk##n;
@@ -147,6 +154,9 @@ struct App {
     bool primary_screen = false;
     std::wstring expected_path;
     std::wstring trigger_path;
+    std::wstring inject_path;
+    bool inject_late = false;
+    bool reresolve_exports = false;
 
     HWND window = nullptr;
     bool quit = false;
@@ -266,9 +276,33 @@ static void pump_messages()
 // ---------------------------------------------------------------------------
 // Vulkan setup
 
+static bool load_injected()
+{
+    if (!LoadLibraryW(g.inject_path.c_str())) {
+        printf("FAILED: cannot load the DLL to inject, error %lu\n", GetLastError());
+        return false;
+    }
+    return true;
+}
+
+// Replaces the device function pointers with the addresses vulkan-1.dll exports now.
+static void resolve_from_exports()
+{
+    int replaced = 0;
+#define X(n) \
+    if (FARPROC f = GetProcAddress(g_vulkan_lib, "vk" #n)) { \
+        vk##n = reinterpret_cast<PFN_vk##n>(f); \
+        replaced++; \
+    }
+    VK_DEVICE_FUNCS(X)
+#undef X
+    printf("%d device functions resolved again through the exports\n", replaced);
+}
+
 static bool load_vulkan()
 {
     HMODULE lib = LoadLibraryW(L"vulkan-1.dll");
+    g_vulkan_lib = lib;
     if (!lib) {
         printf("FAILED: vulkan-1.dll not found\n");
         return false;
@@ -1034,7 +1068,16 @@ int wmain(int argc, wchar_t** argv)
             g.trigger_path = argv[++i];
         else if (a == L"--primary-screen")
             g.primary_screen = true;
-        else {
+        else if (a == L"--inject" && i + 1 < argc)
+            g.inject_path = argv[++i];
+        else if (a == L"--inject-late" && i + 1 < argc) {
+            g.inject_path = argv[++i];
+            g.inject_late = true;
+        } else if (a == L"--inject-late-exports" && i + 1 < argc) {
+            g.inject_path = argv[++i];
+            g.inject_late = true;
+            g.reresolve_exports = true;
+        } else {
             printf("unknown argument\n");
             return 2;
         }
@@ -1044,8 +1087,15 @@ int wmain(int argc, wchar_t** argv)
     if (g.threads > kDrawCount)
         g.threads = kDrawCount;
 
-    bool ok = load_vulkan() && create_instance() && create_window() && create_device() && create_swapchain() &&
-              create_pipeline() && create_resources();
+    bool ok = true;
+    if (!g.inject_path.empty() && !g.inject_late)
+        ok = load_injected();
+    ok = ok && load_vulkan() && create_instance() && create_window() && create_device() && create_swapchain() &&
+         create_pipeline() && create_resources();
+    if (ok && !g.inject_path.empty() && g.inject_late)
+        ok = load_injected();
+    if (ok && g.reresolve_exports)
+        resolve_from_exports();
     if (ok)
         ok = render_frame() && write_expected();
     if (ok)

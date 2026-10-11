@@ -1,12 +1,20 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-11. Layer 0.1.0 (probe, protocol 1), server 0.1.0. The read-only probe works end to end against the sandbox. Nothing has been loaded into the game; gates G1 to G3 are open.
+> Last updated: 2026-10-11. Layer 0.2.0 (probe, protocol 1), server 0.1.0. The read-only probe works end to end against the sandbox through both entries, as a Vulkan layer and injected with export redirection. Nothing has been loaded into the game; gates G1 to G3 are open.
+
+## Inject entry (2026-10-11; sandbox only, game not involved)
+
+The user asked whether the DLL can get into the game by injection, as with d3d11, instead of a registry entry. It can; the entry was added (D-011, architecture in `ARCHITECTURE.md`).
+
+- `dist/efmi_vk_inject.dll` is the same binary as `efmi_vk_layer.dll`; the file name selects the entry. `dist/efmi_vk.cfg` configures a process that cannot be given environment variables.
+- `sandbox/run_all.py` passes: unit 36; probe end to end 156 / 158 / 158 with the layer entry (0, 2, 5 threads) and 158 / 160 with the inject entry (0, 2 threads); modes 40; MCP 35. The inject runs establish: with the DLL loaded before Vulkan, everything the layer entry reports is reported identically (draws, hashes, read-back), `vulkan-1.dll` was found after the DLL, at least 40 exports were redirected, no passive call. Loaded after the device exists, the sandbox runs on unaffected, no device is tracked and a capture is refused. Loaded late with the device functions resolved again through the exports, more than 100 calls go through the passive device and the sandbox still runs to its end. Passthrough works in both entries with agreeing frame counts.
+- Not established: injection from another process; anything in the game (LIMIT-013).
 
 ## Probe, sandbox and MCP server (2026-10-11; sandbox only, game not involved)
 
 - **Built**: `dist/efmi_vk_layer.dll` with manifest, `dist/efmi_vk_sandbox.exe`, both with MSVC from `D:\Microsoft` against the headers in `F:\vulkan\Vulkan-Headers` (tag `vulkan-sdk-1.4.321.0`, commit `2cd90f9d`).
 - **Loads in the sandbox**: the loader picks the layer up through `VK_LAYER_PATH` / `VK_INSTANCE_LAYERS` set for the child process only. Device: NVIDIA GeForce RTX 5060 Laptop GPU.
-- **Captures in the sandbox**: `sandbox/run_all.py` passes in full: unit tests 36/36; probe end to end 151, 153 and 153 checks with 0, 2 and 5 recording threads; modes 11/11; MCP end to end 35/35. What the checks establish:
+- **Captures in the sandbox**: `sandbox/run_all.py` passed in full when this was written (the current counts are in the section above). What the checks establish:
   - every draw of a frame is reported in order with index buffer id, bind offset, index size, first index, count, instances, dynamic offset, pipeline, recording thread and command buffer;
   - the region hash of each draw equals the value the sandbox computed with an independent CRC-32C, for a buffer read from the application's mapping and for a device-local buffer read from the shadow;
   - a rewrite through a staging buffer that is unmapped before the copy is recorded changes exactly the hash of the rewritten mesh, with no unknown write;
@@ -27,4 +35,4 @@
 1. T-011: track descriptor set contents, shader modules and images, which gate items G3 b, c and d need.
 2. T-007: the M0 inventory of `arcane.ini` and Core 1.4.8, and the XXMI front-end separability assessment.
 3. T-008: a DX11 baseline capture with `arcane fes 1.2` on screen (needs the game under DX11 with EFMI; the EFMI MCP tools can take it).
-4. T-009: G1 in the real game, once the user has decided on the account and on how the layer may be registered.
+4. T-009: G1 in the real game through the launcher's injection, once the user has decided on the account and gives the go-ahead.

@@ -28,7 +28,7 @@ python scripts\build.py
 python sandbox\run_all.py
 ```
 
-`build.py` writes `efmi_vk_layer.dll`, its manifest `efmi_vk_layer.json` and `efmi_vk_sandbox.exe` to `dist\`. `run_all.py` builds, then runs the text check, the offline tests and the end-to-end tests against the sandbox. The layer is enabled only inside the child processes the tests start (`VK_LAYER_PATH`, `VK_INSTANCE_LAYERS`); nothing is registered system-wide.
+`build.py` writes `efmi_vk_layer.dll`, its manifest `efmi_vk_layer.json`, the copy `efmi_vk_inject.dll` and `efmi_vk_sandbox.exe` to `dist\`. `run_all.py` builds, then runs the text check, the offline tests and the end-to-end tests against the sandbox. The layer is enabled only inside the child processes the tests start (`VK_LAYER_PATH`, `VK_INSTANCE_LAYERS`); nothing is registered system-wide.
 
 ## The probe
 
@@ -39,6 +39,13 @@ In probe mode the layer forwards every Vulkan call unchanged and records what it
 - per frame: every draw with its bindings, recording thread, command buffer and render pass.
 
 It serves this over the named pipe `\\.\pipe\efmi-vk-<PID>`. `EFMI_VK_MODE=passthrough` switches the tracking and the pipe off.
+
+The DLL gets in front of the Vulkan calls in one of two ways, selected by its file name:
+
+- `efmi_vk_layer.dll` is loaded by the Vulkan loader as a layer, through the manifest.
+- `efmi_vk_inject.dll` is loaded with `LoadLibrary` by whatever injects libraries into the process, and redirects the exports of `vulkan-1.dll` in memory. It has to arrive before the application resolves its Vulkan functions; the status says whether it did.
+
+Settings can also be given in `efmi_vk.cfg` next to the DLL (`mode = passthrough`, `log = ...`), for processes that cannot be given environment variables.
 
 Command line, one or more tools sharing a session:
 

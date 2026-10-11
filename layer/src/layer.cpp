@@ -1,7 +1,13 @@
-// Layer entry points and the intercepted Vulkan functions.
+// Entry points and the intercepted Vulkan functions.
 //
 // Every hook forwards the call unchanged. In probe mode the hooks also feed
 // the tracker in state.cpp; nothing the application draws is altered.
+//
+// The hooks get in front of the application in one of two ways:
+//   layer  - the Vulkan loader loads the DLL as a layer and chains it in through
+//            vkNegotiateLoaderLayerInterfaceVersion and the link info of create calls;
+//   inject - the DLL was loaded with LoadLibrary; bootstrap.cpp redirects the exports of
+//            vulkan-1.dll to the hooks, which then call the original exports.
 #include "state.h"
 
 #include <cstddef>
@@ -26,6 +32,19 @@ struct InstanceData {
 std::mutex g_inst_mx;
 std::unordered_map<void*, InstanceData*> g_insts;
 std::once_flag g_pin_once;
+
+// Inject entry: the addresses the redirected exports of vulkan-1.dll had.
+PFN_vkGetInstanceProcAddr g_real_gipa = nullptr;
+PFN_vkGetDeviceProcAddr g_real_gdpa = nullptr;
+PFN_vkCreateInstance g_real_create_instance = nullptr;
+PFN_vkDestroyInstance g_real_destroy_instance = nullptr;
+PFN_vkCreateDevice g_real_create_device = nullptr;
+Device g_passive_dev; // its dispatch table holds the original exports of the device functions
+
+bool injected()
+{
+    return g_cfg.entry == Entry::Inject;
+}
 
 template <typename T> void* key_of(T handle)
 {
@@ -734,8 +753,10 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
     if (!dev)
         return;
     PFN_vkDestroyDevice next = dev->d.DestroyDevice;
-    logf("device destroyed after %llu frames", static_cast<unsigned long long>(dev->frame_no));
-    dev_destroy(dev);
+    if (!dev->passive) {
+        logf("device destroyed after %llu frames", static_cast<unsigned long long>(dev->frame_no));
+        dev_destroy(dev);
+    }
     next(device, alloc);
 }
 
@@ -783,23 +804,30 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetInstanceProcAddr(VkInstance insta
 VKAPI_ATTR VkResult VKAPI_CALL hk_CreateInstance(const VkInstanceCreateInfo* info, const VkAllocationCallbacks* alloc,
                                                  VkInstance* instance)
 {
-    VkLayerInstanceCreateInfo* link = reinterpret_cast<VkLayerInstanceCreateInfo*>(const_cast<void*>(info->pNext));
-    while (link && !(link->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO && link->function == VK_LAYER_LINK_INFO))
-        link = reinterpret_cast<VkLayerInstanceCreateInfo*>(const_cast<void*>(link->pNext));
-    if (!link || !link->u.pLayerInfo)
-        return VK_ERROR_INITIALIZATION_FAILED;
-
-    PFN_vkGetInstanceProcAddr gipa = link->u.pLayerInfo->pfnNextGetInstanceProcAddr;
-    link->u.pLayerInfo = link->u.pLayerInfo->pNext;
-
-    PFN_vkCreateInstance next = reinterpret_cast<PFN_vkCreateInstance>(gipa(VK_NULL_HANDLE, "vkCreateInstance"));
-    if (!next)
+    PFN_vkGetInstanceProcAddr gipa;
+    PFN_vkCreateInstance next;
+    if (injected()) {
+        gipa = g_real_gipa;
+        next = g_real_create_instance;
+    } else {
+        VkLayerInstanceCreateInfo* link = reinterpret_cast<VkLayerInstanceCreateInfo*>(const_cast<void*>(info->pNext));
+        while (link &&
+               !(link->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO && link->function == VK_LAYER_LINK_INFO))
+            link = reinterpret_cast<VkLayerInstanceCreateInfo*>(const_cast<void*>(link->pNext));
+        if (!link || !link->u.pLayerInfo)
+            return VK_ERROR_INITIALIZATION_FAILED;
+        gipa = link->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+        link->u.pLayerInfo = link->u.pLayerInfo->pNext;
+        next = reinterpret_cast<PFN_vkCreateInstance>(gipa(VK_NULL_HANDLE, "vkCreateInstance"));
+    }
+    if (!gipa || !next)
         return VK_ERROR_INITIALIZATION_FAILED;
     VkResult r = next(info, alloc, instance);
     if (r != VK_SUCCESS)
         return r;
 
     pin_module();
+    g_attach.instances_created.fetch_add(1);
     InstanceData* inst = new InstanceData();
     inst->handle = *instance;
     inst->gipa = gipa;
@@ -853,25 +881,31 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_EnumerateDeviceExtensionProperties(VkPhysicalD
 VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDeviceCreateInfo* info,
                                                const VkAllocationCallbacks* alloc, VkDevice* device)
 {
-    VkLayerDeviceCreateInfo* link = reinterpret_cast<VkLayerDeviceCreateInfo*>(const_cast<void*>(info->pNext));
-    while (link && !(link->sType == VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO && link->function == VK_LAYER_LINK_INFO))
-        link = reinterpret_cast<VkLayerDeviceCreateInfo*>(const_cast<void*>(link->pNext));
-    if (!link || !link->u.pLayerInfo)
-        return VK_ERROR_INITIALIZATION_FAILED;
-
-    PFN_vkGetInstanceProcAddr gipa = link->u.pLayerInfo->pfnNextGetInstanceProcAddr;
-    PFN_vkGetDeviceProcAddr gdpa = link->u.pLayerInfo->pfnNextGetDeviceProcAddr;
-    link->u.pLayerInfo = link->u.pLayerInfo->pNext;
-
     InstanceData* inst = inst_of_key(key_of(phys));
-    PFN_vkCreateDevice next =
-        reinterpret_cast<PFN_vkCreateDevice>(gipa(inst ? inst->handle : VK_NULL_HANDLE, "vkCreateDevice"));
-    if (!next)
+    PFN_vkGetDeviceProcAddr gdpa;
+    PFN_vkCreateDevice next;
+    if (injected()) {
+        gdpa = g_real_gdpa;
+        next = g_real_create_device;
+    } else {
+        VkLayerDeviceCreateInfo* link = reinterpret_cast<VkLayerDeviceCreateInfo*>(const_cast<void*>(info->pNext));
+        while (link &&
+               !(link->sType == VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO && link->function == VK_LAYER_LINK_INFO))
+            link = reinterpret_cast<VkLayerDeviceCreateInfo*>(const_cast<void*>(link->pNext));
+        if (!link || !link->u.pLayerInfo)
+            return VK_ERROR_INITIALIZATION_FAILED;
+        PFN_vkGetInstanceProcAddr gipa = link->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+        gdpa = link->u.pLayerInfo->pfnNextGetDeviceProcAddr;
+        link->u.pLayerInfo = link->u.pLayerInfo->pNext;
+        next = reinterpret_cast<PFN_vkCreateDevice>(gipa(inst ? inst->handle : VK_NULL_HANDLE, "vkCreateDevice"));
+    }
+    if (!gdpa || !next)
         return VK_ERROR_INITIALIZATION_FAILED;
     VkResult r = next(phys, info, alloc, device);
     if (r != VK_SUCCESS)
         return r;
 
+    g_attach.devices_created.fetch_add(1);
     Device* dev = dev_create(*device);
     dev->phys = phys;
     dev->next_gdpa = gdpa;
@@ -897,8 +931,8 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetDeviceProcAddr(VkDevice device, c
     if (!strcmp(name, "vkGetDeviceProcAddr"))
         return reinterpret_cast<PFN_vkVoidFunction>(hk_GetDeviceProcAddr);
     Device* dev = device ? dev_of(device) : nullptr;
-    if (!dev)
-        return nullptr;
+    if (!dev || dev->passive)
+        return injected() && g_real_gdpa ? g_real_gdpa(device, name) : nullptr;
     if (const HookEntry* h = find_hook(name)) {
         // Offer a hook only for what the next element of the chain really implements.
         if (next_slot(dev->d, *h))
@@ -917,12 +951,14 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetInstanceProcAddr(VkInstance insta
         return reinterpret_cast<PFN_vkVoidFunction>(hk_DestroyInstance);
     if (!strcmp(name, "vkCreateDevice"))
         return reinterpret_cast<PFN_vkVoidFunction>(hk_CreateDevice);
-    if (!strcmp(name, "vkEnumerateDeviceExtensionProperties"))
+    if (!strcmp(name, "vkEnumerateDeviceExtensionProperties") && !injected())
         return reinterpret_cast<PFN_vkVoidFunction>(hk_EnumerateDeviceExtensionProperties);
     if (!strcmp(name, "vkGetDeviceProcAddr"))
         return reinterpret_cast<PFN_vkVoidFunction>(hk_GetDeviceProcAddr);
     if (const HookEntry* h = find_hook(name))
         return h->hook;
+    if (injected())
+        return g_real_gipa ? g_real_gipa(instance, name) : nullptr;
     if (!instance)
         return nullptr;
     InstanceData* inst = inst_of_key(key_of(instance));
@@ -930,6 +966,40 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetInstanceProcAddr(VkInstance insta
 }
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Inject entry: which exports of vulkan-1.dll lead to which hook
+
+namespace efvk {
+
+void collect_export_hooks(std::vector<ExportHook>& out)
+{
+    out.push_back({"vkGetInstanceProcAddr", reinterpret_cast<void*>(hk_GetInstanceProcAddr),
+                   reinterpret_cast<void**>(&g_real_gipa)});
+    out.push_back({"vkGetDeviceProcAddr", reinterpret_cast<void*>(hk_GetDeviceProcAddr),
+                   reinterpret_cast<void**>(&g_real_gdpa)});
+    out.push_back({"vkCreateInstance", reinterpret_cast<void*>(hk_CreateInstance),
+                   reinterpret_cast<void**>(&g_real_create_instance)});
+    out.push_back({"vkDestroyInstance", reinterpret_cast<void*>(hk_DestroyInstance),
+                   reinterpret_cast<void**>(&g_real_destroy_instance)});
+    out.push_back({"vkCreateDevice", reinterpret_cast<void*>(hk_CreateDevice),
+                   reinterpret_cast<void**>(&g_real_create_device)});
+    // A device function may be called through its export for a device that was created before
+    // the redirection. The original address goes into the dispatch table of the passive device.
+    for (const HookEntry& h : g_hooks) {
+        if (g_cfg.mode == Mode::Passthrough && !hook_is_always(h.name))
+            continue;
+        out.push_back({h.name, reinterpret_cast<void*>(h.hook), reinterpret_cast<void**>(&next_slot(g_passive_dev.d, h))});
+    }
+}
+
+// Called when every original address is known and before the first export is redirected.
+void exports_resolved()
+{
+    dev_set_passive(&g_passive_dev);
+}
+
+} // namespace efvk
 
 // ---------------------------------------------------------------------------
 // Exports
@@ -950,6 +1020,11 @@ VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiat
 {
     if (!v || v->sType != LAYER_NEGOTIATE_INTERFACE_STRUCT)
         return VK_ERROR_INITIALIZATION_FAILED;
+    if (injected()) {
+        // Hooking twice would record everything twice; the export redirection wins.
+        logf("the loader offered to use this DLL as a layer, refused because the entry is inject");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
     if (v->loaderLayerInterfaceVersion > CURRENT_LOADER_LAYER_INTERFACE_VERSION)
         v->loaderLayerInterfaceVersion = CURRENT_LOADER_LAYER_INTERFACE_VERSION;
     v->pfnGetInstanceProcAddr = hk_GetInstanceProcAddr;
@@ -963,6 +1038,12 @@ BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID)
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(self);
         util_init(self);
+        if (g_cfg.entry == Entry::Inject) {
+            pin_module();
+            bootstrap_start();
+            if (g_cfg.mode == Mode::Probe)
+                ipc_start();
+        }
     }
     return TRUE;
 }

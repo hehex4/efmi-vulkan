@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 are done: the workspace, the headers and build, the region hash check, the layer probe, the sandbox and the MCP server, all verified in the sandbox only. Nothing has been loaded into the real game.
+T-001 to T-006 and T-014 are done: the workspace, the headers and build, the region hash check, the layer probe, the sandbox, the MCP server and the inject entry, all verified in the sandbox only. Nothing has been loaded into the real game.
 
 ## Open
 
@@ -18,9 +18,9 @@ T-001 to T-006 are done: the workspace, the headers and build, the region hash c
 
 The existing frame dump has no modded draw (LIMIT-003). A new one with `arcane fes 1.2` on screen, including one key toggle, is needed for the G3 comparison table: per component the IB hash, first index and count, pixel shader hash, the textures at t12 to t18, vertex layout, constant buffer sizes. The EFMI MCP tools can take it.
 
-### T-009: Gate G1 in the real game (blocked on the user)
+### T-009: Gate G1 in the real game (waits for the user)
 
-Needs the user's decision on the account and an explicit go-ahead on the spot. Also needs a decision on registration: the tests enable the layer through environment variables, which an elevated process ignores, and the game probably runs elevated. An implicit layer entry in the registry is a system-wide change and is not made without being asked. For G1 itself the layer runs with `EFMI_VK_MODE=passthrough`.
+Route: the inject entry through the launcher, no registry (D-011). What the user does in the launcher: add `F:\efmi vulkan\dist\efmi_vk_inject.dll` to the extra libraries of the EFMI profile and remove the `-force-d3d11` argument for the run. What this project prepares: `dist\efmi_vk.cfg` with `mode = passthrough`. After the run, the log `dist\efmi_vk_layer.log` answers whether the DLL arrived before `vulkan-1.dll`, how many exports were redirected and whether device creation was seen (LIMIT-013). Needs the user's decision on the account and a go-ahead on the spot; the launcher settings are the user's to change and to restore.
 
 ### T-010: Gates G2 and G3 in the real game (blocked on T-009)
 
@@ -34,6 +34,10 @@ Descriptor set layouts and set contents (`vkUpdateDescriptorSets`, templates, pu
 
 Frame time of the sandbox with many draws (it needs a `--draws N` mode) without the layer, in passthrough mode and in probe mode. Needed before a long run in the game.
 
+### T-015: Validation layers into `F:\vulkan` (open; before M2)
+
+The sandbox and the layer have never run under the Khronos validation layers (LIMIT-002). Put the SDK, or at least the validation layer binaries, into `F:\vulkan` and run the sandbox under them in a test's own child process. Nothing outside `F:\vulkan` may be written by the installation; if the installer cannot do that, report it instead of running it.
+
 ### T-013: Read-back from the GPU when a buffer has no CPU-visible source (open; only if G3 shows the need)
 
 For buffers that are written by copies whose source was never visible to the CPU, or by compute. Appends a copy into a layer-owned buffer at submit time and reads it when the fence signals.
@@ -46,9 +50,10 @@ For buffers that are written by copies whose source was never visible to the CPU
 - T-004 Layer skeleton and sandbox (2026-10-11).
 - T-005 Tracking, frame capture and probe (2026-10-11): `sandbox/probe_test.py`.
 - T-006 MCP server (2026-10-11): nine tools, `.mcp.json`, `sandbox/mcp_test.py`.
+- T-014 Inject entry (2026-10-11): `layer/src/bootstrap.cpp`, `efmi_vk_inject.dll`, `efmi_vk.cfg`, passive device; probe and modes tests in both entries.
 
 ## Waiting for the user
 
-- Which account G1 uses, when, and how the layer may be registered for it.
-- Whether to install the LunarG Vulkan SDK into `F:\vulkan` (needed from M2 on for the validation layers; the installer needs elevation and changes system settings, so it is the user's to run).
+- Which account G1 uses and when; for the run the user adds the DLL to the launcher's extra libraries and removes `-force-d3d11`.
+- Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are needed from M2 on; see T-015.
 - The motivation question and the scope question of plan section 10.
