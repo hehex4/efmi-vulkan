@@ -1,0 +1,970 @@
+// Layer entry points and the intercepted Vulkan functions.
+//
+// Every hook forwards the call unchanged. In probe mode the hooks also feed
+// the tracker in state.cpp; nothing the application draws is altered.
+#include "state.h"
+
+#include <cstddef>
+#include <mutex>
+
+using namespace efvk;
+
+#pragma comment(linker, "/EXPORT:vkNegotiateLoaderLayerInterfaceVersion")
+#pragma comment(linker, "/EXPORT:efvkGetInstanceProcAddr")
+#pragma comment(linker, "/EXPORT:efvkGetDeviceProcAddr")
+
+namespace {
+
+struct InstanceData {
+    VkInstance handle = VK_NULL_HANDLE;
+    PFN_vkGetInstanceProcAddr gipa = nullptr;
+    PFN_vkDestroyInstance DestroyInstance = nullptr;
+    PFN_vkEnumerateDeviceExtensionProperties EnumerateDeviceExtensionProperties = nullptr;
+    PFN_vkGetPhysicalDeviceProperties GetPhysicalDeviceProperties = nullptr;
+};
+
+std::mutex g_inst_mx;
+std::unordered_map<void*, InstanceData*> g_insts;
+std::once_flag g_pin_once;
+
+template <typename T> void* key_of(T handle)
+{
+    return *reinterpret_cast<void**>(handle);
+}
+
+InstanceData* inst_of_key(void* key)
+{
+    std::lock_guard<std::mutex> lock(g_inst_mx);
+    auto it = g_insts.find(key);
+    return it == g_insts.end() ? nullptr : it->second;
+}
+
+// The pipe thread lives until the process exits, so the module must not be
+// unloaded when the loader releases the layer.
+void pin_module()
+{
+    std::call_once(g_pin_once, [] {
+        HMODULE self = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                           reinterpret_cast<LPCWSTR>(&pin_module), &self);
+    });
+}
+
+uint8_t index_size_of(VkIndexType t)
+{
+    switch (t) {
+    case VK_INDEX_TYPE_UINT16: return 2;
+    case VK_INDEX_TYPE_UINT32: return 4;
+    case VK_INDEX_TYPE_UINT8: return 1;
+    default: return 0;
+    }
+}
+
+DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
+{
+    DrawRec r;
+    r.kind = kind;
+    r.cb_id = cb->id;
+    r.tid = cb->tid;
+    r.rp = cb->in_rp ? cb->rp_count + cb->dyn_rp_count : 0;
+    if (compute) {
+        r.pipeline = cb->comp_pipeline;
+        return r;
+    }
+    r.pipeline = cb->gfx_pipeline;
+    r.ib = cb->ib;
+    r.ib_off = cb->ib_off;
+    r.index_size = cb->index_size;
+    for (uint32_t i = 0; i < kMaxVb; i++)
+        r.vb[i] = cb->vb[i];
+    for (uint32_t i = 0; i < kMaxSets; i++)
+        r.sets[i] = cb->sets[i];
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// Memory
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateMemory(VkDevice device, const VkMemoryAllocateInfo* info,
+                                                 const VkAllocationCallbacks* alloc, VkDeviceMemory* mem)
+{
+    Device* dev = dev_of(device);
+    VkResult r = dev->d.AllocateMemory(device, info, alloc, mem);
+    if (r == VK_SUCCESS)
+        on_alloc_memory(dev, *mem, info);
+    return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_FreeMemory(VkDevice device, VkDeviceMemory mem, const VkAllocationCallbacks* alloc)
+{
+    Device* dev = dev_of(device);
+    if (mem)
+        on_free_memory(dev, mem);
+    dev->d.FreeMemory(device, mem, alloc);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_MapMemory(VkDevice device, VkDeviceMemory mem, VkDeviceSize off, VkDeviceSize size,
+                                            VkMemoryMapFlags flags, void** data)
+{
+    Device* dev = dev_of(device);
+    VkResult r = dev->d.MapMemory(device, mem, off, size, flags, data);
+    if (r == VK_SUCCESS)
+        on_map_memory(dev, mem, off, size, *data);
+    return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_UnmapMemory(VkDevice device, VkDeviceMemory mem)
+{
+    Device* dev = dev_of(device);
+    on_unmap_memory(dev, mem);
+    dev->d.UnmapMemory(device, mem);
+}
+
+VkResult map2(Device* dev, PFN_vkMapMemory2 next, VkDevice device, const VkMemoryMapInfo* info, void** data)
+{
+    VkResult r = next(device, info, data);
+    if (r == VK_SUCCESS)
+        on_map_memory(dev, info->memory, info->offset, info->size, *data);
+    return r;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_MapMemory2(VkDevice device, const VkMemoryMapInfo* info, void** data)
+{
+    Device* dev = dev_of(device);
+    return map2(dev, dev->d.MapMemory2, device, info, data);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_MapMemory2KHR(VkDevice device, const VkMemoryMapInfo* info, void** data)
+{
+    Device* dev = dev_of(device);
+    return map2(dev, dev->d.MapMemory2KHR, device, info, data);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_UnmapMemory2(VkDevice device, const VkMemoryUnmapInfo* info)
+{
+    Device* dev = dev_of(device);
+    on_unmap_memory(dev, info->memory);
+    return dev->d.UnmapMemory2(device, info);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_UnmapMemory2KHR(VkDevice device, const VkMemoryUnmapInfo* info)
+{
+    Device* dev = dev_of(device);
+    on_unmap_memory(dev, info->memory);
+    return dev->d.UnmapMemory2KHR(device, info);
+}
+
+// ---------------------------------------------------------------------------
+// Buffers and pipelines
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_CreateBuffer(VkDevice device, const VkBufferCreateInfo* info,
+                                               const VkAllocationCallbacks* alloc, VkBuffer* buf)
+{
+    Device* dev = dev_of(device);
+    VkResult r = dev->d.CreateBuffer(device, info, alloc, buf);
+    if (r == VK_SUCCESS)
+        on_create_buffer(dev, *buf, info);
+    return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_DestroyBuffer(VkDevice device, VkBuffer buf, const VkAllocationCallbacks* alloc)
+{
+    Device* dev = dev_of(device);
+    if (buf)
+        on_destroy_buffer(dev, buf);
+    dev->d.DestroyBuffer(device, buf, alloc);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_BindBufferMemory(VkDevice device, VkBuffer buf, VkDeviceMemory mem, VkDeviceSize off)
+{
+    Device* dev = dev_of(device);
+    VkResult r = dev->d.BindBufferMemory(device, buf, mem, off);
+    if (r == VK_SUCCESS)
+        on_bind_buffer(dev, buf, mem, off);
+    return r;
+}
+
+VkResult bind2(Device* dev, PFN_vkBindBufferMemory2 next, VkDevice device, uint32_t count, const VkBindBufferMemoryInfo* infos)
+{
+    VkResult r = next(device, count, infos);
+    if (r == VK_SUCCESS)
+        for (uint32_t i = 0; i < count; i++)
+            on_bind_buffer(dev, infos[i].buffer, infos[i].memory, infos[i].memoryOffset);
+    return r;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_BindBufferMemory2(VkDevice device, uint32_t count, const VkBindBufferMemoryInfo* infos)
+{
+    Device* dev = dev_of(device);
+    return bind2(dev, dev->d.BindBufferMemory2, device, count, infos);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_BindBufferMemory2KHR(VkDevice device, uint32_t count, const VkBindBufferMemoryInfo* infos)
+{
+    Device* dev = dev_of(device);
+    return bind2(dev, dev->d.BindBufferMemory2KHR, device, count, infos);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_CreateGraphicsPipelines(VkDevice device, VkPipelineCache cache, uint32_t count,
+                                                          const VkGraphicsPipelineCreateInfo* infos,
+                                                          const VkAllocationCallbacks* alloc, VkPipeline* pipes)
+{
+    Device* dev = dev_of(device);
+    VkResult r = dev->d.CreateGraphicsPipelines(device, cache, count, infos, alloc, pipes);
+    if (r >= 0)
+        for (uint32_t i = 0; i < count; i++)
+            if (pipes[i])
+                on_create_graphics_pipeline(dev, pipes[i], &infos[i]);
+    return r;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_CreateComputePipelines(VkDevice device, VkPipelineCache cache, uint32_t count,
+                                                         const VkComputePipelineCreateInfo* infos,
+                                                         const VkAllocationCallbacks* alloc, VkPipeline* pipes)
+{
+    Device* dev = dev_of(device);
+    VkResult r = dev->d.CreateComputePipelines(device, cache, count, infos, alloc, pipes);
+    if (r >= 0)
+        for (uint32_t i = 0; i < count; i++)
+            if (pipes[i])
+                on_create_compute_pipeline(dev, pipes[i]);
+    return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_DestroyPipeline(VkDevice device, VkPipeline pipe, const VkAllocationCallbacks* alloc)
+{
+    Device* dev = dev_of(device);
+    if (pipe)
+        on_destroy_pipeline(dev, pipe);
+    dev->d.DestroyPipeline(device, pipe, alloc);
+}
+
+// ---------------------------------------------------------------------------
+// Command buffer lifetime
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateCommandBuffers(VkDevice device, const VkCommandBufferAllocateInfo* info,
+                                                         VkCommandBuffer* cbs)
+{
+    Device* dev = dev_of(device);
+    VkResult r = dev->d.AllocateCommandBuffers(device, info, cbs);
+    if (r == VK_SUCCESS)
+        on_alloc_cbs(dev, info, cbs);
+    return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_FreeCommandBuffers(VkDevice device, VkCommandPool pool, uint32_t count,
+                                                 const VkCommandBuffer* cbs)
+{
+    Device* dev = dev_of(device);
+    on_free_cbs(dev, count, cbs);
+    dev->d.FreeCommandBuffers(device, pool, count, cbs);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_DestroyCommandPool(VkDevice device, VkCommandPool pool, const VkAllocationCallbacks* alloc)
+{
+    Device* dev = dev_of(device);
+    if (pool)
+        on_destroy_pool(dev, pool);
+    dev->d.DestroyCommandPool(device, pool, alloc);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandPool(VkDevice device, VkCommandPool pool, VkCommandPoolResetFlags flags)
+{
+    Device* dev = dev_of(device);
+    on_reset_pool(dev, pool);
+    return dev->d.ResetCommandPool(device, pool, flags);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_BeginCommandBuffer(VkCommandBuffer cmd, const VkCommandBufferBeginInfo* info)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->reset_recording();
+        cb->tid = GetCurrentThreadId();
+        cb->threads.push_back(cb->tid);
+    }
+    return dev->d.BeginCommandBuffer(cmd, info);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_EndCommandBuffer(VkCommandBuffer cmd)
+{
+    Device* dev = dev_of(cmd);
+    return dev->d.EndCommandBuffer(cmd);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandBuffer(VkCommandBuffer cmd, VkCommandBufferResetFlags flags)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        cb->reset_recording();
+    return dev->d.ResetCommandBuffer(cmd, flags);
+}
+
+// ---------------------------------------------------------------------------
+// Bindings
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBindPipeline(VkCommandBuffer cmd, VkPipelineBindPoint point, VkPipeline pipeline)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        if (point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+            cb->gfx_pipeline = pipeline;
+        else if (point == VK_PIPELINE_BIND_POINT_COMPUTE)
+            cb->comp_pipeline = pipeline;
+    }
+    dev->d.CmdBindPipeline(cmd, point, pipeline);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkIndexType type)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->ib = buf;
+        cb->ib_off = off;
+        cb->index_size = index_size_of(type);
+    }
+    dev->d.CmdBindIndexBuffer(cmd, buf, off, type);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkDeviceSize size,
+                                                  VkIndexType type)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->ib = buf;
+        cb->ib_off = off;
+        cb->index_size = index_size_of(type);
+    }
+    dev->d.CmdBindIndexBuffer2(cmd, buf, off, size, type);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2KHR(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off,
+                                                     VkDeviceSize size, VkIndexType type)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->ib = buf;
+        cb->ib_off = off;
+        cb->index_size = index_size_of(type);
+    }
+    dev->d.CmdBindIndexBuffer2KHR(cmd, buf, off, size, type);
+}
+
+void track_vbs(CmdBuf* cb, uint32_t first, uint32_t count, const VkBuffer* bufs, const VkDeviceSize* offs)
+{
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t slot = first + i;
+        if (slot >= kMaxVb)
+            break;
+        cb->vb[slot].buf = bufs ? bufs[i] : VK_NULL_HANDLE;
+        cb->vb[slot].off = offs ? offs[i] : 0;
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers(VkCommandBuffer cmd, uint32_t first, uint32_t count,
+                                                   const VkBuffer* bufs, const VkDeviceSize* offs)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        track_vbs(cb, first, count, bufs, offs);
+    dev->d.CmdBindVertexBuffers(cmd, first, count, bufs, offs);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers2(VkCommandBuffer cmd, uint32_t first, uint32_t count,
+                                                    const VkBuffer* bufs, const VkDeviceSize* offs,
+                                                    const VkDeviceSize* sizes, const VkDeviceSize* strides)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        track_vbs(cb, first, count, bufs, offs);
+    dev->d.CmdBindVertexBuffers2(cmd, first, count, bufs, offs, sizes, strides);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers2EXT(VkCommandBuffer cmd, uint32_t first, uint32_t count,
+                                                       const VkBuffer* bufs, const VkDeviceSize* offs,
+                                                       const VkDeviceSize* sizes, const VkDeviceSize* strides)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        track_vbs(cb, first, count, bufs, offs);
+    dev->d.CmdBindVertexBuffers2EXT(cmd, first, count, bufs, offs, sizes, strides);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBindDescriptorSets(VkCommandBuffer cmd, VkPipelineBindPoint point, VkPipelineLayout layout,
+                                                    uint32_t first, uint32_t count, const VkDescriptorSet* sets,
+                                                    uint32_t dyn_count, const uint32_t* dyn)
+{
+    Device* dev = dev_of(cmd);
+    CmdBuf* cb = cb_of(dev, cmd);
+    if (cb && point == VK_PIPELINE_BIND_POINT_GRAPHICS) {
+        // Without the set layouts the dynamic offsets cannot be split between the sets of one
+        // call, so all of them are recorded with the first set. See LIMIT-005.
+        uint32_t dyn_first = static_cast<uint32_t>(cb->dyn.size());
+        if (dyn_count)
+            cb->dyn.insert(cb->dyn.end(), dyn, dyn + dyn_count);
+        for (uint32_t i = 0; i < count; i++) {
+            uint32_t slot = first + i;
+            if (slot >= kMaxSets)
+                break;
+            cb->sets[slot].set = sets[i];
+            cb->sets[slot].dyn_first = dyn_first;
+            cb->sets[slot].dyn_count = i == 0 ? dyn_count : 0;
+        }
+    }
+    dev->d.CmdBindDescriptorSets(cmd, point, layout, first, count, sets, dyn_count, dyn);
+}
+
+// ---------------------------------------------------------------------------
+// Draws and dispatches
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDraw(VkCommandBuffer cmd, uint32_t vertices, uint32_t instances, uint32_t first_vertex,
+                                      uint32_t first_instance)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        DrawRec r = make_rec(cb, DK_DRAW, false);
+        r.count = vertices;
+        r.instances = instances;
+        r.first = first_vertex;
+        r.first_instance = first_instance;
+        cb->draws.push_back(r);
+    }
+    dev->d.CmdDraw(cmd, vertices, instances, first_vertex, first_instance);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indices, uint32_t instances, uint32_t first_index,
+                                             int32_t vertex_offset, uint32_t first_instance)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        DrawRec r = make_rec(cb, DK_INDEXED, false);
+        r.count = indices;
+        r.instances = instances;
+        r.first = first_index;
+        r.vertex_offset = vertex_offset;
+        r.first_instance = first_instance;
+        cb->draws.push_back(r);
+    }
+    dev->d.CmdDrawIndexed(cmd, indices, instances, first_index, vertex_offset, first_instance);
+}
+
+void track_indirect(Device* dev, VkCommandBuffer cmd, uint8_t kind, VkBuffer buf, VkDeviceSize off, uint32_t count)
+{
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        DrawRec r = make_rec(cb, kind, kind == DK_DISPATCH_INDIRECT);
+        r.count = count;
+        r.indirect = buf;
+        r.indirect_off = off;
+        cb->draws.push_back(r);
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirect(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, uint32_t count,
+                                              uint32_t stride)
+{
+    Device* dev = dev_of(cmd);
+    track_indirect(dev, cmd, DK_INDIRECT, buf, off, count);
+    dev->d.CmdDrawIndirect(cmd, buf, off, count, stride);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirect(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, uint32_t count,
+                                                     uint32_t stride)
+{
+    Device* dev = dev_of(cmd);
+    track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, count);
+    dev->d.CmdDrawIndexedIndirect(cmd, buf, off, count, stride);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCount(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkBuffer count_buf,
+                                                   VkDeviceSize count_off, uint32_t max_count, uint32_t stride)
+{
+    Device* dev = dev_of(cmd);
+    track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count);
+    dev->d.CmdDrawIndirectCount(cmd, buf, off, count_buf, count_off, max_count, stride);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCountKHR(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkBuffer count_buf,
+                                                      VkDeviceSize count_off, uint32_t max_count, uint32_t stride)
+{
+    Device* dev = dev_of(cmd);
+    track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count);
+    dev->d.CmdDrawIndirectCountKHR(cmd, buf, off, count_buf, count_off, max_count, stride);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCount(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off,
+                                                          VkBuffer count_buf, VkDeviceSize count_off, uint32_t max_count,
+                                                          uint32_t stride)
+{
+    Device* dev = dev_of(cmd);
+    track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count);
+    dev->d.CmdDrawIndexedIndirectCount(cmd, buf, off, count_buf, count_off, max_count, stride);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCountKHR(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off,
+                                                             VkBuffer count_buf, VkDeviceSize count_off,
+                                                             uint32_t max_count, uint32_t stride)
+{
+    Device* dev = dev_of(cmd);
+    track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count);
+    dev->d.CmdDrawIndexedIndirectCountKHR(cmd, buf, off, count_buf, count_off, max_count, stride);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDispatch(VkCommandBuffer cmd, uint32_t x, uint32_t y, uint32_t z)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        DrawRec r = make_rec(cb, DK_DISPATCH, true);
+        r.count = x;
+        r.instances = y;
+        r.first = z;
+        cb->draws.push_back(r);
+    }
+    dev->d.CmdDispatch(cmd, x, y, z);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdDispatchIndirect(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off)
+{
+    Device* dev = dev_of(cmd);
+    track_indirect(dev, cmd, DK_DISPATCH_INDIRECT, buf, off, 1);
+    dev->d.CmdDispatchIndirect(cmd, buf, off);
+}
+
+// ---------------------------------------------------------------------------
+// Buffer writes recorded into command buffers
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer(VkCommandBuffer cmd, VkBuffer src, VkBuffer dst, uint32_t count,
+                                            const VkBufferCopy* regions)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        for (uint32_t i = 0; i < count; i++)
+            on_copy_buffer(dev, cb, src, dst, regions[i].srcOffset, regions[i].dstOffset, regions[i].size);
+    dev->d.CmdCopyBuffer(cmd, src, dst, count, regions);
+}
+
+void track_copy2(Device* dev, VkCommandBuffer cmd, const VkCopyBufferInfo2* info)
+{
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        for (uint32_t i = 0; i < info->regionCount; i++)
+            on_copy_buffer(dev, cb, info->srcBuffer, info->dstBuffer, info->pRegions[i].srcOffset,
+                           info->pRegions[i].dstOffset, info->pRegions[i].size);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer2(VkCommandBuffer cmd, const VkCopyBufferInfo2* info)
+{
+    Device* dev = dev_of(cmd);
+    track_copy2(dev, cmd, info);
+    dev->d.CmdCopyBuffer2(cmd, info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer2KHR(VkCommandBuffer cmd, const VkCopyBufferInfo2* info)
+{
+    Device* dev = dev_of(cmd);
+    track_copy2(dev, cmd, info);
+    dev->d.CmdCopyBuffer2KHR(cmd, info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdUpdateBuffer(VkCommandBuffer cmd, VkBuffer dst, VkDeviceSize off, VkDeviceSize size,
+                                              const void* data)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        on_update_buffer(dev, cb, dst, off, size, data);
+    dev->d.CmdUpdateBuffer(cmd, dst, off, size, data);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdFillBuffer(VkCommandBuffer cmd, VkBuffer dst, VkDeviceSize off, VkDeviceSize size,
+                                            uint32_t value)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        on_fill_buffer(dev, cb, dst, off, size, value);
+    dev->d.CmdFillBuffer(cmd, dst, off, size, value);
+}
+
+// ---------------------------------------------------------------------------
+// Render passes
+
+void rp_begin(Device* dev, VkCommandBuffer cmd, bool dynamic)
+{
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->in_rp = true;
+        if (dynamic)
+            cb->dyn_rp_count++;
+        else
+            cb->rp_count++;
+    }
+}
+
+void rp_end(Device* dev, VkCommandBuffer cmd)
+{
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        cb->in_rp = false;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
+                                                 VkSubpassContents contents)
+{
+    Device* dev = dev_of(cmd);
+    rp_begin(dev, cmd, false);
+    dev->d.CmdBeginRenderPass(cmd, info, contents);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass2(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
+                                                  const VkSubpassBeginInfo* sub)
+{
+    Device* dev = dev_of(cmd);
+    rp_begin(dev, cmd, false);
+    dev->d.CmdBeginRenderPass2(cmd, info, sub);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass2KHR(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
+                                                     const VkSubpassBeginInfo* sub)
+{
+    Device* dev = dev_of(cmd);
+    rp_begin(dev, cmd, false);
+    dev->d.CmdBeginRenderPass2KHR(cmd, info, sub);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass(VkCommandBuffer cmd)
+{
+    Device* dev = dev_of(cmd);
+    rp_end(dev, cmd);
+    dev->d.CmdEndRenderPass(cmd);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2(VkCommandBuffer cmd, const VkSubpassEndInfo* info)
+{
+    Device* dev = dev_of(cmd);
+    rp_end(dev, cmd);
+    dev->d.CmdEndRenderPass2(cmd, info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2KHR(VkCommandBuffer cmd, const VkSubpassEndInfo* info)
+{
+    Device* dev = dev_of(cmd);
+    rp_end(dev, cmd);
+    dev->d.CmdEndRenderPass2KHR(cmd, info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRendering(VkCommandBuffer cmd, const VkRenderingInfo* info)
+{
+    Device* dev = dev_of(cmd);
+    rp_begin(dev, cmd, true);
+    dev->d.CmdBeginRendering(cmd, info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderingKHR(VkCommandBuffer cmd, const VkRenderingInfo* info)
+{
+    Device* dev = dev_of(cmd);
+    rp_begin(dev, cmd, true);
+    dev->d.CmdBeginRenderingKHR(cmd, info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdEndRendering(VkCommandBuffer cmd)
+{
+    Device* dev = dev_of(cmd);
+    rp_end(dev, cmd);
+    dev->d.CmdEndRendering(cmd);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
+{
+    Device* dev = dev_of(cmd);
+    rp_end(dev, cmd);
+    dev->d.CmdEndRenderingKHR(cmd);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdExecuteCommands(VkCommandBuffer cmd, uint32_t count, const VkCommandBuffer* cbs)
+{
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        on_execute_commands(dev, cb, count, cbs);
+    dev->d.CmdExecuteCommands(cmd, count, cbs);
+}
+
+// ---------------------------------------------------------------------------
+// Submission and frame boundary
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, const VkSubmitInfo* submits, VkFence fence)
+{
+    Device* dev = dev_of(queue);
+    for (uint32_t i = 0; i < count; i++)
+        on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
+    return dev->d.QueueSubmit(queue, count, submits, fence);
+}
+
+void track_submit2(Device* dev, uint32_t count, const VkSubmitInfo2* submits)
+{
+    std::vector<VkCommandBuffer> list;
+    for (uint32_t i = 0; i < count; i++) {
+        list.clear();
+        for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++)
+            list.push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
+        on_submit(dev, static_cast<uint32_t>(list.size()), list.data());
+    }
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence)
+{
+    Device* dev = dev_of(queue);
+    track_submit2(dev, count, submits);
+    return dev->d.QueueSubmit2(queue, count, submits, fence);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence)
+{
+    Device* dev = dev_of(queue);
+    track_submit2(dev, count, submits);
+    return dev->d.QueueSubmit2KHR(queue, count, submits, fence);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info)
+{
+    Device* dev = dev_of(queue);
+    on_present(dev);
+    return dev->d.QueuePresentKHR(queue, info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationCallbacks* alloc)
+{
+    if (!device)
+        return;
+    Device* dev = dev_of(device);
+    if (!dev)
+        return;
+    PFN_vkDestroyDevice next = dev->d.DestroyDevice;
+    logf("device destroyed after %llu frames", static_cast<unsigned long long>(dev->frame_no));
+    dev_destroy(dev);
+    next(device, alloc);
+}
+
+// ---------------------------------------------------------------------------
+// Hook table
+
+struct HookEntry {
+    const char* name;
+    PFN_vkVoidFunction hook;
+    size_t next_offset;
+    bool always; // also installed in passthrough mode
+};
+
+#define X(n) {"vk" #n, reinterpret_cast<PFN_vkVoidFunction>(hk_##n), offsetof(DeviceDispatch, n), false},
+HookEntry g_hooks[] = {EFVK_DEVICE_FUNCS(X)};
+#undef X
+
+bool hook_is_always(const char* name)
+{
+    return !strcmp(name, "vkDestroyDevice") || !strcmp(name, "vkQueuePresentKHR");
+}
+
+const HookEntry* find_hook(const char* name)
+{
+    for (const HookEntry& h : g_hooks)
+        if (!strcmp(h.name, name)) {
+            if (g_cfg.mode == Mode::Passthrough && !hook_is_always(name))
+                return nullptr;
+            return &h;
+        }
+    return nullptr;
+}
+
+PFN_vkVoidFunction& next_slot(DeviceDispatch& d, const HookEntry& h)
+{
+    return *reinterpret_cast<PFN_vkVoidFunction*>(reinterpret_cast<char*>(&d) + h.next_offset);
+}
+
+// ---------------------------------------------------------------------------
+// Instance and device creation
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetDeviceProcAddr(VkDevice device, const char* name);
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetInstanceProcAddr(VkInstance instance, const char* name);
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_CreateInstance(const VkInstanceCreateInfo* info, const VkAllocationCallbacks* alloc,
+                                                 VkInstance* instance)
+{
+    VkLayerInstanceCreateInfo* link = reinterpret_cast<VkLayerInstanceCreateInfo*>(const_cast<void*>(info->pNext));
+    while (link && !(link->sType == VK_STRUCTURE_TYPE_LOADER_INSTANCE_CREATE_INFO && link->function == VK_LAYER_LINK_INFO))
+        link = reinterpret_cast<VkLayerInstanceCreateInfo*>(const_cast<void*>(link->pNext));
+    if (!link || !link->u.pLayerInfo)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    PFN_vkGetInstanceProcAddr gipa = link->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+    link->u.pLayerInfo = link->u.pLayerInfo->pNext;
+
+    PFN_vkCreateInstance next = reinterpret_cast<PFN_vkCreateInstance>(gipa(VK_NULL_HANDLE, "vkCreateInstance"));
+    if (!next)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    VkResult r = next(info, alloc, instance);
+    if (r != VK_SUCCESS)
+        return r;
+
+    pin_module();
+    InstanceData* inst = new InstanceData();
+    inst->handle = *instance;
+    inst->gipa = gipa;
+    inst->DestroyInstance = reinterpret_cast<PFN_vkDestroyInstance>(gipa(*instance, "vkDestroyInstance"));
+    inst->EnumerateDeviceExtensionProperties = reinterpret_cast<PFN_vkEnumerateDeviceExtensionProperties>(
+        gipa(*instance, "vkEnumerateDeviceExtensionProperties"));
+    inst->GetPhysicalDeviceProperties =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(gipa(*instance, "vkGetPhysicalDeviceProperties"));
+    {
+        std::lock_guard<std::mutex> lock(g_inst_mx);
+        g_insts[key_of(*instance)] = inst;
+    }
+    const VkApplicationInfo* app = info->pApplicationInfo;
+    logf("instance created: app=%s engine=%s api=0x%x", app && app->pApplicationName ? app->pApplicationName : "?",
+         app && app->pEngineName ? app->pEngineName : "?", app ? app->apiVersion : 0);
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_DestroyInstance(VkInstance instance, const VkAllocationCallbacks* alloc)
+{
+    if (!instance)
+        return;
+    InstanceData* inst;
+    {
+        std::lock_guard<std::mutex> lock(g_inst_mx);
+        auto it = g_insts.find(key_of(instance));
+        if (it == g_insts.end())
+            return;
+        inst = it->second;
+        g_insts.erase(it);
+    }
+    PFN_vkDestroyInstance next = inst->DestroyInstance;
+    delete inst;
+    next(instance, alloc);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_EnumerateDeviceExtensionProperties(VkPhysicalDevice phys, const char* layer_name,
+                                                                     uint32_t* count, VkExtensionProperties* props)
+{
+    if (layer_name && !strcmp(layer_name, EFVK_LAYER_NAME)) {
+        if (count)
+            *count = 0;
+        return VK_SUCCESS;
+    }
+    InstanceData* inst = inst_of_key(key_of(phys));
+    if (!inst || !inst->EnumerateDeviceExtensionProperties)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    return inst->EnumerateDeviceExtensionProperties(phys, layer_name, count, props);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDeviceCreateInfo* info,
+                                               const VkAllocationCallbacks* alloc, VkDevice* device)
+{
+    VkLayerDeviceCreateInfo* link = reinterpret_cast<VkLayerDeviceCreateInfo*>(const_cast<void*>(info->pNext));
+    while (link && !(link->sType == VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO && link->function == VK_LAYER_LINK_INFO))
+        link = reinterpret_cast<VkLayerDeviceCreateInfo*>(const_cast<void*>(link->pNext));
+    if (!link || !link->u.pLayerInfo)
+        return VK_ERROR_INITIALIZATION_FAILED;
+
+    PFN_vkGetInstanceProcAddr gipa = link->u.pLayerInfo->pfnNextGetInstanceProcAddr;
+    PFN_vkGetDeviceProcAddr gdpa = link->u.pLayerInfo->pfnNextGetDeviceProcAddr;
+    link->u.pLayerInfo = link->u.pLayerInfo->pNext;
+
+    InstanceData* inst = inst_of_key(key_of(phys));
+    PFN_vkCreateDevice next =
+        reinterpret_cast<PFN_vkCreateDevice>(gipa(inst ? inst->handle : VK_NULL_HANDLE, "vkCreateDevice"));
+    if (!next)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    VkResult r = next(phys, info, alloc, device);
+    if (r != VK_SUCCESS)
+        return r;
+
+    Device* dev = dev_create(*device);
+    dev->phys = phys;
+    dev->next_gdpa = gdpa;
+    for (const HookEntry& h : g_hooks)
+        next_slot(dev->d, h) = gdpa(*device, h.name);
+    if (inst && inst->GetPhysicalDeviceProperties) {
+        VkPhysicalDeviceProperties props;
+        inst->GetPhysicalDeviceProperties(phys, &props);
+        memcpy(dev->gpu_name, props.deviceName, sizeof(dev->gpu_name));
+        dev->api_version = props.apiVersion;
+        dev->vendor_id = props.vendorID;
+        dev->device_id = props.deviceID;
+        dev->driver_version = props.driverVersion;
+    }
+    logf("device created on %s, %u extensions enabled", dev->gpu_name, info->enabledExtensionCount);
+    if (g_cfg.mode == Mode::Probe)
+        ipc_start();
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetDeviceProcAddr(VkDevice device, const char* name)
+{
+    if (!strcmp(name, "vkGetDeviceProcAddr"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_GetDeviceProcAddr);
+    Device* dev = device ? dev_of(device) : nullptr;
+    if (!dev)
+        return nullptr;
+    if (const HookEntry* h = find_hook(name)) {
+        // Offer a hook only for what the next element of the chain really implements.
+        if (next_slot(dev->d, *h))
+            return h->hook;
+    }
+    return dev->next_gdpa(device, name);
+}
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetInstanceProcAddr(VkInstance instance, const char* name)
+{
+    if (!strcmp(name, "vkGetInstanceProcAddr"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_GetInstanceProcAddr);
+    if (!strcmp(name, "vkCreateInstance"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_CreateInstance);
+    if (!strcmp(name, "vkDestroyInstance"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_DestroyInstance);
+    if (!strcmp(name, "vkCreateDevice"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_CreateDevice);
+    if (!strcmp(name, "vkEnumerateDeviceExtensionProperties"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_EnumerateDeviceExtensionProperties);
+    if (!strcmp(name, "vkGetDeviceProcAddr"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_GetDeviceProcAddr);
+    if (const HookEntry* h = find_hook(name))
+        return h->hook;
+    if (!instance)
+        return nullptr;
+    InstanceData* inst = inst_of_key(key_of(instance));
+    return inst ? inst->gipa(instance, name) : nullptr;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Exports
+
+extern "C" {
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL efvkGetInstanceProcAddr(VkInstance instance, const char* name)
+{
+    return hk_GetInstanceProcAddr(instance, name);
+}
+
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL efvkGetDeviceProcAddr(VkDevice device, const char* name)
+{
+    return hk_GetDeviceProcAddr(device, name);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL vkNegotiateLoaderLayerInterfaceVersion(VkNegotiateLayerInterface* v)
+{
+    if (!v || v->sType != LAYER_NEGOTIATE_INTERFACE_STRUCT)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    if (v->loaderLayerInterfaceVersion > CURRENT_LOADER_LAYER_INTERFACE_VERSION)
+        v->loaderLayerInterfaceVersion = CURRENT_LOADER_LAYER_INTERFACE_VERSION;
+    v->pfnGetInstanceProcAddr = hk_GetInstanceProcAddr;
+    v->pfnGetDeviceProcAddr = hk_GetDeviceProcAddr;
+    v->pfnGetPhysicalDeviceProcAddr = nullptr;
+    return VK_SUCCESS;
+}
+
+BOOL WINAPI DllMain(HINSTANCE self, DWORD reason, LPVOID)
+{
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(self);
+        util_init(self);
+    }
+    return TRUE;
+}
+
+} // extern "C"

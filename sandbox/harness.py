@@ -1,0 +1,142 @@
+"""Shared helpers of the sandbox tests: paths, the check counter and the sandbox process."""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DIST = os.environ.get("EFMI_VK_DIST", os.path.join(ROOT, "dist"))
+SANDBOX_EXE = os.path.join(DIST, "efmi_vk_sandbox.exe")
+LAYER_NAME = "VK_LAYER_EFMI_probe"
+
+sys.path.insert(0, os.path.join(ROOT, "server"))
+
+
+class Checks:
+    """Counts checks and prints the failed ones."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.passed = 0
+        self.failed = 0
+
+    def check(self, condition, what: str, detail=None) -> bool:
+        if condition:
+            self.passed += 1
+            return True
+        self.failed += 1
+        print("  FAIL: %s%s" % (what, "" if detail is None else " (%s)" % (detail,)))
+        return False
+
+    def equal(self, got, want, what: str) -> bool:
+        return self.check(got == want, what, "got %r, want %r" % (got, want))
+
+    def finish(self) -> int:
+        total = self.passed + self.failed
+        print("%s: %d/%d checks passed" % (self.name, self.passed, total))
+        return 0 if self.failed == 0 and total > 0 else 1
+
+
+def layer_env(log_path: str | None = None, mode: str = "probe", extra: dict | None = None) -> dict:
+    """Environment of a child process that loads the layer from dist/.
+
+    Nothing is registered system-wide: the loader finds the manifest through
+    VK_LAYER_PATH and enables it through VK_INSTANCE_LAYERS. Implicit layers of other
+    software (overlays, capture hooks) are switched off for the child so that runs
+    are repeatable. An elevated process ignores these variables.
+    """
+    env = dict(os.environ)
+    env["VK_LAYER_PATH"] = DIST
+    env["VK_INSTANCE_LAYERS"] = LAYER_NAME
+    env["VK_LOADER_LAYERS_DISABLE"] = "~implicit~"
+    env["EFMI_VK_MODE"] = mode
+    if log_path:
+        env["EFMI_VK_LOG"] = log_path
+    if extra:
+        env.update(extra)
+    return env
+
+
+class Sandbox:
+    """Runs the sandbox program and waits until it has written its expected values."""
+
+    def __init__(self, threads: int = 2, seconds: int = 60, with_layer: bool = True, mode: str = "probe",
+                 env_extra: dict | None = None):
+        self.threads = threads
+        self.seconds = seconds
+        self.with_layer = with_layer
+        self.mode = mode
+        self.env_extra = env_extra
+        self.dir = tempfile.mkdtemp(prefix="efvk-sandbox-")
+        self.expected_path = os.path.join(self.dir, "expected.json")
+        self.trigger_path = os.path.join(self.dir, "rewrite.trigger")
+        self.log_path = os.path.join(self.dir, "layer.log")
+        self.stdout_path = os.path.join(self.dir, "stdout.txt")
+        self.proc = None
+        self.expected = None
+        self._stdout = None
+
+    def __enter__(self):
+        if not os.path.isfile(SANDBOX_EXE):
+            raise RuntimeError("%s is missing; run scripts/build.py" % SANDBOX_EXE)
+        env = layer_env(self.log_path, self.mode, self.env_extra) if self.with_layer else dict(os.environ)
+        self._stdout = open(self.stdout_path, "wb")
+        self.proc = subprocess.Popen(
+            [SANDBOX_EXE, "--seconds", str(self.seconds), "--threads", str(self.threads),
+             "--expected", self.expected_path, "--trigger", self.trigger_path],
+            env=env, stdout=self._stdout, stderr=subprocess.STDOUT, cwd=self.dir,
+        )
+        deadline = time.monotonic() + 30
+        while not os.path.isfile(self.expected_path):
+            if self.proc.poll() is not None:
+                raise RuntimeError("the sandbox exited early with code %s:\n%s" % (self.proc.returncode, self.output()))
+            if time.monotonic() > deadline:
+                raise RuntimeError("the sandbox did not become ready:\n%s" % self.output())
+            time.sleep(0.05)
+        with open(self.expected_path, "r", encoding="utf-8") as f:
+            self.expected = json.load(f)
+        return self
+
+    @property
+    def pid(self) -> int:
+        return self.proc.pid
+
+    def output(self) -> str:
+        try:
+            with open(self.stdout_path, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except OSError:
+            return ""
+
+    def log(self) -> str:
+        try:
+            with open(self.log_path, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except OSError:
+            return ""
+
+    def rewrite_index_buffer(self, timeout: float = 10.0) -> None:
+        """Asks the sandbox to rewrite the second mesh and waits until it has done so."""
+        with open(self.trigger_path, "w") as f:
+            f.write("go")
+        done = self.trigger_path + ".done"
+        deadline = time.monotonic() + timeout
+        while not os.path.isfile(done):
+            if self.proc.poll() is not None or time.monotonic() > deadline:
+                raise RuntimeError("the sandbox did not rewrite its index buffer:\n%s" % self.output())
+            time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        if self._stdout is not None:
+            self._stdout.close()
