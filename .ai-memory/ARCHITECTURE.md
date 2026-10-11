@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target architecture of the product (interception, shadow, match, profile, engine, emit, prep, diag) is described in `docs/plan.md`, section 4. This file describes what exists in the repository: the read-only probe, layer 0.2.0, protocol 1, server 0.1.0.
+The target architecture of the product (interception, shadow, match, profile, engine, emit, prep, diag) is described in `docs/plan.md`, section 4. This file describes what exists in the repository: the read-only probe, layer 0.3.0, protocol 1, server 0.1.0.
 
 ## Data path of the development probe
 
@@ -34,7 +34,7 @@ The technique mirrors `bootstrap.cpp` of the EFMI MCP probe, which redirects two
 
 ### Hooks and dispatch
 
-`EFVK_DEVICE_FUNCS` in `state.h` lists every intercepted device function once; it generates the dispatch struct and the hook table. Promoted functions and their extension aliases (`CmdBeginRenderPass2` / `...2KHR`, `QueueSubmit2` / `...2KHR`, `MapMemory2` / `...2KHR` and so on) are separate entries with their own next-pointer. `GetDeviceProcAddr` hands out a hook only when the next element of the chain implements the function. In passthrough mode only `DestroyDevice` and `QueuePresentKHR` are hooked.
+`EFVK_DEVICE_FUNCS` in `state.h` lists every intercepted device function once; it generates the dispatch struct, the hook table and the index of the call counters. It has two parts. `EFVK_TRACKED_FUNCS` are the functions with a hand-written hook that feeds the tracker. `EFVK_COUNTED_FUNCS` are functions that are only counted and passed on (descriptor set layouts, pools, updates, templates and push descriptors, descriptor buffers, push constants, image, view, sampler and shader creation, render pass and framebuffer creation, buffer-to-image copies, multi-draw, mesh tasks, ray tracing); one template, `CountedHook`, generates their hooks from the function pointer type. Every hook increments `g_api_calls[index]`, and `vkGetDeviceProcAddr` remembers each name the application asks for. Promoted functions and their extension aliases (`CmdBeginRenderPass2` / `...2KHR`, `QueueSubmit2` / `...2KHR`, `MapMemory2` / `...2KHR` and so on) are separate entries with their own next-pointer. `GetDeviceProcAddr` hands out a hook only when the next element of the chain implements the function. In passthrough mode only `DestroyDevice` and `QueuePresentKHR` are hooked.
 
 A device is found from a dispatchable handle through its dispatch key (the first pointer of the handle); a single-device fast path avoids the registry lock.
 
@@ -71,6 +71,7 @@ Pipe `\\.\pipe\efmi-vk-<PID>`, one client at a time, started when the first devi
 | `read_buffer` | `id`, `offset`, `size` | Source and generation in the header, the bytes as payload (at most 64 MiB) |
 | `hash` | `id`, `offset`, `size` | CRC-32C of the range |
 | `pipeline` | `id` | Vertex input, stages, topology |
+| `api_usage` | | Call count of every intercepted function that was called, the names the application resolved, the enabled device extensions |
 
 ## Settings of the DLL
 
@@ -93,7 +94,7 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 | `server/efmi_vk/probe_client.py` | Finds probe pipes, sends requests, raises `ProbeError` |
 | `server/efmi_vk/hashes.py` | CRC-32C in Python and the index region rule |
 | `server/efmi_vk/mods.py` | Reads the TextureOverride sections of mod INIs (hash, `match_first_index`, `match_index_count`) and matches them against captured draws |
-| `server/efmi_vk/tools.py` | `Session` (pipe connection, last capture) and the nine tools; `ToolError` |
+| `server/efmi_vk/tools.py` | `Session` (pipe connection, last capture) and the ten tools; `ToolError` |
 | `server/efmi_vk/mcp_stdio.py` | JSON-RPC 2.0 over stdio: `initialize`, `ping`, `tools/list`, `tools/call` |
 | `server/run_server.py`, `server/efvk.py` | Entry points: MCP server, command line |
 

@@ -114,6 +114,21 @@ def run(threads: int, entry: str) -> int:
             c.equal(pipe["bindings"], [{"binding": 0, "stride": 8, "per_instance": False}], "vertex binding")
             c.equal([(a["location"], a["offset"]) for a in pipe["attributes"]], [(0, 0)], "vertex attribute")
 
+            usage = probe.api_usage()
+            calls = usage["calls"]
+            c.check(calls.get("vkCmdDrawIndexed", 0) >= 5, "draw calls are counted", calls.get("vkCmdDrawIndexed"))
+            c.check(calls.get("vkQueueSubmit", 0) >= 2, "submits are counted", calls.get("vkQueueSubmit"))
+            c.check(calls.get("vkQueuePresentKHR", 0) >= 1, "presents are counted")
+            c.equal(calls.get("vkUpdateDescriptorSets"), 1, "the one descriptor update is counted")
+            c.equal(calls.get("vkCreateShaderModule"), 2, "both shader modules are counted")
+            c.equal(calls.get("vkAllocateDescriptorSets"), 1, "the descriptor set allocation is counted")
+            c.equal(calls.get("vkCreateSwapchainKHR"), 1, "the swapchain creation is counted")
+            c.check(calls.get("vkCreateImageView", 0) >= 2, "image view creations are counted")
+            c.check("vkCmdDispatch" not in calls, "a function that is never called has no entry")
+            c.equal(calls.get("vkCmdExecuteCommands", 0) > 0, threads > 0, "secondary execution is counted when used")
+            c.check("vkCmdDrawIndexed" in usage["resolved"], "resolved function names are listed")
+            c.equal(usage["extensions"], ["VK_KHR_swapchain"], "enabled device extensions")
+
             try:
                 probe.read_buffer(999999)
                 c.check(False, "unknown buffer id is rejected")

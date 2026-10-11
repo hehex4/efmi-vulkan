@@ -2,6 +2,9 @@
 
     python sandbox/run_all.py [--no-build]
 
+Set EFMI_VK_DIST to build and test in another directory than dist/, for example
+while a running game holds the DLL in dist/.
+
 The layer is enabled only inside the child processes the tests start. Nothing is
 registered system-wide and the game is not involved.
 """
@@ -28,7 +31,12 @@ STEPS = [
 def main() -> int:
     steps = list(STEPS)
     if "--no-build" not in sys.argv[1:]:
-        steps.insert(0, ("build", [os.path.join(ROOT, "scripts", "build.py")]))
+        build = [os.path.join(ROOT, "scripts", "build.py")]
+        # A running process may hold the DLL in dist/. With EFMI_VK_DIST set, build and
+        # test in that directory instead.
+        if os.environ.get("EFMI_VK_DIST"):
+            build += ["--out", os.environ["EFMI_VK_DIST"]]
+        steps.insert(0, ("build", build))
     failed = []
     for name, args in steps:
         start = time.monotonic()

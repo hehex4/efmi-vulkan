@@ -94,6 +94,15 @@ TOOLS = [
         "inputSchema": _schema({**_PID, "id": {"type": "integer"}}, ["id"]),
     },
     {
+        "name": "efvk_api_usage",
+        "description": "Which Vulkan device functions the application has called so far, with call counts, for every "
+                       "function the layer intercepts (tracked ones and ones that are only counted, such as "
+                       "descriptor updates, image and shader creation). Also the function names the application "
+                       "asked vkGetDeviceProcAddr for and the device extensions it enabled. Use `filter` to keep "
+                       "only names that contain a substring.",
+        "inputSchema": _schema({**_PID, "filter": {"type": "string"}}),
+    },
+    {
         "name": "efvk_match_mod",
         "description": "Reads the TextureOverride sections of a mod INI (or of every INI below a folder) and reports "
                        "which of their index buffer hashes occur in the captured frame, with first index and index "
@@ -265,6 +274,21 @@ class Session:
     def efvk_pipeline(self, id: int, pid=None) -> dict:
         result, _ = self._request(pid, "pipeline", id=int(id))
         return result
+
+    def efvk_api_usage(self, pid=None, filter: str | None = None) -> dict:
+        result, _ = self._request(pid, "api_usage")
+        needle = filter.lower() if filter else None
+        calls = {k: v for k, v in result["calls"].items() if needle is None or needle in k.lower()}
+        resolved = [n for n in result["resolved"] if needle is None or needle in n.lower()]
+        called = set(result["calls"])
+        return {
+            "hooked_functions": result["hooked_functions"],
+            "calls": dict(sorted(calls.items(), key=lambda kv: -kv[1])),
+            "resolved_count": len(result["resolved"]),
+            "resolved": resolved,
+            "resolved_but_never_called": [n for n in resolved if n not in called and needle is not None],
+            "extensions": result["extensions"],
+        }
 
     def efvk_match_mod(self, path: str) -> dict:
         draws = self._draws()

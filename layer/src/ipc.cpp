@@ -72,6 +72,8 @@ std::string dispatch(const JsonRequest& req, std::vector<uint8_t>& payload)
         return probe_hash(static_cast<uint32_t>(req.get_u64("id", 0)), req.get_u64("offset", 0), req.get_u64("size", 0));
     if (cmd == "pipeline")
         return probe_pipeline(static_cast<uint32_t>(req.get_u64("id", 0)));
+    if (cmd == "api_usage")
+        return probe_api_usage();
     return error_reply("unknown command");
 }
 

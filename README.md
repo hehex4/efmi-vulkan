@@ -55,7 +55,7 @@ python server\efvk.py capture_frame -- list_draws kind=indexed limit=20
 python server\efvk.py capture_frame -- match_mod path="D:\path\to\a mod"
 ```
 
-MCP server for agents: `python server\run_server.py` (registered for this workspace in `.mcp.json`). Tools: `efvk_status`, `efvk_capture_frame`, `efvk_list_draws`, `efvk_get_draw`, `efvk_find_hash`, `efvk_list_buffers`, `efvk_read_buffer`, `efvk_pipeline`, `efvk_match_mod`.
+MCP server for agents: `python server\run_server.py` (registered for this workspace in `.mcp.json`). Tools: `efvk_status`, `efvk_capture_frame`, `efvk_list_draws`, `efvk_get_draw`, `efvk_find_hash`, `efvk_list_buffers`, `efvk_read_buffer`, `efvk_pipeline`, `efvk_api_usage`, `efvk_match_mod`.
 
 ## Offline analysis
 

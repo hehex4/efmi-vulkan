@@ -1,6 +1,13 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-11. Layer 0.2.0 (probe, protocol 1), server 0.1.0. The read-only probe works end to end against the sandbox through both entries, as a Vulkan layer and injected with export redirection. The inject DLL has been in the real game twice in passthrough mode (once under DX11 without incident, once under Vulkan where the game crashed in the NVIDIA driver with the cause still open); gates G1 to G3 are open.
+> Last updated: 2026-10-11. Layer 0.3.0 (probe, protocol 1), server 0.1.0; the game was last given 0.2.0. The read-only probe works end to end against the sandbox through both entries, as a Vulkan layer and injected with export redirection. The inject DLL has been in the real game twice in passthrough mode (once under DX11 without incident, once under Vulkan where the game crashed in the NVIDIA driver with the cause still open); gates G1 to G3 are open.
+
+## Call counters, built but not yet in `dist\` (2026-10-11; sandbox only)
+
+Layer 0.3.0 counts every intercepted device function and adds about forty functions that are only counted (descriptor paths, image and shader creation, uploads to images, multi-draw and others), the probe command `api_usage` and the tool `efvk_api_usage`. Purpose: the first probe-mode session in the game then shows which descriptor update path, which submit, copy, map and render pass variants and which draw forms the engine really uses, which decides what T-011 has to track and which untested hooks (LIMIT-011) matter.
+
+- Built into `build\next\` because the running game (run 3) holds `dist\efmi_vk_inject.dll`. `sandbox/run_all.py` with `EFMI_VK_DIST=build\next` passes: unit 36; probe 168 / 170 / 170 (layer entry) and 170 / 172 (inject entry); modes 40; MCP 39.
+- **To do when the game has exited**: build into `dist\` (`python scripts/build.py`), then set `dist\efmi_vk.cfg` to `mode = probe` for the first probe-mode session. `dist\` still holds 0.2.0 until then.
 
 ## First runs in the real game (2026-10-11 20:27 and 20:29; started by the user through the launcher)
 

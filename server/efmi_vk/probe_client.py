@@ -118,3 +118,6 @@ class ProbeClient:
 
     def pipeline(self, pipeline_id: int) -> dict:
         return self.request("pipeline", id=pipeline_id)[0]
+
+    def api_usage(self) -> dict:
+        return self.request("api_usage")[0]

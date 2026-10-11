@@ -12,10 +12,10 @@
 
 namespace efvk {
 
-// Device functions the layer intercepts. One next-pointer is kept per name;
-// promoted functions and their extension aliases are separate entries because
-// a driver may offer only one of them.
-#define EFVK_DEVICE_FUNCS(X)                                                                                           \
+// Device functions the layer intercepts and tracks. One next-pointer is kept per
+// name; promoted functions and their extension aliases are separate entries
+// because a driver may offer only one of them.
+#define EFVK_TRACKED_FUNCS(X)                                                                                          \
     X(DestroyDevice) X(QueuePresentKHR)                                                                                \
     X(AllocateMemory) X(FreeMemory) X(MapMemory) X(UnmapMemory)                                                        \
     X(MapMemory2) X(MapMemory2KHR) X(UnmapMemory2) X(UnmapMemory2KHR)                                                  \
@@ -35,11 +35,50 @@ namespace efvk {
     X(CmdExecuteCommands)                                                                                              \
     X(QueueSubmit) X(QueueSubmit2) X(QueueSubmit2KHR)
 
+// Device functions that are only counted and passed on. They show which paths an
+// application uses (descriptor updates, images, shaders, uploads) before tracking
+// for them exists.
+#define EFVK_COUNTED_FUNCS(X)                                                                                          \
+    X(CreateDescriptorSetLayout) X(CreatePipelineLayout) X(CreateDescriptorPool) X(ResetDescriptorPool)                \
+    X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets)                                            \
+    X(CreateDescriptorUpdateTemplate) X(CreateDescriptorUpdateTemplateKHR)                                             \
+    X(UpdateDescriptorSetWithTemplate) X(UpdateDescriptorSetWithTemplateKHR)                                           \
+    X(CmdPushDescriptorSet) X(CmdPushDescriptorSetKHR)                                                                 \
+    X(CmdPushDescriptorSetWithTemplate) X(CmdPushDescriptorSetWithTemplateKHR)                                         \
+    X(CmdBindDescriptorBuffersEXT) X(CmdSetDescriptorBufferOffsetsEXT) X(CmdPushConstants)                             \
+    X(CreateImage) X(CreateImageView) X(CreateBufferView) X(CreateSampler) X(CreateShaderModule)                       \
+    X(CreateSwapchainKHR) X(CreateRenderPass) X(CreateRenderPass2) X(CreateRenderPass2KHR) X(CreateFramebuffer)        \
+    X(CmdCopyBufferToImage) X(CmdCopyBufferToImage2) X(CmdCopyBufferToImage2KHR)                                       \
+    X(CmdCopyImageToBuffer) X(CmdBlitImage) X(CmdNextSubpass) X(FlushMappedMemoryRanges)                               \
+    X(CmdDrawMultiEXT) X(CmdDrawMultiIndexedEXT) X(CmdDrawMeshTasksEXT) X(CmdBindTransformFeedbackBuffersEXT)          \
+    X(CmdBuildAccelerationStructuresKHR) X(CmdTraceRaysKHR)
+
+#define EFVK_DEVICE_FUNCS(X) EFVK_TRACKED_FUNCS(X) EFVK_COUNTED_FUNCS(X)
+
 struct DeviceDispatch {
 #define X(n) PFN_vk##n n = nullptr;
     EFVK_DEVICE_FUNCS(X)
 #undef X
 };
+
+// Index of every intercepted device function, for the call counters.
+enum HookIndex {
+#define X(n) HI_##n,
+    EFVK_DEVICE_FUNCS(X)
+#undef X
+    HI_COUNT
+};
+
+extern std::atomic<uint64_t> g_api_calls[HI_COUNT];
+extern const char* const g_api_names[HI_COUNT];
+
+inline void count_call(int index)
+{
+    g_api_calls[index].fetch_add(1, std::memory_order_relaxed);
+}
+
+// Remembers a function name the application asked vkGetDeviceProcAddr for.
+void note_resolved(const char* name);
 
 // Sorted, disjoint byte ranges.
 struct IntervalSet {
@@ -227,6 +266,7 @@ struct Device {
     DeviceDispatch d;
 
     char gpu_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = {};
+    std::vector<std::string> extensions; // enabled at creation
     uint32_t api_version = 0;
     uint32_t vendor_id = 0;
     uint32_t device_id = 0;
@@ -322,5 +362,6 @@ std::string probe_buffers(uint32_t usage_mask, uint64_t min_size, uint32_t limit
 std::string probe_read_buffer(uint32_t id, uint64_t off, uint64_t size, std::vector<uint8_t>& payload);
 std::string probe_hash(uint32_t id, uint64_t off, uint64_t size);
 std::string probe_pipeline(uint32_t id);
+std::string probe_api_usage();
 
 } // namespace efvk

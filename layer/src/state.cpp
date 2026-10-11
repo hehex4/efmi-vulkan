@@ -7,6 +7,31 @@
 namespace efvk {
 
 // ---------------------------------------------------------------------------
+// Call counters
+
+std::atomic<uint64_t> g_api_calls[HI_COUNT];
+
+const char* const g_api_names[HI_COUNT] = {
+#define X(n) "vk" #n,
+    EFVK_DEVICE_FUNCS(X)
+#undef X
+};
+
+static std::mutex g_resolved_mx;
+static std::vector<std::string> g_resolved;
+
+void note_resolved(const char* name)
+{
+    std::lock_guard<std::mutex> lock(g_resolved_mx);
+    if (g_resolved.size() >= 4096)
+        return;
+    for (const std::string& s : g_resolved)
+        if (s == name)
+            return;
+    g_resolved.push_back(name);
+}
+
+// ---------------------------------------------------------------------------
 // IntervalSet
 
 void IntervalSet::add(uint64_t off, uint64_t size)
@@ -824,6 +849,7 @@ std::string probe_status()
     w.str("read_buffer");
     w.str("hash");
     w.str("pipeline");
+    w.str("api_usage");
     w.end_array();
 
     DeviceRef ref;
@@ -1135,6 +1161,44 @@ std::string probe_hash(uint32_t id, uint64_t off, uint64_t size)
     w.kn("size", bytes.size());
     w.key("hash");
     w.hex32(crc32c(0, bytes.data(), bytes.size()));
+    w.end_object();
+    w.end_object();
+    return w.out;
+}
+
+std::string probe_api_usage()
+{
+    JsonWriter w;
+    w.begin_object();
+    w.kb("ok", true);
+    w.key("result");
+    w.begin_object();
+    w.kn("hooked_functions", HI_COUNT);
+    w.key("calls");
+    w.begin_object();
+    for (int i = 0; i < HI_COUNT; i++) {
+        uint64_t n = g_api_calls[i].load(std::memory_order_relaxed);
+        if (n)
+            w.kn(g_api_names[i], n);
+    }
+    w.end_object();
+    {
+        std::lock_guard<std::mutex> lock(g_resolved_mx);
+        std::vector<std::string> names = g_resolved;
+        std::sort(names.begin(), names.end());
+        w.key("resolved");
+        w.begin_array();
+        for (const std::string& n : names)
+            w.str(n);
+        w.end_array();
+    }
+    DeviceRef ref;
+    w.key("extensions");
+    w.begin_array();
+    if (ref.dev)
+        for (const std::string& e : ref.dev->extensions)
+            w.str(e);
+    w.end_array();
     w.end_object();
     w.end_object();
     return w.out;

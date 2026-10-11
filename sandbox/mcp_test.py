@@ -92,7 +92,7 @@ def main() -> int:
             c.equal(init["result"]["serverInfo"]["name"], "efmi-vk", "initialize")
             mcp.send("notifications/initialized", notify=True)
             tools = mcp.send("tools/list")["result"]["tools"]
-            c.equal(len(tools), 9, "nine tools")
+            c.equal(len(tools), 10, "ten tools")
 
             err, status = mcp.tool("efvk_status", pid=sb.pid)
             c.check(not err and status["status"]["pid"] == sb.pid, "efvk_status", status)
@@ -142,6 +142,13 @@ def main() -> int:
 
                 err, pipe = mcp.tool("efvk_pipeline", pid=sb.pid, id=draw["pipeline"])
                 c.check(not err and pipe["attributes"][0]["location"] == 0, "efvk_pipeline", pipe)
+
+            err, usage = mcp.tool("efvk_api_usage", pid=sb.pid, filter="descriptor")
+            c.check(not err and usage["calls"].get("vkUpdateDescriptorSets") == 1, "efvk_api_usage with a filter", usage)
+            if not err:
+                c.check(all("descriptor" in k.lower() for k in usage["calls"]), "the filter applies to the call list")
+                c.check("vkCmdBindDescriptorSets" in usage["calls"], "tracked functions are in the same list")
+                c.equal(usage["extensions"], ["VK_KHR_swapchain"], "efvk_api_usage lists the extensions")
 
             mod = write_mod(out_dir, sb.expected)
             err, report = mcp.tool("efvk_match_mod", path=mod)

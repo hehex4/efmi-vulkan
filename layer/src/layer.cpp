@@ -107,6 +107,7 @@ DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
 VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateMemory(VkDevice device, const VkMemoryAllocateInfo* info,
                                                  const VkAllocationCallbacks* alloc, VkDeviceMemory* mem)
 {
+    count_call(HI_AllocateMemory);
     Device* dev = dev_of(device);
     VkResult r = dev->d.AllocateMemory(device, info, alloc, mem);
     if (r == VK_SUCCESS)
@@ -116,6 +117,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateMemory(VkDevice device, const VkMemory
 
 VKAPI_ATTR void VKAPI_CALL hk_FreeMemory(VkDevice device, VkDeviceMemory mem, const VkAllocationCallbacks* alloc)
 {
+    count_call(HI_FreeMemory);
     Device* dev = dev_of(device);
     if (mem)
         on_free_memory(dev, mem);
@@ -125,6 +127,7 @@ VKAPI_ATTR void VKAPI_CALL hk_FreeMemory(VkDevice device, VkDeviceMemory mem, co
 VKAPI_ATTR VkResult VKAPI_CALL hk_MapMemory(VkDevice device, VkDeviceMemory mem, VkDeviceSize off, VkDeviceSize size,
                                             VkMemoryMapFlags flags, void** data)
 {
+    count_call(HI_MapMemory);
     Device* dev = dev_of(device);
     VkResult r = dev->d.MapMemory(device, mem, off, size, flags, data);
     if (r == VK_SUCCESS)
@@ -134,6 +137,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_MapMemory(VkDevice device, VkDeviceMemory mem,
 
 VKAPI_ATTR void VKAPI_CALL hk_UnmapMemory(VkDevice device, VkDeviceMemory mem)
 {
+    count_call(HI_UnmapMemory);
     Device* dev = dev_of(device);
     on_unmap_memory(dev, mem);
     dev->d.UnmapMemory(device, mem);
@@ -149,18 +153,21 @@ VkResult map2(Device* dev, PFN_vkMapMemory2 next, VkDevice device, const VkMemor
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_MapMemory2(VkDevice device, const VkMemoryMapInfo* info, void** data)
 {
+    count_call(HI_MapMemory2);
     Device* dev = dev_of(device);
     return map2(dev, dev->d.MapMemory2, device, info, data);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_MapMemory2KHR(VkDevice device, const VkMemoryMapInfo* info, void** data)
 {
+    count_call(HI_MapMemory2KHR);
     Device* dev = dev_of(device);
     return map2(dev, dev->d.MapMemory2KHR, device, info, data);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_UnmapMemory2(VkDevice device, const VkMemoryUnmapInfo* info)
 {
+    count_call(HI_UnmapMemory2);
     Device* dev = dev_of(device);
     on_unmap_memory(dev, info->memory);
     return dev->d.UnmapMemory2(device, info);
@@ -168,6 +175,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_UnmapMemory2(VkDevice device, const VkMemoryUn
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_UnmapMemory2KHR(VkDevice device, const VkMemoryUnmapInfo* info)
 {
+    count_call(HI_UnmapMemory2KHR);
     Device* dev = dev_of(device);
     on_unmap_memory(dev, info->memory);
     return dev->d.UnmapMemory2KHR(device, info);
@@ -179,6 +187,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_UnmapMemory2KHR(VkDevice device, const VkMemor
 VKAPI_ATTR VkResult VKAPI_CALL hk_CreateBuffer(VkDevice device, const VkBufferCreateInfo* info,
                                                const VkAllocationCallbacks* alloc, VkBuffer* buf)
 {
+    count_call(HI_CreateBuffer);
     Device* dev = dev_of(device);
     VkResult r = dev->d.CreateBuffer(device, info, alloc, buf);
     if (r == VK_SUCCESS)
@@ -188,6 +197,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateBuffer(VkDevice device, const VkBufferCr
 
 VKAPI_ATTR void VKAPI_CALL hk_DestroyBuffer(VkDevice device, VkBuffer buf, const VkAllocationCallbacks* alloc)
 {
+    count_call(HI_DestroyBuffer);
     Device* dev = dev_of(device);
     if (buf)
         on_destroy_buffer(dev, buf);
@@ -196,6 +206,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyBuffer(VkDevice device, VkBuffer buf, const
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_BindBufferMemory(VkDevice device, VkBuffer buf, VkDeviceMemory mem, VkDeviceSize off)
 {
+    count_call(HI_BindBufferMemory);
     Device* dev = dev_of(device);
     VkResult r = dev->d.BindBufferMemory(device, buf, mem, off);
     if (r == VK_SUCCESS)
@@ -214,12 +225,14 @@ VkResult bind2(Device* dev, PFN_vkBindBufferMemory2 next, VkDevice device, uint3
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_BindBufferMemory2(VkDevice device, uint32_t count, const VkBindBufferMemoryInfo* infos)
 {
+    count_call(HI_BindBufferMemory2);
     Device* dev = dev_of(device);
     return bind2(dev, dev->d.BindBufferMemory2, device, count, infos);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_BindBufferMemory2KHR(VkDevice device, uint32_t count, const VkBindBufferMemoryInfo* infos)
 {
+    count_call(HI_BindBufferMemory2KHR);
     Device* dev = dev_of(device);
     return bind2(dev, dev->d.BindBufferMemory2KHR, device, count, infos);
 }
@@ -228,6 +241,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateGraphicsPipelines(VkDevice device, VkPip
                                                           const VkGraphicsPipelineCreateInfo* infos,
                                                           const VkAllocationCallbacks* alloc, VkPipeline* pipes)
 {
+    count_call(HI_CreateGraphicsPipelines);
     Device* dev = dev_of(device);
     VkResult r = dev->d.CreateGraphicsPipelines(device, cache, count, infos, alloc, pipes);
     if (r >= 0)
@@ -241,6 +255,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateComputePipelines(VkDevice device, VkPipe
                                                          const VkComputePipelineCreateInfo* infos,
                                                          const VkAllocationCallbacks* alloc, VkPipeline* pipes)
 {
+    count_call(HI_CreateComputePipelines);
     Device* dev = dev_of(device);
     VkResult r = dev->d.CreateComputePipelines(device, cache, count, infos, alloc, pipes);
     if (r >= 0)
@@ -252,6 +267,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateComputePipelines(VkDevice device, VkPipe
 
 VKAPI_ATTR void VKAPI_CALL hk_DestroyPipeline(VkDevice device, VkPipeline pipe, const VkAllocationCallbacks* alloc)
 {
+    count_call(HI_DestroyPipeline);
     Device* dev = dev_of(device);
     if (pipe)
         on_destroy_pipeline(dev, pipe);
@@ -264,6 +280,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyPipeline(VkDevice device, VkPipeline pipe, 
 VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateCommandBuffers(VkDevice device, const VkCommandBufferAllocateInfo* info,
                                                          VkCommandBuffer* cbs)
 {
+    count_call(HI_AllocateCommandBuffers);
     Device* dev = dev_of(device);
     VkResult r = dev->d.AllocateCommandBuffers(device, info, cbs);
     if (r == VK_SUCCESS)
@@ -274,6 +291,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateCommandBuffers(VkDevice device, const 
 VKAPI_ATTR void VKAPI_CALL hk_FreeCommandBuffers(VkDevice device, VkCommandPool pool, uint32_t count,
                                                  const VkCommandBuffer* cbs)
 {
+    count_call(HI_FreeCommandBuffers);
     Device* dev = dev_of(device);
     on_free_cbs(dev, count, cbs);
     dev->d.FreeCommandBuffers(device, pool, count, cbs);
@@ -281,6 +299,7 @@ VKAPI_ATTR void VKAPI_CALL hk_FreeCommandBuffers(VkDevice device, VkCommandPool 
 
 VKAPI_ATTR void VKAPI_CALL hk_DestroyCommandPool(VkDevice device, VkCommandPool pool, const VkAllocationCallbacks* alloc)
 {
+    count_call(HI_DestroyCommandPool);
     Device* dev = dev_of(device);
     if (pool)
         on_destroy_pool(dev, pool);
@@ -289,6 +308,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyCommandPool(VkDevice device, VkCommandPool 
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandPool(VkDevice device, VkCommandPool pool, VkCommandPoolResetFlags flags)
 {
+    count_call(HI_ResetCommandPool);
     Device* dev = dev_of(device);
     on_reset_pool(dev, pool);
     return dev->d.ResetCommandPool(device, pool, flags);
@@ -296,6 +316,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandPool(VkDevice device, VkCommandPoo
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_BeginCommandBuffer(VkCommandBuffer cmd, const VkCommandBufferBeginInfo* info)
 {
+    count_call(HI_BeginCommandBuffer);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         cb->reset_recording();
@@ -307,12 +328,14 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_BeginCommandBuffer(VkCommandBuffer cmd, const 
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_EndCommandBuffer(VkCommandBuffer cmd)
 {
+    count_call(HI_EndCommandBuffer);
     Device* dev = dev_of(cmd);
     return dev->d.EndCommandBuffer(cmd);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandBuffer(VkCommandBuffer cmd, VkCommandBufferResetFlags flags)
 {
+    count_call(HI_ResetCommandBuffer);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
         cb->reset_recording();
@@ -324,6 +347,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandBuffer(VkCommandBuffer cmd, VkComm
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindPipeline(VkCommandBuffer cmd, VkPipelineBindPoint point, VkPipeline pipeline)
 {
+    count_call(HI_CmdBindPipeline);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         if (point == VK_PIPELINE_BIND_POINT_GRAPHICS)
@@ -336,6 +360,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindPipeline(VkCommandBuffer cmd, VkPipelineBin
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkIndexType type)
 {
+    count_call(HI_CmdBindIndexBuffer);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         cb->ib = buf;
@@ -348,6 +373,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer(VkCommandBuffer cmd, VkBuffer b
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkDeviceSize size,
                                                   VkIndexType type)
 {
+    count_call(HI_CmdBindIndexBuffer2);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         cb->ib = buf;
@@ -360,6 +386,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2(VkCommandBuffer cmd, VkBuffer 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2KHR(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off,
                                                      VkDeviceSize size, VkIndexType type)
 {
+    count_call(HI_CmdBindIndexBuffer2KHR);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         cb->ib = buf;
@@ -383,6 +410,7 @@ void track_vbs(CmdBuf* cb, uint32_t first, uint32_t count, const VkBuffer* bufs,
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers(VkCommandBuffer cmd, uint32_t first, uint32_t count,
                                                    const VkBuffer* bufs, const VkDeviceSize* offs)
 {
+    count_call(HI_CmdBindVertexBuffers);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
         track_vbs(cb, first, count, bufs, offs);
@@ -393,6 +421,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers2(VkCommandBuffer cmd, uint32_
                                                     const VkBuffer* bufs, const VkDeviceSize* offs,
                                                     const VkDeviceSize* sizes, const VkDeviceSize* strides)
 {
+    count_call(HI_CmdBindVertexBuffers2);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
         track_vbs(cb, first, count, bufs, offs);
@@ -403,6 +432,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers2EXT(VkCommandBuffer cmd, uint
                                                        const VkBuffer* bufs, const VkDeviceSize* offs,
                                                        const VkDeviceSize* sizes, const VkDeviceSize* strides)
 {
+    count_call(HI_CmdBindVertexBuffers2EXT);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
         track_vbs(cb, first, count, bufs, offs);
@@ -413,6 +443,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindDescriptorSets(VkCommandBuffer cmd, VkPipel
                                                     uint32_t first, uint32_t count, const VkDescriptorSet* sets,
                                                     uint32_t dyn_count, const uint32_t* dyn)
 {
+    count_call(HI_CmdBindDescriptorSets);
     Device* dev = dev_of(cmd);
     CmdBuf* cb = cb_of(dev, cmd);
     if (cb && point == VK_PIPELINE_BIND_POINT_GRAPHICS) {
@@ -439,6 +470,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindDescriptorSets(VkCommandBuffer cmd, VkPipel
 VKAPI_ATTR void VKAPI_CALL hk_CmdDraw(VkCommandBuffer cmd, uint32_t vertices, uint32_t instances, uint32_t first_vertex,
                                       uint32_t first_instance)
 {
+    count_call(HI_CmdDraw);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         DrawRec r = make_rec(cb, DK_DRAW, false);
@@ -454,6 +486,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDraw(VkCommandBuffer cmd, uint32_t vertices, ui
 VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indices, uint32_t instances, uint32_t first_index,
                                              int32_t vertex_offset, uint32_t first_instance)
 {
+    count_call(HI_CmdDrawIndexed);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         DrawRec r = make_rec(cb, DK_INDEXED, false);
@@ -481,6 +514,7 @@ void track_indirect(Device* dev, VkCommandBuffer cmd, uint8_t kind, VkBuffer buf
 VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirect(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, uint32_t count,
                                               uint32_t stride)
 {
+    count_call(HI_CmdDrawIndirect);
     Device* dev = dev_of(cmd);
     track_indirect(dev, cmd, DK_INDIRECT, buf, off, count);
     dev->d.CmdDrawIndirect(cmd, buf, off, count, stride);
@@ -489,6 +523,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirect(VkCommandBuffer cmd, VkBuffer buf,
 VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirect(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, uint32_t count,
                                                      uint32_t stride)
 {
+    count_call(HI_CmdDrawIndexedIndirect);
     Device* dev = dev_of(cmd);
     track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, count);
     dev->d.CmdDrawIndexedIndirect(cmd, buf, off, count, stride);
@@ -497,6 +532,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirect(VkCommandBuffer cmd, VkBuff
 VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCount(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkBuffer count_buf,
                                                    VkDeviceSize count_off, uint32_t max_count, uint32_t stride)
 {
+    count_call(HI_CmdDrawIndirectCount);
     Device* dev = dev_of(cmd);
     track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count);
     dev->d.CmdDrawIndirectCount(cmd, buf, off, count_buf, count_off, max_count, stride);
@@ -505,6 +541,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCount(VkCommandBuffer cmd, VkBuffer
 VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCountKHR(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkBuffer count_buf,
                                                       VkDeviceSize count_off, uint32_t max_count, uint32_t stride)
 {
+    count_call(HI_CmdDrawIndirectCountKHR);
     Device* dev = dev_of(cmd);
     track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count);
     dev->d.CmdDrawIndirectCountKHR(cmd, buf, off, count_buf, count_off, max_count, stride);
@@ -514,6 +551,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCount(VkCommandBuffer cmd, V
                                                           VkBuffer count_buf, VkDeviceSize count_off, uint32_t max_count,
                                                           uint32_t stride)
 {
+    count_call(HI_CmdDrawIndexedIndirectCount);
     Device* dev = dev_of(cmd);
     track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count);
     dev->d.CmdDrawIndexedIndirectCount(cmd, buf, off, count_buf, count_off, max_count, stride);
@@ -523,6 +561,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCountKHR(VkCommandBuffer cmd
                                                              VkBuffer count_buf, VkDeviceSize count_off,
                                                              uint32_t max_count, uint32_t stride)
 {
+    count_call(HI_CmdDrawIndexedIndirectCountKHR);
     Device* dev = dev_of(cmd);
     track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count);
     dev->d.CmdDrawIndexedIndirectCountKHR(cmd, buf, off, count_buf, count_off, max_count, stride);
@@ -530,6 +569,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCountKHR(VkCommandBuffer cmd
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdDispatch(VkCommandBuffer cmd, uint32_t x, uint32_t y, uint32_t z)
 {
+    count_call(HI_CmdDispatch);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         DrawRec r = make_rec(cb, DK_DISPATCH, true);
@@ -543,6 +583,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDispatch(VkCommandBuffer cmd, uint32_t x, uint3
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdDispatchIndirect(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off)
 {
+    count_call(HI_CmdDispatchIndirect);
     Device* dev = dev_of(cmd);
     track_indirect(dev, cmd, DK_DISPATCH_INDIRECT, buf, off, 1);
     dev->d.CmdDispatchIndirect(cmd, buf, off);
@@ -554,6 +595,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDispatchIndirect(VkCommandBuffer cmd, VkBuffer 
 VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer(VkCommandBuffer cmd, VkBuffer src, VkBuffer dst, uint32_t count,
                                             const VkBufferCopy* regions)
 {
+    count_call(HI_CmdCopyBuffer);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
         for (uint32_t i = 0; i < count; i++)
@@ -571,6 +613,7 @@ void track_copy2(Device* dev, VkCommandBuffer cmd, const VkCopyBufferInfo2* info
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer2(VkCommandBuffer cmd, const VkCopyBufferInfo2* info)
 {
+    count_call(HI_CmdCopyBuffer2);
     Device* dev = dev_of(cmd);
     track_copy2(dev, cmd, info);
     dev->d.CmdCopyBuffer2(cmd, info);
@@ -578,6 +621,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer2(VkCommandBuffer cmd, const VkCopyBu
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer2KHR(VkCommandBuffer cmd, const VkCopyBufferInfo2* info)
 {
+    count_call(HI_CmdCopyBuffer2KHR);
     Device* dev = dev_of(cmd);
     track_copy2(dev, cmd, info);
     dev->d.CmdCopyBuffer2KHR(cmd, info);
@@ -586,6 +630,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer2KHR(VkCommandBuffer cmd, const VkCop
 VKAPI_ATTR void VKAPI_CALL hk_CmdUpdateBuffer(VkCommandBuffer cmd, VkBuffer dst, VkDeviceSize off, VkDeviceSize size,
                                               const void* data)
 {
+    count_call(HI_CmdUpdateBuffer);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
         on_update_buffer(dev, cb, dst, off, size, data);
@@ -595,6 +640,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdUpdateBuffer(VkCommandBuffer cmd, VkBuffer dst,
 VKAPI_ATTR void VKAPI_CALL hk_CmdFillBuffer(VkCommandBuffer cmd, VkBuffer dst, VkDeviceSize off, VkDeviceSize size,
                                             uint32_t value)
 {
+    count_call(HI_CmdFillBuffer);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
         on_fill_buffer(dev, cb, dst, off, size, value);
@@ -624,6 +670,7 @@ void rp_end(Device* dev, VkCommandBuffer cmd)
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
                                                  VkSubpassContents contents)
 {
+    count_call(HI_CmdBeginRenderPass);
     Device* dev = dev_of(cmd);
     rp_begin(dev, cmd, false);
     dev->d.CmdBeginRenderPass(cmd, info, contents);
@@ -632,6 +679,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass(VkCommandBuffer cmd, const VkRe
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass2(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
                                                   const VkSubpassBeginInfo* sub)
 {
+    count_call(HI_CmdBeginRenderPass2);
     Device* dev = dev_of(cmd);
     rp_begin(dev, cmd, false);
     dev->d.CmdBeginRenderPass2(cmd, info, sub);
@@ -640,6 +688,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass2(VkCommandBuffer cmd, const VkR
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass2KHR(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
                                                      const VkSubpassBeginInfo* sub)
 {
+    count_call(HI_CmdBeginRenderPass2KHR);
     Device* dev = dev_of(cmd);
     rp_begin(dev, cmd, false);
     dev->d.CmdBeginRenderPass2KHR(cmd, info, sub);
@@ -647,6 +696,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass2KHR(VkCommandBuffer cmd, const 
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass(VkCommandBuffer cmd)
 {
+    count_call(HI_CmdEndRenderPass);
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRenderPass(cmd);
@@ -654,6 +704,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass(VkCommandBuffer cmd)
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2(VkCommandBuffer cmd, const VkSubpassEndInfo* info)
 {
+    count_call(HI_CmdEndRenderPass2);
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRenderPass2(cmd, info);
@@ -661,6 +712,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2(VkCommandBuffer cmd, const VkSub
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2KHR(VkCommandBuffer cmd, const VkSubpassEndInfo* info)
 {
+    count_call(HI_CmdEndRenderPass2KHR);
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRenderPass2KHR(cmd, info);
@@ -668,6 +720,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2KHR(VkCommandBuffer cmd, const Vk
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRendering(VkCommandBuffer cmd, const VkRenderingInfo* info)
 {
+    count_call(HI_CmdBeginRendering);
     Device* dev = dev_of(cmd);
     rp_begin(dev, cmd, true);
     dev->d.CmdBeginRendering(cmd, info);
@@ -675,6 +728,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRendering(VkCommandBuffer cmd, const VkRen
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderingKHR(VkCommandBuffer cmd, const VkRenderingInfo* info)
 {
+    count_call(HI_CmdBeginRenderingKHR);
     Device* dev = dev_of(cmd);
     rp_begin(dev, cmd, true);
     dev->d.CmdBeginRenderingKHR(cmd, info);
@@ -682,6 +736,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderingKHR(VkCommandBuffer cmd, const Vk
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRendering(VkCommandBuffer cmd)
 {
+    count_call(HI_CmdEndRendering);
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRendering(cmd);
@@ -689,6 +744,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRendering(VkCommandBuffer cmd)
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
 {
+    count_call(HI_CmdEndRenderingKHR);
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRenderingKHR(cmd);
@@ -696,6 +752,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdExecuteCommands(VkCommandBuffer cmd, uint32_t count, const VkCommandBuffer* cbs)
 {
+    count_call(HI_CmdExecuteCommands);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
         on_execute_commands(dev, cb, count, cbs);
@@ -707,6 +764,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdExecuteCommands(VkCommandBuffer cmd, uint32_t c
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, const VkSubmitInfo* submits, VkFence fence)
 {
+    count_call(HI_QueueSubmit);
     Device* dev = dev_of(queue);
     for (uint32_t i = 0; i < count; i++)
         on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
@@ -726,6 +784,7 @@ void track_submit2(Device* dev, uint32_t count, const VkSubmitInfo2* submits)
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence)
 {
+    count_call(HI_QueueSubmit2);
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
     return dev->d.QueueSubmit2(queue, count, submits, fence);
@@ -733,6 +792,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, co
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence)
 {
+    count_call(HI_QueueSubmit2KHR);
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
     return dev->d.QueueSubmit2KHR(queue, count, submits, fence);
@@ -740,6 +800,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count,
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info)
 {
+    count_call(HI_QueuePresentKHR);
     Device* dev = dev_of(queue);
     on_present(dev);
     return dev->d.QueuePresentKHR(queue, info);
@@ -747,6 +808,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresent
 
 VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationCallbacks* alloc)
 {
+    count_call(HI_DestroyDevice);
     if (!device)
         return;
     Device* dev = dev_of(device);
@@ -759,6 +821,25 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
     }
     next(device, alloc);
 }
+
+// ---------------------------------------------------------------------------
+// Counted-only functions: one generic hook that counts and forwards
+
+template <typename Fn, Fn DeviceDispatch::*Member, int Index> struct CountedHook;
+
+template <typename R, typename First, typename... Args, R (VKAPI_PTR* DeviceDispatch::*Member)(First, Args...), int Index>
+struct CountedHook<R (VKAPI_PTR*)(First, Args...), Member, Index> {
+    static VKAPI_ATTR R VKAPI_CALL hook(First first, Args... args)
+    {
+        Device* dev = dev_of(first);
+        count_call(Index);
+        return (dev->d.*Member)(first, args...);
+    }
+};
+
+#define X(n) constexpr PFN_vk##n hk_##n = &CountedHook<PFN_vk##n, &DeviceDispatch::n, HI_##n>::hook;
+EFVK_COUNTED_FUNCS(X)
+#undef X
 
 // ---------------------------------------------------------------------------
 // Hook table
@@ -920,6 +1001,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         dev->device_id = props.deviceID;
         dev->driver_version = props.driverVersion;
     }
+    for (uint32_t i = 0; i < info->enabledExtensionCount; i++)
+        dev->extensions.push_back(info->ppEnabledExtensionNames[i]);
     logf("device created on %s, %u extensions enabled", dev->gpu_name, info->enabledExtensionCount);
     if (g_cfg.mode == Mode::Probe)
         ipc_start();
@@ -933,6 +1016,8 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetDeviceProcAddr(VkDevice device, c
     Device* dev = device ? dev_of(device) : nullptr;
     if (!dev || dev->passive)
         return injected() && g_real_gdpa ? g_real_gdpa(device, name) : nullptr;
+    if (g_cfg.mode == Mode::Probe)
+        note_resolved(name);
     if (const HookEntry* h = find_hook(name)) {
         // Offer a hook only for what the next element of the chain really implements.
         if (next_slot(dev->d, *h))
