@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry, all verified in the sandbox. T-011 has its ordinary descriptor, image and shader path in layer 0.4.0 (`build/next/`), with full regression passing. Three historical game launches used 0.2.0 passthrough; G1 remains incomplete (T-009).
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry, all verified in the sandbox. T-011 has its ordinary descriptor, image and shader path in layer 0.4.0, now rebuilt and fully regression-tested in `dist/` with probe mode configured. Three historical game launches used 0.2.0 passthrough. The user accepts run 3 as initial G1 loading evidence and defers the long-duration observation (D-014 / T-009). No probe-mode game data exists.
 
 ## Open
 
@@ -18,13 +18,13 @@ T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP
 
 The existing frame dump has no modded draw (LIMIT-003). A new one with `arcane fes 1.2` on screen, including one key toggle, is needed for the G3 comparison table: per component the IB hash, first index and count, pixel shader hash, the textures at t12 to t18, vertex layout, constant buffer sizes. The EFMI MCP tools can take it.
 
-### T-009: Gate G1 in the real game (in progress; next step is the user's)
+### T-009: Gate G1 in the real game (initial loading accepted; long-duration observation deferred)
 
-Route: the inject entry through the launcher, no registry (D-011). `dist\efmi_vk.cfg` has `mode = passthrough`.
+Route: the inject entry through the launcher, no registry (D-011). Historical G1 runs used passthrough. `dist/efmi_vk.cfg` now selects probe mode for the next short capture session (D-014).
 
 Done on 2026-10-11 (details in CURRENT_STATE): one DX11 launch with the DLL present, 78 s, clean exit; one Vulkan launch that crashed in the NVIDIA driver about 5 s after device creation, with XXMI's `d3d11.dll` and the DX11 probe also injected (BUG-001). Timing of the injection is confirmed to be early enough.
 
-Run 3 (20:38, only this DLL injected) passed the previous crash point. The user now reports exiting before 30 minutes, with scene changes. No game process remains; the layer log contains no device-destruction/frame-count record. This is partial evidence only. A full 30-minute G1 session remains necessary. `dist/` stays at 0.2.0 passthrough; 0.4.0 is built/tested in `build/next/`. Do not switch to probe based on the early exit.
+Run 3 (20:38, only this DLL injected) passed the previous crash point. The user reports exiting before 30 minutes, with scene changes, and explicitly instructs the project to use that run's data. No game process remains; the layer log contains no device-destruction/frame-count record. This is accepted initial loading evidence, with long-duration stability still unverified. Do not require a repeat 30-minute run as a prerequisite. `dist/` now holds sandbox-verified 0.4.0 probe, ready for a user-initiated session; this version has not loaded in the real game.
 
 What the user set in the launcher for run 3: the injection mode of the XXMI DLL to Skip (the Chinese label of that option is the one translated from "Skip"), leave only `F:\efmi vulkan\dist\efmi_vk_inject.dll` in the injected libraries, keep `d3d11_mode_cmd_args` empty, start. If the game still crashes: start it from the official launcher with nothing injected, to see whether Vulkan works by itself today. After each run read `dist\efmi_vk_layer.log`, `Player.log` and the launcher log.
 
@@ -32,9 +32,9 @@ To restore normal EFMI afterwards: `d3d11_mode_cmd_args` back to `-force-d3d11`,
 
 Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` in `XXMI Launcher Config.json`; no control in the settings window, not a signed field (launcher source `core/game_launcher.py`, `build_cmd_args`).
 
-### T-010: Gates G2 and G3 in the real game (blocked on T-009)
+### T-010: Gates G2 and G3 in the real game (prepared; needs the first user-initiated probe session)
 
-G2 is answered by `efvk_status` and `efvk_capture_frame` (threads, command buffers, secondary buffers, submits, render pass kinds). G3 item a is answered by `efvk_match_mod` on `arcane fes 1.2`. Items b, c and d need T-011.
+Start by collecting `efvk_api_usage` to identify the engine's actual paths. G2 is answered by `efvk_status` and `efvk_capture_frame` (threads, command buffers, secondary buffers, submits, render pass kinds). G3 item a is answered by `efvk_match_mod` on `arcane fes 1.2`, with the corresponding character visible. Items b, c and d need T-011. Historical passthrough logs contain none of these captures; D-014 removes the repeated-duration prerequisite but does not supply missing frame data.
 
 ### T-011: Track descriptor sets, shader modules and images (in progress, M1)
 
@@ -66,6 +66,6 @@ For buffers that are written by copies whose source was never visible to the CPU
 
 ## Waiting for the user
 
-- A new on-the-spot instruction for the account/timing of the complete G1 run; run 3 ended early. The launcher's run-3 configuration is already recorded above. No game run was started by this development round.
+- The next short probe session when the user chooses its account/timing. Use the launcher's recorded run-3 configuration and show the sample character for G3 a. A repeated 30-minute passthrough run is not required. No game run was started by this preparation round.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are needed from M2 on; see T-015.
 - The motivation question and the scope question of plan section 10.

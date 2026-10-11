@@ -122,7 +122,9 @@ All three are done within M1. G1 and G3 are stop conditions; G2 is an input to t
 
 ### G1 Can the layer load
 
-Procedure: `efmi_vk_inject.dll` in passthrough mode (set in `efmi_vk.cfg`) is added to the launcher's extra libraries, and the game is started through the launcher without the `-force-d3d11` argument, so that it runs on Vulkan. The game runs for 30 minutes including scene changes. Record from the layer's log whether `vulkan-1.dll` was already loaded when the DLL arrived, how many exports were redirected, and whether instance and device creation were seen. Both launcher settings belong to the user and are changed by the user.
+Procedure: `efmi_vk_inject.dll` in passthrough mode (set in `efmi_vk.cfg`) is added to the launcher's extra libraries, and the game is started through the launcher without the `-force-d3d11` argument, so that it runs on Vulkan. Observe normal play including scene changes. Record from the layer's log whether `vulkan-1.dll` was already loaded when the DLL arrived, how many exports were redirected, and whether instance and device creation were seen. Both launcher settings belong to the user and are changed by the user.
+
+User amendment, 2026-10-11 (D-014): use historical run 3 as initial loading evidence. The user exited before 30 minutes after scene changes; the log confirms instance/device interception. The original 30-minute observation target is deferred and does not block development or a short probe session. This acceptance does not establish long-duration stability, loading of newer builds, or probe-mode capture data. New real-game launches still need the user's on-the-spot instruction.
 
 Pass: the game behaves as it does without the DLL; no dialog, crash or disconnect; and the log shows that device creation was seen, which means the DLL arrived in time. If the DLL arrives too late, the game is unaffected but nothing is intercepted, and the layer entry is tried instead.
 

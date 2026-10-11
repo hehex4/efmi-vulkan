@@ -2,7 +2,7 @@
 
 Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield on the game's native Vulkan renderer, through a Vulkan layer of our own.
 
-The current 0.4.0 read-only probe is verified against the sandbox and built into `build/next/`. Historical game launches used 0.2.0 passthrough; the 30-minute G1 gate is incomplete, and no probe-mode game data or mod rendering is verified. `dist/` still holds that passthrough build. See the [current state](.ai-memory/CURRENT_STATE.md).
+The current 0.4.0 read-only probe is built and verified against the sandbox in `dist/`, with probe mode configured. Historical game launches used 0.2.0 passthrough; the user accepts run 3 with scene changes as initial G1 loading evidence and defers the 30-minute observation. Long-duration stability, loading of 0.4.0 in the game, probe-mode game data and mod rendering remain unverified. See the [current state](.ai-memory/CURRENT_STATE.md).
 
 ## Layout
 

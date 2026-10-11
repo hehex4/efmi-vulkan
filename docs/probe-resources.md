@@ -74,10 +74,14 @@ Framing remains protocol 1. The additional MCP tool is `efvk_shader`.
 
 ## Verification on 2026-10-11
 
-Output: `build/next/`. `dist/` retains the historical 0.2.0 passthrough DLL for G1.
-Run `D:/Python312/python.exe -B sandbox/run_all.py` with the absolute `build/next`
-path in `EFMI_VK_DIST` for the test process only. On this machine `python` resolves
-to the Windows app alias; use the explicit interpreter.
+Initially verified in `build/next/`, then rebuilt and fully verified in `dist/`
+after the user's decision to reuse run 3 as initial loading evidence (D-014).
+`dist/efmi_vk.cfg` now selects probe mode. Run
+`D:/Python312/python.exe -B sandbox/run_all.py` with the absolute output path in
+`EFMI_VK_DIST` for the test process only. During the `dist/` run, `EFMI_VK_LOG`
+directed the native tracker log into `build/`; other test logs already use their
+own scratch directories. The historical game log is unchanged. On this machine
+`python` resolves to the Windows app alias; use the explicit interpreter.
 
 | Check | Result |
 | --- | --- |
@@ -88,6 +92,12 @@ to the Windows app alias; use the explicit interpreter.
 | Inject entry, 0 / 2 recording threads | 387 / 389 checks passed |
 | No-layer, passthrough and late-injection modes | 40 / 40 |
 | MCP end to end | 46 / 46 |
+
+A separate sandbox loaded `dist/efmi_vk_inject.dll` without a mode environment
+override, reported version 0.4.0 and probe mode from the actual settings file,
+captured five draws, and exited normally. This verifies the prepared package,
+not loading or capture in the real game. The old 0.2.0 DLLs, manifest, settings
+and game log are preserved in `build/backups/before-probe-20261011-212452-288/`.
 
 The sandbox actually uses two sets, a dynamic uniform buffer, an array of dynamic
 storage-buffer descriptors, and a sampled 1x1 texture with an immutable sampler.

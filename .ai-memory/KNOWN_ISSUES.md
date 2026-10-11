@@ -2,9 +2,9 @@
 
 > Last updated: 2026-10-11.
 
-## LIMIT-001: Probe data is not verified in the real game; G1 is incomplete
+## LIMIT-001: Probe data and long-duration stability are not verified in the real game
 
-Historical passthrough launches established injection timing and device interception with 0.2.0. Run 3 passed the earlier crash point and included scene changes, but the user exited before 30 minutes. G1 is not passed. Layer 0.4.0 and all capture/resource-tracking results are sandbox-only; no probe-mode game capture or real-character verification exists. G2/G3 remain open.
+Historical passthrough launches established injection timing and device interception with 0.2.0. Run 3 passed the earlier crash point and included scene changes, but the user exited before 30 minutes. The user accepts that run as initial G1 loading evidence (D-014); long-duration stability is deferred, not established. Layer 0.4.0 is prepared in `dist/`, but all its capture/resource-tracking results are sandbox-only; no probe-mode game capture or real-character verification exists. G2/G3 remain open.
 
 ## LIMIT-002: No Vulkan SDK on this machine
 
@@ -60,7 +60,7 @@ Known from three historical launches on 2026-10-11 (CURRENT_STATE): injection pr
 
 Still open:
 
-- Whether a complete 30-minute G1 Vulkan session passes. Run 3 survived the previous crash point and included scene changes but ended early; BUG-001 remains strongly associated with the removed DX11 hooks.
+- Long-duration stability. Run 3 survived the previous crash point and included scene changes but ended early. The user accepts it as initial loading evidence, so repeating 30 minutes is not a prerequisite (D-014). BUG-001 remains strongly associated with the removed DX11 hooks.
 - A module that statically imports `vulkan-1.dll` and was loaded earlier would keep its old addresses. Not observed so far: the engine's calls arrived.
 - Other Vulkan users in the process (Streamline created instances of its own in run 2) go through the same redirected exports. Devices they create are tracked like the game's; the probe answers for the device that presented last.
 - The sandbox tests still simulate injection with `LoadLibrary` inside the sandbox.

@@ -1,6 +1,15 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-11. Layer 0.4.0 (probe, protocol 1), server 0.1.0, built and verified in `build/next/`. `dist/` and the last game-loaded DLL remain 0.2.0 in passthrough mode. Three historical game launches are recorded below. Run 3 ended before 30 minutes after scene changes; G1 is incomplete. No probe-mode game data exists; G2/G3 remain open.
+> Last updated: 2026-10-11. Layer 0.4.0 (probe, protocol 1), server 0.1.0, built and verified in `dist/`; `dist/efmi_vk.cfg` now selects probe mode. The last game-loaded DLL was 0.2.0 passthrough. The user accepts historical run 3, including scene changes, as initial G1 loading evidence and defers the 30-minute observation (D-014). Long-duration stability is unverified. No probe-mode game data exists; G2/G3 remain open.
+
+## Prior game evidence accepted; probe prepared (2026-10-11)
+
+The user instructed the project to use the previous run's data. Do not require another 30-minute passthrough run before continuing development or preparing a short probe capture. Run 3 remains historical evidence of loading and scene changes; its exact duration and frame total are unknown. Its passthrough log contains no captured draws or descriptor data.
+
+- **Prepared**: rebuilt layer 0.4.0, both entries and the sandbox in `dist/`, with `mode = probe`. No game process was present before replacing the DLL. The old DLLs, manifest, settings and game log are preserved in `build/backups/before-probe-20261011-212452-288/`.
+- **Verified this round, sandbox only**: full `sandbox/run_all.py` against `dist/`; Python 44, native tracker 37, layer probe 385 / 387 / 387, inject probe 387 / 389, modes 40, MCP 46. All passed. A separate inject sandbox read the actual `dist/efmi_vk.cfg` without a mode environment override, reported 0.4.0, captured five draws and exited normally (`build/tests/sandbox-xm23wqvx/`).
+- **Evidence preserved**: the historical `dist/efmi_vk_layer.log` is byte-for-byte unchanged. Test logs stayed under `build/`. The two DLL entries have identical bytes; SHA-256 `ab54243ae1db4072169e4587686a7df2c71115c7f4303fe2f116363305e07cf0`.
+- **Next game step**: when the user chooses to launch a short probe session, use run 3's launcher configuration, collect API usage and a frame for G2/G3 a with the sample character visible. No game was started this round, and 0.4.0 has not yet loaded in the real game. Long-duration stability is a separate follow-up, not a prerequisite.
 
 ## Ordinary descriptors, shader modules and images (2026-10-11; sandbox only)
 
@@ -9,17 +18,17 @@ T-011's ordinary descriptor path is implemented. Draws contain submit-time descr
 Pipelines retain stage entry points and SPIR-V after module destruction. `efvk_shader` reads or exports the bytes and extracts declared names and direct set/binding decorations. This is limited metadata, not full reflection. Bytecode is reclaimed after its last module/pipeline reference disappears.
 
 - **Built**: layer, sandbox and native tracker test in `build/next/` (0.4.0).
-- **Verified this round**: full `sandbox/run_all.py`, using `D:/Python312/python.exe` and process-local `EFMI_VK_DIST=F:/efmi vulkan/build/next`; Python 44, native tracker 37, probe 385 / 387 / 387 (layer) and 387 / 389 (inject), modes 40, MCP 46. All passed. Test artifacts now stay under `build/tests/`.
+- **Verified during implementation**: full `sandbox/run_all.py`, using `D:/Python312/python.exe` and process-local `EFMI_VK_DIST=F:/efmi vulkan/build/next`; Python 44, native tracker 37, probe 385 / 387 / 387 (layer) and 387 / 389 (inject), modes 40, MCP 46. All passed. Test artifacts now stay under `build/tests/`.
 - **Not established**: game loading of 0.4.0, game captures, real-character data, G3 record-time CPU readability, validation-layer cleanliness, visual correctness or overhead.
 - **Still open in T-011**: decode update templates and push descriptors. Unsupported paths explicitly discard stale knowledge. Descriptor buffers, swapchain image metadata and full reflection remain limited; see `docs/probe-resources.md` and LIMIT-006.
-- **Deployment**: G1 remains incomplete, so this round leaves `dist/` at 0.2.0 with `mode = passthrough`. Do not switch it to probe or treat the early exit as a passed gate. A new game run requires the user's on-the-spot instruction.
+- **Deployment follow-up**: the initial implementation left `dist/` at 0.2.0 passthrough. D-014 supersedes that hold: 0.4.0 is now prepared in `dist/` with probe mode, as recorded above. A new game run still requires the user's on-the-spot instruction.
 
-## Call counters, built but not yet in `dist\` (2026-10-11; sandbox only)
+## Call counters, initially staged in `build/next/` (2026-10-11; sandbox only)
 
 Layer 0.3.0 counts every intercepted device function and adds about forty functions that are only counted (descriptor paths, image and shader creation, uploads to images, multi-draw and others), the probe command `api_usage` and the tool `efvk_api_usage`. Purpose: the first probe-mode session in the game then shows which descriptor update path, which submit, copy, map and render pass variants and which draw forms the engine really uses, which decides what T-011 has to track and which untested hooks (LIMIT-011) matter.
 
 - Built into `build\next\` because the running game (run 3) holds `dist\efmi_vk_inject.dll`. `sandbox/run_all.py` with `EFMI_VK_DIST=build\next` passes: unit 36; probe 168 / 170 / 170 (layer entry) and 170 / 172 (inject entry); modes 40; MCP 39.
-- **Superseded follow-up**: rebuilding `dist/` and switching to probe depended on G1. The user now confirms run 3 ended before 30 minutes. The new 0.4.0 build stays in `build/next/`; `dist/` stays in passthrough.
+- **Follow-up completed under D-014**: the user accepts historical run 3 as initial loading evidence. The counters are included in 0.4.0, now rebuilt and verified in `dist/` with probe mode configured. No real-game counter data has been collected yet.
 
 ## First runs in the real game (2026-10-11 20:27 and 20:29; started by the user through the launcher)
 
@@ -52,7 +61,7 @@ What it does not establish: the cause of the crash. Suspect, unproven: the D3D11
 
 Reading of runs 2 and 3: the same Vulkan launch crashes with XXMI's `d3d11.dll` and the DX11 probe injected and does not crash without them. That points at the DX11 hooks, not at this DLL and not at the game's Vulkan path. It is one run each, so "strongly indicated", not proven; which of the two DX11 libraries is responsible is unknown and does not matter for this project. The configuration for every Vulkan session from now on is run 3's.
 
-**Run 3 outcome, reported by the user this round**: exited before 30 minutes, with scene changes. No `Endfield` process was present when checked. The layer log ends at device creation and has no destruction/frame-count record; `Player.log` has shutdown memory statistics and a JobTempAlloc allocation warning at its end. Exact duration and total frames cannot be inferred from the layer log. This is partial G1 evidence, not a pass or a failure.
+**Run 3 outcome, reported by the user**: exited before 30 minutes, with scene changes. No `Endfield` process was present when checked. The layer log ends at device creation and has no destruction/frame-count record; `Player.log` has shutdown memory statistics and a JobTempAlloc allocation warning at its end. Exact duration and total frames cannot be inferred from the layer log. The user subsequently accepted this as sufficient initial loading evidence to continue (D-014); it does not establish long-duration stability.
 
 ## Inject entry (2026-10-11; sandbox only, game not involved)
 
@@ -87,4 +96,4 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 1. T-011: add update-template and push-descriptor decoding with sandbox coverage; ordinary descriptors, shaders and images are now tracked.
 2. T-007: the M0 inventory of `arcane.ini` and Core 1.4.8, and the XXMI front-end separability assessment.
 3. T-008: a DX11 baseline capture with `arcane fes 1.2` on screen (needs the game under DX11 with EFMI; the EFMI MCP tools can take it).
-4. T-009: finish a 30-minute passthrough G1 session with scene changes when the user gives a new on-the-spot instruction. The early run 3 exit did not finish this gate.
+4. T-010: collect API usage and the first probe frame when the user chooses the next game session. Use the run-3 launcher configuration; show the character corresponding to `arcane fes 1.2` for G3 a. T-009's long-duration observation is deferred and does not block this step.
