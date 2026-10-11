@@ -6,13 +6,13 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules in layer 0.5.0, verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. Next offline work is T-012, T-015 and T-007. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). No probe-mode game data exists.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules in layer 0.5.0, verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The next backend milestone needs actual G2/G3 data. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). No probe-mode game data exists.
 
-## Open
+## Tasks and follow-ups
 
-### T-007: M0 inventory (open)
+### T-007: M0 inventory (done; static assessment)
 
-`docs/compatibility-inventory.md` for `arcane.ini` and Core 1.4.8: every INI construct, command and EFMIv1 interface item actually used. Pin versions and fingerprints (game version, Core, `d3d11.dll` 1.2.2.0 and the matching XXMI source commit, the sample mod). Assess how separable the XXMI front end is, three days at most, and settle plan decision D4.
+`docs/compatibility-inventory.md` and `docs/compatibility-inputs.json` cover every lexical construct/command and direct EFMIv1 item used by the main mod and Core, plus the previously missed image panel. Pinned the exact release DLL and source commit; saved Core/mod tree and game binary/content-index fingerprints. Engine version is known; the game marketing label is not inferred. D-016 retains the hosted XXMI engine approach, with explicit adapter boundaries and a later compiled prototype. Reproducible snapshot check passes. No runtime compatibility is claimed.
 
 ### T-008: DX11 baseline capture with the sample mod (open; needs the game running under DX11 with EFMI)
 
@@ -46,7 +46,7 @@ Start by collecting `efvk_api_usage` to identify the engine's actual paths. G2 i
 
 ### T-012: Measure the overhead of the probe (done in the sandbox)
 
-Implemented `--draws N`, warmup/sample control and host phase timings. `sandbox/benchmark.py` completed 36 runs at 500/2000 draws and 0/2 recording threads through the inject entry, comparing no layer/passthrough/probe. At 2000 draws, probe adds 0.424/0.553 ms to median recording plus submission. FIFO whole-frame time cannot measure CPU overhead by itself. Method and limits: `docs/probe-performance.md`. Timing regression: 84 checks. Game overhead and the M2 5% target remain unverified.
+Implemented `--draws N`, warmup/sample control and host phase timings. `sandbox/benchmark.py` completed 36 runs at 500/2000 draws and 0/2 recording threads through the inject entry, comparing no layer/passthrough/probe. At 2000 draws, probe adds 0.386/0.744 ms to median recording plus submission. FIFO whole-frame time cannot measure CPU overhead by itself. Method and limits: `docs/probe-performance.md`. Timing regression: 84 checks. Game overhead and the M2 5% target remain unverified.
 
 ### T-015: Validation layers into `F:\vulkan` (done in the sandbox)
 
@@ -55,6 +55,10 @@ Built pinned Khronos VVL from source under `F:/vulkan`, with child-only activati
 ### T-013: Read-back from the GPU when a buffer has no CPU-visible source (open; only if G3 shows the need)
 
 For buffers that are written by copies whose source was never visible to the CPU, or by compute. Appends a copy into a layer-owned buffer at submit time and reads it when the fence signals.
+
+### T-016: Include the sample image panel in full-folder acceptance (M3 follow-up)
+
+The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, cursor input and the main toggle variables. Character-only rendering cannot establish full-folder compatibility. Its HLSL pipeline and input/present behavior must be implemented or explicitly reported unsupported. This follows the G2/G3-backed M2 backend; it does not justify editing or disabling the installed mod.
 
 ## Done
 
@@ -69,5 +73,5 @@ For buffers that are written by copies whose source was never visible to the CPU
 ## Waiting for the user
 
 - The next short probe session when the user chooses its account/timing. Use the launcher's recorded run-3 configuration and show the sample character for G3 a. A repeated 30-minute passthrough run is not required. No game run was started by this preparation round.
-- Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are needed from M2 on; see T-015.
+- Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

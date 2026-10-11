@@ -65,6 +65,8 @@ See [resource inspection](docs/probe-resources.md) for the descriptor snapshot s
 
 `python scripts\verify_region_hash.py <FrameAnalysis folder>` checks the region hash rule against an XXMI frame dump: for every indexed draw it recomputes the CRC-32C of the index range and compares it with the hash in the dump's file name.
 
+See [the compatibility inventory](docs/compatibility-inventory.md) for the pinned sample/Core/source inputs, and [probe performance](docs/probe-performance.md) for synthetic measurements. `scripts/inventory_compat.py --check-snapshot docs/compatibility-inputs.json` verifies the saved local input metadata.
+
 ## Licence
 
 GPL-3.0. Later milestones reuse code from XXMI / 3Dmigoto, which is under that licence.

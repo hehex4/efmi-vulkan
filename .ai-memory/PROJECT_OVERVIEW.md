@@ -6,7 +6,7 @@
 
 Run existing EFMI merged-skeleton mods of Arknights: Endfield on the game's native Vulkan renderer, with the mod directories (INI, BUF, DDS) unchanged. Today EFMI works only because the launcher forces the game onto Direct3D 11.
 
-The first acceptance sample is `Mods\arcane fes 1.2`. RabbitFX, shape keys, on-screen text and hunting mode are outside the first version. The full plan, with facts, decisions, gates and milestones, is `docs/plan.md`.
+The first acceptance sample is `Mods\arcane fes 1.2`; the inventory includes arcane.ini and the enabled k/1.ini image panel. RabbitFX, shape keys, on-screen text and hunting mode are outside the first version. The full plan, with facts, decisions, gates and milestones, is `docs/plan.md`.
 
 ## Components and technology
 
@@ -17,7 +17,7 @@ The first acceptance sample is `Mods\arcane fes 1.2`. RabbitFX, shape keys, on-s
 
 ## Entry points on this machine
 
-- Project: `F:\efmi vulkan`. Vulkan headers: `F:\vulkan\Vulkan-Headers` (tag `vulkan-sdk-1.4.321.0`, matching the installed runtime `vulkan-1.dll` 1.4.321). No Vulkan SDK is installed; there is no `glslc` and no validation layer.
+- Project: `F:\efmi vulkan`. Vulkan headers: `F:\vulkan\Vulkan-Headers` (tag `vulkan-sdk-1.4.321.0`, matching the installed runtime `vulkan-1.dll` 1.4.321). Khronos VVL 1.4.321 and SPIRV-Tools are built under F:/vulkan; the sandbox passes core/synchronization validation. No full SDK or glslc is installed.
 - MSVC: `D:\Microsoft` (found by `vswhere`). Python: `D:\Python312\python.exe`. Git: `D:\git`.
 - EFMI workspace (read-only): `D:\XXMI-Launcher-Portable-v2.1.6\EFMI`. Game (read-only): `D:\Hypergryph Launcher\games\EndField Game`. Unity player log and PSO caches: `%USERPROFILE%\AppData\LocalLow\Hypergryph\Endfield\`.
 - Sibling project for DX11 capture (read-only reference): `F:\EFMI MCP`.

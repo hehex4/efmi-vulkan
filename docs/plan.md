@@ -8,7 +8,7 @@ Previous version (v1, not in this repository): `D:\XXMI-Launcher-Portable-v2.1.6
 
 **Goal**: Arknights: Endfield keeps rendering through its native Vulkan path while existing EFMI merged-skeleton mods run on it. The INI, BUF and DDS files of a mod are used byte for byte as they are.
 
-**First acceptance sample**: `Mods\arcane fes 1.2`. It has a single INI, no ShaderOverride and no dependency on RabbitFX, and it still covers a merged skeleton (499 bones, 13 components), LOD remapping, 13 key toggles and textures assigned directly by slot.
+**First acceptance sample**: `Mods\arcane fes 1.2`. Its main arcane.ini has no ShaderOverride or RabbitFX dependency and covers a merged skeleton (499 bones, 13 configured slots with entry points for component ids 0-11), LOD remapping, 13 key toggles and direct texture slots. The 2026-10-11 inventory also found an enabled k/1.ini HLSL image panel; complete folder acceptance includes it. See docs/compatibility-inventory.md.
 
 **Not in the first version**:
 
@@ -52,7 +52,7 @@ Settings for a process started by a launcher come from `efmi_vk.cfg` next to the
 
 **D3 Two-phase execution; the game's render passes are not split and its commands are not re-recorded.** While recording, the layer does only what is legal inside a render pass: change bindings, issue draws, restore state. All data preparation happens on the CPU, goes into host-visible buffers owned by the layer, and is finished before `vkQueueSubmit` is forwarded. This relies on one premise: instance config and bone data are readable on the CPU when the draw is recorded. G3 verifies the premise; section 7 lists the fallbacks.
 
-**D4 The INI engine reuses the XXMI front end.** Parsing, expressions, variables, keys, persist, pools and command-list control flow come from the XXMI source, hosted the way WWMI-DX12 does it; resource, binding and draw commands are implemented by this project's Vulkan backend. M0 spends three days on assessing how separable the front end is. If it cannot be separated, a reduced interpreter is written that covers exactly the inventory.
+**D4 The INI engine reuses the XXMI front end.** Parsing, expressions, variables, keys, persist, pools and command-list control flow come from the XXMI source, hosted the way WWMI-DX12 does it; resource, binding and draw commands are implemented by this project's Vulkan backend. M0 spends three days on assessing how separable the front end is. If it cannot be separated, a reduced interpreter is written that covers exactly the inventory. M0 static assessment (D-016) retains the hosted-engine approach, with explicit D3D-shaped state/resource adapters; the parser is not a standalone library. A compiled host prototype remains part of M3.
 
 **D5 Threading.** The match pre-filter uses an immutable hash table and takes no lock, so a draw that does not match costs almost nothing. A matching draw runs its command list synchronously under one global mod lock, because Core passes arguments between command lists in global variables. The frame boundary is present. During bring-up, if a command-line switch can turn graphics jobs off, the single-threaded mode is used first.
 
@@ -198,7 +198,7 @@ Bring in the INI engine and Core-VK; add keys and persist, pools and spatial ide
 
 Pass conditions:
 
-- The directory of `arcane fes 1.2` is used unmodified.
+- The directory of `arcane fes 1.2` is used unmodified, including the image panel found in `k/1.ini`; character-only success must be labelled as partial.
 - Meshes, textures and animation are correct in the open world, in the character screen and in combat; all 13 key toggles work.
 - Several instances on screen do not mix bones or appearance.
 - With the layer disabled, the existing DX11 plus EFMI launch path is unaffected.

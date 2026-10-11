@@ -2,6 +2,12 @@
 
 > Last updated: 2026-10-11. Layer 0.5.0 (probe, protocol 1), server 0.1.0, verified in the sandbox and available in `dist/` with probe mode configured. The last game-loaded DLL was 0.2.0 passthrough. Historical run 3 is accepted as initial G1 loading evidence; the 30-minute observation is deferred (D-014). Long-duration stability is unverified. No probe-mode game data exists; G2/G3 remain open.
 
+## Compatibility inventory complete (2026-10-11; static evidence)
+
+T-007 is complete: docs/compatibility-inventory.md plus the metadata-only compatibility-inputs.json pin 46 Core files, 86 mod files, game binary/content indices and the matching XXMI source. The local 1.2.2.0 DLL exactly matches the official v1.2.2 archive; source commit a7847eae82aaac32175c9a7d199673d5c9323bcd. Game engine version is 2021.3.34.0; no marketing/content version label was recovered, so exact selected-file hashes identify the build. The reproducible inventory check matches all saved metadata.
+
+Corrections: arcane.ini configures 13 slots but has entry points for ids 0-11, and the folder also loads k/1.ini, an interactive HLSL image panel. Complete folder compatibility must include it; it was missing from the original inventory. D-016 retains XXMI engine hosting behind an explicit adapter after static dependency analysis; no compiled host prototype is claimed. Remaining backend decisions require real G2/G3 observations, not more duration-only loading tests.
+
 ## Vulkan validation (2026-10-11; sandbox only)
 
 T-015 is complete. Built Khronos VVL 1.4.321 under `F:/vulkan`; the regression suite now requires it. Core/synchronization validation passes 24 positive configurations and three negative canaries: 76 checks. Fixed the sandbox's read-only SPIR-V decoration and shader cleanup; added upload barriers and per-image presentation semaphores. Layer DLL stays 0.5.0, unchanged.
@@ -118,7 +124,10 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 
 ## Next
 
-1. T-012 is complete in the sandbox; see `docs/probe-performance.md`. Game overhead remains unmeasured.
-2. T-015 is complete: VVL built under `F:/vulkan`, core/synchronization validation added to the suite.
-3. T-007: the M0 inventory of `arcane.ini` and Core 1.4.8, and the XXMI front-end separability assessment. T-011's remaining specialized paths depend on actual usage; see TASKS.
-4. T-010: collect API usage and the first probe frame when the user chooses the next game session. Use the run-3 launcher configuration; show the character corresponding to `arcane fes 1.2` for G3 a. T-009's long-duration observation is deferred and does not block this step.
+T-007 inventory, T-012 synthetic overhead and T-015 validation are complete. T-011's standard descriptor/resource paths are sandbox verified. The next backend milestone depends on actual game data:
+
+1. T-010: collect API usage and a probe frame with the sample character visible for G2/G3 a; inspect real shader/binding identities and byte-availability questions. Use the recorded run-3 launcher configuration only when the user chooses to launch.
+2. T-008: capture the still-missing modded DX11 baseline in a separate user-chosen session.
+3. Choose further descriptor hooks/read-back and M2 replacement from that evidence. Record-time bytes, GPU-produced data and actual shader bindings cannot be inferred from the sandbox. M3 must account for the newly inventoried image panel.
+
+Historical run 3 remains accepted initial G1 loading evidence. A repeated 30-minute passthrough run is not a prerequisite. No real-game launch or injection was performed in this development round.
