@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: the workspace, the headers and build, the region hash check, the layer probe, the sandbox, the MCP server and the inject entry, all verified in the sandbox only. Nothing has been loaded into the real game.
+T-001 to T-006 and T-014 are done: the workspace, the headers and build, the region hash check, the layer probe, the sandbox, the MCP server and the inject entry, all verified in the sandbox. The inject DLL has been in the real game twice in passthrough mode; see T-009.
 
 ## Open
 
@@ -18,11 +18,17 @@ T-001 to T-006 and T-014 are done: the workspace, the headers and build, the reg
 
 The existing frame dump has no modded draw (LIMIT-003). A new one with `arcane fes 1.2` on screen, including one key toggle, is needed for the G3 comparison table: per component the IB hash, first index and count, pixel shader hash, the textures at t12 to t18, vertex layout, constant buffer sizes. The EFMI MCP tools can take it.
 
-### T-009: Gate G1 in the real game (waits for the user)
+### T-009: Gate G1 in the real game (in progress; next step is the user's)
 
-Route: the inject entry through the launcher, no registry (D-011). What the user does in the launcher: add `F:\efmi vulkan\dist\efmi_vk_inject.dll` to the extra libraries of the EFMI profile and remove the `-force-d3d11` argument for the run. What this project prepares: `dist\efmi_vk.cfg` with `mode = passthrough`. After the run, the log `dist\efmi_vk_layer.log` answers whether the DLL arrived before `vulkan-1.dll`, how many exports were redirected and whether device creation was seen (LIMIT-013). Needs the user's decision on the account and a go-ahead on the spot; the launcher settings are the user's to change and to restore.
+Route: the inject entry through the launcher, no registry (D-011). `dist\efmi_vk.cfg` has `mode = passthrough`.
 
-State on 2026-10-11: the user has added `efmi_vk_inject.dll` to the launcher's injected libraries (next to `efmi_probe.dll`), so every EFMI launch now injects it. `dist\efmi_vk.cfg` with `mode = passthrough` was written the moment this was seen. Still to do by the user: start once without `-force-d3d11`. The argument has no control in the launcher window; it is the value `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` in `XXMI Launcher Config.json` (the launcher source appends it whenever it is not empty; the field is not one of the signed ones). The other way is the launcher's Game Launch setting: Custom with a command that is only the path of `Endfield.exe`, or Manual and starting the game from the official launcher. After the run, read `dist\efmi_vk_layer.log` and the first lines of `Player.log`.
+Done on 2026-10-11 (details in CURRENT_STATE): one DX11 launch with the DLL present, 78 s, clean exit; one Vulkan launch that crashed in the NVIDIA driver about 5 s after device creation, with XXMI's `d3d11.dll` and the DX11 probe also injected (BUG-001). Timing of the injection is confirmed to be early enough.
+
+Next, by the user in the launcher: set the injection mode of the XXMI DLL to Skip (the Chinese label of that option is the one translated from "Skip"), leave only `F:\efmi vulkan\dist\efmi_vk_inject.dll` in the injected libraries, keep `d3d11_mode_cmd_args` empty, start. If the game still crashes: start it from the official launcher with nothing injected, to see whether Vulkan works by itself today. After each run read `dist\efmi_vk_layer.log`, `Player.log` and the launcher log.
+
+To restore normal EFMI afterwards: `d3d11_mode_cmd_args` back to `-force-d3d11`, injection mode back to the first option (Direct), `efmi_probe.dll` back in the list if wanted.
+
+Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` in `XXMI Launcher Config.json`; no control in the settings window, not a signed field (launcher source `core/game_launcher.py`, `build_cmd_args`).
 
 ### T-010: Gates G2 and G3 in the real game (blocked on T-009)
 
