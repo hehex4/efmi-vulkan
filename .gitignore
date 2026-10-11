@@ -1,0 +1,22 @@
+# Build outputs
+dist/
+build/
+layer/build/
+sandbox/build/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# Runtime output
+captures/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor and agent local state
+.claude/
+.vs/
