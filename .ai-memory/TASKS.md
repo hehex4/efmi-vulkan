@@ -48,9 +48,9 @@ Start by collecting `efvk_api_usage` to identify the engine's actual paths. G2 i
 
 Implemented `--draws N`, warmup/sample control and host phase timings. `sandbox/benchmark.py` completed 36 runs at 500/2000 draws and 0/2 recording threads through the inject entry, comparing no layer/passthrough/probe. At 2000 draws, probe adds 0.424/0.553 ms to median recording plus submission. FIFO whole-frame time cannot measure CPU overhead by itself. Method and limits: `docs/probe-performance.md`. Timing regression: 84 checks. Game overhead and the M2 5% target remain unverified.
 
-### T-015: Validation layers into `F:\vulkan` (open; before M2)
+### T-015: Validation layers into `F:\vulkan` (done in the sandbox)
 
-The sandbox and the layer have never run under the Khronos validation layers (LIMIT-002). Put the SDK, or at least the validation layer binaries, into `F:\vulkan` and run the sandbox under them in a test's own child process. Nothing outside `F:\vulkan` may be written by the installation; if the installer cannot do that, report it instead of running it.
+Built pinned Khronos VVL from source under `F:/vulkan`, with child-only activation. Fixed sandbox SPIR-V, shader cleanup and synchronization; 24 positive core/sync configurations plus three negative canaries pass 76 checks. Added to `run_all.py`; no registry registration or SDK installer. Initial default-cache incident and final cache confinement: `docs/validation.md`. Real-game validation is not claimed.
 
 ### T-013: Read-back from the GPU when a buffer has no CPU-visible source (open; only if G3 shows the need)
 

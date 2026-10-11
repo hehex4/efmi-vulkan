@@ -1,6 +1,6 @@
 # Probe overhead in the sandbox
 
-Measured on 2026-10-11, layer 0.5.0, NVIDIA GeForce RTX 5060 Laptop GPU.
+Measured on 2026-10-11 after sandbox validation fixes, layer 0.5.0, NVIDIA GeForce RTX 5060 Laptop GPU.
 This is synthetic sandbox evidence, not a game performance result or an M2 acceptance result.
 
 ## Reproduce
@@ -30,21 +30,22 @@ Median of each configuration's three trial medians, in milliseconds for record p
 
 | Draws | Recording threads | No layer | Passthrough | Probe | Probe minus no layer |
 | --- | --- | --- | --- | --- | --- |
-| 500 | 0 (primary) | 0.116 | 0.105 | 0.246 | 0.130 |
-| 500 | 2 (secondary) | 0.548 | 0.558 | 0.685 | 0.137 |
-| 2000 | 0 (primary) | 0.223 | 0.237 | 0.647 | 0.424 |
-| 2000 | 2 (secondary) | 0.600 | 0.694 | 1.153 | 0.553 |
+| 500 | 0 (primary) | 0.113 | 0.107 | 0.256 | 0.143 |
+| 500 | 2 (secondary) | 0.631 | 0.600 | 0.705 | 0.074 |
+| 2000 | 0 (primary) | 0.201 | 0.222 | 0.587 | 0.386 |
+| 2000 | 2 (secondary) | 0.613 | 0.682 | 1.357 | 0.744 |
 
-Whole-frame medians are approximately 5.53 to 5.58 ms, limited by FIFO. At 2000 draws, per-trial
-record-plus-submit medians span 0.221-0.296 ms without the layer and 0.566-0.652 ms with the probe
-on the primary path; corresponding secondary values are 0.587-0.632 and 1.133-1.183 ms.
+Whole-frame medians are approximately 5.52 to 5.58 ms, limited by FIFO. At 2000 draws, per-trial
+record-plus-submit medians span 0.196-0.223 ms without the layer and 0.586-0.598 ms with the probe
+on the primary path; corresponding secondary values are 0.596-0.617 and 1.227-1.365 ms.
 Passthrough differences vary with scheduling and driver noise; this does not establish the plan's
 5% CPU frame-time target. Resource creation, large descriptor banks, capture serialization,
 shader export, real scene transitions and long-duration behavior are outside this experiment.
 
-Evidence: `build/tests/benchmark-owy1jn92/report.json` (36 successful runs).
+Evidence: `build/tests/benchmark-_junbmel/report.json` (36 successful runs).
 Layer SHA-256: `c9a8b41db3234ecebce64300d0c1dd34de259b6ebd23827516001df4c89a8005`.
-Sandbox SHA-256: `15ed89f4c79b2160202d496d5f009208ae97043b7566991a3926fc69cc210644`.
+Sandbox SHA-256: `0d97c52094b83e28ed1b9d00887d6240aef111dc1efbccb649b329088ffe81e5`.
+The earlier `build/tests/benchmark-owy1jn92/` numbers predate sandbox validation fixes and are superseded.
 
 The regression suite includes a 37-draw case for primary and secondary recording. It checks
 draw identity and hashes across repeated meshes, exact timing sample counts and warmup exclusion.

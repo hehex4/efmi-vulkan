@@ -60,6 +60,7 @@ enum : uint32_t {
     DecorationBlock = 2,
     DecorationBufferBlock = 3,
     DecorationBuiltIn = 11,
+    DecorationNonWritable = 24,
     DecorationLocation = 30,
     DecorationBinding = 33,
     DecorationDescriptorSet = 34,
@@ -184,7 +185,7 @@ inline std::vector<uint32_t> vertex_shader()
 
 // layout(location = 0) out vec4 outColor;
 // layout(set = 0, binding = 0) uniform U { vec4 offset; vec4 color; } u;
-// layout(set = 1, binding = 2) buffer S { vec4 tint; } materials[2];
+// layout(set = 1, binding = 2) readonly buffer S { vec4 tint; } materials[2];
 // layout(set = 1, binding = 5) uniform sampler2D albedo;
 // void main() { outColor = u.color * materials[0].tint * texture(albedo, vec2(0)); }
 inline std::vector<uint32_t> fragment_shader()
@@ -214,6 +215,7 @@ inline std::vector<uint32_t> fragment_shader()
     b.op(OpDecorate, {u_var, DecorationDescriptorSet, 0});
     b.op(OpDecorate, {u_var, DecorationBinding, 0});
     b.op(OpMemberDecorate, {s_type, 0, DecorationOffset, 0});
+    b.op(OpMemberDecorate, {s_type, 0, DecorationNonWritable});
     b.op(OpDecorate, {s_type, DecorationBufferBlock});
     b.op(OpDecorate, {storage, DecorationDescriptorSet, 1});
     b.op(OpDecorate, {storage, DecorationBinding, 2});

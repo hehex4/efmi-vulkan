@@ -2,6 +2,12 @@
 
 > Last updated: 2026-10-11. Layer 0.5.0 (probe, protocol 1), server 0.1.0, verified in the sandbox and available in `dist/` with probe mode configured. The last game-loaded DLL was 0.2.0 passthrough. Historical run 3 is accepted as initial G1 loading evidence; the 30-minute observation is deferred (D-014). Long-duration stability is unverified. No probe-mode game data exists; G2/G3 remain open.
 
+## Vulkan validation (2026-10-11; sandbox only)
+
+T-015 is complete. Built Khronos VVL 1.4.321 under `F:/vulkan`; the regression suite now requires it. Core/synchronization validation passes 24 positive configurations and three negative canaries: 76 checks. Fixed the sandbox's read-only SPIR-V decoration and shader cleanup; added upload barriers and per-image presentation semaphores. Layer DLL stays 0.5.0, unchanged.
+
+Full suite passes (unit 44, native 62, 17 probe configurations, modes 40, timing 84, MCP 46); final targeted validation passes 76/76. The corrected sandbox is in `dist/`. Repeated 36 benchmark runs: at 2000 draws the median probe increment is 0.386 ms primary / 0.744 ms secondary. These supersede the earlier numbers below. Details: `docs/validation.md`, `docs/probe-performance.md`. An initial VVL run wrote a 36-byte default system temp cache; subsequent child caches are confined to project test directories and that file remains unchanged. No registry/launcher/game change. Next: T-007 inventory, then the real G2/G3 data boundary.
+
 ## Many-draw performance measurement (2026-10-11; sandbox only)
 
 T-012 is complete. The sandbox accepts `--draws`, records raw host timings with configurable warmup/sample counts, and `sandbox/benchmark.py` compares no layer, passthrough and probe through the inject entry with rotated trial order. The layer binary is unchanged at 0.5.0. Timing output separates FIFO waiting from recording/submitting. At 2000 draws the median probe increment is 0.424 ms (primary) / 0.553 ms (two secondary recording threads); this does not establish game overhead or the M2 5% target. Full method, limitations and fingerprints: `docs/probe-performance.md`; raw evidence: `build/tests/benchmark-owy1jn92/report.json` (36 runs).
@@ -113,6 +119,6 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 ## Next
 
 1. T-012 is complete in the sandbox; see `docs/probe-performance.md`. Game overhead remains unmeasured.
-2. T-015: install validation layers entirely under `F:/vulkan` and validate the sandbox in a child process.
+2. T-015 is complete: VVL built under `F:/vulkan`, core/synchronization validation added to the suite.
 3. T-007: the M0 inventory of `arcane.ini` and Core 1.4.8, and the XXMI front-end separability assessment. T-011's remaining specialized paths depend on actual usage; see TASKS.
 4. T-010: collect API usage and the first probe frame when the user chooses the next game session. Use the run-3 launcher configuration; show the character corresponding to `arcane fes 1.2` for G3 a. T-009's long-duration observation is deferred and does not block this step.

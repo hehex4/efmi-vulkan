@@ -91,7 +91,8 @@ class Sandbox:
 
     def __init__(self, threads: int = 2, seconds: int = 60, with_layer: bool = True, mode: str | None = "probe",
                  env_extra: dict | None = None, entry: str = "layer", inject_dll: str | None = None,
-                 descriptors: str = "ordinary", draws: int = 5, extra_args: list[str] | None = None):
+                 descriptors: str = "ordinary", draws: int = 5, extra_args: list[str] | None = None,
+                 validation: bool = False):
         """``entry``: ``layer`` (the Vulkan loader loads the layer), ``inject`` (the sandbox loads
         the DLL before it touches Vulkan), ``inject-late`` (after its device exists) or
         ``inject-late-exports`` (late, and the device functions are then resolved again through
@@ -107,6 +108,7 @@ class Sandbox:
         self.descriptors = descriptors
         self.draws = draws
         self.extra_args = extra_args or []
+        self.validation = validation
         self.dir = test_dir("sandbox-")
         self.expected_path = os.path.join(self.dir, "expected.json")
         self.trigger_path = os.path.join(self.dir, "rewrite.trigger")
@@ -131,6 +133,16 @@ class Sandbox:
                 raise RuntimeError("%s is missing; run scripts/build.py" % self.inject_dll)
             env = inject_env(self.log_path, self.mode, self.env_extra)
             args += ["--" + self.entry, self.inject_dll]
+        if self.validation:
+            validation_dir = os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
+            if not os.path.isfile(os.path.join(validation_dir, "VkLayer_khronos_validation.json")):
+                raise RuntimeError("validation layer missing; run scripts/build_validation.py")
+            env["VK_LAYER_PATH"] = os.pathsep.join([DIST, validation_dir])
+            env["VK_LAYER_VALIDATE_SYNC"] = "1"
+            env["VK_LAYER_DUPLICATE_MESSAGE_LIMIT"] = "0"
+            args += ["--validation"]
+        # VVL's shader cache checks XDG_CACHE_HOME before TMP/TEMP, even on Windows.
+        env.update(XDG_CACHE_HOME=self.dir, TMPDIR=self.dir, TEMP=self.dir, TMP=self.dir)
         self._stdout = open(self.stdout_path, "wb")
         try:
             self.proc = subprocess.Popen(

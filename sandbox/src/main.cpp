@@ -11,6 +11,7 @@
 //                   [--inject DLL | --inject-late DLL | --inject-late-exports DLL]
 //                   [--descriptors ordinary|template|push|push-template]
 //                   [--draws N] [--timings FILE --warmup N --frames N]
+//                   [--validation] [--validation-canary]
 //
 // --inject loads a DLL before the program touches Vulkan, the way a launcher injects one at
 // process start. --inject-late loads it after the device exists, which is too late to intercept.
@@ -40,6 +41,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <atomic>
 
 #include "spirv.h"
 
@@ -74,6 +76,10 @@
 static HMODULE g_vulkan_lib;
 static PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 static PFN_vkCreateInstance vkCreateInstance;
+static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
+static PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
+static std::atomic<uint32_t> validation_errors{0}, validation_warnings{0};
+static std::atomic<bool> validation_canary_seen{false};
 #define X(n) static PFN_vk##n vk##n;
 VK_INSTANCE_FUNCS(X)
 VK_DEVICE_FUNCS(X)
@@ -166,6 +172,8 @@ struct App {
     struct Timing { double wait, record, submit, present, total; };
     std::vector<Timing> timings;
     VkPhysicalDeviceProperties properties = {};
+    bool validation = false, validation_canary = false;
+    VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
     bool primary_screen = false;
     std::wstring expected_path;
     std::wstring trigger_path;
@@ -215,7 +223,7 @@ struct App {
     std::vector<Worker> workers;
 
     VkSemaphore sem_acquire = VK_NULL_HANDLE;
-    VkSemaphore sem_render = VK_NULL_HANDLE;
+    std::vector<VkSemaphore> sem_render;
     VkFence fence = VK_NULL_HANDLE;
 
     bool rewritten = false;
@@ -347,12 +355,44 @@ static bool create_instance()
     app.pEngineName = "sandbox";
     app.apiVersion = VK_API_VERSION_1_1;
 
-    const char* exts[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
+    const char* exts[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+                         VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
+    const char* validation_layer = "VK_LAYER_KHRONOS_validation";
+    VkDebugUtilsMessengerCreateInfoEXT debug = {};
+    debug.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    debug.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debug.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    debug.pfnUserCallback = [](VkDebugUtilsMessageSeverityFlagBitsEXT severity, VkDebugUtilsMessageTypeFlagsEXT,
+                               const VkDebugUtilsMessengerCallbackDataEXT* data, void*) -> VkBool32 {
+        const bool error = (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0;
+        // The loader warns about our deliberate child-only overlay filter. Keep the
+        // messages in stdout, but distinguish them from validation diagnostics.
+        if (!error && data->pMessageIdName && strcmp(data->pMessageIdName, "Loader Message") == 0 &&
+            (strstr(data->pMessage, "forced disabled because name matches filter of env var 'VK_LOADER_LAYERS_DISABLE'") ||
+             strcmp(data->pMessage, "env var 'VK_INSTANCE_LAYERS' defined and adding layers \"VK_LAYER_EFMI_probe\"") == 0)) {
+            printf("LOADER NOTICE: %s\n", data->pMessage);
+            return VK_FALSE;
+        }
+        if (error) ++validation_errors;
+        else ++validation_warnings;
+        if (data->pMessageIdName && strcmp(data->pMessageIdName, "VUID-VkBufferCreateInfo-size-00912") == 0)
+            validation_canary_seen = true;
+        printf("VALIDATION %s [%s]: %s\n", error ? "ERROR" : "WARNING",
+               data->pMessageIdName ? data->pMessageIdName : "unknown", data->pMessage);
+        // Abort invalid calls before they reach the driver; the run still fails.
+        return error ? VK_TRUE : VK_FALSE;
+    };
     VkInstanceCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     info.pApplicationInfo = &app;
-    info.enabledExtensionCount = 2;
+    info.enabledExtensionCount = g.validation ? 3 : 2;
     info.ppEnabledExtensionNames = exts;
+    if (g.validation) {
+        info.enabledLayerCount = 1;
+        info.ppEnabledLayerNames = &validation_layer;
+        info.pNext = &debug;
+    }
     CHECK(vkCreateInstance(&info, nullptr, &g.instance));
 
 #define X(n)                                                                                                           \
@@ -363,6 +403,15 @@ static bool create_instance()
     }
     VK_INSTANCE_FUNCS(X)
 #undef X
+    if (g.validation) {
+        vkCreateDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(g.instance, "vkCreateDebugUtilsMessengerEXT"));
+        vkDestroyDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+            vkGetInstanceProcAddr(g.instance, "vkDestroyDebugUtilsMessengerEXT"));
+        if (!vkCreateDebugUtilsMessengerEXT || !vkDestroyDebugUtilsMessengerEXT) return false;
+        CHECK(vkCreateDebugUtilsMessengerEXT(g.instance, &debug, nullptr, &g.messenger));
+        printf("validation: VK_LAYER_KHRONOS_validation explicitly enabled\n");
+    }
     return true;
 }
 
@@ -604,7 +653,14 @@ static bool create_pipeline()
     g.shader_hashes[1] = crc32c_sw(fs_code.data(), fs_code.size() * 4);
     g.shader_sizes[0] = static_cast<uint32_t>(vs_code.size() * 4);
     g.shader_sizes[1] = static_cast<uint32_t>(fs_code.size() * 4);
-    VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE;
+    struct Modules {
+        VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE;
+        ~Modules() {
+            if (vs) vkDestroyShaderModule(g.device, vs, nullptr);
+            if (fs) vkDestroyShaderModule(g.device, fs, nullptr);
+        }
+    } modules;
+    VkShaderModule &vs = modules.vs, &fs = modules.fs;
     VkShaderModuleCreateInfo sm = {};
     sm.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     sm.codeSize = vs_code.size() * 4;
@@ -683,8 +739,6 @@ static bool create_pipeline()
     info.subpass = 0;
     CHECK(vkCreateGraphicsPipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &g.pipeline));
 
-    vkDestroyShaderModule(g.device, vs, nullptr);
-    vkDestroyShaderModule(g.device, fs, nullptr);
     return true;
 }
 
@@ -934,7 +988,10 @@ static bool create_resources()
     VkSemaphoreCreateInfo si = {};
     si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     CHECK(vkCreateSemaphore(g.device, &si, nullptr, &g.sem_acquire));
-    CHECK(vkCreateSemaphore(g.device, &si, nullptr, &g.sem_render));
+    // A submit fence does not prove presentation has finished waiting. Reacquiring
+    // an image lets that image's presentation semaphore be reused safely.
+    g.sem_render.resize(g.images.size());
+    for (auto& semaphore : g.sem_render) CHECK(vkCreateSemaphore(g.device, &si, nullptr, &semaphore));
     VkFenceCreateInfo fi = {};
     fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -965,6 +1022,12 @@ static bool create_resources()
                          0, 0, nullptr, 0, nullptr, 1, &barrier);
     VkBufferCopy region = {0, 0, sizeof(kIndicesA)};
     vkCmdCopyBuffer(g.primary, g.staging.buf, g.ib_a.buf, 1, &region);
+    VkMemoryBarrier uploaded = {};
+    uploaded.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    uploaded.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    uploaded.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
+    vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+                         0, 1, &uploaded, 0, nullptr, 0, nullptr);
     CHECK(vkEndCommandBuffer(g.primary));
     VkSubmitInfo submit = {};
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1191,6 +1254,12 @@ static bool render_frame()
     if (rewrite_now) {
         VkBufferCopy region = {0, 3 * sizeof(uint16_t), sizeof(kRewriteA)};
         vkCmdCopyBuffer(g.primary, g.staging2.buf, g.ib_a.buf, 1, &region);
+        VkMemoryBarrier uploaded = {};
+        uploaded.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        uploaded.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        uploaded.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
+        vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,
+                             0, 1, &uploaded, 0, nullptr, 0, nullptr);
     }
 
     VkClearValue clear = {};
@@ -1236,14 +1305,14 @@ static bool render_frame()
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &g.primary;
     submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &g.sem_render;
+    submit.pSignalSemaphores = &g.sem_render[image];
     CHECK(vkQueueSubmit(g.queue, 1, &submit, g.fence));
     const double submit_end = clock_ms();
 
     VkPresentInfoKHR present = {};
     present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     present.waitSemaphoreCount = 1;
-    present.pWaitSemaphores = &g.sem_render;
+    present.pWaitSemaphores = &g.sem_render[image];
     present.swapchainCount = 1;
     present.pSwapchains = &g.swapchain;
     present.pImageIndices = &image;
@@ -1277,7 +1346,7 @@ static void cleanup()
         return;
     vkDeviceWaitIdle(g.device);
     vkDestroyFence(g.device, g.fence, nullptr);
-    vkDestroySemaphore(g.device, g.sem_render, nullptr);
+    for (auto semaphore : g.sem_render) vkDestroySemaphore(g.device, semaphore, nullptr);
     vkDestroySemaphore(g.device, g.sem_acquire, nullptr);
     for (Worker& w : g.workers)
         if (w.pool)
@@ -1317,6 +1386,7 @@ static void cleanup()
     vkDestroyDevice(g.device, nullptr);
     if (g.surface)
         vkDestroySurfaceKHR(g.instance, g.surface, nullptr);
+    if (g.messenger) vkDestroyDebugUtilsMessengerEXT(g.instance, g.messenger, nullptr);
     vkDestroyInstance(g.instance, nullptr);
 }
 
@@ -1329,6 +1399,10 @@ int wmain(int argc, wchar_t** argv)
             g.seconds = _wtoi(argv[++i]);
         else if (a == L"--threads" && i + 1 < argc)
             g.threads = _wtoi(argv[++i]);
+        else if (a == L"--validation")
+            g.validation = true;
+        else if (a == L"--validation-canary")
+            g.validation = g.validation_canary = true;
         else if (a == L"--draws" && i + 1 < argc)
             g.draws = _wtoi(argv[++i]);
         else if (a == L"--timings" && i + 1 < argc)
@@ -1389,6 +1463,17 @@ int wmain(int argc, wchar_t** argv)
         ok = render_frame() && write_expected();
     if (ok)
         printf("ready pid=%lu threads=%d\n", GetCurrentProcessId(), g.threads);
+    if (ok && g.validation_canary) {
+        VkBufferCreateInfo invalid = {};
+        invalid.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        invalid.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkResult result = vkCreateBuffer(g.device, &invalid, nullptr, &buffer);
+        if (buffer) vkDestroyBuffer(g.device, buffer, nullptr);
+        ok = result == VK_ERROR_VALIDATION_FAILED_EXT && validation_canary_seen;
+        printf("validation canary: %s\n", ok ? "intercepted" : "FAILED");
+        g.quit = true;
+    }
 
     ULONGLONG start = GetTickCount64();
     while (ok && !g.quit) {
@@ -1401,5 +1486,9 @@ int wmain(int argc, wchar_t** argv)
     printf("%s after %llu frames\n", ok ? "done" : "FAILED", static_cast<unsigned long long>(g.frame));
     if (ok) ok = write_timings();
     cleanup();
+    if (g.validation) {
+        printf("validation: errors=%u warnings=%u\n", validation_errors.load(), validation_warnings.load());
+        ok = ok && validation_errors == (g.validation_canary ? 1u : 0u);
+    }
     return ok ? 0 : 1;
 }

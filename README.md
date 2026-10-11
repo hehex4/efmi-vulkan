@@ -19,6 +19,7 @@ The current 0.5.0 read-only probe is verified against the sandbox and available 
 
 - Windows x64, MSVC build tools (found through `vswhere`, or set `VCVARS` to the full path of `vcvars64.bat`).
 - Vulkan headers. `scripts/fetch_vulkan_headers.ps1` clones the pinned tag of `KhronosGroup/Vulkan-Headers` into `F:\vulkan\Vulkan-Headers`. A Vulkan SDK is used instead when `VULKAN_SDK` is set or one is installed in `F:\vulkan`.
+- Khronos validation layers for the full regression suite: `scripts/build_validation.py` builds the pinned source under `F:/vulkan` using MSVC/CMake/Ninja. See [validation](docs/validation.md).
 - Python 3.12 for the build script, the client, the MCP server and the tests; standard library only.
 
 ## Build and test
