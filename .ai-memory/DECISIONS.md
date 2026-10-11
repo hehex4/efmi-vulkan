@@ -55,7 +55,7 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 - Date: 2026-10-11.
 - Decision: `EFMI_VK_MODE=passthrough` hooks only device destruction and present and starts no pipe; it is the mode for gate G1. In probe mode every command buffer keeps the records of its draws all the time, not only while a capture is armed.
-- Reason: a capture then never depends on when a command buffer was begun, which matters for engines that record ahead of the frame boundary. The cost is about 200 bytes and one vector push per draw; it has not been measured in a heavy scene yet (T-012).
+- Reason: a capture then never depends on when a command buffer was begun, which matters for engines that record ahead of the frame boundary. The original record cost was about 200 bytes and one vector push per draw; 0.4.0 adds descriptor allocation ids and shared layout references, so that old estimate no longer describes the current record. Heavy-scene overhead remains unmeasured (T-012).
 
 ## D-010: Shadows are fed at submit time and only for index buffers by default
 
@@ -77,3 +77,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Date: 2026-10-11 (user).
 - Decision: dependencies such as headers, SDKs and tools go into `F:\vulkan` directly. This replaces asking before each download.
 - Boundary kept: nothing an installation would write outside that folder (registry, system environment variables, system directories). If an installer cannot be confined to the folder, that is reported instead of run.
+
+## D-013: Descriptor snapshots are explicitly at submit; bytecode follows pipeline lifetime
+
+- Date: 2026-10-11.
+- Decision: the first T-011 increment tracks ordinary descriptor writes/copies and snapshots contents when a captured command buffer is submitted. Dynamic offsets are taken at bind time and split by layout. Shader bytes have shared ownership between their live module and pipelines; ids do not rely on handles remaining unique.
+- Reason: descriptor sets are references, not inline copies of their contents. Querying them later from the pipe could silently return another frame's data; retaining immutable capture JSON avoids that. Module destruction after pipeline creation is normal and must not remove shader diagnostics prematurely.
+- Limits: submit-time visibility does not establish G3's record-time premise. Templates, push descriptors and descriptor buffers discard stale tracked knowledge until decoding is implemented. A small declared-binding SPIR-V reader is not full reflection. Details: `docs/probe-resources.md`.
+- Deployment consequence: run 3 ended before 30 minutes according to the user, so the G1 gate remains incomplete. This round builds/tests 0.4.0 under `build/next/` and keeps `dist/` at 0.2.0 passthrough. The earlier planned switch to probe waits for gate completion and a newly authorized game session.

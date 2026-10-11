@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target architecture of the product (interception, shadow, match, profile, engine, emit, prep, diag) is described in `docs/plan.md`, section 4. This file describes what exists in the repository: the read-only probe, layer 0.3.0, protocol 1, server 0.1.0.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.4.0, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`.
 
 ## Data path of the development probe
 
@@ -28,13 +28,15 @@ The technique mirrors `bootstrap.cpp` of the EFMI MCP probe, which redirects two
 | `layer/src/layer.cpp` | `vkNegotiateLoaderLayerInterfaceVersion`, instance and device creation (walks the loader's link info, fills the dispatch table), `GetInstanceProcAddr` / `GetDeviceProcAddr`, every hook. A hook forwards the call and, in probe mode, feeds the tracker. Pins the module so the pipe thread survives the loader unloading the layer |
 | `layer/src/bootstrap.cpp` | Inject entry: loader notification, export table redirection of `vulkan-1.dll`, jump stubs |
 | `layer/src/state.h` / `state.cpp` | Device registry; tracking of memory, buffers, pipelines, command buffers; application of buffer writes to shadows at submit time; frame assembly and statistics; the capture state machine; the probe requests and their JSON |
+| `layer/src/resources.h` / `resources.cpp` | Descriptor layouts, sets and contents; pipeline layout compatibility; images/views/samplers; shader bytecode retention and inspection |
+| `layer/src/resource_hooks.h` | Resource lifetime/update hooks included inside `layer.cpp`; unimplemented descriptor paths invalidate stale tracked knowledge |
 | `layer/src/ipc.cpp` | Named pipe server thread and request dispatch |
 | `layer/src/util.cpp` / `common.h` | Configuration from environment variables, log file, CRC-32C (SSE4.2 with a table fallback) |
 | `layer/src/json.h` | JSON writer and a reader for flat request objects |
 
 ### Hooks and dispatch
 
-`EFVK_DEVICE_FUNCS` in `state.h` lists every intercepted device function once; it generates the dispatch struct, the hook table and the index of the call counters. It has two parts. `EFVK_TRACKED_FUNCS` are the functions with a hand-written hook that feeds the tracker. `EFVK_COUNTED_FUNCS` are functions that are only counted and passed on (descriptor set layouts, pools, updates, templates and push descriptors, descriptor buffers, push constants, image, view, sampler and shader creation, render pass and framebuffer creation, buffer-to-image copies, multi-draw, mesh tasks, ray tracing); one template, `CountedHook`, generates their hooks from the function pointer type. Every hook increments `g_api_calls[index]`, and `vkGetDeviceProcAddr` remembers each name the application asks for. Promoted functions and their extension aliases (`CmdBeginRenderPass2` / `...2KHR`, `QueueSubmit2` / `...2KHR`, `MapMemory2` / `...2KHR` and so on) are separate entries with their own next-pointer. `GetDeviceProcAddr` hands out a hook only when the next element of the chain implements the function. In passthrough mode only `DestroyDevice` and `QueuePresentKHR` are hooked.
+`EFVK_DEVICE_FUNCS` in `state.h` generates dispatch slots, hooks and counters. `EFVK_TRACKED_FUNCS` feed state or explicitly invalidate unsupported descriptor paths. `EFVK_COUNTED_FUNCS` only count/forward pool and template creation, descriptor-buffer binding, push constants, render passes/framebuffers, image uploads and additional draw/dispatch forms. `CountedHook` generates these wrappers. Every hook increments its counter; `vkGetDeviceProcAddr` records requested names. Promoted/extension aliases have separate next-pointers. Device proc lookup offers hooks only when the next chain element implements them. Passthrough hooks only device destruction and present beyond the instance/device creation entry points.
 
 A device is found from a dispatchable handle through its dispatch key (the first pointer of the handle); a single-device fast path avoids the registry lock.
 
@@ -42,8 +44,10 @@ A device is found from a dispatchable handle through its dispatch key (the first
 
 - **Memory** (`MemInfo`): size, type index, the current mapping (pointer, offset, size), the buffers bound to it.
 - **Buffers** (`BufInfo`): id, size, usage, memory binding, a shadow byte array with an interval set of known bytes, a generation counter, a count of unknown writes.
-- **Pipelines** (`PipeInfo`): id, stages, topology, vertex input bindings and attributes.
-- **Command buffers** (`CmdBuf`): current bindings (pipelines, index buffer with offset and index size, vertex buffers 0 to 3, descriptor sets 0 to 3 with dynamic offsets), the draws recorded since begin (`DrawRec`, about 200 bytes each, with raw handles), pending buffer writes, the threads that recorded, render pass counters. `vkCmdExecuteCommands` copies the records of the secondary buffers into the primary one, in order, tagged with the secondary's id and thread.
+- **Pipelines** (`PipeInfo`): id, stages, topology, vertex input, retained pipeline layout, and stage entry points with shared references to `ShaderInfo` SPIR-V. Destroying a module drops its live-handle entry; pipeline references keep its bytecode alive. Weak id lookup entries are pruned on destruction.
+- **Descriptor layouts and sets**: retained immutable layout definitions, pool ownership, allocation ids, variable counts and sparse element values. Ordinary writes/copies are tracked under `res_mx`; template updates discard old values and report the unsupported path. Resource ids guard against handle reuse.
+- **Images, image/buffer views and samplers**: creation metadata and identities, removed at destruction. Image bytes and swapchain image creation are not tracked.
+- **Command buffers** (`CmdBuf`): pipelines, IB, VB slots 0 to 3, and separate graphics/compute descriptor slots 0 to 3. Set binds retain layout definitions and dynamic ranges; layout compatibility can disturb previous bindings. `DrawRec` snapshots binding state; byte/descriptor contents are resolved at submit. Records also retain thread/CB ids, writes and render-pass counters. Executing secondary buffers copies records in execution order and rebases dynamic-offset ranges. Additional shared references increase per-draw overhead; T-012 must measure it.
 
 Locks: `res_mx` (shared mutex) guards memory, buffers and pipelines; `cb_mx` guards only the map of command buffers, not their content (one command buffer is recorded by one thread at a time, and read by the submitting thread after recording ended); `frame_mx` guards the frame being assembled and the capture state. Order when nested: `frame_mx` then `res_mx`. The pipe thread holds the registry lock shared while it serves one request, except while it waits for a capture.
 
@@ -59,6 +63,8 @@ Unmap, free and destroy take `res_mx` exclusively before the call goes down, so 
 
 `vkQueueSubmit(2)` adds the submitted command buffers to the current frame's statistics. `vkQueuePresentKHR` closes the frame. A capture request arms the state machine; the frame that starts at the next present is recorded in full and published at the present after it. For each draw of a captured frame the handles are resolved to ids and, for a direct indexed draw, the CRC-32C of the index range (`bind offset + index size * first index`, `index size * index count` bytes) is computed.
 
+During an armed capture, each set's descriptor contents are serialized into immutable JSON under `res_mx` at submit time. The snapshot includes effective buffer ranges/CPU visibility and image metadata, with unknown/truncated states explicit. It is not evidence of record-time readability or later GPU consumption of update-after-bind descriptors. Slots remain limited to 0 through 3 and each set emits at most 256 stored elements per draw.
+
 ## Probe protocol
 
 Pipe `\\.\pipe\efmi-vk-<PID>`, one client at a time, started when the first device is created in probe mode. The security descriptor gives system and administrators full control and the interactive user read and write, so that a client without elevation can talk to an elevated process. A message in either direction is `[u32 header_len][u32 payload_len][header JSON][payload]`. Requests are flat JSON objects with `cmd`; replies are `{"ok":true,"result":...}` or `{"ok":false,"error":"..."}`.
@@ -70,7 +76,8 @@ Pipe `\\.\pipe\efmi-vk-<PID>`, one client at a time, started when the first devi
 | `buffers` | `usage`, `min_size`, `limit` | Tracked buffers |
 | `read_buffer` | `id`, `offset`, `size` | Source and generation in the header, the bytes as payload (at most 64 MiB) |
 | `hash` | `id`, `offset`, `size` | CRC-32C of the range |
-| `pipeline` | `id` | Vertex input, stages, topology |
+| `pipeline` | `id` | Vertex input, topology, layout id, stages and retained shader ids/hashes/entry points |
+| `shader` | `id`, `code` | SPIR-V size and CRC-32C; binary payload if `code` is nonzero (at most 64 MiB) |
 | `api_usage` | | Call count of every intercepted function that was called, the names the application resolved, the enabled device extensions |
 
 ## Settings of the DLL
@@ -94,13 +101,14 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 | `server/efmi_vk/probe_client.py` | Finds probe pipes, sends requests, raises `ProbeError` |
 | `server/efmi_vk/hashes.py` | CRC-32C in Python and the index region rule |
 | `server/efmi_vk/mods.py` | Reads the TextureOverride sections of mod INIs (hash, `match_first_index`, `match_index_count`) and matches them against captured draws |
-| `server/efmi_vk/tools.py` | `Session` (pipe connection, last capture) and the ten tools; `ToolError` |
+| `server/efmi_vk/tools.py` | `Session` (pipe connection, last capture) and eleven tools; `ToolError` |
+| `server/efmi_vk/spirv.py` | Limited declared-name and direct set/binding metadata; not full reflection |
 | `server/efmi_vk/mcp_stdio.py` | JSON-RPC 2.0 over stdio: `initialize`, `ping`, `tools/list`, `tools/call` |
 | `server/run_server.py`, `server/efvk.py` | Entry points: MCP server, command line |
 
 ## Sandbox
 
-`sandbox/src/main.cpp` loads `vulkan-1.dll` at run time, opens a 640 x 360 window on the secondary screen without taking the focus, and draws five indexed meshes per frame with one pipeline: three from index buffer A (16-bit, device-local, uploaded once through a staging buffer that stays mapped) and two from index buffer B (32-bit, host-visible, mapped, bound at byte offset 16). Each draw binds the one descriptor set with its own dynamic uniform offset. `--threads N` records the draws on N threads into secondary command buffers. `--inject DLL` loads a DLL before the program touches Vulkan; `--inject-late DLL` loads it after the device exists; `--inject-late-exports DLL` does that and then resolves every device function again through the exports of `vulkan-1.dll`. When the trigger file appears it rewrites six indices of buffer A through a second staging buffer that is unmapped before the copy is recorded. It writes the expected draws and hashes, computed with its own table-driven CRC-32C, to `expected.json`.
+`sandbox/src/main.cpp` loads Vulkan at run time and opens a 640 x 360 secondary-screen window without focus. It draws five indexed meshes: three from device-local 16-bit IB A uploaded through staging, two from mapped 32-bit IB B at byte offset 16. Each draw binds set 0 (dynamic UBO) and set 1 (dynamic storage array, immutable sampler, sampled 1x1 image), alternating multi-set and separate calls. Descriptors are copied from a set that is freed; shader modules are destroyed before drawing. The trigger rewrites six indices through an unmapped staging buffer and updates one storage descriptor. `expected.json` contains independent CRC-32C fingerprints of the index regions and SPIR-V. `--threads N` records on N secondary-buffer threads; the three inject options still exercise early, late and late-with-export-resolution loading.
 
 `sandbox/src/spirv.h` assembles the vertex and fragment shader word by word, because there is no shader compiler on the machine.
 
@@ -110,6 +118,7 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 - `scripts/fetch_vulkan_headers.ps1`: clones the pinned header tag into `F:\vulkan\Vulkan-Headers`.
 - `sandbox/run_all.py [--no-build]`: build, `scripts/check_text.py`, `unit_test.py` (CRC vectors, INI parser, override matching, MCP message handling), `probe_test.py` (sandbox with the layer entry and 0, 2 and 5 recording threads, and with the inject entry and 0 and 2 threads: statistics, every draw, hashes before and after the rewrite, buffer read-back, pipeline, reconnect, attach information), `modes_test.py` (no layer: no pipe; passthrough in both entries: no pipe, frame count agrees; late injection: the sandbox is unaffected and no device is tracked; late injection with the functions resolved again through the exports: calls go through the passive device; settings taken from `efmi_vk.cfg`), `mcp_test.py` (the MCP server as a child process against the sandbox, every tool).
 - `sandbox/harness.py`: `Sandbox` context manager with the `entry` argument; `layer_env` enables the layer for a child process through `VK_LAYER_PATH` and `VK_INSTANCE_LAYERS`; `inject_env` sets no loader variable and lets the sandbox load the DLL itself. Both switch other implicit layers off with `VK_LOADER_LAYERS_DISABLE=~implicit~`.
+- `sandbox/tracker_test.cpp` / `native_test.py`: offline C++ tests of descriptor semantics and resource lifetimes; compiled alongside the layer and included in `run_all.py`. They make no Vulkan calls. All Python test scratch artifacts stay inside `build/tests/`; compiler scratch stays in component `build/tmp/` directories.
 - `scripts/verify_region_hash.py <dump>`: region hash rule against an XXMI FrameAnalysis dump.
 
 `dist/`, the `build/` directories, `captures/` and logs are ignored by Git. A build on disk does not mean a running process has loaded it.

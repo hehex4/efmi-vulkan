@@ -2,9 +2,9 @@
 
 > Last updated: 2026-10-11.
 
-## LIMIT-001: Nothing is verified in the real game
+## LIMIT-001: Probe data is not verified in the real game; G1 is incomplete
 
-Every result so far comes from static inspection, from an offline DX11 dump or from the sandbox. Whether the layer loads next to the anti-cheat (G1), how the game records and submits (G2) and whether the data is reachable (G3) are open.
+Historical passthrough launches established injection timing and device interception with 0.2.0. Run 3 passed the earlier crash point and included scene changes, but the user exited before 30 minutes. G1 is not passed. Layer 0.4.0 and all capture/resource-tracking results are sandbox-only; no probe-mode game capture or real-character verification exists. G2/G3 remain open.
 
 ## LIMIT-002: No Vulkan SDK on this machine
 
@@ -18,13 +18,15 @@ Only the headers are present (`F:\vulkan\Vulkan-Headers`). There is no `glslc`, 
 
 6 of the 9 local character mods pass their textures only through RabbitFX, which patches DX11 shader assembly. They cannot be degraded gracefully by stubbing RabbitFX.
 
-## LIMIT-005: Dynamic offsets are attributed to the first set of a bind call
+## LIMIT-005: Dynamic offsets attributed to the first set (fixed in 0.4.0)
 
-`vkCmdBindDescriptorSets` passes one array of dynamic offsets for all sets of the call; splitting it needs the set layouts, which are not tracked yet. The probe records the whole array with the first set of the call and none with the others. Correct when a call binds one set, as the sandbox does. Fixed by T-011.
+Offsets now split using the set layouts in set/binding/array order. The sandbox checks two sets with a dynamic uniform buffer and a dynamic storage-buffer array, both multi-set and nonzero-firstSet binds, through both entries and with secondary command buffers. Missing layouts produce an explicit unknown reason instead of guessed offsets.
 
-## LIMIT-006: Descriptor contents, shaders and images are not tracked
+## LIMIT-006: Resource tracking covers the ordinary descriptor path only
 
-A draw shows descriptor set handles, not what the sets hold. Gate items G3 b (instance config buffer), c (bone buffer) and d (texture bindings) cannot be answered with the probe as it is. T-011.
+Layer 0.4.0 tracks ordinary descriptor writes/copies, images/views/samplers, buffer views, and pipeline shader modules. Templates, push descriptors and descriptor buffers are not decoded: intercepted paths discard stale knowledge and name the unsupported path. Unsupported descriptor types remain unknown. At most 256 stored elements per set per draw are emitted, with explicit counts/truncation. Swapchain images are not tracked as images yet. Unknown layout extensions have conservative compatibility across different handles.
+
+`efvk_shader` exports retained SPIR-V and extracts direct declared names/bindings; it is not full reflection (no decoration groups, type/member layout, specializations, pipeline-library linkage or shader objects). See `docs/probe-resources.md`. G3 remains unverified in the game; b/c also need record-time availability evidence (LIMIT-008).
 
 ## LIMIT-007: A shadow knows only what passed the CPU
 
@@ -34,9 +36,11 @@ Sources are staging copies (source mapped when the copy is recorded or submitted
 
 The hashes of a captured frame are computed when the command buffer is submitted, after all of its recorded writes were applied; a copy recorded after a draw in the same command buffer already affects that draw's hash. `read_buffer` returns what the mapping or the shadow holds at the time of the request. For a host-visible buffer the application rewrites every frame, that is not what an earlier draw used.
 
+Descriptor contents and `src` visibility in 0.4.0 are snapshots at submit time. They are immutable after capture, but do not prove G3's record-time CPU-readability premise or track update-after-bind changes during GPU execution.
+
 ## LIMIT-009: What a draw record leaves out
 
-Vertex buffer slots 0 to 3 and descriptor sets 0 to 3 of the graphics bind point only; no compute bindings; no push constants; no dynamic state; the arguments of indirect draws are not read. Indirect draws get no region hash.
+Vertex buffer slots 0 to 3 and descriptor sets 0 to 3 only. Graphics and compute descriptor state are separate in 0.4.0, but compute dispatch has no sandbox GPU coverage yet. No push constants or dynamic state; indirect arguments are not read and indirect draws get no region hash.
 
 ## LIMIT-010: The frame boundary is `vkQueuePresentKHR`
 
@@ -44,7 +48,7 @@ An application that does not present makes a capture time out. With several devi
 
 ## LIMIT-011: Scope of the sandbox evidence
 
-One GPU and driver (NVIDIA RTX 5060 Laptop). The sandbox uses classic render passes, one queue, one swapchain, `vkQueueSubmit`, `vkCmdCopyBuffer` and `vkMapMemory`; the hooks for dynamic rendering, the `2` variants of submit, copy, bind and map, indirect draws, dispatch, `vkCmdUpdateBuffer` and `vkCmdFillBuffer` compile but are not exercised by a test. The rendered picture was not inspected.
+One GPU and driver (NVIDIA RTX 5060 Laptop). The sandbox uses classic render passes, one queue/swapchain, `vkQueueSubmit`, `vkCmdCopyBuffer`, `vkMapMemory` and ordinary descriptor writes/copies. In 0.4.0 it exercises two sets, dynamic storage arrays, an immutable sampler, a sampled texture and shader modules destroyed before capture. Dynamic rendering, the `2` variants, indirect draws, dispatch, `vkCmdUpdateBuffer`, `vkCmdFillBuffer`, inline pipeline modules and specialized descriptor paths do not have sandbox GPU coverage. Native C++ tracker tests are separate CPU evidence. The rendered picture was not inspected, validation layers remain absent and overhead is not measured.
 
 ## LIMIT-012: The layer entry needs a registry entry for an elevated process
 
@@ -52,11 +56,11 @@ The Vulkan loader ignores path variables such as `VK_LAYER_PATH` in an elevated 
 
 ## LIMIT-013: What is and is not known about the inject entry in the game
 
-Known from two launches on 2026-10-11 (CURRENT_STATE): the launcher injects the DLL 4.6 to 5.5 s before `vulkan-1.dll` is mapped, the redirection is in place in time, and the engine's instance and device creation pass through the hooks. Only passthrough mode has been in the game; probe mode has not.
+Known from three historical launches on 2026-10-11 (CURRENT_STATE): injection precedes `vulkan-1.dll` by about 4 to 5.5 seconds, and the engine's creation calls reach the hooks. Only 0.2.0 passthrough has been in the game; probe mode and 0.4.0 have not.
 
 Still open:
 
-- Whether a Vulkan session survives with the DLL present (BUG-001).
+- Whether a complete 30-minute G1 Vulkan session passes. Run 3 survived the previous crash point and included scene changes but ended early; BUG-001 remains strongly associated with the removed DX11 hooks.
 - A module that statically imports `vulkan-1.dll` and was loaded earlier would keep its old addresses. Not observed so far: the engine's calls arrived.
 - Other Vulkan users in the process (Streamline created instances of its own in run 2) go through the same redirected exports. Devices they create are tracked like the game's; the probe answers for the device that presented last.
 - The sandbox tests still simulate injection with `LoadLibrary` inside the sandbox.

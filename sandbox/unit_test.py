@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import json
 import os
+import struct
 import sys
-import tempfile
 
-from harness import Checks
+from harness import Checks, test_dir
 
 from efmi_vk import mcp_stdio  # noqa: E402  (path set up by harness)
 from efmi_vk.hashes import crc32c, format_hash, index_region  # noqa: E402
 from efmi_vk.mods import find_ini_files, match_overrides, parse_overrides  # noqa: E402
 from efmi_vk.tools import TOOLS, Session, ToolError  # noqa: E402
+from efmi_vk.spirv import inspect_spirv  # noqa: E402
 
 INI = """\
 ; a comment
@@ -53,7 +54,7 @@ def test_hashes(c: Checks) -> None:
 
 
 def test_mods(c: Checks) -> None:
-    folder = tempfile.mkdtemp(prefix="efvk-unit-")
+    folder = test_dir("unit-")
     path = os.path.join(folder, "mod.ini")
     with open(path, "w", encoding="utf-8") as f:
         f.write(INI)
@@ -133,11 +134,34 @@ def test_mcp(c: Checks) -> None:
     session.close()
 
 
+def test_spirv(c: Checks) -> None:
+    header = [0x07230203, 0x00010000, 0, 20, 0]
+
+    def code(words):
+        return struct.pack("<%dI" % len(words), *words)
+
+    # A stripped module still has set/binding decorations; names are optional.
+    declaration = [4 << 16 | 71, 3, 34, 2, 4 << 16 | 71, 3, 33, 7, 4 << 16 | 59, 1, 3, 0]
+    result = inspect_spirv(code(header + declaration))
+    c.equal(result["bindings"], [{"id": 3, "set": 2, "binding": 7, "name": None, "storage_class": 0}],
+            "stripped SPIR-V keeps declared binding metadata")
+    c.equal(result["name_count"], 0, "no invented name for a stripped module")
+    malformed = [b"", code([0, *header[1:]]), code(header + [0]), code(header + [8 << 16 | 5, 3]),
+                 code(header + [3 << 16 | 5, 3, 0x41414141]), code(header) + b"x"]
+    for data in malformed:
+        try:
+            inspect_spirv(data)
+            c.check(False, "malformed SPIR-V is rejected")
+        except ValueError:
+            c.check(True, "malformed SPIR-V is rejected")
+
+
 def main() -> int:
     c = Checks("unit_test")
     test_hashes(c)
     test_mods(c)
     test_mcp(c)
+    test_spirv(c)
     return c.finish()
 
 

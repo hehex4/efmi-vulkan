@@ -2,6 +2,7 @@
 #pragma once
 
 #include "common.h"
+#include "resources.h"
 
 #include <atomic>
 #include <memory>
@@ -21,6 +22,18 @@ namespace efvk {
     X(MapMemory2) X(MapMemory2KHR) X(UnmapMemory2) X(UnmapMemory2KHR)                                                  \
     X(CreateBuffer) X(DestroyBuffer) X(BindBufferMemory) X(BindBufferMemory2) X(BindBufferMemory2KHR)                  \
     X(CreateGraphicsPipelines) X(CreateComputePipelines) X(DestroyPipeline)                                            \
+    X(CreateShaderModule) X(DestroyShaderModule) X(CreateImage) X(DestroyImage)                                        \
+    X(CreateImageView) X(DestroyImageView) X(CreateBufferView) X(DestroyBufferView) X(CreateSampler) X(DestroySampler) \
+    X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout) X(DestroyPipelineLayout)        \
+    X(DestroyDescriptorPool) X(ResetDescriptorPool) X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets) \
+    X(UpdateDescriptorSetWithTemplate) X(UpdateDescriptorSetWithTemplateKHR)                                           \
+    X(CmdPushDescriptorSet) X(CmdPushDescriptorSetKHR)                                                                 \
+    X(CmdPushDescriptorSetWithTemplate) X(CmdPushDescriptorSetWithTemplateKHR)                                         \
+    X(CmdPushDescriptorSet2) X(CmdPushDescriptorSet2KHR)                                                               \
+    X(CmdPushDescriptorSetWithTemplate2) X(CmdPushDescriptorSetWithTemplate2KHR)                                       \
+    X(CmdSetDescriptorBufferOffsets2EXT) X(CmdBindDescriptorBufferEmbeddedSamplersEXT)                                \
+    X(CmdBindDescriptorBufferEmbeddedSamplers2EXT)                                                                    \
+    X(CmdSetDescriptorBufferOffsetsEXT) X(CmdBindDescriptorSets2) X(CmdBindDescriptorSets2KHR)                         \
     X(AllocateCommandBuffers) X(FreeCommandBuffers) X(DestroyCommandPool) X(ResetCommandPool)                          \
     X(BeginCommandBuffer) X(EndCommandBuffer) X(ResetCommandBuffer)                                                    \
     X(CmdBindPipeline) X(CmdBindIndexBuffer) X(CmdBindIndexBuffer2) X(CmdBindIndexBuffer2KHR)                          \
@@ -39,14 +52,9 @@ namespace efvk {
 // application uses (descriptor updates, images, shaders, uploads) before tracking
 // for them exists.
 #define EFVK_COUNTED_FUNCS(X)                                                                                          \
-    X(CreateDescriptorSetLayout) X(CreatePipelineLayout) X(CreateDescriptorPool) X(ResetDescriptorPool)                \
-    X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets)                                            \
+    X(CreateDescriptorPool)                                                                                           \
     X(CreateDescriptorUpdateTemplate) X(CreateDescriptorUpdateTemplateKHR)                                             \
-    X(UpdateDescriptorSetWithTemplate) X(UpdateDescriptorSetWithTemplateKHR)                                           \
-    X(CmdPushDescriptorSet) X(CmdPushDescriptorSetKHR)                                                                 \
-    X(CmdPushDescriptorSetWithTemplate) X(CmdPushDescriptorSetWithTemplateKHR)                                         \
-    X(CmdBindDescriptorBuffersEXT) X(CmdSetDescriptorBufferOffsetsEXT) X(CmdPushConstants)                             \
-    X(CreateImage) X(CreateImageView) X(CreateBufferView) X(CreateSampler) X(CreateShaderModule)                       \
+    X(CmdBindDescriptorBuffersEXT) X(CmdPushConstants)                                                                 \
     X(CreateSwapchainKHR) X(CreateRenderPass) X(CreateRenderPass2) X(CreateRenderPass2KHR) X(CreateFramebuffer)        \
     X(CmdCopyBufferToImage) X(CmdCopyBufferToImage2) X(CmdCopyBufferToImage2KHR)                                       \
     X(CmdCopyImageToBuffer) X(CmdBlitImage) X(CmdNextSubpass) X(FlushMappedMemoryRanges)                               \
@@ -128,6 +136,8 @@ struct PipeInfo {
     uint32_t stages = 0;
     std::vector<Binding> bindings;
     std::vector<Attribute> attributes;
+    std::vector<ShaderStage> shaders;
+    std::shared_ptr<const PipelineLayoutInfo> layout;
 };
 
 enum DrawKind : uint8_t {
@@ -152,8 +162,11 @@ struct VbBind {
 
 struct SetBind {
     VkDescriptorSet set = VK_NULL_HANDLE;
+    uint32_t id = 0; // distinguishes a set from a later allocation with the same handle
     uint32_t dyn_first = 0;
     uint32_t dyn_count = 0;
+    std::shared_ptr<const PipelineLayoutInfo> layout;
+    const char* unsupported = nullptr;
 };
 
 constexpr uint32_t kMaxVb = 4;
@@ -206,6 +219,7 @@ struct CmdBuf {
     VbBind vb[kMaxVb];
     SetBind sets[kMaxSets];
     bool in_rp = false;
+    SetBind comp_sets[kMaxSets];
 
     // What was recorded since the last begin / reset.
     std::vector<DrawRec> draws;
@@ -248,6 +262,7 @@ struct CapDraw {
     uint8_t hash_src = SRC_NONE;
     bool hash_valid = false;
     std::vector<uint32_t> dyn[kMaxSets];
+    std::string descriptors[kMaxSets]; // immutable JSON snapshot taken at submit
 };
 
 struct Capture {
@@ -282,6 +297,16 @@ struct Device {
     std::unordered_map<uint32_t, VkPipeline> pipe_by_id;
     uint32_t next_buf_id = 1;
     uint32_t next_pipe_id = 1;
+    uint32_t next_resource_id = 1;
+    std::unordered_map<VkShaderModule, std::shared_ptr<const ShaderInfo>> shaders;
+    std::unordered_map<uint32_t, std::weak_ptr<const ShaderInfo>> shader_by_id;
+    std::unordered_map<VkImage, ImageInfo> images;
+    std::unordered_map<VkImageView, ImageViewInfo> image_views;
+    std::unordered_map<VkBufferView, BufferViewInfo> buffer_views;
+    std::unordered_map<VkSampler, SamplerInfo> samplers;
+    std::unordered_map<VkDescriptorSetLayout, std::shared_ptr<const DescriptorLayoutInfo>> set_layouts;
+    std::unordered_map<VkPipelineLayout, std::shared_ptr<const PipelineLayoutInfo>> pipeline_layouts;
+    std::unordered_map<VkDescriptorSet, DescriptorSetInfo> descriptor_sets;
 
     // Command buffers. The content of one is touched only by the thread that
     // records it, or by the submitting thread once recording has ended.
@@ -335,7 +360,7 @@ void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info)
 void on_destroy_buffer(Device* dev, VkBuffer buf);
 void on_bind_buffer(Device* dev, VkBuffer buf, VkDeviceMemory mem, uint64_t off);
 void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsPipelineCreateInfo* info);
-void on_create_compute_pipeline(Device* dev, VkPipeline pipe);
+void on_create_compute_pipeline(Device* dev, VkPipeline pipe, const VkComputePipelineCreateInfo* info);
 void on_destroy_pipeline(Device* dev, VkPipeline pipe);
 
 // Command buffers.

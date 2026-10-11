@@ -8,6 +8,7 @@ import struct
 from . import __version__
 from .mods import find_ini_files, match_overrides, parse_overrides
 from .probe_client import ProbeClient, ProbeError, list_probes
+from .spirv import inspect_spirv
 
 
 class ToolError(RuntimeError):
@@ -55,7 +56,8 @@ TOOLS = [
     {
         "name": "efvk_get_draw",
         "description": "Everything recorded for one draw of the captured frame: bindings of index and vertex buffers, "
-                       "descriptor sets with their dynamic offsets, pipeline vertex layout.",
+                       "descriptor set contents at submit (buffers, effective ranges, image views, formats and sizes), "
+                       "dynamic offsets, pipeline vertex layout and shader ids. This does not prove record-time data availability.",
         "inputSchema": _schema({"n": {"type": "integer"}}, ["n"]),
     },
     {
@@ -90,8 +92,15 @@ TOOLS = [
     },
     {
         "name": "efvk_pipeline",
-        "description": "Vertex input bindings and attributes, stages and topology of a pipeline id.",
+        "description": "Vertex input, topology and shader ids / SPIR-V hashes of a pipeline id.",
         "inputSchema": _schema({**_PID, "id": {"type": "integer"}}, ["id"]),
+    },
+    {
+        "name": "efvk_shader",
+        "description": "Retained SPIR-V of a shader id from efvk_pipeline: CRC-32C, size, declared resource names and "
+                       "set/binding decorations. With save=true, export a .spv file. Modules remain available while "
+                       "referenced by a live pipeline, even after vkDestroyShaderModule. This is limited metadata, not full reflection.",
+        "inputSchema": _schema({**_PID, "id": {"type": "integer"}, "save": {"type": "boolean"}}, ["id"]),
     },
     {
         "name": "efvk_api_usage",
@@ -274,6 +283,22 @@ class Session:
     def efvk_pipeline(self, id: int, pid=None) -> dict:
         result, _ = self._request(pid, "pipeline", id=int(id))
         return result
+
+    def efvk_shader(self, id: int, pid=None, save: bool = False) -> dict:
+        info, data = self._request(pid, "shader", id=int(id), code=1)
+        out = dict(info)
+        try:
+            out["spirv"] = inspect_spirv(data)
+        except ValueError as e:
+            out["spirv"] = {"error": str(e)}
+        if save:
+            os.makedirs(self.out_dir, exist_ok=True)
+            pid = self._client.pid
+            path = os.path.join(self.out_dir, "shader-%d-%d-%s.spv" % (pid, info["id"], info["hash"]))
+            with open(path, "wb") as f:
+                f.write(data)
+            out["saved"] = path
+        return out
 
     def efvk_api_usage(self, pid=None, filter: str | None = None) -> dict:
         result, _ = self._request(pid, "api_usage")

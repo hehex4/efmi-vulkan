@@ -195,6 +195,8 @@ void CmdBuf::reset_recording()
         b = VbBind();
     for (SetBind& s : sets)
         s = SetBind();
+    for (SetBind& s : comp_sets)
+        s = SetBind();
     in_rp = false;
     draws.clear();
     dyn.clear();
@@ -370,6 +372,9 @@ void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsP
         dev->pipe_by_id.erase(p.id);
     p = PipeInfo();
     p.id = dev->next_pipe_id++;
+    auto layout = dev->pipeline_layouts.find(info->layout);
+    if (layout != dev->pipeline_layouts.end()) p.layout = layout->second;
+    track_stages_locked(dev, p, info->stageCount, info->pStages);
     for (uint32_t i = 0; i < info->stageCount; i++)
         p.stages |= info->pStages[i].stage;
     if (info->pInputAssemblyState)
@@ -387,7 +392,7 @@ void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsP
     dev->pipe_by_id[p.id] = pipe;
 }
 
-void on_create_compute_pipeline(Device* dev, VkPipeline pipe)
+void on_create_compute_pipeline(Device* dev, VkPipeline pipe, const VkComputePipelineCreateInfo* info)
 {
     if (dev->passive)
         return;
@@ -399,6 +404,9 @@ void on_create_compute_pipeline(Device* dev, VkPipeline pipe)
     p.id = dev->next_pipe_id++;
     p.compute = true;
     p.stages = VK_SHADER_STAGE_COMPUTE_BIT;
+    auto layout = dev->pipeline_layouts.find(info->layout);
+    if (layout != dev->pipeline_layouts.end()) p.layout = layout->second;
+    track_stages_locked(dev, p, 1, &info->stage);
     dev->pipe_by_id[p.id] = pipe;
 }
 
@@ -412,6 +420,7 @@ void on_destroy_pipeline(Device* dev, VkPipeline pipe)
         return;
     dev->pipe_by_id.erase(it->second.id);
     dev->pipes.erase(it);
+    prune_shaders_locked(dev);
 }
 
 ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, uint8_t* out)
@@ -667,6 +676,9 @@ static void capture_draws(Device* dev, CmdBuf* cb, Capture& cap, uint32_t submit
             const SetBind& s = r.sets[i];
             if (s.dyn_count && static_cast<size_t>(s.dyn_first) + s.dyn_count <= cb->dyn.size())
                 c.dyn[i].assign(cb->dyn.begin() + s.dyn_first, cb->dyn.begin() + s.dyn_first + s.dyn_count);
+            JsonWriter descriptors;
+            write_descriptor_set_locked(descriptors, dev, s, c.dyn[i], r.pipeline, i);
+            c.descriptors[i] = std::move(descriptors.out);
         }
         if (r.ib) {
             auto bit = dev->bufs.find(r.ib);
@@ -850,6 +862,8 @@ std::string probe_status()
     w.str("hash");
     w.str("pipeline");
     w.str("api_usage");
+    w.str("descriptor_sets");
+    w.str("shader");
     w.end_array();
 
     DeviceRef ref;
@@ -906,6 +920,15 @@ std::string probe_status()
         w.kn("memories", dev->mems.size());
         w.kn("mapped_memories", mapped);
         w.kn("pipelines", dev->pipes.size());
+        w.kn("shader_modules", dev->shaders.size());
+        w.kn("retained_shaders", dev->shader_by_id.size());
+        w.kn("images", dev->images.size());
+        w.kn("image_views", dev->image_views.size());
+        w.kn("buffer_views", dev->buffer_views.size());
+        w.kn("samplers", dev->samplers.size());
+        w.kn("descriptor_sets", dev->descriptor_sets.size());
+        w.kn("descriptor_set_layouts", dev->set_layouts.size());
+        w.kn("pipeline_layouts", dev->pipeline_layouts.size());
         w.kn("shadow_bytes", shadow);
         w.kn("shadow_known_bytes", known);
         w.end_object();
@@ -990,6 +1013,8 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
                 for (uint32_t d : c.dyn[i])
                     w.num(d);
                 w.end_array();
+                w.key("contents");
+                w.raw(c.descriptors[i]);
                 w.end_object();
             }
             w.end_array();
@@ -1227,6 +1252,7 @@ std::string probe_pipeline(uint32_t id)
     w.kb("compute", p.compute);
     w.kn("stages", p.stages);
     w.kn("topology", p.topology);
+    write_stages(w, p);
     w.key("bindings");
     w.begin_array();
     for (const auto& b : p.bindings) {

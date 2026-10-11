@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: the workspace, the headers and build, the region hash check, the layer probe, the sandbox, the MCP server and the inject entry, all verified in the sandbox. The inject DLL has been in the real game twice in passthrough mode; see T-009.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry, all verified in the sandbox. T-011 has its ordinary descriptor, image and shader path in layer 0.4.0 (`build/next/`), with full regression passing. Three historical game launches used 0.2.0 passthrough; G1 remains incomplete (T-009).
 
 ## Open
 
@@ -24,7 +24,7 @@ Route: the inject entry through the launcher, no registry (D-011). `dist\efmi_vk
 
 Done on 2026-10-11 (details in CURRENT_STATE): one DX11 launch with the DLL present, 78 s, clean exit; one Vulkan launch that crashed in the NVIDIA driver about 5 s after device creation, with XXMI's `d3d11.dll` and the DX11 probe also injected (BUG-001). Timing of the injection is confirmed to be early enough.
 
-Run 3 (20:38, only this DLL injected) did not crash and is being used as the 30-minute run; the user reports when it has ended. Then: read the logs, and for the following session switch `dist\efmi_vk.cfg` to `mode = probe` after the new build has been copied into `dist\` (the running game holds the DLL there).
+Run 3 (20:38, only this DLL injected) passed the previous crash point. The user now reports exiting before 30 minutes, with scene changes. No game process remains; the layer log contains no device-destruction/frame-count record. This is partial evidence only. A full 30-minute G1 session remains necessary. `dist/` stays at 0.2.0 passthrough; 0.4.0 is built/tested in `build/next/`. Do not switch to probe based on the early exit.
 
 What the user set in the launcher for run 3: the injection mode of the XXMI DLL to Skip (the Chinese label of that option is the one translated from "Skip"), leave only `F:\efmi vulkan\dist\efmi_vk_inject.dll` in the injected libraries, keep `d3d11_mode_cmd_args` empty, start. If the game still crashes: start it from the official launcher with nothing injected, to see whether Vulkan works by itself today. After each run read `dist\efmi_vk_layer.log`, `Player.log` and the launcher log.
 
@@ -36,9 +36,11 @@ Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` 
 
 G2 is answered by `efvk_status` and `efvk_capture_frame` (threads, command buffers, secondary buffers, submits, render pass kinds). G3 item a is answered by `efvk_match_mod` on `arcane fes 1.2`. Items b, c and d need T-011.
 
-### T-011: Track descriptor sets, shader modules and images (open, M1)
+### T-011: Track descriptor sets, shader modules and images (in progress, M1)
 
-Descriptor set layouts and set contents (`vkUpdateDescriptorSets`, templates, push descriptors), so that a draw shows which buffer range and which image each binding holds and dynamic offsets are attributed to the right set (LIMIT-005). Shader modules with their SPIR-V (hash, size, optional dump), so that names and bindings can be reflected for plan decision D7. Images and views with format and size. Extend the sandbox with a second set, a storage buffer and a sampled texture to test it.
+**Done in 0.4.0, sandbox evidence only**: ordinary `vkUpdateDescriptorSets` writes/copies, layouts and pool/set lifetimes; dynamic offset attribution (LIMIT-005 fixed), graphics/compute state separation, immutable samplers, descriptor arrays and variable counts; image/view/sampler and texel-buffer metadata; retained pipeline SPIR-V and `efvk_shader` export with declared names/bindings. The sandbox actually uses two sets, dynamic storage buffers and a sampled texture. Full suite passes; detailed evidence and limits: `docs/probe-resources.md`.
+
+**Next**: decode descriptor update templates and push descriptors, with deterministic sandbox tests. Their intercepted paths currently invalidate stale bindings and report the unsupported path explicitly. Descriptor buffers and specialized descriptor types remain unimplemented. Shader metadata extraction is not full SPIR-V reflection. Submit-time snapshots do not answer record-time readability for G3 b/c; assess that separately once a game capture exists.
 
 ### T-012: Measure the overhead of the probe (open)
 
@@ -64,6 +66,6 @@ For buffers that are written by copies whose source was never visible to the CPU
 
 ## Waiting for the user
 
-- Which account G1 uses and when; for the run the user adds the DLL to the launcher's extra libraries and removes `-force-d3d11`.
+- A new on-the-spot instruction for the account/timing of the complete G1 run; run 3 ended early. The launcher's run-3 configuration is already recorded above. No game run was started by this development round.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are needed from M2 on; see T-015.
 - The motivation question and the scope question of plan section 10.

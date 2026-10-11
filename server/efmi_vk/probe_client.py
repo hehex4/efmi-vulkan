@@ -121,3 +121,6 @@ class ProbeClient:
 
     def api_usage(self) -> dict:
         return self.request("api_usage")[0]
+
+    def shader(self, shader_id: int, code: bool = True):
+        return self.request("shader", id=shader_id, code=int(code))

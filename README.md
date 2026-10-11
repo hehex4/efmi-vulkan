@@ -2,7 +2,7 @@
 
 Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield on the game's native Vulkan renderer, through a Vulkan layer of our own.
 
-Nothing here has been loaded into the game yet. What exists is a read-only development probe that has been tested against a sandbox program only.
+The current 0.4.0 read-only probe is verified against the sandbox and built into `build/next/`. Historical game launches used 0.2.0 passthrough; the 30-minute G1 gate is incomplete, and no probe-mode game data or mod rendering is verified. `dist/` still holds that passthrough build. See the [current state](.ai-memory/CURRENT_STATE.md).
 
 ## Layout
 
@@ -35,6 +35,7 @@ python sandbox\run_all.py
 In probe mode the layer forwards every Vulkan call unchanged and records what it sees:
 
 - memory maps, buffers, pipelines, command buffers, submits and presents;
+- ordinary descriptor set contents and dynamic buffer ranges; image/view/sampler metadata; retained shader SPIR-V;
 - for index buffers a CPU shadow fed from staging copies, so that the CRC-32C hash of the index range of a draw can be computed. This is the hash XXMI calls the region hash and that mod INIs match on;
 - per frame: every draw with its bindings, recording thread, command buffer and render pass.
 
@@ -55,7 +56,9 @@ python server\efvk.py capture_frame -- list_draws kind=indexed limit=20
 python server\efvk.py capture_frame -- match_mod path="D:\path\to\a mod"
 ```
 
-MCP server for agents: `python server\run_server.py` (registered for this workspace in `.mcp.json`). Tools: `efvk_status`, `efvk_capture_frame`, `efvk_list_draws`, `efvk_get_draw`, `efvk_find_hash`, `efvk_list_buffers`, `efvk_read_buffer`, `efvk_pipeline`, `efvk_api_usage`, `efvk_match_mod`.
+MCP server for agents: `python server\run_server.py` (registered for this workspace in `.mcp.json`). Tools: `efvk_status`, `efvk_capture_frame`, `efvk_list_draws`, `efvk_get_draw`, `efvk_find_hash`, `efvk_list_buffers`, `efvk_read_buffer`, `efvk_pipeline`, `efvk_shader`, `efvk_api_usage`, `efvk_match_mod`.
+
+See [resource inspection](docs/probe-resources.md) for the descriptor snapshot schema, SPIR-V export, verified paths and remaining limits. Templates and push descriptors still need decoding; snapshots describe submit-time state, not record-time buffer availability.
 
 ## Offline analysis
 

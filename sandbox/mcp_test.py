@@ -6,9 +6,8 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 
-from harness import ROOT, Checks, Sandbox
+from harness import ROOT, Checks, Sandbox, test_dir
 
 
 class McpProcess:
@@ -83,7 +82,7 @@ def write_mod(folder: str, expected: dict) -> str:
 
 def main() -> int:
     c = Checks("mcp_test")
-    out_dir = tempfile.mkdtemp(prefix="efvk-mcp-")
+    out_dir = test_dir("mcp-")
     with Sandbox(threads=2) as sb:
         mcp = McpProcess(out_dir)
         try:
@@ -92,7 +91,7 @@ def main() -> int:
             c.equal(init["result"]["serverInfo"]["name"], "efmi-vk", "initialize")
             mcp.send("notifications/initialized", notify=True)
             tools = mcp.send("tools/list")["result"]["tools"]
-            c.equal(len(tools), 10, "ten tools")
+            c.equal(len(tools), 11, "eleven tools")
 
             err, status = mcp.tool("efvk_status", pid=sb.pid)
             c.check(not err and status["status"]["pid"] == sb.pid, "efvk_status", status)
@@ -125,6 +124,9 @@ def main() -> int:
             if not err:
                 c.equal(draw["pipeline_info"]["bindings"][0]["stride"], 8, "efvk_get_draw adds the vertex layout")
                 c.equal(draw["sets"][0]["dyn"], [want["dyn"]], "efvk_get_draw shows the dynamic offset")
+                c.equal(draw["sets"][1]["dyn"], [1024, 256], "efvk_get_draw splits offsets between sets")
+                material = draw["sets"][1]["contents"]
+                c.equal(material["bindings"][1]["elements"][0]["extent"], [1, 1, 1], "efvk_get_draw includes texture metadata")
                 ib_id = draw["ib"]["buf"]
 
                 err, bufs = mcp.tool("efvk_list_buffers", pid=sb.pid, usage=0x40)
@@ -142,6 +144,17 @@ def main() -> int:
 
                 err, pipe = mcp.tool("efvk_pipeline", pid=sb.pid, id=draw["pipeline"])
                 c.check(not err and pipe["attributes"][0]["location"] == 0, "efvk_pipeline", pipe)
+                if not err:
+                    frag = next(s for s in pipe["shaders"] if s["stage"] == 16)
+                    err, shader = mcp.tool("efvk_shader", pid=sb.pid, id=frag["id"], save=True)
+                    c.check(not err and shader["hash"] == frag["hash"], "efvk_shader", shader)
+                    if not err:
+                        c.equal([b["name"] for b in shader["spirv"]["bindings"]], ["instance_config", "materials", "albedo"],
+                                "efvk_shader exposes declared resource names")
+                        c.equal(os.path.getsize(shader["saved"]), frag["size"], "SPIR-V export byte count")
+                        c.equal(os.path.dirname(shader["saved"]), out_dir, "SPIR-V export stays in output directory")
+                    err, _ = mcp.tool("efvk_shader", pid=sb.pid, id=999999)
+                    c.check(err, "unknown shader is an MCP tool error")
 
             err, usage = mcp.tool("efvk_api_usage", pid=sb.pid, filter="descriptor")
             c.check(not err and usage["calls"].get("vkUpdateDescriptorSets") == 1, "efvk_api_usage with a filter", usage)

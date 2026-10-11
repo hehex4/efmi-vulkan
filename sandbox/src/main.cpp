@@ -55,7 +55,9 @@
     X(CreateRenderPass) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) X(CreateShaderModule)          \
     X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout)          \
     X(DestroyPipelineLayout) X(CreateGraphicsPipelines) X(DestroyPipeline) X(CreateDescriptorPool)                     \
-    X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) X(CreateBuffer) X(DestroyBuffer)        \
+    X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets) X(CreateBuffer) X(DestroyBuffer) \
+    X(CreateImage) X(DestroyImage) X(GetImageMemoryRequirements) X(BindImageMemory) X(CreateSampler) X(DestroySampler) \
+    X(CmdPipelineBarrier) X(CmdClearColorImage)                                                                         \
     X(GetBufferMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) X(MapMemory) X(UnmapMemory)     \
     X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer)     \
     X(ResetCommandBuffer) X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindVertexBuffers)         \
@@ -178,12 +180,19 @@ struct App {
     VkRenderPass render_pass = VK_NULL_HANDLE;
 
     VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout material_layout = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkDescriptorPool desc_pool = VK_NULL_HANDLE;
     VkDescriptorSet desc_set = VK_NULL_HANDLE;
+    VkDescriptorSet material_set = VK_NULL_HANDLE;
+    VkImage texture = VK_NULL_HANDLE;
+    VkDeviceMemory texture_mem = VK_NULL_HANDLE;
+    VkImageView texture_view = VK_NULL_HANDLE;
+    VkSampler sampler = VK_NULL_HANDLE;
+    uint32_t shader_hashes[2] = {}, shader_sizes[2] = {};
 
-    Buffer vb, ib_a, ib_b, ubo, staging, staging2;
+    Buffer vb, ib_a, ib_b, ubo, storage, staging, staging2;
 
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer primary = VK_NULL_HANDLE;
@@ -546,14 +555,35 @@ static bool create_pipeline()
     sl.pBindings = &binding;
     CHECK(vkCreateDescriptorSetLayout(g.device, &sl, nullptr, &g.set_layout));
 
+    VkSamplerCreateInfo sampler = {};
+    sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler.magFilter = sampler.minFilter = VK_FILTER_NEAREST;
+    sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler.maxLod = 0;
+    CHECK(vkCreateSampler(g.device, &sampler, nullptr, &g.sampler));
+
+    // Deliberately unsorted bindings: dynamic offsets follow binding numbers, not creation order.
+    VkDescriptorSetLayoutBinding material[2] = {};
+    material[0] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &g.sampler};
+    material[1] = {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 2, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    sl.bindingCount = 2;
+    sl.pBindings = material;
+    CHECK(vkCreateDescriptorSetLayout(g.device, &sl, nullptr, &g.material_layout));
+
     VkPipelineLayoutCreateInfo pl = {};
     pl.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pl.setLayoutCount = 1;
-    pl.pSetLayouts = &g.set_layout;
+    VkDescriptorSetLayout layouts[] = {g.set_layout, g.material_layout};
+    pl.setLayoutCount = 2;
+    pl.pSetLayouts = layouts;
     CHECK(vkCreatePipelineLayout(g.device, &pl, nullptr, &g.layout));
 
     std::vector<uint32_t> vs_code = spv::vertex_shader();
     std::vector<uint32_t> fs_code = spv::fragment_shader();
+    g.shader_hashes[0] = crc32c_sw(vs_code.data(), vs_code.size() * 4);
+    g.shader_hashes[1] = crc32c_sw(fs_code.data(), fs_code.size() * 4);
+    g.shader_sizes[0] = static_cast<uint32_t>(vs_code.size() * 4);
+    g.shader_sizes[1] = static_cast<uint32_t>(fs_code.size() * 4);
     VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE;
     VkShaderModuleCreateInfo sm = {};
     sm.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -723,28 +753,92 @@ static bool create_resources()
         memcpy(static_cast<uint8_t*>(g.ubo.map) + kUboSlot * i, block, sizeof(block));
     }
 
-    VkDescriptorPoolSize psize = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1};
+    if (!make_buffer(g.storage, kUboSlot * (kDrawCount + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true, true))
+        return false;
+    memset(g.storage.map, 0, static_cast<size_t>(g.storage.size));
+    for (int i = 0; i <= kDrawCount; i++) {
+        float tint[] = {0.5f + 0.05f * i, 0.75f, 1.0f, 1.0f};
+        memcpy(static_cast<uint8_t*>(g.storage.map) + kUboSlot * i, tint, sizeof(tint));
+    }
+
+    VkImageCreateInfo image = {};
+    image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image.imageType = VK_IMAGE_TYPE_2D;
+    image.format = VK_FORMAT_R8G8B8A8_UNORM;
+    image.extent = {1, 1, 1};
+    image.mipLevels = image.arrayLayers = 1;
+    image.samples = VK_SAMPLE_COUNT_1_BIT;
+    image.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    CHECK(vkCreateImage(g.device, &image, nullptr, &g.texture));
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(g.device, g.texture, &req);
+    uint32_t type = 0;
+    if (!find_memory_type(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &type)) return false;
+    VkMemoryAllocateInfo mem = {};
+    mem.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mem.allocationSize = req.size;
+    mem.memoryTypeIndex = type;
+    CHECK(vkAllocateMemory(g.device, &mem, nullptr, &g.texture_mem));
+    CHECK(vkBindImageMemory(g.device, g.texture, g.texture_mem, 0));
+    VkImageViewCreateInfo view = {};
+    view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view.image = g.texture;
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = image.format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    CHECK(vkCreateImageView(g.device, &view, nullptr, &g.texture_view));
+
+    VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1},
+                                  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 4},
+                                  {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2}};
     VkDescriptorPoolCreateInfo dp = {};
     dp.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    dp.maxSets = 1;
-    dp.poolSizeCount = 1;
-    dp.pPoolSizes = &psize;
+    dp.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    dp.maxSets = 3;
+    dp.poolSizeCount = 3;
+    dp.pPoolSizes = sizes;
     CHECK(vkCreateDescriptorPool(g.device, &dp, nullptr, &g.desc_pool));
     VkDescriptorSetAllocateInfo da = {};
     da.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     da.descriptorPool = g.desc_pool;
-    da.descriptorSetCount = 1;
-    da.pSetLayouts = &g.set_layout;
-    CHECK(vkAllocateDescriptorSets(g.device, &da, &g.desc_set));
+    VkDescriptorSetLayout layouts[] = {g.set_layout, g.material_layout, g.material_layout};
+    VkDescriptorSet sets[3];
+    da.descriptorSetCount = 3;
+    da.pSetLayouts = layouts;
+    CHECK(vkAllocateDescriptorSets(g.device, &da, sets));
+    g.desc_set = sets[0];
+    g.material_set = sets[1];
     VkDescriptorBufferInfo bi = {g.ubo.buf, 0, 32};
-    VkWriteDescriptorSet wr = {};
-    wr.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    wr.dstSet = g.desc_set;
-    wr.dstBinding = 0;
-    wr.descriptorCount = 1;
-    wr.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    wr.pBufferInfo = &bi;
-    vkUpdateDescriptorSets(g.device, 1, &wr, 0, nullptr);
+    VkDescriptorBufferInfo storage[] = {{g.storage.buf, kUboSlot, 16}, {g.storage.buf, 0, 16}};
+    VkDescriptorImageInfo texture = {VK_NULL_HANDLE, g.texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet writes[3] = {};
+    for (auto& w : writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = g.desc_set;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    writes[0].pBufferInfo = &bi;
+    writes[1].dstSet = sets[2];
+    writes[1].dstBinding = 2;
+    writes[1].descriptorCount = 2;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+    writes[1].pBufferInfo = storage;
+    writes[2].dstSet = sets[2];
+    writes[2].dstBinding = 5;
+    writes[2].descriptorCount = 1;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[2].pImageInfo = &texture;
+    VkCopyDescriptorSet copies[2] = {};
+    for (auto& c : copies) {
+        c.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+        c.srcSet = sets[2]; c.dstSet = g.material_set;
+    }
+    copies[0].srcBinding = copies[0].dstBinding = 2;
+    copies[0].descriptorCount = 2;
+    copies[1].srcBinding = copies[1].dstBinding = 5;
+    copies[1].descriptorCount = 1;
+    vkUpdateDescriptorSets(g.device, 3, writes, 2, copies);
+    CHECK(vkFreeDescriptorSets(g.device, g.desc_pool, 1, &sets[2]));
 
     VkCommandPoolCreateInfo cp = {};
     cp.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -787,6 +881,24 @@ static bool create_resources()
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     CHECK(vkBeginCommandBuffer(g.primary, &begin));
+    VkImageMemoryBarrier barrier = {};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = g.texture;
+    barrier.subresourceRange = view.subresourceRange;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0, 0, nullptr, 0, nullptr, 1, &barrier);
+    VkClearColorValue white = {{1.0f, 1.0f, 1.0f, 1.0f}};
+    vkCmdClearColorImage(g.primary, g.texture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &white, 1, &barrier.subresourceRange);
+    barrier.oldLayout = barrier.newLayout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         0, 0, nullptr, 0, nullptr, 1, &barrier);
     VkBufferCopy region = {0, 0, sizeof(kIndicesA)};
     vkCmdCopyBuffer(g.primary, g.staging.buf, g.ib_a.buf, 1, &region);
     CHECK(vkEndCommandBuffer(g.primary));
@@ -843,7 +955,11 @@ static bool write_expected()
                  i + 1 < kDrawCount ? "," : "");
         out += line;
     }
-    out += "  ]\n}\n";
+    snprintf(line, sizeof(line),
+             "  ],\n  \"shaders\": [{\"stage\": 1, \"hash\": \"%08x\", \"size\": %u}, "
+             "{\"stage\": 16, \"hash\": \"%08x\", \"size\": %u}]\n}\n",
+             g.shader_hashes[0], g.shader_sizes[0], g.shader_hashes[1], g.shader_sizes[1]);
+    out += line;
 
     std::wstring tmp = g.expected_path + L".tmp";
     HANDLE f = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -876,8 +992,16 @@ static void record_draw(VkCommandBuffer cb, int i)
         vkCmdBindIndexBuffer(cb, g.ib_a.buf, 0, VK_INDEX_TYPE_UINT16);
     else
         vkCmdBindIndexBuffer(cb, g.ib_b.buf, kPadB, VK_INDEX_TYPE_UINT32);
-    uint32_t dyn = kUboSlot * static_cast<uint32_t>(i);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 0, 1, &g.desc_set, 1, &dyn);
+    uint32_t dyn[] = {kUboSlot * static_cast<uint32_t>(i), kUboSlot * static_cast<uint32_t>((i + 1) % kDrawCount),
+                      kUboSlot * static_cast<uint32_t>(kDrawCount - i - 1)};
+    VkDescriptorSet sets[] = {g.desc_set, g.material_set};
+    // Exercise both a multi-set bind and a nonzero firstSet.
+    if (i % 2 == 0)
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 0, 2, sets, 3, dyn);
+    else {
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 0, 1, sets, 1, dyn);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 1, 1, sets + 1, 2, dyn + 1);
+    }
     vkCmdDrawIndexed(cb, d.count, d.instances, d.first, 0, 0);
 }
 
@@ -927,6 +1051,15 @@ static bool render_frame()
         CHECK(vkMapMemory(g.device, g.staging2.mem, 0, VK_WHOLE_SIZE, 0, &p));
         memcpy(p, kRewriteA, sizeof(kRewriteA));
         vkUnmapMemory(g.device, g.staging2.mem);
+        VkDescriptorBufferInfo bi = {g.storage.buf, 0, 16};
+        VkWriteDescriptorSet write = {};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = g.material_set;
+        write.dstBinding = 2;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+        write.pBufferInfo = &bi;
+        vkUpdateDescriptorSets(g.device, 1, &write, 0, nullptr);
     }
 
     CHECK(vkResetCommandBuffer(g.primary, 0));
@@ -1031,6 +1164,7 @@ static void cleanup()
     destroy_buffer(g.ib_a);
     destroy_buffer(g.ib_b);
     destroy_buffer(g.ubo);
+    destroy_buffer(g.storage);
     destroy_buffer(g.staging);
     destroy_buffer(g.staging2);
     if (g.pipeline)
@@ -1039,6 +1173,11 @@ static void cleanup()
         vkDestroyPipelineLayout(g.device, g.layout, nullptr);
     if (g.set_layout)
         vkDestroyDescriptorSetLayout(g.device, g.set_layout, nullptr);
+    if (g.material_layout) vkDestroyDescriptorSetLayout(g.device, g.material_layout, nullptr);
+    if (g.texture_view) vkDestroyImageView(g.device, g.texture_view, nullptr);
+    if (g.texture) vkDestroyImage(g.device, g.texture, nullptr);
+    if (g.texture_mem) vkFreeMemory(g.device, g.texture_mem, nullptr);
+    if (g.sampler) vkDestroySampler(g.device, g.sampler, nullptr);
     for (VkFramebuffer fb : g.framebuffers)
         vkDestroyFramebuffer(g.device, fb, nullptr);
     for (VkImageView v : g.views)

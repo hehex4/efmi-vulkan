@@ -78,7 +78,11 @@ def run_cl(vcvars: str, cwd: str, args: list[str]) -> None:
         f.write("if errorlevel 1 exit /b 1\n")
         f.write("cl %s\n" % quoted)
         f.write("exit /b %errorlevel%\n")
-    proc = subprocess.run(["cmd.exe", "/d", "/c", script], cwd=cwd, capture_output=True, text=True, errors="replace")
+    env = dict(os.environ)
+    scratch = os.path.join(cwd, "build", "tmp")
+    os.makedirs(scratch, exist_ok=True)
+    env.update(TEMP=scratch, TMP=scratch)
+    proc = subprocess.run(["cmd.exe", "/d", "/c", script], cwd=cwd, env=env, capture_output=True, text=True, errors="replace")
     output = (proc.stdout or "") + (proc.stderr or "")
     lines = [ln for ln in output.splitlines() if ln.strip()]
     noise = (".cpp", "Generating Code...", "Compiling...", "Creating library")
@@ -153,6 +157,19 @@ def build_sandbox(vcvars: str, include: str, out: str) -> str:
     return exe
 
 
+def build_tracker_test(vcvars: str, include: str, out: str) -> str:
+    folder = os.path.join(ROOT, "sandbox")
+    scratch = os.path.join(folder, "build", "tracker")
+    os.makedirs(scratch, exist_ok=True)
+    exe = os.path.join(out, "efmi_vk_tracker_test.exe")
+    args = COMMON + ["/I" + include, "/Fobuild\\tracker\\", "/Fdbuild\\tracker\\test_cl.pdb",
+                     "tracker_test.cpp", "../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
+                     "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
+                     "/PDB:build\\tracker\\test.pdb", "user32.lib"]
+    run_cl(vcvars, folder, args)
+    return exe
+
+
 def build(targets, out: str | None = None) -> dict:
     out = os.path.abspath(out or os.path.join(ROOT, "dist"))
     os.makedirs(out, exist_ok=True)
@@ -161,6 +178,7 @@ def build(targets, out: str | None = None) -> dict:
     result = {"out": out, "include": include}
     if "layer" in targets:
         result["layer"] = build_layer(vcvars, include, out)
+        result["tracker_test"] = build_tracker_test(vcvars, include, out)
     if "sandbox" in targets:
         result["sandbox"] = build_sandbox(vcvars, include, out)
     return result
@@ -177,7 +195,7 @@ def main() -> int:
     except BuildError as e:
         print(str(e))
         return 1
-    for key in ("layer", "sandbox"):
+    for key in ("layer", "sandbox", "tracker_test"):
         if key in result:
             print("built %s" % result[key])
     return 0

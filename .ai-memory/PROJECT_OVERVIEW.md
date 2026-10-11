@@ -10,7 +10,7 @@ The first acceptance sample is `Mods\arcane fes 1.2`. RabbitFX, shape keys, on-s
 
 ## Components and technology
 
-- `layer/`: a Vulkan layer in C++17, MSVC x64, built as `dist/efmi_vk_layer.dll` with the manifest `dist/efmi_vk_layer.json`. At present it is a read-only probe: it tracks memory, buffers, command buffers and submits, records the draws of a frame and serves them over a named pipe.
+- `layer/`: a Vulkan layer in C++17, MSVC x64. At present it is a read-only probe: memory, buffers, ordinary descriptor sets, shader/image metadata, command buffers, submits and captured draws over a named pipe. The current 0.4.0 build is staged in `build/next/`; `dist/` remains at historical 0.2.0 passthrough while G1 is incomplete.
 - `sandbox/`: a deterministic Vulkan test program (`dist/efmi_vk_sandbox.exe`) and the regression scripts. It is the target for everything that can be tested without the game.
 - `server/`: a Python package `efmi_vk` (standard library only) with the pipe client, a command-line tool and a stdio MCP server, so that an agent can query a running Vulkan process the way the EFMI MCP project does for DX11.
 - `scripts/`: dependency fetch, the repository text check, offline analysis of DX11 frame dumps.

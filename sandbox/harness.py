@@ -18,6 +18,13 @@ LAYER_NAME = "VK_LAYER_EFMI_probe"
 sys.path.insert(0, os.path.join(ROOT, "server"))
 
 
+def test_dir(prefix: str) -> str:
+    """Keep every test artifact inside the project."""
+    parent = os.path.join(ROOT, "build", "tests")
+    os.makedirs(parent, exist_ok=True)
+    return tempfile.mkdtemp(prefix=prefix, dir=parent)
+
+
 class Checks:
     """Counts checks and prints the failed ones."""
 
@@ -95,7 +102,7 @@ class Sandbox:
         self.inject_dll = inject_dll or INJECT_DLL
         self.mode = mode
         self.env_extra = env_extra
-        self.dir = tempfile.mkdtemp(prefix="efvk-sandbox-")
+        self.dir = test_dir("sandbox-")
         self.expected_path = os.path.join(self.dir, "expected.json")
         self.trigger_path = os.path.join(self.dir, "rewrite.trigger")
         self.log_path = os.path.join(self.dir, "layer.log")

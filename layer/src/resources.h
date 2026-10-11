@@ -1,0 +1,129 @@
+// Resource metadata and ordinary descriptor sets. All maps are guarded by res_mx.
+#pragma once
+
+#include "common.h"
+
+#include <map>
+#include <memory>
+
+namespace efvk {
+
+struct ShaderInfo {
+    uint32_t id = 0;
+    uint32_t hash = 0;
+    std::vector<uint32_t> code;
+};
+
+struct ShaderStage {
+    uint32_t stage = 0;
+    std::string entry;
+    std::shared_ptr<const ShaderInfo> shader;
+};
+
+struct ImageInfo {
+    uint32_t id = 0;
+    VkImageType type = VK_IMAGE_TYPE_2D;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    VkExtent3D extent = {};
+    uint32_t levels = 0, layers = 0, samples = 0, usage = 0;
+};
+
+struct ImageViewInfo {
+    uint32_t id = 0, image_id = 0;
+    VkImage image = VK_NULL_HANDLE;
+    VkImageViewType type = VK_IMAGE_VIEW_TYPE_2D;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    VkComponentMapping components = {};
+    VkImageSubresourceRange range = {};
+};
+
+struct BufferViewInfo {
+    uint32_t id = 0, buffer_id = 0;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    uint64_t offset = 0, range = 0;
+};
+
+struct SamplerInfo {
+    uint32_t id = 0;
+    uint32_t mag = 0, min = 0, mipmap = 0;
+    uint32_t address[3] = {};
+};
+
+struct DescriptorBinding {
+    uint32_t type = 0, count = 0, stages = 0, flags = 0;
+    std::vector<VkSampler> immutable_samplers;
+};
+
+struct DescriptorLayoutInfo {
+    uint32_t id = 0, flags = 0;
+    bool complete = true;
+    std::map<uint32_t, DescriptorBinding> bindings;
+};
+
+struct PipelineLayoutInfo {
+    uint32_t id = 0, flags = 0;
+    bool complete = true;
+    std::vector<std::shared_ptr<const DescriptorLayoutInfo>> sets;
+    std::vector<VkPushConstantRange> pushes;
+};
+
+struct DescriptorElement {
+    uint32_t type = 0;
+    bool known = false;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkImageView image_view = VK_NULL_HANDLE;
+    VkBufferView buffer_view = VK_NULL_HANDLE;
+    VkSampler sampler = VK_NULL_HANDLE;
+    uint32_t buffer_id = 0, image_view_id = 0, buffer_view_id = 0, sampler_id = 0;
+    uint64_t offset = 0, range = 0;
+    uint32_t image_layout = 0;
+};
+
+struct DescriptorSetInfo {
+    uint32_t id = 0;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    std::shared_ptr<const DescriptorLayoutInfo> layout;
+    // Sparse values avoid allocating one object per unused bindless array element.
+    std::map<uint32_t, uint32_t> counts;
+    std::map<std::pair<uint32_t, uint32_t>, DescriptorElement> values;
+    uint64_t generation = 0;
+    const char* unsupported = nullptr;
+};
+
+struct Device;
+struct CmdBuf;
+struct SetBind;
+struct PipeInfo;
+class JsonWriter;
+
+void on_create_shader(Device*, VkShaderModule, const VkShaderModuleCreateInfo*);
+void on_destroy_shader(Device*, VkShaderModule);
+void track_stages_locked(Device*, PipeInfo&, uint32_t, const VkPipelineShaderStageCreateInfo*);
+void prune_shaders_locked(Device*);
+void on_create_image(Device*, VkImage, const VkImageCreateInfo*);
+void on_destroy_image(Device*, VkImage);
+void on_create_image_view(Device*, VkImageView, const VkImageViewCreateInfo*);
+void on_destroy_image_view(Device*, VkImageView);
+void on_create_buffer_view(Device*, VkBufferView, const VkBufferViewCreateInfo*);
+void on_destroy_buffer_view(Device*, VkBufferView);
+void on_create_sampler(Device*, VkSampler, const VkSamplerCreateInfo*);
+void on_destroy_sampler(Device*, VkSampler);
+void on_create_set_layout(Device*, VkDescriptorSetLayout, const VkDescriptorSetLayoutCreateInfo*);
+void on_destroy_set_layout(Device*, VkDescriptorSetLayout);
+void on_create_pipeline_layout(Device*, VkPipelineLayout, const VkPipelineLayoutCreateInfo*);
+void on_destroy_pipeline_layout(Device*, VkPipelineLayout);
+void on_allocate_sets(Device*, const VkDescriptorSetAllocateInfo*, const VkDescriptorSet*);
+void on_free_sets(Device*, uint32_t, const VkDescriptorSet*);
+void on_clear_descriptor_pool(Device*, VkDescriptorPool);
+void on_update_sets(Device*, uint32_t, const VkWriteDescriptorSet*, uint32_t, const VkCopyDescriptorSet*);
+void on_unsupported_set_update(Device*, VkDescriptorSet);
+void on_bind_sets(Device*, CmdBuf*, VkPipelineBindPoint, VkPipelineLayout, uint32_t, uint32_t,
+                  const VkDescriptorSet*, uint32_t, const uint32_t*);
+void on_unsupported_descriptor_bind(CmdBuf*, VkPipelineBindPoint, const char*);
+void write_descriptor_set_locked(JsonWriter&, Device*, const SetBind&, const std::vector<uint32_t>&,
+                                 VkPipeline pipeline = VK_NULL_HANDLE, uint32_t slot = 0);
+void write_stages(JsonWriter&, const PipeInfo&);
+std::string probe_shader(uint32_t, bool, std::vector<uint8_t>&);
+
+} // namespace efvk

@@ -88,6 +88,8 @@ DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
     r.rp = cb->in_rp ? cb->rp_count + cb->dyn_rp_count : 0;
     if (compute) {
         r.pipeline = cb->comp_pipeline;
+        for (uint32_t i = 0; i < kMaxSets; i++)
+            r.sets[i] = cb->comp_sets[i];
         return r;
     }
     r.pipeline = cb->gfx_pipeline;
@@ -244,10 +246,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateGraphicsPipelines(VkDevice device, VkPip
     count_call(HI_CreateGraphicsPipelines);
     Device* dev = dev_of(device);
     VkResult r = dev->d.CreateGraphicsPipelines(device, cache, count, infos, alloc, pipes);
-    if (r >= 0)
-        for (uint32_t i = 0; i < count; i++)
-            if (pipes[i])
-                on_create_graphics_pipeline(dev, pipes[i], &infos[i]);
+    // A batch can return an error after successfully creating some pipelines.
+    for (uint32_t i = 0; i < count; i++)
+        if (pipes[i])
+            on_create_graphics_pipeline(dev, pipes[i], &infos[i]);
     return r;
 }
 
@@ -258,10 +260,9 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateComputePipelines(VkDevice device, VkPipe
     count_call(HI_CreateComputePipelines);
     Device* dev = dev_of(device);
     VkResult r = dev->d.CreateComputePipelines(device, cache, count, infos, alloc, pipes);
-    if (r >= 0)
-        for (uint32_t i = 0; i < count; i++)
-            if (pipes[i])
-                on_create_compute_pipeline(dev, pipes[i]);
+    for (uint32_t i = 0; i < count; i++)
+        if (pipes[i])
+            on_create_compute_pipeline(dev, pipes[i], &infos[i]);
     return r;
 }
 
@@ -275,6 +276,8 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyPipeline(VkDevice device, VkPipeline pipe, 
 }
 
 // ---------------------------------------------------------------------------
+#include "resource_hooks.h"
+
 // Command buffer lifetime
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateCommandBuffers(VkDevice device, const VkCommandBufferAllocateInfo* info,
@@ -446,21 +449,8 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindDescriptorSets(VkCommandBuffer cmd, VkPipel
     count_call(HI_CmdBindDescriptorSets);
     Device* dev = dev_of(cmd);
     CmdBuf* cb = cb_of(dev, cmd);
-    if (cb && point == VK_PIPELINE_BIND_POINT_GRAPHICS) {
-        // Without the set layouts the dynamic offsets cannot be split between the sets of one
-        // call, so all of them are recorded with the first set. See LIMIT-005.
-        uint32_t dyn_first = static_cast<uint32_t>(cb->dyn.size());
-        if (dyn_count)
-            cb->dyn.insert(cb->dyn.end(), dyn, dyn + dyn_count);
-        for (uint32_t i = 0; i < count; i++) {
-            uint32_t slot = first + i;
-            if (slot >= kMaxSets)
-                break;
-            cb->sets[slot].set = sets[i];
-            cb->sets[slot].dyn_first = dyn_first;
-            cb->sets[slot].dyn_count = i == 0 ? dyn_count : 0;
-        }
-    }
+    if (cb)
+        on_bind_sets(dev, cb, point, layout, first, count, sets, dyn_count, dyn);
     dev->d.CmdBindDescriptorSets(cmd, point, layout, first, count, sets, dyn_count, dyn);
 }
 

@@ -22,6 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS = [
     ("text check", [os.path.join(ROOT, "scripts", "check_text.py")]),
     ("unit tests", [os.path.join(HERE, "unit_test.py")]),
+    ("native tracker tests", [os.path.join(HERE, "native_test.py")]),
     ("probe end to end", [os.path.join(HERE, "probe_test.py")]),
     ("modes", [os.path.join(HERE, "modes_test.py")]),
     ("MCP end to end", [os.path.join(HERE, "mcp_test.py")]),

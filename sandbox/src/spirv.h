@@ -12,6 +12,7 @@
 namespace spv {
 
 enum Op : uint16_t {
+    OpName = 5,
     OpMemoryModel = 14,
     OpEntryPoint = 15,
     OpExecutionMode = 16,
@@ -20,10 +21,14 @@ enum Op : uint16_t {
     OpTypeInt = 21,
     OpTypeFloat = 22,
     OpTypeVector = 23,
+    OpTypeImage = 25,
+    OpTypeSampledImage = 27,
+    OpTypeArray = 28,
     OpTypeStruct = 30,
     OpTypePointer = 32,
     OpTypeFunction = 33,
     OpConstant = 43,
+    OpConstantComposite = 44,
     OpFunction = 54,
     OpFunctionEnd = 56,
     OpVariable = 59,
@@ -34,7 +39,9 @@ enum Op : uint16_t {
     OpMemberDecorate = 72,
     OpCompositeConstruct = 80,
     OpCompositeExtract = 81,
+    OpImageSampleImplicitLod = 87,
     OpFAdd = 129,
+    OpFMul = 133,
     OpLabel = 248,
     OpReturn = 253,
 };
@@ -47,9 +54,11 @@ enum : uint32_t {
     ModelFragment = 4,
     ModeOriginUpperLeft = 7,
     StorageInput = 1,
+    StorageUniformConstant = 0,
     StorageUniform = 2,
     StorageOutput = 3,
     DecorationBlock = 2,
+    DecorationBufferBlock = 3,
     DecorationBuiltIn = 11,
     DecorationLocation = 30,
     DecorationBinding = 33,
@@ -70,7 +79,14 @@ public:
 
     void entry_point(uint32_t model, uint32_t fn, const char* name, std::initializer_list<uint32_t> interface_ids)
     {
-        std::vector<uint32_t> operands = {model, fn};
+        string_op(OpEntryPoint, {model, fn}, name, interface_ids);
+    }
+
+    void name(uint32_t target, const char* text) { string_op(OpName, {target}, text, {}); }
+
+    void string_op(Op opcode, std::vector<uint32_t> operands, const char* name,
+                   std::initializer_list<uint32_t> interface_ids)
+    {
         uint32_t word = 0;
         int shift = 0;
         for (const char* p = name;; ++p) {
@@ -87,7 +103,7 @@ public:
         if (shift)
             operands.push_back(word);
         operands.insert(operands.end(), interface_ids.begin(), interface_ids.end());
-        words_.push_back((static_cast<uint32_t>(operands.size() + 1) << 16) | OpEntryPoint);
+        words_.push_back((static_cast<uint32_t>(operands.size() + 1) << 16) | opcode);
         words_.insert(words_.end(), operands.begin(), operands.end());
     }
 
@@ -119,6 +135,7 @@ inline std::vector<uint32_t> vertex_shader()
     b.op(OpCapability, {CapabilityShader});
     b.op(OpMemoryModel, {AddressingLogical, MemoryGLSL450});
     b.entry_point(ModelVertex, main, "main", {in_pos, pv_var});
+    b.name(u_var, "instance_config");
 
     b.op(OpDecorate, {in_pos, DecorationLocation, 0});
     b.op(OpMemberDecorate, {per_vertex, 0, DecorationBuiltIn, BuiltInPosition});
@@ -167,7 +184,9 @@ inline std::vector<uint32_t> vertex_shader()
 
 // layout(location = 0) out vec4 outColor;
 // layout(set = 0, binding = 0) uniform U { vec4 offset; vec4 color; } u;
-// void main() { outColor = u.color; }
+// layout(set = 1, binding = 2) buffer S { vec4 tint; } materials[2];
+// layout(set = 1, binding = 5) uniform sampler2D albedo;
+// void main() { outColor = u.color * materials[0].tint * texture(albedo, vec2(0)); }
 inline std::vector<uint32_t> fragment_shader()
 {
     Builder b;
@@ -175,11 +194,18 @@ inline std::vector<uint32_t> fragment_shader()
     uint32_t t_void = b.id(), t_fn = b.id(), t_float = b.id(), t_v4 = b.id(), t_int = b.id();
     uint32_t p_out_v4 = b.id(), p_uni_u = b.id(), p_uni_v4 = b.id(), c_i1 = b.id();
     uint32_t label = b.id(), col_ptr = b.id(), col = b.id();
+    uint32_t t_v2 = b.id(), t_image = b.id(), t_sampled = b.id(), p_texture = b.id(), texture = b.id();
+    uint32_t s_type = b.id(), s_array = b.id(), p_storage = b.id(), storage = b.id();
+    uint32_t c_i0 = b.id(), c_i2 = b.id(), c_f0 = b.id(), uv = b.id();
+    uint32_t tint_ptr = b.id(), tint = b.id(), tinted = b.id(), tex = b.id(), sampled = b.id(), result = b.id();
 
     b.op(OpCapability, {CapabilityShader});
     b.op(OpMemoryModel, {AddressingLogical, MemoryGLSL450});
     b.entry_point(ModelFragment, main, "main", {out_color});
     b.op(OpExecutionMode, {main, ModeOriginUpperLeft});
+    b.name(u_var, "instance_config");
+    b.name(storage, "materials");
+    b.name(texture, "albedo");
 
     b.op(OpDecorate, {out_color, DecorationLocation, 0});
     b.op(OpMemberDecorate, {u_type, 0, DecorationOffset, 0});
@@ -187,12 +213,29 @@ inline std::vector<uint32_t> fragment_shader()
     b.op(OpDecorate, {u_type, DecorationBlock});
     b.op(OpDecorate, {u_var, DecorationDescriptorSet, 0});
     b.op(OpDecorate, {u_var, DecorationBinding, 0});
+    b.op(OpMemberDecorate, {s_type, 0, DecorationOffset, 0});
+    b.op(OpDecorate, {s_type, DecorationBufferBlock});
+    b.op(OpDecorate, {storage, DecorationDescriptorSet, 1});
+    b.op(OpDecorate, {storage, DecorationBinding, 2});
+    b.op(OpDecorate, {texture, DecorationDescriptorSet, 1});
+    b.op(OpDecorate, {texture, DecorationBinding, 5});
 
     b.op(OpTypeVoid, {t_void});
     b.op(OpTypeFunction, {t_fn, t_void});
     b.op(OpTypeFloat, {t_float, 32});
     b.op(OpTypeVector, {t_v4, t_float, 4});
+    b.op(OpTypeVector, {t_v2, t_float, 2});
     b.op(OpTypeInt, {t_int, 32, 1});
+    b.op(OpConstant, {t_int, c_i0, 0});
+    b.op(OpConstant, {t_int, c_i2, 2});
+    b.op(OpConstant, {t_float, c_f0, 0});
+    b.op(OpConstantComposite, {t_v2, uv, c_f0, c_f0});
+    b.op(OpTypeStruct, {s_type, t_v4});
+    b.op(OpTypeArray, {s_array, s_type, c_i2});
+    b.op(OpTypePointer, {p_storage, StorageUniform, s_array});
+    b.op(OpTypeImage, {t_image, t_float, 1, 0, 0, 0, 1, 0});
+    b.op(OpTypeSampledImage, {t_sampled, t_image});
+    b.op(OpTypePointer, {p_texture, StorageUniformConstant, t_sampled});
     b.op(OpTypeStruct, {u_type, t_v4, t_v4});
     b.op(OpTypePointer, {p_out_v4, StorageOutput, t_v4});
     b.op(OpTypePointer, {p_uni_u, StorageUniform, u_type});
@@ -200,12 +243,20 @@ inline std::vector<uint32_t> fragment_shader()
     b.op(OpConstant, {t_int, c_i1, 1});
     b.op(OpVariable, {p_out_v4, out_color, StorageOutput});
     b.op(OpVariable, {p_uni_u, u_var, StorageUniform});
+    b.op(OpVariable, {p_storage, storage, StorageUniform});
+    b.op(OpVariable, {p_texture, texture, StorageUniformConstant});
 
     b.op(OpFunction, {t_void, main, 0, t_fn});
     b.op(OpLabel, {label});
     b.op(OpAccessChain, {p_uni_v4, col_ptr, u_var, c_i1});
     b.op(OpLoad, {t_v4, col, col_ptr});
-    b.op(OpStore, {out_color, col});
+    b.op(OpAccessChain, {p_uni_v4, tint_ptr, storage, c_i0, c_i0});
+    b.op(OpLoad, {t_v4, tint, tint_ptr});
+    b.op(OpFMul, {t_v4, tinted, col, tint});
+    b.op(OpLoad, {t_sampled, tex, texture});
+    b.op(OpImageSampleImplicitLod, {t_v4, sampled, tex, uv});
+    b.op(OpFMul, {t_v4, result, tinted, sampled});
+    b.op(OpStore, {out_color, result});
     b.op(OpReturn, {});
     b.op(OpFunctionEnd, {});
     return b.finish();

@@ -10,10 +10,9 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import tempfile
 import time
 
-from harness import INJECT_DLL, Checks, Sandbox
+from harness import INJECT_DLL, Checks, Sandbox, test_dir
 
 from efmi_vk.probe_client import ProbeClient, ProbeError, list_probes  # noqa: E402  (path set up by harness)
 
@@ -67,7 +66,7 @@ def check_late(c: Checks, entry: str, expect_passive: bool) -> None:
 
 def check_settings_file(c: Checks) -> None:
     """A copy of the DLL with efmi_vk.cfg next to it, and no environment variable for the mode."""
-    folder = tempfile.mkdtemp(prefix="efvk-cfg-")
+    folder = test_dir("cfg-")
     dll = os.path.join(folder, "efmi_vk_inject.dll")
     shutil.copyfile(INJECT_DLL, dll)
     log_path = os.path.join(folder, "from-cfg.log")

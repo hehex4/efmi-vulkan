@@ -33,6 +33,7 @@ public:
     void inum(int64_t v) { value_prefix(); out += std::to_string(v); }
     void boolean(bool v) { value_prefix(); out += v ? "true" : "false"; }
     void null() { value_prefix(); out += "null"; }
+    void raw(const std::string& json) { value_prefix(); out += json; } // trusted output of another JsonWriter
     void hex32(uint32_t v)
     {
         char b[16];
