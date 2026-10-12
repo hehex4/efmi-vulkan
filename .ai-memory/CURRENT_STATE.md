@@ -1,6 +1,6 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.6.0 (probe, protocol 1), server 0.1.0; 0.6.0 adds buffer contents kept at submit and has run in the sandbox only. Probe mode ran in the real game for the first time on 2026-10-12: G2 is answered (one recording thread), G3 a passes (all 12 LOD0 components of the sample mod match by hash), G3 b and c are strongly indicated from live reads and still need a snapshot taken at submit. The DX11 baseline of the sample mod was captured on 2026-10-12 with the mods on and off and paired with the Vulkan frame (`docs/dx11-baseline.md`). Long-duration stability is unverified. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.6.0 (probe, protocol 1), server 0.1.0; 0.6.0 adds buffer contents kept at submit; it ran in the real game on 2026-10-12 and G3 b and c pass for the display scene. Probe mode ran in the real game for the first time on 2026-10-12: G2 is answered (one recording thread), G3 a passes (all 12 LOD0 components of the sample mod match by hash), G3 b and c are strongly indicated from live reads and still need a snapshot taken at submit. The DX11 baseline of the sample mod was captured on 2026-10-12 with the mods on and off and paired with the Vulkan frame (`docs/dx11-baseline.md`). Long-duration stability is unverified. No mod rendering exists.
 
 ## DX11 baseline of the sample mod (2026-10-12, 10:09; game under DX11, started by the user)
 
@@ -26,7 +26,20 @@ Scope: one scene, one character, the mod's own key states as found, two sessions
 
 Checks of this round: `sandbox/unit_test.py` 75 of 75 (31 for the pairing), `scripts/check_text.py` clean. The layer was not changed and not rebuilt; the full suite was not run.
 
-## Contents at submit and the record-time comparison: layer 0.6.0 in `dist/` (2026-10-12; sandbox only)
+## Second probe session in the real game: G3 b and c (2026-10-12, 11:10 to at least 11:35; started by the user)
+
+Loads in the real game and data captured in the real game; nothing drawn, nothing verified on a character. PID 36420, Vulkan (no forced DX11 in `Player.log`), layer 0.6.0 by the launcher's injection (`efmi_vk_layer 0.6.0 loaded into Endfield.exe, mode=probe, entry=inject`), XXMI's `d3d11.dll` not injected. 120 frames per second, working set 11.8 GB and flat, `shaders_not_retained` 0, `unknown_writes` 0. Bundles `captures/second-probe` (45 draws of the 12 components with contents) and `captures/second-probe-all` (all 210 indexed draws with contents, all 117 pipelines); about 1,100 further captures for series. Full account: last section of `docs/probe-snapshots.md`.
+
+- G3 b, instance entry: equal at record and at submit in 3,882 of 3,882 comparisons; same structure as under DX11 (constant 3 translation, constant 5 the two bone offsets, 258, 1.0f).
+- G3 c, bones: final at submit (240 of 240 windows equal a read 1 to 3 ms later); a component's own palette is complete when its first draw is recorded (component 4: 55 bones equal in 492 of 492 windows), the bytes behind a palette are not (one bone more differs in 21 of 60 frames, always in the shadow pass, always the current offset).
+- The bone count per component is in the mod (`VertexGroupCounts`: 45, 86, 42, 15, 54, 16, 8, 12, 80, 117, 23, 1; 499 in all) and equals what the game's meshes use, 12 of 12.
+- The palettes are adjacent in a ring buffer, about 1782 elements per frame, in an order that changes between frames.
+- All other uniform ranges of sets 0 and 2: 29,967 comparisons, none different. Selection by hash at record time never failed.
+- The DX11 pairing was repeated against this session's frame with every pipeline: 36 fragment shaders by SPIR-V hash, 118 entries, none contradictory, same result for the mod's slots.
+
+D-021 follows: D3 holds for this scene without a GPU read-back. Open: other scenes (open world, combat, several instances, LOD1), T-018, T-019.
+
+## Contents at submit and the record-time comparison: layer 0.6.0 in `dist/` (2026-10-12; sandbox, then the game)
 
 T-017 is implemented. A capture can be asked to keep, for the draws whose region hash is listed (or for all indexed draws), every uniform range of their sets as it is at `vkQueueSubmit`, the first bytes of one chosen range as the draw's own entry, and windows of the draw's storage ranges located by 32-bit values read from that entry. Each item also carries a comparison with a read taken inside `vkCmdDrawIndexed`: `equal`, `different`, `other_range`, `unreadable` or `not_recorded`. Kept bytes are bounded by a budget (32 MiB by default) and fetched with the new `snapshot` command. Description: `docs/probe-snapshots.md`; data path: ARCHITECTURE.
 
@@ -34,7 +47,7 @@ For the game the rule is set 2 binding 0, values at byte 80, 16 bytes per elemen
 
 The sandbox now gives each uniform slot 96 bytes with a frame number written before recording, a second one written for odd slots after recording and before submit, and two element numbers into its storage ranges, so that both comparison outcomes occur in every frame.
 
-Evidence, sandbox only: full `sandbox/run_all.py` against `build/next` and again against `dist/` after the build there: unit 75, native tracker 78, 17 probe configurations (485 to 500 checks each, with secondary command buffers and all four descriptor modes), modes 40, limits 132, timing 84, validation 76, MCP 46, evidence 78; all passed. `dist/efmi_vk_layer.dll` and `dist/efmi_vk_inject.dll` are 0.6.0, SHA-256 `dfbe6fb440d261b99ff649acfe92e822188fd4d41c9f3d108ef49197437dd5fa`; `dist/efmi_vk.cfg` is `mode = probe`. No game process has loaded 0.6.0.
+Evidence, sandbox only: full `sandbox/run_all.py` against `build/next` and again against `dist/` after the build there: unit 75, native tracker 78, 17 probe configurations (485 to 500 checks each, with secondary command buffers and all four descriptor modes), modes 40, limits 132, timing 84, validation 76, MCP 46, evidence 78; all passed. `dist/efmi_vk_layer.dll` and `dist/efmi_vk_inject.dll` are 0.6.0, SHA-256 `dfbe6fb440d261b99ff649acfe92e822188fd4d41c9f3d108ef49197437dd5fa`; `dist/efmi_vk.cfg` is `mode = probe`. The game loaded it at 11:10 the same day (section above).
 
 Not covered: non-indexed and indirect draws, texel buffers, push constants; bytes written between submit and execution; what a compute pass produces. The MCP tools do not expose the snapshot yet (the client and the collector do).
 
@@ -218,7 +231,7 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 
 State on 2026-10-12 after the first probe session and the DX11 baseline:
 
-1. T-017, game part: the same scene again under Vulkan with 0.6.0 and `--snapshot mod --follow instance`, when the user starts it. The launcher's EFMI profile and `dist/efmi_vk.cfg` are at their Vulkan values since 10:43.
+1. T-017 is done, G3 b and c pass for the display scene (D-021). The launcher's EFMI profile and `dist/efmi_vk.cfg` stay at their Vulkan values.
 2. T-018: content hash of textures at upload, so that slot tables are exact.
 3. T-019: decide how the fragment stage stays on the game's data, then M2 (minimal replacement of one component).
 

@@ -118,6 +118,10 @@ Component 1 with the mods off, main pass (DX11 `5872b5b6210fd060`, Vulkan fragme
 - Over the four DX11 frames the table has 111 entries for 36 Vulkan fragment shaders, and no entry of
   one frame contradicts another frame. A fragment shader whose pipeline is not in the Vulkan bundle is
   listed under its pipeline number.
+- Against a Vulkan frame of a later session that has every pipeline (`captures/second-probe-all`, frame
+  16127), `frame-off` pairs 26 of 28 objects and 64 draws; all 36 fragment shaders are then named by
+  their SPIR-V hash, the table has 118 entries, none contradictory, and the lookup of the mod's slots
+  gives the same 15 placed, 4 open and 37 undeclared.
 
 ### What the mod's own slot assignments become
 

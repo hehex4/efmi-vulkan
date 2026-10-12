@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); T-008 is done since 2026-10-12 (four DX11 frames, mods on and off, paired with the Vulkan frame); T-017 is built (layer 0.6.0, sandbox only) and needs its game session; then T-018 and T-019. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); T-008 is done since 2026-10-12 (four DX11 frames, mods on and off, paired with the Vulkan frame); T-017 is done and G3 b and c pass for the display scene; next are T-019 and T-018, then M2. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
 
 ## Tasks and follow-ups
 
@@ -38,7 +38,9 @@ The two launcher settings are independent (the user asked on 2026-10-11 whether 
 
 Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` in `XXMI Launcher Config.json`; no control in the settings window, not a signed field (launcher source `core/game_launcher.py`, `build_cmd_args`).
 
-### T-017: Snapshot at submit of the buffer ranges a matched draw uses (built and sandbox-verified on 2026-10-12 as layer 0.6.0; the game session is open)
+### T-017: Snapshot at submit of the buffer ranges a matched draw uses (done on 2026-10-12: layer 0.6.0, sandbox and game)
+
+Result in the game (CURRENT_STATE, `docs/probe-snapshots.md`, facts 21 and 22, D-021): the instance entry and a component's own palette are complete when its draw is recorded and final at submit; the bone count comes from the mod. Not done: MCP tools for the snapshot; other scenes.
 
 Done: request, record-time checksum, submit-time bytes, comparison states, budget, `snapshot` command, client, collector options, sandbox scenario and tests (`docs/probe-snapshots.md`, CURRENT_STATE). Open: run it in the game on the scene of the first session (`docs/first-probe-session.md` has the command) and read, for the 45 draws of the 12 components, the entry item's record state (is the instance entry in place when the draw is recorded), the follow items' record state (are the bone rows), and the bytes themselves against the DX11 values (constant 3, constant 5). Then decide D3. Not done: MCP tools for the snapshot.
 
@@ -54,7 +56,9 @@ Two textures of the same size, mip count and format cannot be paired between a D
 
 Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
-### T-010: Gates G2 and G3 in the real game (first session done on 2026-10-12; b, c, d need more)
+### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
+
+State after the second session and the DX11 baseline: G2 answered; G3 a, b, c, e and f pass for the display scene; G3 d is answered in kind (a slot table per Vulkan fragment shader exists for the scene, four entries open until T-018). None of this is known for the open world, combat, several instances of a character, LOD1 or scenes with indirect draws.
 
 Result of the first session (details and evidence paths in CURRENT_STATE): G2 answered for the display scene (one thread, one command buffer with all draws, classic render passes); G3 a passes (12 of 12 LOD0 components); G3 f passes for the scene; G3 b and c strongly indicated, to be made rigorous by T-017; G3 d needs T-008, and name-based mapping is ruled out because the SPIR-V is stripped; G3 e as expected. Still to observe in later sessions: open world and combat, several instances, LOD1, scenes where indirect draws occur.
 
@@ -98,6 +102,6 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- A Vulkan session with the sample character on the display scene, layer 0.6.0 (in `dist/`, probe mode; the launcher is already at its Vulkan values): the user starts the game and says so, the agent collects with `--snapshot mod --follow instance`. After that: open world and combat.
+- Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

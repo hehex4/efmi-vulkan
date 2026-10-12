@@ -145,3 +145,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - The first bytes of the followed range are a separate item (`entry`): the game's range is 64 KiB with the entries of many draws, and a comparison of the whole range would call a draw's data incomplete because of its neighbours.
 - Selection at record time is by region hash, computed there a second time while a snapshot capture is in its frame. Rejected: reading every draw at record time (cost in every frame of the capture for draws nobody asked about) and selecting at submit only (no record-time evidence).
 - Bounded like everything else the probe keeps (D-017): budget in bytes, size limit per uniform range, clamps on every requested size; past the budget a range is still checksummed and compared.
+
+## D-021: What the second probe session settles in the plan
+
+- Date: 2026-10-12, after layer 0.6.0 ran in the game (facts 21 and 22).
+- D3, bone import: done by the CPU from the application's own mapped memory. No GPU read-back (T-013 stays closed for bones), no compute pass. The premise of the two-phase execution is measured, not assumed.
+- When to read: both moments are valid in the observed scene. The instance entry and the bones of a component may be read when its matched draw is recorded; reading at submit is always at least as good and remains the fallback if another scene shows late data. Which of the two M2 uses is an implementation choice; M2 starts with the read at record time because it needs no deferred work, and keeps the comparison of 0.6.0 as a check.
+- How much to read: exactly `VertexGroupCounts[component]` bones of three rows from the entry's offset, as the DX11 core does. Never a fixed window: bytes behind a palette belong to something written later.
+- What not to use: the order or distance of palettes in the bone buffer, which changes per frame.
+- Scope: one scene with one standing character. The decision is revisited if a later session shows `different` inside a palette or an entry.

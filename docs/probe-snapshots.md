@@ -1,6 +1,6 @@
 # Buffer contents of a captured frame (layer 0.6.0)
 
-> Sandbox only so far. Nothing here has run in the game.
+> Verified in the sandbox; first run in the game on 2026-10-12 (last section).
 
 A capture of 0.5.1 says which buffer ranges a draw has bound, and a later `read_buffer` returns what
 those ranges hold at the time of the request. For a buffer the application rewrites every frame that is
@@ -89,3 +89,53 @@ the odd slots report `different` for the whole range while the entry in front of
 the bytes of an earlier capture are refused. `limits_test.py` checks the budget, the size limit, a window
 that fits nowhere, clamping, malformed hash lists and the reduced tracking mode; `evidence_test.py` the
 packed file written by the collector.
+
+## First run in the game (2026-10-12)
+
+Data captured in the real game: PID 36420, Vulkan, character display scene with the character of
+`arcane fes 1.2`, layer 0.6.0 through the launcher's injection, probe mode, full tracking. 120 frames per
+second and a working set of 11.8 GB that did not grow during the measurements. Nothing was drawn or
+replaced. Bundles: `captures/second-probe` (the 45 draws of the mod's 12 components, frame 8313) and
+`captures/second-probe-all` (all 210 indexed draws and all 117 pipelines of frame 16127); the series are
+`series.json`, `palettes.json`, `edge.json` and `edge-component4.json` in the first of them. About 1,100
+further captures were taken for the series.
+
+- **Selection at record time works.** No item of any capture is `not_recorded`: the index bytes of every
+  draw are readable when it is recorded.
+- **Instance entry** (256 bytes at set 2 binding 0): equal at record and at submit in 3,882 of 3,882
+  comparisons. Constant 3 is (-300, 300, -300), constant 5 (bone offset, previous bone offset, 258, 1.0f):
+  the structure seen under DX11.
+- **Uniform ranges** of sets 0 and 2: 29,967 comparisons, none different. The material constants of
+  set 1 are in a buffer whose bytes never pass the CPU (`src: none`) and cannot be compared.
+- **Bone rows at submit** are final: 240 of 240 windows equal a read taken 1 to 3 ms after the capture.
+  A window starts with three rows of unit length and a translation near the character
+  (-300, 301, -300).
+- **Bone rows at record time**: a component's own palette is complete when its first draw is recorded;
+  what lies behind the palette in the buffer is not. Component 4, whose mesh uses bone indices up to 53,
+  window at its current offset, 60 frames each:
+
+  | Window | Windows compared | Frames with a difference |
+  | --- | --- | --- |
+  | 50 bones (2400 bytes) | 488 | 0 |
+  | 54 bones | 482 | 0 |
+  | 55 bones | 492 | 0 |
+  | 56 bones | 488 | 21 |
+  | 57, 60, 70 bones | 484, 488, 484 | 13, 26, 23 |
+
+  Every difference is in the first pass that draws the component (the shadow pass) and at the current
+  offset, never at the previous frame's. With the preset's 12,288 bytes the windows of the last two
+  palettes reach far behind the block and differ in 30 of 40 frames; that is the window, not the data.
+- **How many bones to read** is in the mod: `Pool_MergedSkeleton_Component_VertexGroupCounts` of
+  `arcane.ini` is 45, 86, 42, 15, 54, 16, 8, 12, 80, 117, 23, 1 for components 0 to 11 (499 in all), and
+  the meshes read from the game give exactly these numbers as highest bone index with a nonzero weight
+  plus one. The palette in the buffer is at least that long (component 4: 55 against 54).
+- **Layout**: the 12 palettes of the character are written next to each other, a new block of about 1782
+  elements every frame further along the buffer, which is used as a ring. Their order inside the block
+  changes between frames (component 4 is directly behind component 2 in 254 of 420 frames), so the
+  distance to the next palette says nothing reliable about a palette's size.
+
+What this settles and what not: for this scene the CPU can take the instance entry and the bones of a
+component from mapped memory at the moment its draw is recorded, as long as it reads the number of bones
+the mod states and nothing behind them; reading at submit is valid as well. One scene, one character,
+standing still; open world, combat, several instances and LOD1 are not covered. The check against a later
+read shows that nothing changed after submit within milliseconds, not what the GPU read.
