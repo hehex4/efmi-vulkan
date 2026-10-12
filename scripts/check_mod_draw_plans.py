@@ -65,12 +65,22 @@ def main() -> int:
                     continue  # Preserved unresolved boundary, never counted as Core execution.
                 if op in (0, 1, 2):
                     name = item["resource"]
+                    owned = item["file_binding"]
                     if name is not None:
                         resource = resources[name]
                         filename = Path(resource["filename"]).resolve()
+                        if not owned or Path(owned["path"]).resolve() != filename:
+                            raise ValueError("Owned file binding differs from the original declaration")
+                        expected_usage = (128, 64, 0)[op]
+                        expected_stride = resource["stride"] if op == 0 else (4 if resource["format"] == 42 else 2) if op == 1 else 0
+                        expected_index = (1 if resource["format"] == 42 else 0) if op == 1 else 0x7fffffff
+                        if (owned["usage"], owned["stride"], owned["index_type"]) != (expected_usage, expected_stride, expected_index):
+                            raise ValueError("Owned file binding usage/stride/index format differs from source semantics")
                         if filename not in assets:
                             assets[filename] = {"bytes": filename.stat().st_size, "sha256": sha(filename)}
                         declared_resources.add(name)
+                    elif owned is not None:
+                        raise ValueError("Explicit null was replaced by a file resource")
                     if op == 0:
                         vertex[item["slot"]] = name
                     elif op == 1:

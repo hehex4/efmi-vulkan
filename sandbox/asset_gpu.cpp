@@ -196,6 +196,7 @@ static void run(Gpu& g,std::vector<uint8_t> data,bool color)
 }
 #include "asset_cache_test.cpp"
 #include "asset_buffer_test.cpp"
+#include "asset_file_plan_test.cpp"
 #include "asset_material_test.cpp"
 int wmain(int argc,wchar_t** argv)
 {
@@ -224,6 +225,7 @@ int wmain(int argc,wchar_t** argv)
             cache_tests(g);
             buffer_tests(g);
             resource_cache_tests(g);
+            file_plan_tests(g);
             fragment_tests();material_test(g);
         }else throw std::runtime_error("Invalid asset fixture arguments");
     }catch(const std::exception& e){++failed;printf("FAILED: %s\n",e.what());}

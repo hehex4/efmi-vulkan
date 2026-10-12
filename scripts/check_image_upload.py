@@ -32,6 +32,7 @@ def main() -> int:
                      str(ROOT/"sandbox/asset_gpu.cpp"),str(ROOT/"frontend/assets/dds.cpp"),
                      str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/resource_cache.cpp"),
                      str(ROOT/"frontend/assets/buffer_upload.cpp"),
+                     str(ROOT/"frontend/assets/file_plan.cpp"),
                      str(ROOT/"frontend/gpu/fragment_images.cpp"),
                      "/Fe:"+str(exe),"/link","/NOLOGO","user32.lib"]
         log=io.StringIO()
@@ -44,6 +45,7 @@ def main() -> int:
         report["executable_sha256"]=hashlib.sha256(exe.read_bytes()).hexdigest()
         inputs=list((ROOT/"frontend/assets").glob("*.h"))+list((ROOT/"frontend/assets").glob("*.cpp"))
         inputs += [ROOT/"sandbox/asset_gpu.cpp",ROOT/"sandbox/asset_cache_test.cpp",ROOT/"sandbox/asset_buffer_test.cpp",ROOT/"sandbox/xxmi_host/dds_test.cpp",Path(__file__)]
+        inputs += [ROOT/"sandbox/asset_file_plan_test.cpp"]
         inputs += [ROOT/"frontend/gpu/fragment_images.h",ROOT/"frontend/gpu/fragment_images.cpp",
                    ROOT/"sandbox/material_fixture.h",ROOT/"sandbox/asset_material_test.cpp",ROOT/"sandbox/src/spirv.h"]
         report["source_sha256"]={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}

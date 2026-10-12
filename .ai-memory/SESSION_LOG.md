@@ -633,3 +633,25 @@ saved only in build/drafts/residency-unverified.patch and removed from source. N
 deployment, installed asset change or game action occurred for that draft. The tested
 cache at 6dfce2f remains intact. Continue hosted command/resource resolution, shared
 character/Core identity and bone completeness, using component-independent operations.
+
+## 2026-10-12: Connect owned frontend file plans to resource preparation
+
+Added a generation-owned snapshot of original XXMI file declarations and an owned
+command/resource representation. It preserves strides, index formats, binding order,
+explicit nulls, layouts, draw arguments and unresolved native phases. Unsupported
+transformations, dynamic/Core resources and foreign declarations refuse atomically.
+The cache handoff freezes metadata, deduplicates uploads and collects all Ready owners
+without file/driver work on the request path. Pending/failure keeps prior output intact.
+
+Verified: host 23, command planner 28, resource planner 19 and DDS 15; all 384 actual
+callback plans match original declarations, with 404 draws/18 index ranges/38 files.
+GPU resource suite 161 passes under clean core/sync validation. New checks cover real
+VB/IB/image uploads from file plans, repeated references, pending/null/native states,
+caller metadata changes, foreign generations, partial vertex elements and owner
+retention. Historical fragment checks also pass. Initial host fixture namespace typo
+was corrected before the passing build. Logs build/frontend-resource-{host,mod,gpu}.txt.
+
+No layer change, deployment, game action or installed asset modification. Source and
+build/next remain 0.9.3; dist remains 0.9.1. Continue resolving per-draw binding state and
+native shared character/Core operations. GPU asset readiness is not Core execution,
+runtime draw-range validation or real-character replacement acceptance.

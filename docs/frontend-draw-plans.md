@@ -8,7 +8,7 @@ resource bindings, indexed draw arguments and copied layout operations, instead
 of calling the reference's D3D context.
 
 This is a CPU intermediate representation, not a ready GPU transaction. It is
-not yet linked into the layer. Source/build/next stay 0.9.2, dist stays 0.9.1,
+not yet linked into the layer. Source/build/next stay 0.9.3, dist stays 0.9.1,
 and the existing live hook still selects the explicit component-7 package.
 
 ## Contract
@@ -90,3 +90,42 @@ not prove full mod initialization, complete shared skeletons, shader declaration
 compatibility, texture interpretation/upload, animation or rendered appearance.
 Next integration work must resolve those data-dependent backend requirements
 without introducing per-component implementations.
+
+## Owned resource plans and cache handoff
+
+frontend/xxmi/resource_plan snapshots original CustomResource declarations once per
+frontend generation, then replaces borrowed pointers with owned paths, byte strides,
+index types and resource usages. No file is opened by this conversion. Unsupported
+pooled/generated/transformed resources remain dormant until reached, then refuse the
+complete output rather than being mistaken for immutable files. A missing declaration
+from another generation also refuses. Unloaded file resources have is_null set in XXMI;
+that flag must not be confused with an explicit null binding in the command stream.
+
+The owned representation preserves binding order, indexed/instanced arguments, all
+layout match/replacement fields, skip flags and native pre/post boundaries. The file
+contract currently accepts plain Buffer vertex streams with explicit byte stride,
+R16_UINT/R32_UINT index buffers and unmodified DDS image resources. Format conversion,
+generated Core buffers and other image loaders require their own adapters. It contains
+no character names, hashes or component branches.
+
+frontend/assets/file_plan resolves these declarations into the common ResourceCache.
+Setup declares without demand or IO; later requests collect typed immutable Ready
+owners. Repeated file/usage bindings share one upload. Pending, invalid, failed or
+foreign-generation bindings preserve the caller's previous complete owner collection.
+The prepared plan freezes metadata so later caller edits cannot alter it. Resource
+readiness does not resolve External operations or authorize a draw transaction.
+
+Verification: 23 hosted CPU, 28 command planner, 19 resource planner and 15 DDS checks
+pass. All 384 actual callback plans compile to owned resources; independent Python
+checks compare each path/usage/stride/index type with the original parsed declaration.
+The original 404 draws, 18 index ranges and 38 files still fit and retain their hashes.
+The headless GPU suite passes 161 checks with clean core/sync validation, including
+real file-plan uploads, repeated bindings, explicit null, pending-output preservation,
+metadata edits, foreign generations, a nonintegral vertex file and retained owners.
+Historical fragment rewrites/nulls still pass. Logs: build/frontend-resource-host.txt,
+build/frontend-resource-mod.txt and build/frontend-resource-gpu.txt.
+
+Remaining: interpret binding state at each draw, resolve native Core and material
+boundaries, connect shared character identity/bone completeness and link the frontend
+into the layer. Index/vertex range proofs here remain offline file checks, not a new
+runtime draw-range adapter. No deployment or real-character acceptance is claimed.

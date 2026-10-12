@@ -1,5 +1,6 @@
 // Read-only callback planning fixture. It does not load Core or render a mod.
 #include "draw_plan.h"
+#include "resource_plan.h"
 #include "globals.h"
 #include "HackerContext.h"
 #include <algorithm>
@@ -62,6 +63,7 @@ int HostModPlan(const wchar_t* filename,const wchar_t* prefix,const wchar_t* nat
         optimise_command_lists(nullptr);
         for(const auto& name:names)adapter.adapt(explicitCommandListSections.at(name).command_list);
         if(HostDiagnosticCount())throw std::runtime_error("Original parser reported diagnostics; refusing incomplete plans");
+        FilePlanCompiler resource_compiler(customResources);
 
         // Sample coverage is data-driven: vary every persistent scalar, all
         // scalars together, and each of the two requested LOD values.
@@ -95,11 +97,17 @@ int HostModPlan(const wchar_t* filename,const wchar_t* prefix,const wchar_t* nat
                     DrawPlan plan;std::wstring reason;
                     if(!adapter.execute(explicitCommandListSections.at(name).command_list,state,plan,reason))
                         throw std::runtime_error("Callback planning refused");
+                    efmi::assets::FilePlan owned;
+                    if(!resource_compiler.compile(plan,owned,reason)){
+                        fwprintf(stderr,L"Resource plan refused for %ls: %ls\n",name.c_str(),reason.c_str());
+                        throw std::runtime_error("Callback resource declarations refused");
+                    }
                     if(comma)putchar(',');comma=true;
                     printf("{\"section\":");json(name);
                     printf(",\"scenario\":%zu,\"lod\":%u,\"items\":[",scenario,level);
-                    bool item_comma=false;
+                    bool item_comma=false;size_t owned_at=0;
                     for(const auto& item:plan.items){
+                        const auto& resolved=owned.items.at(owned_at++);
                         if(item_comma)putchar(',');item_comma=true;
                         printf("{\"op\":%d,\"slot\":%u",static_cast<int>(item.operation),item.slot);
                         if(item.operation==PlanOperation::External){
@@ -109,6 +117,12 @@ int HostModPlan(const wchar_t* filename,const wchar_t* prefix,const wchar_t* nat
                                    item.index_count,item.first_index,item.vertex_offset,item.instance_count,item.first_instance);
                         } else {
                             printf(",\"resource\":");if(item.resource)json(item.resource->name);else printf("null");
+                            printf(",\"file_binding\":");
+                            if(resolved.resource){
+                                printf("{\"path\":");json(resolved.resource->path.wstring());
+                                printf(",\"usage\":%u,\"stride\":%u,\"index_type\":%d}",resolved.resource->usage,resolved.resource->stride,
+                                       static_cast<int>(resolved.resource->index_type));
+                            }else printf("null");
                         }
                         putchar('}');
                     }

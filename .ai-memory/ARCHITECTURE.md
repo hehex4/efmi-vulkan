@@ -1,5 +1,14 @@
 # EFMI Vulkan - Architecture
 
+Current integration checkpoint: source/build/next are 0.9.3 and dist is 0.9.1.
+FilePlanCompiler copies original XXMI file declarations into owned per-operation
+contracts; frontend/assets/file_plan declares/demands the shared ResourceCache and
+collects immutable typed GPU owners atomically. Explicit nulls and native pre/post
+boundaries remain distinct. Core/material operations and per-draw binding state still
+need resolution before execution; this frontend is not in the DLL. See
+docs/frontend-draw-plans.md. Multi-mod residency tuning is deferred until this
+character's replacement works, per the user's priority clarification.
+
 The target product architecture is in `docs/plan.md`, section 4. Source/build/next are 0.9.2; dist remains 0.9.1. The optional component-7 hook emitted replacements in a user-started display session; appearance/animation are not accepted. 0.9.2 adds shared stream contracts and ordered draw transactions (`docs/general-replacement-operations.md`) with full sandbox verification, not deployment. Protocol 1, server 0.1.0. Resource inspection is in `docs/probe-resources.md`, snapshots/waiting in `docs/probe-snapshots.md`, owned variants in `docs/m2-pipeline-variants.md`, and the hooked M2 path in `docs/m2-component-hook.md`. D-016/D-033 retain frontend-driven component data; no complete INI engine or whole-mod runtime exists yet.
 
 ## Data path of the development probe

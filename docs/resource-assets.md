@@ -194,3 +194,11 @@ the new executable. No layer change or new game result accompanies this work.
 
 Next: resolve hosted command/resource declarations into ready mesh/material
 transactions and integrate shared character/Core identity and bone completeness.
+
+The next frontend checkpoint now hands owned file declarations to this cache through
+frontend/assets/file_plan. It freezes byte stride/index type/usage, preserves nulls and
+native boundaries and publishes typed owners only for a complete ready resource set.
+The 161-check headless suite and 384 actual CPU callback plans pass; details and exact
+remaining integration boundaries are in docs/frontend-draw-plans.md. Residency eviction
+and multi-mod performance tuning are deferred at the user's request; the underlying
+ResourceCache behavior from 6dfce2f is unchanged.
