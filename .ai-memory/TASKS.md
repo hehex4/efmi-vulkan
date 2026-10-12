@@ -70,7 +70,7 @@ The user reports stutter during loading and steady display in the third session.
 
 Done: fully sandbox-verified 0.7.1 diagnostics, actual-config smoke and real-game status-only observation (PID 31124). The user reports severe open-world stutter; the static display cannot judge it. A 39.992-second foreground interval contains 142 intervals over 16 ms, 27 over 33 ms, 12 over 50 ms, maximum 111.204 ms. Final rolling window p50 2.989 ms, p99 24.590 ms. Image-hash time and capture sequence remain zero. A later quiet interval changes focus and cannot serve as a clean comparison.
 
-Next: same open-world movement with resources = 0 after a user-chosen restart, keeping hashing off, then passthrough if needed. Current cfg still enables resources. Cause is not established and no fix is claimed. See docs/pacing-hash-off-session.md and docs/frame-pacing.md. No automatic game launch or focus change.
+Next: same open-world movement with resources = 0 after a user-chosen restart, keeping hashing off, then passthrough if needed. The next-launch cfg is now prepared and passes an actual-config inject sandbox check; the current game process retains resources on. Cause is not established and no fix is claimed. See docs/pacing-hash-off-session.md and docs/frame-pacing.md. No automatic game launch or focus change.
 
 ### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
 
@@ -118,7 +118,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The next useful T-020 comparison is foreground open-world movement with resources = 0 after a user-chosen restart. The hash-off/resources-on observation is complete; current cfg still enables resources. The agent does not start or stop the game.
+- The next useful T-020 comparison is foreground open-world movement after a user-chosen restart. The cfg is prepared with resources = 0 and image_hash = 0, sandbox-verified only; the current game still has resources on. The agent does not start or stop the game.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

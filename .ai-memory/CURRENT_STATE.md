@@ -6,7 +6,9 @@
 
 User-started PID 31124 loaded 0.7.1 in probe/inject mode; resources on, image hashing off. Initial display readings were taken while the game was background, and the user said its mostly static character cannot reveal the problem. Switched to user-confirmed open-world movement: nine status reads over 39.992 seconds, 400/400 foreground polls, no captures, 11,681 host present intervals. Counts over 16/33/50 ms: 142/27/12. Largest interval 111.204 ms at frame 69089; final window p50 2.989 ms and p99 24.590 ms. Hash work and capture count remain zero. Evidence: `captures/pacing-hash-off-20261012/`; account: `docs/pacing-hash-off-session.md`.
 
-Spikes remain with hashing off; resource/descriptor tracking has not been isolated from game/driver/presentation work. A supplementary 20-second start/end-only observation has a focus confound (78/200 foreground polls) and is not a clean comparison. No layer/config/launcher change or game launch/stop was performed. Next useful comparison is the same open-world movement with resources = 0 after a user-chosen restart; current cfg still keeps resources enabled. No stutter fix is claimed.
+Spikes remain with hashing off; resource/descriptor tracking has not been isolated from game/driver/presentation work. A supplementary 20-second start/end-only observation has a focus confound (78/200 foreground polls) and is not a clean comparison. No layer/config/launcher change or game launch/stop occurred during measurement. No stutter fix is claimed.
+
+After preserving the observations, prepared `dist/efmi_vk.cfg` with resources = 0 and image_hash = 0 for the next user-started process. Previous cfg: `build/backups/before-resources-off-20261012-124818/`. The running PID 31124 retains resources on; no hot switch or restart occurred. Actual-config inject sandbox passes with resources/images/descriptors off, draw capture and pacing available (`build/tests/sandbox-a_60l8x8/`). Next: compare the same foreground open-world movement after restart; the resource-off configuration is not yet game-verified.
 
 ## Third probe: texture identities resolved; stutter remains open (2026-10-12)
 

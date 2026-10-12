@@ -63,6 +63,9 @@ presentation and external scheduling remain unisolated. Host intervals are not G
 frame times; do not convert their average directly into displayed FPS.
 
 T-020 remains open. Compare the same open-world movement with `resources = 0`, keeping image
-hashing off, after a user-chosen process restart. Current cfg still enables resources; no setting
-was silently changed. If spikes persist, passthrough/no-probe display timing is the subsequent
-isolation step. No rendering or performance fix has been verified.
+hashing off, after a user-chosen process restart. After measurement, prepared that configuration
+and preserved the old file in `build/backups/before-resources-off-20261012-124818/`. The running
+game retains resources on. An actual-config inject sandbox confirms resources off, images and
+descriptor sets untracked, five draws captured and pacing available (`build/tests/sandbox-a_60l8x8/`).
+This is preparation only, not a resource-off game comparison. If spikes persist, passthrough/no-probe
+display timing is the subsequent isolation step. No rendering or performance fix has been verified.
