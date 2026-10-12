@@ -391,3 +391,21 @@ resubmission under clean core/sync validation in both render-pass versions and l
 Source/build/next are 0.9.2; dist is unchanged at 0.9.1. No game action or full-mod compatibility
 claim. Details: docs/general-replacement-operations.md. Continue T-027's frontend, resource,
 shared-skeleton and material integration using these data inputs.
+
+## 2026-10-12: Pinned XXMI standalone CPU host feasibility
+
+Compiled/linked unmodified XXMI 1.2.2 parser, expression, command-list and pool sources with
+the pinned reference's adapter headers and local CPU shims. A headless executable passes 23
+checks covering the D-016 semantic questions; keys use synthetic button state, no hooks.
+Initial test expectations incorrectly merged root duplicate sections and read ElementFormat's
+semantic index before execution. Corrected those against upstream; engine sources unchanged.
+The reproducible full build also corrected a self-including wrapper filename and preserved
+the original units' Win32 min/max macro requirements separately from CRC compilation.
+
+scripts/probe_xxmi_host.py verifies dependency commits/clean tracked trees, stages original
+files under F:/vulkan, builds all units, records fingerprints and returns failure without
+running a stale binary. Final report: build/xxmi-host/report.json, 23 passed, zero failed.
+Method/limits/attribution: docs/xxmi-host-prototype.md. The GPU seam explicitly refuses when
+called, but reference headers still contain unused no-ops and are not a production adapter.
+No real mod/resource/Core runtime, layer change, deployment or game action. D-016's bounded
+CPU feasibility checkpoint is complete; continue T-027 resource/shared-character integration.

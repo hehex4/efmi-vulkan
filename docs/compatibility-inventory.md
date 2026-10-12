@@ -55,7 +55,7 @@ Core Debugger is not included by the installed d3dx.ini and is outside EFMI's in
 
 | Construct or command | Required behavior |
 | --- | --- |
-| namespace; repeated Constants/Present | Merge compatible repeated sections in source order; resolve relative and `\\EFMIv1\\` names without collapsing entries |
+| namespace; repeated Constants/Present | Preserve root duplicate rejection and included global-section append order; resolve relative and `\\EFMIv1\\` names without collapsing entries |
 | global, global persist; assignment | Float/expression semantics of XXMI; preserve persistence and read/write through cross-namespace references |
 | if, elif, else, endif | Nested control flow, arithmetic, comparisons and logical short circuit; source order matters |
 | Present post assignments | Queue post-phase resets after the correct present phase, including object_detected and active flags |
@@ -125,8 +125,9 @@ because ordinary texture descriptors are tracked.
 ## D4: host the XXMI engine behind an explicit adapter
 
 Decision: retain the plan's XXMI reuse through a host adapter for M3; do not describe the parser as
-a standalone portable library. No XXMI code is yet compiled into EFMI Vulkan. A reduced interpreter
-is a fallback if the bounded host prototype fails, not an already implemented alternative.
+a standalone portable library. Update on 2026-10-12: the bounded standalone CPU host compiles,
+links and passes 23 checks (docs/xxmi-host-prototype.md). No XXMI code is yet linked into the
+layer DLLs. A reduced interpreter remains a fallback, not an implemented alternative.
 
 Evidence at the pinned [XXMI commit](https://github.com/SpectrumQT/XXMI-Libs-Package/tree/a7847eae82aaac32175c9a7d199673d5c9323bcd/DirectX11):
 CommandList.cpp has 13,545 lines, IniHandler.cpp 5,263, CommandList.h 1,980. CommandListState exposes
@@ -150,9 +151,9 @@ The first frontend checks must include duplicate sections, callback mutation, po
 Region offsets, ElementFormat and duplicate key listeners. Keep upstream sources pinned and
 attributed under GPL-3.0; no original DLL injection or D3D11 hook is part of this host.
 
-This is a static dependency/architecture assessment, completed within M0's three-day assessment
-limit. No standalone extraction, compiled host prototype, runtime equivalence or port effort
-estimate is claimed. The prototype belongs after G2/G3 and minimal replacement establish the backend.
+The original static assessment completed within M0's three-day limit. The later prototype follows
+G2/G3 and the first component replacement; its bounded CPU checks do not establish whole-engine
+runtime equivalence or the remaining graphics/resource adapter effort.
 
 ## Reproduce and remaining gate
 

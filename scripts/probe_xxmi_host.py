@@ -1,0 +1,160 @@
+"""Build and run the pinned, headless XXMI CPU host prototype.
+
+This does not build/deploy the layer or load a mod into the game. Upstream
+checkouts are read-only; staged sources stay under F:/vulkan and generated
+objects, diagnostics and the executable stay under this project's build/.
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+
+from build import BuildError, find_vcvars, run_cl
+
+ROOT = Path(__file__).resolve().parents[1]
+DEPS = Path("F:/vulkan")
+PINS = {
+    "xxmi": "a7847eae82aaac32175c9a7d199673d5c9323bcd",
+    "reference": "113f42cc2dc5702dbba624ee16abac96d68ed3b5",
+}
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def pinned_checkout(path: Path, commit: str) -> dict:
+    head = subprocess.check_output(
+        ["git", "-C", str(path), "rev-parse", "HEAD"], text=True).strip()
+    if head != commit:
+        raise BuildError(f"Wrong dependency revision in {path}: {head}")
+    changed = subprocess.run(
+        ["git", "-C", str(path), "diff", "--quiet", "HEAD", "--"], check=False)
+    if changed.returncode:
+        raise BuildError(f"Dependency has tracked changes or cannot be verified: {path}")
+    return {"path": str(path), "commit": head, "tracked_tree_clean": True}
+
+
+def write_ascii(path: Path, text: str) -> None:
+    path.write_text(text.encode("ascii", "backslashreplace").decode("ascii"),
+                    encoding="ascii")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--xxmi", type=Path, default=DEPS / "XXMI-Libs-Package")
+    parser.add_argument("--reference", type=Path, default=DEPS / "wwmi-dx12")
+    args = parser.parse_args()
+    out = ROOT / "build/xxmi-host"
+    out.mkdir(parents=True, exist_ok=True)
+    report = {"scope": "standalone CPU host; no GPU/layer/game compatibility claim",
+              "pins": PINS, "compiled": False, "executed": False, "passed": False}
+    try:
+        upstream, reference = args.xxmi.resolve(), args.reference.resolve()
+        report["inputs"] = {
+            "xxmi": pinned_checkout(upstream, PINS["xxmi"]),
+            "reference": pinned_checkout(reference, PINS["reference"]),
+        }
+        port = reference / "reshade_addon/migoto"
+        pristine = DEPS / "efmi-xxmi-host-prototype/pristine"
+        pristine.mkdir(parents=True, exist_ok=True)
+        inputs = [port / "PRISTINE.txt"]
+        for line in inputs[0].read_text(encoding="utf-8").splitlines():
+            if not (line := line.strip()) or line.startswith("#"):
+                continue
+            source = (upstream / line).resolve()
+            if not source.is_relative_to(upstream):
+                raise BuildError("Invalid path in the pinned pristine-source manifest")
+            destination = pristine / source.name
+            shutil.copyfile(source, destination)
+            if digest(source) != digest(destination):
+                raise BuildError(f"Staging mismatch: {source}")
+            inputs.append(source)
+        (pristine / "version.generated.h").write_text(
+            "#define VERSION_MAJOR 1\n#define VERSION_MINOR 2\n"
+            "#define VERSION_REVISION 2\n#define VERSION_BUILD 0\n", encoding="ascii")
+        fixture = ROOT / "sandbox/xxmi_host"
+        legacy_sources = [pristine / f"{name}.cpp" for name in
+                          ("CommandList", "ResourceHash", "profiling", "util", "Override")]
+        sources = [fixture / f"{name}.cpp" for name in ("main", "shim", "ini", "host_input")]
+        sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in
+                    ("DDSTextureLoader", "WICTextureLoader")]
+        sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
+        regex_lib = upstream / "pcre2/pcre2-8-64.lib"
+        inputs += legacy_sources + sources + list(port.glob("*.h")) + [regex_lib, Path(__file__)]
+        report["source_sha256"] = {str(p): digest(p) for p in sorted(set(inputs))}
+        includes = [port, pristine, upstream, upstream / "HLSLDecompiler",
+                    upstream / "D3D_Shaders", upstream / "DirectXTK/Inc",
+                    upstream / "DirectXTK/Src", upstream / "crc32c-hw-1.0.5/include",
+                    upstream / "pcre2"]
+        vcvars = find_vcvars()
+        report["vcvars"] = vcvars
+        exe = out / "host_probe.exe"
+        flags = ["/nologo", "/std:c++17", "/permissive", "/W0", "/Od", "/MT", "/EHa",
+                 "/Gy", "/Gw", "/DUNICODE", "/D_UNICODE", "/D_HAS_STD_BYTE=0",
+                 "/DMIGOTO_DX=11", "/DPCRE2_CODE_UNIT_WIDTH=8", "/DPCRE2_STATIC",
+                 "/DCRC32C_STATIC", "/D_CRT_SECURE_NO_WARNINGS",
+                 "/D_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING",
+                 "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1",
+                 "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_COUNT=1",
+                 "/FI" + str(port / "port_compat.h")]
+        flags += ["/I" + str(p) for p in includes]
+        flags += ["/Fo" + str(out) + "/"]
+        compile_flags = flags + ["/c"] + [str(p) for p in legacy_sources]
+        # The legacy units depend on Win32 min/max accepting mixed integer
+        # types; the CRC source needs NOMINMAX before the forced Win32 header.
+        link_flags = flags + ["/DNOMINMAX"] + [str(p) for p in sources]
+        link_flags += [str(out / (p.stem + ".obj")) for p in legacy_sources]
+        link_flags += ["/Fe:" + str(exe), "/link", "/NOLOGO",
+                  "/OPT:REF", "/OPT:ICF", "user32.lib", "gdi32.lib", "advapi32.lib",
+                  "d3dcompiler.lib", "dxguid.lib", "ole32.lib", "xinput.lib", "dbghelp.lib",
+                  str(regex_lib)]
+        # run_cl uses a batch file. Reject shell metacharacters in path overrides.
+        if any(any(c in value for c in '\"&|<>^%!\r\n') for value in [vcvars, *compile_flags, *link_flags]):
+            raise BuildError("A compiler argument contains unsupported shell characters")
+        os.environ["VSLANG"] = "1033"  # Only this script and its compiler children.
+        print("Building pinned XXMI CPU host (no graphics device or hooks)...", flush=True)
+        build_output = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(build_output):
+                run_cl(vcvars, str(out), compile_flags)
+                run_cl(vcvars, str(out), link_flags)
+        except BuildError as exc:
+            build_output.write(str(exc))
+            raise
+        finally:
+            write_ascii(out / "build.txt", build_output.getvalue())
+        report.update(compiled=True, executable_sha256=digest(exe))
+        env = dict(os.environ, TEMP=str(out / "build/tmp"), TMP=str(out / "build/tmp"))
+        result = subprocess.run([str(exe)], cwd=out, env=env, capture_output=True,
+                                encoding="utf-8", errors="replace", timeout=30)
+        output = result.stdout + result.stderr
+        write_ascii(out / "runtime.txt", output)
+        report.update(executed=True, returncode=result.returncode)
+        counts = re.search(r"XXMI hosted CPU prototype: (\d+) checks passed, (\d+) failed", output)
+        report["checks_passed"] = int(counts[1]) if counts else 0
+        report["checks_failed"] = int(counts[2]) if counts else None
+        report["passed"] = result.returncode == 0 and bool(counts) and int(counts[2]) == 0
+        print(counts[0] if counts else f"Host process failed: {result.returncode}", flush=True)
+        return 0 if report["passed"] else 1
+    except (BuildError, OSError, subprocess.SubprocessError) as exc:
+        report["error"] = str(exc)
+        print(str(exc).encode("ascii", "backslashreplace").decode("ascii"), file=sys.stderr)
+        return 1
+    finally:
+        (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\n",
+                                         encoding="ascii")
+        print(f"Report: {out / 'report.json'}", flush=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

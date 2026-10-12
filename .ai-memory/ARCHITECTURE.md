@@ -162,7 +162,7 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 
 Many-draw mode cycles the five meshes and descriptor ranges. QPC records host wait/record/submit/present phases with warmup exclusion. Core/synchronization validation and negative canaries are part of the suite. VVL and its dependencies are built under F:/vulkan; child caches stay in build/tests. See docs/validation.md.
 
-scripts/inventory_compat.py preserves lexical section order/duplicates and emits fingerprints and line references. It does not evaluate INIs. D-016 retains a future hosted XXMI frontend behind explicit state/resource/input adapters, with native Core-VK operations; no frontend has been linked yet. Real G2/G3 evidence determines the Vulkan backend before that M3 work.
+scripts/inventory_compat.py preserves lexical section order/duplicates and emits fingerprints and line references. It does not evaluate INIs. D-016 retains a hosted XXMI frontend behind explicit state/resource/input adapters, with native Core-VK operations. The standalone CPU prototype now compiles/links pinned 1.2.2 and passes 23 checks (docs/xxmi-host-prototype.md); it is not linked into the layer. Reference D3D-shaped headers remain compile scaffolding, not the production resource adapter. Resource/Core execution, persist/reload and full mod compatibility remain open.
 
 ## Contents kept by a capture (0.6.0)
 

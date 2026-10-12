@@ -2,6 +2,12 @@
 
 > Last updated: 2026-10-12, general replacement operations verified. Source/build/next are 0.9.2; dist remains 0.9.1 with component 7 enabled. Shared declaration editing and ordered draw transactions pass the full sandbox suite. The user resumed, entered the character display, and later confirmed voluntary exit. The live 0.9.1 backend replaced component-7 draws; appearance and animation are not accepted. The user requests the whole character mod through general logic. Continue offline T-027/D-033; no separate handwritten component implementations. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
 
+## Hosted XXMI frontend feasibility (standalone CPU only)
+
+The pinned 1.2.2 sources now compile/link in a headless host and pass 23 native CPU checks: expressions/control flow/post phase, pools/expiration/aliases, callback references, duplicate-section distinctions, Region arguments, ElementFormat execution and duplicate synthetic key listeners. Reproducible builder rejects changed dependency revisions/trees, fingerprints inputs, and never executes a stale binary after failure. Report: build/xxmi-host/report.json; method and limits: docs/xxmi-host-prototype.md.
+
+This closes D-016's bounded host feasibility checkpoint, not full INI/Core compatibility. The reference D3D-shaped headers are compile scaffolding, with unused graphics no-ops; missing local GPU adapters explicitly refuse. No graphics device, real key input, installed-mod execution or layer integration occurred. No DLL/deployment/config change; full 0.9.2 regression above remains applicable. Continue general resource/shared-skeleton/material integration offline.
+
 ## 0.9.2 shared declaration editing and draw transactions (sandbox only)
 
 Added data-driven stream contracts (original/replacement stride and element offset/format) and ordered multi-draw transactions. The legacy M2 package delegates to these operations; its restrictive eligibility and configuration are unchanged. Contracts preserve shader locations and untouched streams, and reject incomplete/ambiguous mappings atomically. Transactions preflight all resolved items before emitting anything, allow an intentional empty skip, and restore the application's bindings once after all draws. No component identifiers are used by either operation.
