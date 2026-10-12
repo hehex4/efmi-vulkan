@@ -1,6 +1,16 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12, 19:25. Source, build/next and dist/ are 0.9.1: a review found the patched bone offsets of 0.8.2 to 0.9.0 one matrix too high (BUG-005, D-032) and corrected them before any game process had loaded a replacing layer. dist/ keeps the component-7 configuration (m2_enabled = 1); its sandbox smoke passes. No game has loaded 0.9.0 or 0.9.1 or rendered the replacement. The pause the user asked for after configuration stands: the next step is a user-started Vulkan session. Two earlier actual LOD1 snapshot bundles close T-023 in the observed scene. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, after the first 0.9.1 replacement observation. Source/build/next/dist remain 0.9.1. The user resumed, entered the character display, and later confirmed voluntary exit. The live backend replaced component-7 draws; appearance and animation are not accepted. The user requests the whole character mod through general replacement logic, without separate handwritten component implementations. Continue offline development (T-027, D-033). Dist retains the component-7 settings. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+
+## 0.9.1 first game replacement and direction for general mod support
+
+User-started Endfield PID 3080 loaded 0.9.1 at 19:22:00 with the component-7 package enabled. In a 4.008-second status window, matched and replaced both increase by 806, with pending 22 and unsupported 96 unchanged, and unreadable/exhausted zero. Later counters are matched 57,751, replaced 57,502, pending 22 and unsupported 227. The grouped last refusal names primary/classic/single-instance/free-set-3/extended-binding constraints but does not identify which one failed; do not claim the whole session had no new refusals. The user confirmed voluntary exit. No runtime switch, deployment, launcher edit or automatic game start occurred.
+
+Saved display frame 51,570 contains 46 matched draws; component 7 is draw 86/87 on supported pipeline 368. Both instance entries and both bone windows compare equal at record/submit. The 176 bundle file fingerprints verify. Pipeline 437 for component 10 draw 38 lacks the current three-set layout precondition; full-frame bone replay refused before execution, not passed. Evidence and limits: docs/m2-first-replacement.md. Captures retain the application's original draw state (LIMIT-020), so counters are execution evidence, not pixel proof.
+
+Mesh-space inspection locates component 7 in two small strips near the eyes. Its XYZ positions equal the live original exactly; packed vertex/UV bytes do not all match. The user cannot reasonably judge this tiny part. Stop requesting microscopic visual acceptance; use a substantial character replacement at the next appropriate game checkpoint. D-033 keeps component differences in data and preserves the hosted XXMI frontend direction of D-016. Shared skeleton assembly, resource/declaration handling, textures, INI execution, toggles and panel remain work, not implemented compatibility.
+
+The sections below are historical checkpoints; the earlier pause and no-game statements no longer describe the current state.
 
 ## Review of 0.8.1 to 0.9.0: one defect, corrected in 0.9.1 and deployed (2026-10-12, 19:25)
 

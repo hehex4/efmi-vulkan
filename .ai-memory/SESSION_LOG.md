@@ -354,3 +354,21 @@ Reading `merged_skeleton.cpp` against the DX11 baseline showed the difference: t
 Full build and suite in `build/next` pass (bones 43, M2 45, the rest as before; `build/review-0.9.0/run_all-0.9.1.out`). Replay of the five saved frames: 283 records, same master hash, every patched entry `(1533, 3030)`. Deployed at 19:15 after checking twice that no game or sandbox process ran: backup `build/backups/before-0.9.1-20261012-191540/`, eleven binaries compared by SHA-256, both DLLs `d2850254ded6477c777fc1f06d5f93c8ce921f74897e2881ca996fb8b7cae417`, settings values untouched. Suite on `dist/` without building and the actual-config smoke pass; the game log is unchanged. No launcher edit, no game start.
 
 Nothing else needed changing. Checked with game data rather than assumed: single-instance requirement against `gl_InstanceIndex`; no `Bind*2`, reset or free of command buffers in the 0.8.1 session and one command buffer per frame for the graphics draws, so the arena limit of eight is not near; the package against `CommandList_Draw_Component7`; the mod's index list for component 7 hashes to the game's `a3fe5c47` when written as 16-bit. Recorded LIMIT-020 (a capture does not mark replaced draws). The pause stands; next is the user-started session of T-026.
+
+## 2026-10-12: Resume, first live replacement execution and general-backend direction
+
+User-started PID 3080 loaded 0.9.1 with component 7 enabled in the display/LOD0 scene. A
+4.008-second window adds 806 matches and replacements with stable refusal counters. Later
+unsupported grows from 96 to 227; the grouped last reason does not identify the individual
+condition. Unreadable/exhausted remain zero. Preserved the live status and a full draw/snapshot
+bundle, verified all 176 fingerprints, and confirmed both component-7 draws have supported
+recipes and record-equal entry/current/previous snapshots. Full-frame offline replay refuses
+the additional component-10 pipeline 437's layout before execution. No passed replay claimed.
+
+Located the tiny eye-region mesh and compared its live original XYZ positions to the mod:
+identical, although packed normal/UV bytes differ. Saved an uncommitted mesh-space plot.
+The user cannot reasonably accept appearance from this part and requests whole-mod support
+using general logic, not separate per-component code. Recorded D-033/T-027. The user confirmed
+voluntary exit after the pipe disappeared. No launch/stop, runtime toggle, deployment or
+external write occurred. Details: docs/m2-first-replacement.md. Continue offline development;
+the earlier pause is superseded, and visual/animation acceptance remains open.

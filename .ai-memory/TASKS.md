@@ -6,11 +6,17 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof, not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.1: a review corrected the patched bone offsets (BUG-005, D-032) and deployed the result with the same component-7 configuration; suite and actual-config smoke pass on dist/. The pause the user requested after configuration stands; the next step is a user-started Vulkan session. No game result for 0.9.0 or 0.9.1 exists. See docs/m2-component-hook.md and T-026.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.1. The user resumed and the display session proves the component-7 backend emits replacement draws; visual/animation acceptance remains open. The user confirmed voluntary exit and requests whole-character support through shared logic. Continue offline T-027; do not wait on the superseded configuration pause. See docs/m2-first-replacement.md.
 
 ## Tasks and follow-ups
 
-### T-026: One self-contained component through the draw hook (sandbox complete; game checkpoint pending)
+### T-027: Data-driven character replacement and frontend integration (in progress)
+
+User direction: whole character support, not handwritten adapters per component. Reuse the pipeline cache, VS isolation, bone importer, command-owned storage and restoration. Introduce component/LOD/resource/draw data as input to shared backend operations; integrate the hosted XXMI frontend under D-016 rather than treating an asset packer as an INI engine. Cross-component skeleton completeness, material descriptors, multi-instance identity, conditionals/keys/reload and the image panel need explicit coverage. All existing captures can be used offline. The next user game check should show a substantial visual change, not ask the user to inspect the tiny component-7 mesh. See D-033.
+
+### T-026: One self-contained component through the draw hook (sandbox complete; game execution observed)
+
+Latest: PID 3080, 0.9.1, display/LOD0, +806 matched/+806 replaced in the stable 4.008-second sample. Later unsupported reaches 227; its grouped reason is unresolved. Both component-7 draws in saved frame 51,570 have supported recipes and complete record-equal snapshots. The eye-region mesh has original XYZ positions; user observation cannot accept its tiny unchanged appearance. User voluntarily exited. No LOD1 replacement/animation/visual acceptance is claimed. Details: docs/m2-first-replacement.md. The following deployment notes are historical.
 
 0.9.0 implements an explicit package for sample component 7, mapped per-draw current/previous import, asynchronous variants, command-owned immutable snapshots, successful-reset recycling and original draw restoration/fallback. Native package checks 30, actual-hook runner 45 and the full suite pass. The candidate's actual configuration loads the original asset package in a sandbox with clean validation and normal exit. The ten matching draws in five saved frames satisfy the profile; this does not prove game driver creation or visual correctness. Details and current configuration: docs/m2-component-hook.md, D-031.
 
@@ -174,7 +180,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The user explicitly paused work after configuration. 0.9.1 is deployed and verified in the sandbox (0.9.0 had BUG-005). Wait for an explicit resume before further development or game collection; a later user-started run will test actual replacement rendering. No repeated bone capture or duration-only test is required.
+- The configuration pause was explicitly resumed. The user voluntarily exited after the 0.9.1 display observation. Continue offline whole-character development; the agent must not start the next game session. No repeated bone capture, tiny-part visual check or duration-only test is required.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
