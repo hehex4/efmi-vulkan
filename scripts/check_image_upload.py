@@ -29,6 +29,7 @@ def main() -> int:
                      "/Fo"+str(out)+"/", "/Fd"+str(out/"test.pdb"),
                      str(ROOT/"sandbox/asset_gpu.cpp"),str(ROOT/"frontend/assets/dds.cpp"),
                      str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/texture_cache.cpp"),
+                     str(ROOT/"frontend/gpu/fragment_images.cpp"),
                      "/Fe:"+str(exe),"/link","/NOLOGO","user32.lib"]
         log=io.StringIO()
         try:
@@ -40,6 +41,8 @@ def main() -> int:
         report["executable_sha256"]=hashlib.sha256(exe.read_bytes()).hexdigest()
         inputs=list((ROOT/"frontend/assets").glob("*.h"))+list((ROOT/"frontend/assets").glob("*.cpp"))
         inputs += [ROOT/"sandbox/asset_gpu.cpp",ROOT/"sandbox/asset_cache_test.cpp",ROOT/"sandbox/xxmi_host/dds_test.cpp",Path(__file__)]
+        inputs += [ROOT/"frontend/gpu/fragment_images.h",ROOT/"frontend/gpu/fragment_images.cpp",
+                   ROOT/"sandbox/material_fixture.h",ROOT/"sandbox/asset_material_test.cpp",ROOT/"sandbox/src/spirv.h"]
         report["source_sha256"]={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
         validation=Path(os.environ.get("EFMI_VK_VALIDATION_DIR","F:/vulkan/validation-1.4.321.0/bin"))
         if not (validation/"VkLayer_khronos_validation.json").is_file():raise RuntimeError("Validation layer missing")

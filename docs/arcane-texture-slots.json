@@ -77,7 +77,9 @@
       "ps-t15": {
         "set": 0,
         "binding": 35,
-        "evidence": "look"
+        "evidence": "look",
+        "shader_image_dimension": "3d",
+        "sample_2d_replacement": "refused_dimension_mismatch"
       }
     },
     "493c1a7e": {
@@ -96,7 +98,9 @@
       "ps-t15": {
         "set": 0,
         "binding": 36,
-        "evidence": "look"
+        "evidence": "look",
+        "shader_image_dimension": "3d",
+        "sample_2d_replacement": "refused_dimension_mismatch"
       }
     },
     "50c1e4bb": {
@@ -108,7 +112,9 @@
       "ps-t14": {
         "set": 0,
         "binding": 36,
-        "evidence": "look"
+        "evidence": "look",
+        "shader_image_dimension": "3d",
+        "sample_2d_replacement": "refused_dimension_mismatch"
       }
     },
     "c90341d7": {
@@ -324,6 +330,7 @@
   "limits": [
     "All four former ambiguities are resolved by CRC-32C content matching; CRC is not collision-proof.",
     "Mappings labelled look still rely on a unique size/format match.",
+    "The three annotated 3d bindings pair 3d original placeholders in both APIs; the sample later binds 2d assets under DX11. Pairing does not authorize a 2d Vulkan replacement; that compatibility remains unresolved.",
     "Unknown fragment shaders must not use a guessed slot table.",
     "No game assets or shader bytecode are included."
   ]

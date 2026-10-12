@@ -18,7 +18,13 @@ static void require(VkResult r,const char* where){if(r!=VK_SUCCESS)throw std::ru
     X(GetPhysicalDeviceFeatures) X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceQueueFamilyProperties) \
     X(GetPhysicalDeviceFormatProperties) X(GetPhysicalDeviceImageFormatProperties) X(CreateDevice) X(GetDeviceProcAddr)
 #define DEVICE_CALLS(X) EFMI_IMAGE_UPLOAD_FUNCS(X) X(DestroyDevice) X(GetDeviceQueue) X(QueueWaitIdle) \
-    X(DeviceWaitIdle) X(CmdCopyImageToBuffer) X(CmdBlitImage)
+    X(DeviceWaitIdle) X(CmdCopyImageToBuffer) X(CmdBlitImage) \
+    X(CreateShaderModule) X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) \
+    X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateGraphicsPipelines) X(DestroyPipeline) \
+    X(CreateRenderPass) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) \
+    X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) \
+    X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) \
+    X(CmdDraw) X(CmdSetViewport) X(CmdSetScissor)
 #define X(n) static PFN_vk##n p##n=nullptr;
 INSTANCE_CALLS(X) DEVICE_CALLS(X)
 #undef X
@@ -98,12 +104,13 @@ struct Gpu {
         }
         throw std::runtime_error("Test memory type missing");
     }
-    Buffer readback(size_t bytes){
-        buffers.emplace_back();auto& b=buffers.back();VkBufferCreateInfo ci={VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};ci.size=bytes;ci.usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    Buffer buffer(size_t bytes,VkBufferUsageFlags usage){
+        buffers.emplace_back();auto& b=buffers.back();VkBufferCreateInfo ci={VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};ci.size=bytes;ci.usage=usage;
         CHECK_VK(pCreateBuffer(device,&ci,nullptr,&b.buffer));VkMemoryRequirements req{};pGetBufferMemoryRequirements(device,b.buffer,&req);
         b.memory=allocate(req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);CHECK_VK(pBindBufferMemory(device,b.buffer,b.memory,0));
         CHECK_VK(pMapMemory(device,b.memory,0,bytes,0,&b.mapped));memset(b.mapped,0,bytes);return b;
     }
+    Buffer readback(size_t bytes){return buffer(bytes,VK_BUFFER_USAGE_TRANSFER_DST_BIT);}
     Destination destination(){
         images.emplace_back();auto& i=images.back();VkImageCreateInfo ci={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=VK_IMAGE_TYPE_2D;
         ci.format=VK_FORMAT_R8G8B8A8_UNORM;ci.extent={1,1,1};ci.mipLevels=ci.arrayLayers=1;ci.samples=VK_SAMPLE_COUNT_1_BIT;
@@ -186,9 +193,11 @@ static void run(Gpu& g,std::vector<uint8_t> data,bool color)
     }else check(!memcmp(b.mapped,expected.data(),expected.size()),"all compressed mip bytes survive upload after CPU source destruction");
 }
 #include "asset_cache_test.cpp"
+#include "asset_material_test.cpp"
 int wmain(int argc,wchar_t** argv)
 {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
+    if(argc>=8 && !wcscmp(argv[1],L"--repoint-fragment"))return rewrite_fragment_file(argc,argv);
     try{Gpu g;g.init();
         if(argc==3 && !wcscmp(argv[1],L"--dds")){
             std::ifstream file(std::filesystem::path(argv[2]),std::ios::binary|std::ios::ate);
@@ -202,6 +211,7 @@ int wmain(int argc,wchar_t** argv)
             for(auto format:{28u,29u}){auto rgba=fixture(format);rgba.resize(152);put(rgba,12,1);put(rgba,16,1);put(rgba,28,1);
                 rgba[148]=rgba[149]=rgba[150]=128;rgba[151]=255;run(g,rgba,true);}
             cache_tests(g);
+            fragment_tests();material_test(g);
         }else throw std::runtime_error("Invalid asset fixture arguments");
     }catch(const std::exception& e){++failed;printf("FAILED: %s\n",e.what());}
     check(!validation_errors && !validation_warnings,"core and synchronization validation remain clean");

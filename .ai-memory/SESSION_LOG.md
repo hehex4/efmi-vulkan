@@ -493,3 +493,28 @@ Layer source/build/next remain 0.9.2 and dist/0.9.1 remains untouched. This is s
 preparation/ownership, not whole-mod rendering. Buffer resources, descriptor/material support,
 shared character/Core and real frontend generation integration remain. No game action or asset
 write. Updated docs/resource-assets.md, architecture, current state and tasks.
+
+## 2026-10-12: Fragment image isolation, pixel proof and dimension audit
+
+Added standalone FS image-binding relocation, retaining all nonbinding words and original
+VS/sampler/buffer inputs. Initial actual-shader check refused Depth=Unknown declarations;
+the specification and actual modules confirm this is not a depth-image assertion. Added
+opaque-value tracing and explicit depth/escape refusals, retaining unrelated shadow sampling.
+
+Headless asset suite now passes 79 checks with clean core/sync validation. GPU material test
+uses the same original image in VS/FS: private FS turns red without changing VS displacement,
+the next original draw stays blue, a zero 2D texture returns zero, and untouched pixels remain
+green. Images survive their cache being retired before drawing. Production layer unchanged.
+
+Historical validation found three mappings whose target image type is 3D. The first chat
+description called this a mapping issue; checking both APIs refined that conclusion: original
+pairings are matching 1x1x1 3D placeholders. Frame-a/frame-on custom DX11 draws 126/145/162 later
+bind mod 2D views in those slots. Bindings alone do not establish sampled behavior. Kept the
+slot correspondence, added refusal annotations and LIMIT-021 instead of silently converting
+dimensions. The other 16 moves across seven shaders match Python and pass spirv-val; all nine
+source modules validate. The verifier fingerprints evidence and audits both raw DX11 captures
+through the read-only sibling decoder. Report: build/fragment-images/report.json.
+
+Updated docs/fragment-materials.md, D-034, architecture, tasks/current state and known issues.
+Still standalone: descriptors, pipeline/cache integration, full Core/shared character and
+dimension semantics remain open. No game, DLL/config deployment or original asset write.
