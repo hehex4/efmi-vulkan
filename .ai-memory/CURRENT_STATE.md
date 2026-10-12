@@ -2,6 +2,10 @@
 
 > Last updated: 2026-10-12. Layer 0.5.1 (probe, protocol 1), server 0.1.0. Probe mode ran in the real game for the first time on 2026-10-12: G2 is answered (one recording thread), G3 a passes (all 12 LOD0 components of the sample mod match by hash), G3 b and c are strongly indicated from live reads and still need a snapshot taken at submit. Long-duration stability is unverified. No mod rendering exists.
 
+## Machine set up for the DX11 baseline (2026-10-12 10:01; game not running)
+
+At the user's request this project switched the launcher's EFMI profile back to DX11: `d3d11_mode_cmd_args` from empty to `-force-d3d11` and `xxmi_dll_inject_mode` from `SKIP` to `DIRECT`, two lines, with the launcher and the game not running and a copy of the file saved in `build/backups/`. `dist/efmi_vk.cfg` is `mode = passthrough` while the launcher keeps injecting this DLL under DX11. Both have to go back before the next Vulkan session (T-008). The launcher log also narrowed BUG-001: XXMI's `d3d11.dll` under Vulkan is the cause, not the DX11 probe.
+
 ## First probe session in the real game (2026-10-12, 09:47 to at least 09:55; started by the user)
 
 Launcher configuration of run 3 (Vulkan, XXMI DLL injection mode Skip, only `efmi_vk_inject.dll` injected). `Endfield.exe` PID 8920, layer 0.5.1 in probe mode with full resource tracking. The character of `arcane fes 1.2` was on screen in what looks like a character display scene (objects placed around (-300, 300, -300)). Everything below was read through the probe pipe; nothing was written to the game. Evidence, local and ignored by Git: `captures/first-look/` (status and call counters twice, 5 s apart), `captures/first-probe/` (collector bundle of frame 30630: 84 files, `frame.json` 4.7 MB, 74 shaders, manifest `complete_with_gaps` because 68 pipelines were over the limit of 48), `captures/g3bc/g3bc.json` (two more captures with live buffer reads).

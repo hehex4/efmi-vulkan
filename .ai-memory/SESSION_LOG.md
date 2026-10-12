@@ -139,3 +139,9 @@ Results: one recording thread, one command buffer with every draw, classic rende
 Recorded: CURRENT_STATE (full numbers and evidence paths), D-018, T-017 (snapshot at submit), LIMIT-008 and LIMIT-014. The evidence is under `captures/`, which Git ignores. Nothing in the launcher, the game or the mods was changed by this project.
 
 Next: T-017, then the same scene again; T-008 (DX11 baseline with the mod) when the user has a DX11 session.
+
+## 2026-10-12: Launcher switched back to DX11 at the user's request
+
+The user asked this project to change the two launcher values itself so that the DX11 baseline can be taken. With neither the launcher nor the game running, `XXMI Launcher Config.json` was copied to `build/backups/` and two lines of the EFMI profile were replaced by text (`d3d11_mode_cmd_args` to `-force-d3d11`, `xxmi_dll_inject_mode` to `DIRECT`); the result parses to exactly the intended configuration. The signed list of injected libraries was left alone, and `dist/efmi_vk.cfg` was set to passthrough for the DX11 session. The working agreement now states under which conditions the agent may change a launcher setting.
+
+Reading the launcher log for this also showed that the DX11 probe was injected in this morning's successful Vulkan session, while the crashed one before it had XXMI's `d3d11.dll` as well: BUG-001 is caused by XXMI's `d3d11.dll` under Vulkan.

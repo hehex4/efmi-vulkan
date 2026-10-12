@@ -14,7 +14,9 @@ T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP
 
 `docs/compatibility-inventory.md` and `docs/compatibility-inputs.json` cover every lexical construct/command and direct EFMIv1 item used by the main mod and Core, plus the previously missed image panel. Pinned the exact release DLL and source commit; saved Core/mod tree and game binary/content-index fingerprints. Engine version is known; the game marketing label is not inferred. D-016 retains the hosted XXMI engine approach, with explicit adapter boundaries and a later compiled prototype. Reproducible snapshot check passes. No runtime compatibility is claimed.
 
-### T-008: DX11 baseline capture with the sample mod (open; needs the game running under DX11 with EFMI)
+### T-008: DX11 baseline capture with the sample mod (prepared on 2026-10-12; waits for the user's DX11 launch)
+
+State of the machine for this session: at the user's request the launcher's EFMI profile was set back to DX11 by this project (`d3d11_mode_cmd_args` = `-force-d3d11`, `xxmi_dll_inject_mode` = `DIRECT`; copy of the file before the change in `build/backups/launcher-config-before-dx11-20261012-100111.json`). The injected libraries are still `efmi_probe.dll` and `efmi_vk_inject.dll`; that value is signed and was not touched, so `dist/efmi_vk.cfg` was set to `mode = passthrough` for the DX11 session. **Before the next Vulkan session**: the two launcher values back to empty and `SKIP` (by the user, or by this project when asked), and `dist/efmi_vk.cfg` back to `mode = probe`.
 
 The existing frame dump has no modded draw (LIMIT-003). A new one with `arcane fes 1.2` on screen, including one key toggle, is needed for the G3 comparison table: per component the IB hash, first index and count, pixel shader hash, the textures at t12 to t18, vertex layout, constant buffer sizes. The EFMI MCP tools can take it.
 
