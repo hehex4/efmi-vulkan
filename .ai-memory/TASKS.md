@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017 and T-020 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. The probe no longer stutters in the open world (0.7.3's streaming loads, confirmed in the game with 0.7.4). T-021 is withdrawn. Source is 0.7.5; `dist/` holds 0.7.4 until the game exits. Next is M2, with T-010's open-world items as they come up.
+T-001 to T-008, T-012, T-014, T-015, T-017 and T-020 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. The probe no longer stutters in the open world (0.7.3's streaming loads, confirmed in the game with 0.7.4). T-021 is withdrawn. Source and dist/ are 0.7.5; deployment after game exit passed the complete suite and actual-config smoke. Next is M2, with T-010's open-world items as they come up.
 
 ## Tasks and follow-ups
 

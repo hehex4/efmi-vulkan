@@ -259,3 +259,9 @@ The user started the game with 0.7.4 and reported that the stutter seemed gone. 
 Three captures in the open world gave the first data from there: one recording thread as before, about 1,190 draws, instancing up to 675, every hash from the mapping, and the mod's LOD1 sections matching in the shadow pass.
 
 The record was corrected rather than extended: `docs/unmap-snapshots.md` rewritten around the measurement with the wrong reasoning kept as its last part, D-026 withdrawn by D-027, BUG-004 and ISSUE-005 closed with the right cause, T-020 closed, T-021 withdrawn, plan facts 24 and 25. Source 0.7.5 restores the default of the copy at unmap and keeps what was right in 0.7.4; it passed the full suite in `build/next` and waits for the game to exit before it goes to `dist/`.
+
+## 2026-10-12: Resume and deploy 0.7.5 after game exit
+
+Restored current state/tasks and checked the screenshot against the repository. The game was no longer running. Backed up dist/ to build/backups/before-0.7.5-20261012-155227/, copied the exact tested binaries from build/next and corrected the cfg comment to describe the restored default. Settings stay probe, resources/hash off and tracker profiling on. Both DLL SHA-256 values are f331ff7c3a390affbc7adfe617a1e1364f9d5441821b86f2ecdabf4ff39c7475.
+
+Full --no-build suite on the deployed files passes (build/deployment-0.7.5-regression.txt): unit 88, native 126, 17 probe configurations 504-519, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 78. Actual-config inject smoke confirms 0.7.5, the full unmap default and correct draw hashes (build/tests/sandbox-2c8cp1sr/); the historical game log is unchanged. No game or launcher start/stop and no launcher edit. Continue M2 offline; no repeated stutter-duration test is required for this deployment.

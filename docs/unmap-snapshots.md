@@ -85,8 +85,10 @@ D-025) was right as it stood.
   settings in a running process.
 - Kept: the test harness pins its settings against `dist/efmi_vk.cfg`.
 
-0.7.5 is built and has passed the full suite in `build/next`. `dist/` still holds 0.7.4, which the
-running game has loaded; for this game the two behave the same.
+0.7.5 passed the full suite in build/next and was deployed after observing game exit at 15:52.
+The copied dist/ package passes the full suite and an actual-config inject smoke test; both DLLs
+have SHA-256 f331ff7c3a390affbc7adfe617a1e1364f9d5441821b86f2ecdabf4ff39c7475.
+No 0.7.5 game run is claimed. In the observed 0.7.4 session the two copy rules behaved identically.
 
 ## What remains
 

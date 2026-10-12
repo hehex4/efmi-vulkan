@@ -1,6 +1,12 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Source is layer 0.7.5 (protocol 1), built and suite-verified in `build/next`; `dist/` holds 0.7.4, which the running game (PID 27188) has loaded. The stutter is gone in the game: 3 of 87,005 present intervals over 33 ms with 0.7.4, and the user says so. The cause was slow reads of write-combined staging memory at unmap and the fix is the streaming loads of 0.7.3; a review that blamed the game's mesh pools was wrong and has been corrected (D-027). First open-world frames: every hash from the mapping, LOD1 sections match. Server 0.1.0. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.7.5 (protocol 1) is now deployed to dist/ after observing game exit, with the copied package passing the full suite and actual-config smoke. No 0.7.5 game run yet. The stutter is gone in the 0.7.4 game session: 3 of 87,005 present intervals over 33 ms and the user's confirmation. Slow WC staging reads were fixed by 0.7.3; the later mesh-pool attribution was withdrawn (D-027). First world frames include LOD1 matches. Next: M2 pipeline variants and state restoration. Server 0.1.0. No mod rendering exists.
+
+## Deployment of the verified 0.7.5 package (2026-10-12, 15:52)
+
+The user requested continuation after restoring memory. Endfield was no longer running. Backed up dist/ to build/backups/before-0.7.5-20261012-155227/ and copied the tested build/next binaries without rebuilding. Both DLLs have SHA-256 f331ff7c3a390affbc7adfe617a1e1364f9d5441821b86f2ecdabf4ff39c7475. The cfg comment now states the restored full transfer-source default; settings remain probe, resources/hash off and profiling on.
+
+Full suite on dist/ with --no-build passes: unit 88, native 126, 17 probe configurations 504-519, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 78 (build/deployment-0.7.5-regression.txt). Actual-config inject smoke passes, including unmap_snapshot_all=true and five hashes before/after rewrite (build/tests/sandbox-2c8cp1sr/). The game log is unchanged. No game/launcher launch or launcher change. M2 development can continue offline; the 0.7.5 deployment itself does not require another duration-only game test.
 
 ## Game session with 0.7.4: stutter gone, the review's attribution refuted, first open-world frames (2026-10-12, from 15:28; started by the user)
 
@@ -11,7 +17,7 @@ Loads in the real game and data captured in the real game. PID 27188 under Vulka
 - `passed_over` is 0 of 144,103: the staging-only rule of 0.7.4 skipped nothing. The mesh pools are mapped the whole time. The section below, written before this session, attributed the copies to the pools; that was wrong. It read the `generation` counter as a count of copies at unmap although tracked buffer copies increment it too, and it drew conclusions from an inventory of 251 live buffers about a session that had created 280,000.
 - Open world, three captures: about 1,190 draws in 35 render passes, one recording thread, two command buffers, four submits; 428 instanced draws with up to 675 instances; one indexed indirect draw; hash source `mapped` for every direct indexed draw (1,154 to 1,185), none without a hash; 19 of the mod's 21 sections match, the 7 LOD1 ones in render pass 5 with two draws each. A capture takes 208 ms round trip.
 
-Source is now 0.7.5: the default of the copy at unmap is back to every whole transfer source; dropping shadows that may be stale, `counts.unmap`, `set` and the pinned test settings stay (D-027). Full suite against `build/next`: unit 88, native tracker 126, 17 probe configurations, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 78. Not deployed: the game still has the DLL in `dist/` loaded. Deploy when the game has exited (copy the tested files, `run_all.py --no-build`, smoke run with the settings file, update the comment in `dist/efmi_vk.cfg`). For this game 0.7.4 and 0.7.5 behave the same.
+Source 0.7.5 restores the default to every whole transfer source; stale-shadow invalidation, counts.unmap, set and pinned test settings stay (D-027). It passed the full suite in build/next and was later deployed after game exit, as recorded above. The 0.7.4 measurements show the two unmap rules behaved identically in that session; 0.7.5 itself has not been loaded into the game.
 
 T-020 is closed on this evidence; T-021 is withdrawn. Open: nothing about the stutter. The copies still move about 28 GB in twelve minutes that nothing reads in this game; removing them is not attempted.
 
@@ -29,7 +35,7 @@ Evidence, sandbox only: the full suite against `build/next` (unit 88, native tra
 
 Next requires the user: the same open-world route under Vulkan. Order of work in that session is in `docs/unmap-snapshots.md`: counters, tracker timings, present intervals against the 0.7.2 sample, a few captures for the hash sources, and only with the user's agreement a short switch back to the old rule.
 
-## Layer 0.7.3: mapped-read fix prepared after measured 0.7.2 stalls (superseded as the stutter fix by 0.7.4 above; its code stays)
+## Layer 0.7.3: mapped-read fix after measured 0.7.2 stalls (confirmed in the later 0.7.4 session)
 
 User-started PID 41044 (14:22:01) loaded 0.7.2 probe/inject with resources/hash off and profiling on; the user reports renewed stutter. Initial background data is not a valid pacing comparison. After explicit readiness, the 14:44:14.810-14:44:38.840 foreground sample has 240/240 active polls, 5,093 intervals, 203/51/17 over 16/33/50 ms and a retained 129.125 ms peak. No captures or image-hash work. Unmap tracking copies 3.46 GiB and accumulates 11.625 seconds of wall time; the peak overlaps three 43-44 ms unmaps, with a zero-byte copy-record call waiting about 44 ms. res_mx is exclusive during the snapshot and shared during copy recording. This strongly identifies a contributor, not every spike's cause. Histories roll over; missing overlap is not exculpatory. Evidence: captures/pacing-tracker-work-20261012/, 21 fingerprints verified; report: docs/pacing-tracker-session.md.
 
