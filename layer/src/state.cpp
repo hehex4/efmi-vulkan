@@ -1,5 +1,6 @@
 // Tracking of memory, buffers, pipelines and command buffers; frame assembly; probe requests.
 #include "state.h"
+#include "pipeline_variant.h"
 #include "json.h"
 
 #include <algorithm>
@@ -491,6 +492,32 @@ static void note_pipeline_creation_locked(Device* dev, PipeInfo& p, const VkGrap
     dev->pipeline_uses[info->pColorBlendState ? "color_blend_given" : "color_blend_null"]++;
 }
 
+template <typename Info> static void keep_render_pass(Device* dev, VkRenderPass pass, const Info* info)
+{
+    if (dev->passive || !g_cfg.track_resources) return;
+    auto recipe = std::make_shared<RenderPassRecipe>(RenderPassRecipe::capture(*info));
+    std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+    recipe->id = dev->next_resource_id++;
+    dev->render_passes[pass] = std::move(recipe);
+}
+
+void on_create_render_pass(Device* dev, VkRenderPass pass, const VkRenderPassCreateInfo* info)
+{
+    keep_render_pass(dev, pass, info);
+}
+
+void on_create_render_pass2(Device* dev, VkRenderPass pass, const VkRenderPassCreateInfo2* info)
+{
+    keep_render_pass(dev, pass, info);
+}
+
+void on_destroy_render_pass(Device* dev, VkRenderPass pass)
+{
+    if (dev->passive || !g_cfg.track_resources) return;
+    std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+    dev->render_passes.erase(pass);
+}
+
 void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsPipelineCreateInfo* info)
 {
     if (dev->passive)
@@ -509,6 +536,12 @@ void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsP
     for (uint32_t i = 0; i < info->stageCount; i++)
         p.stages |= info->pStages[i].stage;
     note_pipeline_creation_locked(dev, p, info);
+    if (g_cfg.track_resources) {
+        auto rp = dev->render_passes.find(info->renderPass);
+        p.recipe = std::make_shared<GraphicsRecipe>(GraphicsRecipe::capture(*info, p.shaders,
+            rp == dev->render_passes.end() ? nullptr : rp->second));
+        dev->pipeline_uses[p.recipe->complete ? "recipe_complete" : "recipe_unsupported:" + p.recipe->reason]++;
+    }
     // A pipeline with a mesh or task stage ignores vertex input and input assembly state; the
     // pointers may then be anything.
     const bool mesh = (p.stages & (VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT)) != 0;
@@ -2001,6 +2034,38 @@ std::string probe_pipeline(uint32_t id)
     w.kn("create_flags", p.create_flags);
     w.kn("subpass", p.subpass);
     w.kb("specialized", p.specialized);
+    w.key("recipe");
+    if (p.recipe) p.recipe->write(w); else w.null();
+    w.key("variant_preflight");
+    w.begin_object();
+    VertexRepoint rewrite;
+    std::string reason = !p.recipe ? "graphics_recipe_unavailable" : !p.layout ? "pipeline_layout_unavailable" : "";
+    const bool supported = p.recipe && p.layout &&
+        prepare_vertex_variant(*p.recipe, *p.layout, dev->max_bound_descriptor_sets, rewrite, reason);
+    w.kb("supported", supported); w.kv("reason", reason);
+    w.kn("max_bound_descriptor_sets", dev->max_bound_descriptor_sets);
+    if (supported) {
+        w.kn("own_set", rewrite.own_set); w.kn("bone_set", rewrite.bone_set); w.kn("bone_binding", rewrite.bone_binding);
+    }
+    w.end_object();
+    w.key("layout_recipe");
+    if (!p.layout) w.null();
+    else {
+        w.begin_object(); w.kb("complete", p.layout->complete); w.kn("flags", p.layout->flags);
+        w.key("sets"); w.begin_array();
+        for (const auto& set : p.layout->sets) {
+            if (!set) { w.null(); continue; }
+            w.begin_object(); w.kn("id", set->id); w.kb("complete", set->complete); w.kn("flags", set->flags);
+            w.key("bindings"); w.begin_array();
+            for (const auto& item : set->bindings) {
+                const auto& b = item.second;
+                w.begin_object(); w.kn("binding", item.first); w.kn("type", b.type); w.kn("count", b.count);
+                w.kn("stages", b.stages); w.kn("flags", b.flags); w.kn("immutable_samplers", b.immutable_samplers.size()); w.end_object();
+            }
+            w.end_array(); w.end_object();
+        }
+        w.end_array(); w.end_object();
+    }
     w.key("dynamic_states");
     w.begin_array();
     for (uint32_t d : p.dynamic_states)

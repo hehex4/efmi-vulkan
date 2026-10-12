@@ -23,11 +23,25 @@ RESOURCE_HOOKS(Sampler, VkSampler, VkSamplerCreateInfo, on_create_sampler, on_de
 RESOURCE_HOOKS(DescriptorSetLayout, VkDescriptorSetLayout, VkDescriptorSetLayoutCreateInfo,
                on_create_set_layout, on_destroy_set_layout)
 RESOURCE_HOOKS(PipelineLayout, VkPipelineLayout, VkPipelineLayoutCreateInfo, on_create_pipeline_layout, on_destroy_pipeline_layout)
+RESOURCE_HOOKS(RenderPass, VkRenderPass, VkRenderPassCreateInfo, on_create_render_pass, on_destroy_render_pass)
 RESOURCE_HOOKS(DescriptorUpdateTemplate, VkDescriptorUpdateTemplate, VkDescriptorUpdateTemplateCreateInfo,
                on_create_descriptor_template, on_destroy_descriptor_template)
 RESOURCE_HOOKS(DescriptorUpdateTemplateKHR, VkDescriptorUpdateTemplate, VkDescriptorUpdateTemplateCreateInfo,
                on_create_descriptor_template, on_destroy_descriptor_template)
 #undef RESOURCE_HOOKS
+
+#define RENDER_PASS2_HOOK(Name) \
+    VKAPI_ATTR VkResult VKAPI_CALL hk_##Name(VkDevice device, const VkRenderPassCreateInfo2* info, \
+                                            const VkAllocationCallbacks* alloc, VkRenderPass* pass) { \
+        count_call(HI_##Name); \
+        Device* dev = dev_of(device); \
+        VkResult result = dev->d.Name(device, info, alloc, pass); \
+        if (result == VK_SUCCESS) on_create_render_pass2(dev, *pass, info); \
+        return result; \
+    }
+RENDER_PASS2_HOOK(CreateRenderPass2)
+RENDER_PASS2_HOOK(CreateRenderPass2KHR)
+#undef RENDER_PASS2_HOOK
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateDescriptorSets(VkDevice device, const VkDescriptorSetAllocateInfo* info,
                                                        VkDescriptorSet* sets)

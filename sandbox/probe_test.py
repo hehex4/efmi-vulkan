@@ -248,6 +248,17 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
                     {"create_flags": 0, "subpass": 0, "specialized": False, "dynamic_states": [0, 1], "push_constants": []},
                     "what a copy of the pipeline has to reproduce")
             c.check(len(pipe["layout_sets"]) == 2 and all(pipe["layout_sets"]), "set layouts of the pipeline layout", pipe["layout_sets"])
+            recipe = pipe["recipe"]
+            c.check(recipe["complete"] and recipe["render_pass"]["complete"], "complete owned pipeline and render pass recipe")
+            c.equal(recipe["float_encoding"], "ieee754_bits", "recipe floats have lossless encoding")
+            c.equal(recipe["render_pass"]["subpasses"][0]["colors"][0]["attachment"], 0, "render pass color attachment")
+            c.equal(recipe["depth_stencil"], None, "unused depth state is not read")
+            c.equal(recipe["viewports"], [], "dynamic viewport values are not borrowed")
+            c.equal(recipe["scissors"], [], "dynamic scissor values are not borrowed")
+            c.equal(recipe["blend"]["attachments"][0]["write_mask"], 15, "color write mask retained")
+            c.equal(pipe["variant_preflight"]["supported"], False, "ordinary probe fixture is not the three-set M2 profile")
+            c.check(pipe["variant_preflight"]["max_bound_descriptor_sets"] >= 4, "device limit used in variant preflight")
+            c.equal(len(pipe["layout_recipe"]["sets"]), 2, "descriptor layout recipe exported")
             counts = probe.status()["counts"]
             c.equal((counts["shader_modules"], counts["retained_shaders"]), (0, 2), "pipeline retains destroyed modules")
             content = dict(counts["image_content"])

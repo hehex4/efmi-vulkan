@@ -6,9 +6,15 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017 and T-020 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. The probe no longer stutters in the open world (0.7.3's streaming loads, confirmed in the game with 0.7.4). T-021 is withdrawn. Source and dist/ are 0.7.5; deployment after game exit passed the complete suite and actual-config smoke. Next is M2, with T-010's open-world items as they come up.
+T-001 to T-008, T-012, T-014, T-015, T-017 and T-020 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 now has a GPU sandbox proof (D-022, D-028), not a real-character result. The stutter fix remains 0.7.3's streaming loads, confirmed in the game with 0.7.4; T-021 is withdrawn. Source and dist/ are 0.8.0, full regression and actual-config smoke pass. T-022 is the current M2 checkpoint and needs real pipeline recipes next.
 
 ## Tasks and follow-ups
+
+### T-022: Owned pipeline variants and state restoration (M2; offline checkpoint done, game recipe coverage next)
+
+0.8.0 adds complete core graphics/render-pass recipes with independent lifetimes, a C++ VS-only rewriter, private pipeline/layout construction and transactional direct indexed draw/restoration. Native ownership/error tests, real GPU pixel readback and core/sync validation pass. All 21 historical VS rewrites equal the Python reference and pass spirv-val. New `pipeline.recipe`, `layout_recipe` and `variant_preflight` make gaps explicit. Evidence and supported scope: `docs/m2-pipeline-variants.md`. The builder uses static vertex input (D-028), not a newly enabled game feature.
+
+Next requires the user's Vulkan session: full recipes of every matched display/world pipeline and current bone/instance snapshots, including LOD1. Old captures have only creation counters and cannot reconstruct depth, blending and render-pass state. Deployed cfg has resources on, image hashing/profiling off. No new duration test. After that evidence, adapt supported variants and continue sample assets/bone remapping/texture patches plus the asynchronous cache and in-flight lifetime system. Probe draw hooks do not call the builder/emitter; no real replacement or complete M2 result exists.
 
 ### T-007: M0 inventory (done; static assessment)
 
@@ -56,9 +62,9 @@ Original task text:
 
 Two textures of the same size, mip count and format cannot be paired between a DX11 and a Vulkan frame, and a slot table built from looks alone stays ambiguous there. Four such entries exist for the sample mod: component 0 main pass `ps-t16` and `ps-t17` (set 1 bindings 1 and 3), component 0 render pass 24 `ps-t16`, component 4 main pass `ps-t17`. The DX11 half exists since 2026-10-12: `captures/dx11-baseline/frame-off-tex.textures.json` has CRC-32C and SHA-256 of mip 0 (rows without padding) of the 65 file-backed textures the scene reads with the mods off, keyed by DX11 resource hash, all distinct. For the open entries: component 0 light map `9a6c6973` is `7309a055` and normal map `733efa0d` is `12076a3f`; in render pass 24 `ps-t16` `908140d5` is `91bc27d4` and `ps-t13` `151c9982` is `8fcf3b42`; component 4 `ps-t17` `0e43c0bf` is `7ebbf40f` and `ps-t12` `9750205d` is `db2f1ff8`. What is missing is the Vulkan half. The layer sees every upload from process start: hash the bytes of mip 0 when they are copied from a buffer into an image (`vkCmdCopyBufferToImage`, source mapped or shadowed), keep the hash with the image and report it with the descriptor contents. On the DX11 side the sibling probe can read mip 0 of a bound texture; `dx11_baseline.py` then keys on the content hash. Check whether XXMI's own texture hash can be reproduced from the same bytes: the image panel mod (T-016) matches by texture hash.
 
-### T-019: Keep the fragment stage on the game's data in a replaced draw (decided on 2026-10-12, D-022; to be built in M2)
+### T-019: Keep the fragment stage on the game's data in a replaced draw (D-022; GPU sandbox proof done, real character open)
 
-Decision: option (a). The vertex module of the pipeline variant is re-pointed to a set of the layer's own (set 3 for all 45 draws of the sample character); the fragment module is untouched. Evidence and the rule for finding the two variables: fact 23, `scripts/stage_usage.py`, `docs/dx11-baseline.md`. Verified offline only (four words per module, `spirv-val`); that a pipeline built from the rewritten module draws correctly is M2's first check.
+Decision: option (a). The vertex module of the pipeline variant is re-pointed to a set of the layer's own (set 3 for all 45 draws of the sample character); the fragment module is untouched. Evidence and the rule for finding the two variables: fact 23, `scripts/stage_usage.py`, `docs/dx11-baseline.md`. First GPU check now passes in 0.8.0's synthetic sandbox: both stages read the buffers, VS uses the replacement and FS keeps the original, verified by pixel readback. C++ also reproduces all 21 historical Python rewrites exactly. Real-character rendering remains open in M2/T-022.
 
 Original question:
 
@@ -144,7 +150,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- When the game has exited: say so, and the agent deploys 0.7.5 to `dist/` (same behaviour as 0.7.4 in this game) and sets the settings file for the next purpose. For normal play passthrough remains available; probe mode no longer stutters.
+- Next T-022 observation: start Vulkan with the sample character visible and report readiness. 0.8.0 is already deployed after observing game exit. It collects complete pipeline recipes with resources on and image hashing off; it does not enable replacement drawing. No 30-minute wait is needed.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

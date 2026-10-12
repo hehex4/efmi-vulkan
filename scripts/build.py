@@ -164,10 +164,30 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
     exe = os.path.join(out, "efmi_vk_tracker_test.exe")
     args = COMMON + ["/I" + include, "/Fobuild\\tracker\\", "/Fdbuild\\tracker\\test_cl.pdb",
                      "tracker_test.cpp", "../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
+                     "../layer/src/pipeline_recipe.cpp",
+                     "../layer/src/pipeline_variant.cpp", "../layer/src/spirv_repoint.cpp",
                      "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                      "/PDB:build\\tracker\\test.pdb", "user32.lib"]
     run_cl(vcvars, folder, args)
     return exe
+
+
+def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
+    folder = os.path.join(ROOT, "sandbox")
+    result = {}
+    for name, tracker in (("recipe_test", True), ("variant_gpu", False)):
+        os.makedirs(os.path.join(folder, "build", name), exist_ok=True)
+        exe = os.path.join(out, "efmi_vk_" + name + ".exe")
+        sources = [name + ".cpp", "../layer/src/pipeline_recipe.cpp", "../layer/src/pipeline_variant.cpp",
+                   "../layer/src/spirv_repoint.cpp"]
+        if tracker:
+            sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp"]
+        args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
+        args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
+                           "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]
+        run_cl(vcvars, folder, args)
+        result[name] = exe
+    return result
 
 
 def build(targets, out: str | None = None) -> dict:
@@ -179,6 +199,7 @@ def build(targets, out: str | None = None) -> dict:
     if "layer" in targets:
         result["layer"] = build_layer(vcvars, include, out)
         result["tracker_test"] = build_tracker_test(vcvars, include, out)
+        result.update(build_recipe_tests(vcvars, include, out))
     if "sandbox" in targets:
         result["sandbox"] = build_sandbox(vcvars, include, out)
     return result
@@ -195,7 +216,7 @@ def main() -> int:
     except BuildError as e:
         print(str(e))
         return 1
-    for key in ("layer", "sandbox", "tracker_test"):
+    for key in ("layer", "sandbox", "tracker_test", "recipe_test", "variant_gpu"):
         if key in result:
             print("built %s" % result[key])
     return 0

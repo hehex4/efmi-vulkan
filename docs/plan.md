@@ -73,7 +73,7 @@ Settings for a process started by a launcher come from `efmi_vk.cfg` next to the
 
 **D7 Texture slot mapping is built per shader.** The first choice is aligning by resource name: the names in DX11 shader reflection against the names in SPIR-V, provided the SPIR-V still carries debug names. The second choice is aligning by register order and correcting individual shaders through the profile. G3 shows which one works.
 
-**D8 Vertex input uses pipeline variants.** When the vertex stride or `ElementFormat` of a mod differs from the game's pipeline, a variant with dynamic vertex input state is created lazily from the original pipeline and cached. Until the variant is ready the original draw is kept; nothing blocks.
+**D8 Vertex input uses pipeline variants.** When the vertex stride or `ElementFormat` of a mod differs from the game's pipeline, a variant is created asynchronously from owned creation state and cached by original pipeline identity and replacement declaration. The initial backend uses a static replacement declaration, avoiding a requirement to enable a new device feature; dynamic vertex input can be added when the application's enabled features permit it (D-028). Until the variant is ready the original draw is kept; nothing blocks.
 
 **D9 No run-time HLSL compilation in the first version.** The merged-skeleton path no longer needs shaders. Shape keys later use Core shaders precompiled at build time.
 

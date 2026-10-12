@@ -1037,6 +1037,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         dev->vendor_id = props.vendorID;
         dev->device_id = props.deviceID;
         dev->driver_version = props.driverVersion;
+        dev->max_bound_descriptor_sets = props.limits.maxBoundDescriptorSets;
     }
     for (uint32_t i = 0; i < info->enabledExtensionCount; i++)
         dev->extensions.push_back(info->ppEnabledExtensionNames[i]);

@@ -205,3 +205,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Kept from 0.7.4 because they are right on their own: dropping the shadow knowledge of a buffer that was mapped and not copied; `counts.unmap`; the `set` command; pinned settings in the test harness.
 - The stutter fix is 0.7.3's (D-025) and is now confirmed in the game.
 - For the working method: an attribution that changes the layer or the record needs a direct count first. Here the count was one small counter away, and was added in the same change that acted on the unverified reading.
+
+## D-028: Own creation recipes; first M2 variant uses a static vertex declaration
+
+- Date: 2026-10-12, after resuming M2 following the verified stutter correction.
+- Retain complete supported graphics/render-pass state, including relevant fixed-function values, and reject unknown extensions explicitly. No asynchronous work may borrow application creation arrays or shader/render-pass handles. Layout metadata and SPIR-V have shared ownership. A shader pair alone is not a pipeline identity.
+- The initial variant rebuilds the vertex declaration for the replacement stride/formats. This refines plan D8: dynamic vertex input is not required for the first backend, because the application may not have enabled that feature. The eventual cache key includes the original pipeline identity and replacement vertex declaration. Asynchronous creation and retaining the original draw until ready remain requirements; a worker build is tested, but the live game's request/cache/retirement system is still open.
+- Keep D-022's VS-only private set, compatible original sets and push ranges, and untouched fragment module. Unsupported immutable samplers/layout flags never become guessed equivalents. A failed construction or unready transaction leaves the original draw available.
+- Sandbox GPU readback is the first check: 16-bit bone index 257, changed stride/indices, two replacement buffers, nonzero dynamic offsets, original fragment data, blending and the next original draw after restoration. This passed under core/sync validation. Historical shaders are validated separately, never described as a new game result.
+- The next game observation captures complete pipeline/layout recipes and current bone/instance data before integrating the real sample. Old creation counters do not supply the missing values. 0.8.0 stays in probe mode and never invokes replacement drawing in the game.

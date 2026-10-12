@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "resources.h"
+#include "pipeline_recipe.h"
 #include "pacing.h"
 #include "work.h"
 
@@ -26,6 +27,7 @@ namespace efvk {
     X(MapMemory2) X(MapMemory2KHR) X(UnmapMemory2) X(UnmapMemory2KHR)                                                  \
     X(CreateBuffer) X(DestroyBuffer) X(BindBufferMemory) X(BindBufferMemory2) X(BindBufferMemory2KHR)                  \
     X(CreateGraphicsPipelines) X(CreateComputePipelines) X(DestroyPipeline)                                            \
+    X(CreateRenderPass) X(CreateRenderPass2) X(CreateRenderPass2KHR) X(DestroyRenderPass)                               \
     X(CreateShaderModule) X(DestroyShaderModule) X(CreateImage) X(DestroyImage)                                        \
     X(CreateImageView) X(DestroyImageView) X(CreateBufferView) X(DestroyBufferView) X(CreateSampler) X(DestroySampler) \
     X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout) X(DestroyPipelineLayout)        \
@@ -61,7 +63,7 @@ namespace efvk {
 #define EFVK_COUNTED_FUNCS(X)                                                                                          \
     X(CreateDescriptorPool)                                                                                           \
     X(CmdBindDescriptorBuffersEXT) X(CmdPushConstants)                                                                 \
-    X(CreateSwapchainKHR) X(CreateRenderPass) X(CreateRenderPass2) X(CreateRenderPass2KHR) X(CreateFramebuffer)        \
+    X(CreateSwapchainKHR) X(CreateFramebuffer)                                                                         \
     X(CmdCopyImageToBuffer) X(CmdBlitImage) X(CmdNextSubpass) X(FlushMappedMemoryRanges)                               \
     X(CmdDrawMultiEXT) X(CmdDrawMultiIndexedEXT) X(CmdDrawMeshTasksEXT) X(CmdBindTransformFeedbackBuffersEXT)          \
     X(CmdBuildAccelerationStructuresKHR) X(CmdTraceRaysKHR)
@@ -149,6 +151,7 @@ struct PipeInfo {
     uint32_t subpass = 0;
     bool specialized = false; // a stage has specialization constants
     std::vector<uint32_t> dynamic_states;
+    std::shared_ptr<const GraphicsRecipe> recipe;
 };
 
 enum DrawKind : uint8_t {
@@ -396,6 +399,7 @@ struct Device {
     uint32_t vendor_id = 0;
     uint32_t device_id = 0;
     uint32_t driver_version = 0;
+    uint32_t max_bound_descriptor_sets = 0;
 
     // Memory, buffers, pipelines. Readers of mapped memory hold the lock shared;
     // unmap, free and destroy take it exclusively before the call goes down.
@@ -405,6 +409,7 @@ struct Device {
     std::unordered_map<uint32_t, VkBuffer> buf_by_id;
     std::unordered_map<VkPipeline, PipeInfo> pipes;
     std::unordered_map<uint32_t, VkPipeline> pipe_by_id;
+    std::unordered_map<VkRenderPass, std::shared_ptr<const RenderPassRecipe>> render_passes;
     uint32_t next_buf_id = 1;
     uint32_t next_pipe_id = 1;
     uint32_t next_resource_id = 1;

@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.7.5, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`, buffer contents kept by a capture in `docs/probe-snapshots.md`.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.8.0, protocol 1, server 0.1.0. The M2 pipeline builder is sandbox-tested and not called by the probe's draw hooks. Resource inspection details are in `docs/probe-resources.md`, snapshots in `docs/probe-snapshots.md`, and owned pipeline recipes/variant verification in `docs/m2-pipeline-variants.md`.
 
 ## Data path of the development probe
 
@@ -29,6 +29,9 @@ The technique mirrors `bootstrap.cpp` of the EFMI MCP probe, which redirects two
 | `layer/src/bootstrap.cpp` | Inject entry: loader notification, export table redirection of `vulkan-1.dll`, jump stubs |
 | `layer/src/state.h` / `state.cpp` | Device registry; tracking of memory, buffers, pipelines, command buffers; application of buffer writes to shadows at submit time; frame assembly and statistics; the capture state machine; the probe requests and their JSON |
 | `layer/src/resources.h` / `resources.cpp` | Descriptor layouts, sets, templates and immutable push contents; pipeline layout compatibility; images/views/samplers; shader bytecode retention and inspection |
+| `layer/src/pipeline_recipe.h` / `pipeline_recipe.cpp` | Owned classic render-pass and graphics pipeline state; creation-call pointer views; explicit unsupported reasons and lossless export |
+| `layer/src/spirv_repoint.h` / `spirv_repoint.cpp` | Narrow C++ implementation of D-022; move exactly two VS buffer bindings, reject ambiguity/collisions |
+| `layer/src/pipeline_variant.h` / `pipeline_variant.cpp` | CPU eligibility, private compatible pipeline construction and direct indexed-draw restoration; only the sandbox invokes drawing |
 | `layer/src/resource_hooks.h` | Resource lifetime/update hooks included inside `layer.cpp`; unimplemented descriptor paths invalidate stale tracked knowledge |
 | `layer/src/ipc.cpp` | Named pipe server thread and request dispatch |
 | `layer/src/util.cpp` / `common.h` | Configuration from environment variables, log file, CRC-32C (SSE4.2 with a table fallback) |
