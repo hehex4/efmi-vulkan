@@ -5,7 +5,8 @@ frontend/assets/dds.cpp. It returns Vulkan formats and exact mip byte ranges
 into the caller-owned file data. It does not decompress, recolor or duplicate
 payloads. It contains no mod/component identifiers. The decoder is followed by
 the separate GPU upload ticket described below. Neither is linked into the layer
-yet; descriptor binding and the resource manager remain open.
+yet; descriptor binding and layer integration remain open. The texture cache
+below connects worker preparation to a serialized caller queue.
 
 The supported container is one ordinary 2D texture, at most 16,384 by 16,384 and
 128 MiB of source data. Explicit DX10 BC1-7 and RGBA/BGRA8 format mappings retain
@@ -47,7 +48,9 @@ or an implemented upload scheduler. No deployment/configuration change occurred.
 frontend/assets/image_upload.cpp now prepares a device-local image/view and a
 host-coherent staging buffer, records all decoded mip copies and transitions the
 image to shader-read layout. It preserves compressed blocks and color-space
-formats. A ticket moves through Empty, Prepared, Submitted and Ready (or Failed).
+formats. A ticket moves through Empty, Prepared, Recorded, Submitted and Ready
+(or Failed). Recording and fence creation are off the submit path; submit only
+forwards the already recorded command buffer to QueueSubmit.
 Image/view getters return null until fence polling proves upload completion;
 poll does not wait and frees staging/fence/command storage once complete. Source
 file bytes can be freed immediately after prepare. Unsupported device features,
@@ -68,7 +71,7 @@ $env:VCVARS = 'D:/Microsoft/VC/Auxiliary/Build/vcvars64.bat'
 & 'D:/Python312/python.exe' -B scripts/check_image_upload.py --sample
 ```
 
-The synthetic GPU fixture passes 27 checks with zero core/sync validation errors
+The initial synthetic GPU fixture passed 27 checks with zero core/sync validation errors
 or warnings. It checks withheld handles, one-time submission, staged-source
 independence, all compressed mip bytes, disabled BC/device-limit refusals and
 an injected staging-buffer allocation failure after image creation. A GPU blit
@@ -84,7 +87,47 @@ and no mod/Core/config file is modified. This proves the standalone uploader on
 the sandbox's device configuration; it does not establish the game's enabled
 features, upload scheduling/overhead, material bindings or rendered appearance.
 
-Still needed: a bounded deduplicating file/GPU resource manager, integration with
-the layer's actual queue and enabled-device state, immutable material bindings,
-shared character/Core state and full frontend ownership/reload. The uploader
-is not yet called by a game or sandbox layer draw/submit hook.
+The cache below adds bounded file/GPU ownership. Layer queue/enabled-device
+integration, immutable material bindings, shared character/Core state and full
+frontend reload remain open. Neither helper is called by a layer draw/submit hook.
+
+## Bounded asynchronous texture cache
+
+frontend/assets/texture_cache.cpp owns one frontend generation and graphics queue.
+Setup resolves absolute paths lexically and deduplicates equal normalized paths;
+it does not inspect files or merge differently spelled case/symlink/hardlink aliases.
+Declarations are dormant until demanded. An already resolved handle can be demanded
+concurrently; it queues at most once, with no file IO, decode or driver work there.
+Missing files only fail if demanded, and failures stay recorded until a new generation.
+
+One worker opens each selected file read-only while denying concurrent writes/deletes,
+reads at most 128 MiB, validates DDS, prepares memory and records upload commands.
+It keeps at most one image awaiting/in upload, then polls that image's fence and frees
+staging before preparing the next. Caller-serialized submit_prepared does at most one
+QueueSubmit on its first selected queue; a different queue is refused. It creates no
+GPU objects and performs no file IO or fence polling. A Ready handle is only published
+after worker polling reports completion. This is bounded preparation, not a measured
+game-frame overhead guarantee or an automatic layer queue adapter.
+
+AllocationBudget charges actual Vulkan memory requirements before allocation, including
+driver alignment. Default aggregate limits: 512 MiB resident, 160 MiB staging and 128 MiB
+source bytes. Budgets are copied/shared across overlapping generations. Partial failures
+release their charges; a retired cache cannot release an image retained by a command
+owner. Stopping is off the render path and drains the one pending upload. Ready owners
+still require retention through all consuming GPU work and before device destruction.
+
+The expanded headless fixture passes 57 checks, including 256 concurrent demands of one
+file, dormant missing files, null/relative paths and capacity refusal, immutable staged
+bytes after a source edit, new-generation reload, retained old allocations, foreign-handle
+rejection, source/resident/staging limits, cancellation before/after submission and queue
+failure. Instrumented Vulkan seams check that creation/fence polling occur on the worker
+while QueueSubmit occurs on the caller. Core/sync validation has zero errors/warnings.
+
+All ten actual selected DDS files also complete through one cache. Actual peak residency
+is 283,377,664 bytes; staging peak is 67,108,864 and source peak is 67,109,012. Five sample
+cache checks pass, including retention after retirement and final budget release. The ten
+independent full-payload readbacks still pass. Build/assets-gpu/report.json fingerprints
+the current executable and source inputs. Original assets remain unchanged.
+
+This is standalone texture preparation/ownership only. No mesh-buffer cache, material
+descriptor integration, complete Core execution, DLL deployment or new game test is claimed.

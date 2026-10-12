@@ -28,7 +28,7 @@ def main() -> int:
         args=COMMON+["/DNOMINMAX","/I"+find_vulkan_include(),"/I"+str(ROOT/"frontend/assets"),
                      "/Fo"+str(out)+"/", "/Fd"+str(out/"test.pdb"),
                      str(ROOT/"sandbox/asset_gpu.cpp"),str(ROOT/"frontend/assets/dds.cpp"),
-                     str(ROOT/"frontend/assets/image_upload.cpp"),
+                     str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/texture_cache.cpp"),
                      "/Fe:"+str(exe),"/link","/NOLOGO","user32.lib"]
         log=io.StringIO()
         try:
@@ -38,6 +38,9 @@ def main() -> int:
         finally:
             (out/"build.txt").write_text(log.getvalue().encode("ascii","backslashreplace").decode("ascii"),encoding="ascii")
         report["executable_sha256"]=hashlib.sha256(exe.read_bytes()).hexdigest()
+        inputs=list((ROOT/"frontend/assets").glob("*.h"))+list((ROOT/"frontend/assets").glob("*.cpp"))
+        inputs += [ROOT/"sandbox/asset_gpu.cpp",ROOT/"sandbox/asset_cache_test.cpp",ROOT/"sandbox/xxmi_host/dds_test.cpp",Path(__file__)]
+        report["source_sha256"]={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
         validation=Path(os.environ.get("EFMI_VK_VALIDATION_DIR","F:/vulkan/validation-1.4.321.0/bin"))
         if not (validation/"VkLayer_khronos_validation.json").is_file():raise RuntimeError("Validation layer missing")
         env=inject_env(str(out/"unexpected-layer.log"))
@@ -71,8 +74,19 @@ def main() -> int:
                 print(f"{asset.name}: {'passed' if ok else 'failed'}",flush=True)
                 if not ok:
                     report["passed"]=False;print(output[-5000:]);break
+            if report["passed"]:
+                textures=[x["path"] for x in report["sample_textures"]]
+                if not textures:raise RuntimeError("No sample textures in the callback report")
+                result=subprocess.run([str(exe),"--cache-dds",*textures],cwd=out,env=env,
+                                      capture_output=True,encoding="utf-8",errors="replace",timeout=90)
+                output=result.stdout+result.stderr
+                (out/"sample-cache.txt").write_text(output.encode("ascii","backslashreplace").decode("ascii"),encoding="ascii")
+                count=re.search(r"asset_gpu: (\d+) checks passed, (\d+) failed; validation errors=(\d+) warnings=(\d+)",output)
+                report["sample_cache_passed"]=result.returncode==0 and bool(count) and all(int(count[i])==0 for i in (2,3,4))
+                report["passed"]=report["sample_cache_passed"]
+                print(output[-5000:],flush=True)
         return 0 if report["passed"] else 1
-    except (OSError,RuntimeError,subprocess.SubprocessError) as error:
+    except (OSError,RuntimeError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as error:
         report["passed"]=False;report["error"]=str(error);print(str(error).encode("ascii","backslashreplace").decode("ascii"),file=sys.stderr);return 1
     finally:
         (out/"report.json").write_text(json.dumps(report,indent=2)+"\n",encoding="ascii")

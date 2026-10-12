@@ -2,7 +2,9 @@
 #include <cstring>
 
 namespace efmi::assets {
-ImageUpload::ImageUpload(VkDevice device,const UploadDispatch& dispatch):device_(device),d_(dispatch) {}
+ImageUpload::ImageUpload(VkDevice device,const UploadDispatch& dispatch,
+                         std::shared_ptr<AllocationBudget> resident,std::shared_ptr<AllocationBudget> staging)
+    :device_(device),d_(dispatch),resident_budget_(std::move(resident)),staging_budget_(std::move(staging)) {}
 ImageUpload::~ImageUpload()
 {
     // Cancellation/device shutdown only. The normal readiness path is poll().
@@ -11,20 +13,26 @@ ImageUpload::~ImageUpload()
     if(view_)d_.DestroyImageView(device_,view_,nullptr);
     if(image_)d_.DestroyImage(device_,image_,nullptr);
     if(image_memory_)d_.FreeMemory(device_,image_memory_,nullptr);
+    if(resident_budget_)resident_budget_->release(resident_charged_);
 }
 bool ImageUpload::result(VkResult value,const char* operation)
 {
     if(value==VK_SUCCESS)return true;
     reason_=std::string(operation)+": "+std::to_string(value);state_=UploadState::Failed;return false;
 }
-VkDeviceMemory ImageUpload::allocate(const VkMemoryRequirements& requirements,VkMemoryPropertyFlags flags)
+VkDeviceMemory ImageUpload::allocate(const VkMemoryRequirements& requirements,VkMemoryPropertyFlags flags,
+                                     const std::shared_ptr<AllocationBudget>& budget,uint64_t& charged)
 {
     if(requirements.size>(160ull<<20)){reason_="Image allocation budget exceeded";return VK_NULL_HANDLE;}
     for(uint32_t i=0;i<memory_.memoryTypeCount;++i)
         if((requirements.memoryTypeBits&(1u<<i)) && (memory_.memoryTypes[i].propertyFlags&flags)==flags){
+            if(budget && !budget->acquire(requirements.size)){reason_="Aggregate image memory budget exceeded";return VK_NULL_HANDLE;}
             VkMemoryAllocateInfo info={VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
             info.allocationSize=requirements.size;info.memoryTypeIndex=i;VkDeviceMemory memory=VK_NULL_HANDLE;
-            if(result(d_.AllocateMemory(device_,&info,nullptr,&memory),"allocate image resource memory"))return memory;
+            if(result(d_.AllocateMemory(device_,&info,nullptr,&memory),"allocate image resource memory")){
+                charged=requirements.size;return memory;
+            }
+            if(budget)budget->release(requirements.size);
             return VK_NULL_HANDLE;
         }
     reason_="Image resource memory type unavailable";return VK_NULL_HANDLE;
@@ -35,6 +43,8 @@ void ImageUpload::release_staging()
     if(fence_)d_.DestroyFence(device_,fence_,nullptr);
     if(stage_)d_.DestroyBuffer(device_,stage_,nullptr);
     if(stage_memory_)d_.FreeMemory(device_,stage_memory_,nullptr);
+    if(staging_budget_)staging_budget_->release(staging_charged_);
+    staging_charged_=0;command_=VK_NULL_HANDLE;
     pool_=VK_NULL_HANDLE;fence_=VK_NULL_HANDLE;stage_=VK_NULL_HANDLE;stage_memory_=VK_NULL_HANDLE;
 }
 bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDeviceMemoryProperties& memory,
@@ -63,7 +73,7 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
     if(!result(d_.CreateImage(device_,&image,nullptr,&image_),"create asset image"))return false;
     VkMemoryRequirements req{};d_.GetImageMemoryRequirements(device_,image_,&req);
     if(req.size>limits.maxResourceSize){reason_="Image exceeds device resource limit";state_=UploadState::Failed;return false;}
-    image_memory_=allocate(req,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    image_memory_=allocate(req,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,resident_budget_,resident_charged_);
     if(!image_memory_){state_=UploadState::Failed;return false;}
     if(!result(d_.BindImageMemory(device_,image_,image_memory_,0),"bind asset image"))return false;
     VkImageViewCreateInfo view={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -75,7 +85,7 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
     buffer.size=size-start;buffer.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     if(!result(d_.CreateBuffer(device_,&buffer,nullptr,&stage_),"create image staging buffer"))return false;
     d_.GetBufferMemoryRequirements(device_,stage_,&req);
-    stage_memory_=allocate(req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    stage_memory_=allocate(req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,staging_budget_,staging_charged_);
     if(!stage_memory_){state_=UploadState::Failed;return false;}
     if(!result(d_.BindBufferMemory(device_,stage_,stage_memory_,0),"bind image staging memory"))return false;
     void* mapped=nullptr;
@@ -83,16 +93,16 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
     std::memcpy(mapped,data+start,size-start);d_.UnmapMemory(device_,stage_memory_);
     state_=UploadState::Prepared;return true;
 }
-bool ImageUpload::submit(VkQueue queue,uint32_t graphics_family)
+bool ImageUpload::record(uint32_t graphics_family)
 {
-    if(state_!=UploadState::Prepared || !queue){reason_="Image ticket is not ready for submission";return false;}
+    if(state_!=UploadState::Prepared){reason_="Image ticket is not ready for recording";return false;}
     VkCommandPoolCreateInfo pool={VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pool.flags=VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;pool.queueFamilyIndex=graphics_family;
     if(!result(d_.CreateCommandPool(device_,&pool,nullptr,&pool_),"create image upload pool"))return false;
     VkCommandBufferAllocateInfo ai={VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     ai.commandPool=pool_;ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ai.commandBufferCount=1;
-    VkCommandBuffer cmd=VK_NULL_HANDLE;
-    if(!result(d_.AllocateCommandBuffers(device_,&ai,&cmd),"allocate image upload command"))return false;
+    if(!result(d_.AllocateCommandBuffers(device_,&ai,&command_),"allocate image upload command"))return false;
+    const auto cmd=command_;
     VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};begin.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if(!result(d_.BeginCommandBuffer(cmd,&begin),"begin image upload"))return false;
     VkImageMemoryBarrier barrier={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
@@ -114,7 +124,12 @@ bool ImageUpload::submit(VkQueue queue,uint32_t graphics_family)
     if(!result(d_.EndCommandBuffer(cmd),"end image upload"))return false;
     VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     if(!result(d_.CreateFence(device_,&fi,nullptr,&fence_),"create image upload fence"))return false;
-    VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&cmd;
+    state_=UploadState::Recorded;return true;
+}
+bool ImageUpload::submit(VkQueue queue)
+{
+    if(state_!=UploadState::Recorded || !queue){reason_="Image ticket is not ready for submission";return false;}
+    VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&command_;
     if(!result(d_.QueueSubmit(queue,1,&submit,fence_),"submit image upload"))return false;
     in_flight_=true;state_=UploadState::Submitted;return true;
 }

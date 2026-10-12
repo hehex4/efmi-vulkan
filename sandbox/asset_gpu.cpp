@@ -157,8 +157,9 @@ static void run(Gpu& g,std::vector<uint8_t> data,bool color)
     check(upload.state()==UploadState::Prepared && !upload.view() && upload.poll()==UploadState::Prepared,"prepared texture is not exposed before upload");
     std::vector<uint8_t> expected(data.begin()+meta.levels[0].offset,data.end());
     memset(data.data(),0,data.size());
-    check(upload.submit(g.queue,g.family) && !upload.view(),"submitted texture remains private until fence polling");
-    check(!upload.submit(g.queue,g.family),"one upload ticket cannot submit twice");
+    check(upload.record(g.family) && upload.state()==UploadState::Recorded && !upload.view(),"recorded texture remains private without queue submission");
+    check(upload.submit(g.queue) && !upload.view(),"submitted texture remains private until fence polling");
+    check(!upload.submit(g.queue),"one upload ticket cannot submit twice");
     CHECK_VK(pQueueWaitIdle(g.queue));
     check(upload.poll()==UploadState::Ready && upload.view() && upload.image(),"completed fence publishes the texture and releases staging");
     auto b=g.readback(color?4:expected.size());auto cb=g.begin();
@@ -184,6 +185,7 @@ static void run(Gpu& g,std::vector<uint8_t> data,bool color)
         check(abs(int(pixel[0])-value)<=1 && pixel[0]==pixel[1] && pixel[1]==pixel[2] && pixel[3]==255,"GPU blit observes preserved linear versus sRGB interpretation");
     }else check(!memcmp(b.mapped,expected.data(),expected.size()),"all compressed mip bytes survive upload after CPU source destruction");
 }
+#include "asset_cache_test.cpp"
 int wmain(int argc,wchar_t** argv)
 {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
@@ -193,10 +195,13 @@ int wmain(int argc,wchar_t** argv)
             if(!file || file.tellg()<0 || file.tellg()>(128ull<<20))throw std::runtime_error("DDS file outside budget");
             std::vector<uint8_t> data(static_cast<size_t>(file.tellg()));file.seekg(0);file.read(reinterpret_cast<char*>(data.data()),data.size());
             if(!file)throw std::runtime_error("DDS file read failed");run(g,std::move(data),false);
+        }else if(argc>=3 && !wcscmp(argv[1],L"--cache-dds")){
+            cache_sample(g,argc-2,argv+2);
         }else if(argc==1){
             run(g,fixture(99),false);auto bc5=fixture(83);run(g,bc5,false);
             for(auto format:{28u,29u}){auto rgba=fixture(format);rgba.resize(152);put(rgba,12,1);put(rgba,16,1);put(rgba,28,1);
                 rgba[148]=rgba[149]=rgba[150]=128;rgba[151]=255;run(g,rgba,true);}
+            cache_tests(g);
         }else throw std::runtime_error("Invalid asset fixture arguments");
     }catch(const std::exception& e){++failed;printf("FAILED: %s\n",e.what());}
     check(!validation_errors && !validation_warnings,"core and synchronization validation remain clean");

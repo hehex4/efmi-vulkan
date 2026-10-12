@@ -470,3 +470,26 @@ No layer/DLL/config change, injection, game action or original asset write. This
 standalone uploader, not game scheduling/material rendering. Actual enabled-device/queue
 state, resource-manager budgets/ownership, material bindings, shared skeletons and full
 Core/frontend integration remain T-027 work. Updated docs/resource-assets.md and memory.
+
+## 2026-10-12: Bounded worker texture cache and retained-generation ownership
+
+Added TextureCache and shared allocation budgets. Declarations deduplicate lexically without
+touching files; concurrent demands queue one read, and unused missing declarations stay dormant.
+The worker reads/decode/prepares/records then polls/releases staging; only the caller submits
+already recorded work on its fixed graphics queue. At most one pending upload per cache.
+Actual allocation sizes are charged before GPU allocation, including retained old-generation
+images. Source, staging and residency have separate aggregate limits. Failed requests are
+sticky until a new generation, and stop drains pending work off the rendering path.
+
+Headless GPU fixture passes 57 checks, including 256 concurrent demands, reload with changed
+source bytes, retired-generation lifetime, capacity/path/foreign-handle refusal, all three
+budget failures, cancellation and injected submission failure. Instrumented driver seams verify
+worker/caller separation. Ten actual textures pass both full compressed readback and the cache;
+five sample-cache checks pass. Peak bytes: resident 283,377,664, staging 67,108,864, source
+67,109,012. All core/sync validation is clean. Report: build/assets-gpu/report.json; log:
+build/texture-cache-check.txt. Builder now fingerprints inputs and refuses malformed reports.
+
+Layer source/build/next remain 0.9.2 and dist/0.9.1 remains untouched. This is standalone texture
+preparation/ownership, not whole-mod rendering. Buffer resources, descriptor/material support,
+shared character/Core and real frontend generation integration remain. No game action or asset
+write. Updated docs/resource-assets.md, architecture, current state and tasks.
