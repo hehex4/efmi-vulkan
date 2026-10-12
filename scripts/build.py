@@ -190,6 +190,17 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
     return result
 
 
+def build_bone_test(vcvars: str, include: str, out: str) -> str:
+    folder = os.path.join(ROOT, "sandbox")
+    os.makedirs(os.path.join(folder, "build", "bones"), exist_ok=True)
+    exe = os.path.join(out, "efmi_vk_bone_test.exe")
+    args = COMMON + ["/I" + include, "/Fobuild\\bones\\", "/Fdbuild\\bones\\test_cl.pdb",
+                     "bone_test.cpp", "../layer/src/merged_skeleton.cpp", "/Fe:" + exe,
+                     "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE", "/PDB:build\\bones\\test.pdb"]
+    run_cl(vcvars, folder, args)
+    return exe
+
+
 def build(targets, out: str | None = None) -> dict:
     out = os.path.abspath(out or os.path.join(ROOT, "dist"))
     os.makedirs(out, exist_ok=True)
@@ -200,6 +211,7 @@ def build(targets, out: str | None = None) -> dict:
         result["layer"] = build_layer(vcvars, include, out)
         result["tracker_test"] = build_tracker_test(vcvars, include, out)
         result.update(build_recipe_tests(vcvars, include, out))
+        result["bone_test"] = build_bone_test(vcvars, include, out)
     if "sandbox" in targets:
         result["sandbox"] = build_sandbox(vcvars, include, out)
     return result
@@ -216,7 +228,7 @@ def main() -> int:
     except BuildError as e:
         print(str(e))
         return 1
-    for key in ("layer", "sandbox", "tracker_test", "recipe_test", "variant_gpu"):
+    for key in ("layer", "sandbox", "tracker_test", "recipe_test", "variant_gpu", "bone_test"):
         if key in result:
             print("built %s" % result[key])
     return 0

@@ -23,6 +23,7 @@ STEPS = [
     ("text check", [os.path.join(ROOT, "scripts", "check_text.py")]),
     ("unit tests", [os.path.join(HERE, "unit_test.py")]),
     ("native tracker tests", [os.path.join(HERE, "native_test.py")]),
+    ("CPU skeleton import", [os.path.join(HERE, "bone_test.py")]),
     ("pipeline recipes and variants", [os.path.join(HERE, "variant_test.py")]),
     ("probe end to end", [os.path.join(HERE, "probe_test.py")]),
     ("modes", [os.path.join(HERE, "modes_test.py")]),

@@ -1,6 +1,12 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12, after the 17:41 LOD1 capture. Layer 0.8.1 is deployed and loaded by user-started PID 34644. Two actual LOD1 snapshot bundles verify T-023 and supply the missing color-pass bone timing: all 58 matched entries and both bone windows agree at record/submit in each frame. No game replacement is enabled. Continue M2 offline bone import/remapping and rendering integration. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, after CPU bone verification. Source/build/next are 0.8.2, with the CPU rolling-buffer bone importer verified by full regression and offline replay of 283 matched draws. Dist/ and user-started PID 34644 retain 0.8.1. Two actual LOD1 snapshot bundles verify T-023 and supply the missing color-pass bone timing. No game replacement is enabled. Continue M2 offline pipeline caching and GPU resource lifetime/integration. The stutter fix remains 0.7.3's WC reads (D-027); it is not reopened. Protocol 1, server 0.1.0.
+
+## 0.8.2 CPU bone import verified offline
+
+Added a bounded, atomic rolling-buffer importer and 256-byte instance patcher, preserving Core's leading source matrix, 512 implicit identities, current/previous slices, remap direction, mesh scale and finer-LOD update priority. Probe hooks do not invoke it. Native tests pass 42 checks. Independent Python replay over the saved display, two LOD0-world and two actual LOD1 frames matches production C++ after every one of 283 records (74 imports, 209 repeats, 407,808-byte master). This is not comparison with a captured DX11 compute-output buffer or a rendered character. Details: docs/m2-bone-import.md and D-030.
+
+Full build/regression in build/next passes (build/bone-import-regression-20261012.txt): unit 88, tracker 144, bones 42, recipes 120, variants 37, 17 probe cases 517-532, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 113. No deployment or new game observation is required for this helper. Continue the M2 backend.
 
 ## 0.8.1 actual LOD1 capture succeeds (2026-10-12)
 

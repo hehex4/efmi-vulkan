@@ -4,6 +4,12 @@ The target product architecture is in `docs/plan.md`, section 4. This file descr
 
 ## Data path of the development probe
 
+The 0.8.2 candidate additionally builds `MergedSkeleton`, an offline-tested CPU master with
+bounded layout, per-component/instance update stamps and atomic rolling-buffer imports.
+It patches only constant 5's two dynamic offsets. Probe hooks do not call it; it owns no GPU
+resources. Per-submission immutable GPU storage and asynchronous pipeline caching remain
+integration work. See `docs/m2-bone-import.md`.
+
 `agent -> Python MCP stdio (or CLI) -> named pipe -> efmi_vk_layer.dll inside the Vulkan process -> tracked state / mapped memory / shadow copies -> result`
 
 The DLL sits in front of the application's Vulkan calls. It forwards every call unchanged; the probe only observes.

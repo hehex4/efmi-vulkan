@@ -6,9 +6,13 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof (D-022, D-028), not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/dist/ are 0.8.1 and user-started PID 34644 supplies two actual LOD1 snapshot bundles. Full recipes and bone availability now cover the observed display, world LOD0 and actual LOD1 scenes. Continue M2 offline; no further collection is needed for bone import/remapping. See docs/m2-game-recipes.md for scope and earlier corrections.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof (D-022, D-028), not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.8.2 with the verified CPU bone helper; dist/ remains 0.8.1, and user-started PID 34644 supplies two actual LOD1 snapshot bundles. Full recipes and bone availability now cover the observed display, world LOD0 and actual LOD1 scenes. Continue M2 offline; no further collection is needed for bone import/remapping. See docs/m2-game-recipes.md for scope and earlier corrections.
 
 ## Tasks and follow-ups
+
+### T-024: CPU rolling-buffer bone import and instance patch (offline helper complete)
+
+Source/candidate 0.8.2 implements the Core-derived CPU path with checked ranges, per-instance/current/previous separation, duplicate LOD remaps, finer-LOD priority and atomic failure. Native 42 and full regression pass. Offline replay of 283 draws across five saved frames matches an independent Python reference after every entry/master update. See docs/m2-bone-import.md and D-030. No captured DX11 compute-output buffer was available, so direct original-output equality and real-character animation are not claimed. GPU snapshots, command-buffer lifetime, pipeline caching and hooking remain T-022/M2 work. Dist/ stays 0.8.1.
 
 ### T-022: Owned pipeline variants and state restoration (M2; recipes and observed LOD1 bone timing captured)
 

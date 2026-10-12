@@ -223,3 +223,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Record-time comparisons belong to the actual draw recording, which may precede a skipped present; they are not fabricated from submit-time data. The existing timeout clears pending work. Report skipped_empty_intervals, and advertise a feature so older layers cannot silently ignore the option.
 - Selection is bounded and only a diagnostic request. It does not alter gameplay, present synchronization, driver submissions or replacement drawing. No frame-generation producer or game fault is inferred from the observed empty intervals.
 - Native and GPU sandbox checks plus the full suite pass. Real LOD1 color-pass snapshots remain open until a user-started run with the deployed candidate; do not hot-replace a loaded DLL or claim the fix verified in the game in advance.
+
+## D-030: Preserve Core bone import semantics with atomic CPU updates
+
+- Date: 2026-10-12, after the actual LOD1 snapshots supplied the remaining timing evidence.
+- Copy source bone remap[i] after the leading source matrix; keep 512 implicit identities and separate current/previous slices per instance. Multiply all matrix terms by mesh scale. Patch only nonstatic x/y offsets of constant 5; preserve flags and every other entry byte.
+- Import once per logical update/component/instance, allowing a lower LOD number to replace an earlier import. The caller owns update serials; empty present intervals are not a sufficient animation boundary. Preserve the master between updates as Core does.
+- Validate both poses and remap ranges before mutating data or stamps. Invalid input leaves the old master and original drawing available. Keep the GPU snapshot separate and immutable for its actual lifetime; this CPU helper does not choose that lifetime.
+- The five saved game frames agree byte for byte with an independent Core-derived Python reference over 283 draws. That is offline evidence, not a captured DX11 compute-output comparison or GPU rendering. New sandbox-native cases establish rejected-input and multi-instance behavior separately.
