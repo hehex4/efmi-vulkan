@@ -4,7 +4,9 @@
 > DX11: four frames of one session (PID 9264, XXMI's `d3d11.dll` active), taken through the DX11 probe of
 > the EFMI MCP project (0.1.6) into `captures/dx11-baseline`: `frame-a` (30344) and `frame-b` (150191) with
 > the mods on, `frame-off` (170064) after EFMI's F11 switched all mods off, `frame-on` (170102) after the
-> second F11. Vulkan: `captures/first-probe`, frame 30630, PID 8920, no mod loader. The Vulkan frame comes
+> second F11. A fifth frame, `frame-off-tex` (249580, mods off), carries content hashes of the textures; in
+> it every component is drawn once more than before, so it is used for the hashes only.
+> Vulkan: `captures/first-probe`, frame 30630, PID 8920, no mod loader. The Vulkan frame comes
 > from another session of the same morning with another window size, so screen-sized textures do not
 > compare. Not verified on a real character under Vulkan: nothing here draws anything.
 
@@ -12,7 +14,9 @@ How to repeat it, with the game running under DX11:
 
 - `scripts/dx11_baseline.py capture --label <name>` saves a full frame with the constant buffer windows
   and, for every shader the frame uses, the slots it declares (`<name>.shaders.json`). `shaders --label`
-  adds the declarations to a frame saved without them while the same game still runs.
+  adds the declarations to a frame saved without them while the same game still runs. With `--textures`
+  the capture also stores CRC-32C and SHA-256 of mip 0 of every file-backed texture the frame reads
+  (`<name>.textures.json`, keyed by the DX11 resource hash).
 - `scripts/dx11_baseline.py summarize --label <name> --mod <ini> --vulkan captures/<bundle>` writes
   `<name>.summary.json`.
 
@@ -175,7 +179,12 @@ pass the same attributes sit at locations 5 and 6, so the attribute is found by 
 
 ## Open
 
-- Four table entries where two textures of a draw look alike (T-018).
+- Four table entries where two textures of a draw look alike (T-018). The DX11 half of the answer is on
+  disk: content hashes of the 65 file-backed textures of the scene, all distinct. For component 0 the
+  light map (`ps-t16`, `9a6c6973`) has CRC-32C `7309a055` and the normal map (`ps-t17`, `733efa0d`)
+  `12076a3f`. The Vulkan half needs the layer to hash uploads.
+- Pairing by draw count needs the same state of the scene: ten minutes later every component was drawn
+  once more, and that frame pairs with nothing of the mod.
 - How the fragment stage is kept on the game's data (T-019).
 - The table covers the fragment shaders of this scene. Three objects common to both frames are drawn a
   different number of times and are not paired.

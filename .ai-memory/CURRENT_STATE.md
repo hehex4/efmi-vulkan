@@ -20,6 +20,8 @@ Mods off and on again (10:29, after the user restored the game window): the DX11
 - Slot table over the four frames: 111 entries for 36 Vulkan fragment shaders, no contradiction. Of the slots the mod's draw sections set, 15 are placed, 4 are one of two (T-018), 37 are not declared by the shader of that pass.
 - The mod assigns its slots in every pass. For component 0 this puts its diffuse map over a 1x1 volume texture in one pass and its normal map into the diffuse slot of render pass 24; that is how it looks under DX11, so the translation has to be by slot and pass (fact 20).
 
+A third pair of F11 presses at 10:40 gave `frame-off-tex` (249580, mods off; the mods were confirmed on again afterwards) with content hashes of mip 0 of the 65 file-backed textures of the scene (`--textures`; DX11 half of T-018). In that frame every component is drawn once more than at 10:29, so it pairs with nothing of the mod and is used for the hashes only: pairing by draw count needs the same state of the scene.
+
 Scope: one scene, one character, the mod's own key states as found, two sessions (window sizes differ, so screen-sized textures do not pair).
 
 Checks of this round: `sandbox/unit_test.py` 75 of 75 (31 for the pairing), `scripts/check_text.py` clean. The layer was not changed and not rebuilt; the full suite was not run.

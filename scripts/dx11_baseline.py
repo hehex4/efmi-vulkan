@@ -15,6 +15,7 @@ The sibling project is used as a library and never written to (no byte code eith
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import struct
@@ -27,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "server"))
 
 from efmi_vk import dx11_pair  # noqa: E402
+from efmi_vk.hashes import crc32c  # noqa: E402
 from efmi_vk.mods import parse_overrides  # noqa: E402
 
 DEFAULT_SIBLING = r"F:\EFMI MCP\server"
@@ -60,19 +62,56 @@ def fetch_declarations(client, doc: dict, known: dict) -> dict:
     return known
 
 
+def hash_textures(client, cap, declarations: dict) -> dict:
+    """Content hashes of the game's file-backed textures the frame's draws read: mip 0, first slice.
+
+    Keyed by the DX11 resource hash. CRC-32C because that is what the layer computes; the bytes
+    are the rows of the subresource without padding, which is also what an upload carries.
+    """
+    wanted: "OrderedDict[int, str]" = OrderedDict()
+    for d in cap.draws():
+        if d["type"] >= 8:
+            continue
+        for slot, v in (d.get("tex") or {}).items():
+            if int(slot.split("-t")[1]) >= 100 or not dx11_pair.declared(declarations, d["shaders"], slot):
+                continue
+            res = cap.resource(v["res"]) or {}
+            # bind 8 is "shader resource" alone: loaded from a file, not rendered to.
+            if res.get("kind") == "tex2d" and res.get("origin") == "game" and res.get("bind") == 8 and v.get("hash"):
+                wanted.setdefault(v["res"], v["hash"])
+    out = {}
+    for rid, name in wanted.items():
+        try:
+            meta, data = client.read_texture(cap.frame, rid, 0, 0)
+        except Exception as exc:               # one unreadable texture must not lose the rest
+            out[name] = {"error": str(exc)}
+            continue
+        out[name] = {"crc32c": "%08x" % crc32c(data), "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data),
+                     "width": meta.get("width"), "height": meta.get("height"), "format": meta.get("format_name"),
+                     "mips": meta.get("mips"), "array": meta.get("array")}
+    return out
+
+
 # --------------------------------------------------------------------------- capture
 def cmd_capture(args) -> int:
-    _model, probe_client = sibling(args.efmi_mcp)
+    model, probe_client = sibling(args.efmi_mcp)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    textures = None
     try:
         with probe_client.ProbeClient.connect(args.pid) as client:
             status = client.status()
             doc, blob = client.capture(detail="full", cb_data=True, timeout_ms=args.timeout_ms)
             declarations = fetch_declarations(client, doc, {})
+            if args.textures:
+                textures = hash_textures(client, model.Capture(doc, blob), declarations)
     except probe_client.ProbeError as exc:
         print("capture failed: %s" % exc)
         return 1
+    if textures is not None:
+        (out / (args.label + ".textures.json")).write_text(json.dumps(textures, indent=1), encoding="utf-8")
+        print("%d textures hashed, %d not readable" % (sum(1 for t in textures.values() if "crc32c" in t),
+                                                      sum(1 for t in textures.values() if "error" in t)))
     (out / (args.label + ".json")).write_text(json.dumps(doc), encoding="utf-8")
     (out / (args.label + ".bin")).write_bytes(blob)
     (out / (args.label + ".status.json")).write_text(json.dumps(status, indent=1), encoding="utf-8")
@@ -353,6 +392,8 @@ def main() -> int:
     c.add_argument("--label", required=True)
     c.add_argument("--pid", type=int, default=None)
     c.add_argument("--timeout-ms", type=int, default=8000)
+    c.add_argument("--textures", action="store_true",
+                   help="also hash mip 0 of every file-backed texture the frame reads (takes about a minute)")
     c.set_defaults(fn=cmd_capture)
     h = sub.add_parser("shaders")
     h.add_argument("--label", required=True)
