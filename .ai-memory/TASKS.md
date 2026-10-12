@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017 and T-020 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof (D-022, D-028), not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source and dist/ are 0.8.0. Current-session full recipes now exist for display, world LOD0 and actual LOD1. T-023 must resolve empty snapshot intervals before closing LOD1 bone timing evidence. See docs/m2-game-recipes.md for corrected scene labels and the historical-log smoke qualification.
+T-001 to T-008, T-012, T-014, T-015, T-017 and T-020 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof (D-022, D-028), not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/candidate 0.8.1 is fully sandbox-verified; dist/ and the game remain 0.8.0. Current-session full recipes exist for display, world LOD0 and actual LOD1. T-023's capture fix awaits normal game exit/deployment and a fresh LOD1 snapshot observation. See docs/m2-game-recipes.md for corrected scene labels and the historical-log smoke qualification.
 
 ## Tasks and follow-ups
 
@@ -16,11 +16,11 @@ T-001 to T-008, T-012, T-014, T-015, T-017 and T-020 are complete within their r
 
 Current user-started 0.8.0 session supplies complete supported recipes for all matched pipelines: display 39, world LOD0 45, actual LOD1 36. All nine LOD1 sections appear in the latter, including color passes. LOD0 world entries/bones agree at record/submit, including 14 LOD1 depth draws. Actual LOD1 color-pass snapshot timing remains open (T-023); depth-only LOD1 data is not a substitute. See docs/m2-game-recipes.md. Continue sample assets/bone remapping/texture patches plus the asynchronous cache and in-flight lifetime system after the required evidence. Probe hooks still never call the builder/emitter; no complete M2 result exists.
 
-### T-023: Capture an interval containing graphics while keeping snapshot recording armed (open)
-
-The user confirmed normal LOD1 display/movement, but snapshot capture repeatedly returned empty intervals. Surrounding counters and no-snapshot frames contain graphics. Bounded client retries and varied delays preserve honest results but have not solved full snapshots. Add an opt-in server capture that skips empty present intervals without merging frame data or turning off record-time snapshot reads until a drawn interval or timeout. Report skipped intervals and test timeout cleanup and record/submit data across the skipped interval. Build/regress in build/next; a running game retains 0.8.0. No attribution to anti-cheat, frame generation or LOD rendering failure is established.
-
 Review note (2026-10-12, from `captures/third-probe`): 33 of the 45 matched draws use pipelines that declare five vertex bindings, (0,16) (1,12|20|8) (2,12|4) (3,16) (4,0); binding 4 with stride 0 is the game's default tangent buffer, which the mod does not replace. The tracker keeps four slots (`kMaxVb = 4`), so a capture does not show what is bound at slot 4. The replacement vertex declaration therefore has to carry binding 4 over from the recipe unchanged, and the replaced draw rebinds and restores bindings 0 to 3 only. Raising `kMaxVb` is needed only if a later mod replaces that slot.
+
+### T-023: Capture an interval containing graphics while keeping snapshot recording armed (0.8.1 sandbox verified; deployment/game result open)
+
+The user confirmed normal LOD1 display/movement, but snapshot captures repeatedly returned empty intervals while no-snapshot frames contain graphics. 0.8.1 now implements the opt-in server wait (D-029): skip empty present intervals without merging data or stopping record-time reads until a drawn interval or timeout; report skipped intervals. Native 144, evidence 113 and the full suite pass, as does candidate actual-config smoke. Exact DLL hash and reports are in CURRENT_STATE. The running game and dist/ still use 0.8.0; replace only after normal exit, then collect actual LOD1 color-pass entry/bone timing with --wait-draws. No attribution to anti-cheat, frame generation or LOD rendering failure is established. The MCP wrapper's new-option exposure is a later tooling follow-up; client/CLI are available.
 
 ### T-007: M0 inventory (done; static assessment)
 
@@ -156,7 +156,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The user has supplied the current LOD0/LOD1 scene changes. Do not ask again until T-023 has a tested concrete fix or another specific data need. No duration-only test is needed.
+- T-023 has a fully tested 0.8.1 candidate. Normal game exit is required before replacing the loaded DLL, then a user-started LOD1 scene supplies the missing snapshots. The current LOD0/LOD1 recipe captures are saved; no repeat display or duration-only test is needed.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

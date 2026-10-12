@@ -105,7 +105,7 @@ class ProbeClient:
         return self.request("status")[0]
 
     def capture(self, timeout_ms: int = 5000, draws: bool = True, descriptor_budget: int | None = None,
-                snapshot: dict | None = None) -> dict:
+                snapshot: dict | None = None, wait_draws: bool = False) -> dict:
         """One complete frame. ``descriptor_budget`` bounds, in bytes, the descriptor contents the
         layer keeps for the frame (its default is 64 MiB); 0 leaves the contents out.
 
@@ -118,8 +118,16 @@ class ProbeClient:
         value * stride of every storage range of the draw the window fits in; ``entry`` bytes at the
         start of that uniform range are also kept and compared on their own. Each selected draw gets
         a "snapshot" list; the bytes are fetched with :meth:`snapshot` while the capture is the latest.
+
+        ``wait_draws`` (0.8.1) keeps snapshot recording armed across empty present intervals and
+        returns one interval with graphics, without merging intervals. The original timeout applies.
+        Unsupported layers are refused instead of silently returning an empty interval.
         """
         params = {"timeout_ms": timeout_ms, "draws": 1 if draws else 0}
+        if wait_draws:
+            if "capture_wait_draws" not in self.status().get("features", []):
+                raise ProbeError("target does not support capture_wait_draws; requires layer 0.8.1 or later")
+            params["wait_draws"] = 1
         if descriptor_budget is not None:
             params["descriptor_budget"] = int(descriptor_budget)
         if snapshot is not None:

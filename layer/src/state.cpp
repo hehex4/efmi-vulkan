@@ -1245,7 +1245,17 @@ void on_present(Device* dev)
     dev->max_secondaries = std::max(dev->max_secondaries, dev->cur.secondaries);
     dev->last = dev->cur;
 
-    if (dev->cap_state == 2 && dev->cap_building) {
+    if (dev->cap_state == 2 && dev->cap_building && dev->cap_wait_draws && !dev->cur.draws) {
+        // Keep record-time reads armed while waiting for a graphics submission. Other queues
+        // may present during command recording. Retain only the next interval's contents and
+        // budget, not a concatenation of upload/compute intervals or their resource snapshots.
+        const uint64_t skipped = dev->cap_building->skipped_empty_intervals + 1;
+        dev->cap_building = std::make_shared<Capture>();
+        dev->cap_building->wait_draws = true;
+        dev->cap_building->skipped_empty_intervals = skipped;
+        dev->cap_building->descriptor_budget = dev->cap_descriptor_budget;
+        dev->cap_building->snap = dev->cap_snap;
+    } else if (dev->cap_state == 2 && dev->cap_building) {
         dev->cap_building->stats = dev->cur;
         dev->cap_building->seq = ++dev->cap_seq;
         dev->cap_last = dev->cap_building;
@@ -1257,6 +1267,7 @@ void on_present(Device* dev)
     } else if (dev->cap_state == 1) {
         dev->cap_state = 2;
         dev->cap_building = std::make_shared<Capture>();
+        dev->cap_building->wait_draws = dev->cap_wait_draws;
         dev->cap_building->descriptor_budget = dev->cap_descriptor_budget;
         dev->cap_building->snap = dev->cap_snap;
         // Draws recorded from here on are read at record time as well; the pointer goes first.
@@ -1450,6 +1461,7 @@ std::string probe_status()
     w.key("features");
     w.begin_array();
     w.str("capture");
+    w.str("capture_wait_draws");
     w.str("buffers");
     w.str("read_buffer");
     w.str("hash");
@@ -1571,6 +1583,8 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
 {
     w.begin_object();
     w.kn("seq", cap.seq);
+    w.kb("wait_draws", cap.wait_draws);
+    w.kn("skipped_empty_intervals", cap.skipped_empty_intervals);
     w.kn("frame", cap.stats.frame);
     w.key("stats");
     write_stats(w, cap.stats);
@@ -1722,7 +1736,7 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
 }
 
 std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget,
-                          std::shared_ptr<const SnapRequest> snap)
+                          std::shared_ptr<const SnapRequest> snap, bool wait_draws)
 {
     uint64_t before;
     {
@@ -1734,6 +1748,7 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
         if (ref.dev->cap_state == 0) {
             ResetEvent(cap_event());
             ref.dev->cap_descriptor_budget = descriptor_budget;
+            ref.dev->cap_wait_draws = wait_draws;
             ref.dev->cap_snap = std::move(snap);
             ref.dev->cap_state = 1;
         }
@@ -1757,7 +1772,7 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
         }
     }
     if (!cap)
-        return fail("timeout: no frame was presented");
+        return fail(wait_draws ? "timeout: no interval containing draws was captured" : "timeout: no frame was presented");
     JsonWriter w;
     w.begin_object();
     w.kb("ok", true);

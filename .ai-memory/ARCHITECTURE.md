@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.8.0, protocol 1, server 0.1.0. The M2 pipeline builder is sandbox-tested and not called by the probe's draw hooks. Resource inspection details are in `docs/probe-resources.md`, snapshots in `docs/probe-snapshots.md`, and owned pipeline recipes/variant verification in `docs/m2-pipeline-variants.md`.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: source layer 0.8.1 (candidate; dist/ and the current game still use 0.8.0), protocol 1, server 0.1.0. The M2 pipeline builder is sandbox-tested and not called by the probe's draw hooks. Resource inspection details are in `docs/probe-resources.md`, snapshots and opt-in waiting through empty present intervals in `docs/probe-snapshots.md`, and owned pipeline recipes/variant verification in `docs/m2-pipeline-variants.md`.
 
 ## Data path of the development probe
 

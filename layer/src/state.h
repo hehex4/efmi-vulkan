@@ -366,6 +366,8 @@ struct CapDraw {
 
 struct Capture {
     uint64_t seq = 0;
+    bool wait_draws = false;
+    uint64_t skipped_empty_intervals = 0;
     // Descriptor contents are JSON text per draw and set. The budget bounds what one capture
     // may add to the memory of the observed process; past it, contents are omitted and counted.
     uint64_t descriptor_budget = 0;
@@ -461,6 +463,7 @@ struct Device {
     uint64_t frame_no = 0;
     uint64_t total_draws = 0;
     int cap_state = 0; // 0 idle, 1 waiting for the next present, 2 recording this frame
+    bool cap_wait_draws = false; // optional wait across intervals without graphics; never merges frames
     uint64_t cap_descriptor_budget = 0; // of the capture that is armed
     std::shared_ptr<const SnapRequest> cap_snap; // of the capture that is armed; null: keep no contents
     // The request of the frame being captured, for the threads that record draws. The flag is the
@@ -529,7 +532,7 @@ ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t
 // Probe requests, called on the pipe thread.
 std::string probe_status();
 std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget,
-                          std::shared_ptr<const SnapRequest> snap = nullptr);
+                          std::shared_ptr<const SnapRequest> snap = nullptr, bool wait_draws = false);
 std::string probe_snapshot(uint64_t seq, uint32_t id, std::vector<uint8_t>& payload);
 // Changes the unmap settings of the running process; a negative value leaves a setting as it is.
 std::string probe_set(int unmap_snapshot_all, int64_t unmap_snapshot_limit);

@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeline_limit: int = 16,
-            snapshot: dict | None = None, *, capture_delay_ms: int = 0) -> dict:
+            snapshot: dict | None = None, *, capture_delay_ms: int = 0, wait_draws: bool = False) -> dict:
     """Capture a raw frame, counters, optional INI matches and bounded pipeline/shader metadata.
 
     A manifest is written last; an interrupted run retains its earlier files without
@@ -50,6 +50,8 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
             raise ValueError(f"target label {target} disagrees with process {before.get('exe')}")
         if before.get("mode") != "probe":
             raise ValueError("target must already be running in probe mode")
+        if wait_draws and "capture_wait_draws" not in before.get("features", []):
+            raise ValueError("target does not support capture_wait_draws; requires layer 0.8.1 or later")
         output.mkdir(parents=True, exist_ok=False)
         observed = datetime.now(timezone.utc).isoformat()
         save("status-before.json", before)
@@ -65,7 +67,7 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
         # requests with the same non-graphics present interval. Each result is still one interval.
         if capture_delay_ms:
             time.sleep(capture_delay_ms / 1000)
-        frame = probe.capture(snapshot=request)
+        frame = probe.capture(snapshot=request, wait_draws=wait_draws)
         blobs, missing = [], []
         if request is not None:
             # Fetched first: the layer keeps the bytes only while this capture is its latest one.
@@ -134,6 +136,8 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
         save("status-after.json", probe.status())
         summary = {
             "capture_delay_ms": capture_delay_ms,
+            "wait_draws": frame.get("wait_draws", False),
+            "skipped_empty_intervals": frame.get("skipped_empty_intervals", 0),
             "frame": frame["frame"], "draw_count": frame["draw_count"], "stats": frame["stats"],
             "draws_by_thread": dict(Counter(str(d["tid"]) for d in draws)),
             "draws_by_command_buffer": dict(Counter(str(d["cb"]) for d in draws)),

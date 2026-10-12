@@ -71,9 +71,9 @@ the first attempt. This points to the short capture window interacting with reco
 work; the exact present producer and any frame-generation involvement are unproven.
 
 The 0.8.0 state machine always ends at the next present, even when no graphics were submitted in
-that interval. A future opt-in capture can keep the record-time request armed across empty intervals
-and return one interval that actually contains draws, without merging frames. It must keep the timeout,
-report skipped intervals and be sandbox-tested before deployment. No running-game code is changed.
+that interval. The 0.8.1 candidate now keeps the record-time request armed across empty intervals
+when explicitly requested, and returns one interval that actually contains draws without merging
+frames. It retains the timeout and reports skipped intervals. No running-game code is changed.
 
 ## Bounded collector selection
 
@@ -82,6 +82,24 @@ in its own bundle and a `series.json` with child manifest fingerprints, selected
 exhaustion/interruption. Empty or depth-only observations never satisfy that color selection.
 Variable short delays before capture avoid a fixed retry cadence but do not solve the snapshot gap
 observed above. Default one-frame collection is unchanged. Sandbox evidence tests: 109 checks pass.
+
+## 0.8.1 candidate verification
+
+Source and build/next now add `capture_wait_draws`; dist/ and the running game still use 0.8.0.
+See `probe-snapshots.md` and D-029 for the API and limits. Full build/regression passes:
+unit 88, native tracker 144, native recipes 120, variant runner 37, 17 probe cases 517-532,
+modes 40, limits 174, timing 126, Vulkan validation 76, MCP 47, evidence 113.
+Log: `build/capture-wait-draws-regression-20261012.txt`.
+
+Candidate actual-config inject smoke also passes: 0.8.1, resources on, image hashing/profiling off,
+five snapshotted draws with the new wait enabled, complete recipe and correct hashes before/after
+the sandbox rewrite. Report: `build/capture-wait-actual-config-next.json`. This time the actual
+game-log path exists and its before/after SHA-256 is recorded and equal; that proves preservation
+only during this smoke. It does not repair the historical missing fingerprint below.
+
+Both candidate DLLs SHA-256: `7e311a9f9f358aa50d90c579abfc1384877a8b391aea8ef886d1e87a90ba50d7`.
+No deployment while PID 17484 holds the original DLL. The LOD1 snapshot result remains pending a
+new user-started session after deployment; successful sandbox waiting does not supply the game data.
 
 ## Correction to the earlier deployment smoke record
 

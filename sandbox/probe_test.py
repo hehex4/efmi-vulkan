@@ -89,7 +89,10 @@ def check_snapshot(c: Checks, probe: ProbeClient, expected: dict) -> None:
     entry_bytes = uni["late_at"]            # ends before the bytes that arrive late
     follow = {"set": 0, "binding": 0, "offset": uni["follow_at"], "count": 2, "stride": uni["follow_stride"],
               "bytes": uni["follow_bytes"], "entry": entry_bytes}
-    cap = probe.capture(timeout_ms=5000, snapshot={"hashes": [expected["draws"][i]["hash"] for i in chosen], "follow": follow})
+    cap = probe.capture(timeout_ms=5000, snapshot={"hashes": [expected["draws"][i]["hash"] for i in chosen], "follow": follow},
+                        wait_draws=True)
+    c.check(cap["wait_draws"] and cap["skipped_empty_intervals"] == 0,
+            "snapshot: nonempty mode returns this sandbox's one graphics interval")
     draws = [d for d in cap["draws"] if d["kind"] == "indexed"]
     c.equal([i for i, d in enumerate(draws) if "snapshot" in d], list(chosen), "snapshot: only the draws with a listed hash")
     info = cap["snapshot"]
@@ -164,6 +167,7 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
             c.equal(status["exe"], "efmi_vk_sandbox.exe", "status exe")
             c.check(bool(status["device"]["name"]), "device name reported")
             c.check("capture" in status["features"], "capture feature listed")
+            c.check("capture_wait_draws" in status["features"], "nonempty capture feature listed")
             c.equal(status["entry"], entry, "status entry")
             attach = status["attach"]
             c.equal(attach["devices_created"], 1, "one device seen at creation")
@@ -176,6 +180,8 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
                 c.equal(attach["exports_redirected"], 0, "a layer redirects no export")
 
             cap = probe.capture(timeout_ms=5000)
+            c.check(not cap["wait_draws"] and cap["skipped_empty_intervals"] == 0,
+                    "ordinary capture keeps the original one-interval semantics")
             stats = cap["stats"]
             c.equal(stats["submits"], 1, "one submit per frame")
             c.equal(stats["command_buffers"], 1, "one primary command buffer per frame")

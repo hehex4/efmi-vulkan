@@ -56,7 +56,7 @@ def evaluate_selection(frame: dict, matches: list, pipelines: list, section_patt
 
 def collect_selected(pid: int, target: str, output: Path, mod: Path, pipeline_limit: int = 128,
                      snapshot: dict | None = None, *, section_pattern: str, require_color: bool = False,
-                     max_attempts: int = 8) -> dict:
+                     max_attempts: int = 8, wait_draws: bool = False) -> dict:
     """Stop at the first qualifying bundle or the attempt limit, retaining empty/rejected bundles.
 
     Each attempt has its own ordinary collection manifest and snapshot bytes, saved before the
@@ -78,7 +78,7 @@ def collect_selected(pid: int, target: str, output: Path, mod: Path, pipeline_li
     result = {
         "schema": 1, "selection": "collecting", "selected_bundle": None,
         "request": {"pid": pid, "target": target, "section_pattern": section_pattern,
-                    "require_color": require_color, "max_attempts": max_attempts},
+                    "require_color": require_color, "max_attempts": max_attempts, "wait_draws": wait_draws},
         "attempts": [],
         "limits": ["Selection checks captured mesh sections, not user scene or visible pixels.",
                    "A color attachment does not prove the draw is the main visible pass.",
@@ -98,7 +98,8 @@ def collect_selected(pid: int, target: str, output: Path, mod: Path, pipeline_li
         name = f"attempt-{number:02d}"
         bundle = output / name
         try:
-            manifest = collect(pid, target, bundle, mod, pipeline_limit, snapshot, capture_delay_ms=wait_ms)
+            manifest = collect(pid, target, bundle, mod, pipeline_limit, snapshot,
+                               capture_delay_ms=wait_ms, wait_draws=wait_draws)
         except (OSError, ValueError, ProbeError) as exc:
             result["selection"] = "interrupted"
             result["attempts"].append({"bundle": name, "error": str(exc)})
@@ -111,6 +112,7 @@ def collect_selected(pid: int, target: str, output: Path, mod: Path, pipeline_li
         result["attempts"].append({
             "bundle": name, "frame": frame["frame"], "draw_count": frame["draw_count"],
             "wait_ms": wait_ms,
+            "skipped_empty_intervals": frame.get("skipped_empty_intervals", 0),
             "collection": manifest["collection"], "source": manifest["source"],
             "manifest_sha256": hashlib.sha256((bundle / "manifest.json").read_bytes()).hexdigest(),
             **check,

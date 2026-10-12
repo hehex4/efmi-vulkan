@@ -87,11 +87,14 @@ def main() -> int:
             rule = "0:0:%d:2:%d:%d:%d" % (uni["follow_at"], uni["follow_stride"], uni["follow_bytes"], uni["late_at"])
             base = [sys.executable, "-B", str(Path(ROOT) / "scripts/collect_probe.py"), "--pid", str(box.pid),
                     "--target", "sandbox", "--mod", str(ini)]
-            result = subprocess.run(base + ["--out", str(kept), "--snapshot", "mod", "--follow", rule],
+            result = subprocess.run(base + ["--out", str(kept), "--snapshot", "mod", "--follow", rule, "--wait-draws"],
                                     capture_output=True, text=True, timeout=20)
             c.equal(result.returncode, 0, "collector CLI with a snapshot completed")
             manifest = json.loads((kept / "manifest.json").read_text())
             c.equal(manifest["collection"], "complete", "snapshot collection has no gaps")
+            kept_summary = json.loads((kept / "summary.json").read_text())
+            c.check(kept_summary["wait_draws"] and kept_summary["skipped_empty_intervals"] == 0,
+                    "CLI preserves nonempty capture selection metadata")
             c.check(any("compared with a read at record time" in text for text in manifest["limits"]),
                     "the manifest says what the snapshot covers")
             frame = json.loads((kept / "frame.json").read_text())
@@ -170,6 +173,12 @@ def main() -> int:
                 except ProbeError:
                     saved = json.loads((interrupted / "series.json").read_text())
                     c.equal(saved["selection"], "interrupted", "disconnect cannot leave a successful series")
+            with ProbeClient(box.pid) as probe, patch.object(ProbeClient, "status", return_value={"features": ["capture"]}):
+                try:
+                    probe.capture(wait_draws=True)
+                    c.check(False, "old layer silently accepted a wait-draws request")
+                except ProbeError:
+                    c.check(True, "old layer is explicitly refused for wait-draws")
     return c.finish()
 
 

@@ -102,7 +102,7 @@ std::string dispatch(const JsonRequest& req, std::vector<uint8_t>& payload)
             timeout = 60000;
         // Default bound for the descriptor contents of one captured frame: 64 MiB of JSON.
         return probe_capture(timeout, req.get_u64("draws", 1) != 0, req.get_u64("descriptor_budget", 64ull << 20),
-                             snapshot_request(req));
+                             snapshot_request(req), req.get_u64("wait_draws", 0) != 0);
     }
     if (cmd == "snapshot")
         return probe_snapshot(req.get_u64("seq", 0), static_cast<uint32_t>(req.get_u64("id", 0)), payload);

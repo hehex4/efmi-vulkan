@@ -214,3 +214,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Keep D-022's VS-only private set, compatible original sets and push ranges, and untouched fragment module. Unsupported immutable samplers/layout flags never become guessed equivalents. A failed construction or unready transaction leaves the original draw available.
 - Sandbox GPU readback is the first check: 16-bit bone index 257, changed stride/indices, two replacement buffers, nonzero dynamic offsets, original fragment data, blending and the next original draw after restoration. This passed under core/sync validation. Historical shaders are validated separately, never described as a new game result.
 - The next game observation captures complete pipeline/layout recipes and current bone/instance data before integrating the real sample. Old creation counters do not supply the missing values. 0.8.0 stays in probe mode and never invokes replacement drawing in the game.
+
+## D-029: Select a nonempty present interval without merging frames or losing record-time reads
+
+- Date: 2026-10-12, after the user corrected the LOD labels and actual LOD1 recipe capture succeeded only without snapshots.
+- An empty captured present interval is not evidence that the scene or character stopped drawing. User-reported scene state and mesh-section/pass coverage remain separate evidence. Depth-only LOD1 matches cannot substitute for LOD1 color coverage.
+- Layer 0.8.1 adds opt-in wait_draws. Keep the same snapshot request armed across intervals without graphics submissions, discard those intervals' captured contents/budgets and return one interval with draw commands. Preserve their ordinary tracked buffer writes. Frame counters, pacing and the default one-interval capture are unchanged.
+- Record-time comparisons belong to the actual draw recording, which may precede a skipped present; they are not fabricated from submit-time data. The existing timeout clears pending work. Report skipped_empty_intervals, and advertise a feature so older layers cannot silently ignore the option.
+- Selection is bounded and only a diagnostic request. It does not alter gameplay, present synchronization, driver submissions or replacement drawing. No frame-generation producer or game fault is inferred from the observed empty intervals.
+- Native and GPU sandbox checks plus the full suite pass. Real LOD1 color-pass snapshots remain open until a user-started run with the deployed candidate; do not hot-replace a loaded DLL or claim the fix verified in the game in advance.

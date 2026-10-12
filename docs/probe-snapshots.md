@@ -8,6 +8,32 @@ not what the draw used (LIMIT-008: in the game 1 of 12 reads was still right a m
 capture can keep the bytes itself, and it answers a second question at the same time: were the bytes
 already there when the draw was recorded?
 
+## Waiting through empty present intervals (0.8.1)
+
+`ProbeClient.capture(wait_draws=True, snapshot=...)` and `collect_probe.py --wait-draws` opt into
+waiting for a present interval containing at least one draw command. On the wire this is `wait_draws: 1`.
+The layer advertises `capture_wait_draws` in status.features; the client refuses older layers for
+this option instead of silently accepting their old behavior. The default remains one interval,
+including an empty one. The MCP capture tool does not expose this new option yet; use the CLI/client.
+
+Snapshot recording stays armed across skipped intervals. Draws recorded before an intervening
+present but submitted later retain their record-time comparisons. Each skipped interval's capture
+contents/budgets are discarded, while normal buffer tracking still applies its writes. The returned
+frame, draw list and statistics cover one selected interval, not the sum of skipped intervals.
+`wait_draws` and `skipped_empty_intervals` describe selection in the frame and collector summary.
+The existing timeout still cancels the request and clears its record-time work; repeated empty
+presents are not success. A present interval is not automatically a displayed or complete scene frame.
+
+Motivation and current game evidence: `m2-game-recipes.md`. Native tracker tests simulate two empty
+intervals during command recording, including upload/dispatch submission and a buffer write between
+record and submit. They check retained comparisons, single-interval statistics, default empty captures
+and timeout cleanup. GPU probe tests exercise snapshots with the option through both entries and all
+descriptor modes. Full suite on 0.8.1 build/next passes; the game still holds 0.8.0 at this checkpoint.
+
+For the next user-started LOD1 observation, combine `--wait-draws --snapshot mod --follow instance`
+with `--require-section '*_LOD1' --require-color --attempts 8 --pipeline-limit 128`. This only requests
+observation. It does not change gameplay, enable replacement drawing or infer an on-screen LOD.
+
 ## What a request asks for
 
 Fields of `ProbeClient.capture(snapshot=...)`; on the pipe they are flat keys of the `capture` command.

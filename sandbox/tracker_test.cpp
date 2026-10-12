@@ -768,6 +768,124 @@ static void unmap_selection()
     g_cfg = config;
 }
 
+static bool wait_capture_armed(Device* dev)
+{
+    const ULONGLONG deadline = GetTickCount64() + 1000;
+    do {
+        {
+            std::lock_guard<std::mutex> lock(dev->frame_mx);
+            if (dev->cap_state == 1) return true;
+        }
+        Sleep(1);
+    } while (GetTickCount64() < deadline);
+    return false;
+}
+
+static void capture_empty_intervals()
+{
+    // Registered fake device so the real probe request/wait/serialization path is exercised.
+    // The test supplies presents and submissions directly; it calls no Vulkan driver.
+    void* dispatch_key = &dispatch_key;
+    Device* dev = dev_create(reinterpret_cast<VkDevice>(&dispatch_key));
+    Device& d = *dev;
+    const auto buffer = h<VkBuffer>(301), target = h<VkBuffer>(302);
+    const auto memory = h<VkDeviceMemory>(303);
+    const auto cmd = h<VkCommandBuffer>(304), upload = h<VkCommandBuffer>(305);
+    const auto sl = h<VkDescriptorSetLayout>(306);
+    const auto pl = h<VkPipelineLayout>(307);
+    const auto set = h<VkDescriptorSet>(308);
+    VkMemoryAllocateInfo ai = {}; ai.allocationSize = 64;
+    on_alloc_memory(dev, memory, &ai);
+    VkBufferCreateInfo bi = {}; bi.size = 64;
+    bi.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    on_create_buffer(dev, buffer, &bi); on_bind_buffer(dev, buffer, memory, 0);
+    on_create_buffer(dev, target, &bi);
+    std::vector<uint8_t> mapped(64, 17);
+    on_map_memory(dev, memory, 0, mapped.size(), mapped.data());
+    layout(d, sl, {{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr}});
+    pipeline_layout(d, pl, {sl});
+    allocate(d, h<VkDescriptorPool>(309), sl, set);
+    VkDescriptorBufferInfo buf = {buffer, 0, 64};
+    VkWriteDescriptorSet write = {}; write.dstSet = set; write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; write.pBufferInfo = &buf;
+    on_update_sets(dev, 1, &write, 0, nullptr);
+    VkCommandBuffer cmds[] = {cmd, upload};
+    VkCommandBufferAllocateInfo ci = {}; ci.commandBufferCount = 2;
+    on_alloc_cbs(dev, &ci, cmds);
+    CmdBuf* cb = d.cbs.at(cmd).get();
+    CmdBuf* other = d.cbs.at(upload).get();
+    on_bind_sets(dev, cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pl, 0, 1, &set, 0, nullptr);
+
+    auto req = std::make_shared<SnapRequest>(); req->all = true; req->max_range = 64;
+    req->follow = true; req->follow_count = 0; req->follow_entry = 16;
+    std::string answer;
+    std::thread reader([&] { answer = probe_capture(2000, true, 1 << 20, req, true); });
+    bool armed = wait_capture_armed(dev);
+    check(armed, "nonempty capture request armed");
+    if (!armed) { reader.join(); dev_destroy(dev); return; }
+    on_present(dev);
+    check(d.snap_recording.load() && std::atomic_load(&d.snap_live) == req,
+          "snapshot reads start at the first boundary");
+    DrawRec draw; draw.kind = DK_INDEXED; draw.count = 3; draw.instances = 1;
+    draw.ib = buffer; draw.index_size = 2; draw.sets[0] = cb->sets[0];
+    cb->draws.push_back(draw); on_record_indexed(dev, cb);
+    check(cb->rec_snaps.size() == 1 && cb->rec_snaps[0].ranges.size() == 2,
+          "first draw records uniform and entry before an intervening present");
+    on_copy_buffer(dev, other, buffer, target, 0, 0, 16);
+    DrawRec dispatch; dispatch.kind = DK_DISPATCH; other->draws.push_back(dispatch);
+    on_submit(dev, 1, &upload);
+    on_present(dev);
+    check(d.cap_state == 2 && d.cap_seq == 0 && d.snap_recording.load(),
+          "upload and dispatch interval does not end nonempty capture");
+    check(d.cap_building->draws.empty() && d.cap_building->descriptor_bytes == 0,
+          "skipped interval contents and descriptor budget are discarded");
+    check(d.bufs.at(target).known.covers(0, 16), "tracked writes in skipped intervals still take effect");
+    mapped[0] = 29;
+    cb->draws.push_back(draw); on_record_indexed(dev, cb);
+    on_present(dev);
+    check(d.cap_building->skipped_empty_intervals == 2 && cb->rec_snaps.size() == 2,
+          "record-time reads stay armed across several empty intervals");
+    on_submit(dev, 1, &cmd);
+    on_present(dev);
+    reader.join();
+    auto cap = d.cap_last;
+    check(answer.find("\"ok\":true") != std::string::npos && cap && cap->draws.size() == 2,
+          "nonempty request returns the graphics submission");
+    check(cap && cap->wait_draws && cap->skipped_empty_intervals == 2 &&
+          answer.find("\"skipped_empty_intervals\":2") != std::string::npos,
+          "nonempty selection metadata is serialized");
+    check(cap && cap->stats.submits == 1 && cap->stats.draws == 2 && cap->stats.dispatches == 0,
+          "returned statistics cover only the selected interval");
+    check(cap && cap->snap_draws == 2 && cap->draws[0].snaps.size() == 2 &&
+          cap->draws[0].snaps[0].rec == REC_DIFFERENT && cap->draws[1].snaps[0].rec == REC_EQUAL,
+          "record/submit comparisons survive empty intervals and still notice later writes");
+    check(d.cap_state == 0 && !d.snap_recording.load() && !std::atomic_load(&d.snap_live),
+          "successful wait stops record-time snapshot work");
+
+    std::thread ordinary([&] { answer = probe_capture(2000, true, 0); });
+    armed = wait_capture_armed(dev);
+    check(armed, "ordinary capture can follow the nonempty capture");
+    if (armed) { on_present(dev); on_present(dev); }
+    ordinary.join();
+    check(answer.find("\"ok\":true") != std::string::npos && d.cap_last->draws.empty() &&
+          !d.cap_last->wait_draws && d.cap_last->skipped_empty_intervals == 0,
+          "default mode still returns an empty interval without waiting");
+    const uint64_t completed = d.cap_seq;
+    std::thread timeout([&] { answer = probe_capture(100, true, 1024, req, true); });
+    armed = wait_capture_armed(dev);
+    check(armed, "timeout case armed");
+    if (armed) { on_present(dev); on_present(dev); on_present(dev); }
+    timeout.join();
+    check(answer.find("timeout: no interval containing draws") != std::string::npos,
+          "empty presents cannot turn timeout into capture success");
+    check(d.cap_state == 0 && !d.cap_building && !d.snap_recording.load() &&
+          !std::atomic_load(&d.snap_live) && d.cap_seq == completed,
+          "timeout clears active snapshot work and does not publish a partial capture");
+    on_present(dev);
+    check(d.cap_seq == completed, "later presents cannot publish a timed-out request");
+    dev_destroy(dev);
+}
+
 int main()
 {
     util_init(GetModuleHandleW(nullptr));
@@ -782,6 +900,7 @@ int main()
     buffer_copy_paths();
     mapped_read_paths();
     unmap_selection();
+    capture_empty_intervals();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

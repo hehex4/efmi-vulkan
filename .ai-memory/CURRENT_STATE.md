@@ -1,6 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.8.0 (protocol 1) is deployed and running in user-started PID 17484. Full matched display/LOD0/LOD1 pipeline recipes are captured and pass CPU preflight; no game replacement is enabled. LOD1 color-pass bone snapshots remain open because snapshot captures repeatedly select empty present intervals. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Server 0.1.0.
+> Last updated: 2026-10-12. Source/candidate 0.8.1 passes the full suite and actual-config smoke in build/next; dist/ and user-started PID 17484 still use 0.8.0. Full matched display/LOD0/LOD1 pipeline recipes are captured and pass CPU preflight; no game replacement is enabled. LOD1 color-pass bone snapshots need the new opt-in wait through empty present intervals after user exit/deployment/relaunch. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Protocol 1, server 0.1.0.
+
+## 0.8.1 capture-window fix: candidate verified, deployment waits for game exit
+
+T-023/D-029: capture(wait_draws=True) retains record-time snapshot work across empty present intervals, returns one interval containing draw commands, and reports how many empty intervals were skipped. It does not merge interval contents/statistics, change normal tracking or enable replacements. Default capture remains unchanged; original timeout stops pending snapshot work. Older layers are explicitly refused for the new option. CLI supports --wait-draws; the MCP wrapper does not yet expose it.
+
+Full build/regression passes in build/next: unit 88, native tracker 144, native recipes 120, variant runner 37, 17 probe cases 517-532, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 113. Log: build/capture-wait-draws-regression-20261012.txt. Native tests reproduce empty intervals during recording, including upload/dispatch and a later buffer write; GPU tests cover snapshots through both entries/all descriptor modes. Actual-config inject smoke passes (build/capture-wait-actual-config-next.json), with the real game-log file's hash now recorded and unchanged during that smoke. Candidate DLL hash for both entries: 7e311a9f9f358aa50d90c579abfc1384877a8b391aea8ef886d1e87a90ba50d7.
+
+Next: after observing normal game exit, back up dist/, deploy the exact tested package with the same probe/resources/hash/profiling settings, verify it, then ask for a user-started LOD1 observation. Use --wait-draws --snapshot mod --follow instance --require-section '*_LOD1' --require-color --attempts 8 --pipeline-limit 128. No repeated LOD0 capture or duration test is needed. Game LOD1 bone timing is still unverified; sandbox success does not close it.
 
 ## Current 0.8.0 game evidence and corrected LOD labels (2026-10-12)
 
@@ -8,7 +16,7 @@ The user initially entered LOD1, then returned to LOD0 after the agent misinterp
 
 Display: 45 matched draws, 39 complete/supported recipes. LOD0 world: 61 draws, 45 recipes; all 61 entries and both VS bone windows equal at record/submit in two frames, including 14 LOD1 depth draws. Actual LOD1 world: 58 matched draws, 36 complete/supported recipes, but no buffer snapshots. All matched exports exist; unrelated omitted world pipelines are explicit. Current-session VS rewrite/spirv-val checks pass 21/21/19 modules for those scenes.
 
-T-023: 0.8.0 ends capture at the next present even if that interval contains no scene draws. A 40-status LOD1 sample has 30 empty intervals, while total draws increase; no-snapshot captures obtain graphics, but 36 full-snapshot attempts yield none. The exact present producer is unproven. The bounded collector now preserves attempts and distinguishes depth-only matches from color-subpass coverage (109 sandbox evidence checks). Next fix is an opt-in wait across empty intervals, retaining one interval's frame data and the timeout; build into build/next while the game holds dist/. No game restart or DLL replacement has occurred.
+T-023: 0.8.0 ends capture at the next present even if that interval contains no scene draws. A 40-status LOD1 sample has 30 empty intervals, while total draws increase; no-snapshot captures obtain graphics, but 36 full-snapshot attempts yield none. The exact present producer is unproven. The bounded collector preserves attempts and distinguishes depth-only matches from color-subpass coverage (109 sandbox evidence checks at that checkpoint). The opt-in wait is now implemented and verified as the 0.8.1 candidate above. No game restart or DLL replacement has occurred.
 
 Correction: the 0.8.0 temporary actual-config smoke's historical-log check used the wrong filename and compared missing-file values. It did not prove the log unchanged; the recipe/settings/hash checks remain valid. The script is corrected for future runs. See docs/m2-game-recipes.md.
 

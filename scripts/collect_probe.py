@@ -34,6 +34,8 @@ def main() -> int:
     ap.add_argument("--require-color", action="store_true",
                     help="require a matching draw in a subpass with a used color attachment")
     ap.add_argument("--attempts", type=int, help="selection attempt limit, 1..16 (default 8); retain every attempt")
+    ap.add_argument("--wait-draws", action="store_true",
+                    help="keep snapshot recording armed across empty present intervals (layer 0.8.1 or later)")
     args = ap.parse_args()
     if args.require_section:
         if args.mod is None:
@@ -56,11 +58,13 @@ def main() -> int:
         if args.require_section:
             result = collect_selected(args.pid, args.target, args.out, args.mod, args.pipeline_limit, snapshot,
                                       section_pattern=args.require_section, require_color=args.require_color,
-                                      max_attempts=args.attempts if args.attempts is not None else 8)
+                                      max_attempts=args.attempts if args.attempts is not None else 8,
+                                      wait_draws=args.wait_draws)
             print(f"Saved {len(result['attempts'])} {args.target} attempts to {args.out.resolve()}; "
                   f"selection {result['selection']}, selected bundle: {result['selected_bundle']}")
             return 0 if result["selection"] == "met" else 2
-        result = collect(args.pid, args.target, args.out, args.mod, args.pipeline_limit, snapshot)
+        result = collect(args.pid, args.target, args.out, args.mod, args.pipeline_limit, snapshot,
+                         wait_draws=args.wait_draws)
     except (OSError, ValueError, ProbeError) as exc:
         print(f"collection failed: {exc}")
         return 1
