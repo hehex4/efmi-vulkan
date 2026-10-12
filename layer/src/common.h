@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "0.7.4"
+#define EFVK_VERSION "0.7.5"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -58,11 +58,12 @@ struct Config {
     uint64_t image_hash_limit = 64ull << 20;
     // Opt-in hot-path measurements; adds clocks/counters and must be compared with profiling off.
     bool profile_tracker = false;
-    // The copy taken at unmap is for staging buffers: buffers that are a transfer source and nothing
-    // else. A buffer with further uses is left alone unless this is on. The game keeps its meshes in
-    // 16 MiB index and vertex pools that also have the transfer-source bit, and maps and unmaps them
-    // several times a second while it streams; copying those whole at every unmap stalled it (BUG-004).
-    bool unmap_snapshot_all = false;
+    // At unmap every buffer with the transfer-source bit that lies wholly inside the mapped range and
+    // within unmap_snapshot_limit is copied. Off restricts the copy to staging buffers, that is to
+    // buffers that are transfer buffers and nothing else. 0.7.4 had that restriction as its default,
+    // on the belief that the game's mesh pools were what was being copied; its own counters showed
+    // in the game that no pool is ever unmapped (docs/unmap-snapshots.md), so the default is back.
+    bool unmap_snapshot_all = true;
 };
 
 extern Config g_cfg;

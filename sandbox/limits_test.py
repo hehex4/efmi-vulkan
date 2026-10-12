@@ -201,14 +201,15 @@ def unmap_settings(c: Checks, entry: str) -> None:
     tag = "unmap settings, %s: " % entry
     with Sandbox(threads=0, entry=entry) as sb, ProbeClient(sb.pid) as probe:
         status = probe.status()
-        c.equal((status["unmap_snapshot_all"], status["unmap_snapshot_limit"]), (False, 16 << 20),
-                tag + "defaults: staging buffers up to 16 MiB")
+        c.equal((status["unmap_snapshot_all"], status["unmap_snapshot_limit"]), (True, 16 << 20),
+                tag + "defaults: every transfer source up to 16 MiB")
         c.check("set" in status["features"], tag + "the set command is listed")
-        c.equal(probe.set(), {"unmap_snapshot_all": False, "unmap_snapshot_limit": 16 << 20}, tag + "an empty request changes nothing")
-        c.equal(probe.set(unmap_snapshot_all=True), {"unmap_snapshot_all": True, "unmap_snapshot_limit": 16 << 20},
+        c.equal(probe.set(), {"unmap_snapshot_all": True, "unmap_snapshot_limit": 16 << 20}, tag + "an empty request changes nothing")
+        c.equal(probe.set(unmap_snapshot_all=False), {"unmap_snapshot_all": False, "unmap_snapshot_limit": 16 << 20},
                 tag + "one setting changes, the other stays")
         c.equal(probe.set(unmap_snapshot_limit=1 << 40)["unmap_snapshot_limit"], 256 << 20, tag + "a requested limit is clamped")
-        c.equal(probe.status()["unmap_snapshot_all"], True, tag + "the status shows the running value")
+        c.equal(probe.status()["unmap_snapshot_all"], False, tag + "the status shows the running value")
+        c.equal(probe.set(unmap_snapshot_all=True)["unmap_snapshot_all"], True, tag + "and it can be switched back")
         # Every copy at unmap off. The staging buffer of the rewrite is unmapped before its copy is
         # recorded, so the bytes are gone and the layer has to say so instead of serving older ones.
         c.equal(probe.set(unmap_snapshot_all=False, unmap_snapshot_limit=0), {"unmap_snapshot_all": False, "unmap_snapshot_limit": 0},

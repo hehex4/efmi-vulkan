@@ -187,7 +187,7 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Apply the helper to every mapped-read path, including unmap, record fallback, submit and direct probe reads; CPU shadows still use memmove. Expose the available strategy and current per-buffer WC classification for verification.
 - Local headless Vulkan measurements validate the mechanism (type 2: 24.023 to 1.270 ms for 8 MiB), not real-game smoothness. Type-4 device-local reads remain expensive. Keep profile_tracker on for the next comparable game run and ISSUE-005 open; source profiling defaults stay off. Full evidence: docs/pacing-tracker-session.md.
 
-## D-026: At unmap, copy staging buffers only
+## D-026: At unmap, copy staging buffers only (WITHDRAWN by D-027: the premise was wrong)
 
 - Date: 2026-10-12, after reviewing 0.7.1 to 0.7.3 against the buffer inventory of the 0.7.2 game session.
 - The copy at unmap exists for staging buffers. Its rule (transfer-source bit, at most 16 MiB) also matched the game's mesh pools, and they were where the bytes went: 2,612 generations on 22 pools against 87 on 76 staging buffers. The rule is now: transfer source, optionally transfer destination, no other usage, wholly inside the mapped range, within the limit.
@@ -196,3 +196,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - 0.7.3's streaming loads stay: they are correct and help the reads that remain. They are not counted as the fix; their own benchmark shows 1.5 times on the memory type the pools use.
 - `unmap_snapshot_all` and the `set` command exist so that the old behaviour can be brought back in a running process for a comparison. Switching it on in the game brings the stalls back and is done only with the user's agreement.
 - Not decided: how draws get their index identity when a pool is unmapped (T-021).
+
+## D-027: Withdraw D-026; the copy at unmap covers every whole transfer source again
+
+- Date: 2026-10-12, after the first game session with 0.7.4.
+- D-026 rested on the claim that the bytes copied at unmap were the game's mesh pools. The counters 0.7.4 added show that no pool is ever unmapped (`passed_over` 0 of 144,103 buffers) and that the volume is staging memory, as BUG-004 and D-025 had said. The claim came from reading `generation` as a count of unmap copies, which it is not, and from an inventory that cannot show short-lived buffers.
+- The default goes back to what D-024 and D-025 decided: no lowering of coverage without cause. `unmap_snapshot_all` stays as a setting, default on.
+- Kept from 0.7.4 because they are right on their own: dropping the shadow knowledge of a buffer that was mapped and not copied; `counts.unmap`; the `set` command; pinned settings in the test harness.
+- The stutter fix is 0.7.3's (D-025) and is now confirmed in the game.
+- For the working method: an attribution that changes the layer or the record needs a direct count first. Here the count was one small counter away, and was added in the same change that acted on the unverified reading.

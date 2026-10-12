@@ -251,3 +251,11 @@ The user asked for a review of the commits made for the stutter and whether it i
 0.7.4 narrows the rule to transfer-only buffers, drops shadows that could be stale, counts what it passes over and adds a `set` command for the two unmap settings. Native tests 126, limits 172; the full suite passed against `build/next`. A first run in `dist/` rebuilt the DLL there and failed on the diagnostic settings file (ISSUE-006); the tested files were copied back, the harness now pins its settings, and the suite passed in `dist/` without rebuilding. A here-document with an apostrophe in a comment failed in the shell before it ran; the patch went through a script file.
 
 This is a correction of a rule from the first days of the probe, not of the later commits. Whether the game is smooth with it has to be measured in a session the user starts.
+
+## 2026-10-12: The game is smooth with 0.7.4, and the review before it was wrong about why
+
+The user started the game with 0.7.4 and reported that the stutter seemed gone. The first status read settled the question the review had opened: `passed_over` 0. Nothing with further usage is ever unmapped; the copies are staging buffers, tens of thousands of them, and they now run at 3.6 GB/s because of the streaming loads that 0.7.3 added. Across the user's open-world run 3 of 87,005 present intervals exceeded 33 ms. The mesh-pool story came from a counter that also counts tracked writes and from looking at 251 live buffers of a session that had created 280,000.
+
+Three captures in the open world gave the first data from there: one recording thread as before, about 1,190 draws, instancing up to 675, every hash from the mapping, and the mod's LOD1 sections matching in the shadow pass.
+
+The record was corrected rather than extended: `docs/unmap-snapshots.md` rewritten around the measurement with the wrong reasoning kept as its last part, D-026 withdrawn by D-027, BUG-004 and ISSUE-005 closed with the right cause, T-020 closed, T-021 withdrawn, plan facts 24 and 25. Source 0.7.5 restores the default of the copy at unmap and keeps what was right in 0.7.4; it passed the full suite in `build/next` and waits for the game to exit before it goes to `dist/`.

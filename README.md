@@ -5,9 +5,9 @@ Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield o
 The read-only probe has captured real character data and resolved the sample's texture slots.
 The user reports open-world stutter in probe mode and smooth movement in passthrough.
 0.7.2 timings correlate its largest spikes with expensive copies at unmap and lock contention.
-A review of that data found that the copied bytes were the game's own 16 MiB mesh pools, which the
-faster reads of 0.7.3 hardly help. Layer 0.7.4 copies staging buffers only, passes sandbox
-verification and is deployed; its game result is still unverified. Mod rendering is not implemented. See the [current state](.ai-memory/CURRENT_STATE.md)
+Layer 0.7.3 made those copies eleven times faster by reading write-combined memory with streaming
+loads; in the game, with 0.7.4, three of 87,005 present intervals exceeded 33 ms and the user reports
+the stutter gone. A review that blamed the game's mesh pools instead was wrong and is corrected. Mod rendering is not implemented. See the [current state](.ai-memory/CURRENT_STATE.md)
 for the deployed package, next-launch configuration and evidence boundaries.
 
 ## Layout
@@ -72,9 +72,9 @@ latency and capture/upload tags. The [resource-off and passthrough comparisons](
 narrow the reported stutter to probe-only work as a group. Layer 0.7.2's optional
 [tracker timings](docs/tracker-work.md), enabled by `profile_tracker = 1`, measure selected paths
 without treating host intervals as displayed-frame timings. The [latest session and 0.7.3 candidate](docs/pacing-tracker-session.md)
-identify expensive snapshot reads as a contributor and verify a local copy optimization. [What is
-copied at unmap](docs/unmap-snapshots.md) attributes the copies to the game's mesh pools and describes
-the rule of 0.7.4; a fresh game comparison is required before calling the stutter fixed.
+identify expensive snapshot reads as a contributor and verify a local copy optimization. [The copy
+at unmap](docs/unmap-snapshots.md) has the game result that confirms it, the first open-world frames,
+and the record of a wrong attribution made in between.
 
 `scripts/collect_probe.py` saves a complete frame observation and bounded pipeline/shader exports
 from an explicitly selected running probe. See [the first probe session](docs/first-probe-session.md)

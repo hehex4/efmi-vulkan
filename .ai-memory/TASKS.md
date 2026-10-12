@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. The probe stutters in the open world; a review attributes it to whole mesh pools being copied at unmap, which 0.7.4 no longer does (sandbox-verified, deployed, not game-tested). T-020 awaits the user-started comparison; T-021 (index identity when pools are unmapped) is new. Passthrough remains the user-confirmed smooth mode.
+T-001 to T-008, T-012, T-014, T-015, T-017 and T-020 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. The probe no longer stutters in the open world (0.7.3's streaming loads, confirmed in the game with 0.7.4). T-021 is withdrawn. Source is 0.7.5; `dist/` holds 0.7.4 until the game exits. Next is M2, with T-010's open-world items as they come up.
 
 ## Tasks and follow-ups
 
@@ -64,7 +64,11 @@ Original question:
 
 Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
-### T-020: Diagnose intermittent frame-time spikes (open; cause attributed to copies of the game's mesh pools at unmap, 0.7.4 deployed, game result outstanding)
+### T-020: Diagnose intermittent frame-time spikes (closed on 2026-10-12: slow reads of write-combined staging memory at unmap, fixed by the streaming loads of 0.7.3)
+
+Result in the game with 0.7.4 (CURRENT_STATE, `docs/unmap-snapshots.md`): 3 of 87,005 present intervals over 33 ms across the user's open-world run, copies at unmap at 3.6 GB/s instead of 0.33, and the user reports the stutter gone. The paragraph below this one, from the review before that session, names the mesh pools as the cause; that was wrong (`passed_over` 0 of 144,103) and is kept only as record. Not done and not required: a foreground-only interval sample of 0.7.4; removing the copies altogether.
+
+Review text, superseded:
 
 Review on 2026-10-12 (CURRENT_STATE, `docs/unmap-snapshots.md`, D-026): the bytes copied at unmap were 16 MiB index and vertex pools on memory type 4, which carry the transfer-source bit; the staging buffers the copy was meant for account for 7 MiB of the session. 0.7.3 speeds up memory type 2 and hardly type 4. 0.7.4 copies transfer-only buffers and drops shadows that may be stale. Open: the user-started comparison on the same route with the settings of the last sessions; what to read is listed in `docs/unmap-snapshots.md`. The task closes when the counters show the pools passed over, the tracker timings no longer accumulate seconds in the unmap path, and the user finds the movement smooth; if spikes remain, the tracker timings of that session say where to look next.
 
@@ -82,13 +86,19 @@ Passthrough comparison: user-started PID 14804 at 13:04:17, log confirms 0.7.1 p
 
 0.7.3 uses streaming loads only for detected WC mappings on capable CPUs, preserving full snapshots and fallback semantics (D-025). Full build/regression passes, native 118, and actual-config smoke passes before/after deployment. Local Vulkan type-2 8 MiB copy improves 24.023 to 1.270 ms; this is not a game result. Next: user-started same-world comparison after verifying loaded 0.7.3. Settings stay probe, resources/hash off, profile on, default snapshots/shadows. No 30-minute prerequisite; T-020 remains open until a fresh result. Source defaults still keep profiling off.
 
-### T-021: Index identity when the game's mesh pools are not readable (open; measure first, needed before M2 leaves the display scene)
+### T-021: Index identity when the game's mesh pools are not readable (withdrawn on 2026-10-12: the premise was wrong)
+
+The pools are not unmapped: no pool was ever inside an unmapped range in the 0.7.4 session, and all 1,154 to 1,185 direct indexed draws of three open-world frames have their hash from the mapping. The text below rested on the misread generation counters. What remains true and belongs to M2: index bytes of a pool are read from write-combined device-local memory, so the product should hash a mesh once and remember it rather than read it every frame.
+
+Withdrawn text:
 
 The game keeps index and vertex data in 16 MiB pools on device-local host-visible memory and maps and unmaps them while it streams (2,612 generations on 22 pools in 22 minutes). A draw whose pool is unmapped when the layer wants its index bytes cannot be hashed from the mapping, and copying pools at unmap is what stalled the game. Reading megabytes from that memory every frame is not an option for the product either.
 
 Measure in the next open-world session, with 0.7.4: of the indexed draws of a few captures taken while moving, how many have hash source `none`; how long a pool stays unmapped. Then choose: hash mesh data when it arrives through tracked buffer copies from staging (the 0.7.2 session recorded 2 MiB of such copies in 24 s, read from cheap memory) and key a cache on buffer, offset and count; or rely on the mapping where it is always present at draw time. Do not consider keeping the application's mapping alive behind its back without a decision of its own.
 
-### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
+### T-010: Gates G2 and G3 in the real game (display scene and a first open-world scene answered on 2026-10-12)
+
+Open world, three frames with 0.7.4 (`captures/open-world-0.7.4/`, fact 24): G2 unchanged (one thread, two command buffers); G3 a holds, with LOD1 sections matching in the shadow pass; the character's draws are direct with one instance. Not looked at in the open world: instance entries and bones (resources were off), texture slots of the LOD1 and shadow programs. Still unobserved: combat, a second instance of the character.
 
 State after the third session and the DX11 baseline: G2 answered; G3 a, b, c, e and f pass for the display scene; G3 d now has all 19 applicable sample slot assignments placed, including the four former ambiguities. None of this is known for the open world, combat, several instances of a character, LOD1 or scenes with indirect draws. Smoothness remains T-020 and rendering remains M2.
 
@@ -134,7 +144,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- T-020: layer 0.7.4 is deployed with the diagnostic settings of the last sessions. The user starts the game under Vulkan and moves along the same open-world route; the agent verifies the loaded version and settings, then reads counters, timings and intervals and takes a few captures. The agent does not start or stop the game. Passthrough remains the smooth fallback for normal play.
+- When the game has exited: say so, and the agent deploys 0.7.5 to `dist/` (same behaviour as 0.7.4 in this game) and sets the settings file for the next purpose. For normal play passthrough remains available; probe mode no longer stutters.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

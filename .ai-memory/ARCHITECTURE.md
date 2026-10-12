@@ -93,7 +93,7 @@ Each setting is read from an environment variable and, when that is not set, fro
 | `EFMI_VK_LOG` | `log` | Log file; default `efmi_vk_layer.log` next to the DLL |
 | `EFMI_VK_SHADOW_USAGE` | `shadow_usage` | Hex `VkBufferUsageFlags` mask of buffers that get a shadow |
 | `EFMI_VK_UNMAP_SNAPSHOT_LIMIT` | `unmap_snapshot_limit` | Bytes; 0 disables the snapshot at unmap. Can be changed in a running process with `set` |
-| `EFMI_VK_UNMAP_SNAPSHOT_ALL` | `unmap_snapshot_all` | `1` or `on`: copy every transfer source at unmap as before 0.7.4. Default off: staging buffers only. Can be changed with `set` |
+| `EFMI_VK_UNMAP_SNAPSHOT_ALL` | `unmap_snapshot_all` | Default on: every whole transfer source within the limit is copied at unmap. `0` or `off` restricts the copy to transfer-only (staging) buffers; that was the default of 0.7.4 only. Can be changed with `set` |
 | `EFMI_VK_RESOURCES` | `resources` | `0` or `off`: reduced tracking. Draws, buffers, hashes and call counters stay; descriptor, image and shader metadata are not kept |
 | `EFMI_VK_SHADER_BUDGET` | `shader_budget` | Bytes of SPIR-V kept in total (default 512 MiB); past it a module keeps hash and size only |
 
@@ -159,4 +159,4 @@ Follow-up in 0.7.1: state.h owns a fixed PresentPacing ring (pacing.h). on_prese
 
 ## What is copied at unmap (0.7.4)
 
-`on_unmap_memory` walks the buffers of the memory object. A buffer wholly inside the mapped range, at most `unmap_snapshot_limit` bytes, whose usage is transfer source (optionally also transfer destination) and nothing else is copied into its shadow. Every other buffer the mapping touches has its shadow knowledge dropped, because the application could have written it unseen. `unmap_snapshot_all` restores the copy of every transfer source. Counters `unmap_taken`, `unmap_passed`, `unmap_invalidated` and their bytes are atomics of the device and appear as `counts.unmap`. Reason and evidence: `docs/unmap-snapshots.md`, D-026.
+`on_unmap_memory` walks the buffers of the memory object. A buffer wholly inside the mapped range, at most `unmap_snapshot_limit` bytes, with the transfer-source bit is copied into its shadow (0.7.5; with `unmap_snapshot_all` off only if it is a transfer buffer and nothing else, which was the default of 0.7.4). Every other buffer the mapping touches has its shadow knowledge dropped, because the application could have written it unseen. Counters `unmap_taken`, `unmap_passed`, `unmap_invalidated` and their bytes are atomics of the device and appear as `counts.unmap`. History, including the wrong premise of 0.7.4: `docs/unmap-snapshots.md`, D-027.

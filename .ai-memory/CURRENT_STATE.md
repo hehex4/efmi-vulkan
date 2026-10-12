@@ -1,8 +1,21 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.7.4 (protocol 1), server 0.1.0, sandbox-verified and deployed, not yet game-tested. A review of the 0.7.2 game data shows that the copies at unmap which stall the game are whole 16 MiB mesh pools on device-local memory, not staging buffers; 0.7.3's faster write-combined reads hardly reach them. 0.7.4 copies staging buffers only. Next-launch cfg: probe, resources/hash off, profile_tracker on. T-020 stays open until a user-started comparison. No mod rendering exists.
+> Last updated: 2026-10-12. Source is layer 0.7.5 (protocol 1), built and suite-verified in `build/next`; `dist/` holds 0.7.4, which the running game (PID 27188) has loaded. The stutter is gone in the game: 3 of 87,005 present intervals over 33 ms with 0.7.4, and the user says so. The cause was slow reads of write-combined staging memory at unmap and the fix is the streaming loads of 0.7.3; a review that blamed the game's mesh pools was wrong and has been corrected (D-027). First open-world frames: every hash from the mapping, LOD1 sections match. Server 0.1.0. No mod rendering exists.
 
-## Review of 0.7.1 to 0.7.3 and layer 0.7.4: the copies were the game's mesh pools (2026-10-12; offline review, sandbox)
+## Game session with 0.7.4: stutter gone, the review's attribution refuted, first open-world frames (2026-10-12, from 15:28; started by the user)
+
+Loads in the real game and data captured in the real game. PID 27188 under Vulkan; the log confirms 0.7.4 probe/inject at 15:28:07 with resources and image hashing off, tracker timings on, and the copy at unmap restricted to staging buffers. The user reports that the stutter seems gone and then ran the open-world route. Full account: `docs/unmap-snapshots.md`; evidence in `captures/pacing-0.7.4-20261012/` and `captures/open-world-0.7.4/` (not committed).
+
+- Between two status reads 87,005 present intervals apart (about 12 minutes, the run included): 24 over 16 ms, 3 over 33 ms, 2 over 50 ms. The 0.7.2 foreground sample had 203 / 51 / 17 in 5,093. Last 2,048 intervals at the second read: p50 8.4 ms, p99 10.6 ms, max 14.5 ms. The two are not the same conditions (the 0.7.4 span includes background time; two attempts to catch a foreground window before the run failed), so no foreground-only figure for 0.7.4 exists.
+- Copy at unmap in that span: 52,639 buffers, 27.9 GB, 7.7 s, that is 3.6 GB/s against 0.33 GB/s over the 0.7.2 session. Same volume, eleven times faster: the streaming loads of 0.7.3.
+- `passed_over` is 0 of 144,103: the staging-only rule of 0.7.4 skipped nothing. The mesh pools are mapped the whole time. The section below, written before this session, attributed the copies to the pools; that was wrong. It read the `generation` counter as a count of copies at unmap although tracked buffer copies increment it too, and it drew conclusions from an inventory of 251 live buffers about a session that had created 280,000.
+- Open world, three captures: about 1,190 draws in 35 render passes, one recording thread, two command buffers, four submits; 428 instanced draws with up to 675 instances; one indexed indirect draw; hash source `mapped` for every direct indexed draw (1,154 to 1,185), none without a hash; 19 of the mod's 21 sections match, the 7 LOD1 ones in render pass 5 with two draws each. A capture takes 208 ms round trip.
+
+Source is now 0.7.5: the default of the copy at unmap is back to every whole transfer source; dropping shadows that may be stale, `counts.unmap`, `set` and the pinned test settings stay (D-027). Full suite against `build/next`: unit 88, native tracker 126, 17 probe configurations, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 78. Not deployed: the game still has the DLL in `dist/` loaded. Deploy when the game has exited (copy the tested files, `run_all.py --no-build`, smoke run with the settings file, update the comment in `dist/efmi_vk.cfg`). For this game 0.7.4 and 0.7.5 behave the same.
+
+T-020 is closed on this evidence; T-021 is withdrawn. Open: nothing about the stutter. The copies still move about 28 GB in twelve minutes that nothing reads in this game; removing them is not attempted.
+
+## Review of 0.7.1 to 0.7.3 and layer 0.7.4 (2026-10-12; its attribution to the mesh pools was WRONG, see the section above)
 
 Asked by the user to review the three layer versions made for the stutter and to say whether it is solved. It is not known to be solved: 0.7.3 never ran in the game, and the review found that it does not reach the main cost.
 

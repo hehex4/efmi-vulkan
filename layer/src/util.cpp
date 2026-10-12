@@ -311,7 +311,10 @@ void util_init(HMODULE self)
     std::string profile = setting("EFMI_VK_PROFILE_TRACKER", "profile_tracker");
     g_cfg.profile_tracker = profile == "1" || profile == "on";
     std::string snapshot_all = setting("EFMI_VK_UNMAP_SNAPSHOT_ALL", "unmap_snapshot_all");
-    g_cfg.unmap_snapshot_all = snapshot_all == "1" || snapshot_all == "on";
+    if (snapshot_all == "0" || snapshot_all == "off")
+        g_cfg.unmap_snapshot_all = false;
+    else if (snapshot_all == "1" || snapshot_all == "on")
+        g_cfg.unmap_snapshot_all = true;
 
     std::wstring log_path;
     wchar_t wbuf[1024];
