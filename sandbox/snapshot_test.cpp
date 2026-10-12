@@ -15,6 +15,7 @@ static uint32_t step=0,fail_step=0;
 static VkDeviceSize buffer_size=0,allocation_size=0;
 static std::vector<uint8_t> mapped;
 static std::map<VkDescriptorSet,std::array<VkDescriptorBufferInfo,2>> descriptors;
+static std::map<VkDescriptorSet,std::vector<VkImageView>> image_descriptors;
 static bool fail() { return ++step==fail_step; }
 template<class T> static VkResult create(T* out) {
     if(fail()) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
@@ -43,7 +44,10 @@ static VKAPI_ATTR void VKAPI_CALL destroy_pool(VkDevice,VkDescriptorPool p,const
 static VKAPI_ATTR VkResult VKAPI_CALL sets(VkDevice,const VkDescriptorSetAllocateInfo* p,VkDescriptorSet* out)
 { if(fail())return VK_ERROR_OUT_OF_POOL_MEMORY;for(uint32_t i=0;i<p->descriptorSetCount;++i)out[i]=h<VkDescriptorSet>(next++);return VK_SUCCESS; }
 static VKAPI_ATTR void VKAPI_CALL update(VkDevice,uint32_t count,const VkWriteDescriptorSet* p,uint32_t,const VkCopyDescriptorSet*)
-{ for(uint32_t i=0;i<count;++i)descriptors[p[i].dstSet][p[i].dstBinding]=*p[i].pBufferInfo; }
+{ for(uint32_t i=0;i<count;++i){
+    if(p[i].descriptorType==VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)image_descriptors[p[i].dstSet].push_back(p[i].pImageInfo->imageView);
+    else descriptors[p[i].dstSet][p[i].dstBinding]=*p[i].pBufferInfo;
+} }
 static SnapshotDispatch dispatch()
 {
     SnapshotDispatch d;
@@ -94,6 +98,26 @@ int main()
         check(mapped[buffer_size-1]==0 && mapped[buffer_size]==0xa5,"uniform tail initialized without writing allocation padding");
     }
     check(live.empty(),"snapshot owner releases pool layout buffer and allocation");
+    std::weak_ptr<int> retained;
+    {
+        DrawSnapshots s(h<VkDevice>(1),dispatch());auto owner=std::make_shared<int>(7);retained=owner;
+        check(!s.create(memory,limits,2,145,65536,1),"image snapshot refuses absent device descriptor budget");
+        limits.maxPerStageDescriptorSampledImages=limits.maxDescriptorSetSampledImages=limits.maxPerStageResources=32;
+        check(s.create(memory,limits,2,145,65536,2),"private image slots allocate alongside VS buffer descriptors");
+        std::vector<uint8_t> bones(145,1);InstanceEntry entry{};SnapshotSlot a,b,out{h<VkDescriptorSet>(999),999};
+        auto before=mapped;std::vector<SnapshotImage> valid={{h<VkImageView>(91),owner},{h<VkImageView>(92),owner}};
+        auto bad=valid;bad[1].owner.reset();
+        check(!s.append(bones,entry,bad,out) && s.used()==0 && mapped==before && out.offset==999 && image_descriptors.empty(),
+              "missing second image owner refuses before any bytes descriptors or slot change");
+        check(!s.append(bones,entry,out),"missing image list cannot publish a partly ready snapshot");
+        check(s.append(bones,entry,valid,a),"material snapshot publishes all image descriptors");
+        std::swap(valid[0],valid[1]);check(s.append(bones,entry,valid,b),"next draw captures its own image order");
+        check(image_descriptors[a.set]==std::vector<VkImageView>{h<VkImageView>(91),h<VkImageView>(92)} &&
+              image_descriptors[b.set]==std::vector<VkImageView>{h<VkImageView>(92),h<VkImageView>(91)},"per-draw images are independent");
+        s.seal();owner.reset();valid.clear();bad.clear();
+        check(!retained.expired() && !s.append(bones,entry,{},out),"sealed owner survives caller retirement and refuses mutation");
+    }
+    check(retained.expired() && live.empty(),"images release after their last command snapshot owner");
     printf("draw snapshots: %d checks passed, %d failed\n",passed,failed);
     return failed?1:0;
 }

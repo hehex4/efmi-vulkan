@@ -9,7 +9,7 @@ namespace variant_fixture {
 // Both stages read the same bone block (set 0 binding 7) and instance block (set 2 binding 0).
 // VS: position + bones.offset[blend.x] + instance.offset; FS: bones.tint * instance.color.
 // Original blend.x is 1 (RGBA8_UINT); replacement is 257 (RGBA16_UINT), beyond an 8-bit index.
-inline std::vector<uint32_t> shader(bool vertex)
+inline std::vector<uint32_t> shader(bool vertex,bool material=false)
 {
     using namespace spv;
     Builder b;
@@ -20,6 +20,7 @@ inline std::vector<uint32_t> shader(bool vertex)
     auto p_in_v2 = b.id(), p_in_u4 = b.id(), p_out = b.id(), p_out_v4 = b.id(), p_bone = b.id(), p_instance = b.id();
     auto p_uni_v4 = b.id(), label = b.id(), ptr_a = b.id(), ptr_b = b.id(), a = b.id(), v = b.id(), sum = b.id();
     auto in_pos = b.id(), x = b.id(), y = b.id(), position = b.id(), blend = b.id(), bone = b.id(), moved = b.id(), out_ptr = b.id();
+    auto image_type=b.id(),image_ptr=b.id(),image_var=b.id(),image=b.id(),coord=b.id(),texel=b.id(),t_u2=b.id(),tinted=b.id();
     b.op(OpCapability, {CapabilityShader});
     b.op(OpMemoryModel, {AddressingLogical, MemoryGLSL450});
     if (vertex) b.entry_point(ModelVertex, main, "main", {pos_in, blend_in, output});
@@ -28,6 +29,7 @@ inline std::vector<uint32_t> shader(bool vertex)
     b.op(OpDecorate, {bone_var, DecorationBinding, 7});
     b.op(OpDecorate, {instance_var, DecorationDescriptorSet, 2});
     b.op(OpDecorate, {instance_var, DecorationBinding, 0});
+    if(material && !vertex){b.op(OpDecorate,{image_var,DecorationDescriptorSet,1});b.op(OpDecorate,{image_var,DecorationBinding,6});}
     b.op(OpDecorate, {bone_type, DecorationBufferBlock});
     b.op(OpMemberDecorate, {bone_type, 0, DecorationOffset, 0});
     b.op(OpMemberDecorate, {bone_type, 1, DecorationOffset, 258 * 16});
@@ -50,6 +52,11 @@ inline std::vector<uint32_t> shader(bool vertex)
     b.op(OpTypeStruct, {instance_type, t_v4, t_v4});
     b.op(OpTypePointer, {p_bone, StorageUniform, bone_type}); b.op(OpTypePointer, {p_instance, StorageUniform, instance_type});
     b.op(OpTypePointer, {p_uni_v4, StorageUniform, t_v4}); b.op(OpTypePointer, {p_out_v4, StorageOutput, t_v4});
+    if(material && !vertex){
+        b.op(OpTypeImage,{image_type,t_f,1,2,0,0,1,0});b.op(OpTypePointer,{image_ptr,StorageUniformConstant,image_type});
+        b.op(OpTypeVector,{t_u2,t_u,2});b.op(OpConstantComposite,{t_u2,coord,c0,c0});
+        b.op(OpVariable,{image_ptr,image_var,StorageUniformConstant});
+    }
     if (vertex) {
         b.op(OpTypeStruct, {pv, t_v4}); b.op(OpTypePointer, {p_out, StorageOutput, pv});
         b.op(OpTypePointer, {p_in_v2, StorageInput, t_v2}); b.op(OpTypePointer, {p_in_u4, StorageInput, t_u4});
@@ -70,7 +77,10 @@ inline std::vector<uint32_t> shader(bool vertex)
     } else {
         b.op(OpAccessChain, {p_uni_v4, ptr_a, bone_var, c1}); b.op(OpAccessChain, {p_uni_v4, ptr_b, instance_var, c1});
         b.op(OpLoad, {t_v4, a, ptr_a}); b.op(OpLoad, {t_v4, v, ptr_b}); b.op(OpFMul, {t_v4, sum, a, v});
-        b.op(OpStore, {output, sum});
+        if(material){
+            b.op(OpLoad,{image_type,image,image_var});b.op(static_cast<Op>(95),{t_v4,texel,image,coord,2,c0});
+            b.op(OpFMul,{t_v4,tinted,sum,texel});b.op(OpStore,{output,tinted});
+        }else b.op(OpStore, {output, sum});
     }
     b.op(OpReturn, {}); b.op(OpFunctionEnd, {});
     return b.finish();
@@ -100,7 +110,7 @@ struct RecipeFixture {
     VkGraphicsPipelineCreateInfo gp = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     efvk::PipelineLayoutInfo layout;
 
-    RecipeFixture()
+    RecipeFixture(bool material=false)
     {
         atts[0] = {0, VK_FORMAT_R8G8B8A8_UNORM, VK_SAMPLE_COUNT_1_BIT, VK_ATTACHMENT_LOAD_OP_CLEAR,
                    VK_ATTACHMENT_STORE_OP_STORE, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -118,7 +128,7 @@ struct RecipeFixture {
         rp.attachmentCount = 2; rp.pAttachments = atts; rp.subpassCount = 1; rp.pSubpasses = &sub;
         rp.dependencyCount = 2; rp.pDependencies = dep;
         for (uint32_t i = 0; i < 2; i++) {
-            auto s = std::make_shared<efvk::ShaderInfo>(); s->id = i + 1; s->code = shader(i == 0);
+            auto s = std::make_shared<efvk::ShaderInfo>(); s->id = i + 1; s->code = shader(i == 0,material);
             s->size = static_cast<uint32_t>(s->code.size() * 4);
             stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
             stages[i].stage = i == 0 ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT; stages[i].pName = "main";
@@ -141,6 +151,7 @@ struct RecipeFixture {
         for (uint32_t i = 0; i < 3; i++) {
             auto s = std::make_shared<efvk::DescriptorLayoutInfo>();
             if (i == 0) s->bindings[7] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, 17, 0, {}};
+            if (i == 1 && material) s->bindings[6] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_FRAGMENT_BIT,0,{}};
             if (i == 2) s->bindings[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, 17, 0, {}};
             layout.sets.push_back(s);
         }

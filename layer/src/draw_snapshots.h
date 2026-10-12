@@ -15,6 +15,12 @@ struct SnapshotDispatch {
 #undef X
 };
 struct SnapshotSlot { VkDescriptorSet set = VK_NULL_HANDLE; uint32_t offset = 0; };
+struct SnapshotImage {
+    VkImageView view = VK_NULL_HANDLE;
+    // Caller supplies a ready float-sampled 2D view in SHADER_READ_ONLY_OPTIMAL,
+    // synchronized with this graphics queue, and its retained resource owner.
+    std::shared_ptr<const void> owner;
+};
 
 class DrawSnapshots {
 public:
@@ -25,8 +31,9 @@ public:
     // Allocate off the draw path. Uses host-coherent memory only, failing closed if unavailable.
     // Every entry has the full declared uniform range, including the last dynamic offset.
     bool create(const VkPhysicalDeviceMemoryProperties&, const VkPhysicalDeviceLimits&,
-                uint32_t capacity, uint32_t bone_bytes, uint32_t uniform_range = 65536);
+                uint32_t capacity, uint32_t bone_bytes, uint32_t uniform_range = 65536, uint32_t image_count = 0);
     bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, SnapshotSlot&);
+    bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, const std::vector<SnapshotImage>&, SnapshotSlot&);
     void seal() { sealed_ = true; }
     bool sealed() const { return sealed_; }
     uint32_t used() const { return used_; }
@@ -37,7 +44,7 @@ public:
 private:
     friend struct M2Command;
     // Only a command owner that has completed a successful legal reset/begin may recycle it.
-    void recycle_completed() { used_ = 0; sealed_ = false; }
+    void recycle_completed() { for(auto& owner:image_owners_)owner.reset(); used_ = 0; sealed_ = false; }
     void clear();
     VkDevice device_;
     SnapshotDispatch d_;
@@ -47,8 +54,9 @@ private:
     VkDescriptorSetLayout layout_ = VK_NULL_HANDLE;
     uint8_t* mapped_ = nullptr;
     std::vector<VkDescriptorSet> sets_;
+    std::vector<std::shared_ptr<const void>> image_owners_;
     VkDeviceSize bytes_ = 0, bone_stride_ = 0, entry_base_ = 0, entry_stride_ = 0;
-    uint32_t capacity_ = 0, bone_bytes_ = 0, used_ = 0;
+    uint32_t capacity_ = 0, bone_bytes_ = 0, used_ = 0, image_count_ = 0;
     bool sealed_ = false;
 };
 

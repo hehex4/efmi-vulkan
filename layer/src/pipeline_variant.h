@@ -3,6 +3,7 @@
 
 #include "pipeline_recipe.h"
 #include "spirv_repoint.h"
+#include "../../frontend/gpu/fragment_images.h"
 
 namespace efvk {
 
@@ -18,6 +19,13 @@ struct VariantDispatch {
 #undef X
 };
 
+struct FragmentPatch {
+    // Ordered images become private bindings 2+i; nulls consume no descriptors.
+    // Neither list contains asset handles, component ids or inferred slot names.
+    std::vector<efmi::gpu::ImageBinding> images, nulls;
+};
+std::vector<VkDescriptorSetLayoutBinding> private_draw_bindings(uint32_t image_count);
+
 // CPU-only eligibility check. A true result is not proof that the driver can create the variant.
 bool prepare_vertex_variant(const GraphicsRecipe&, const PipelineLayoutInfo&, uint32_t max_sets,
                             VertexRepoint&, std::string& reason);
@@ -29,11 +37,13 @@ public:
     PipelineVariant(const PipelineVariant&) = delete;
     PipelineVariant& operator=(const PipelineVariant&) = delete;
     // Do this on a worker with owned metadata; the caller keeps the original draw until ready.
-    bool build(const GraphicsRecipe&, const PipelineLayoutInfo&, const VertexInputRecipe&, uint32_t max_sets);
+    bool build(const GraphicsRecipe&, const PipelineLayoutInfo&, const VertexInputRecipe&, uint32_t max_sets,
+               const FragmentPatch& = {}, const VkPhysicalDeviceLimits& = {});
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout own_layout = VK_NULL_HANDLE;
     uint32_t own_set = 0;
+    uint32_t image_count = 0;
     uint32_t bone_set = 0, bone_binding = 0;
     std::string reason;
     VkResult result = VK_SUCCESS;
@@ -74,7 +84,8 @@ bool emit_variant_draws(const VariantDispatch&, VkCommandBuffer, const VariantDr
                         VkPipeline original_pipeline, const DrawGeometry& original);
 
 // No commands on failure. Leaves sets 0..own_set-1 and dynamic state untouched; restores every
-// pipeline/vertex/index binding it changes. Texture patches and indirect draws are not supported.
+// pipeline/vertex/index binding it changes. Private images belong to the supplied descriptor
+// snapshot; its layout must match variant.image_count. Indirect draws are not supported.
 bool emit_variant_draw(const VariantDispatch&, VkCommandBuffer, const PipelineVariant&, VkDescriptorSet own,
                        uint32_t instance_offset, const DrawGeometry& replacement, const IndexedDraw&,
                        VkPipeline original_pipeline, const DrawGeometry& original);

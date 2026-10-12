@@ -19,14 +19,15 @@ struct VariantResult {
 
 class VariantCache {
 public:
-    VariantCache(VkDevice, const VariantDispatch&, uint32_t max_sets, size_t capacity = 128);
+    VariantCache(VkDevice, const VariantDispatch&, uint32_t max_sets, size_t capacity = 128,
+                 const VkPhysicalDeviceLimits& = {});
     ~VariantCache();
     VariantCache(const VariantCache&) = delete;
     VariantCache& operator=(const VariantCache&) = delete;
     // Identity is a monotonically assigned pipeline generation, not a reusable VkPipeline handle.
     // Recipes are owned immutable objects. The same identity must always refer to the same source.
     VariantResult request(uint64_t identity, std::shared_ptr<const GraphicsRecipe>,
-                          std::shared_ptr<const PipelineLayoutInfo>, const VertexInputRecipe&);
+                          std::shared_ptr<const PipelineLayoutInfo>, const VertexInputRecipe&, const FragmentPatch& = {});
     // Removes every vertex variant of an original. Existing command-buffer references keep a
     // ready variant alive; an in-progress build may finish but cannot reinsert its retired entry.
     void retire(uint64_t identity);
@@ -37,9 +38,11 @@ public:
 private:
     struct Key {
         uint64_t identity;
-        std::vector<uint32_t> vertex;
+        std::vector<uint32_t> vertex, fragment;
         bool operator<(const Key& other) const {
-            return identity < other.identity || (identity == other.identity && vertex < other.vertex);
+            if(identity!=other.identity)return identity<other.identity;
+            if(vertex!=other.vertex)return vertex<other.vertex;
+            return fragment<other.fragment;
         }
     };
     struct Job {
@@ -47,13 +50,15 @@ private:
         std::shared_ptr<const GraphicsRecipe> recipe;
         std::shared_ptr<const PipelineLayoutInfo> layout;
         VertexInputRecipe vertex;
+        FragmentPatch fragment;
         VariantResult result;
     };
-    static Key key_for(uint64_t, const VertexInputRecipe&);
+    static Key key_for(uint64_t, const VertexInputRecipe&, const FragmentPatch&);
     void run();
     VkDevice dev_;
     VariantDispatch dispatch_;
     uint32_t max_sets_;
+    VkPhysicalDeviceLimits limits_;
     size_t capacity_;
     std::mutex mutex_, stop_mutex_;
     std::condition_variable wake_;

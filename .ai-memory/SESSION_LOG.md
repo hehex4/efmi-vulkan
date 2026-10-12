@@ -558,3 +558,26 @@ build/fragment-images/report.json; log build/fragment-null-check.txt.
 Updated docs/fragment-materials.md, architecture, tasks and current state. No layer source,
 DLL/deployment/config or asset changes. Continue production material descriptor/pipeline
 ownership and shared character/Core offline. The user already confirmed voluntary game exit.
+
+## 2026-10-12: Material variants and retained image snapshots in 0.9.3
+
+Integrated ordered fragment image/null contracts into the shared worker-built pipeline
+variant and cache. Keys include material shape, not image handles. New private layouts
+retain VS bindings 0/1 and add only required FS images at 2+i. Descriptor budget checks
+include original retained layouts. Invalid/missing/overlapping sources refuse explicitly.
+DrawSnapshots preallocate image owner slots, validate every image before mutation and
+retain owners through sealed recording/resubmission until legal reset or destruction.
+
+Full build/regression passed in build/next: unit 88, tracker 144, bones 43, recipes 134,
+cache 28, snapshots 34, variants 63, mesh 49, M2 hook 45, probes 517-532, modes 40,
+limits 174, timing 126, validation 76, MCP 47, evidence 113. Log:
+build/material-0.9.3-regression.txt. New GPU cases in no-layer/layer/inject and RenderPass
+1/2 prove red/green per-draw images, null output, original blue restoration, original FS
+buffers, rejection atomicity and retained image/pipeline owners over repeated submission.
+
+This is shared backend integration and sandbox evidence. The existing component hook
+requests no materials; the hosted XXMI frontend and TextureCache remain standalone.
+Source/build/next are 0.9.3; dist stays 0.9.1. No game/deployment/launcher/config or installed
+asset changes. Continue mesh-buffer assets, frontend resolution and shared character/Core
+with existing captures; no new user game action is needed yet. Updated material docs,
+architecture, D-034, current state and tasks.

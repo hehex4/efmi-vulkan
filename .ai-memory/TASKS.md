@@ -6,11 +6,13 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.9.2 with shared backend operations verified; dist remains 0.9.1. The user resumed and the display session proves the component-7 backend emits replacement draws; visual/animation acceptance remains open. The user confirmed voluntary exit and requests whole-character support through shared logic. Continue offline T-027; do not wait on the superseded configuration pause. See docs/m2-first-replacement.md and docs/general-replacement-operations.md.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.9.3 with shared material pipeline/snapshot operations verified; dist remains 0.9.1. The user resumed and the display session proves the component-7 backend emits replacement draws; visual/animation acceptance remains open. The user confirmed voluntary exit and requests whole-character support through shared logic. Continue offline T-027; do not wait on the superseded configuration pause. See docs/m2-first-replacement.md and docs/general-replacement-operations.md.
 
 ## Tasks and follow-ups
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
+
+Latest checkpoint 0.9.3: image relocation/null contracts now integrate into shared PipelineVariant/VariantCache and DrawSnapshots. Full layer build/regression passes; cache 28, snapshots 34, variants 63. GPU cases cover per-draw red/green images, null output, original blue restoration and owner retirement/resubmission under clean validation. Descriptor budgets count retained original layouts too. The component hook still has no material requests, and standalone TextureCache/XXMI host are not yet integrated. Continue general mesh-buffer loading, resource/command resolution and shared character/Core. No deployment; docs/fragment-materials.md.
 
 Explicit-null operation complete within the standalone supported image types: typed zero sampling/fetch/query results, selected opaque loads removed, other image reads retained. Asset/GPU fixture 92 passes, validation clean; all nine historical fragment modules/19 mapped bindings validate after null adaptation. Pixel controls show why a zero image alone is insufficient. This is not automatic dimension-mismatch handling or production integration. Continue descriptor/pipeline ownership and shared character/Core. See docs/fragment-materials.md.
 

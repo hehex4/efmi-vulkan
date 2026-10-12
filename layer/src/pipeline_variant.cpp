@@ -1,6 +1,62 @@
 #include "pipeline_variant.h"
+#include <set>
 
 namespace efvk {
+
+std::vector<VkDescriptorSetLayoutBinding> private_draw_bindings(uint32_t image_count)
+{
+    if(image_count>32)return {};
+    std::vector<VkDescriptorSetLayoutBinding> bindings={
+        {0,VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1,VK_SHADER_STAGE_VERTEX_BIT,nullptr},
+        {1,VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,1,VK_SHADER_STAGE_VERTEX_BIT,nullptr}};
+    for(uint32_t i=0;i<image_count;++i)bindings.push_back({2+i,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr});
+    return bindings;
+}
+
+static bool prepare_fragment(const GraphicsRecipe& recipe,const PipelineLayoutInfo& source,
+                             const FragmentPatch& patch,const VkPhysicalDeviceLimits& limits,
+                             size_t& stage,std::vector<uint32_t>& words,std::string& reason)
+{
+    auto fail=[&](const char* why){reason=why;return false;};
+    if(patch.images.size()+patch.nulls.size()>32)return fail("fragment_patch_budget");
+    stage=recipe.stages.size();
+    if(patch.images.empty() && patch.nulls.empty())return true;
+    std::set<std::pair<uint32_t,uint32_t>> seen;
+    for(const auto* list:{&patch.images,&patch.nulls})for(const auto& image:*list){
+        if(!seen.insert({image.set,image.binding}).second)return fail("fragment_patch_duplicate_source");
+        if(image.set>=source.sets.size())return fail("fragment_patch_source_set");
+        const auto& bindings=source.sets[image.set]->bindings;const auto found=bindings.find(image.binding);
+        if(found==bindings.end() || found->second.count!=1 || found->second.type!=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ||
+           !(found->second.stages&VK_SHADER_STAGE_FRAGMENT_BIT))return fail("fragment_patch_source_layout");
+    }
+    // Relocation retains the original layouts. Count their descriptors as well
+    // as the new images, even if the rewritten FS no longer reads an old slot.
+    if(!patch.images.empty()){
+        uint64_t total=patch.images.size(),fragment=total,resources=total;
+        for(const auto& set:source.sets)for(const auto& pair:set->bindings){const auto& b=pair.second;
+            if(b.type>VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT)return fail("fragment_patch_extended_descriptor_type");
+            const bool sampled=b.type==VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE || b.type==VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
+                               b.type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            if(sampled)total+=b.count;
+            if(b.stages&VK_SHADER_STAGE_FRAGMENT_BIT){if(sampled)fragment+=b.count;
+                if(b.type!=VK_DESCRIPTOR_TYPE_SAMPLER)resources+=b.count;}
+        }
+        if(total>limits.maxDescriptorSetSampledImages || fragment>limits.maxPerStageDescriptorSampledImages ||
+           resources>limits.maxPerStageResources)return fail("fragment_patch_descriptor_limits");
+    }
+    for(size_t i=0;i<recipe.stages.size();++i)if(recipe.stages[i].stage==VK_SHADER_STAGE_FRAGMENT_BIT){
+        if(stage!=recipe.stages.size())return fail("fragment_patch_multiple_stages");stage=i;
+    }
+    if(stage==recipe.stages.size())return fail("fragment_patch_stage_missing");
+    words=recipe.stages[stage].shader->code;
+    if(!patch.nulls.empty() && !efmi::gpu::null_fragment_images(words,patch.nulls,words,reason))return false;
+    if(!patch.images.empty()){
+        std::vector<efmi::gpu::ImageBindingMove> moves;
+        for(uint32_t i=0;i<patch.images.size();++i)moves.push_back({patch.images[i].set,patch.images[i].binding,3,2+i});
+        if(!efmi::gpu::repoint_fragment_images(words,moves,words,reason))return false;
+    }
+    return true;
+}
 
 PipelineVariant::~PipelineVariant() { clear(); }
 
@@ -9,7 +65,7 @@ void PipelineVariant::clear()
     if (pipeline) d_.DestroyPipeline(dev_, pipeline, nullptr);
     if (layout) d_.DestroyPipelineLayout(dev_, layout, nullptr);
     for (auto s : sets_) if (s) d_.DestroyDescriptorSetLayout(dev_, s, nullptr);
-    pipeline = VK_NULL_HANDLE; layout = VK_NULL_HANDLE; own_layout = VK_NULL_HANDLE; sets_.clear();
+    pipeline = VK_NULL_HANDLE; layout = VK_NULL_HANDLE; own_layout = VK_NULL_HANDLE; image_count=0; sets_.clear();
 }
 
 bool prepare_vertex_variant(const GraphicsRecipe& recipe, const PipelineLayoutInfo& source,
@@ -50,11 +106,15 @@ bool prepare_vertex_variant(const GraphicsRecipe& recipe, const PipelineLayoutIn
 }
 
 bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutInfo& source,
-                            const VertexInputRecipe& vertex, uint32_t max_sets)
+                            const VertexInputRecipe& vertex, uint32_t max_sets,
+                            const FragmentPatch& patch,const VkPhysicalDeviceLimits& limits)
 {
     clear(); reason.clear(); result = VK_SUCCESS;
     VertexRepoint rewritten;
     if (!prepare_vertex_variant(recipe, source, max_sets, rewritten, reason)) return false;
+    size_t fs_index=recipe.stages.size();std::vector<uint32_t> fragment;
+    if(!prepare_fragment(recipe,source,patch,limits,fs_index,fragment,reason))return false;
+    image_count=static_cast<uint32_t>(patch.images.size());
     bone_set = rewritten.bone_set; bone_binding = rewritten.bone_binding;
     size_t vs_index = 0;
     while (recipe.stages[vs_index].stage != VK_SHADER_STAGE_VERTEX_BIT) ++vs_index;
@@ -76,12 +136,9 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
         if (!good(d_.CreateDescriptorSetLayout(dev_, &ci, nullptr, &set), "create_set_layout")) { clear(); return false; }
         sets_.push_back(set);
     }
-    VkDescriptorSetLayoutBinding own_bindings[] = {
-        {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},
-        {1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},
-    };
+    const auto own_bindings=private_draw_bindings(image_count);
     VkDescriptorSetLayoutCreateInfo set_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    set_info.bindingCount = 2; set_info.pBindings = own_bindings;
+    set_info.bindingCount = static_cast<uint32_t>(own_bindings.size()); set_info.pBindings = own_bindings.data();
     if (!good(d_.CreateDescriptorSetLayout(dev_, &set_info, nullptr, &own_layout), "create_own_layout")) { clear(); return false; }
     sets_.push_back(own_layout);
     VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -94,7 +151,7 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
     }
     std::vector<VkShaderModule> modules;
     for (size_t i = 0; i < recipe.stages.size(); i++) {
-        const auto& code = i == vs_index ? rewritten.words : recipe.stages[i].shader->code;
+        const auto& code = i == vs_index ? rewritten.words : (i==fs_index?fragment:recipe.stages[i].shader->code);
         VkShaderModuleCreateInfo ci = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         ci.codeSize = code.size() * sizeof(uint32_t); ci.pCode = code.data();
         VkShaderModule module = VK_NULL_HANDLE;

@@ -31,7 +31,7 @@ def main() -> int:
     if not Path(validation, "VkLayer_khronos_validation.json").is_file():
         raise RuntimeError("validation layer missing; run scripts/build_validation.py")
     for entry in ("none", "layer", "inject"):
-        for scenario in ("canary", "renderpass1", "renderpass2"):
+        for scenario in ("canary", "renderpass1", "renderpass2", "material1", "material2"):
             folder = test_dir("variant-")
             log = os.path.join(folder, "layer.log")
             env = layer_env(log) if entry == "layer" else inject_env(log)
@@ -42,8 +42,10 @@ def main() -> int:
                 args += ["--inject", INJECT_DLL]
             if scenario == "canary":
                 args.append("--canary")
-            if scenario == "renderpass2":
+            if scenario in ("renderpass2","material2"):
                 args.append("--renderpass2")
+            if scenario.startswith("material"):
+                args.append("--material")
             result = subprocess.run(args, cwd=folder, env=env, capture_output=True, text=True, timeout=45)
             output = result.stdout + result.stderr
             Path(folder, "stdout.txt").write_text(output, encoding="utf-8")

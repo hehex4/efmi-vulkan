@@ -78,7 +78,7 @@ public:
 #undef X
         // RenderPass2 is optional; the recipe builder rejects it if the actual function is absent.
         if(!draw.CreateGraphicsPipelines || !draw.CreateRenderPass || !draw.CmdDrawIndexed){last_reason="missing graphics entry";return false;}
-        cache=std::make_unique<VariantCache>(device->handle,draw,properties.limits.maxBoundDescriptorSets,128);
+        cache=std::make_unique<VariantCache>(device->handle,draw,properties.limits.maxBoundDescriptorSets,128,properties.limits);
         enabled=g_cfg.m2_enabled;
         worker=std::thread([this]{prepare();});return true;
     }

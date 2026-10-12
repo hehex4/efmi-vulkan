@@ -1,6 +1,7 @@
 // Deterministic concurrency/lifetime tests: the fake driver can pause pipeline creation.
 #include "variant_fixture.h"
 #include "../layer/src/variant_cache.h"
+#include "material_fixture.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -65,12 +66,12 @@ static VariantDispatch dispatch()
     return d;
 }
 static VariantResult await(VariantCache& cache,uint64_t id,std::shared_ptr<const GraphicsRecipe> recipe,
-                           std::shared_ptr<const PipelineLayoutInfo> layout,const VertexInputRecipe& vertex)
+                           std::shared_ptr<const PipelineLayoutInfo> layout,const VertexInputRecipe& vertex,const FragmentPatch& fragment={})
 {
     auto end=std::chrono::steady_clock::now()+std::chrono::seconds(5);
     VariantResult result;
     do {
-        result=cache.request(id,recipe,layout,vertex);
+        result=cache.request(id,recipe,layout,vertex,fragment);
         if (result.state!=VariantState::Queued && result.state!=VariantState::Building) return result;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     } while(std::chrono::steady_clock::now()<end);
@@ -158,6 +159,32 @@ int main()
               "device teardown waits for an active driver call");
         driver.resume(); stopper.join();
         check(stopped && driver.started==7 && driver.count()==0,"stop cancels pending builds and joins worker before teardown");
+    }
+    {
+        auto material=std::make_shared<GraphicsRecipe>(*recipe);auto fragment=std::make_shared<ShaderInfo>();
+        fragment->code=material_fixture::shader(false);fragment->size=static_cast<uint32_t>(fragment->code.size()*4);
+        material->stages[1].shader=fragment;
+        auto material_layout=std::make_shared<PipelineLayoutInfo>(*layout);
+        auto image_set=std::make_shared<DescriptorLayoutInfo>(*layout->sets[1]);
+        image_set->bindings[6]={VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_FRAGMENT_BIT,0,{}};
+        material_layout->sets[1]=image_set;
+        VkPhysicalDeviceLimits limits{};limits.maxDescriptorSetSampledImages=limits.maxPerStageDescriptorSampledImages=32;
+        limits.maxPerStageResources=64;VariantCache cache(handle<VkDevice>(1),dispatch(),4,8,limits);
+        FragmentPatch moved; moved.images={{1,6}};FragmentPatch nulled;nulled.nulls={{1,6}};
+        auto a=await(cache,40,material,material_layout,vertex,moved),b=await(cache,40,material,material_layout,vertex,nulled);
+        check(a.state==VariantState::Ready && b.state==VariantState::Ready && a.variant!=b.variant &&
+              a.variant->image_count==1 && b.variant->image_count==0,"relocation and null masks have distinct cache identities and descriptor layouts");
+        check(cache.request(40,material,material_layout,vertex,moved).variant==a.variant,"identical material contract shares compiled pipeline");
+        auto duplicate=moved;duplicate.nulls=nulled.nulls;
+        check(await(cache,40,material,material_layout,vertex,duplicate).state==VariantState::Failed,"overlapping null and image requests refuse");
+        auto missing=moved;missing.images[0].binding=99;
+        check(await(cache,40,material,material_layout,vertex,missing).state==VariantState::Failed,"missing material source layout refuses before driver work");
+        VkPhysicalDeviceLimits small=limits;small.maxDescriptorSetSampledImages=1;
+        PipelineVariant too_many(handle<VkDevice>(1),dispatch());
+        check(!too_many.build(*material,*material_layout,vertex,4,moved,small) && too_many.reason=="fragment_patch_descriptor_limits",
+              "descriptor limit includes retained original and new private image");
+        cache.retire(40);cache.stop();check(a.variant->pipeline && b.variant->pipeline,"retired material variants survive through command owners");
+        a.variant.reset();b.variant.reset();check(driver.count()==0,"all retired material objects release after command owners");
     }
     printf("variant cache: %d checks passed, %d failed\n",passed,failed);
     return failed?1:0;

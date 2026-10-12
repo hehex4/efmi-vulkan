@@ -158,3 +158,49 @@ or a material rendering result. The 16 relocation/reference checks and three
 expected dimension refusals still pass. Report: build/fragment-images/report.json.
 The helper remains standalone; production descriptor/pipeline ownership and
 shared character/Core integration are the next work. No DLL/deployment/game change.
+
+## 0.9.3 shared pipeline and recording ownership
+
+PipelineVariant now accepts a FragmentPatch with ordered original image bindings
+and an explicit null list. The worker validates original layout types/stages,
+rejects overlapping/missing requests and applies the common FS helpers. Image
+requests map to set 3 bindings 2+i; the private VS bones/entry retain bindings
+0/1. Null requests use no image descriptors. Original sets and push constants
+remain compatible, and samplers are retained. VariantCache includes both the
+image order and null list in its key, separately from vertex declarations.
+Changing actual image contents/handles does not require a new shader pipeline.
+
+Added descriptors count alongside the retained original layouts against physical
+sampled-image and per-stage resource limits. This follows the
+[Vulkan pipeline layout requirements](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineLayoutCreateInfo.html).
+Extended descriptor types are refused by this bounded material path. Unsupported
+source dimensions still follow LIMIT-021; this integration adds no inferred-null
+compatibility policy.
+
+DrawSnapshots uses the same layout builder and preallocates up to 32 retained
+image owner slots per draw. Append verifies every image/view/owner before writing
+any descriptor, bone or entry data. Images must already be ready, in shader-read
+layout and synchronized with the recording queue. Each draw has independent sets;
+sealing forbids updates and executable command resubmission retains the owners.
+Recycling after a successful legal completed reset releases prior owners, as for
+the existing buffer slices. This respects the
+[descriptor update lifetime rules](https://docs.vulkan.org/refpages/latest/refpages/source/vkUpdateDescriptorSets.html).
+The caller must retain snapshots until GPU completion and release them before
+device destruction. Snapshot ownership does not itself provide upload scheduling.
+
+Full build and sandbox/run_all.py pass in build/next; log
+build/material-0.9.3-regression.txt. Native cache checks increase to 28, snapshot
+checks to 34, and variant checks to 63. New headless RenderPass 1/2 cases run under
+no layer, loader entry and inject entry. A shared variant renders retained red
+and green images in two ordered draws; a separately keyed null variant returns
+zero; the next original draw stays blue. Original FS buffers remain isolated from
+private VS buffers. Cached image/pipeline owners are retired before first submit,
+then the command buffer is submitted twice. All pixel checks and core/sync
+validation pass, including the rejected-transaction pixel canary. Existing M2
+hook, probe, mode, timing, MCP and evidence suites pass too.
+
+The helper is now compiled into the layer/backend tests. The current component-7
+hook passes an empty material contract, so this does not activate game texture
+replacement. The original XXMI host and TextureCache remain standalone; general
+mesh buffers, frontend resource resolution and shared character/Core are next.
+Source/build/next are 0.9.3, dist remains 0.9.1. No deployment or game run occurred.

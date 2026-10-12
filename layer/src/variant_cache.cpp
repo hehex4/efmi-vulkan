@@ -4,7 +4,7 @@
 
 namespace efvk {
 
-VariantCache::Key VariantCache::key_for(uint64_t identity, const VertexInputRecipe& vertex)
+VariantCache::Key VariantCache::key_for(uint64_t identity, const VertexInputRecipe& vertex,const FragmentPatch& fragment)
 {
     Key key{identity, {}};
     auto bindings = vertex.bindings;
@@ -15,22 +15,28 @@ VariantCache::Key VariantCache::key_for(uint64_t identity, const VertexInputReci
     for (const auto& b : bindings) key.vertex.insert(key.vertex.end(), {b.binding, b.stride, uint32_t(b.inputRate)});
     key.vertex.push_back(static_cast<uint32_t>(attributes.size()));
     for (const auto& a : attributes) key.vertex.insert(key.vertex.end(), {a.location, a.binding, uint32_t(a.format), a.offset});
+    for(const auto* list:{&fragment.images,&fragment.nulls}){
+        key.fragment.push_back(static_cast<uint32_t>(list->size()));
+        for(const auto& image:*list)key.fragment.insert(key.fragment.end(),{image.set,image.binding});
+    }
     return key;
 }
 
-VariantCache::VariantCache(VkDevice dev, const VariantDispatch& dispatch, uint32_t max_sets, size_t capacity)
-    : dev_(dev), dispatch_(dispatch), max_sets_(max_sets), capacity_(std::min<size_t>(capacity, 4096))
+VariantCache::VariantCache(VkDevice dev, const VariantDispatch& dispatch, uint32_t max_sets, size_t capacity,
+                           const VkPhysicalDeviceLimits& limits)
+    : dev_(dev), dispatch_(dispatch), max_sets_(max_sets), limits_(limits), capacity_(std::min<size_t>(capacity, 4096))
 {
     worker_ = std::thread(&VariantCache::run, this);
 }
 VariantCache::~VariantCache() { stop(); }
 
 VariantResult VariantCache::request(uint64_t identity, std::shared_ptr<const GraphicsRecipe> recipe,
-                                   std::shared_ptr<const PipelineLayoutInfo> layout, const VertexInputRecipe& vertex)
+                                   std::shared_ptr<const PipelineLayoutInfo> layout, const VertexInputRecipe& vertex,const FragmentPatch& fragment)
 {
-    if (!identity || !recipe || !layout || vertex.bindings.size() > 32 || vertex.attributes.size() > 32)
+    if (!identity || !recipe || !layout || vertex.bindings.size() > 32 || vertex.attributes.size() > 32 ||
+        fragment.images.size()>32 || fragment.nulls.size()>32 || fragment.images.size()+fragment.nulls.size()>32)
         return {VariantState::Failed, {}, "invalid variant request"};
-    auto key = key_for(identity, vertex);
+    auto key = key_for(identity, vertex,fragment);
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopped_) return {VariantState::Stopped, {}, "variant cache stopped"};
     auto found = jobs_.find(key);
@@ -38,6 +44,7 @@ VariantResult VariantCache::request(uint64_t identity, std::shared_ptr<const Gra
     if (jobs_.size() >= capacity_) return {VariantState::Saturated, {}, "variant cache capacity reached"};
     auto job = std::make_shared<Job>();
     job->key = std::move(key); job->recipe = std::move(recipe); job->layout = std::move(layout); job->vertex = vertex;
+    job->fragment=fragment;
     jobs_.emplace(job->key, job); queue_.push_back(job); wake_.notify_one();
     return job->result;
 }
@@ -82,7 +89,7 @@ void VariantCache::run()
         VariantResult result;
         try {
             auto variant = std::make_shared<PipelineVariant>(dev_, dispatch_);
-            if (variant->build(*job->recipe, *job->layout, job->vertex, max_sets_))
+            if (variant->build(*job->recipe, *job->layout, job->vertex, max_sets_,job->fragment,limits_))
                 result = {VariantState::Ready, std::move(variant), {}};
             else result = {VariantState::Failed, {}, variant->reason};
         } catch (const std::exception& e) { result = {VariantState::Failed, {}, e.what()}; }

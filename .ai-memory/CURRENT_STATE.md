@@ -1,6 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12, general frontend callback plans verified offline. Source/build/next are 0.9.2; dist remains 0.9.1 with component 7 enabled. Shared declaration editing and ordered draw transactions pass the full sandbox suite. The standalone hosted frontend passes 23 CPU plus 28 planner checks and 384 sample callback plans; it is not linked into the DLL. The user confirmed voluntary game exit. The live 0.9.1 backend replaced component-7 draws; appearance and animation are not accepted. Continue offline T-027/D-033 toward the whole character; no separate handwritten component implementations. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, material variants and retained per-draw image snapshots verified offline. Source/build/next are 0.9.3; dist remains 0.9.1 with component 7 enabled. Full layer regression passes. The standalone hosted frontend passes 23 CPU plus 28 planner checks and 384 sample callback plans; it is not linked into the DLL. The user confirmed voluntary game exit. The live 0.9.1 backend replaced component-7 draws; appearance and animation are not accepted. Continue offline T-027/D-033 toward the whole character; no separate handwritten component implementations. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+
+## 0.9.3 material pipeline and command ownership (sandbox only)
+
+The shared backend now accepts ordered FS image relocations and explicit-null requests alongside VS bone/entry isolation. Worker-built variants recreate compatible private descriptors and key on both vertex and material contracts. Limits include original descriptors as well as added images. DrawSnapshots capture per-draw views and retain resource owners until legal command reuse/destruction; they reject partial images before mutation and remain sealed across resubmission. The existing component-7 hook requests no material changes.
+
+Full build/suite in build/next passes: unit 88, tracker 144, bones 43, recipes 134, cache 28, snapshots 34, variants 63, mesh 49, M2 hook 45, probes 517-532, modes 40, limits 174, timing 126, validation 76, MCP 47 and evidence 113. Log: build/material-0.9.3-regression.txt. New GPU cases under no layer/layer/inject and RenderPass 1/2 verify red and green per-draw images, a null variant, original blue restoration, original FS buffer isolation, rejected transaction pixels and retired image/pipeline owners across resubmission. This uses shared backend code in headless fixtures, not the real-game hook emitting whole-character materials.
+
+Next: general mesh-buffer assets, hosted frontend resource resolution and shared character/Core identity/completeness. TextureCache and the XXMI host remain standalone. LIMIT-021 keeps incompatible 2D-for-3D replacements refused. No deployment, launcher/config edit, installed-asset write or game start. See docs/fragment-materials.md.
 
 ## General frontend draw plans (offline only)
 
