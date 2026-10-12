@@ -116,3 +116,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Reason: the sandbox has two shader modules, a handful of descriptor sets and five draws. The game has a 206 MB pipeline cache, and its counts are unknown until the first session. Unbounded retention and full-table scans under the exclusive resource lock were the parts most likely to hurt the game, and a session that goes badly should be able to fall back without losing the draw data.
 - Not decided: the defaults are guesses to be revised with the first real numbers. A budget reached in the game is reported (`shaders_not_retained`, `descriptors_omitted`), not hidden.
 - Kept as it was: the per-update cost of descriptor tracking (exclusive lock and map updates per written element). Its size in the game is unknown; `efvk_api_usage` shows the update rate.
+
+## D-018: What the first game data settles in the plan
+
+- Date: 2026-10-12, after the first probe session (CURRENT_STATE).
+- D5, threading: the engine records on one thread in the observed scene and `Player.log` says `jobified=0`. The mod lock stays in the design, but bring-up does not need a single-threaded mode forced from outside. To be re-checked in the open world.
+- D6, hashes: index data is read from the application's own mapping; the shadow path was not needed for any draw. Shadows stay for the case of device-local index buffers, which this scene does not have.
+- D7, texture slots: mapping by resource name is ruled out, the SPIR-V carries no names. The mapping has to come from binding order and a per-shader profile, checked against the DX11 baseline.
+- D3, two-phase execution: its premise looks right. Instance config and bones are in mapped memory and all per-frame data arrives without buffer copies. It is not proven until T-017 shows the bytes at submit and at record time.
+- D8, vertex input: confirmed as needed; the game's blend stream has stride 12 with 8-bit indices, the mod's has stride 16 with 16-bit indices.
+- Compute: 47 dispatches per frame, all outside render passes and none needed by the character's vertex shader for bones. The merged skeleton does not depend on them.

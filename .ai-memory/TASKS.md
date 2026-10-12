@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The next backend milestone needs actual G2/G3 data. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). No probe-mode game data exists.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); next are T-017 and T-008. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
 
 ## Tasks and follow-ups
 
@@ -34,9 +34,15 @@ The two launcher settings are independent (the user asked on 2026-10-11 whether 
 
 Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` in `XXMI Launcher Config.json`; no control in the settings window, not a signed field (launcher source `core/game_launcher.py`, `build_cmd_args`).
 
-### T-010: Gates G2 and G3 in the real game (prepared; needs the first user-initiated probe session)
+### T-017: Snapshot at submit of the buffer ranges a matched draw uses (next; M1 to M2 bridge)
 
-Preparation complete: `scripts/collect_probe.py` and `docs/first-probe-session.md` preserve raw frames, API usage, matching evidence and bounded shader/pipeline exports in a labelled, hashed bundle. Sandbox evidence-export regression passes 52 checks; it cannot substitute for a game session. The next required step is actual data, not further duration-only testing.
+The first probe session read the instance config and the bones live, after the frame, and most reads were already overwritten (CURRENT_STATE). The layer should keep, for the draws of a captured frame whose region hash is in a list given with the request, the bytes of each uniform buffer range of at most 64 KiB as they are at submit, and for the instance config layout the bone rows at the two offsets of entry 5. With that, G3 b and c can be checked for all 12 components in one frame and across passes, and the same code path is what M2's CPU bone import reads. Also measure whether the bytes are already in place when the draw is recorded (compare a record-time and a submit-time read). Sandbox test with a mapped buffer that is rewritten every frame.
+
+### T-010: Gates G2 and G3 in the real game (first session done on 2026-10-12; b, c, d need more)
+
+Result of the first session (details and evidence paths in CURRENT_STATE): G2 answered for the display scene (one thread, one command buffer with all draws, classic render passes); G3 a passes (12 of 12 LOD0 components); G3 f passes for the scene; G3 b and c strongly indicated, to be made rigorous by T-017; G3 d needs T-008, and name-based mapping is ruled out because the SPIR-V is stripped; G3 e as expected. Still to observe in later sessions: open world and combat, several instances, LOD1, scenes where indirect draws occur.
+
+Preparation that was used: `scripts/collect_probe.py` and `docs/first-probe-session.md` preserve raw frames, API usage, matching evidence and bounded shader/pipeline exports in a labelled, hashed bundle. Sandbox evidence-export regression passes 52 checks; it cannot substitute for a game session. The next required step is actual data, not further duration-only testing.
 
 Start by collecting `efvk_api_usage` to identify the engine's actual paths. G2 is answered by `efvk_status` and `efvk_capture_frame` (threads, command buffers, secondary buffers, submits, render pass kinds). G3 item a is answered by `efvk_match_mod` on `arcane fes 1.2`, with the corresponding character visible. Items b, c and d need T-011. Historical passthrough logs contain none of these captures; D-014 removes the repeated-duration prerequisite but does not supply missing frame data.
 
@@ -76,6 +82,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The next short probe session when the user chooses its account/timing. Use the launcher's recorded run-3 configuration and show the sample character for G3 a. A repeated 30-minute passthrough run is not required. No game run was started by this preparation round.
+- A DX11 session with `arcane fes 1.2` enabled and visible, for the baseline capture of T-008 (launcher back to `-force-d3d11` and injection mode Direct for that session).
+- Further probe sessions when T-017 is built: the same scene again, then open world and combat.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

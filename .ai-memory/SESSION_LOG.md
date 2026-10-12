@@ -129,3 +129,13 @@ Method: read the layer changes in full (`resources.cpp`, `resources.h`, `resourc
 Findings: no error in what the tracker reports for the sandbox. Four parts scaled with the observed process and were fixed in 0.5.1 (D-017): unbounded SPIR-V retention; full scans of all retained shaders on every module or pipeline destruction and of all descriptor sets on every pool reset; no bound on the descriptor contents of a capture; no tracking level between full and passthrough. Also fixed: vertex input pointers were read for mesh pipelines; the evidence collector failed on a stage without a known module; an inline module was kept even with resource tracking off.
 
 Verification: `sandbox/limits_test.py` (new, 100 checks), native tracker 78 checks (16 new), the rest unchanged; the whole suite passes. One transient linker failure was seen and recorded (ISSUE-002). `dist/` was updated to 0.5.1 from the tested files with the previous package saved under `build/backups/`; the settings file keeps `mode = probe` and now lists the two fallback settings as comments. Nothing was launched or injected.
+
+## 2026-10-12: First probe session in the game
+
+The user started the game in the Vulkan configuration with layer 0.5.1 in probe mode and the sample character on screen. Read through the pipe only: status and call counters twice, one collector bundle with the sample mod's INI, and two more captures with live reads of the instance config window and the bone buffer.
+
+Results: one recording thread, one command buffer with every draw, classic render passes (G2); all 12 LOD0 components of `arcane.ini` match by region hash, read from mapped memory (G3 a); the 65536-byte dynamic uniform window and the bone matrices at the offsets of its entry 5 are where EFMI expects them (G3 b, c, from live reads that were partly stale); material textures in set 1, SPIR-V without names (G3 d); descriptor sets are allocated and written through templates every frame. About 120 frames per second and flat memory with full tracking in this scene.
+
+Recorded: CURRENT_STATE (full numbers and evidence paths), D-018, T-017 (snapshot at submit), LIMIT-008 and LIMIT-014. The evidence is under `captures/`, which Git ignores. Nothing in the launcher, the game or the mods was changed by this project.
+
+Next: T-017, then the same scene again; T-008 (DX11 baseline with the mod) when the user has a DX11 session.
