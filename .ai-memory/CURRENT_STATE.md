@@ -26,9 +26,13 @@ Scope: one scene, one character, the mod's own key states as found, two sessions
 
 Checks of this round: `sandbox/unit_test.py` 75 of 75 (31 for the pairing), `scripts/check_text.py` clean. The layer was not changed and not rebuilt; the full suite was not run.
 
-## Machine set up for the DX11 baseline (2026-10-12 10:01; game not running)
+## Machine back in its Vulkan configuration (2026-10-12 10:43; game and launcher closed by the user)
 
-At the user's request this project switched the launcher's EFMI profile back to DX11: `d3d11_mode_cmd_args` from empty to `-force-d3d11` and `xxmi_dll_inject_mode` from `SKIP` to `DIRECT`, two lines, with the launcher and the game not running and a copy of the file saved in `build/backups/`. `dist/efmi_vk.cfg` is `mode = passthrough` while the launcher keeps injecting this DLL under DX11. Both have to go back before the next Vulkan session (T-008). The launcher log also narrowed BUG-001: XXMI's `d3d11.dll` under Vulkan is the cause, not the DX11 probe.
+After the DX11 session the user closed the game and the launcher and had this project switch back: `d3d11_mode_cmd_args` from `-force-d3d11` to empty and `xxmi_dll_inject_mode` from `DIRECT` to `SKIP`, two lines, copy of the file before the change in `build/backups/launcher-config-before-vulkan-20261012-104327.json`; the signed library list was not touched. `dist/efmi_vk.cfg` is `mode = probe` again. `dist/` still holds layer 0.5.1; nothing was rebuilt. The next launch through the launcher is a Vulkan session with the probe, which stays the user's decision.
+
+## Machine set up for the DX11 baseline (2026-10-12 10:01; historical, reverted at 10:43)
+
+At the user's request this project switched the launcher's EFMI profile back to DX11: `d3d11_mode_cmd_args` from empty to `-force-d3d11` and `xxmi_dll_inject_mode` from `SKIP` to `DIRECT`, two lines, with the launcher and the game not running and a copy of the file saved in `build/backups/`. `dist/efmi_vk.cfg` was `mode = passthrough` for that session, because the launcher injects this DLL under DX11 as well. The launcher log also narrowed BUG-001: XXMI's `d3d11.dll` under Vulkan is the cause, not the DX11 probe.
 
 ## First probe session in the real game (2026-10-12, 09:47 to at least 09:55; started by the user)
 
@@ -202,7 +206,7 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 
 State on 2026-10-12 after the first probe session and the DX11 baseline:
 
-1. T-017: snapshot at submit of the instance entry and the bone rows, with a record-time against submit-time comparison; then the same scene again under Vulkan. The launcher's EFMI profile and `dist/efmi_vk.cfg` have to go back to their Vulkan values first.
+1. T-017: snapshot at submit of the instance entry and the bone rows, with a record-time against submit-time comparison; then the same scene again under Vulkan. The launcher's EFMI profile and `dist/efmi_vk.cfg` are back at their Vulkan values since 10:43.
 2. T-018: content hash of textures at upload, so that slot tables are exact.
 3. T-019: decide how the fragment stage stays on the game's data, then M2 (minimal replacement of one component).
 

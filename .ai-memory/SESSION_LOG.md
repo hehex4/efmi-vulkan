@@ -163,3 +163,7 @@ After the user restored the game window, the DX11 probe pressed EFMI's F11 throu
 ## 2026-10-12: DX11 texture content hashes
 
 While the DX11 session was still open, one more pair of F11 presses gave a frame with the mods off in which mip 0 of every file-backed texture was read back and hashed (`capture --textures`, 65 textures, about 83 MB). The mods were confirmed on again afterwards. The frame itself no longer pairs with the Vulkan frame: every component is drawn once more than ten minutes earlier.
+
+## 2026-10-12: Launcher back to its Vulkan values
+
+The user closed the game and the launcher after the DX11 baseline. On that go-ahead the two values of the EFMI profile were set back by text replacement (`d3d11_mode_cmd_args` empty, `xxmi_dll_inject_mode` `SKIP`), after a check that neither process ran and with a copy of the file in `build/backups/`; the result parses to exactly the intended configuration and two lines changed. `dist/efmi_vk.cfg` is `mode = probe` again. Nothing was launched.

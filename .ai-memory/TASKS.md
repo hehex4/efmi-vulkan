@@ -16,7 +16,7 @@ T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP
 
 ### T-008: DX11 baseline capture with the sample mod (done on 2026-10-12)
 
-State of the machine for this session: at the user's request the launcher's EFMI profile was set back to DX11 by this project (`d3d11_mode_cmd_args` = `-force-d3d11`, `xxmi_dll_inject_mode` = `DIRECT`; copy of the file before the change in `build/backups/launcher-config-before-dx11-20261012-100111.json`). The injected libraries are still `efmi_probe.dll` and `efmi_vk_inject.dll`; that value is signed and was not touched, so `dist/efmi_vk.cfg` was set to `mode = passthrough` for the DX11 session. **Before the next Vulkan session**: the two launcher values back to empty and `SKIP` (by the user, or by this project when asked), and `dist/efmi_vk.cfg` back to `mode = probe`.
+State of the machine for this session: at the user's request the launcher's EFMI profile was set back to DX11 by this project (`d3d11_mode_cmd_args` = `-force-d3d11`, `xxmi_dll_inject_mode` = `DIRECT`; copy of the file before the change in `build/backups/launcher-config-before-dx11-20261012-100111.json`). The injected libraries are still `efmi_probe.dll` and `efmi_vk_inject.dll`; that value is signed and was not touched, so `dist/efmi_vk.cfg` was set to `mode = passthrough` for the DX11 session. Reverted at 10:43 the same day, after the user had closed the game and the launcher and asked for it: both launcher values back to empty and `SKIP` (copy before the change: `build/backups/launcher-config-before-vulkan-20261012-104327.json`), `dist/efmi_vk.cfg` back to `mode = probe`.
 
 Done on 2026-10-12 in the user's DX11 session (PID 9264): one full frame with the mod on screen and constant buffer contents, `captures/dx11-baseline/frame-a.*`, taken with `scripts/dx11_baseline.py` through the DX11 probe of the sibling project, and paired with `captures/first-probe`. Results and tables are in `docs/dx11-baseline.md`; facts 15 to 19 of the plan and D-019 follow from it. G3 d is answered in kind (a table per fragment shader), G3 b and c are confirmed in structure from the DX11 side (instance entry, constant 5, bone buffer), G3 e in detail (only the blend index attribute and its stride differ, plus 32-bit indices).
 
@@ -94,7 +94,6 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- Before the next Vulkan session: the launcher's EFMI profile back to its Vulkan values (the user, or this project when asked) and `dist/efmi_vk.cfg` back to `mode = probe` (T-008).
 - Further probe sessions when T-017 is built: the same scene again, then open world and combat.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
