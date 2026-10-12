@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.7.2, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`, buffer contents kept by a capture in `docs/probe-snapshots.md`.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.7.5, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`, buffer contents kept by a capture in `docs/probe-snapshots.md`.
 
 ## Data path of the development probe
 
