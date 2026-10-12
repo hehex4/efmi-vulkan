@@ -1,10 +1,11 @@
 # First M2 component through the real draw hook
 
-Candidate 0.9.0 connects the previously verified bone importer, asynchronous pipeline
+Layer 0.9.0 connects the previously verified bone importer, asynchronous pipeline
 cache and private GPU snapshots to `vkCmdDrawIndexed`. It is disabled by default.
 This is one explicit experimental component, not an INI interpreter or full-folder
-compatibility. Dist/ and the current game session still hold 0.8.1 until normal exit
-and an explicit recorded deployment.
+compatibility. After user-confirmed normal exit, dist/ received the exact tested package
+on 2026-10-12 at 18:58. Its actual-config sandbox smoke passes; no game has loaded it.
+The user requested a pause after configuration. Resume only when asked.
 
 ## Fixed sample and conditions
 

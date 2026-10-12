@@ -1,6 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12, after first M2 hook verification. Source/build/next are 0.9.0, with the explicit component-7 replacement verified through the actual DLL hooks in the sandbox. Candidate configuration enables its project-owned package. Dist/ and user-started PID 34644 still retain 0.8.1; the game has not replaced a mesh. The next checkpoint requires normal exit, deployment of the exact tested candidate and a user-started replacement observation. Two actual LOD1 snapshot bundles close T-023 in the observed scene. The stutter fix remains 0.7.3's WC reads (D-027); it is not reopened. Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, after deploying 0.9.0 at 18:58. Source/build/next/dist are 0.9.0; the exact tested component-7 configuration is deployed and its actual-config sandbox smoke passes. No game has loaded 0.9.0 or rendered the replacement. The user explicitly requested a pause after configuration: stop here and resume only when asked. Two earlier actual LOD1 snapshot bundles close T-023 in the observed scene. The stutter fix remains 0.7.3's WC reads (D-027); it is not reopened. Protocol 1, server 0.1.0.
+
+## 0.9.0 deployed and verified; paused at the user's request
+
+The user reported normal game exit and then requested a pause after configuration. Verified no Endfield or sandbox process before backup and again before copying. Backed up all old dist/ files with verified fingerprints to build/backups/before-0.9.0-20261012-185849/. Copied the twelve exact candidate files, including cfg, and checked each against build/candidate-0.9.0.json. Both DLLs SHA-256: 791e7d163c82562acc8732947d615b5caa38530d42ef67b18e618a02d7259d00. The separately referenced project-owned component package is unchanged, SHA-256 318e8354297fcdfd4b352d0ec031a6b2ba6472335fefe0be2c1b16f3eed52167. Manifest: build/deployment-0.9.0.json; source commit: 592247d.
+
+Deployed actual-config inject smoke passes with backend configured/enabled/ready, correct ordinary capture/hash/rewrite, normal sandbox exit and clean core/sync validation. The actual game log hash is unchanged during the smoke. Report: build/m2-component-actual-config-dist.json. The earlier complete regression applies to these identical binaries; no rebuild or repeated full suite. Settings: probe/resources on, image hashing/profiling off, explicit component-7 package enabled, full unmap/WC defaults retained. No launcher edit or game start.
+
+Work is paused. On an explicit resume, the next game checkpoint is a user-started display/LOD0 observation, then actual LOD1: check loaded version, ready/replaced/refusal counters and appearance/animation. Only component 7 is enabled, not the full mod. Do not begin collection or further development while the pause stands. Sections below record earlier checkpoints.
 
 ## 0.9.0 first hooked component ready for deployment after game exit
 

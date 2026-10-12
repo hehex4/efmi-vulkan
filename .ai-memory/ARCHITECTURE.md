@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. Source/candidate 0.9.0 adds an opt-in component replacement to the development probe; dist/ remains 0.8.1, observed in actual LOD1. Protocol 1, server 0.1.0. Resource inspection is in `docs/probe-resources.md`, snapshots/waiting in `docs/probe-snapshots.md`, owned variants in `docs/m2-pipeline-variants.md`, and the hooked M2 path in `docs/m2-component-hook.md`. Game record-time availability is verified; real-character replacement is not.
+The target product architecture is in `docs/plan.md`, section 4. Source/dist 0.9.0 add an opt-in component replacement to the development probe. Deployed sandbox verification passes; actual LOD1 data came from the earlier 0.8.1 game session. Protocol 1, server 0.1.0. Resource inspection is in `docs/probe-resources.md`, snapshots/waiting in `docs/probe-snapshots.md`, owned variants in `docs/m2-pipeline-variants.md`, and the hooked M2 path in `docs/m2-component-hook.md`. Game record-time availability is verified; real-character replacement is not.
 
 ## Data path of the development probe
 

@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof, not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.9.0: the opt-in component-7 hook now uses the verified bones/cache/snapshot helpers and passes the GPU sandbox/full suite. Dist/ and user-started PID 34644 remain 0.8.1. The next checkpoint is normal exit, deployment and user-started replacement rendering, not another duration-only or bone-capture run. See docs/m2-component-hook.md and T-026.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof, not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.0. The exact tested component-7 package/configuration was deployed after user-confirmed normal exit and passed the deployed actual-config smoke. The user requested a pause after configuration; development and collection are paused until an explicit resume. No game result for 0.9.0 exists. See docs/m2-component-hook.md and T-026.
 
 ## Tasks and follow-ups
 
@@ -14,7 +14,7 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 0.9.0 implements an explicit package for sample component 7, mapped per-draw current/previous import, asynchronous variants, command-owned immutable snapshots, successful-reset recycling and original draw restoration/fallback. Native package checks 30, actual-hook runner 45 and the full suite pass. The candidate's actual configuration loads the original asset package in a sandbox with clean validation and normal exit. The ten matching draws in five saved frames satisfy the profile; this does not prove game driver creation or visual correctness. Details and current configuration: docs/m2-component-hook.md, D-031.
 
-Next: after normal exit, back up dist/ and copy the exact tested candidate, verify hashes and actual-config smoke. The user then starts Vulkan for component-7 observation in display/LOD0 and actual LOD1. Check loaded version, ready/matched/replaced/refusal counters, retained original rendering and animation; live enabled=0/1 affects future recordings. Do not claim full M2: other components, cross-component masters/LOD remaps, texture overrides, several character instances and the image panel remain open. No launcher edit or automatic game start.
+Deployment is complete: backup build/backups/before-0.9.0-20261012-185849/, twelve candidate files hash-verified, deployed actual-config smoke clean (build/deployment-0.9.0.json). Paused at the user's request. After an explicit resume, the next checkpoint is user-started Vulkan observation in display/LOD0 and actual LOD1. Check loaded version, ready/matched/replaced/refusal counters, retained original rendering and animation; live enabled=0/1 affects future recordings. Do not claim full M2: other components, cross-component masters/LOD remaps, texture overrides, several character instances and the image panel remain open. No launcher edit or automatic game start.
 
 ### T-025: Asynchronous variant cache and private draw snapshots (sandbox helpers complete)
 
@@ -170,7 +170,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The 0.9.0 component-7 candidate is verified and ready. Normal game exit is required before replacing loaded dist/0.8.1; after deployment, the user starts the next run for actual replacement rendering. No repeated bone capture or duration-only test is required.
+- The user explicitly paused work after configuration. 0.9.0 is deployed and verified. Wait for an explicit resume before further development or game collection; a later user-started run will test actual replacement rendering. No repeated bone capture or duration-only test is required.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
