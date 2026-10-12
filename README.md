@@ -3,11 +3,13 @@
 Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield on the game's native Vulkan renderer, through a Vulkan layer of our own.
 
 The read-only probe has captured real character data and resolved the sample's texture slots.
-The user reports open-world stutter in probe mode and smooth movement in passthrough.
-0.7.2 timings correlate its largest spikes with expensive copies at unmap and lock contention.
+Earlier 0.7.2 timings correlated open-world spikes with expensive copies at unmap and lock contention.
 Layer 0.7.3 made those copies eleven times faster by reading write-combined memory with streaming
 loads; in the game, with 0.7.4, three of 87,005 present intervals exceeded 33 ms and the user reports
-the stutter gone. A review that blamed the game's mesh pools instead was wrong and is corrected. Mod rendering is not implemented. See the [current state](.ai-memory/CURRENT_STATE.md)
+the stutter gone. A review that blamed the game's mesh pools instead was wrong and is corrected.
+The 0.9.0 candidate adds an opt-in [single-component replacement](docs/m2-component-hook.md)
+through the actual draw hook, verified in the GPU sandbox. Full mod rendering and real-character
+replacement are not yet verified. See the [current state](.ai-memory/CURRENT_STATE.md)
 for the deployed package, next-launch configuration and evidence boundaries.
 
 ## Layout
@@ -39,7 +41,8 @@ python sandbox\run_all.py
 
 ## The probe
 
-In probe mode the layer forwards every Vulkan call unchanged and records what it sees:
+With the experimental M2 package disabled (the default), probe mode forwards every
+Vulkan call unchanged and records what it sees:
 
 - memory maps, buffers, pipelines, command buffers, submits and presents;
 - ordinary/template descriptor set contents, dynamic buffer ranges and recorded push descriptors; image/view/sampler metadata; retained shader SPIR-V;

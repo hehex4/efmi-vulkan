@@ -3,6 +3,7 @@
 // Pipe: \\.\pipe\efmi-vk-<PID>. One client at a time.
 // Message, both directions: [u32 header_len][u32 payload_len][header JSON][payload].
 #include "state.h"
+#include "m2_backend.h"
 #include "json.h"
 
 #include <algorithm>
@@ -96,6 +97,8 @@ std::string dispatch(const JsonRequest& req, std::vector<uint8_t>& payload)
     std::string cmd = req.get("cmd");
     if (cmd == "status")
         return probe_status();
+    if (cmd == "m2")
+        return probe_m2_set(req.get("enabled").empty() ? -1 : (req.get_u64("enabled", 0) != 0 ? 1 : 0));
     if (cmd == "capture") {
         uint32_t timeout = static_cast<uint32_t>(req.get_u64("timeout_ms", 5000));
         if (timeout > 60000)

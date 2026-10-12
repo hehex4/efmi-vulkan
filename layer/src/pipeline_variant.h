@@ -34,6 +34,7 @@ public:
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkDescriptorSetLayout own_layout = VK_NULL_HANDLE;
     uint32_t own_set = 0;
+    uint32_t bone_set = 0, bone_binding = 0;
     std::string reason;
     VkResult result = VK_SUCCESS;
 private:

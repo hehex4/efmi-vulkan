@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "0.8.3"
+#define EFVK_VERSION "0.9.0"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -43,6 +43,8 @@ enum class Entry {
 struct Config {
     Mode mode = Mode::Probe;
     Entry entry = Entry::Layer;
+    std::string m2_package; // explicit experimental mesh package; empty keeps ordinary probe behavior
+    bool m2_enabled = false;
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped
     uint32_t shadow_usage = 0;                   // VkBufferUsageFlags that get a CPU shadow (set in util.cpp)

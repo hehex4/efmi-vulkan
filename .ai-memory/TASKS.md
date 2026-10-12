@@ -6,13 +6,19 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof (D-022, D-028), not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.8.3 with verified CPU bones, asynchronous variants and immutable draw snapshots; dist/ remains 0.8.1, and user-started PID 34644 supplies two actual LOD1 snapshot bundles. Full recipes and bone availability now cover the observed display, world LOD0 and actual LOD1 scenes. Continue M2 offline; no further collection is needed for bone import/remapping. See docs/m2-game-recipes.md for scope and earlier corrections.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof, not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.9.0: the opt-in component-7 hook now uses the verified bones/cache/snapshot helpers and passes the GPU sandbox/full suite. Dist/ and user-started PID 34644 remain 0.8.1. The next checkpoint is normal exit, deployment and user-started replacement rendering, not another duration-only or bone-capture run. See docs/m2-component-hook.md and T-026.
 
 ## Tasks and follow-ups
 
+### T-026: One self-contained component through the draw hook (sandbox complete; game checkpoint pending)
+
+0.9.0 implements an explicit package for sample component 7, mapped per-draw current/previous import, asynchronous variants, command-owned immutable snapshots, successful-reset recycling and original draw restoration/fallback. Native package checks 30, actual-hook runner 45 and the full suite pass. The candidate's actual configuration loads the original asset package in a sandbox with clean validation and normal exit. The ten matching draws in five saved frames satisfy the profile; this does not prove game driver creation or visual correctness. Details and current configuration: docs/m2-component-hook.md, D-031.
+
+Next: after normal exit, back up dist/ and copy the exact tested candidate, verify hashes and actual-config smoke. The user then starts Vulkan for component-7 observation in display/LOD0 and actual LOD1. Check loaded version, ready/matched/replaced/refusal counters, retained original rendering and animation; live enabled=0/1 affects future recordings. Do not claim full M2: other components, cross-component masters/LOD remaps, texture overrides, several character instances and the image panel remain open. No launcher edit or automatic game start.
+
 ### T-025: Asynchronous variant cache and private draw snapshots (sandbox helpers complete)
 
-Source/candidate 0.8.3 adds a bounded worker cache with generation/vertex-declaration keys, cancellation and command-owned ready variants, plus immutable-after-seal per-draw bone/entry storage with full uniform-range padding. Native cache 21, snapshots 25, GPU variant runner 39 and the full suite pass. The real GPU test retires the cache before submit, retains its variant and resubmits sealed commands. Details: docs/m2-cache-and-snapshots.md. Actual command-hook ownership/sealing, sample geometry and live rendering remain T-022/M2 work. Dist/ stays 0.8.1.
+The 0.8.3 helper checkpoint adds a bounded worker cache with generation/vertex-declaration keys, cancellation and command-owned ready variants, plus immutable-after-seal per-draw bone/entry storage with full uniform-range padding. Native cache 21, snapshots 25, GPU variant runner 39 and the full suite pass. The real GPU test retires the cache before submit, retains its variant and resubmits sealed commands. Details: docs/m2-cache-and-snapshots.md. Candidate 0.9.0 now supplies actual command-hook ownership/sealing and completed-recording recycling for T-026. Game rendering remains unverified. Dist/ stays 0.8.1.
 
 ### T-024: CPU rolling-buffer bone import and instance patch (offline helper complete)
 
@@ -22,7 +28,7 @@ Source/candidate 0.8.2 implements the Core-derived CPU path with checked ranges,
 
 0.8.0 adds complete core graphics/render-pass recipes with independent lifetimes, a C++ VS-only rewriter, private pipeline/layout construction and transactional direct indexed draw/restoration. Native ownership/error tests, real GPU pixel readback and core/sync validation pass. All 21 historical VS rewrites equal the Python reference and pass spirv-val. New `pipeline.recipe`, `layout_recipe` and `variant_preflight` make gaps explicit. Evidence and supported scope: `docs/m2-pipeline-variants.md`. The builder uses static vertex input (D-028), not a newly enabled game feature.
 
-The user-started 0.8.0 session supplies complete supported recipes for all matched pipelines: display 39, world LOD0 45, actual LOD1 36. The new 0.8.1 actual LOD1 session adds two full snapshot frames: all 58 matched entries and both VS bone windows agree at record/submit, including all nine LOD1 sections in color subpasses. This closes the observed LOD1 timing gap (T-023). See docs/m2-game-recipes.md. Continue sample assets/bone remapping/texture patches plus the asynchronous cache and in-flight lifetime system. Probe hooks still never call the builder/emitter; no complete M2 result exists.
+The user-started 0.8.0 session supplies complete supported recipes for all matched pipelines: display 39, world LOD0 45, actual LOD1 36. The 0.8.1 actual LOD1 session adds two full snapshot frames: all 58 matched entries and both VS bone windows agree at record/submit, including all nine LOD1 sections in color subpasses. This closes the observed LOD1 timing gap (T-023). See docs/m2-game-recipes.md. Candidate 0.9.0 connects the builder/emitter to the optional component-7 hook (T-026). Full sample assets/remaps/texture patches and real-character acceptance remain open; no complete M2 result exists.
 
 Review note (2026-10-12, from `captures/third-probe`): 33 of the 45 matched draws use pipelines that declare five vertex bindings, (0,16) (1,12|20|8) (2,12|4) (3,16) (4,0); binding 4 with stride 0 is the game's default tangent buffer, which the mod does not replace. The tracker keeps four slots (`kMaxVb = 4`), so a capture does not show what is bound at slot 4. The replacement vertex declaration therefore has to carry binding 4 over from the recipe unchanged, and the replaced draw rebinds and restores bindings 0 to 3 only. Raising `kMaxVb` is needed only if a later mod replaces that slot.
 
@@ -164,7 +170,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- No user action is needed for offline M2 bone import/remapping. The two 0.8.1 LOD1 snapshot frames close T-023 in the observed scene; the next game checkpoint must exercise replacement rendering, not repeat these captures or a duration-only test.
+- The 0.9.0 component-7 candidate is verified and ready. Normal game exit is required before replacing loaded dist/0.8.1; after deployment, the user starts the next run for actual replacement rendering. No repeated bone capture or duration-only test is required.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

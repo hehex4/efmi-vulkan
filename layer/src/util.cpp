@@ -266,6 +266,11 @@ void util_init(HMODULE self)
 
     read_settings_file(g_module_dir + L"\\efmi_vk.cfg");
 
+    g_cfg.m2_package = setting("EFMI_VK_M2_PACKAGE", "m2_package");
+    if (g_cfg.m2_package == "off") g_cfg.m2_package.clear();
+    std::string m2_enabled = setting("EFMI_VK_M2_ENABLED", "m2_enabled");
+    g_cfg.m2_enabled = m2_enabled == "1" || m2_enabled == "on";
+
     std::string mode = setting("EFMI_VK_MODE", "mode");
     if (mode == "passthrough")
         g_cfg.mode = Mode::Passthrough;

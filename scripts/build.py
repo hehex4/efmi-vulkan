@@ -166,6 +166,8 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
                      "tracker_test.cpp", "../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                      "../layer/src/pipeline_recipe.cpp",
                      "../layer/src/pipeline_variant.cpp", "../layer/src/spirv_repoint.cpp",
+                     "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
+                     "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
                      "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                      "/PDB:build\\tracker\\test.pdb", "user32.lib"]
     run_cl(vcvars, folder, args)
@@ -175,7 +177,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
 def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
     folder = os.path.join(ROOT, "sandbox")
     result = {}
-    for name, tracker in (("recipe_test", True), ("variant_gpu", False), ("cache_test", False), ("snapshot_test", False)):
+    for name, tracker in (("recipe_test", True), ("variant_gpu", False), ("cache_test", False), ("snapshot_test", False), ("mesh_test", False)):
         os.makedirs(os.path.join(folder, "build", name), exist_ok=True)
         exe = os.path.join(out, "efmi_vk_" + name + ".exe")
         sources = [name + ".cpp", "../layer/src/pipeline_recipe.cpp", "../layer/src/pipeline_variant.cpp",
@@ -184,8 +186,12 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
             sources.append("../layer/src/variant_cache.cpp")
         if name in ("variant_gpu", "snapshot_test"):
             sources.append("../layer/src/draw_snapshots.cpp")
+        if name == "mesh_test":
+            sources += ["../layer/src/m2_mesh.cpp", "../layer/src/util.cpp"]
         if tracker:
-            sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp"]
+            sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
+                        "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
+                        "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp"]
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
         args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                            "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]

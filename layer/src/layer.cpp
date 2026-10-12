@@ -1,7 +1,7 @@
 // Entry points and the intercepted Vulkan functions.
 //
-// Every hook forwards the call unchanged. In probe mode the hooks also feed
-// the tracker in state.cpp; nothing the application draws is altered.
+// Ordinary probe hooks observe and forward. An explicitly configured M2 package can replace
+// its one matching component through the separately gated experimental backend.
 //
 // The hooks get in front of the application in one of two ways:
 //   layer  - the Vulkan loader loads the DLL as a layer and chains it in through
@@ -9,6 +9,7 @@
 //   inject - the DLL was loaded with LoadLibrary; bootstrap.cpp redirects the exports of
 //            vulkan-1.dll to the hooks, which then call the original exports.
 #include "state.h"
+#include "m2_backend.h"
 
 #include <cstddef>
 #include <mutex>
@@ -27,6 +28,7 @@ struct InstanceData {
     PFN_vkDestroyInstance DestroyInstance = nullptr;
     PFN_vkEnumerateDeviceExtensionProperties EnumerateDeviceExtensionProperties = nullptr;
     PFN_vkGetPhysicalDeviceProperties GetPhysicalDeviceProperties = nullptr;
+    PFN_vkGetPhysicalDeviceMemoryProperties GetPhysicalDeviceMemoryProperties = nullptr;
 };
 
 std::mutex g_inst_mx;
@@ -270,8 +272,10 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyPipeline(VkDevice device, VkPipeline pipe, 
 {
     count_call(HI_DestroyPipeline);
     Device* dev = dev_of(device);
-    if (pipe)
+    if (pipe) {
+        m2_retire(dev, pipe);
         on_destroy_pipeline(dev, pipe);
+    }
     dev->d.DestroyPipeline(device, pipe, alloc);
 }
 
@@ -313,21 +317,24 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandPool(VkDevice device, VkCommandPoo
 {
     count_call(HI_ResetCommandPool);
     Device* dev = dev_of(device);
-    on_reset_pool(dev, pool);
-    return dev->d.ResetCommandPool(device, pool, flags);
+    VkResult result = dev->d.ResetCommandPool(device, pool, flags);
+    if (result == VK_SUCCESS) on_reset_pool(dev, pool);
+    return result;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_BeginCommandBuffer(VkCommandBuffer cmd, const VkCommandBufferBeginInfo* info)
 {
     count_call(HI_BeginCommandBuffer);
     Device* dev = dev_of(cmd);
+    VkResult result = dev->d.BeginCommandBuffer(cmd, info);
+    if (result != VK_SUCCESS) return result;
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_RESET);
         cb->reset_recording();
         cb->tid = GetCurrentThreadId();
         cb->threads.push_back(cb->tid);
     }
-    return dev->d.BeginCommandBuffer(cmd, info);
+    return result;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_EndCommandBuffer(VkCommandBuffer cmd)
@@ -341,11 +348,13 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandBuffer(VkCommandBuffer cmd, VkComm
 {
     count_call(HI_ResetCommandBuffer);
     Device* dev = dev_of(cmd);
+    VkResult result = dev->d.ResetCommandBuffer(cmd, flags);
+    if (result != VK_SUCCESS) return result;
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_RESET);
         cb->reset_recording();
     }
-    return dev->d.ResetCommandBuffer(cmd, flags);
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +391,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2(VkCommandBuffer cmd, VkBuffer 
     count_call(HI_CmdBindIndexBuffer2);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->m2_extended_bind = true;
         cb->ib = buf;
         cb->ib_off = off;
         cb->index_size = index_size_of(type);
@@ -395,6 +405,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2KHR(VkCommandBuffer cmd, VkBuff
     count_call(HI_CmdBindIndexBuffer2KHR);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->m2_extended_bind = true;
         cb->ib = buf;
         cb->ib_off = off;
         cb->index_size = index_size_of(type);
@@ -429,8 +440,10 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers2(VkCommandBuffer cmd, uint32_
 {
     count_call(HI_CmdBindVertexBuffers2);
     Device* dev = dev_of(cmd);
-    if (CmdBuf* cb = cb_of(dev, cmd))
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->m2_extended_bind = true;
         track_vbs(cb, first, count, bufs, offs);
+    }
     dev->d.CmdBindVertexBuffers2(cmd, first, count, bufs, offs, sizes, strides);
 }
 
@@ -440,8 +453,10 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers2EXT(VkCommandBuffer cmd, uint
 {
     count_call(HI_CmdBindVertexBuffers2EXT);
     Device* dev = dev_of(cmd);
-    if (CmdBuf* cb = cb_of(dev, cmd))
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        cb->m2_extended_bind = true;
         track_vbs(cb, first, count, bufs, offs);
+    }
     dev->d.CmdBindVertexBuffers2EXT(cmd, first, count, bufs, offs, sizes, strides);
 }
 
@@ -492,6 +507,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indic
         r.first_instance = first_instance;
         cb->draws.push_back(r);
         on_record_indexed(dev, cb);
+        if (m2_record(dev, cb, r)) return;
     }
     dev->d.CmdDrawIndexed(cmd, indices, instances, first_index, vertex_offset, first_instance);
 }
@@ -803,8 +819,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
 {
     count_call(HI_QueueSubmit);
     Device* dev = dev_of(queue);
-    for (uint32_t i = 0; i < count; i++)
+    for (uint32_t i = 0; i < count; i++) {
+        m2_seal(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
         on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
+    }
     return dev->d.QueueSubmit(queue, count, submits, fence);
 }
 
@@ -816,6 +834,7 @@ void track_submit2(Device* dev, uint32_t count, const VkSubmitInfo2* submits)
         for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++)
             list.push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
         on_submit(dev, static_cast<uint32_t>(list.size()), list.data());
+        m2_seal(dev, static_cast<uint32_t>(list.size()), list.data());
     }
 }
 
@@ -853,6 +872,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
         return;
     PFN_vkDestroyDevice next = dev->d.DestroyDevice;
     if (!dev->passive) {
+        m2_stop(dev);
         logf("device destroyed after %llu frames", static_cast<unsigned long long>(dev->frame_no));
         dev_destroy(dev);
     }
@@ -954,6 +974,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateInstance(const VkInstanceCreateInfo* inf
         gipa(*instance, "vkEnumerateDeviceExtensionProperties"));
     inst->GetPhysicalDeviceProperties =
         reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(gipa(*instance, "vkGetPhysicalDeviceProperties"));
+    inst->GetPhysicalDeviceMemoryProperties =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(gipa(*instance, "vkGetPhysicalDeviceMemoryProperties"));
     {
         std::lock_guard<std::mutex> lock(g_inst_mx);
         g_insts[key_of(*instance)] = inst;
@@ -1038,6 +1060,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         dev->device_id = props.deviceID;
         dev->driver_version = props.driverVersion;
         dev->max_bound_descriptor_sets = props.limits.maxBoundDescriptorSets;
+        if (inst->GetPhysicalDeviceMemoryProperties && !g_cfg.m2_package.empty()) {
+            VkPhysicalDeviceMemoryProperties memory;
+            inst->GetPhysicalDeviceMemoryProperties(phys, &memory);
+            m2_create(dev, props, memory);
+        }
     }
     for (uint32_t i = 0; i < info->enabledExtensionCount; i++)
         dev->extensions.push_back(info->ppEnabledExtensionNames[i]);

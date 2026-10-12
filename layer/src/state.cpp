@@ -1,5 +1,6 @@
 // Tracking of memory, buffers, pipelines and command buffers; frame assembly; probe requests.
 #include "state.h"
+#include "m2_backend.h"
 #include "pipeline_variant.h"
 #include "json.h"
 
@@ -187,6 +188,8 @@ DeviceRef::DeviceRef() : lock(g_dev_mx)
 
 void CmdBuf::reset_recording()
 {
+    if (m2) m2->reset_after_completion();
+    m2_extended_bind = false;
     gfx_pipeline = VK_NULL_HANDLE;
     comp_pipeline = VK_NULL_HANDLE;
     ib = VK_NULL_HANDLE;
@@ -1475,10 +1478,12 @@ std::string probe_status()
     w.str("set");
     w.str("host_pacing");
     w.str("tracker_work");
+    w.str("m2_component");
     w.end_array();
 
     DeviceRef ref;
     Device* dev = ref.dev;
+    m2_status(dev, w);
     if (!dev) {
         w.key("device");
         w.null();

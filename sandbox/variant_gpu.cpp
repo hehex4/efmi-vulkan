@@ -35,7 +35,8 @@ static void vkcheck(VkResult r, const char* name)
     X(CreateFramebuffer) X(DestroyFramebuffer) X(CreateDescriptorPool) X(DestroyDescriptorPool) \
     X(AllocateDescriptorSets) X(UpdateDescriptorSets) X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) \
     X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) X(MapMemory) X(UnmapMemory) \
-    X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer) \
+    X(CreateCommandPool) X(DestroyCommandPool) X(ResetCommandPool) X(ResetCommandBuffer) \
+    X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer) \
     X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdSetViewport) X(CmdSetScissor) X(CmdCopyImageToBuffer) \
     X(CmdPipelineBarrier) X(QueueSubmit) X(QueueWaitIdle)
 #define X(n) static PFN_vk##n vk##n;
@@ -197,6 +198,8 @@ public:
         VK(vkCreateImageView(device, &vi, nullptr, &img.view)); return img;
     }
 };
+
+#include "m2_gpu_case.h"
 
 static void run(Gpu& g, bool use_rp2)
 {
@@ -377,12 +380,13 @@ static void run(Gpu& g, bool use_rp2)
 
 int wmain(int argc, wchar_t** argv)
 {
-    bool rp2 = false, canary = false;
+    bool rp2 = false, canary = false, m2 = false;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--inject") && i + 1 < argc) {
             if (!LoadLibraryW(argv[++i])) return 2;
         } else if (!wcscmp(argv[i], L"--renderpass2")) rp2 = true;
         else if (!wcscmp(argv[i], L"--canary")) canary = true;
+        else if (!wcscmp(argv[i], L"--m2")) m2 = true;
     }
     try {
         Gpu g; g.init();
@@ -391,7 +395,8 @@ int wmain(int argc, wchar_t** argv)
             VkBuffer handle = VK_NULL_HANDLE;
             check(vkCreateBuffer(g.device, &bad, nullptr, &handle) == VK_ERROR_VALIDATION_FAILED_EXT,
                   "validation aborts the deliberate zero-size buffer");
-        } else run(g, rp2);
+        } else if (m2) run_m2(g, rp2);
+        else run(g, rp2);
     } catch (const std::exception& e) { printf("FAILED: %s\n", e.what()); failed++; }
     printf("validation: errors=%u warnings=%u\n", errors.load(), warnings.load());
     check(errors == (canary ? 1u : 0u) && warnings == 0, "validation diagnostics match expectation");

@@ -55,6 +55,7 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
     clear(); reason.clear(); result = VK_SUCCESS;
     VertexRepoint rewritten;
     if (!prepare_vertex_variant(recipe, source, max_sets, rewritten, reason)) return false;
+    bone_set = rewritten.bone_set; bone_binding = rewritten.bone_binding;
     size_t vs_index = 0;
     while (recipe.stages[vs_index].stage != VK_SHADER_STAGE_VERTEX_BIT) ++vs_index;
     own_set = 3;

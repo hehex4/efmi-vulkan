@@ -1,23 +1,32 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.8.1 (deployed and observed in actual LOD1), protocol 1, server 0.1.0. The M2 pipeline builder is sandbox-tested and not called by the probe's draw hooks. Resource inspection details are in `docs/probe-resources.md`, snapshots and opt-in waiting through empty present intervals in `docs/probe-snapshots.md`, and owned pipeline recipes/variant verification in `docs/m2-pipeline-variants.md`. Both 0.8.1 LOD1 bundles recover complete relevant snapshots after 8/7 empty intervals; record-time availability is observed, not replacement rendering.
+The target product architecture is in `docs/plan.md`, section 4. Source/candidate 0.9.0 adds an opt-in component replacement to the development probe; dist/ remains 0.8.1, observed in actual LOD1. Protocol 1, server 0.1.0. Resource inspection is in `docs/probe-resources.md`, snapshots/waiting in `docs/probe-snapshots.md`, owned variants in `docs/m2-pipeline-variants.md`, and the hooked M2 path in `docs/m2-component-hook.md`. Game record-time availability is verified; real-character replacement is not.
 
 ## Data path of the development probe
 
-The 0.8.2 candidate additionally builds `MergedSkeleton`, an offline-tested CPU master with
+`MergedSkeleton` (0.8.2) is an offline-tested CPU master with
 bounded layout, per-component/instance update stamps and atomic rolling-buffer imports.
-It patches only constant 5's two dynamic offsets. Probe hooks do not call it; it owns no GPU
-resources. Per-submission immutable GPU storage and asynchronous pipeline caching remain
-integration work. See `docs/m2-bone-import.md`.
+It patches only constant 5's two dynamic offsets and owns no GPU resources.
+See `docs/m2-bone-import.md`.
 
-Candidate 0.8.3 also builds a bounded `VariantCache` worker and `DrawSnapshots` with private,
+`VariantCache` (0.8.3) is a bounded worker; `DrawSnapshots` owns private,
 aligned per-draw bone/instance copies and immutable sealing. Both now run in the validated
-GPU sandbox. Application command-buffer ownership, release at reset/free and the actual
-replacement hook are still absent; see `docs/m2-cache-and-snapshots.md`.
+GPU sandbox; see `docs/m2-cache-and-snapshots.md`.
+
+`M2Mesh`/`M2Backend` (0.9.0) load an explicit bounded component package and prepare its mesh
+and snapshot arenas off the draw thread. The opt-in indexed hook matches original mapped
+indices, requests a ready variant, reads both mapped poses, imports a self-contained palette
+and emits a private VS draw while preserving FS and restoring original bindings. `M2Command`
+retains mesh, variants and per-draw snapshots with the application's recording. Submit seals
+them; successful legal begin/reset/pool reset recycles completed slots, and free/pool destruction
+releases them. Disabled, unready or unsupported conditions keep the original draw. Both workers
+join before device teardown. IPC `m2` controls future recordings; `status.replacement` reports
+readiness and outcomes. No completion is inferred from presents.
 
 `agent -> Python MCP stdio (or CLI) -> named pipe -> efmi_vk_layer.dll inside the Vulkan process -> tracked state / mapped memory / shadow copies -> result`
 
-The DLL sits in front of the application's Vulkan calls. It forwards every call unchanged; the probe only observes.
+The DLL sits in front of the application's Vulkan calls. Without an explicit enabled M2
+package it forwards every call unchanged; the ordinary probe only observes.
 
 ## Two entries, one binary
 

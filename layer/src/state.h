@@ -18,6 +18,9 @@
 
 namespace efvk {
 
+class M2Backend;
+struct M2Command;
+
 // Device functions the layer intercepts and tracks. One next-pointer is kept per
 // name; promoted functions and their extension aliases are separate entries
 // because a driver may offer only one of them.
@@ -273,6 +276,8 @@ struct CmdBuf {
     uint32_t id = 0;
     bool secondary = false;
     uint32_t tid = 0;
+    bool m2_extended_bind = false; // the initial replacement cannot reproduce Bind*2 size/stride state
+    std::shared_ptr<M2Command> m2; // kept until a legal recording reset/free after GPU completion
 
     // Current bindings while recording.
     VkPipeline gfx_pipeline = VK_NULL_HANDLE;
@@ -394,6 +399,7 @@ struct Device {
     bool passive = false;
     PFN_vkGetDeviceProcAddr next_gdpa = nullptr;
     DeviceDispatch d;
+    std::shared_ptr<M2Backend> m2;
 
     char gpu_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = {};
     std::vector<std::string> extensions; // enabled at creation
