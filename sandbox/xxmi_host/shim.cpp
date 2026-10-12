@@ -14,14 +14,28 @@
 HINSTANCE migoto_handle=nullptr;
 CRITICAL_SECTION resource_creation_mode_lock;
 DWORD tls_idx=TLS_OUT_OF_INDEXES;
+static std::wstring resource_root;
+static size_t diagnostic_count=0;
+size_t HostDiagnosticCount() { return diagnostic_count; }
+void HostResourceRoot(const std::wstring& root)
+{
+    if(root.empty() || root.size()+12>=MAX_PATH)unsupported("prototype resource root too long");
+    resource_root=root;
+    if(resource_root.back()!=L'\\')resource_root+=L'\\';
+    // Only the reference's local GetModuleFileName adapter reads this token.
+    migoto_handle=reinterpret_cast<HINSTANCE>(1);
+}
 namespace MigotoPort {
-void MigotoDir(wchar_t*,unsigned long) { unsupported("prototype module directory adapter"); }
+void MigotoDir(wchar_t* out,unsigned long size) {
+    if(resource_root.empty() || resource_root.size()+1>size)unsupported("prototype module directory adapter");
+    wcscpy_s(out,size,resource_root.c_str());
+}
 Dx12Context* Context() { unsupported("prototype graphics context adapter"); }
 Dx12Device* Device() { unsupported("prototype graphics device adapter"); }
 ID3D11Texture2D* BackBufferAsD3D11() { unsupported("prototype backbuffer adapter"); }
 }
-void LogOverlay(LogLevel,char* format,...) { va_list args;va_start(args,format);vfprintf(stderr,format,args);va_end(args); }
-void LogOverlayW(LogLevel,wchar_t* format,...) { va_list args;va_start(args,format);vfwprintf(stderr,format,args);va_end(args); }
+void LogOverlay(LogLevel,char* format,...) { ++diagnostic_count;va_list args;va_start(args,format);vfprintf(stderr,format,args);va_end(args); }
+void LogOverlayW(LogLevel,wchar_t* format,...) { ++diagnostic_count;va_list args;va_start(args,format);vfwprintf(stderr,format,args);va_end(args); }
 void ClearNotices() {}
 void ParseHuntingSection() { unsupported("prototype hunting settings"); }
 void CleanupShaderMaps(ID3D11DeviceChild*) { unsupported("prototype shader lifetime"); }

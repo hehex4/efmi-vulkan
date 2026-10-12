@@ -18,6 +18,8 @@ void HostCompileList(const wchar_t*,CommandList*,CommandList*);
 void HostParseConstants();
 size_t HostInputCount();
 void HostSyntheticInput(bool);
+int HostPlanTests();
+int HostModPlan(const wchar_t*,const wchar_t*,const wchar_t*);
 class HostListener:public InputListener {
 public:
     int downs=0,ups=0;
@@ -39,7 +41,7 @@ static void execute(CommandList& list,CommandListState& state)
 {
     for(auto& command:list.commands)command->run(&state);
 }
-int wmain()
+int wmain(int argc,wchar_t** argv)
 {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
     setvbuf(stdout,nullptr,_IONBF,0);
@@ -48,6 +50,8 @@ int wmain()
     extern CRITICAL_SECTION resource_creation_mode_lock;
     InitializeCriticalSection(&resource_creation_mode_lock);
     G->user_config=L"host-test-user-settings.ini";
+    if(argc==5 && !wcscmp(argv[1],L"--plan-mod"))return HostModPlan(argv[2],argv[3],argv[4]);
+    if(argc!=1){fprintf(stderr,"Invalid host fixture arguments\n");return 2;}
     HackerContext context;CommandListState state;state.mHackerContext=&context;
     try {
         check(expression(L"2 + 3 * 4")==14,"original arithmetic precedence");
@@ -128,5 +132,6 @@ int wmain()
         ClearKeyBindings();
     } catch(const std::exception& e) {printf("FAILED: %s\n",e.what());++failed;}
     printf("XXMI hosted CPU prototype: %d checks passed, %d failed\n",passed,failed);
+    if(!failed)failed+=HostPlanTests();
     return failed?1:0;
 }

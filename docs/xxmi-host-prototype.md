@@ -2,10 +2,14 @@
 
 The D-016 prototype now compiles, links and executes the pinned XXMI frontend in
 a standalone headless process. It passes 23 CPU checks. It is not linked into
-either layer DLL, does not load a real mod, and creates no graphics device,
+either layer DLL and creates no graphics device,
 window, input hook or game process. Source/build/next remain 0.9.2; dist remains
 0.9.1. The next work is connecting frontend operations to Vulkan resources and
 shared character state, not adding per-component implementations.
+
+The subsequent draw-plan adapter adds 28 native checks and an optional read-only
+execution of the sample's draw callbacks. That fixture is not full mod/Core
+initialization or rendering; see docs/frontend-draw-plans.md for its exact scope.
 
 ## Reproduce
 

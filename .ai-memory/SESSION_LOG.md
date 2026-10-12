@@ -409,3 +409,26 @@ Method/limits/attribution: docs/xxmi-host-prototype.md. The GPU seam explicitly 
 called, but reference headers still contain unused no-ops and are not a production adapter.
 No real mod/resource/Core runtime, layer change, deployment or game action. D-016's bounded
 CPU feasibility checkpoint is complete; continue T-027 resource/shared-character integration.
+
+## 2026-10-12: General command-tree adapter and real sample callback plans
+
+Added frontend/xxmi/draw_plan: original expressions, branches and named calls execute while
+GPU operations become ordered bindings/draws/layout requests. The adapter has no component
+numbers, sample hashes or filenames. Explicit native boundaries survive optimisation and
+retain their phase bits. Invalid/unknown operations, unadapted expression queries, aliases
+and budget overflows reject the complete output; original skip/layout state stays unchanged.
+Resource declaration ownership and frontend variable rollback remain caller responsibilities.
+
+The full standalone build passes the original 23 CPU checks and 28 planner checks. Added a
+read-only actual-INI fixture with the original Windows text-mode CRLF handling and parser
+diagnostic rejection. scripts/check_mod_draw_plans.py verifies the tested binary/sources,
+executes 12 draw callbacks with 16 selected persistent-scalar scenarios at LOD 0 and 1, and
+checks selected ranges against the real vertex/index files. All 384 plans pass: 404 draws,
+192 mesh-empty callbacks, 18 unique indexed ranges, 38 bound resource declarations. The INI
+retains its known hash. Reports: build/xxmi-host/report.json and mod-plan-report.json.
+
+Only callback selection and file ranges are established. OverrideTextures remains an explicit
+unresolved native operation; the full mod's initialization, shared bones, GPU assets/materials,
+input/persist/reload and panel are not implemented compatibility. No layer change/deployment,
+launcher write or game action. Updated architecture/decision scope and the new method document
+docs/frontend-draw-plans.md. Continue T-027 offline with those remaining integrations.

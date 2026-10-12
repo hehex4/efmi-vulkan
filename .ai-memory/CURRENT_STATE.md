@@ -1,6 +1,12 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12, general replacement operations verified. Source/build/next are 0.9.2; dist remains 0.9.1 with component 7 enabled. Shared declaration editing and ordered draw transactions pass the full sandbox suite. The user resumed, entered the character display, and later confirmed voluntary exit. The live 0.9.1 backend replaced component-7 draws; appearance and animation are not accepted. The user requests the whole character mod through general logic. Continue offline T-027/D-033; no separate handwritten component implementations. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, general frontend callback plans verified offline. Source/build/next are 0.9.2; dist remains 0.9.1 with component 7 enabled. Shared declaration editing and ordered draw transactions pass the full sandbox suite. The standalone hosted frontend passes 23 CPU plus 28 planner checks and 384 sample callback plans; it is not linked into the DLL. The user confirmed voluntary game exit. The live 0.9.1 backend replaced component-7 draws; appearance and animation are not accepted. Continue offline T-027/D-033 toward the whole character; no separate handwritten component implementations. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+
+## General frontend draw plans (offline only)
+
+The original XXMI command trees now produce ordered resource-binding/draw/layout requests through frontend/xxmi/draw_plan.cpp. No component id or sample asset name occurs in this adapter. Native Core boundaries stay explicit unresolved operations; unsupported commands/queries, invalid arguments and budgets reject the whole plan. Native checks pass 28 in addition to the 23 host checks. The original caller skip flag/layout are not changed. Resource declarations are borrowed from a retained frontend generation; frontend variable effects are not rolled back.
+
+The actual sample INI (unchanged SHA-256 697d0c98378b83d3aef592a54536470bff4410993f475c1514ed701c4b6f71bd) executes all 12 draw callbacks in 16 selected scalar scenarios at both LOD values: 384 plans, 404 draw items, 192 mesh-empty runs, 18 unique index ranges and 38 bound resource declarations. Every selected range fits its actual index/vertex files. Reports: build/xxmi-host/report.json and mod-plan-report.json. Details: docs/frontend-draw-plans.md. Core initialization/shared bones, resource GPU ownership, material descriptors, real keys/persist/reload and the panel remain open. No layer rebuild was required for this standalone frontend-only change; no deployment or game action.
 
 ## Hosted XXMI frontend feasibility (standalone CPU only)
 
