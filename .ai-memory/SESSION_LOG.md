@@ -432,3 +432,20 @@ unresolved native operation; the full mod's initialization, shared bones, GPU as
 input/persist/reload and panel are not implemented compatibility. No layer change/deployment,
 launcher write or game action. Updated architecture/decision scope and the new method document
 docs/frontend-draw-plans.md. Continue T-027 offline with those remaining integrations.
+
+## 2026-10-12: Compressed DDS metadata and actual resource sizes
+
+Added a general bounded 2D DDS decoder returning Vulkan formats and exact mip ranges into
+owned file data, without decompression, color conversion or payload copies. Rejects unsupported
+containers/formats, unsafe sizes, padding, inconsistent headers and incomplete/extra bytes.
+The headless host rebuild passes 23 frontend, 28 planner and 15 asset checks. The sample
+verifier additionally runs the native decoder on all ten bound DDS files and independently
+compares format/dimensions/ranges with the headers; all pass. No GPU upload is claimed.
+
+Measured selected assets: 38 files, 315,328,648 bytes; four DDS images are 8K with 64 MiB
+compressed payloads each. Nine selected textures are DX10 BC7, one legacy BC5U, all with
+one mip. An initial inspection of every declaration encountered two absent DDS files, but
+the verified callback plans never use them; demand loading must preserve this distinction.
+INI/assets unchanged; reports in build/xxmi-host/. No DLL/config/deployment/game action.
+Updated docs/resource-assets.md and memory. Continue asynchronous GPU resource preparation,
+material descriptors and shared character/Core integration without per-component branches.

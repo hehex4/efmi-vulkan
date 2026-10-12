@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import sys
 
-from build import BuildError, find_vcvars, run_cl
+from build import BuildError, find_vcvars, find_vulkan_include, run_cl
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPS = Path("F:/vulkan")
@@ -87,14 +87,16 @@ def main() -> int:
                           ("CommandList", "ResourceHash", "profiling", "util", "Override")]
         sources = [fixture / f"{name}.cpp" for name in ("main", "shim", "ini", "host_input")]
         sources += [fixture / "plan_test.cpp", fixture / "mod_plan.cpp", ROOT / "frontend/xxmi/draw_plan.cpp"]
+        sources += [fixture / "dds_test.cpp", ROOT / "frontend/assets/dds.cpp"]
         sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in
                     ("DDSTextureLoader", "WICTextureLoader")]
         sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
         regex_lib = upstream / "pcre2/pcre2-8-64.lib"
         inputs += legacy_sources + sources + list(port.glob("*.h")) + [regex_lib, Path(__file__),
-                  ROOT / "frontend/xxmi/draw_plan.h"]
+                  ROOT / "frontend/xxmi/draw_plan.h", ROOT / "frontend/assets/dds.h"]
         report["source_sha256"] = {str(p): digest(p) for p in sorted(set(inputs))}
-        includes = [ROOT / "frontend/xxmi", port, pristine, upstream, upstream / "HLSLDecompiler",
+        includes = [ROOT / "frontend/xxmi", ROOT / "frontend/assets", Path(find_vulkan_include()),
+                    port, pristine, upstream, upstream / "HLSLDecompiler",
                     upstream / "D3D_Shaders", upstream / "DirectXTK/Inc",
                     upstream / "DirectXTK/Src", upstream / "crc32c-hw-1.0.5/include",
                     upstream / "pcre2"]
@@ -148,11 +150,16 @@ def main() -> int:
         planner = re.search(r"XXMI draw planner: (\d+) checks passed, (\d+) failed", output)
         report["planner_passed"] = int(planner[1]) if planner else 0
         report["planner_failed"] = int(planner[2]) if planner else None
+        dds = re.search(r"DDS asset metadata: (\d+) checks passed, (\d+) failed", output)
+        report["dds_passed"] = int(dds[1]) if dds else 0
+        report["dds_failed"] = int(dds[2]) if dds else None
         report["passed"] = (result.returncode == 0 and bool(counts) and int(counts[2]) == 0
-                            and bool(planner) and int(planner[2]) == 0)
+                            and bool(planner) and int(planner[2]) == 0 and bool(dds) and int(dds[2]) == 0)
         print(counts[0] if counts else f"Host process failed: {result.returncode}", flush=True)
         if planner:
             print(planner[0], flush=True)
+        if dds:
+            print(dds[0], flush=True)
         return 0 if report["passed"] else 1
     except (BuildError, OSError, subprocess.SubprocessError) as exc:
         report["error"] = str(exc)

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,13 +111,46 @@ def main() -> int:
             empty += not bool(run_draws)
         if sha(args.mod) != source_hash:
             raise ValueError("INI changed during planning")
+        textures = {}
+        for filename in assets:
+            if filename.suffix.lower() != ".dds":
+                continue
+            decoded = subprocess.run([str(exe), "--dds", str(filename)], cwd=folder,
+                                     capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+            if decoded.returncode:
+                raise ValueError(f"DDS metadata refused: {filename.name}: {decoded.stderr}")
+            metadata = json.loads(decoded.stdout)
+            with filename.open("rb") as source:
+                header = source.read(148)
+            height, width = struct.unpack_from("<II", header, 12)
+            if (metadata["width"], metadata["height"]) != (width, height):
+                raise ValueError("Native DDS dimensions differ from source header")
+            if header[84:88] == b"DX10":
+                expected_format = {98: 145, 99: 146}.get(struct.unpack_from("<I", header, 128)[0])
+                start = 148
+            elif header[84:88] == b"BC5U":
+                expected_format, start = 141, 128
+            else:
+                raise ValueError("This sample reference check needs another DDS format rule")
+            if expected_format != metadata["format"]:
+                raise ValueError("Native DDS linear/sRGB format differs from sample reference")
+            for level in metadata["levels"]:
+                size = ((width + 3) // 4) * ((height + 3) // 4) * 16
+                if level != dict(width=width, height=height, offset=start, bytes=size):
+                    raise ValueError("Native DDS mip byte range differs from sample reference")
+                start += size; width = max(1, width // 2); height = max(1, height // 2)
+            if start != assets[filename]["bytes"]:
+                raise ValueError("Native DDS ranges do not cover the exact file payload")
+            textures[str(filename)] = metadata
         report.update(passed=True, callbacks=len({r["section"] for r in plans["runs"]}),
                       scenarios=len({r["scenario"] for r in plans["runs"]}),
                       lod_values=sorted({r["lod"] for r in plans["runs"]}),
                       plans=len(plans["runs"]), draws=draws, empty_callbacks=empty,
                       unique_index_ranges=len(ranges), bound_resources=len(declared_resources),
+                      texture_files=len(textures), texture_metadata=textures,
+                      total_asset_bytes=sum(a["bytes"] for a in assets.values()),
                       assets={str(k): v for k, v in sorted(assets.items())})
-        print(json.dumps({k: v for k, v in report.items() if k != "assets"}, indent=2))
+        print(json.dumps({k: v for k, v in report.items() if k not in ("assets", "texture_metadata")}, indent=2))
         return 0
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
         report["error"] = str(exc)
