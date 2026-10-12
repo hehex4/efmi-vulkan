@@ -623,3 +623,13 @@ Updated resource docs, architecture, tasks/current state. Source/build/next rema
 0.9.3, dist remains 0.9.1; this common scheduler is standalone, with no deployment or
 game/config/installed asset action. Continue hosted frontend resource/command resolution
 and shared character/Core identity/completeness using saved data.
+
+## 2026-10-12: Keep the single-character replacement ahead of memory optimization
+
+The user questioned the measured 301 MiB resource footprint, then explicitly directed
+work back to the plan before that discussion: get this character's complete replacement
+working, and address performance later. An unverified residency/eviction draft was
+saved only in build/drafts/residency-unverified.patch and removed from source. No build,
+deployment, installed asset change or game action occurred for that draft. The tested
+cache at 6dfce2f remains intact. Continue hosted command/resource resolution, shared
+character/Core identity and bone completeness, using component-independent operations.

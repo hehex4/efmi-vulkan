@@ -4,6 +4,8 @@
 
 ## 0.9.3 material pipeline and command ownership (sandbox only)
 
+User priority clarification: follow the plan from before the VRAM discussion. Finish this character's complete replacement through the general hosted frontend, resources, shared bones and draw backend first; multi-mod residency/performance optimization comes afterward. The unverified residency/eviction detour was removed from source and retained only as build/drafts/residency-unverified.patch. The verified ResourceCache from 6dfce2f is unchanged. Continue offline until actual game evidence is required.
+
 The shared backend now accepts ordered FS image relocations and explicit-null requests alongside VS bone/entry isolation. Worker-built variants recreate compatible private descriptors and key on both vertex and material contracts. Limits include original descriptors as well as added images. DrawSnapshots capture per-draw views and retain resource owners until legal command reuse/destruction; they reject partial images before mutation and remain sealed across resubmission. The existing component-7 hook requests no material changes.
 
 Full build/suite in build/next passes: unit 88, tracker 144, bones 43, recipes 134, cache 28, snapshots 34, variants 63, mesh 49, M2 hook 45, probes 517-532, modes 40, limits 174, timing 126, validation 76, MCP 47 and evidence 113. Log: build/material-0.9.3-regression.txt. New GPU cases under no layer/layer/inject and RenderPass 1/2 verify red and green per-draw images, a null variant, original blue restoration, original FS buffer isolation, rejected transaction pixels and retired image/pipeline owners across resubmission. This uses shared backend code in headless fixtures, not the real-game hook emitting whole-character materials.

@@ -12,6 +12,8 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
 
+Current priority (user clarification): continue the pre-VRAM-discussion plan and get this character's complete replacement working first. Keep shared component-independent operations, but defer multi-mod residency/eviction and performance tuning. The unverified optimization draft is outside source; the verified cache remains unchanged. Next: hosted frontend resource/command resolution, then shared character/Core identity and bone completeness.
+
 Latest resource checkpoint: common ResourceCache supports images and vertex/index buffers under one worker, one pending upload, one caller queue and shared generation budgets. 149 headless checks and five actual-cache checks pass for all 38 bound sample resources; peaks resident 315,327,232, staging 67,108,864, source 67,109,012 bytes, validation clean. Material pixels use cached mesh/images after cache retirement. No layer version change. Continue hosted resource/command resolution and shared character/Core completeness; resource scheduling itself is no longer texture-only. See docs/resource-assets.md.
 
 Mesh upload checkpoint: BufferUpload prepares exact vertex/index bytes on device-local memory, records transfer-to-vertex/index barriers, submits on the caller queue and publishes after polled completion. Actual allocation budgets survive retained owners. Asset/GPU checks 138 pass, plus all 28 selected actual BUF readbacks under clean validation. Material fixture uses uploaded VB/IB. Standalone only; next unify file/resource scheduling for images and buffers, then resolve frontend/Core transactions. See docs/resource-assets.md.
