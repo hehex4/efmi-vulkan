@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene: the third game session with 0.7.0 resolved all four texture ambiguities and captured pipeline requirements. The user reported intermittent stutter, so T-020 is open. Sandbox-verified 0.7.1 is in dist/ with upload hashing off, resource tracking on and new host interval diagnostics; it has not loaded in the game. G2/G3 evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
+T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. 0.7.1 has run in the game with upload hashing off and resources on; foreground open-world host interval spikes persist (T-020). G2/G3 character-data evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
 
 ## Tasks and follow-ups
 
@@ -64,11 +64,13 @@ Original question:
 
 Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
-### T-020: Diagnose intermittent frame-time spikes (open; 0.7.1 prepared)
+### T-020: Diagnose intermittent frame-time spikes (open; hash-off spikes confirmed in 0.7.1)
 
 The user reports stutter during loading and steady display in the third session. Average 120 presents/s does not resolve the report. T-018's timer establishes heavy earlier upload work but only 596 microseconds in a later three-second interval. Cause of steady-scene spikes is unknown.
 
-Prepared and fully sandbox-verified: 0.7.1 host present-interval diagnostics (2048 recent samples, quantiles, peaks and hash/capture tags) and dist/ image_hash = 0 while resources remain enabled. Deployed only after the user confirmed exit and no target process remained. Actual-config sandbox smoke passes. Next user-started comparison: same display scene/window state, no repeated captures during timing, inspect after at least 20 seconds plus the user's experience. If stutter persists, compare resources = 0, then passthrough as needed. No automatic game launch. See docs/frame-pacing.md; no real-game fix has been verified.
+Done: fully sandbox-verified 0.7.1 diagnostics, actual-config smoke and real-game status-only observation (PID 31124). The user reports severe open-world stutter; the static display cannot judge it. A 39.992-second foreground interval contains 142 intervals over 16 ms, 27 over 33 ms, 12 over 50 ms, maximum 111.204 ms. Final rolling window p50 2.989 ms, p99 24.590 ms. Image-hash time and capture sequence remain zero. A later quiet interval changes focus and cannot serve as a clean comparison.
+
+Next: same open-world movement with resources = 0 after a user-chosen restart, keeping hashing off, then passthrough if needed. Current cfg still enables resources. Cause is not established and no fix is claimed. See docs/pacing-hash-off-session.md and docs/frame-pacing.md. No automatic game launch or focus change.
 
 ### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
 
@@ -116,7 +118,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- A short user-started Vulkan comparison with 0.7.1 on the same display scene, upload hashing off and resources on (T-020). The previous session's data is complete; no further 0.7.0 capture is needed. The agent does not start the game.
+- The next useful T-020 comparison is foreground open-world movement with resources = 0 after a user-chosen restart. The hash-off/resources-on observation is complete; current cfg still enables resources. The agent does not start or stop the game.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

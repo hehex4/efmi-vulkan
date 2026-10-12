@@ -35,3 +35,7 @@ Native regression exercises an isolated 80 ms spike among 8 ms intervals, its ha
 window rollover, lifetime retention and counter edge cases. Sandbox timing checks wire-level
 counts, capture marking and live quantiles. These establish diagnostic behavior, not a fix for
 the reported real-game stutter.
+
+The first real 0.7.1 observation is recorded in `pacing-hash-off-session.md`: foreground
+open-world host spikes persist with hashing off. The static display/background observations
+cannot establish smooth open-world play. T-020 still needs a resources-off comparison.

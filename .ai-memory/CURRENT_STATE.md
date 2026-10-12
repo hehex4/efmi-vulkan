@@ -1,6 +1,12 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.7.1 (probe, protocol 1), server 0.1.0. Sandbox-verified 0.7.1 is in `dist/`, with image hashing disabled and resource tracking enabled; it has not run in the game. The last game session used 0.7.0 and closed T-018's four texture ambiguities. G2 and G3 are answered for the sampled display scene, with other scenes and rendering still unverified. The user reports intermittent stutter (T-020); average frame rate does not establish smoothness. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.7.1 (probe, protocol 1), server 0.1.0. 0.7.1 has now run in the game with image hashing off and resources on. Open-world host interval spikes persist (111.204 ms maximum in a foreground observation); T-020 remains open. T-018's four texture ambiguities are resolved. G2/G3 character-data evidence is for the display scene; open-world rendering/data compatibility remains unverified. No mod rendering exists.
+
+## Hash-off comparison: open-world spikes confirmed (2026-10-12, 12:38-12:39)
+
+User-started PID 31124 loaded 0.7.1 in probe/inject mode; resources on, image hashing off. Initial display readings were taken while the game was background, and the user said its mostly static character cannot reveal the problem. Switched to user-confirmed open-world movement: nine status reads over 39.992 seconds, 400/400 foreground polls, no captures, 11,681 host present intervals. Counts over 16/33/50 ms: 142/27/12. Largest interval 111.204 ms at frame 69089; final window p50 2.989 ms and p99 24.590 ms. Hash work and capture count remain zero. Evidence: `captures/pacing-hash-off-20261012/`; account: `docs/pacing-hash-off-session.md`.
+
+Spikes remain with hashing off; resource/descriptor tracking has not been isolated from game/driver/presentation work. A supplementary 20-second start/end-only observation has a focus confound (78/200 foreground polls) and is not a clean comparison. No layer/config/launcher change or game launch/stop was performed. Next useful comparison is the same open-world movement with resources = 0 after a user-chosen restart; current cfg still keeps resources enabled. No stutter fix is claimed.
 
 ## Third probe: texture identities resolved; stutter remains open (2026-10-12)
 
