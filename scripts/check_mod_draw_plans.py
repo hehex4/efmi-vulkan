@@ -54,6 +54,7 @@ def main() -> int:
         (folder / "mod-plans.json").write_text(json.dumps(plans, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
         resources = {r["name"]: r for r in plans["resources"]}
         assets, indices, ranges, draws, empty = {}, {}, {}, 0, 0
+        whole_extents, conservative_draws = {}, 0
         declared_resources = set()
         for run in plans["runs"]:
             vertex = {}; index = None; run_draws = 0
@@ -102,6 +103,7 @@ def main() -> int:
                     if sys.byteorder != "little":
                         values.byteswap()
                     indices[filename] = values
+                    whole_extents[filename] = (min(values), max(values))
                 first, count, base = item["first"], item["count"], item["base"]
                 values = indices[filename]
                 if count <= 0 or first < 0 or first + count > len(values):
@@ -111,12 +113,16 @@ def main() -> int:
                     selected = values[first:first + count]
                     ranges[key] = (min(selected) + base, max(selected) + base)
                 low, high = ranges[key]
+                full_low, full_high = whole_extents[filename]
+                whole_supported = full_low + base >= 0
                 for name in vertex.values():
                     if name is None:
                         raise ValueError("Sample mesh uses a null vertex binding")
                     res = resources[name]; length = assets[Path(res["filename"]).resolve()]["bytes"]
                     if res["stride"] <= 0 or length % res["stride"] or low < 0 or high >= length // res["stride"]:
                         raise ValueError("Selected draw exceeds a bound vertex stream")
+                    whole_supported = whole_supported and full_high + base < length // res["stride"]
+                conservative_draws += whole_supported
                 draws += 1; run_draws += 1
             empty += not bool(run_draws)
         if sha(args.mod) != source_hash:
@@ -156,6 +162,7 @@ def main() -> int:
                       scenarios=len({r["scenario"] for r in plans["runs"]}),
                       lod_values=sorted({r["lod"] for r in plans["runs"]}),
                       plans=len(plans["runs"]), draws=draws, empty_callbacks=empty,
+                      whole_file_bounds_accepted=conservative_draws,
                       unique_index_ranges=len(ranges), bound_resources=len(declared_resources),
                       texture_files=len(textures), texture_metadata=textures,
                       total_asset_bytes=sum(a["bytes"] for a in assets.values()),

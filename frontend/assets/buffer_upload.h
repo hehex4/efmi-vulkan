@@ -33,6 +33,10 @@ public:
     VkDeviceSize size() const {return size_;}
     VkBufferUsageFlags usage() const {return usage_;}
     const std::string& reason() const {return reason_;}
+    // Extrema of the entire uploaded index file, computed from the same source
+    // snapshot during prepare. Constant-time conservative range proof, not a
+    // scan of mapped GPU memory or an exact subrange query. Ready only.
+    bool index_extents(VkIndexType,uint32_t& low,uint32_t& high) const;
 private:
     bool result(VkResult,const char*);
     VkDeviceMemory allocate(const VkMemoryRequirements&,VkMemoryPropertyFlags,const std::shared_ptr<AllocationBudget>&,uint64_t&);
@@ -52,5 +56,7 @@ private:
     VkDeviceSize size_=0;
     VkBufferUsageFlags usage_=0;
     bool in_flight_=false;
+    struct Extents {uint32_t low=UINT32_MAX,high=0;bool valid=false;};
+    Extents indices16_,indices32_;
 };
 }

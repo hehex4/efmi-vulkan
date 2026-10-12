@@ -129,3 +129,28 @@ Remaining: interpret binding state at each draw, resolve native Core and materia
 boundaries, connect shared character identity/bone completeness and link the frontend
 into the layer. Index/vertex range proofs here remain offline file checks, not a new
 runtime draw-range adapter. No deployment or real-character acceptance is claimed.
+
+## Per-draw binding resolution (2026-10-13, standalone)
+
+`frontend/assets/file_draws.*` preflights a Ready file plan into one immutable
+binding snapshot per draw. Each snapshot retains its file owners, current vertex
+strides, index format, pixel-resource selections, layout edits and all indexed
+arguments. Inherited application slots and explicit nulls remain different states.
+Later material or vertex changes do not alter earlier draws.
+
+Unresolved native calls fail before demand loading. Pending files, a missing file
+IB, an excessive index range or an unproved signed base/vertex range preserve the
+entire previous output. BufferUpload stores typed whole-file index minima/maxima
+from its immutable source during preparation, exposing them only when Ready; it
+retains no CPU payload and performs no GPU readback for this purpose. Whole-file
+extrema are conservative: a valid slice can still be refused because of indices
+outside the slice. All 404 selected sample draws pass this rule. Application
+pipeline attributes, per-instance rates, untouched resources and native Core
+semantics still require the runtime adapter. This stage emits no commands.
+
+Verification: 200 headless asset checks, 28 actual BUF roundtrips/extrema, clean
+core/sync validation. Material pixels use resolved stride/index/argument data and
+retain owners after cache retirement. Late invalid draws and unresolved native
+operations reject complete transactions. Host 23/28/19/15 and 384 sample plans
+pass; historical fragment relocation/null checks pass. Logs:
+`build/file-draw-bindings-{gpu,host,mod,fragments}.txt`. No DLL/deployment change.

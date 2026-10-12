@@ -226,6 +226,7 @@ int wmain(int argc,wchar_t** argv)
             buffer_tests(g);
             resource_cache_tests(g);
             file_plan_tests(g);
+            file_draw_tests(g);
             fragment_tests();material_test(g);
         }else throw std::runtime_error("Invalid asset fixture arguments");
     }catch(const std::exception& e){++failed;printf("FAILED: %s\n",e.what());}

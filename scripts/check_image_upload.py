@@ -33,6 +33,7 @@ def main() -> int:
                      str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/resource_cache.cpp"),
                      str(ROOT/"frontend/assets/buffer_upload.cpp"),
                      str(ROOT/"frontend/assets/file_plan.cpp"),
+                     str(ROOT/"frontend/assets/file_draws.cpp"),
                      str(ROOT/"frontend/gpu/fragment_images.cpp"),
                      "/Fe:"+str(exe),"/link","/NOLOGO","user32.lib"]
         log=io.StringIO()

@@ -4,7 +4,7 @@ Current integration checkpoint: source/build/next are 0.9.3 and dist is 0.9.1.
 FilePlanCompiler copies original XXMI file declarations into owned per-operation
 contracts; frontend/assets/file_plan declares/demands the shared ResourceCache and
 collects immutable typed GPU owners atomically. Explicit nulls and native pre/post
-boundaries remain distinct. Core/material operations and per-draw binding state still
+boundaries remain distinct. Core/material operations and shared character state still
 need resolution before execution; this frontend is not in the DLL. See
 docs/frontend-draw-plans.md. Multi-mod residency tuning is deferred until this
 character's replacement works, per the user's priority clarification.
@@ -208,3 +208,5 @@ Follow-up in 0.7.1: state.h owns a fixed PresentPacing ring (pacing.h). on_prese
 ## What is copied at unmap (0.7.4)
 
 `on_unmap_memory` walks the buffers of the memory object. A buffer wholly inside the mapped range, at most `unmap_snapshot_limit` bytes, with the transfer-source bit is copied into its shadow (0.7.5; with `unmap_snapshot_all` off only if it is a transfer buffer and nothing else, which was the default of 0.7.4). Every other buffer the mapping touches has its shadow knowledge dropped, because the application could have written it unseen. Counters `unmap_taken`, `unmap_passed`, `unmap_invalidated` and their bytes are atomics of the device and appear as `counts.unmap`. History, including the wrong premise of 0.7.4: `docs/unmap-snapshots.md`, D-027.
+
+FileDraws resolves the ordered file plan into per-draw VB/IB/PS ownership, layout and argument snapshots. Application-inherited, explicit-null and file bindings remain distinct. File IB ranges plus signed bases are checked against typed whole-file extrema captured at upload preparation; all sample draws pass, but valid subranges can be conservatively refused. Unresolved native boundaries and any late invalid draw reject the whole output. No commands are emitted, and the layer must still validate the application pipeline, input rates and untouched bindings. See docs/frontend-draw-plans.md.

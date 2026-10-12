@@ -1,5 +1,6 @@
 #include "buffer_upload.h"
 #include <cstring>
+#include <algorithm>
 
 namespace efmi::assets {
 BufferUpload::BufferUpload(VkDevice device,const BufferUploadDispatch& dispatch,
@@ -40,6 +41,13 @@ void BufferUpload::release_staging()
     if(staging_budget_)staging_budget_->release(staging_charged_);
     staging_charged_=0;command_=VK_NULL_HANDLE;pool_=VK_NULL_HANDLE;fence_=VK_NULL_HANDLE;stage_=VK_NULL_HANDLE;memory_stage_=VK_NULL_HANDLE;
 }
+bool BufferUpload::index_extents(VkIndexType type,uint32_t& low,uint32_t& high) const
+{
+    if(state_!=UploadState::Ready || !(usage_&VK_BUFFER_USAGE_INDEX_BUFFER_BIT))return false;
+    const auto* values=type==VK_INDEX_TYPE_UINT16?&indices16_:type==VK_INDEX_TYPE_UINT32?&indices32_:nullptr;
+    if(!values || !values->valid)return false;
+    low=values->low;high=values->high;return true;
+}
 bool BufferUpload::prepare(const uint8_t* data,size_t size,VkBufferUsageFlags usage,
                             const VkPhysicalDeviceMemoryProperties& memory,bool readback)
 {
@@ -68,6 +76,18 @@ bool BufferUpload::prepare(const uint8_t* data,size_t size,VkBufferUsageFlags us
     void* mapped=nullptr;
     if(!result(d_.MapMemory(device_,memory_stage_,0,size,0,&mapped),"map mesh staging buffer"))return false;
     std::memcpy(mapped,data,size);d_.UnmapMemory(device_,memory_stage_);
+    if(usage&VK_BUFFER_USAGE_INDEX_BUFFER_BIT){
+        if(!(size%2)){
+            for(size_t i=0;i<size;i+=2){const uint32_t v=data[i]|(uint32_t(data[i+1])<<8);
+                indices16_.low=std::min(indices16_.low,v);indices16_.high=std::max(indices16_.high,v);}
+            indices16_.valid=true;
+        }
+        if(!(size%4)){
+            for(size_t i=0;i<size;i+=4){const uint32_t v=data[i]|(uint32_t(data[i+1])<<8)|(uint32_t(data[i+2])<<16)|(uint32_t(data[i+3])<<24);
+                indices32_.low=std::min(indices32_.low,v);indices32_.high=std::max(indices32_.high,v);}
+            indices32_.valid=true;
+        }
+    }
     state_=UploadState::Prepared;return true;
 }
 bool BufferUpload::record(uint32_t graphics_family)

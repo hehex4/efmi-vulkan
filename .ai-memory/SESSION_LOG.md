@@ -655,3 +655,21 @@ No layer change, deployment, game action or installed asset modification. Source
 build/next remain 0.9.3; dist remains 0.9.1. Continue resolving per-draw binding state and
 native shared character/Core operations. GPU asset readiness is not Core execution,
 runtime draw-range validation or real-character replacement acceptance.
+
+
+## 2026-10-13: Resolve file bindings separately for every planned draw
+
+Continued the user's original single-character plan after interruption. Added
+per-draw vertex/index/material snapshots with Ready owners, copied layouts and
+arguments, and explicit file/null/application states. Any unresolved native call
+or late invalid file range rejects the complete transaction before command output.
+Buffer uploads retain only typed whole-file index extrema for conservative bounds.
+This can refuse valid slices; all 404 current sample draws pass.
+
+Verification: headless asset suite 200, all 28 actual BUF full readbacks/extrema,
+clean core/sync validation; material pixels consume resolved draw metadata after
+cache retirement. Host 23/28/19/15, 384 actual plans and historical fragment checks
+pass. Logs build/file-draw-bindings-{gpu,host,mod,fragments}.txt. Memory/docs synced.
+This is standalone frontend/assets work, with no layer/deployment/game/config or
+installed-asset change. Source/build/next remain 0.9.3 and dist 0.9.1. Continue
+shared character/Core identity and bone completeness before the next game test.

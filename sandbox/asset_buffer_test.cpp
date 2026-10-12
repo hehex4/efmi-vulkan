@@ -16,6 +16,9 @@ static void buffer_roundtrip(Gpu& g,std::vector<uint8_t> bytes)
         check(upload.prepare(bytes.data(),bytes.size(),usage,g.memory,true) && !upload.buffer() && resident->used() && staging->used(),
               "mesh preparation owns exact source bytes but exposes no buffer");
         if(upload.state()!=UploadState::Prepared)throw std::runtime_error(upload.reason());
+        uint32_t lower=17,upper=19;
+        check(!upload.index_extents(VK_INDEX_TYPE_UINT16,lower,upper) && lower==17 && upper==19,
+              "index extrema are not published before upload readiness");
         std::fill(bytes.begin(),bytes.end(),0xcc);bytes.clear();bytes.shrink_to_fit();
         check(!upload.submit(g.queue) && upload.state()==UploadState::Prepared,"unrecorded mesh ticket cannot submit");
         check(upload.record(g.family) && !upload.buffer() && !upload.submit(VK_NULL_HANDLE) && upload.state()==UploadState::Recorded,
@@ -26,6 +29,16 @@ static void buffer_roundtrip(Gpu& g,std::vector<uint8_t> bytes)
         check(upload.buffer() && upload.size()==expected.size() && upload.usage()==usage && !staging->used() && resident->used(),
               "fence completion publishes mesh and frees staging charge");
         if(!upload.buffer())throw std::runtime_error(upload.reason());
+        for(auto type:{VK_INDEX_TYPE_UINT16,VK_INDEX_TYPE_UINT32,VK_INDEX_TYPE_MAX_ENUM}){
+            const size_t width=type==VK_INDEX_TYPE_UINT16?2:type==VK_INDEX_TYPE_UINT32?4:0;
+            const bool valid=width && !(expected.size()%width);
+            uint32_t low=UINT32_MAX,high=0;
+            if(valid)for(size_t i=0;i<expected.size();i+=width){uint32_t value=0;memcpy(&value,expected.data()+i,width);
+                low=std::min(low,value);high=std::max(high,value);}
+            lower=17;upper=19;const bool available=upload.index_extents(type,lower,upper);
+            check(available==valid && (valid?(lower==low && upper==high):(lower==17 && upper==19)),
+                  "typed extrema match original uploaded bytes after source destruction or reject partial index elements");
+        }
         check(!upload.prepare(expected.data(),expected.size(),usage,g.memory) && !upload.record(g.family) && !upload.submit(g.queue) && upload.buffer(),
               "ready immutable mesh ticket cannot be re-prepared recorded or submitted");
         auto out=g.readback(expected.size());auto cmd=g.begin();
@@ -42,7 +55,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL buffer_submit_failure(VkQueue,uint32_t,con
 {return VK_ERROR_OUT_OF_DEVICE_MEMORY;}
 static void buffer_tests(Gpu& g)
 {
-    for(size_t size:{1u,3u,6u,4101u}){
+    for(size_t size:{1u,3u,6u,8u,4101u}){
         std::vector<uint8_t> data(size);for(size_t i=0;i<size;++i)data[i]=static_cast<uint8_t>(i*17+31);
         buffer_roundtrip(g,std::move(data));
     }

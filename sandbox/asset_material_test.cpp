@@ -124,25 +124,36 @@ static void material_test(Gpu& g)
 {
     ResourceBudgets budget;std::vector<std::shared_ptr<const ImageUpload>> images;
     std::shared_ptr<const BufferUpload> vb,ib;
+    FileDraw resolved;
     const float positions[]={-.8f,-.8f,-.2f,-.8f,-.5f,-.2f};const uint16_t indices[]={0,1,2};
     {
         ResourceCache cache(cache_device(g),budget);std::string reason;
         const auto folder=std::filesystem::current_path()/L"cache-fixtures";
+        FilePlan plan;
         for(unsigned i=0;i<3;++i){
             auto data=fixture(28);data.resize(152);put(data,12,1);put(data,16,1);put(data,28,1);
             data[148]=i==1?255:0;data[149]=0;data[150]=i==0?255:0;data[151]=i==2?0:255;
             const auto file=folder/(L"material-"+std::to_wstring(i)+L".dds");write_fixture(file,data);
-            auto entry=cache.declare_image(file,reason);cache.demand(entry);auto ready=await_texture(cache,entry,g,true);
-            if(!ready.image)throw std::runtime_error("Material texture unavailable: "+ready.reason);images.push_back(ready.image);
+            auto resource=std::make_shared<FileResource>();resource->path=file;
+            FilePlanItem bind;bind.operation=FileOperation::BindPixelResource;bind.slot=i;bind.resource=resource;plan.items.push_back(bind);
         }
         for(unsigned i=0;i<2;++i){
             const void* source=i?static_cast<const void*>(indices):static_cast<const void*>(positions);
             const size_t size=i?sizeof(indices):sizeof(positions);std::vector<uint8_t> bytes(size);memcpy(bytes.data(),source,size);
             const auto file=folder/(i?L"material-index.buf":L"material-vertex.buf");write_fixture(file,bytes);
-            auto entry=cache.declare_buffer(file,i?VK_BUFFER_USAGE_INDEX_BUFFER_BIT:VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,reason);
-            cache.demand(entry);auto ready=await_texture(cache,entry,g,true);
-            if(!ready.buffer)throw std::runtime_error("Material mesh unavailable: "+ready.reason);(i?ib:vb)=ready.buffer;
+            auto resource=std::make_shared<FileResource>();resource->path=file;
+            resource->usage=i?VK_BUFFER_USAGE_INDEX_BUFFER_BIT:VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;resource->stride=i?2:8;
+            if(i)resource->index_type=VK_INDEX_TYPE_UINT16;
+            FilePlanItem bind;bind.operation=i?FileOperation::BindIndex:FileOperation::BindVertex;bind.resource=resource;plan.items.push_back(bind);
         }
+        FilePlanItem draw;draw.operation=FileOperation::DrawIndexed;draw.index_count=3;plan.items.push_back(draw);
+        PreparedFilePlan prepared;FileDraws ready;
+        if(!prepare_file_plan(plan,cache,prepared,reason))throw std::runtime_error(reason);
+        request_file_draws(prepared,cache,ready,reason);
+        for(const auto& request:prepared.requests())if(request)await_texture(cache,request,g,true);
+        if(request_file_draws(prepared,cache,ready,reason)!=FileReadiness::Ready || ready.draws.size()!=1)throw std::runtime_error(reason);
+        resolved=ready.draws[0];vb=resolved.vertex[0].buffer;ib=resolved.index.buffer;
+        for(unsigned i=0;i<3;++i)images.push_back(resolved.pixel[i].image);
         cache.stop();
     }
     check(budget.resident->used() && !budget.staging->used(),"material retains images after cache retirement and before drawing");
@@ -189,7 +200,7 @@ static void material_test(Gpu& g)
         VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};info.codeSize=code->size()*4;info.pCode=code->data();
         VkShaderModule module{};CHECK_VK(pCreateShaderModule(g.device,&info,nullptr,&module));own.modules.push_back(module);
     }
-    VkVertexInputBindingDescription binding{0,8,VK_VERTEX_INPUT_RATE_VERTEX};VkVertexInputAttributeDescription attribute{0,0,VK_FORMAT_R32G32_SFLOAT,0};
+    VkVertexInputBindingDescription binding{0,resolved.vertex[0].resource->stride,VK_VERTEX_INPUT_RATE_VERTEX};VkVertexInputAttributeDescription attribute{0,0,VK_FORMAT_R32G32_SFLOAT,0};
     VkPipelineVertexInputStateCreateInfo vertex{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vertex.vertexBindingDescriptionCount=vertex.vertexAttributeDescriptionCount=1;vertex.pVertexBindingDescriptions=&binding;vertex.pVertexAttributeDescriptions=&attribute;
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};ia.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -237,7 +248,7 @@ static void material_test(Gpu& g)
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};begin.renderPass=own.pass;begin.framebuffer=own.framebuffer;
     begin.renderArea.extent={96,64};begin.clearValueCount=1;begin.pClearValues=&clear;pCmdBeginRenderPass(cmd,&begin,VK_SUBPASS_CONTENTS_INLINE);
     VkDeviceSize offset=0;VkBuffer vertex_buffer=vb->buffer();pCmdBindVertexBuffers(cmd,0,1,&vertex_buffer,&offset);
-    pCmdBindIndexBuffer(cmd,ib->buffer(),0,VK_INDEX_TYPE_UINT16);
+    pCmdBindIndexBuffer(cmd,ib->buffer(),0,resolved.index.resource->index_type);
     VkRect2D scissor{{0,0},{96,64}};pCmdSetScissor(cmd,0,1,&scissor);
     pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[0],1,1,sets,0,nullptr);
     for(uint32_t i=0;i<6;++i){
@@ -246,7 +257,7 @@ static void material_test(Gpu& g)
         pCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.pipelines[pipeline]);
         if(i==0 || i==2)pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[1],3,1,&sets[i==0?1:2],0,nullptr);
         if(i==5)pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[0],1,1,&sets[3],0,nullptr);
-        pCmdDrawIndexed(cmd,3,1,0,0,0);
+        pCmdDrawIndexed(cmd,resolved.index_count,resolved.instance_count,resolved.first_index,resolved.vertex_offset,resolved.first_instance);
     }
     pCmdEndRenderPass(cmd);VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={96,64,1};
     pCmdCopyImageToBuffer(cmd,target.image,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,readback.buffer,1,&copy);g.finish(cmd,readback);

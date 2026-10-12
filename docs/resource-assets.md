@@ -202,3 +202,12 @@ The 161-check headless suite and 384 actual CPU callback plans pass; details and
 remaining integration boundaries are in docs/frontend-draw-plans.md. Residency eviction
 and multi-mod performance tuning are deferred at the user's request; the underlying
 ResourceCache behavior from 6dfce2f is unchanged.
+
+
+Per-draw file resolution (2026-10-13) now retains Ready owners and binding metadata
+for every draw. Buffer uploads preserve u16/u32 whole-file extrema, when the file
+length permits that interpretation, for conservative vertex bounds without a
+second CPU payload or driver readback. The standalone 200-check GPU suite and all
+28 actual BUF roundtrips/extrema pass with clean validation; all 404 actual callback
+draws fit the conservative bounds. See docs/frontend-draw-plans.md for remaining
+native Core and application-state requirements.
