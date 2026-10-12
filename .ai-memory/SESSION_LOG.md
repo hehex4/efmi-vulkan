@@ -449,3 +449,24 @@ the verified callback plans never use them; demand loading must preserve this di
 INI/assets unchanged; reports in build/xxmi-host/. No DLL/config/deployment/game action.
 Updated docs/resource-assets.md and memory. Continue asynchronous GPU resource preparation,
 material descriptors and shared character/Core integration without per-component branches.
+
+## 2026-10-12: Standalone GPU texture upload and exact sample readback
+
+Added owning image upload tickets, separating preparation from serialized caller-queue
+submission. Images/views stay private until a completion fence is polled; staging is then
+released. Decoded formats/mip blocks remain unchanged. Enabled BC/capability/device-limit
+checks and partial creation failures publish no partial image. Outstanding uploads remain
+owned even after a fence-status error; cancellation destruction waits, normal polling does not.
+
+scripts/check_image_upload.py --sample builds a headless Vulkan test with child-only core/sync
+validation. Synthetic 27 checks pass, including changed CPU source after prepare, all compressed
+mips, duplicate-submit refusal, disabled BC/extent rejection and an injected staging allocation
+failure. GPU blit distinguishes UNORM 128 from sRGB about 55. All ten actual selected DDS files,
+including four 8K textures, upload and read back their entire compressed payload exactly;
+all runs have zero validation errors/warnings. Evidence: build/assets-gpu/report.json.
+One initial test build hit Win32's small macro; renamed the local test variable before execution.
+
+No layer/DLL/config change, injection, game action or original asset write. This is a tested
+standalone uploader, not game scheduling/material rendering. Actual enabled-device/queue
+state, resource-manager budgets/ownership, material bindings, shared skeletons and full
+Core/frontend integration remain T-027 work. Updated docs/resource-assets.md and memory.

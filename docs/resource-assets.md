@@ -3,8 +3,9 @@
 The general frontend now has a bounded DDS metadata decoder in
 frontend/assets/dds.cpp. It returns Vulkan formats and exact mip byte ranges
 into the caller-owned file data. It does not decompress, recolor or duplicate
-payloads. It contains no mod/component identifiers. No GPU upload or descriptor
-binding is implemented by this helper, and it is not linked into the layer yet.
+payloads. It contains no mod/component identifiers. The decoder is followed by
+the separate GPU upload ticket described below. Neither is linked into the layer
+yet; descriptor binding and the resource manager remain open.
 
 The supported container is one ordinary 2D texture, at most 16,384 by 16,384 and
 128 MiB of source data. Explicit DX10 BC1-7 and RGBA/BGRA8 format mappings retain
@@ -40,3 +41,50 @@ queue/fence ownership, and retained resources through command completion. No fil
 read, DDS decode, decompression or pipeline creation belongs in a draw hook. This
 is a design requirement for the next integration, not a measured game overhead
 or an implemented upload scheduler. No deployment/configuration change occurred.
+
+## GPU upload ticket
+
+frontend/assets/image_upload.cpp now prepares a device-local image/view and a
+host-coherent staging buffer, records all decoded mip copies and transitions the
+image to shader-read layout. It preserves compressed blocks and color-space
+formats. A ticket moves through Empty, Prepared, Submitted and Ready (or Failed).
+Image/view getters return null until fence polling proves upload completion;
+poll does not wait and frees staging/fence/command storage once complete. Source
+file bytes can be freed immediately after prepare. Unsupported device features,
+format capabilities/extents and partial allocation failure publish no image.
+
+Preparation is separate from queue submission. The caller must serialize all
+ticket calls and submit within the application's ordinary queue synchronization,
+on its graphics queue. No unsynchronized worker submission, cross-queue transfer
+or new device feature enablement is provided. The caller passes actual enabled
+BC support and format/image-format properties for the intended usage. Ready
+image owners must survive every consuming draw. Cancellation/shutdown destruction
+may wait for this ticket's upload; the normal readiness path does not wait.
+
+Reproduce the headless validation with:
+
+```powershell
+$env:VCVARS = 'D:/Microsoft/VC/Auxiliary/Build/vcvars64.bat'
+& 'D:/Python312/python.exe' -B scripts/check_image_upload.py --sample
+```
+
+The synthetic GPU fixture passes 27 checks with zero core/sync validation errors
+or warnings. It checks withheld handles, one-time submission, staged-source
+independence, all compressed mip bytes, disabled BC/device-limit refusals and
+an injected staging-buffer allocation failure after image creation. A GPU blit
+to linear RGBA verifies that source byte 128 stays 128 for UNORM and becomes
+about 55 for sRGB, with alpha preserved. This is a format/conversion test, not
+an actual game material shader test.
+
+The optional sample pass fingerprints and uploads all ten selected actual DDS
+files, including the four 8K images, then compares every compressed payload byte
+after GPU readback. All ten pass with clean validation. Reports/logs and tested
+binary SHA-256: build/assets-gpu/report.json. No layer is loaded, no window opens,
+and no mod/Core/config file is modified. This proves the standalone uploader on
+the sandbox's device configuration; it does not establish the game's enabled
+features, upload scheduling/overhead, material bindings or rendered appearance.
+
+Still needed: a bounded deduplicating file/GPU resource manager, integration with
+the layer's actual queue and enabled-device state, immutable material bindings,
+shared character/Core state and full frontend ownership/reload. The uploader
+is not yet called by a game or sandbox layer draw/submit hook.
