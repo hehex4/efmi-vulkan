@@ -518,3 +518,23 @@ through the read-only sibling decoder. Report: build/fragment-images/report.json
 Updated docs/fragment-materials.md, D-034, architecture, tasks/current state and known issues.
 Still standalone: descriptors, pipeline/cache integration, full Core/shared character and
 dimension semantics remain open. No game, DLL/config deployment or original asset write.
+
+## 2026-10-12: DX11 dimension mismatch is not portable
+
+Located all three historical PS binaries in the read-only EFMI output archives. Their zero-seed
+FNV-1 hashes equal capture shader ids. Local disassembly confirms Texture3D declarations and
+SampleLevel instructions in the affected slots. verify_fragment_images.py now records and
+reproduces this evidence. Microsoft D3D11 section 22.3.12 requires a matching Texture3D resource.
+
+Built standalone headless DX11 observation fixture and runner. Four controls (matching 2D/red,
+3D/blue, null 2D and null 3D) pass on both NVIDIA hardware and WARP. Invalid 3D-shader/2D-view
+samples at three Z coordinates and the reverse dimension mismatch yield RGBA zero on NVIDIA
+and texture color on WARP. PSGetShaderResources retains the requested view on both. Green
+clear distinguishes these results from dropped draws. Debug runtime unavailable on both;
+recorded as unavailable, not passed. No feature installation, game or injected DLL.
+
+Evidence: build/dx11-dimensions/report.json, with source/exe fingerprints and per-run logs.
+Default Vulkan refusal remains; no universal dimension-coercion policy is inferred. Valid
+explicit-null INI semantics need their own shader operation, not just a zero 1x1 image that
+can behave differently under dimension queries or border sampling. Updated current state,
+tasks, LIMIT-021 and docs/fragment-materials.md. No layer/config/deployment or asset write.

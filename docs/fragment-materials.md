@@ -79,3 +79,44 @@ The initial chat description called this a mapping issue; the subsequent DX11
 inspection refined it to replacement-dimension compatibility. LIMIT-021 records
 the unresolved behavior. Remaining work includes native descriptor ownership,
 pipeline integration, source/API dimension semantics and shared character/Core.
+
+## Follow-up: saved DX11 bytecode and differing runtime behavior
+
+Saved DX11 bytecode was found in the installed EFMI output archives and read
+without modifying them. The zero-seed FNV-1 hash of each binary exactly equals
+the PS hash in the captures. Local D3DDisassemble confirms Texture3D declarations
+and one sample_l_indexable(texture3d) at LOD 0 for each affected slot. The verifier
+now reproduces this check and records bytecode paths, SHA-256, declarations and
+sample instructions. These are the matching historical shaders, not guesses
+based solely on filenames or a synthetic shader's declarations.
+
+[Microsoft's D3D11 functional specification, section 22.3.12](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm#22.3.12%20Input%20Resource%20Declaration%20Statement)
+requires a Texture3D declaration to receive a Texture3D resource. Thus the
+sample's later Texture2D binding falls outside that API contract. An observation
+of one implementation cannot establish a portable outcome for it.
+
+scripts/probe_dx11_dimensions.py builds a separate headless DX11 pixel test.
+Matched 2D/red and 3D/blue draws and explicit null bindings pass all four controls
+on both the NVIDIA hardware adapter (vendor 0x10de, device 0x2d19) and WARP. Four
+intentionally mismatched cases are observations, not positive API tests:
+
+| Operation | NVIDIA hardware | WARP software |
+| --- | --- | --- |
+| 3D shader, 2D red view, z=0/0.5/2 | RGBA zero in all three | Red in all three |
+| 2D shader, 3D blue view | RGBA zero | Blue |
+
+PSGetShaderResources retains the requested view in every case on both devices;
+the zero results are not explained by the API getter reporting an unbound slot.
+The render target was cleared green, so zero is distinct from a skipped draw.
+The debug runtime is unavailable on this installation for both devices; those
+two optional runs are reported unavailable, never as validation passes. No SDK
+or system feature was installed to change this. Evidence and exact source/exe
+fingerprints: build/dx11-dimensions/report.json.
+
+This establishes nonportable dimension-mismatch behavior and supports keeping
+the default refusal. A compatibility policy for the observed NVIDIA behavior
+must be explicit and remain separate from valid explicit-null INI semantics.
+Do not coerce all volumes to 2D, assume all drivers return zero, or claim actual
+game pixels were replayed. The next general operation is shader-level null
+resource handling; a zero 1x1 texture alone cannot reproduce every query or
+sampler-border case of an absent resource.

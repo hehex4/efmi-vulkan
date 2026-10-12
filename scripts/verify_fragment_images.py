@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import struct
@@ -41,7 +42,7 @@ def image_dimension(code: bytes,source: tuple[int,int]) -> int:
 def audit_dx_dimensions(refused: list,slots: dict) -> dict:
     # Reuse the read-only sibling capture decoder. No client connection or game IO.
     sys.path.insert(0,"F:/EFMI MCP/server")
-    from efmi_mcp import capture_model
+    from efmi_mcp import capture_model,hashes,shader as dx_shader
     pairing=json.loads((ROOT/slots["sources"]["pairing"]["path"]).read_text())
     inputs={};captures=[]
     for label in ("frame-a","frame-on"):
@@ -64,7 +65,18 @@ def audit_dx_dimensions(refused: list,slots: dict) -> dict:
                 if not resource or resource["kind"]!="tex2d" or resource["origin"]!="xxmi":
                     raise ValueError("Historical DX11 override is not the expected mod-owned 2d resource")
                 row["dx_mod_draws"].append(dict(capture=label,draw=draw["index"],width=resource["w"],height=resource["h"],format=resource["fmt_name"]))
+        bytecodes=list(Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/output").rglob(row["dx_shader"]+".bin"))
+        if not bytecodes:raise ValueError("Saved DX11 shader bytecode is unavailable")
+        bytecode=bytecodes[0];code=bytecode.read_bytes()
+        if format(hashes.fnv64(code),"016x")!=row["dx_shader"]:raise ValueError("DX11 bytecode does not match captured shader hash")
+        listing=dx_shader.disassemble(code);register=row["slot"].split("-")[1]
+        declaration=re.search(r"(?m)^dcl_resource_texture3d\s+.*\b"+re.escape(register)+r"\b",listing)
+        samples=[line.strip() for line in listing.splitlines() if re.search(r"\bsample_l_indexable\(texture3d\).*\b"+re.escape(register)+r"\.",line)]
+        if not declaration or not samples:raise ValueError("Expected historical DX11 3D declaration/sample is absent")
+        row.update(dx_bytecode=str(bytecode),dx_resource_declaration=declaration[0],dx_resource_samples=samples)
+        inputs[str(bytecode)]=digest(bytecode)
     inputs[str(Path(capture_model.__file__))]=digest(Path(capture_model.__file__))
+    for module in (hashes,dx_shader):inputs[str(Path(module.__file__))]=digest(Path(module.__file__))
     return inputs
 
 
