@@ -7,19 +7,6 @@ static BufferUploadDispatch buffer_dispatch()
 #undef X
     return d;
 }
-static void finish_buffer(BufferUpload& upload,Gpu& g)
-{
-    if(!upload.record(g.family) || !upload.submit(g.queue))throw std::runtime_error(upload.reason());
-    const auto deadline=Clock::now()+std::chrono::seconds(15);
-    while(upload.poll()==UploadState::Submitted && Clock::now()<deadline)std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    if(upload.state()!=UploadState::Ready)throw std::runtime_error("Mesh upload did not complete: "+upload.reason());
-}
-static std::shared_ptr<BufferUpload> mesh_buffer(Gpu& g,const void* data,size_t size,VkBufferUsageFlags usage)
-{
-    auto upload=std::make_shared<BufferUpload>(g.device,buffer_dispatch());
-    if(!upload->prepare(static_cast<const uint8_t*>(data),size,usage,g.memory))throw std::runtime_error(upload->reason());
-    finish_buffer(*upload,g);return upload;
-}
 static void buffer_roundtrip(Gpu& g,std::vector<uint8_t> bytes)
 {
     const auto expected=bytes;auto resident=std::make_shared<AllocationBudget>(160ull<<20),staging=std::make_shared<AllocationBudget>(160ull<<20);
@@ -86,4 +73,80 @@ static void buffer_tests(Gpu& g)
          check(!upload.prepare(data,sizeof(data),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,g.memory),"actual mesh allocation requirements enforce aggregate budgets");}
         check(!tiny->used() && !resident->used() && !staging->used(),"budget refusal leaves no retained mesh allocation charge");
     }
+}
+
+static void resource_cache_tests(Gpu& g)
+{
+    const auto folder=std::filesystem::current_path()/L"cache-fixtures";
+    const auto path=folder/L"mesh.buf",texture=folder/L"mesh-texture.dds",missing=folder/L"unused-mesh.buf";
+    std::error_code ignored;std::filesystem::remove(missing,ignored);
+    const float positions[]={-.8f,-.8f,-.2f,-.8f,-.5f,-.2f};
+    std::vector<uint8_t> bytes(sizeof(positions));memcpy(bytes.data(),positions,sizeof(positions));
+    write_fixture(path,bytes);write_fixture(texture,fixture(99));
+    ResourceBudgets budget;ResourceCache cache(cache_device(g),budget,8);std::string reason;
+    auto a=cache.declare_buffer(path,VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,reason);
+    auto b=cache.declare_buffer(path,VK_BUFFER_USAGE_INDEX_BUFFER_BIT,reason);
+    auto image=cache.declare_image(path,reason),real_image=cache.declare_image(texture,reason);
+    auto dormant=cache.declare_buffer(missing,VK_BUFFER_USAGE_INDEX_BUFFER_BIT,reason);
+    check(a && b && image && a!=b && a!=image && cache.declare_buffer(folder/L"."/L"mesh.buf",VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,reason)==a,
+          "resource cache keys include normalized path and buffer usage or image kind");
+    check(dormant && dormant->snapshot().state==ResourceState::Dormant && !cache.stats().file_reads,
+          "unused missing mesh declarations remain dormant");
+    check(!cache.declare_buffer(path,0,reason) && !cache.declare_buffer(path,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,reason),
+          "unsupported buffer usage cannot alias image or another buffer request");
+    std::vector<std::thread> callers;std::atomic<unsigned> accepted{0};
+    for(unsigned i=0;i<4;++i)callers.emplace_back([&]{for(unsigned j=0;j<32;++j)if(cache.demand(a))++accepted;});
+    for(auto& t:callers)t.join();
+    cache.demand(real_image);cache.demand(b);cache.demand(image);
+    auto first=await_texture(cache,a,g,false);
+    check(accepted==128 && first.state==ResourceState::Prepared && !first.buffer && !first.image && cache.stats().file_reads==1,
+          "mixed queue retains one prepared upload and deduplicates mesh demand");
+    auto ready=await_texture(cache,a,g,true);auto ready_image=await_texture(cache,real_image,g,true);
+    auto second=await_texture(cache,b,g,true);auto bad_image=await_texture(cache,image,g,true);
+    check(ready.buffer && !ready.image && ready.buffer->size()==bytes.size() && ready.buffer->usage()==VK_BUFFER_USAGE_VERTEX_BUFFER_BIT &&
+          second.buffer && second.buffer->usage()==VK_BUFFER_USAGE_INDEX_BUFFER_BIT && second.buffer!=ready.buffer,
+          "mesh readiness preserves typed usage and independent owners");
+    check(ready_image.image && !ready_image.buffer && bad_image.state==ResourceState::Failed && !bad_image.image && !bad_image.buffer,
+          "mixed queue decodes images and rejects mesh bytes requested as DDS");
+    check(cache.stats().file_reads==4 && cache.stats().submissions==3 && cache.stats().ready==3 && cache.stats().failed==1,
+          "mixed resource outcomes and submissions account exactly once");
+    auto retained=ready.buffer;const auto old_bytes=budget.resident->used();
+    cache.stop();ready={};second={};ready_image={};
+    check(retained->buffer() && budget.resident->used() && budget.resident->used()<old_bytes && !budget.staging->used() && !budget.source->used(),
+          "retired mixed generation releases unretained images but preserves command-owned mesh charges");
+    ResourceCache next(cache_device(g),budget);auto again=next.declare_buffer(path,VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,reason);
+    bytes.resize(bytes.size()+8);write_fixture(path,bytes);next.demand(again);
+    auto changed=await_texture(next,again,g,true);
+    check(changed.buffer && changed.buffer->size()==bytes.size() && retained->size()==sizeof(positions) && !next.demand(a),
+          "new generation owns changed mesh bytes while old generation and foreign handles stay distinct");
+    next.stop();changed={};retained.reset();
+    check(!budget.resident->used() && !budget.staging->used(),"last mixed-generation command owner releases shared allocation budgets");
+    check(!wrong_worker_calls && !wrong_submit_calls,"mesh and image creation/polling stay on worker and queue submission on caller");
+}
+
+static void resource_sample(Gpu& g,int count,wchar_t** paths)
+{
+    ResourceBudgets budget;ResourceCache cache(cache_device(g),budget);std::string reason;
+    std::vector<ResourceHandle> requests;
+    for(int i=0;i<count;++i){
+        const std::filesystem::path path(paths[i]);
+        auto request=path.extension()==L".dds"?cache.declare_image(path,reason):
+                     cache.declare_buffer(path,VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT,reason);
+        if(!request)throw std::runtime_error(reason);requests.push_back(request);cache.demand(request);
+    }
+    std::vector<ResourceSnapshot> retained;
+    for(const auto& request:requests){
+        auto value=await_texture(cache,request,g,true);if(value.state!=ResourceState::Ready)throw std::runtime_error(value.reason);
+        retained.push_back(std::move(value));
+    }
+    const auto stats=cache.stats();
+    check(stats.ready==requests.size() && stats.file_reads==requests.size() && stats.submissions==requests.size() && !stats.failed,
+          "all selected sample mesh and image resources share one bounded queue");
+    cache.stop();
+    check(budget.resident->used() && !budget.staging->used() && !budget.source->used(),"sample ready owners survive shared cache retirement");
+    printf("sample resources: count=%zu resident_peak=%llu staging_peak=%llu source_peak=%llu\n",retained.size(),
+           static_cast<unsigned long long>(budget.resident->peak()),static_cast<unsigned long long>(budget.staging->peak()),
+           static_cast<unsigned long long>(budget.source->peak()));
+    retained.clear();check(!budget.resident->used(),"sample final owners release all mixed residency");
+    check(!wrong_worker_calls && !wrong_submit_calls,"sample mixed queue keeps driver calls on intended threads");
 }

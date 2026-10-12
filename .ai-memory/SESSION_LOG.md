@@ -601,3 +601,25 @@ Updated resource docs, architecture, current state and tasks. This is standalone
 work; layer/build/next stay 0.9.3 and dist stays 0.9.1. No installed asset, game, deployment
 or configuration change. Continue common buffer/image resource cache scheduling and
 frontend/shared character integration offline.
+
+## 2026-10-12: One asynchronous cache for all selected mesh and image assets
+
+Generalized the existing texture scheduler into ResourceCache with typed image/buffer
+owners and path-plus-usage keys. Kept TextureCache names as compatibility aliases. One
+worker/outstanding upload and caller queue handoff share source/staging/resident budgets
+across resource kinds and retained generations. No per-component file loading path.
+
+Headless suite passes 149 with clean core/sync validation. Mixed-kind/usage identity,
+128 concurrent mesh demands, deliberate wrong decoder, exact outcomes, changed reload
+bytes, foreign handles, owner lifetime and intended worker/caller API execution pass.
+The material pixel fixture now loads both mesh buffers and images through one cache,
+retires it, then renders with retained resources. All 38 actual bound sample assets
+(28 BUF and 10 DDS) also pass five cache/validation checks. Peak bytes: resident
+315,327,232, staging 67,108,864, source 67,109,012. Final owner release zeros the ledgers.
+Evidence: build/assets-gpu/report.json, sample-resources.txt and
+build/resource-cache-check.txt. Historical fragment validation also passes.
+
+Updated resource docs, architecture, tasks/current state. Source/build/next remain
+0.9.3, dist remains 0.9.1; this common scheduler is standalone, with no deployment or
+game/config/installed asset action. Continue hosted frontend resource/command resolution
+and shared character/Core identity/completeness using saved data.

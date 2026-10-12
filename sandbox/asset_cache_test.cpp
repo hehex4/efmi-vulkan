@@ -12,6 +12,12 @@ static VKAPI_ATTR VkResult VKAPI_CALL cache_create_image(VkDevice d,const VkImag
     if(GetCurrentThreadId()==caller_thread)++wrong_worker_calls;
     return pCreateImage(d,ci,a,out);
 }
+static VKAPI_ATTR VkResult VKAPI_CALL cache_create_buffer(VkDevice d,const VkBufferCreateInfo* ci,
+                                                          const VkAllocationCallbacks* a,VkBuffer* out)
+{
+    if(GetCurrentThreadId()==caller_thread)++wrong_worker_calls;
+    return pCreateBuffer(d,ci,a,out);
+}
 static VKAPI_ATTR VkResult VKAPI_CALL cache_poll(VkDevice d,VkFence f)
 {
     if(GetCurrentThreadId()==caller_thread)++wrong_worker_calls;
@@ -28,6 +34,11 @@ TextureDevice cache_device(Gpu& g)
     d.memory=g.memory;d.dispatch=g.dispatch;d.format_properties=pGetPhysicalDeviceFormatProperties;
     d.image_properties=pGetPhysicalDeviceImageFormatProperties;
     d.dispatch.CreateImage=cache_create_image;d.dispatch.GetFenceStatus=cache_poll;d.dispatch.QueueSubmit=cache_submit;
+    d.dispatch.CreateBuffer=cache_create_buffer;
+#define X(name) d.buffer_dispatch.name=p##name;
+    EFMI_BUFFER_UPLOAD_FUNCS(X)
+#undef X
+    d.buffer_dispatch.CreateBuffer=cache_create_buffer;d.buffer_dispatch.GetFenceStatus=cache_poll;d.buffer_dispatch.QueueSubmit=cache_submit;
     caller_thread=GetCurrentThreadId();return d;
 }
 void write_fixture(const std::filesystem::path& path,const std::vector<uint8_t>& data)

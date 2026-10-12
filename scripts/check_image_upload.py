@@ -21,15 +21,16 @@ def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample",action="store_true",help="Also upload/read back the ten verified sample DDS files")
     parser.add_argument("--buffers",action="store_true",help="Also upload/read back all selected sample mesh BUF files")
+    parser.add_argument("--resources",action="store_true",help="Also prepare the sample's complete bound resource set in one cache")
     options=parser.parse_args()
     out=ROOT/"build/assets-gpu";out.mkdir(parents=True,exist_ok=True)
-    report={"scope":"standalone GPU image upload, no layer/game integration", "passed":False}
+    report={"scope":"standalone GPU resource upload/cache/materials, no game integration", "passed":False}
     try:
         exe=out/"asset_gpu.exe"
         args=COMMON+["/DNOMINMAX","/I"+find_vulkan_include(),"/I"+str(ROOT/"frontend/assets"),
                      "/Fo"+str(out)+"/", "/Fd"+str(out/"test.pdb"),
                      str(ROOT/"sandbox/asset_gpu.cpp"),str(ROOT/"frontend/assets/dds.cpp"),
-                     str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/texture_cache.cpp"),
+                     str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/resource_cache.cpp"),
                      str(ROOT/"frontend/assets/buffer_upload.cpp"),
                      str(ROOT/"frontend/gpu/fragment_images.cpp"),
                      "/Fe:"+str(exe),"/link","/NOLOGO","user32.lib"]
@@ -109,6 +110,21 @@ def main() -> int:
                 print(f"{asset.name}: {'passed' if ok else 'failed'}",flush=True)
                 if not ok:report["passed"]=False;print(output[-5000:]);break
             if not report["sample_buffers"]:raise RuntimeError("No mesh buffers in the callback report")
+        if report["passed"] and options.resources:
+            source=json.loads((ROOT/"build/xxmi-host/mod-plan-report.json").read_text())
+            if not source.get("passed"):raise RuntimeError("First verify the current callback/asset report")
+            for filename,metadata in source["assets"].items():
+                if hashlib.sha256(Path(filename).read_bytes()).hexdigest()!=metadata["sha256"]:
+                    raise RuntimeError("Sample resource changed after callback verification")
+            result=subprocess.run([str(exe),"--cache-resources",*source["assets"]],cwd=out,env=env,
+                                  capture_output=True,encoding="utf-8",errors="replace",timeout=90)
+            output=result.stdout+result.stderr
+            (out/"sample-resources.txt").write_text(output.encode("ascii","backslashreplace").decode("ascii"),encoding="ascii")
+            count=re.search(r"asset_gpu: (\d+) checks passed, (\d+) failed; validation errors=(\d+) warnings=(\d+)",output)
+            report["sample_resources_passed"]=result.returncode==0 and bool(count) and all(int(count[i])==0 for i in (2,3,4))
+            report["sample_resources"]={filename:metadata["sha256"] for filename,metadata in source["assets"].items()}
+            report["passed"]=report["sample_resources_passed"]
+            print(output[-5000:],flush=True)
         return 0 if report["passed"] else 1
     except (OSError,RuntimeError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as error:
         report["passed"]=False;report["error"]=str(error);print(str(error).encode("ascii","backslashreplace").decode("ascii"),file=sys.stderr);return 1

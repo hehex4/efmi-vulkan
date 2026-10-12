@@ -215,12 +215,15 @@ int wmain(int argc,wchar_t** argv)
             if(!file)throw std::runtime_error("Buffer file read failed");buffer_roundtrip(g,std::move(bytes));
         }else if(argc>=3 && !wcscmp(argv[1],L"--cache-dds")){
             cache_sample(g,argc-2,argv+2);
+        }else if(argc>=3 && !wcscmp(argv[1],L"--cache-resources")){
+            resource_sample(g,argc-2,argv+2);
         }else if(argc==1){
             run(g,fixture(99),false);auto bc5=fixture(83);run(g,bc5,false);
             for(auto format:{28u,29u}){auto rgba=fixture(format);rgba.resize(152);put(rgba,12,1);put(rgba,16,1);put(rgba,28,1);
                 rgba[148]=rgba[149]=rgba[150]=128;rgba[151]=255;run(g,rgba,true);}
             cache_tests(g);
             buffer_tests(g);
+            resource_cache_tests(g);
             fragment_tests();material_test(g);
         }else throw std::runtime_error("Invalid asset fixture arguments");
     }catch(const std::exception& e){++failed;printf("FAILED: %s\n",e.what());}

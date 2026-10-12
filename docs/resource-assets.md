@@ -162,3 +162,35 @@ build/buffer-upload-check.txt. Historical fragment validation also passes with t
 This ticket remains standalone. The common layer material pipeline/snapshot code is
 separately verified in 0.9.3 (docs/fragment-materials.md). Next, unify buffer and image
 file scheduling/ownership and connect the hosted frontend to those ready resources.
+
+## Shared resource cache for images and mesh buffers
+
+ResourceCache replaces the texture-only implementation; texture_cache.h retains
+aliases for existing callers. A single worker, one outstanding upload and one
+caller-serialized queue handoff now serve both resource kinds. All source/staging/
+resident budgets are shared across types and generations. Queue lifecycle,
+deferred file reads, sticky failures and stopped-generation ownership are unchanged.
+The key combines normalized absolute path with buffer usage; zero usage represents
+an image declaration. Invalid buffer usages refuse, and declaring one file as a
+different kind or usage never reuses an incompatible GPU object.
+
+The headless suite passes 149 checks with no core/sync diagnostics. Added coverage
+includes 128 concurrent mesh demands, mixed queued resources, independent typed
+readiness, a mesh file deliberately requested as DDS, exact statistics, retained
+old-generation buffers, changed file sizes on reload and worker/caller driver
+instrumentation. The material pixel test loads both VB/IB and three images through
+one ResourceCache, retires that cache before recording, then draws successfully
+using its retained resources. This joins file scheduling, upload and actual binding
+in a standalone renderer; it still does not run the full XXMI frontend or game hook.
+
+With scripts/check_image_upload.py --resources, all 38 selected sample resources
+(28 BUF, 10 DDS) become ready exactly once and pass five cache/validation checks.
+Actual peak bytes: resident 315,327,232; staging 67,108,864; source 67,109,012.
+After cache retirement, owners keep residency charged; releasing final owners
+returns every ledger to zero. Inputs are fingerprint checked against the callback
+report. Evidence: build/assets-gpu/report.json, build/assets-gpu/sample-resources.txt
+and build/resource-cache-check.txt. Historical fragment validation passes with
+the new executable. No layer change or new game result accompanies this work.
+
+Next: resolve hosted command/resource declarations into ready mesh/material
+transactions and integrate shared character/Core identity and bone completeness.

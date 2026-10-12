@@ -122,9 +122,11 @@ struct MaterialObjects {
 };
 static void material_test(Gpu& g)
 {
-    TextureBudgets budget;std::vector<std::shared_ptr<const ImageUpload>> images;
+    ResourceBudgets budget;std::vector<std::shared_ptr<const ImageUpload>> images;
+    std::shared_ptr<const BufferUpload> vb,ib;
+    const float positions[]={-.8f,-.8f,-.2f,-.8f,-.5f,-.2f};const uint16_t indices[]={0,1,2};
     {
-        TextureCache cache(cache_device(g),budget);std::string reason;
+        ResourceCache cache(cache_device(g),budget);std::string reason;
         const auto folder=std::filesystem::current_path()/L"cache-fixtures";
         for(unsigned i=0;i<3;++i){
             auto data=fixture(28);data.resize(152);put(data,12,1);put(data,16,1);put(data,28,1);
@@ -132,6 +134,14 @@ static void material_test(Gpu& g)
             const auto file=folder/(L"material-"+std::to_wstring(i)+L".dds");write_fixture(file,data);
             auto entry=cache.declare_image(file,reason);cache.demand(entry);auto ready=await_texture(cache,entry,g,true);
             if(!ready.image)throw std::runtime_error("Material texture unavailable: "+ready.reason);images.push_back(ready.image);
+        }
+        for(unsigned i=0;i<2;++i){
+            const void* source=i?static_cast<const void*>(indices):static_cast<const void*>(positions);
+            const size_t size=i?sizeof(indices):sizeof(positions);std::vector<uint8_t> bytes(size);memcpy(bytes.data(),source,size);
+            const auto file=folder/(i?L"material-index.buf":L"material-vertex.buf");write_fixture(file,bytes);
+            auto entry=cache.declare_buffer(file,i?VK_BUFFER_USAGE_INDEX_BUFFER_BIT:VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,reason);
+            cache.demand(entry);auto ready=await_texture(cache,entry,g,true);
+            if(!ready.buffer)throw std::runtime_error("Material mesh unavailable: "+ready.reason);(i?ib:vb)=ready.buffer;
         }
         cache.stop();
     }
@@ -222,9 +232,6 @@ static void material_test(Gpu& g)
         write.descriptorCount=1;write.descriptorType=is_sampler?VK_DESCRIPTOR_TYPE_SAMPLER:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         write.pImageInfo=&image;pUpdateDescriptorSets(g.device,1,&write,0,nullptr);
     }
-    const float positions[]={-.8f,-.8f,-.2f,-.8f,-.5f,-.2f};const uint16_t indices[]={0,1,2};
-    auto vb=mesh_buffer(g,positions,sizeof(positions),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    auto ib=mesh_buffer(g,indices,sizeof(indices),VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
     auto readback=g.readback(96*64*4);auto cmd=g.begin();
     VkClearValue clear{};clear.color.float32[1]=clear.color.float32[3]=1;
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};begin.renderPass=own.pass;begin.framebuffer=own.framebuffer;
