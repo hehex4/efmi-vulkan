@@ -48,7 +48,7 @@ Vertex buffer slots 0 to 3 and descriptor sets 0 to 3 only. Graphics and compute
 
 An application that does not present makes a capture time out. With several devices, the probe answers for the one that presented last.
 
-Observed on 2026-10-12 with 0.8.0: the user's LOD1 world has many present intervals without scene draws although surrounding intervals and counters contain graphics. All 36 full-snapshot attempts were empty; no-snapshot collection obtains all nine LOD1 sections. An empty interval is not evidence of an absent character or broken scene. Bounded collector selection keeps attempts but is insufficient for these snapshots. T-023's 0.8.1 opt-in server wait passes native/GPU/full-suite checks and is deployed after normal exit; real LOD1 snapshot recovery is still unverified. Do not label LOD0-world depth-only LOD1 matches as distant-LOD1 color coverage. Evidence: docs/m2-game-recipes.md.
+Observed on 2026-10-12 with 0.8.0: the user's LOD1 world has many present intervals without scene draws although surrounding intervals and counters contain graphics. All 36 full-snapshot attempts were empty; no-snapshot collection obtains all nine LOD1 sections. An empty interval is not evidence of an absent character or broken scene. T-023's 0.8.1 opt-in server wait now passes native/GPU/full-suite checks and two real LOD1 observations: first attempts succeed after 8/7 empty intervals, with all 58 relevant entries and both bone windows equal at record/submit. Default capture still returns a single possibly empty interval; the exact present producer remains unproven. Do not label LOD0-world depth-only LOD1 matches as distant-LOD1 color coverage. Evidence: docs/m2-game-recipes.md.
 
 ## LIMIT-011: Scope of the sandbox evidence
 

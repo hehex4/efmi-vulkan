@@ -1,6 +1,12 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12, 17:36. Layer 0.8.1 is deployed to dist/ after the user's normal game exit; full candidate regression and candidate/deployed actual-config smokes pass. No 0.8.1 game run yet. Full matched display/LOD0/LOD1 pipeline recipes are captured from 0.8.0 and pass CPU preflight; no game replacement is enabled. Next user-started LOD1 session supplies color-pass bone snapshots with the new wait through empty present intervals. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, after the 17:41 LOD1 capture. Layer 0.8.1 is deployed and loaded by user-started PID 34644. Two actual LOD1 snapshot bundles verify T-023 and supply the missing color-pass bone timing: all 58 matched entries and both bone windows agree at record/submit in each frame. No game replacement is enabled. Continue M2 offline bone import/remapping and rendering integration. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Protocol 1, server 0.1.0.
+
+## 0.8.1 actual LOD1 capture succeeds (2026-10-12)
+
+User-started Endfield PID 34644 loaded 0.8.1 probe/inject with resources on, image hashing/profiling off. The user explicitly kept LOD1. Both collections select their first attempt after skipping 8/7 empty present intervals: frames 19506/20414, 818/819 graphics draws plus 60 dispatches each, 35 render passes. All nine LOD1 sections are present, with 47 LOD1 draws (25 color-subpass draws) plus 11 unchanged base-section draws. All 36 matched recipes are complete/preflight-supported. In each frame all 58 entries and both actual VS 12 KiB bone windows agree at record and submit; no missing relevant snapshots. All 147 bundle file fingerprints per frame and the series manifest fingerprints verify.
+
+Evidence: captures/m2-0.8.1-20261012/lod1-a/attempt-01 and lod1-b/attempt-01; report: docs/m2-game-recipes.md. T-023 is closed for this observed scene; exact present producer remains unproven. This supplies LOD1 color-pass record-time availability, not replacement or animation proof. No further game action is needed for offline bone import/remapping. Keep building in build/next while the game holds dist/0.8.1. All earlier entries below are historical checkpoints.
 
 ## 0.8.1 deployed after normal exit (2026-10-12, 17:36)
 

@@ -1,4 +1,40 @@
-# M2 pipeline observations with 0.8.0
+# M2 pipeline and bone observations with 0.8.0 and 0.8.1
+
+## Actual LOD1 snapshots with 0.8.1 (2026-10-12)
+
+User-started Endfield PID 34644 loaded 0.8.1 probe/inject at 17:39, with resources on,
+image hashing and tracker profiling off. The user explicitly kept the character in LOD1.
+Both bounded collections succeed on their first attempt with `wait_draws=True`:
+
+| Bundle under captures/m2-0.8.1-20261012/ | Frame | Empty intervals skipped | Graphics draws | Matched draws | Matched pipelines |
+| --- | --- | --- | --- | --- | --- |
+| lod1-a/attempt-01 | 19506 | 8 | 818 | 58 | 36 |
+| lod1-b/attempt-01 | 20414 | 7 | 819 | 58 | 36 |
+
+Each interval also contains 60 dispatches (raw `draw_count` is 878/879), 35 render passes,
+18 submits and five command buffers. Graphics recording uses one thread; the three threads
+in aggregate statistics include other work. No unknown buffer writes are reported.
+
+All nine LOD1 sections match in both frames: 47 LOD1 draws, including 25 in subpasses with
+used color attachments. Components 4, 6 and 7 keep their base sections (11 more draws).
+All matched draws are single-instance; all 36 matched recipes are complete and pass CPU
+variant preflight. Unrelated omitted pipelines beyond the export limit are explicit
+(130/132); there are no matched pipeline gaps.
+
+For each frame, all 58 instance entries (256 bytes each), all 58 current bone windows and
+all 58 previous bone windows (12 KiB each, identified by the VS preflight binding) agree at
+record and submit. All actual bone-window floats are finite. Snapshot storage is 173 blobs,
+4,430,272 bytes, with no omissions. Unreadable extraneous material/storage ranges are not
+missing VS bones. The whole matched snapshot comparison has no `different` or `not_recorded`
+items. Constant 5's remaining words include flags 2 or 258 and float 1.0; preserve them when
+patching its two bone offsets. Constant 3 translation is shared across the 58 draws.
+
+Both bundles' 147 file fingerprints and each parent series' child-manifest fingerprint pass;
+report: `captures/m2-0.8.1-20261012/fingerprint-report.json`. T-023 is verified in this scene,
+and the previously missing LOD1 color-pass bone/entry timing is supplied. These two stationary
+observations do not establish combat, multiple instances, animation correctness, GPU variant
+creation in the game, or replacement rendering. Continue M2 offline without another scene
+change or duration-only test. The older evidence and its corrections remain below.
 
 Date: 2026-10-12. User-started Endfield PID 17484, loaded 0.8.0 probe/inject with resources on,
 image hashing and tracker profiling off. Evidence root: `captures/m2-0.8.0-20261012/`.
