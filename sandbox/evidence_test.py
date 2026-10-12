@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from harness import Checks, ROOT, Sandbox
 from efmi_vk.evidence import collect
+from efmi_vk.hashes import crc32c, format_hash
 from efmi_vk.probe_client import ProbeClient, ProbeError
 
 
@@ -46,6 +47,37 @@ def main() -> int:
                     c.check(False, "wrong scope or overwritten evidence was allowed")
                 except (ValueError, FileExistsError):
                     c.check(True, "wrong scope / overwrite refused")
+            # The same collection with the buffer contents of the matched draw.
+            uni = box.expected["uniform"]
+            kept = Path(box.dir) / "with-snapshot"
+            rule = "0:0:%d:2:%d:%d:%d" % (uni["follow_at"], uni["follow_stride"], uni["follow_bytes"], uni["late_at"])
+            base = [sys.executable, "-B", str(Path(ROOT) / "scripts/collect_probe.py"), "--pid", str(box.pid),
+                    "--target", "sandbox", "--mod", str(ini)]
+            result = subprocess.run(base + ["--out", str(kept), "--snapshot", "mod", "--follow", rule],
+                                    capture_output=True, text=True, timeout=20)
+            c.equal(result.returncode, 0, "collector CLI with a snapshot completed")
+            manifest = json.loads((kept / "manifest.json").read_text())
+            c.equal(manifest["collection"], "complete", "snapshot collection has no gaps")
+            c.check(any("compared with a read at record time" in text for text in manifest["limits"]),
+                    "the manifest says what the snapshot covers")
+            frame = json.loads((kept / "frame.json").read_text())
+            index = json.loads((kept / "snapshots.json").read_text())
+            packed = (kept / "snapshots.bin").read_bytes()
+            c.equal(index["request"]["hashes"], [box.expected["draws"][0]["hash"]], "hashes come from the mod")
+            c.equal(index["request"]["follow"]["entry"], uni["late_at"], "the follow rule is preserved")
+            c.equal([i for i, d in enumerate(frame["draws"]) if "snapshot" in d], [0], "only the matched draw has contents")
+            c.equal((len(index["blobs"]), sum(b["size"] for b in index["blobs"])), (frame["snapshot"]["blobs"], len(packed)),
+                    "every kept range is in the packed file")
+            c.check(all(format_hash(crc32c(packed[b["file_offset"]:b["file_offset"] + b["size"]])) == b["crc"] for b in index["blobs"]),
+                    "packed bytes agree with their checksums")
+            c.equal(sorted(s["id"] for s in frame["draws"][0]["snapshot"]), list(range(len(index["blobs"]))),
+                    "the draw's items point at the packed ranges")
+            c.equal(json.loads((kept / "summary.json").read_text())["snapshot"]["draws"], 1, "summary carries the snapshot totals")
+            for name in ("snapshots.bin", "snapshots.json"):
+                c.check(name in manifest["files"], "manifest lists " + name)
+            refused = subprocess.run(base + ["--out", str(Path(box.dir) / "refused"), "--follow", rule],
+                                     capture_output=True, text=True, timeout=20)
+            c.check(refused.returncode != 0 and not (Path(box.dir) / "refused").exists(), "a follow rule without a snapshot is refused")
             with patch.object(ProbeClient, "pipeline", side_effect=ProbeError("simulated destroyed pipeline")):
                 gap = Path(box.dir) / "with-gap"
                 m = collect(box.pid, "sandbox", gap)

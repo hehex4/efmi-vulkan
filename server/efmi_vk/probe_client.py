@@ -104,13 +104,45 @@ class ProbeClient:
     def status(self) -> dict:
         return self.request("status")[0]
 
-    def capture(self, timeout_ms: int = 5000, draws: bool = True, descriptor_budget: int | None = None) -> dict:
+    def capture(self, timeout_ms: int = 5000, draws: bool = True, descriptor_budget: int | None = None,
+                snapshot: dict | None = None) -> dict:
         """One complete frame. ``descriptor_budget`` bounds, in bytes, the descriptor contents the
-        layer keeps for the frame (its default is 64 MiB); 0 leaves the contents out."""
+        layer keeps for the frame (its default is 64 MiB); 0 leaves the contents out.
+
+        ``snapshot`` (layer 0.6.0) has the layer keep what selected draws read from buffers as it is
+        when their command buffer is submitted, and compare it with a read taken when the draw was
+        recorded: {"hashes": [region hashes] or "all": True, "max_range": largest uniform range kept
+        (default 64 KiB), "budget": bytes the capture may keep (default 32 MiB), "follow": {"set",
+        "binding", "offset", "count", "stride", "bytes", "entry"}}. ``follow`` reads ``count`` 32-bit
+        values at byte ``offset`` of the uniform range at (set, binding) and keeps ``bytes`` at
+        value * stride of every storage range of the draw the window fits in; ``entry`` bytes at the
+        start of that uniform range are also kept and compared on their own. Each selected draw gets
+        a "snapshot" list; the bytes are fetched with :meth:`snapshot` while the capture is the latest.
+        """
         params = {"timeout_ms": timeout_ms, "draws": 1 if draws else 0}
         if descriptor_budget is not None:
             params["descriptor_budget"] = int(descriptor_budget)
+        if snapshot is not None:
+            params["snapshot"] = 1
+            if snapshot.get("all"):
+                params["snapshot_all"] = 1
+            hashes = snapshot.get("hashes") or []
+            if hashes:
+                params["snapshot_hashes"] = ",".join("%08x" % (int(h, 16) if isinstance(h, str) else int(h)) for h in hashes)
+            for key in ("max_range", "budget"):
+                if snapshot.get(key) is not None:
+                    params["snapshot_" + key] = int(snapshot[key])
+            follow = snapshot.get("follow")
+            if follow:
+                params["follow"] = 1
+                for key in ("set", "binding", "offset", "count", "stride", "bytes", "entry"):
+                    if follow.get(key) is not None:
+                        params["follow_" + key] = int(follow[key])
         return self.request("capture", **params)[0]
+
+    def snapshot(self, seq: int, snapshot_id: int):
+        """(description, bytes) of one kept range of the latest capture, by the "id" its draws list."""
+        return self.request("snapshot", seq=seq, id=snapshot_id)
 
     def buffers(self, usage: int = 0, min_size: int = 0, limit: int = 1000) -> dict:
         return self.request("buffers", usage=usage, min_size=min_size, limit=limit)[0]

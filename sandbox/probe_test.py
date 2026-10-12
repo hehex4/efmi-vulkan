@@ -47,7 +47,8 @@ def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: 
         if pushed:
             c.equal(sets[1]["set"], "0x0", label + " push descriptors have no allocated set handle")
         u = uniform["bindings"][0]["elements"][0]
-        c.equal((u["effective_offset"], u["range"], u["src"]), (want["dyn"], 32, "mapped"), label + " uniform range")
+        c.equal((u["effective_offset"], u["range"], u["src"]), (want["dyn"], expected["uniform"]["range"], "mapped"),
+                label + " uniform range")
         bindings = material["bindings"]
         c.equal([b["binding"] for b in bindings], [2, 5], label + " sparse bindings are sorted")
         c.equal(bindings[0]["count"], 2, label + " storage descriptor array size")
@@ -71,6 +72,79 @@ def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: 
         c.check(got["vb"][0][0] != 0, label + " vertex buffer resolved")
         c.check(got["pipeline"] != 0, label + " pipeline resolved")
         c.check(got["rp"] == 1, label + " inside the first render pass", got["rp"])
+
+
+def check_snapshot(c: Checks, probe: ProbeClient, expected: dict) -> None:
+    """Contents kept at submit for selected draws, and the comparison with the read at record time.
+
+    The sandbox writes a frame number into every uniform slot before it records the draws, and into
+    the odd slots a second time after recording, before the submit. Storage data never changes.
+    """
+    uni = expected["uniform"]
+    chosen = (0, 1, 3)
+    entry_bytes = uni["late_at"]            # ends before the bytes that arrive late
+    follow = {"set": 0, "binding": 0, "offset": uni["follow_at"], "count": 2, "stride": uni["follow_stride"],
+              "bytes": uni["follow_bytes"], "entry": entry_bytes}
+    cap = probe.capture(timeout_ms=5000, snapshot={"hashes": [expected["draws"][i]["hash"] for i in chosen], "follow": follow})
+    draws = [d for d in cap["draws"] if d["kind"] == "indexed"]
+    c.equal([i for i, d in enumerate(draws) if "snapshot" in d], list(chosen), "snapshot: only the draws with a listed hash")
+    info = cap["snapshot"]
+    c.equal((info["all"], info["hashes"], info["draws"], info["omitted"]), (False, 3, 3, 0), "snapshot: summary of the request")
+    ids = set()
+    states = {"equal": 0, "different": 0}
+    for i in chosen:
+        tag = "snapshot of draw %d: " % i
+        items = draws[i]["snapshot"]
+        c.equal([s["kind"] for s in items], ["uniform", "entry", "follow", "follow", "follow", "follow"], tag + "items in order")
+        uniform, entry = items[0], items[1]
+        late = i % 2 == 1
+        c.equal((uniform["set"], uniform["binding"], uniform["offset"], uniform["size"], uniform["src"]),
+                (0, 0, uni["slot"] * i, uni["range"], "mapped"), tag + "uniform range of the draw's dynamic offset")
+        c.equal(uniform["record"]["state"], "different" if late else "equal", tag + "bytes that arrive after recording are noticed")
+        c.equal((entry["offset"], entry["size"], entry["record"]["state"]), (uni["slot"] * i, entry_bytes, "equal"),
+                tag + "the entry in front of the late bytes was complete at record time")
+        meta, data = probe.snapshot(cap["seq"], uniform["id"])
+        c.equal((meta["size"], meta["when"], len(data)), (uni["range"], "submit", uni["range"]), tag + "kept uniform bytes")
+        c.equal(format_hash(crc32c(data)), uniform["crc"], tag + "checksum of the kept bytes")
+        frame_mark, late_mark = struct.unpack_from("<I", data, uni["frame_at"])[0], struct.unpack_from("<I", data, uni["late_at"])[0]
+        c.check(frame_mark > 0, tag + "the per-frame value is in the kept bytes", frame_mark)
+        if late:
+            c.equal(late_mark, frame_mark, tag + "kept as at submit: the late value of this frame is included")
+            c.check(uniform["record"]["crc"] != uniform["crc"], tag + "record-time checksum differs")
+        c.equal(list(struct.unpack_from("<2I", data, uni["follow_at"])), uni["follow_values"], tag + "values the windows are located by")
+        _, head = probe.snapshot(cap["seq"], entry["id"])
+        c.equal(head, data[:entry_bytes], tag + "entry bytes are the start of the range")
+        storage = [e["effective_offset"] for e in draws[i]["sets"][1]["contents"]["bindings"][0]["elements"]]
+        want = [(w, v, 1, 2, el, storage[el] + v * uni["follow_stride"]) for w, v in enumerate(uni["follow_values"]) for el in (0, 1)]
+        c.equal([(s["word"], s["value"], s["set"], s["binding"], s["element"], s["offset"]) for s in items[2:]], want,
+                tag + "one window per value and storage range")
+        for s in items[2:]:
+            c.equal((s["size"], s["src"], s["record"]["state"]), (uni["follow_bytes"], "mapped", "equal"), tag + "window read at both times")
+            _, window = probe.snapshot(cap["seq"], s["id"])
+            _, live = probe.read_buffer(s["buf"], offset=s["offset"], size=s["size"])
+            c.equal(window, live, tag + "window bytes equal the buffer")
+        for s in items:
+            ids.add(s["id"])
+            states[s["record"]["state"]] = states.get(s["record"]["state"], 0) + 1
+    c.equal(info["blobs"], len(ids), "snapshot: one kept blob per distinct range")
+    c.equal((info["record"]["equal"], info["record"]["different"], info["record"]["not_recorded"]),
+            (states["equal"], states["different"], 0), "snapshot: record comparison is summarised")
+    c.equal(states["different"], sum(1 for i in chosen if i % 2), "snapshot: only the uniform ranges of odd slots differ")
+
+    everything = probe.capture(timeout_ms=5000, snapshot={"all": True})
+    c.equal(everything["snapshot"]["draws"], 5, "snapshot: all indexed draws on request")
+    c.equal([[s["kind"] for s in d["snapshot"]] for d in everything["draws"] if d["kind"] == "indexed"], [["uniform"]] * 5,
+            "snapshot: without a follow rule only uniform ranges are kept")
+    try:
+        probe.snapshot(cap["seq"], 0)
+        c.check(False, "snapshot: contents of an earlier capture are refused")
+    except ProbeError:
+        c.check(True, "snapshot: contents of an earlier capture are refused")
+    try:
+        probe.snapshot(everything["seq"], 9999)
+        c.check(False, "snapshot: an unknown id is refused")
+    except ProbeError:
+        c.check(True, "snapshot: an unknown id is refused")
 
 
 def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
@@ -109,6 +183,10 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
             c.equal(stats["unknown_writes"], 0, "no unknown buffer writes")
             c.equal(len(stats["threads"]), max(threads, 1) + (1 if threads else 0), "threads that recorded")
             check_draws(c, cap, expected, False, "initial")
+            c.check(cap["snapshot"] is None and not any("snapshot" in d for d in cap["draws"]),
+                    "no contents are kept unless asked for")
+            c.check("snapshot" in status["features"], "snapshot feature listed")
+            check_snapshot(c, probe, expected)
 
             if threads:
                 tids = [d["tid"] for d in cap["draws"]]

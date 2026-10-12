@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.5.1, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.6.0, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`, buffer contents kept by a capture in `docs/probe-snapshots.md`.
 
 ## Data path of the development probe
 
@@ -72,7 +72,8 @@ Pipe `\\.\pipe\efmi-vk-<PID>`, one client at a time, started when the first devi
 | `cmd` | Arguments | Result |
 | --- | --- | --- |
 | `status` | | Version, protocol, pid, exe, mode, entry, `attach` (was `vulkan-1.dll` found, was it already loaded, exports redirected, instances and devices seen at creation, passive calls), device, frame counter, statistics of the last frame, maxima, counts |
-| `capture` | `timeout_ms`, `draws` | Statistics of one complete frame and, unless `draws` is 0, every draw |
+| `capture` | `timeout_ms`, `draws`, `descriptor_budget`; `snapshot`, `snapshot_all`, `snapshot_hashes`, `snapshot_max_range`, `snapshot_budget`, `follow` and `follow_*` | Statistics of one complete frame and, unless `draws` is 0, every draw. With `snapshot`, the selected draws list what they read from buffers at submit, compared with a read at record time |
+| `snapshot` | `seq`, `id` | The kept bytes of one range of the latest capture as payload |
 | `buffers` | `usage`, `min_size`, `limit` | Tracked buffers |
 | `read_buffer` | `id`, `offset`, `size` | Source and generation in the header, the bytes as payload (at most 64 MiB) |
 | `hash` | `id`, `offset`, `size` | CRC-32C of the range |
@@ -107,7 +108,7 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 | `server/efmi_vk/mods.py` | Reads the TextureOverride sections of mod INIs (hash, `match_first_index`, `match_index_count`) and matches them against captured draws |
 | `server/efmi_vk/tools.py` | `Session` (pipe connection, last capture) and eleven tools; `ToolError` |
 | `server/efmi_vk/spirv.py` | Limited declared-name and direct set/binding metadata; not full reflection |
-| `server/efmi_vk/evidence.py`, `scripts/collect_probe.py` | Explicit-target raw frame/counter/match export, bounded retained shaders, file fingerprints and query-gap reporting |
+| `server/efmi_vk/evidence.py`, `scripts/collect_probe.py` | Explicit-target raw frame/counter/match export, bounded retained shaders, file fingerprints and query-gap reporting; with `--snapshot`, the kept buffer contents as `snapshots.bin` and `snapshots.json` |
 | `server/efmi_vk/dx11_pair.py`, `scripts/dx11_baseline.py` | A DX11 frame taken through the sibling project's probe (its client is used as a library, read only) and its pairing with a Vulkan bundle: objects by region hash and by the mod's index ranges, draws by order of use, resources by shape, size, mip count and format. Writes `<label>.summary.json`; results in `docs/dx11-baseline.md` |
 | `server/efmi_vk/mcp_stdio.py` | JSON-RPC 2.0 over stdio: `initialize`, `ping`, `tools/list`, `tools/call` |
 | `server/run_server.py`, `server/efvk.py` | Entry points: MCP server, command line |
@@ -136,3 +137,7 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 Many-draw mode cycles the five meshes and descriptor ranges. QPC records host wait/record/submit/present phases with warmup exclusion. Core/synchronization validation and negative canaries are part of the suite. VVL and its dependencies are built under F:/vulkan; child caches stay in build/tests. See docs/validation.md.
 
 scripts/inventory_compat.py preserves lexical section order/duplicates and emits fingerprints and line references. It does not evaluate INIs. D-016 retains a future hosted XXMI frontend behind explicit state/resource/input adapters, with native Core-VK operations; no frontend has been linked yet. Real G2/G3 evidence determines the Vulkan backend before that M3 work.
+
+## Contents kept by a capture (0.6.0)
+
+`SnapRequest` travels with the armed capture. From the present that starts the captured frame until the one that ends it, `Device::snap_recording` is set and `on_record_indexed` (called by the `vkCmdDrawIndexed` hook) hashes the draw's index range, and for a selected draw reads its uniform ranges, the entry and the follow windows, keeping a checksum per range in `CmdBuf::rec_snaps`; secondaries hand them to the primary in `on_execute_commands`. At submit `capture_draws` reads the same ranges again through the same function (`read_snapshot_locked`), stores the bytes once per distinct (buffer, offset, size) in `Capture::blobs` up to the request's budget and sets the comparison state of each item. `collect_buffer_ranges_locked` in `resources.cpp` resolves a bound set to buffer ranges with the dynamic offsets applied. Outside such a frame the draw path costs one relaxed atomic load.

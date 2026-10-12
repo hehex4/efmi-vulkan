@@ -486,6 +486,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indic
         r.vertex_offset = vertex_offset;
         r.first_instance = first_instance;
         cb->draws.push_back(r);
+        on_record_indexed(dev, cb);
     }
     dev->d.CmdDrawIndexed(cmd, indices, instances, first_index, vertex_offset, first_instance);
 }

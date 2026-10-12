@@ -136,3 +136,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - D3, CPU work: the two compute steps of the core are a copy of bone rows per component and frame and a patched copy of 16 constants per matched draw. Both are done on the CPU before the draw is replaced, provided T-017 shows the bytes are there in time.
 - D8, vertex input: the variant changes the stride of the blend binding and the format of its unsigned-integer attribute and binds 32-bit indices; attributes are identified by binding and format, not by semantic.
 - Not decided: how the fragment stage keeps the game's bone buffer and instance window (T-019).
+
+## D-020: How a capture keeps buffer contents
+
+- Date: 2026-10-12, with layer 0.6.0 (T-017).
+- Bytes are kept as they are at submit, not at record: submit is the last moment the layer sees before the GPU may read, and one read per distinct range serves all draws of the command buffer. Record time contributes a checksum per range only; that answers whether the data was complete then at four bytes per range instead of a second copy.
+- The request names what to follow (set, binding, byte offset, count, stride, window size) instead of the layer knowing the game's instance entry. The game's rule lives in `scripts/collect_probe.py` as a preset. A later Core-VK will read the same places through its own code; the probe stays generic.
+- The first bytes of the followed range are a separate item (`entry`): the game's range is 64 KiB with the entries of many draws, and a comparison of the whole range would call a draw's data incomplete because of its neighbours.
+- Selection at record time is by region hash, computed there a second time while a snapshot capture is in its frame. Rejected: reading every draw at record time (cost in every frame of the capture for draws nobody asked about) and selecting at submit only (no record-time evidence).
+- Bounded like everything else the probe keeps (D-017): budget in bytes, size limit per uniform range, clamps on every requested size; past the budget a range is still checksummed and compared.

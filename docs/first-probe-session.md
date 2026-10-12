@@ -63,6 +63,23 @@ inside this project and are ignored by Git.
 cannot be interchanged to pass a gate. `complete` in the manifest describes the collection only,
 not G1/G2/G3, stability, visible-character verification or rendering compatibility.
 
+## Second session: contents at submit (layer 0.6.0)
+
+The first session took place on 2026-10-12 with 0.5.1 (`captures/first-probe`). What it left open for
+G3 b and c is the content of the instance entry and the bone rows as the draws used them, and whether
+those bytes are in place when a draw is recorded. With 0.6.0 the collector can keep them
+(`docs/probe-snapshots.md`); same preconditions, same scene, a new output directory:
+
+```powershell
+& 'D:/Python312/python.exe' -B scripts/collect_probe.py --pid <PID> --target game --out captures/second-probe --mod 'D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/arcane fes 1.2/arcane.ini' --pipeline-limit 64 --snapshot mod --follow instance
+```
+
+`--snapshot mod` selects the draws whose region hash is in the mod; `--follow instance` reads the two
+bone offsets in constant 5 of the entry at set 2 binding 0 and keeps 12,288 bytes of the bone buffer at
+each, plus the 256 bytes of the entry on their own. Expect about 45 selected draws and a few megabytes
+kept (the layer's budget is 32 MiB). Read in `frame.json`: `snapshot.record` (how many ranges were
+`equal`, `different`, `not_recorded`), and per draw the `entry` item and the `follow` items.
+
 ## Questions this observation can answer
 
 | Gate/question | Read |

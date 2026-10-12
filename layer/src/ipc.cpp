@@ -5,6 +5,8 @@
 #include "state.h"
 #include "json.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <mutex>
 #include <sddl.h>
 
@@ -51,6 +53,44 @@ std::string error_reply(const char* msg)
     return w.out;
 }
 
+// The part of a capture request that asks for buffer contents; null when it asks for none.
+// Every size is clamped: the request comes from outside and is carried out inside the observed process.
+std::shared_ptr<const SnapRequest> snapshot_request(const JsonRequest& req)
+{
+    if (!req.get_u64("snapshot", 0))
+        return nullptr;
+    auto snap = std::make_shared<SnapRequest>();
+    snap->all = req.get_u64("snapshot_all", 0) != 0;
+    std::string list = req.get("snapshot_hashes");
+    for (size_t i = 0; i < list.size();) {
+        size_t end = list.find(',', i);
+        if (end == std::string::npos)
+            end = list.size();
+        if (end > i && end - i <= 8) {
+            char* stop = nullptr;
+            std::string item = list.substr(i, end - i);
+            unsigned long value = strtoul(item.c_str(), &stop, 16);
+            if (stop && !*stop && snap->hashes.size() < 4096)
+                snap->hashes.push_back(static_cast<uint32_t>(value));
+        }
+        i = end + 1;
+    }
+    std::sort(snap->hashes.begin(), snap->hashes.end());
+    snap->max_range = std::min<uint64_t>(req.get_u64("snapshot_max_range", 65536), 1ull << 20);
+    snap->budget = std::min<uint64_t>(req.get_u64("snapshot_budget", 32ull << 20), 256ull << 20);
+    snap->follow = req.get_u64("follow", 0) != 0;
+    if (snap->follow) {
+        snap->follow_set = static_cast<uint32_t>(std::min<uint64_t>(req.get_u64("follow_set", 0), kMaxSets - 1));
+        snap->follow_binding = static_cast<uint32_t>(req.get_u64("follow_binding", 0));
+        snap->follow_offset = static_cast<uint32_t>(std::min<uint64_t>(req.get_u64("follow_offset", 0), 1ull << 20));
+        snap->follow_count = static_cast<uint32_t>(std::min<uint64_t>(req.get_u64("follow_count", 1), 8));
+        snap->follow_stride = static_cast<uint32_t>(std::min<uint64_t>(req.get_u64("follow_stride", 1), 1ull << 20));
+        snap->follow_bytes = std::min<uint64_t>(req.get_u64("follow_bytes", 0), 1ull << 20);
+        snap->follow_entry = std::min<uint64_t>(req.get_u64("follow_entry", 0), 1ull << 20);
+    }
+    return snap;
+}
+
 std::string dispatch(const JsonRequest& req, std::vector<uint8_t>& payload)
 {
     std::string cmd = req.get("cmd");
@@ -61,8 +101,11 @@ std::string dispatch(const JsonRequest& req, std::vector<uint8_t>& payload)
         if (timeout > 60000)
             timeout = 60000;
         // Default bound for the descriptor contents of one captured frame: 64 MiB of JSON.
-        return probe_capture(timeout, req.get_u64("draws", 1) != 0, req.get_u64("descriptor_budget", 64ull << 20));
+        return probe_capture(timeout, req.get_u64("draws", 1) != 0, req.get_u64("descriptor_budget", 64ull << 20),
+                             snapshot_request(req));
     }
+    if (cmd == "snapshot")
+        return probe_snapshot(req.get_u64("seq", 0), static_cast<uint32_t>(req.get_u64("id", 0)), payload);
     if (cmd == "buffers")
         return probe_buffers(static_cast<uint32_t>(req.get_u64("usage", 0)), req.get_u64("min_size", 0),
                              static_cast<uint32_t>(req.get_u64("limit", 1000)));

@@ -153,6 +153,19 @@ void on_bind_sets(Device*, CmdBuf*, VkPipelineBindPoint, VkPipelineLayout, uint3
 void on_unsupported_descriptor_bind(CmdBuf*, VkPipelineBindPoint, const char*);
 void write_descriptor_set_locked(JsonWriter&, Device*, const SetBind&, const std::vector<uint32_t>&,
                                  VkPipeline pipeline = VK_NULL_HANDLE, uint32_t slot = 0);
+
+// A uniform or storage buffer range a bound set gives a draw, dynamic offset applied.
+struct BoundRange {
+    uint8_t set = 0;
+    uint32_t binding = 0, element = 0, type = 0;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    uint32_t buffer_id = 0;
+    uint64_t off = 0, size = 0;
+};
+// Appends the ranges of live buffers the set at `slot` holds; `dyn` are the dynamic offsets given
+// with its bind. Ranges that do not lie inside their buffer are left out. Caller holds res_mx.
+void collect_buffer_ranges_locked(Device*, const SetBind&, const uint32_t* dyn, uint32_t dyn_count, uint32_t slot,
+                                  std::vector<BoundRange>& out);
 void write_stages(JsonWriter&, const PipeInfo&);
 std::string probe_shader(uint32_t, bool, std::vector<uint8_t>&);
 

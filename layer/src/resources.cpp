@@ -782,6 +782,47 @@ void write_descriptor_set_locked(JsonWriter& w, Device* dev, const SetBind& bind
     w.end_object();
 }
 
+void collect_buffer_ranges_locked(Device* dev, const SetBind& bind, const uint32_t* dyn, uint32_t dyn_count, uint32_t slot,
+                                  std::vector<BoundRange>& out)
+{
+    auto it = dev->descriptor_sets.find(bind.set);
+    const DescriptorSetInfo* contents = bind.pushed.get();
+    if (!contents && bind.id && it != dev->descriptor_sets.end() && it->second.id == bind.id) contents = &it->second;
+    if (bind.unsupported || !contents || !contents->layout) return;
+    const auto& set = *contents;
+    uint32_t dynamic = 0;
+    for (const auto& kv : set.layout->bindings) {
+        uint32_t binding = kv.first;
+        const auto& b = kv.second;
+        if (is_buffer(b.type)) {
+            auto v = set.values.lower_bound({binding, 0});
+            for (; v != set.values.end() && v->first.first == binding; ++v) {
+                const DescriptorElement& e = v->second;
+                if (!e.known) continue;
+                auto buf = dev->bufs.find(e.buffer);
+                if (!e.buffer_id || buf == dev->bufs.end() || buf->second.id != e.buffer_id) continue;
+                uint32_t element = v->first.second;
+                uint64_t offset = e.offset + (is_dynamic(b.type) && dynamic + element < dyn_count ? dyn[dynamic + element] : 0);
+                uint64_t size = buf->second.size;
+                if (offset > size) continue;
+                uint64_t range = e.range == VK_WHOLE_SIZE ? (e.offset <= size ? size - e.offset : 0) : e.range;
+                if (range > size - offset) continue;
+                BoundRange r;
+                r.set = static_cast<uint8_t>(slot);
+                r.binding = binding;
+                r.element = element;
+                r.type = b.type;
+                r.buffer = e.buffer;
+                r.buffer_id = e.buffer_id;
+                r.off = offset;
+                r.size = range;
+                out.push_back(r);
+            }
+        }
+        if (is_dynamic(b.type)) dynamic += set.counts.at(binding);
+    }
+}
+
 void write_stages(JsonWriter& w, const PipeInfo& p)
 {
     w.kn("layout", p.layout ? p.layout->id : 0);

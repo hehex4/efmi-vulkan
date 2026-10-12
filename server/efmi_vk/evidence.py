@@ -16,11 +16,16 @@ from .spirv import inspect_spirv
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeline_limit: int = 16) -> dict:
+def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeline_limit: int = 16,
+            snapshot: dict | None = None) -> dict:
     """Capture a raw frame, counters, optional INI matches and bounded pipeline/shader metadata.
 
     A manifest is written last; an interrupted run retains its earlier files without
     pretending to be complete. Missing live pipeline/shader objects are recorded as gaps.
+
+    ``snapshot`` is the request of :meth:`ProbeClient.capture` for buffer contents. Without
+    "hashes" or "all" in it, the hashes of the mod's TextureOverride sections select the draws.
+    The kept bytes go into ``snapshots.bin``, described by ``snapshots.json``.
     """
     if target not in ("sandbox", "game") or pid <= 0 or not 0 <= pipeline_limit <= 128:
         raise ValueError("explicit target, positive PID and pipeline limit 0..128 are required")
@@ -46,7 +51,29 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
         observed = datetime.now(timezone.utc).isoformat()
         save("status-before.json", before)
         save("api-before.json", probe.api_usage())
-        frame = probe.capture()
+        request = None
+        if snapshot is not None:
+            request = dict(snapshot)
+            if not request.get("all") and not request.get("hashes"):
+                if mod is None:
+                    raise ValueError("a snapshot needs hashes, all draws, or a mod to take the hashes from")
+                request["hashes"] = sorted({o["hash"] for name in find_ini_files(str(mod)) for o in parse_overrides(name)})
+        frame = probe.capture(snapshot=request)
+        blobs, missing = [], []
+        if request is not None:
+            # Fetched first: the layer keeps the bytes only while this capture is its latest one.
+            packed = bytearray()
+            for blob_id in range(frame["snapshot"]["blobs"]):
+                try:
+                    meta, data = probe.snapshot(frame["seq"], blob_id)
+                    if len(data) != meta["size"] or format_hash(crc32c(data)) != meta["crc"]:
+                        raise ValueError("snapshot bytes disagree with probe metadata")
+                    blobs.append(dict(meta, file_offset=len(packed)))
+                    packed += data
+                except (ProbeError, ValueError) as exc:
+                    missing.append({"snapshot": blob_id, "reason": str(exc)})
+            save("snapshots.bin", bytes(packed))
+            save("snapshots.json", {"request": request, "blobs": blobs})
         save("frame.json", frame)
         draws = frame["draws"]
         matched_draws = set()
@@ -64,7 +91,7 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
         prioritized = [d for d in draws if d["n"] in matched_draws] + [d for d in draws if d["n"] not in matched_draws]
         ids = list(dict.fromkeys(int(d["pipeline"]) for d in prioritized if d.get("pipeline")))
         selected = ids[:pipeline_limit]
-        pipelines, shaders, gaps = [], {}, []
+        pipelines, shaders, gaps = [], {}, list(missing)
         for pipeline_id in selected:
             try:
                 info = probe.pipeline(pipeline_id)
@@ -109,6 +136,7 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
             "matching_rules": sum(s["matched"] for m in matches for s in m["sections"]),
             "queried_pipelines": selected, "omitted_pipelines": ids[pipeline_limit:], "query_gaps": gaps,
             "descriptor_bytes": frame.get("descriptor_bytes"), "descriptors_omitted": frame.get("descriptors_omitted"),
+            "snapshot": frame.get("snapshot"),
         }
         save("summary.json", summary)
     manifest = {
@@ -117,6 +145,8 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
         "observed_utc": observed, "files": files,
         "limits": ["One observed frame; no stability or rendering-compatibility verdict.",
                    "Sample visibility is not checked by the collector.",
+                   "Buffer contents were kept at submit for the selected draws and compared with a read at record time; "
+                   "nothing is known about the bytes the GPU saw later." if snapshot is not None else
                    "Resource visibility is at submit; record-time byte availability remains unverified.",
                    "Pipeline/shader queries happen after capture and may fail if objects have died.",
                    "Requests are not an atomic multi-device snapshot.",

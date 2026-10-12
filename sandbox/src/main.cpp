@@ -111,6 +111,15 @@ static const uint16_t kRewriteA[6] = {3, 5, 4, 3, 6, 5}; // replaces indices 3..
 static const uint32_t kPadB = 16;                        // bytes before the first index of buffer B
 static const uint32_t kIndicesB[9] = {10, 11, 12, 10, 12, 13, 14, 15, 16};
 static const uint32_t kUboSlot = 256;
+// The descriptor range of a uniform slot is larger than the 32 bytes the shaders read. The rest is
+// test data for the probe's snapshots, laid out like an instance entry of 16 constants:
+static const uint32_t kUboRange = 96;
+static const uint32_t kUboFrameAt = 64;  // frame number, written every frame before the draws are recorded
+static const uint32_t kUboLateAt = 72;   // frame number, written for odd slots after recording, before submit
+static const uint32_t kUboFollowAt = 80; // two element numbers into the storage ranges of the draw
+static const uint32_t kFollowValues[2] = {0, 2};
+static const uint32_t kFollowStride = 4; // bytes per element
+static const uint32_t kFollowBytes = 8;  // bytes read at each element number
 
 struct DrawDef {
     const char* label;
@@ -858,6 +867,7 @@ static bool create_resources()
     for (int i = 0; i < kDrawCount; i++) {
         float block[8] = {0.0f, 0.0f, 0.0f, 0.0f, 0.2f + 0.2f * i, 1.0f - 0.2f * i, 0.5f, 1.0f};
         memcpy(static_cast<uint8_t*>(g.ubo.map) + kUboSlot * i, block, sizeof(block));
+        memcpy(static_cast<uint8_t*>(g.ubo.map) + kUboSlot * i + kUboFollowAt, kFollowValues, sizeof(kFollowValues));
     }
 
     if (!make_buffer(g.storage, kUboSlot * (kDrawCount + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true, true))
@@ -916,7 +926,7 @@ static bool create_resources()
     CHECK(vkAllocateDescriptorSets(g.device, &da, sets));
     g.desc_set = sets[0];
     g.material_set = sets[1];
-    VkDescriptorBufferInfo bi = {g.ubo.buf, 0, 32};
+    VkDescriptorBufferInfo bi = {g.ubo.buf, 0, kUboRange};
     VkDescriptorBufferInfo storage[] = {{g.storage.buf, kUboSlot, 16}, {g.storage.buf, 0, 16}};
     VkDescriptorImageInfo texture = {VK_NULL_HANDLE, g.texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet writes[3] = {};
@@ -1085,8 +1095,14 @@ static bool write_expected()
     }
     snprintf(line, sizeof(line),
              "  ],\n  \"shaders\": [{\"stage\": 1, \"hash\": \"%08x\", \"size\": %u}, "
-             "{\"stage\": 16, \"hash\": \"%08x\", \"size\": %u}]\n}\n",
+             "{\"stage\": 16, \"hash\": \"%08x\", \"size\": %u}],\n",
              g.shader_hashes[0], g.shader_sizes[0], g.shader_hashes[1], g.shader_sizes[1]);
+    out += line;
+    snprintf(line, sizeof(line),
+             "  \"uniform\": {\"slot\": %u, \"range\": %u, \"frame_at\": %u, \"late_at\": %u, \"follow_at\": %u, "
+             "\"follow_values\": [%u, %u], \"follow_stride\": %u, \"follow_bytes\": %u}\n}\n",
+             kUboSlot, kUboRange, kUboFrameAt, kUboLateAt, kUboFollowAt, kFollowValues[0], kFollowValues[1], kFollowStride,
+             kFollowBytes);
     out += line;
 
     std::wstring tmp = g.expected_path + L".tmp";
@@ -1245,6 +1261,11 @@ static bool render_frame()
         g.material_base = 0;
     }
 
+    // Per-frame data in mapped memory, in place before any draw of the frame is recorded.
+    const uint32_t frame_mark = static_cast<uint32_t>(g.frame);
+    for (int i = 0; i < kDrawCount; i++)
+        memcpy(static_cast<uint8_t*>(g.ubo.map) + kUboSlot * i + kUboFrameAt, &frame_mark, sizeof(frame_mark));
+
     CHECK(vkResetCommandBuffer(g.primary, 0));
     VkCommandBufferBeginInfo begin = {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1295,6 +1316,11 @@ static bool render_frame()
     vkCmdEndRenderPass(g.primary);
     CHECK(vkEndCommandBuffer(g.primary));
     const double record_end = clock_ms();
+
+    // Data that arrives after the draws were recorded and before they are submitted: legal, and what
+    // a reader at record time would miss. Odd slots only, so that both outcomes occur in one frame.
+    for (int i = 1; i < kDrawCount; i += 2)
+        memcpy(static_cast<uint8_t*>(g.ubo.map) + kUboSlot * i + kUboLateAt, &frame_mark, sizeof(frame_mark));
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit = {};

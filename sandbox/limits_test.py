@@ -114,6 +114,59 @@ def resources_off(c: Checks, entry: str) -> None:
                 tag + "the calls are still counted", usage)
         pipe = probe.pipeline(frame["draws"][0]["pipeline"])
         c.equal(pipe["bindings"][0]["stride"], 8, tag + "vertex layout is still known")
+        snap = probe.capture(snapshot={"all": True})
+        c.equal(snap["snapshot"]["draws"], 5, tag + "draws are still selected for a snapshot")
+        c.check(all(d["snapshot"] == [] for d in snap["draws"]), tag + "without descriptor contents a snapshot has no ranges")
+        c.check(sb.proc.poll() is None, tag + "the sandbox keeps running", sb.output())
+
+
+def snapshot_bounds(c: Checks, entry: str) -> None:
+    tag = "snapshot bounds, %s: " % entry
+    with Sandbox(threads=2, entry=entry) as sb, ProbeClient(sb.pid) as probe:
+        uni = sb.expected["uniform"]
+        follow = {"set": 0, "binding": 0, "offset": uni["follow_at"], "count": 2, "stride": uni["follow_stride"],
+                  "bytes": uni["follow_bytes"]}
+
+        # Room for one uniform range and nothing else.
+        small = probe.capture(snapshot={"all": True, "budget": uni["range"], "follow": follow})
+        check_hashes(c, small, sb.expected, tag)
+        info = small["snapshot"]
+        items = [s for d in small["draws"] for s in d["snapshot"]]
+        kept = [s for s in items if s["id"] is not None]
+        dropped = [s for s in items if s["id"] is None]
+        c.equal((info["budget"], info["bytes"], info["blobs"]), (uni["range"], uni["range"], 1), tag + "the budget bounds what is kept")
+        c.equal((len(kept), len(dropped), info["omitted"]), (1, len(items) - 1, len(items) - 1), tag + "the rest is counted as omitted")
+        c.check(all(s["crc"] and s["record"]["state"] in ("equal", "different") for s in dropped),
+                tag + "a range past the budget is still checksummed and compared", dropped[:1])
+        try:
+            probe.snapshot(small["seq"], 1)
+            c.check(False, tag + "an omitted range has no bytes to fetch")
+        except ProbeError:
+            c.check(True, tag + "an omitted range has no bytes to fetch")
+
+        # A uniform range above the size limit is listed, not read; the values in it are still followed.
+        capped = probe.capture(snapshot={"all": True, "max_range": uni["range"] - 1, "follow": follow})
+        firsts = [d["snapshot"][0] for d in capped["draws"]]
+        c.check(all(s["kind"] == "uniform" and s.get("skipped") == "larger_than_max_range" and "id" not in s for s in firsts),
+                tag + "a range above max_range is skipped with a reason", firsts[:1])
+        c.check(all([s["kind"] for s in d["snapshot"][1:]] == ["follow"] * 4 for d in capped["draws"]),
+                tag + "the follow values are read independently of the range")
+        c.equal(capped["snapshot"]["record"]["different"], 0, tag + "a skipped range is not part of the comparison")
+
+        # A window that fits no storage range of the draw.
+        wide = probe.capture(snapshot={"all": True, "follow": dict(follow, bytes=1 << 16)})
+        c.check(all([(s["kind"], s.get("skipped"), s["value"]) for s in d["snapshot"][1:]] ==
+                    [("follow", "no_storage_range_fits", v) for v in uni["follow_values"]] for d in wide["draws"]),
+                tag + "a window that fits nowhere is reported with its value", wide["draws"][0]["snapshot"][1:])
+
+        big = probe.capture(draws=False, snapshot={"all": True, "budget": 1 << 40, "max_range": 1 << 40})
+        c.equal((big["snapshot"]["budget"], big["snapshot"]["max_range"]), (256 << 20, 1 << 20), tag + "requested sizes are clamped")
+
+        # Sent raw: the client refuses malformed hashes itself, the layer has to cope with any text.
+        nothing = probe.request("capture", timeout_ms=5000, snapshot=1, snapshot_hashes="00000001,not-a-hash,,123456789")[0]
+        c.equal((nothing["snapshot"]["hashes"], nothing["snapshot"]["draws"]), (1, 0),
+                tag + "malformed list items are dropped and an unknown hash selects no draw")
+        c.check(not any("snapshot" in d for d in nothing["draws"]), tag + "unselected draws carry no snapshot")
         c.check(sb.proc.poll() is None, tag + "the sandbox keeps running", sb.output())
 
 
@@ -123,6 +176,7 @@ def main() -> int:
         descriptor_budget(c, entry)
         shader_budget(c, entry)
         resources_off(c, entry)
+        snapshot_bounds(c, entry)
     return c.finish()
 
 

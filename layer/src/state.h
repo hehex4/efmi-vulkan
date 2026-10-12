@@ -8,6 +8,7 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -196,6 +197,45 @@ struct DrawRec {
     SetBind sets[kMaxSets];
 };
 
+// What a capture is asked to keep of the buffers its draws read.
+struct SnapRequest {
+    bool all = false;             // every indexed draw; otherwise the draws whose region hash is listed
+    std::vector<uint32_t> hashes; // sorted
+    uint64_t max_range = 65536;   // a uniform range above this size is listed but not read
+    uint64_t budget = 32ull << 20; // bytes one capture may keep in the observed process
+    // Follow: read `follow_count` 32-bit values at byte `follow_offset` of the uniform range bound at
+    // (follow_set, follow_binding), and read `follow_bytes` at value * follow_stride of every storage
+    // range of the draw that such a window fits in.
+    bool follow = false;
+    uint32_t follow_set = 0, follow_binding = 0, follow_offset = 0, follow_count = 0, follow_stride = 0;
+    uint64_t follow_bytes = 0;
+    // A range that large usually holds entries of many draws. The first `follow_entry` bytes are
+    // this draw's own entry and are read and compared separately; 0: not wanted.
+    uint64_t follow_entry = 0;
+};
+
+enum SnapKind : uint8_t {
+    SNAP_UNIFORM = 0, // a uniform buffer range
+    SNAP_FOLLOW = 1,  // a window of a storage range, located by a value read from a uniform range
+    SNAP_ENTRY = 2,   // the first bytes of the uniform range the values are read from, compared on their own
+};
+
+// One range of a draw as the layer read it when the draw was recorded: identity and checksum only.
+struct RecRange {
+    uint8_t kind = SNAP_UNIFORM;
+    uint8_t set = 0;
+    uint8_t src = SRC_NONE;
+    uint32_t binding = 0, element = 0, word = 0;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    uint64_t off = 0, size = 0;
+    uint32_t crc = 0;
+};
+
+struct RecSnap {
+    uint32_t draw = 0; // position in CmdBuf::draws
+    std::vector<RecRange> ranges;
+};
+
 struct PendingWrite {
     VkBuffer dst = VK_NULL_HANDLE;
     uint64_t dst_off = 0;
@@ -228,6 +268,7 @@ struct CmdBuf {
     std::vector<DrawRec> draws;
     std::vector<uint32_t> dyn;
     std::vector<PendingWrite> writes;
+    std::vector<RecSnap> rec_snaps; // record-time reads of a capture that keeps buffer contents, by draw
     std::vector<uint32_t> threads; // threads that recorded into this buffer or into executed secondaries
     uint32_t rp_count = 0;
     uint32_t dyn_rp_count = 0;
@@ -254,9 +295,42 @@ struct FrameStats {
     std::vector<uint32_t> threads;
 };
 
+enum RecState : uint8_t {
+    REC_NONE = 0,       // the draw was not read at record time (recorded before the capture began, or not selected then)
+    REC_EQUAL = 1,      // same range, same bytes at record and at submit
+    REC_DIFFERENT = 2,  // same range, the bytes changed between record and submit
+    REC_OTHER = 3,      // the slot held another buffer range when the draw was recorded
+    REC_UNREADABLE = 4, // the bytes were not CPU-visible at one of the two times
+};
+
+// One range of a selected draw as it is when its command buffer is submitted.
+struct DrawSnap {
+    uint8_t kind = SNAP_UNIFORM;
+    uint8_t set = 0;
+    uint8_t src = SRC_NONE;
+    uint8_t rec = REC_NONE;
+    uint8_t rec_src = SRC_NONE;
+    uint32_t binding = 0, element = 0, word = 0, value = 0;
+    uint32_t buf_id = 0;
+    uint64_t off = 0, size = 0;
+    uint32_t crc = 0, rec_crc = 0;
+    int32_t blob = -1;             // position in Capture::blobs; -1 when the bytes were not kept
+    const char* skipped = nullptr; // why nothing was read
+};
+
+struct SnapBlob {
+    uint32_t buf_id = 0;
+    uint64_t off = 0, size = 0;
+    uint8_t src = SRC_NONE;
+    uint32_t crc = 0;
+    std::vector<uint8_t> data;
+};
+
 struct CapDraw {
     DrawRec r;
     uint32_t submit = 0;
+    bool snap_selected = false;
+    std::vector<DrawSnap> snaps;
     uint32_t ib_id = 0;
     uint32_t pipe_id = 0;
     uint32_t indirect_id = 0;
@@ -277,6 +351,15 @@ struct Capture {
     uint32_t descriptors_omitted = 0;
     FrameStats stats;
     std::vector<CapDraw> draws;
+    // Buffer contents kept at submit for the selected draws. One blob per distinct (buffer, offset,
+    // size); `snap->budget` bounds their total, past it a range is still checksummed but not kept.
+    std::shared_ptr<const SnapRequest> snap;
+    std::vector<SnapBlob> blobs;
+    std::map<std::tuple<uint32_t, uint64_t, uint64_t>, int32_t> blob_index;
+    uint64_t snap_bytes = 0;
+    uint32_t snap_omitted = 0;
+    uint32_t snap_draws = 0;
+    uint32_t rec_counts[5] = {};
 };
 
 struct Device {
@@ -340,6 +423,11 @@ struct Device {
     uint64_t total_draws = 0;
     int cap_state = 0; // 0 idle, 1 waiting for the next present, 2 recording this frame
     uint64_t cap_descriptor_budget = 0; // of the capture that is armed
+    std::shared_ptr<const SnapRequest> cap_snap; // of the capture that is armed; null: keep no contents
+    // The request of the frame being captured, for the threads that record draws. The flag is the
+    // cheap test on the draw path; the pointer is read with std::atomic_load only when it is set.
+    std::atomic<bool> snap_recording{false};
+    std::shared_ptr<const SnapRequest> snap_live;
     std::shared_ptr<Capture> cap_building;
     std::shared_ptr<Capture> cap_last;
     uint64_t cap_seq = 0;
@@ -386,6 +474,8 @@ void on_copy_buffer(Device* dev, CmdBuf* cb, VkBuffer src, VkBuffer dst, uint64_
 void on_update_buffer(Device* dev, CmdBuf* cb, VkBuffer dst, uint64_t off, uint64_t size, const void* data);
 void on_fill_buffer(Device* dev, CmdBuf* cb, VkBuffer dst, uint64_t off, uint64_t size, uint32_t value);
 void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkCommandBuffer* cbs);
+// Called after an indexed draw was appended to cb->draws: reads what a running capture wants kept.
+void on_record_indexed(Device* dev, CmdBuf* cb);
 
 // Frame assembly.
 void on_submit(Device* dev, uint32_t count, const VkCommandBuffer* cbs);
@@ -396,7 +486,9 @@ ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t
 
 // Probe requests, called on the pipe thread.
 std::string probe_status();
-std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget);
+std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget,
+                          std::shared_ptr<const SnapRequest> snap = nullptr);
+std::string probe_snapshot(uint64_t seq, uint32_t id, std::vector<uint8_t>& payload);
 std::string probe_buffers(uint32_t usage_mask, uint64_t min_size, uint32_t limit);
 std::string probe_read_buffer(uint32_t id, uint64_t off, uint64_t size, std::vector<uint8_t>& payload);
 std::string probe_hash(uint32_t id, uint64_t off, uint64_t size);

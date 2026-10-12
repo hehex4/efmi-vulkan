@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); T-008 is done since 2026-10-12 (four DX11 frames, mods on and off, paired with the Vulkan frame); next are T-017, T-018 and T-019. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); T-008 is done since 2026-10-12 (four DX11 frames, mods on and off, paired with the Vulkan frame); T-017 is built (layer 0.6.0, sandbox only) and needs its game session; then T-018 and T-019. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
 
 ## Tasks and follow-ups
 
@@ -38,7 +38,11 @@ The two launcher settings are independent (the user asked on 2026-10-11 whether 
 
 Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` in `XXMI Launcher Config.json`; no control in the settings window, not a signed field (launcher source `core/game_launcher.py`, `build_cmd_args`).
 
-### T-017: Snapshot at submit of the buffer ranges a matched draw uses (next; M1 to M2 bridge)
+### T-017: Snapshot at submit of the buffer ranges a matched draw uses (built and sandbox-verified on 2026-10-12 as layer 0.6.0; the game session is open)
+
+Done: request, record-time checksum, submit-time bytes, comparison states, budget, `snapshot` command, client, collector options, sandbox scenario and tests (`docs/probe-snapshots.md`, CURRENT_STATE). Open: run it in the game on the scene of the first session (`docs/first-probe-session.md` has the command) and read, for the 45 draws of the 12 components, the entry item's record state (is the instance entry in place when the draw is recorded), the follow items' record state (are the bone rows), and the bytes themselves against the DX11 values (constant 3, constant 5). Then decide D3. Not done: MCP tools for the snapshot.
+
+Original task text:
 
 The first probe session read the instance config and the bones live, after the frame, and most reads were already overwritten (CURRENT_STATE). The layer should keep, for the draws of a captured frame whose region hash is in a list given with the request, the bytes of each uniform buffer range of at most 64 KiB as they are at submit, and for the instance config layout the bone rows at the two offsets of entry 5. With that, G3 b and c can be checked for all 12 components in one frame and across passes, and the same code path is what M2's CPU bone import reads. Also measure whether the bytes are already in place when the draw is recorded (compare a record-time and a submit-time read). Sandbox test with a mapped buffer that is rewritten every frame. The DX11 baseline fixes what to keep: the 256 bytes of the instance entry at the dynamic offset of set 2 binding 0 (16 constants; constant 5 holds the two bone offsets in 16-byte elements) and the bone rows from there.
 
@@ -94,6 +98,6 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- Further probe sessions when T-017 is built: the same scene again, then open world and combat.
+- A Vulkan session with the sample character on the display scene, layer 0.6.0 (in `dist/`, probe mode; the launcher is already at its Vulkan values): the user starts the game and says so, the agent collects with `--snapshot mod --follow instance`. After that: open world and combat.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

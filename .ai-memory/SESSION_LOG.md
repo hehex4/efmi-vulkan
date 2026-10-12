@@ -167,3 +167,9 @@ While the DX11 session was still open, one more pair of F11 presses gave a frame
 ## 2026-10-12: Launcher back to its Vulkan values
 
 The user closed the game and the launcher after the DX11 baseline. On that go-ahead the two values of the EFMI profile were set back by text replacement (`d3d11_mode_cmd_args` empty, `xxmi_dll_inject_mode` `SKIP`), after a check that neither process ran and with a copy of the file in `build/backups/`; the result parses to exactly the intended configuration and two lines changed. `dist/efmi_vk.cfg` is `mode = probe` again. Nothing was launched.
+
+## 2026-10-12: Layer 0.6.0, contents at submit with a record-time comparison (sandbox only)
+
+Built T-017. The layer reads what selected draws take from buffers twice: a checksum inside the draw call, the bytes at submit; it keeps the bytes within a budget and reports per range whether the two reads agree. A follow rule turns values found in a uniform range into windows of the draw's storage ranges, which is how the bone rows are reached from the instance entry. The sandbox got late-written uniform data so that the comparison is exercised in both directions, also with secondary command buffers and push descriptors. Client, collector (`--snapshot`, `--follow`), tests and `docs/probe-snapshots.md` follow. The full suite passed against `build/next` and against `dist/`, where 0.6.0 now is.
+
+Two patch scripts sent through a shell here-document lost their backslashes again (a regular expression before, C string escapes this time); the second failed its own match check and changed nothing. Patches with backslashes go through a script file.

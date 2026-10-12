@@ -201,6 +201,7 @@ void CmdBuf::reset_recording()
     draws.clear();
     dyn.clear();
     writes.clear();
+    rec_snaps.clear();
     threads.clear();
     rp_count = 0;
     dyn_rp_count = 0;
@@ -594,7 +595,12 @@ void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkComman
         if (!s)
             continue;
         uint32_t dyn_base = static_cast<uint32_t>(cb->dyn.size());
+        uint32_t draw_base = static_cast<uint32_t>(cb->draws.size());
         cb->dyn.insert(cb->dyn.end(), s->dyn.begin(), s->dyn.end());
+        for (RecSnap rs : s->rec_snaps) {
+            rs.draw += draw_base;
+            cb->rec_snaps.push_back(std::move(rs));
+        }
         for (DrawRec r : s->draws) {
             for (SetBind& sb : r.sets)
                 sb.dyn_first += dyn_base;
@@ -658,15 +664,256 @@ static void apply_writes(Device* dev, CmdBuf* cb, FrameStats& stats)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Buffer contents of selected draws, read when the draw is recorded and again at submit
+
+// One range a snapshot of a draw consists of, with the bytes as they are now.
+struct SnapItem {
+    uint8_t kind = SNAP_UNIFORM;
+    uint8_t set = 0;
+    uint8_t src = SRC_NONE;
+    uint32_t binding = 0, element = 0, word = 0, value = 0;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    uint32_t buf_id = 0;
+    uint64_t off = 0, size = 0;
+    uint32_t crc = 0;
+    const char* skipped = nullptr;
+    std::vector<uint8_t> data; // empty unless the caller asked for the bytes
+};
+
+static bool snap_selects(const SnapRequest& req, const DrawRec& r, bool hash_valid, uint32_t hash)
+{
+    if (r.kind != DK_INDEXED)
+        return false;
+    return req.all || (hash_valid && std::binary_search(req.hashes.begin(), req.hashes.end(), hash));
+}
+
+static void read_item_locked(Device* dev, SnapItem& item, bool keep, std::vector<uint8_t>& tmp)
+{
+    auto it = dev->bufs.find(item.buffer);
+    if (it == dev->bufs.end())
+        return;
+    tmp.resize(static_cast<size_t>(item.size));
+    item.src = read_buffer_locked(dev, it->second, item.off, item.size, tmp.data());
+    if (item.src == SRC_NONE)
+        return;
+    item.crc = crc32c(0, tmp.data(), tmp.size());
+    if (keep)
+        item.data = tmp;
+}
+
+// Uniform ranges first, in set and binding order, then the follow windows. `dyn` are the dynamic
+// offsets of the command buffer the draw's set binds index into. The caller holds res_mx.
+static void read_snapshot_locked(Device* dev, const SnapRequest& req, const DrawRec& r, const std::vector<uint32_t>& dyn,
+                                 bool keep, std::vector<SnapItem>& out)
+{
+    std::vector<BoundRange> ranges;
+    for (uint32_t i = 0; i < kMaxSets; i++) {
+        const SetBind& s = r.sets[i];
+        bool have = s.dyn_count && static_cast<size_t>(s.dyn_first) + s.dyn_count <= dyn.size();
+        collect_buffer_ranges_locked(dev, s, have ? dyn.data() + s.dyn_first : nullptr, have ? s.dyn_count : 0, i, ranges);
+    }
+    std::vector<uint8_t> tmp;
+    std::vector<uint32_t> values;
+    for (const BoundRange& br : ranges) {
+        if (br.type != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER && br.type != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)
+            continue;
+        SnapItem item;
+        item.set = br.set;
+        item.binding = br.binding;
+        item.element = br.element;
+        item.buffer = br.buffer;
+        item.buf_id = br.buffer_id;
+        item.off = br.off;
+        item.size = br.size;
+        bool source = req.follow && br.set == req.follow_set && br.binding == req.follow_binding && br.element == 0;
+        if (br.size > req.max_range)
+            item.skipped = "larger_than_max_range";
+        else
+            read_item_locked(dev, item, keep, tmp);
+        out.push_back(std::move(item));
+        uint64_t words = 4ull * req.follow_count;
+        if (source && words && req.follow_offset <= br.size && words <= br.size - req.follow_offset) {
+            // The values are read on their own, so they do not depend on the range being kept.
+            auto bit = dev->bufs.find(br.buffer);
+            values.resize(req.follow_count);
+            if (bit == dev->bufs.end() ||
+                read_buffer_locked(dev, bit->second, br.off + req.follow_offset, words, reinterpret_cast<uint8_t*>(values.data())) == SRC_NONE)
+                values.clear();
+        }
+        if (source && req.follow_entry && req.follow_entry <= br.size) {
+            SnapItem entry;
+            entry.kind = SNAP_ENTRY;
+            entry.set = br.set;
+            entry.binding = br.binding;
+            entry.element = br.element;
+            entry.buffer = br.buffer;
+            entry.buf_id = br.buffer_id;
+            entry.off = br.off;
+            entry.size = req.follow_entry;
+            read_item_locked(dev, entry, keep, tmp);
+            out.push_back(std::move(entry));
+        }
+    }
+    for (uint32_t w = 0; w < values.size(); w++) {
+        uint64_t start = static_cast<uint64_t>(values[w]) * req.follow_stride;
+        bool fits = false;
+        for (const BoundRange& br : ranges) {
+            if (br.type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER && br.type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)
+                continue;
+            if (start > br.size || req.follow_bytes > br.size - start)
+                continue;
+            fits = true;
+            SnapItem item;
+            item.kind = SNAP_FOLLOW;
+            item.set = br.set;
+            item.binding = br.binding;
+            item.element = br.element;
+            item.word = w;
+            item.value = values[w];
+            item.buffer = br.buffer;
+            item.buf_id = br.buffer_id;
+            item.off = br.off + start;
+            item.size = req.follow_bytes;
+            read_item_locked(dev, item, keep, tmp);
+            out.push_back(std::move(item));
+        }
+        if (!fits) {
+            // Keep the value visible although no storage range of the draw can hold the window.
+            SnapItem item;
+            item.kind = SNAP_FOLLOW;
+            item.word = w;
+            item.value = values[w];
+            item.size = req.follow_bytes;
+            item.skipped = "no_storage_range_fits";
+            out.push_back(std::move(item));
+        }
+    }
+}
+
+void on_record_indexed(Device* dev, CmdBuf* cb)
+{
+    if (!dev->snap_recording.load(std::memory_order_relaxed))
+        return;
+    std::shared_ptr<const SnapRequest> req = std::atomic_load(&dev->snap_live);
+    if (!req || cb->draws.empty())
+        return;
+    const DrawRec& r = cb->draws.back();
+    std::shared_lock<std::shared_mutex> lock(dev->res_mx);
+    if (!req->all) {
+        // Selection is by region hash, so the index bytes have to be readable already.
+        auto bit = dev->bufs.find(r.ib);
+        if (bit == dev->bufs.end() || !r.index_size || !r.count)
+            return;
+        uint64_t size = static_cast<uint64_t>(r.index_size) * r.count;
+        if (size > (256ull << 20))
+            return;
+        std::vector<uint8_t> tmp(static_cast<size_t>(size));
+        if (read_buffer_locked(dev, bit->second, r.ib_off + static_cast<uint64_t>(r.index_size) * r.first, size, tmp.data()) == SRC_NONE)
+            return;
+        if (!snap_selects(*req, r, true, crc32c(0, tmp.data(), tmp.size())))
+            return;
+    }
+    std::vector<SnapItem> items;
+    read_snapshot_locked(dev, *req, r, cb->dyn, false, items);
+    RecSnap rs;
+    rs.draw = static_cast<uint32_t>(cb->draws.size() - 1);
+    rs.ranges.reserve(items.size());
+    for (const SnapItem& item : items) {
+        RecRange rr;
+        rr.kind = item.kind;
+        rr.set = item.set;
+        rr.src = item.src;
+        rr.binding = item.binding;
+        rr.element = item.element;
+        rr.word = item.word;
+        rr.buffer = item.buffer;
+        rr.off = item.off;
+        rr.size = item.size;
+        rr.crc = item.crc;
+        rs.ranges.push_back(rr);
+    }
+    cb->rec_snaps.push_back(std::move(rs));
+}
+
+// Keeps what the selected draw reads as it is now, at submit, and compares it with the record-time read.
+static void snapshot_draw_locked(Device* dev, Capture& cap, CapDraw& c, const std::vector<uint32_t>& dyn, const RecSnap* rec)
+{
+    const SnapRequest& req = *cap.snap;
+    std::vector<SnapItem> items;
+    read_snapshot_locked(dev, req, c.r, dyn, true, items);
+    c.snap_selected = true;
+    cap.snap_draws++;
+    c.snaps.reserve(items.size());
+    for (SnapItem& item : items) {
+        DrawSnap s;
+        s.kind = item.kind;
+        s.set = item.set;
+        s.src = item.src;
+        s.binding = item.binding;
+        s.element = item.element;
+        s.word = item.word;
+        s.value = item.value;
+        s.buf_id = item.buf_id;
+        s.off = item.off;
+        s.size = item.size;
+        s.crc = item.crc;
+        s.skipped = item.skipped;
+        if (item.src != SRC_NONE) {
+            auto key = std::make_tuple(item.buf_id, item.off, item.size);
+            auto known = cap.blob_index.find(key);
+            if (known != cap.blob_index.end()) {
+                s.blob = known->second;
+            } else if (cap.snap_bytes + item.size <= req.budget) {
+                SnapBlob b;
+                b.buf_id = item.buf_id;
+                b.off = item.off;
+                b.size = item.size;
+                b.src = item.src;
+                b.crc = item.crc;
+                b.data = std::move(item.data);
+                s.blob = static_cast<int32_t>(cap.blobs.size());
+                cap.snap_bytes += b.size;
+                cap.blobs.push_back(std::move(b));
+                cap.blob_index[key] = s.blob;
+            } else {
+                cap.snap_omitted++;
+            }
+        }
+        if (rec && !item.skipped) {
+            for (const RecRange& rr : rec->ranges) {
+                if (rr.kind != item.kind || rr.set != item.set || rr.binding != item.binding || rr.element != item.element ||
+                    rr.word != item.word)
+                    continue;
+                s.rec_src = rr.src;
+                s.rec_crc = rr.crc;
+                if (rr.buffer != item.buffer || rr.off != item.off || rr.size != item.size)
+                    s.rec = REC_OTHER;
+                else if (rr.src == SRC_NONE || item.src == SRC_NONE)
+                    s.rec = REC_UNREADABLE;
+                else
+                    s.rec = rr.crc == item.crc ? REC_EQUAL : REC_DIFFERENT;
+                break;
+            }
+        }
+        if (!item.skipped)
+            cap.rec_counts[s.rec]++;
+        c.snaps.push_back(s);
+    }
+}
+
 static void capture_draws(Device* dev, CmdBuf* cb, Capture& cap, uint32_t submit)
 {
     std::shared_lock<std::shared_mutex> lock(dev->res_mx);
     std::vector<uint8_t> tmp;
     cap.draws.reserve(cap.draws.size() + cb->draws.size());
+    size_t rec_at = 0;
+    uint32_t position = 0;
     for (const DrawRec& r : cb->draws) {
         CapDraw c;
         c.r = r;
         c.submit = submit;
+        const uint32_t at = position++;
         if (r.pipeline) {
             auto pit = dev->pipes.find(r.pipeline);
             if (pit != dev->pipes.end())
@@ -716,6 +963,13 @@ static void capture_draws(Device* dev, CmdBuf* cb, Capture& cap, uint32_t submit
                     }
                 }
             }
+        }
+        if (cap.snap) {
+            while (rec_at < cb->rec_snaps.size() && cb->rec_snaps[rec_at].draw < at)
+                rec_at++;
+            const RecSnap* rec = rec_at < cb->rec_snaps.size() && cb->rec_snaps[rec_at].draw == at ? &cb->rec_snaps[rec_at] : nullptr;
+            if (snap_selects(*cap.snap, r, c.hash_valid, c.hash))
+                snapshot_draw_locked(dev, cap, c, cb->dyn, rec);
         }
         cap.draws.push_back(std::move(c));
     }
@@ -780,11 +1034,17 @@ void on_present(Device* dev)
         dev->cap_last = dev->cap_building;
         dev->cap_building.reset();
         dev->cap_state = 0;
+        dev->snap_recording.store(false, std::memory_order_relaxed);
+        std::atomic_store(&dev->snap_live, std::shared_ptr<const SnapRequest>());
         SetEvent(cap_event());
     } else if (dev->cap_state == 1) {
         dev->cap_state = 2;
         dev->cap_building = std::make_shared<Capture>();
         dev->cap_building->descriptor_budget = dev->cap_descriptor_budget;
+        dev->cap_building->snap = dev->cap_snap;
+        // Draws recorded from here on are read at record time as well; the pointer goes first.
+        std::atomic_store(&dev->snap_live, dev->cap_snap);
+        dev->snap_recording.store(dev->cap_snap != nullptr, std::memory_order_relaxed);
     }
 
     dev->cur = FrameStats();
@@ -850,6 +1110,26 @@ static const char* kind_name(uint8_t k)
     }
 }
 
+static const char* snap_name(uint8_t k)
+{
+    switch (k) {
+    case SNAP_FOLLOW: return "follow";
+    case SNAP_ENTRY: return "entry";
+    default: return "uniform";
+    }
+}
+
+static const char* rec_name(uint8_t r)
+{
+    switch (r) {
+    case REC_EQUAL: return "equal";
+    case REC_DIFFERENT: return "different";
+    case REC_OTHER: return "other_range";
+    case REC_UNREADABLE: return "unreadable";
+    default: return "not_recorded";
+    }
+}
+
 std::string probe_status()
 {
     JsonWriter w;
@@ -887,6 +1167,7 @@ std::string probe_status()
     w.str("descriptor_templates");
     w.str("push_descriptors");
     w.str("shader");
+    w.str("snapshot");
     w.end_array();
 
     DeviceRef ref;
@@ -979,6 +1260,27 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
     w.kn("descriptor_budget", cap.descriptor_budget);
     w.kn("descriptor_bytes", cap.descriptor_bytes);
     w.kn("descriptors_omitted", cap.descriptors_omitted);
+    w.key("snapshot");
+    if (cap.snap) {
+        const SnapRequest& q = *cap.snap;
+        w.begin_object();
+        w.kb("all", q.all);
+        w.kn("hashes", q.hashes.size());
+        w.kn("max_range", q.max_range);
+        w.kn("budget", q.budget);
+        w.kn("draws", cap.snap_draws);
+        w.kn("blobs", cap.blobs.size());
+        w.kn("bytes", cap.snap_bytes);
+        w.kn("omitted", cap.snap_omitted);
+        w.key("record");
+        w.begin_object();
+        for (uint32_t i = 0; i < 5; i++)
+            w.kn(rec_name(static_cast<uint8_t>(i)), cap.rec_counts[i]);
+        w.end_object();
+        w.end_object();
+    } else {
+        w.null();
+    }
     if (with_draws) {
         w.key("draws");
         w.begin_array();
@@ -1047,6 +1349,53 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
                 w.end_object();
             }
             w.end_array();
+            if (c.snap_selected) {
+                w.key("snapshot");
+                w.begin_array();
+                for (const DrawSnap& s : c.snaps) {
+                    w.begin_object();
+                    w.kv("kind", snap_name(s.kind));
+                    if (s.kind == SNAP_FOLLOW) {
+                        w.kn("word", s.word);
+                        w.kn("value", s.value);
+                    }
+                    w.kn("set", s.set);
+                    w.kn("binding", s.binding);
+                    w.kn("element", s.element);
+                    w.kn("buf", s.buf_id);
+                    w.kn("offset", s.off);
+                    w.kn("size", s.size);
+                    w.kv("src", src_name(s.src));
+                    if (s.skipped) {
+                        w.kv("skipped", s.skipped);
+                    } else {
+                        w.key("crc");
+                        if (s.src != SRC_NONE)
+                            w.hex32(s.crc);
+                        else
+                            w.null();
+                        w.key("id");
+                        if (s.blob >= 0)
+                            w.num(static_cast<uint64_t>(s.blob));
+                        else
+                            w.null();
+                        w.key("record");
+                        w.begin_object();
+                        w.kv("state", rec_name(s.rec));
+                        if (s.rec != REC_NONE) {
+                            w.kv("src", src_name(s.rec_src));
+                            w.key("crc");
+                            if (s.rec_src != SRC_NONE)
+                                w.hex32(s.rec_crc);
+                            else
+                                w.null();
+                        }
+                        w.end_object();
+                    }
+                    w.end_object();
+                }
+                w.end_array();
+            }
             w.end_object();
         }
         w.end_array();
@@ -1054,7 +1403,8 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
     w.end_object();
 }
 
-std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget)
+std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget,
+                          std::shared_ptr<const SnapRequest> snap)
 {
     uint64_t before;
     {
@@ -1066,6 +1416,7 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
         if (ref.dev->cap_state == 0) {
             ResetEvent(cap_event());
             ref.dev->cap_descriptor_budget = descriptor_budget;
+            ref.dev->cap_snap = std::move(snap);
             ref.dev->cap_state = 1;
         }
     }
@@ -1083,6 +1434,8 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
         else {
             ref.dev->cap_state = 0;
             ref.dev->cap_building.reset();
+            ref.dev->snap_recording.store(false, std::memory_order_relaxed);
+            std::atomic_store(&ref.dev->snap_live, std::shared_ptr<const SnapRequest>());
         }
     }
     if (!cap)
@@ -1092,6 +1445,41 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
     w.kb("ok", true);
     w.key("result");
     write_capture(w, *cap, with_draws);
+    w.end_object();
+    return w.out;
+}
+
+std::string probe_snapshot(uint64_t seq, uint32_t id, std::vector<uint8_t>& payload)
+{
+    DeviceRef ref;
+    if (!ref.dev)
+        return fail("no device");
+    std::shared_ptr<Capture> cap;
+    {
+        std::lock_guard<std::mutex> lock(ref.dev->frame_mx);
+        cap = ref.dev->cap_last;
+    }
+    if (!cap || cap->seq != seq)
+        return fail("that capture is not the latest one; its contents are gone");
+    if (id >= cap->blobs.size())
+        return fail("no such snapshot id in this capture");
+    const SnapBlob& b = cap->blobs[id];
+    payload = b.data;
+    JsonWriter w;
+    w.begin_object();
+    w.kb("ok", true);
+    w.key("result");
+    w.begin_object();
+    w.kn("seq", cap->seq);
+    w.kn("id", id);
+    w.kn("buf", b.buf_id);
+    w.kn("offset", b.off);
+    w.kn("size", b.size);
+    w.kv("src", src_name(b.src));
+    w.key("crc");
+    w.hex32(b.crc);
+    w.kv("when", "submit");
+    w.end_object();
     w.end_object();
     return w.out;
 }
