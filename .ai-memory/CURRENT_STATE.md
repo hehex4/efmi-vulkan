@@ -1,6 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.7.1 (probe, protocol 1), server 0.1.0. 0.7.1 has now run in the game with image hashing off and resources on. Open-world host interval spikes persist (111.204 ms maximum in a foreground observation); T-020 remains open. T-018's four texture ambiguities are resolved. G2/G3 character-data evidence is for the display scene; open-world rendering/data compatibility remains unverified. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.7.1 (protocol 1), server 0.1.0. Resource-off probe mode still stutters in the game; a 30-second foreground observation retains a 105.000 ms spike and 26 intervals over 50 ms. T-020 remains open. dist/ now prepares passthrough for the next user-started process, sandbox-verified only. T-018's four texture ambiguities are resolved. G2/G3 character-data evidence is for the display scene; open-world rendering/data compatibility remains unverified. No mod rendering exists.
+
+## Resources off: spikes persist; passthrough prepared (2026-10-12, 12:57)
+
+The user restarted the game and reports continuing stutter. New PID 33204 started at 12:50:29 and confirms 0.7.1 probe/inject, resources off, hashing off. All tracked images/descriptors/retained shaders, hash counters and capture sequence remain zero. Buffer shadowing, draw records, call counters and frame assembly still run.
+
+The first observation was mostly background; the second had an early focus transition. Kept only its final 30.000261 seconds (12:57:21.745-12:57:51.745), with 300/300 foreground polls and all seven endpoints foreground: 6,766 intervals, 276/74/26 over 16/33/50 ms, largest retained 105.000 ms at frame 53703. Final window p50 2.887 ms, p99 36.888 ms. Host timings are not GPU/display times; differing world workloads prevent attributing the larger counts to the settings change. Evidence: captures/pacing-resources-off-20261012/; report: docs/pacing-resources-off-session.md. T-020 / ISSUE-005 stays open.
+
+After measurement, backed up the cfg to build/backups/before-passthrough-20261012-125909/ and changed only mode to passthrough. PID 33204 still uses probe until it exits; nothing was hot-switched or restarted. Actual-config inject smoke passes with no pipe, 546 frames and normal exit (build/tests/sandbox-m_8zuprp/). DLL unchanged at 729d914e1f4a1ac66ae26ee2d421707d898b7426e52c756a5997cec50dfe0b7e. Next: a short user-started same-world movement comparison in passthrough. It removes remaining draw/buffer tracking and probe service, but keeps injection/setup/present accounting; it is not a no-DLL baseline. No interval data can be queried without the pipe.
 
 ## Hash-off comparison: open-world spikes confirmed (2026-10-12, 12:38-12:39)
 
@@ -20,7 +28,7 @@ After collection, set `dist/efmi_vk.cfg` to `image_hash = 0` for the next proces
 
 0.7.1 adds a fixed 2048-entry host present-interval ring, recent p50/p95/p99 and peaks, lifetime threshold counts, and hash/capture tags (`docs/frame-pacing.md`). No per-frame allocation or resource lock; sorting occurs on the probe thread outside the frame lock. It measures host boundaries, not GPU/display latency. Full build/regression against build/next passes: unit 88, native 85, all 17 probe configurations (503-518), modes 40, limits 148, timing 94, validation 76, MCP 47, evidence 78 (`build/pacing-regression-20261012.txt`). A separate dist/ inject smoke test reads the actual cfg without mode/hash/resource environment overrides: 0.7.1 probe, resources on, image hashing off, five captured draws and host timing available (`build/tests/sandbox-un722puo/`). Game log unchanged.
 
-Next: a short user-started comparison in the same display scene, hash off, resource tracking on, to inspect host timing peaks and the user's experience. No repeated 30-minute run. Broader resource-tracking/passthrough comparisons are only needed if stutter remains. M2 now has the sample texture table and pipeline requirements, but no replacement rendering has been implemented.
+The planned hash-off comparison and subsequent resource-off comparison have since completed (sections above); both retain open-world spikes. No repeated 30-minute run. M2 now has the sample texture table and pipeline requirements, but no replacement rendering has been implemented.
 
 ## DX11 baseline of the sample mod (2026-10-12, 10:09; game under DX11, started by the user)
 

@@ -69,3 +69,6 @@ game retains resources on. An actual-config inject sandbox confirms resources of
 descriptor sets untracked, five draws captured and pacing available (`build/tests/sandbox-a_60l8x8/`).
 This is preparation only, not a resource-off game comparison. If spikes persist, passthrough/no-probe
 display timing is the subsequent isolation step. No rendering or performance fix has been verified.
+
+Update: the user-started resource-off comparison is now recorded in
+`pacing-resources-off-session.md`. Spikes persist; passthrough is prepared for the next process.

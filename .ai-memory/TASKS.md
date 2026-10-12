@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. 0.7.1 has run in the game with upload hashing off and resources on; foreground open-world host interval spikes persist (T-020). G2/G3 character-data evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
+T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. 0.7.1 game observations with hashing off and with both hashing/resources off retain foreground open-world host interval spikes (T-020). Passthrough is prepared for the next user-started process, sandbox-verified only. G2/G3 character-data evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
 
 ## Tasks and follow-ups
 
@@ -24,7 +24,7 @@ The frame with the mods off followed the same morning, once the user had restore
 
 ### T-009: Gate G1 in the real game (initial loading accepted; long-duration observation deferred)
 
-Route: the inject entry through the launcher, no registry (D-011). Historical G1 runs used passthrough. `dist/efmi_vk.cfg` now selects probe mode for the next short capture session (D-014).
+Route: the inject entry through the launcher, no registry (D-011). Historical G1 runs used passthrough. Later capture sessions used probe (D-014); `dist/efmi_vk.cfg` now prepares a passthrough comparison for T-020.
 
 Done on 2026-10-11 (details in CURRENT_STATE): one DX11 launch with the DLL present, 78 s, clean exit; one Vulkan launch that crashed in the NVIDIA driver about 5 s after device creation, with XXMI's `d3d11.dll` and the DX11 probe also injected (BUG-001). Timing of the injection is confirmed to be early enough.
 
@@ -64,13 +64,15 @@ Original question:
 
 Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
-### T-020: Diagnose intermittent frame-time spikes (open; hash-off spikes confirmed in 0.7.1)
+### T-020: Diagnose intermittent frame-time spikes (open; resource-off spikes confirmed in 0.7.1)
 
 The user reports stutter during loading and steady display in the third session. Average 120 presents/s does not resolve the report. T-018's timer establishes heavy earlier upload work but only 596 microseconds in a later three-second interval. Cause of steady-scene spikes is unknown.
 
 Done: fully sandbox-verified 0.7.1 diagnostics, actual-config smoke and real-game status-only observation (PID 31124). The user reports severe open-world stutter; the static display cannot judge it. A 39.992-second foreground interval contains 142 intervals over 16 ms, 27 over 33 ms, 12 over 50 ms, maximum 111.204 ms. Final rolling window p50 2.989 ms, p99 24.590 ms. Image-hash time and capture sequence remain zero. A later quiet interval changes focus and cannot serve as a clean comparison.
 
-Next: same open-world movement with resources = 0 after a user-chosen restart, keeping hashing off, then passthrough if needed. The next-launch cfg is now prepared and passes an actual-config inject sandbox check; the current game process retains resources on. Cause is not established and no fix is claimed. See docs/pacing-hash-off-session.md and docs/frame-pacing.md. No automatic game launch or focus change.
+Resource-off comparison, new user-started PID 33204: settings confirmed off, zero tracked images/descriptors/retained shaders, hashing and captures zero. The selected 30.000261-second interval has 300/300 foreground polls, 74 intervals over 33 ms, 26 over 50 ms and a retained peak of 105.000 ms. Excluded earlier background/focus-transition segments. Workload differs across sessions; do not infer that disabling resources worsens performance. See docs/pacing-resources-off-session.md.
+
+Next: same-world movement with mode = passthrough after a user-chosen restart. The cfg is prepared, previous cfg backed up, and actual-config inject smoke passes (546 frames, normal exit, no pipe). Current PID 33204 retains probe mode with resources off. Passthrough removes remaining draw/buffer tracking and the probe service but still includes injection/setup/present accounting; it is not a no-DLL baseline. The next comparison relies on the user's report unless separate timing evidence is available. Cause is not established and no fix is claimed. No automatic game launch or focus change.
 
 ### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
 
@@ -118,7 +120,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The next useful T-020 comparison is foreground open-world movement after a user-chosen restart. The cfg is prepared with resources = 0 and image_hash = 0, sandbox-verified only; the current game still has resources on. The agent does not start or stop the game.
+- The next useful T-020 comparison is same-world movement after a user-chosen restart into passthrough. The cfg is prepared and sandbox-verified; current PID 33204 retains probe with resources/image hashing off. Passthrough has no probe pipe, so ask about smoothness without promising host interval collection. The agent does not start or stop the game.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

@@ -37,5 +37,7 @@ counts, capture marking and live quantiles. These establish diagnostic behavior,
 the reported real-game stutter.
 
 The first real 0.7.1 observation is recorded in `pacing-hash-off-session.md`: foreground
-open-world host spikes persist with hashing off. The static display/background observations
-cannot establish smooth open-world play. T-020 still needs a resources-off comparison.
+open-world host spikes persist with hashing off. `pacing-resources-off-session.md` confirms
+continuing spikes with resources off as well. Static display/background observations cannot
+establish smooth open-world play. The next-launch cfg now selects passthrough, sandbox-verified
+only: no draw/buffer tracking or probe pipe, but injection/setup/present accounting remain.
