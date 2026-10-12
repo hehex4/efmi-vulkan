@@ -4,6 +4,7 @@
 #include "common.h"
 #include "resources.h"
 #include "pacing.h"
+#include "work.h"
 
 #include <atomic>
 #include <memory>
@@ -440,6 +441,7 @@ struct Device {
     FrameStats cur;
     FrameStats last;
     PresentPacing pacing; // bounded host intervals; protected by frame_mx
+    TrackerWork work; // optional tracker timings; its bounded slow history has a separate lock
     uint32_t max_threads = 0;
     uint32_t max_command_buffers = 0;
     uint32_t max_submits = 0;

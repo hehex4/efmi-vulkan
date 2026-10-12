@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "0.7.1"
+#define EFVK_VERSION "0.7.2"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -56,6 +56,8 @@ struct Config {
     // counted and not read. Reading upload memory costs time while a scene loads; 0 switches it off.
     bool image_hash = true;
     uint64_t image_hash_limit = 64ull << 20;
+    // Opt-in hot-path measurements; adds clocks/counters and must be compared with profiling off.
+    bool profile_tracker = false;
 };
 
 extern Config g_cfg;

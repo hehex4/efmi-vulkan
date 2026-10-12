@@ -10,6 +10,7 @@ namespace efvk {
 struct PresentSample {
     uint64_t frame = 0, us = 0, image_hash_us = 0;
     bool capture = false;
+    uint64_t end_us = 0; // QPC clock, shared with tracker-work events; not wall time
 };
 
 struct PresentPacing {
@@ -26,6 +27,7 @@ struct PresentPacing {
     {
         if (started && now_us > last_us) {
             PresentSample sample{frame, now_us - last_us, hash_us >= last_hash_us ? hash_us - last_hash_us : 0, capture};
+            sample.end_us = now_us;
             samples[next] = sample;
             next = (next + 1) % capacity;
             if (size < capacity) ++size;

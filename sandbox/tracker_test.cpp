@@ -4,6 +4,7 @@
 #include "src/spirv.h"
 
 #include <cstdio>
+#include <thread>
 
 using namespace efvk;
 
@@ -501,7 +502,8 @@ static void present_pacing()
     p.observe(t += 8000, 4, 60112, false);
     check(p.intervals == 4 && p.over_16ms == 1 && p.over_33ms == 1 && p.over_50ms == 1,
           "one hitch remains visible among fast present intervals");
-    check(p.peak.us == 80000 && p.peak.frame == 3 && p.peak.image_hash_us == 60000 && p.peak.capture && p.captures == 1,
+    check(p.peak.us == 80000 && p.peak.frame == 3 && p.peak.image_hash_us == 60000 && p.peak.capture && p.captures == 1 &&
+          p.peak.end_us == t - 8000,
           "peak preserves its frame, upload cost and capture marker");
     for (size_t i = 0; i < PresentPacing::capacity + 7; ++i)
         p.observe(t += 8000, i + 5, 60112, false);
@@ -519,6 +521,102 @@ static void present_pacing()
     check(p.intervals == n, "non-increasing timestamps do not invent intervals");
 }
 
+static void tracker_work()
+{
+    TrackerWork work;
+    work.record(WK_UNMAP, 1000, 81000, 16ull << 20);
+    work.record(WK_UNMAP, 82000, 82010, 32);
+    auto s = work.snapshot();
+    check(s.totals[WK_UNMAP].calls == 2 && s.totals[WK_UNMAP].us == 80010 && s.totals[WK_UNMAP].max_us == 80000 &&
+          s.totals[WK_UNMAP].bytes == (16ull << 20) + 32, "work counters retain a large copy among cheap calls");
+    check(s.size == 1 && s.slow_count == 1 && s.events[0].start_us == 1000 && s.events[0].us == 80000,
+          "only slow work enters the timestamped history");
+    for (uint64_t i = 0; i < 70; ++i) work.record(WK_SUBMIT, 100000 + i * 10000, 102000 + i * 10000, i);
+    s = work.snapshot();
+    check(s.size == 64 && s.slow_count == 71 && s.events[0].start_us == 160000 && s.events[63].bytes == 69,
+          "slow work history is bounded and ordered across rollover");
+    check(s.totals[WK_UNMAP].max_us == 80000, "lifetime work peak survives history rollover");
+    std::vector<std::thread> writers;
+    for (int i = 0; i < 4; ++i) writers.emplace_back([&work] {
+        for (int j = 0; j < 1000; ++j) work.record(WK_DRAW, 1, 2, 3);
+    });
+    for (auto& writer : writers) writer.join();
+    s = work.snapshot();
+    check(s.totals[WK_DRAW].calls == 4000 && s.totals[WK_DRAW].us == 4000 && s.totals[WK_DRAW].bytes == 12000,
+          "concurrent recording threads do not lose work counts");
+    const auto enabled = g_cfg.profile_tracker;
+    g_cfg.profile_tracker = false;
+    { WorkScope scope(work, WK_DRAW); scope.bytes = 200; }
+    check(work.snapshot().totals[WK_DRAW].calls == 4000, "disabled profiling records no work");
+    g_cfg.profile_tracker = enabled;
+}
+
+static void buffer_copy_paths()
+{
+    const auto config = g_cfg;
+    g_cfg.shadow_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    g_cfg.unmap_snapshot_limit = 0;
+    g_cfg.profile_tracker = true;
+    Device d;
+    const auto source = h<VkBuffer>(201), target = h<VkBuffer>(202);
+    const auto memory = h<VkDeviceMemory>(203);
+    const auto cmd = h<VkCommandBuffer>(204);
+    VkMemoryAllocateInfo alloc = {}; alloc.allocationSize = 64;
+    on_alloc_memory(&d, memory, &alloc);
+    VkBufferCreateInfo info = {}; info.size = 64; info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    on_create_buffer(&d, source, &info); on_bind_buffer(&d, source, memory, 0);
+    info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    on_create_buffer(&d, target, &info);
+    VkCommandBufferAllocateInfo ci = {}; ci.commandBufferCount = 1;
+    on_alloc_cbs(&d, &ci, &cmd);
+    auto* cb = d.cbs.at(cmd).get();
+    std::vector<uint8_t> mapped(64, 7), result(16);
+    on_map_memory(&d, memory, 0, mapped.size(), mapped.data());
+    on_copy_buffer(&d, cb, source, target, 0, 0, 16);
+    check(cb->writes[0].have_data && cb->writes[0].data == std::vector<uint8_t>(16, 7),
+          "record-time fallback preserves the readable source range");
+    std::fill(mapped.begin(), mapped.end(), 9);
+    on_submit(&d, 1, &cmd);
+    check(read_buffer_locked(&d, d.bufs.at(target), 0, 16, result.data()) == SRC_SHADOW &&
+          result == std::vector<uint8_t>(16, 9), "submit-time bytes take priority over the earlier copy");
+    auto totals = d.work.snapshot().totals;
+    check(totals[WK_COPY_RECORD].bytes == 16 && totals[WK_BUFFER_SUBMIT].bytes == 16,
+          "one retained record copy and one direct submit copy are accounted");
+    cb->reset_recording();
+    on_copy_buffer(&d, cb, source, target, 0, 16, 16);
+    on_unmap_memory(&d, memory);
+    check(d.bufs.at(source).shadow.empty(), "unmap snapshot limit zero keeps no staging copy");
+    on_submit(&d, 1, &cmd);
+    check(read_buffer_locked(&d, d.bufs.at(target), 16, 16, result.data()) == SRC_SHADOW &&
+          result == std::vector<uint8_t>(16, 9), "record-time fallback still works after an unsnapshotted unmap");
+    cb->reset_recording();
+    g_cfg.unmap_snapshot_limit = 64;
+    on_map_memory(&d, memory, 0, mapped.size(), mapped.data());
+    std::fill(mapped.begin(), mapped.end(), 11);
+    on_unmap_memory(&d, memory);
+    on_copy_buffer(&d, cb, source, target, 0, 32, 16);
+    on_submit(&d, 1, &cmd);
+    check(read_buffer_locked(&d, d.bufs.at(target), 32, 16, result.data()) == SRC_SHADOW &&
+          result == std::vector<uint8_t>(16, 11), "an unmap snapshot remains readable when recording happens later");
+    check(d.work.snapshot().totals[WK_UNMAP].bytes == 64, "unmap work reports the full staging snapshot bytes");
+    cb->reset_recording();
+    on_copy_buffer(&d, cb, target, target, 32, 0, 16);
+    on_submit(&d, 1, &cmd);
+    check(read_buffer_locked(&d, d.bufs.at(target), 0, 16, result.data()) == SRC_SHADOW &&
+          result == std::vector<uint8_t>(16, 11), "a disjoint self-copy uses the existing shadow without invalidating its source");
+    cb->reset_recording();
+    on_destroy_buffer(&d, source); on_destroy_buffer(&d, target);
+    info.size = 64ull << 20;
+    on_create_buffer(&d, source, &info); on_create_buffer(&d, target, &info);
+    on_copy_buffer(&d, cb, source, target, 0, 0, info.size);
+    check(!cb->writes[0].have_data && cb->writes[0].data.capacity() == 0,
+          "an unreadable 64 MiB source allocates no fallback byte storage");
+    on_submit(&d, 1, &cmd);
+    check(d.bufs.at(target).shadow.empty() && d.bufs.at(target).unknown_writes == 1,
+          "an unreadable submitted copy stays unknown without allocating its destination shadow");
+    g_cfg = config;
+}
+
 int main()
 {
     util_init(GetModuleHandleW(nullptr));
@@ -529,6 +627,8 @@ int main()
     shaders_and_views();
     pools_and_budgets();
     present_pacing();
+    tracker_work();
+    buffer_copy_paths();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

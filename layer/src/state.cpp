@@ -287,6 +287,7 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
 {
     if (dev->passive)
         return;
+    WorkScope work(dev->work, WK_UNMAP);
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->mems.find(mem);
     if (it == dev->mems.end())
@@ -305,6 +306,7 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
                 continue;
             b.shadow.resize(static_cast<size_t>(b.size));
             memcpy(b.shadow.data(), m.mapped + (b.mem_off - m.map_off), static_cast<size_t>(b.size));
+            work.bytes += b.size;
             b.known.v.clear();
             b.known.add(0, b.size);
             b.gen++;
@@ -537,28 +539,41 @@ void on_destroy_pipeline(Device* dev, VkPipeline pipe)
     forget_shaders_locked(dev, shaders);
 }
 
-ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, uint8_t* out)
+// Borrow only under res_mx. No allocation/read for inaccessible memory. The caller must not
+// change the source buffer's shadow allocation while using its pointer.
+static const uint8_t* buffer_data_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, ReadSrc& source)
 {
+    source = SRC_NONE;
     if (off > b.size || size > b.size - off)
-        return SRC_NONE;
-    if (!size)
-        return SRC_SHADOW;
+        return nullptr;
     if (b.mem) {
         auto it = dev->mems.find(b.mem);
         if (it != dev->mems.end() && it->second.mapped) {
             const MemInfo& m = it->second;
-            uint64_t at = b.mem_off + off;
-            if (at >= m.map_off && at + size <= m.map_off + m.map_size) {
-                memcpy(out, m.mapped + (at - m.map_off), static_cast<size_t>(size));
-                return SRC_MAPPED;
+            if (off <= UINT64_MAX - b.mem_off) {
+                const uint64_t at = b.mem_off + off;
+                if (at >= m.map_off && at - m.map_off <= m.map_size && size <= m.map_size - (at - m.map_off)) {
+                    source = SRC_MAPPED;
+                    return m.mapped + (at - m.map_off);
+                }
             }
         }
     }
     if (b.shadow.size() == b.size && b.known.covers(off, size)) {
-        memcpy(out, b.shadow.data() + off, static_cast<size_t>(size));
-        return SRC_SHADOW;
+        source = SRC_SHADOW;
+        return b.shadow.data() + off;
     }
-    return SRC_NONE;
+    return nullptr;
+}
+
+ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, uint8_t* out)
+{
+    if (off > b.size || size > b.size - off) return SRC_NONE;
+    if (!size) return SRC_SHADOW;
+    ReadSrc source;
+    const auto* bytes = buffer_data_locked(dev, b, off, size, source);
+    if (bytes) memcpy(out, bytes, static_cast<size_t>(size));
+    return source;
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +626,7 @@ void on_reset_pool(Device* dev, VkCommandPool pool)
 {
     if (dev->passive)
         return;
+    WorkScope work(dev->work, WK_RESET);
     std::shared_lock<std::shared_mutex> lock(dev->cb_mx);
     for (auto& kv : dev->cbs)
         if (kv.second->pool == pool)
@@ -624,6 +640,7 @@ static bool wants_shadow(const BufInfo& b)
 
 void on_copy_buffer(Device* dev, CmdBuf* cb, VkBuffer src, VkBuffer dst, uint64_t src_off, uint64_t dst_off, uint64_t size)
 {
+    WorkScope work(dev->work, WK_COPY_RECORD);
     cb->copies++;
     std::shared_lock<std::shared_mutex> lock(dev->res_mx);
     auto dit = dev->bufs.find(dst);
@@ -642,11 +659,13 @@ void on_copy_buffer(Device* dev, CmdBuf* cb, VkBuffer src, VkBuffer dst, uint64_
     w.src = src;
     w.src_off = src_off;
     auto sit = dev->bufs.find(src);
-    if (sit != dev->bufs.end() && size <= (256ull << 20)) {
-        w.data.resize(static_cast<size_t>(size));
-        w.have_data = read_buffer_locked(dev, sit->second, src_off, size, w.data.data()) != SRC_NONE;
-        if (!w.have_data)
-            w.data.clear();
+    if (sit != dev->bufs.end() && size && size <= (256ull << 20)) {
+        ReadSrc source;
+        if (const auto* bytes = buffer_data_locked(dev, sit->second, src_off, size, source)) {
+            w.data.assign(bytes, bytes + size);
+            w.have_data = true;
+            work.bytes += size;
+        }
     }
     cb->writes.push_back(std::move(w));
 }
@@ -757,23 +776,22 @@ static void apply_writes(Device* dev, CmdBuf* cb, FrameStats& stats)
 {
     if (cb->writes.empty())
         return;
+    WorkScope work(dev->work, WK_BUFFER_SUBMIT);
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
-    std::vector<uint8_t> tmp;
     for (const PendingWrite& w : cb->writes) {
         auto dit = dev->bufs.find(w.dst);
         if (dit == dev->bufs.end())
             continue;
         BufInfo& d = dit->second;
-        if (w.dst_off > d.size || w.size > d.size - w.dst_off)
+        if (!w.size || w.dst_off > d.size || w.size > d.size - w.dst_off)
             continue;
         const uint8_t* bytes = nullptr;
         if (w.src) {
             // What the staging buffer holds at submit time is what the GPU will copy.
             auto sit = dev->bufs.find(w.src);
             if (sit != dev->bufs.end()) {
-                tmp.resize(static_cast<size_t>(w.size));
-                if (read_buffer_locked(dev, sit->second, w.src_off, w.size, tmp.data()) != SRC_NONE)
-                    bytes = tmp.data();
+                ReadSrc source;
+                bytes = buffer_data_locked(dev, sit->second, w.src_off, w.size, source);
             }
         }
         if (!bytes && w.have_data)
@@ -781,7 +799,10 @@ static void apply_writes(Device* dev, CmdBuf* cb, FrameStats& stats)
         if (bytes) {
             if (d.shadow.size() != d.size)
                 d.shadow.resize(static_cast<size_t>(d.size));
-            memcpy(d.shadow.data() + w.dst_off, bytes, static_cast<size_t>(w.size));
+            // A self-copy from a shadow already has full storage, so resize cannot invalidate
+            // its borrowed pointer. memmove also handles aliasing without a temporary copy.
+            memmove(d.shadow.data() + w.dst_off, bytes, static_cast<size_t>(w.size));
+            work.bytes += w.size;
             d.known.add(w.dst_off, w.size);
         } else {
             d.known.remove(w.dst_off, w.size);
@@ -1107,6 +1128,7 @@ void on_submit(Device* dev, uint32_t count, const VkCommandBuffer* cbs)
 {
     if (dev->passive)
         return;
+    WorkScope work(dev->work, WK_SUBMIT);
     std::lock_guard<std::mutex> lock(dev->frame_mx);
     FrameStats& st = dev->cur;
     uint32_t submit = st.submits++;
@@ -1151,11 +1173,7 @@ void on_present(Device* dev)
     std::lock_guard<std::mutex> lock(dev->frame_mx);
     // Timestamp consecutive host present boundaries, including any previous driver present wait.
     // Sample inside the lock to preserve order if several queues present on different threads.
-    static const uint64_t qpc_freq = [] { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart; }();
-    LARGE_INTEGER now;
-    QueryPerformanceCounter(&now);
-    const uint64_t ticks = static_cast<uint64_t>(now.QuadPart);
-    const uint64_t us = ticks / qpc_freq * 1000000 + (ticks % qpc_freq) * 1000000 / qpc_freq;
+    const uint64_t us = host_time_us();
     dev->pacing.observe(us, dev->frame_no, dev->image_hash_us.load(std::memory_order_relaxed), dev->cap_state == 2);
     dev->cur.frame = dev->frame_no;
     dev->total_draws += dev->cur.draws;
@@ -1271,7 +1289,8 @@ static void write_pacing(JsonWriter& w, const PresentPacing& p)
 {
     auto sample = [&w](const PresentSample& s) {
         w.begin_object(); w.kn("frame", s.frame); w.kn("microseconds", s.us);
-        w.kn("image_hash_microseconds", s.image_hash_us); w.kb("capture", s.capture); w.end_object();
+        w.kn("image_hash_microseconds", s.image_hash_us); w.kb("capture", s.capture);
+        w.kn("host_end_us", s.end_us); w.end_object();
     };
     w.begin_object();
     w.kv("measurement", "host_present_interval");
@@ -1310,6 +1329,33 @@ static void write_pacing(JsonWriter& w, const PresentPacing& p)
     w.end_object();
 }
 
+static void write_tracker_work(JsonWriter& w, TrackerWork& work)
+{
+    const auto s = work.snapshot();
+    w.begin_object();
+    w.kb("enabled", g_cfg.profile_tracker);
+    w.kv("clock", "qpc_microseconds");
+    w.kv("measurement", "tracker_wall_time_including_lock_wait_excluding_driver");
+    w.kn("slow_threshold_us", TrackerWork::slow_us);
+    w.kn("slow_capacity", WorkSnapshot::capacity);
+    w.kn("slow_total", s.slow_count);
+    w.key("categories"); w.begin_object();
+    for (size_t i = 0; i < WK_COUNT; ++i) {
+        w.key(work_name(static_cast<WorkKind>(i))); w.begin_object();
+        const auto& t = s.totals[i];
+        w.kn("calls", t.calls); w.kn("microseconds", t.us); w.kn("max_us", t.max_us);
+        w.kn("copied_bytes", t.bytes); w.end_object();
+    }
+    w.end_object();
+    w.key("recent_slow"); w.begin_array();
+    for (size_t i = 0; i < s.size; ++i) {
+        const auto& e = s.events[i];
+        w.begin_object(); w.kv("category", work_name(e.kind)); w.kn("host_start_us", e.start_us);
+        w.kn("microseconds", e.us); w.kn("copied_bytes", e.bytes); w.end_object();
+    }
+    w.end_array(); w.end_object();
+}
+
 std::string probe_status()
 {
     JsonWriter w;
@@ -1326,6 +1372,8 @@ std::string probe_status()
     w.kv("entry", g_cfg.entry == Entry::Inject ? "inject" : "layer");
     w.kb("resources", g_cfg.track_resources);
     w.kn("shader_budget", g_cfg.shader_budget);
+    w.kn("unmap_snapshot_limit", g_cfg.unmap_snapshot_limit);
+    w.kn("shadow_usage", g_cfg.shadow_usage);
     w.key("attach");
     w.begin_object();
     w.kb("loader_found", g_attach.loader_found.load() != 0);
@@ -1349,6 +1397,7 @@ std::string probe_status()
     w.str("shader");
     w.str("snapshot");
     w.str("host_pacing");
+    w.str("tracker_work");
     w.end_array();
 
     DeviceRef ref;
@@ -1394,6 +1443,8 @@ std::string probe_status()
     // Sort/format the bounded copy outside the frame lock, on the probe thread.
     w.key("host_pacing");
     write_pacing(w, pacing);
+    w.key("tracker_work");
+    write_tracker_work(w, dev->work);
     {
         std::shared_lock<std::shared_mutex> lock(dev->res_mx);
         uint64_t shadow = 0, known = 0, mapped = 0;

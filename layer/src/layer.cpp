@@ -322,6 +322,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_BeginCommandBuffer(VkCommandBuffer cmd, const 
     count_call(HI_BeginCommandBuffer);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        WorkScope work(dev->work, WK_RESET);
         cb->reset_recording();
         cb->tid = GetCurrentThreadId();
         cb->threads.push_back(cb->tid);
@@ -340,8 +341,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_ResetCommandBuffer(VkCommandBuffer cmd, VkComm
 {
     count_call(HI_ResetCommandBuffer);
     Device* dev = dev_of(cmd);
-    if (CmdBuf* cb = cb_of(dev, cmd))
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        WorkScope work(dev->work, WK_RESET);
         cb->reset_recording();
+    }
     return dev->d.ResetCommandBuffer(cmd, flags);
 }
 
@@ -463,6 +466,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDraw(VkCommandBuffer cmd, uint32_t vertices, ui
     count_call(HI_CmdDraw);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        WorkScope work(dev->work, WK_DRAW);
         DrawRec r = make_rec(cb, DK_DRAW, false);
         r.count = vertices;
         r.instances = instances;
@@ -479,6 +483,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indic
     count_call(HI_CmdDrawIndexed);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        WorkScope work(dev->work, WK_DRAW);
         DrawRec r = make_rec(cb, DK_INDEXED, false);
         r.count = indices;
         r.instances = instances;
@@ -494,6 +499,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indic
 void track_indirect(Device* dev, VkCommandBuffer cmd, uint8_t kind, VkBuffer buf, VkDeviceSize off, uint32_t count)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        WorkScope work(dev->work, WK_DRAW);
         DrawRec r = make_rec(cb, kind, kind == DK_DISPATCH_INDIRECT);
         r.count = count;
         r.indirect = buf;
@@ -563,6 +569,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDispatch(VkCommandBuffer cmd, uint32_t x, uint3
     count_call(HI_CmdDispatch);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        WorkScope work(dev->work, WK_DRAW);
         DrawRec r = make_rec(cb, DK_DISPATCH, true);
         r.count = x;
         r.instances = y;

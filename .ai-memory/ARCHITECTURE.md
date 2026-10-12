@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.7.0, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`, buffer contents kept by a capture in `docs/probe-snapshots.md`.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.7.2, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`, buffer contents kept by a capture in `docs/probe-snapshots.md`.
 
 ## Data path of the development probe
 
@@ -146,6 +146,8 @@ scripts/inventory_compat.py preserves lexical section order/duplicates and emits
 ## Image content and pipeline creation (0.7.0)
 
 Follow-up in 0.7.1: state.h owns a fixed PresentPacing ring (pacing.h). on_present adds QPC host-boundary intervals under frame_mx, with upload-timer deltas and capture markers. probe_status copies it, then computes quantiles and formats host_pacing outside that lock. See docs/frame-pacing.md. It neither reads GPU timestamps nor measures actual displayed frames.
+
+0.7.2: work.h supplies the shared QPC clock and opt-in TrackerWork counters plus a fixed 64-event slow-operation ring per device. WorkScope wraps buffer unmap, copy recording, shadow submit, submit assembly, command reset and draw/dispatch recording, excluding forwarded driver calls. profile_tracker defaults off. status.tracker_work is formatted outside its history lock, and host_pacing peaks include host_end_us for correlation. Nested/concurrent wall-time spans are not additive or proof of a presentation stall. Buffer copies now borrow CPU-readable ranges under res_mx, allocating record-time fallbacks only for readable sources and copying directly into destination shadows at submit. See docs/tracker-work.md.
 
 `vkCmdCopyBufferToImage` and its two `2` forms are tracked functions now. A copy to mip 0, layer 0 is noted in `CmdBuf::image_writes` (secondaries hand theirs to the primary) and handled in `on_submit` by `apply_image_writes` (`resources.cpp`): with `res_mx` held shared, the source bytes of a copy that covers the whole level are read through `read_buffer_locked` and hashed row by row without padding (`format_block` gives the texel block of a format); then `res_mx` is taken exclusively for the short time it takes to store state, CRC, size and upload count in `ImageInfo`. `write_element` reports them as `content` of a sampled image. Counters per outcome, bytes and microseconds are atomics of the device. Settings: `image_hash` / `EFMI_VK_IMAGE_HASH`, `image_hash_limit` / `EFMI_VK_IMAGE_HASH_LIMIT`.
 

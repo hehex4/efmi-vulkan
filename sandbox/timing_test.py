@@ -21,6 +21,8 @@ def main() -> int:
             c.equal(pacing["window_intervals"], min(pacing["total_intervals"], pacing["window_capacity"]), "bounded timing window")
             c.check(pacing["total_capture_intervals"] >= 1, "capture overhead is marked in the interval history")
             recent = pacing["recent"]
+            c.check(all(s["host_end_us"] >= s["microseconds"] > 0 for s in recent["worst"]),
+                    "present peaks expose the common host clock for work correlation")
             c.check(0 < recent["min_us"] <= recent["p50_us"] <= recent["p95_us"] <= recent["p99_us"] <= recent["max_us"],
                     "live timing quantiles are ordered")
             draws = frame["draws"]
@@ -33,6 +35,34 @@ def main() -> int:
             c.equal(len(timing["samples"]), 60, "exact measured frame count")
             c.equal((timing["draws"], timing["threads"], timing["warmup"]), (37, threads, 2), "timing metadata")
             c.check("after 63 frames" in box.output(), "initial frame and warmup excluded")
+    for entry in ("layer", "inject"):
+        for enabled in (False, True):
+            with Sandbox(entry=entry, threads=2, env_extra={"EFMI_VK_PROFILE_TRACKER": "1" if enabled else "0"}) as box:
+                with ProbeClient(box.pid) as client:
+                    frame = client.capture()
+                    # The normal sandbox keeps staging mapped. Its rewrite exercises unmap-before-copy.
+                    box.rewrite_index_buffer()
+                    status = client.status()
+                work = status["tracker_work"]
+                c.equal(work["enabled"], enabled, "tracker profiling setting is reported")
+                c.equal(work["clock"], "qpc_microseconds", "work timings name their host clock")
+                c.equal([d["ib"]["hash"] for d in frame["draws"]],
+                        [d["hash"] for d in box.expected["draws"]], "profiling preserves captured bytes")
+                totals = work["categories"]
+                if enabled:
+                    c.check(all(totals[k]["calls"] > 0 for k in ("buffer_unmap", "buffer_copy_record", "buffer_submit",
+                                                               "submit_tracking", "command_reset", "draw_record")),
+                            "every instrumented category sees sandbox work", totals)
+                    c.check(totals["buffer_copy_record"]["copied_bytes"] > 0 and totals["buffer_submit"]["copied_bytes"] > 0,
+                            "buffer copy bytes are accounted separately")
+                else:
+                    c.check(all(all(value == 0 for value in row.values()) for row in totals.values()),
+                            "profiling off leaves all work counters at zero")
+                c.check(len(work["recent_slow"]) <= work["slow_capacity"] == 64 and
+                        all(event["microseconds"] >= work["slow_threshold_us"] for event in work["recent_slow"]),
+                        "only slow events enter the bounded history")
+                c.equal(status["unmap_snapshot_limit"], 16 << 20, "unmap snapshot bound is visible in status")
+                c.equal(status["shadow_usage"], 0x40, "buffer shadow usage mask is visible in status")
     return c.finish()
 
 

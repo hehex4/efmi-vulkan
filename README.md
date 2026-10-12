@@ -2,7 +2,11 @@
 
 Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield on the game's native Vulkan renderer, through a Vulkan layer of our own.
 
-The current 0.5.1 read-only probe is verified against the sandbox and available in `dist/`, with probe mode configured. It now tracks descriptor update templates and direct/template pushes. Historical game launches used 0.2.0 passthrough; the user accepts run 3 with scene changes as initial G1 loading evidence and defers the 30-minute observation. Long-duration stability, loading of newer builds in the game, probe-mode game data and mod rendering remain unverified. See the [current state](.ai-memory/CURRENT_STATE.md).
+The read-only probe has captured real character data and resolved the sample's texture slots.
+The user reports open-world stutter in 0.7.1 probe mode and smooth movement in passthrough.
+Layer 0.7.2 reduces buffer-copy work and adds optional timings for diagnosis; its game result
+is still unverified. Mod rendering is not implemented. See the [current state](.ai-memory/CURRENT_STATE.md)
+for the deployed package, next-launch configuration and evidence boundaries.
 
 ## Layout
 
@@ -61,10 +65,11 @@ MCP server for agents: `python server\run_server.py` (registered for this worksp
 
 See [resource inspection](docs/probe-resources.md) for the descriptor snapshot schema, SPIR-V export, verified paths and remaining limits. Ordinary set values resolve at submit; push values are retained when recorded. Resource visibility remains a submit-time observation, not evidence of record-time buffer availability.
 
-Layer 0.7.1 also reports bounded [host present intervals](docs/frame-pacing.md), including tail
-latency and capture/upload tags. The [third game session](docs/third-probe-session.md) resolved
-the sample's texture slots but exposed reported stutter; its cause and the hash-off comparison
-remain open. The prepared dist/ configuration disables upload hashing for the next process.
+The layer also reports bounded [host present intervals](docs/frame-pacing.md), including tail
+latency and capture/upload tags. The [resource-off and passthrough comparisons](docs/pacing-resources-off-session.md)
+narrow the reported stutter to probe-only work as a group. Layer 0.7.2's optional
+[tracker timings](docs/tracker-work.md), enabled by `profile_tracker = 1`, measure selected paths
+without treating host intervals as displayed-frame timings. The individual cause remains open.
 
 `scripts/collect_probe.py` saves a complete frame observation and bounded pipeline/shader exports
 from an explicitly selected running probe. See [the first probe session](docs/first-probe-session.md)

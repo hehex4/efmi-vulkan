@@ -171,3 +171,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - T-018 now has its real content evidence: all four open sample slots resolve. Set image_hash = 0 in the prepared dist/ configuration for the next process; the existing process retains its original setting. Preserve full resource tracking for the first comparison.
 - The measured 8.1 seconds is cumulative time inside upload processing, including reads and locks. A steady 3-second interval advances 360 presents with only 596 microseconds added there. Do not claim that average 120/s disproves stutter or that hashing caused every reported spike.
 - Add bounded host present-interval diagnostics in 0.7.1 (T-020), including recent percentiles/peaks, lifetime threshold counts and capture/hash tags. This is host timing, not GPU/display timing. No performance fix is considered game-verified until a new user-started comparison session.
+
+## D-024: Preserve buffer evidence while measuring probe-only work
+
+- Date: 2026-10-12, after the user reports smooth movement in confirmed 0.7.1 passthrough and stutter in resource-off probe.
+- Remove proven unnecessary copy work without discarding readable fallback data: test source visibility before allocating record-time storage, and copy directly into the target shadow at submit. Keep unmap snapshots and submit-time priority. The game's individual stall source remains unproven.
+- Add opt-in profile_tracker measurements in 0.7.2, default off, with cumulative category counters and a fixed 64-event slow history on the present diagnostic's QPC clock. Exclude forwarded driver calls. Account for profiling overhead, nesting and descheduling; never equate the sum to frame time.
+- Keep the smooth passthrough run as evidence. Any diagnostic probe candidate requires a user-started game comparison after sandbox verification. Disabling buffer snapshots is a separate capability tradeoff, not a silently applied fix.

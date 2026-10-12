@@ -1,4 +1,4 @@
-# Host present interval diagnostics (0.7.1)
+# Host present interval diagnostics (0.7.1 and later)
 
 `status.host_pacing` retains frame-time spikes that average present counts cannot show. It measures
 host intervals between consecutive `on_present` boundaries, before forwarding `vkQueuePresentKHR`.
@@ -8,7 +8,8 @@ queues/swapchains on one device share the sequence. A paused/minimized applicati
 a large interval; scene and window state must be recorded alongside the result.
 
 The first boundary initializes the clock; subsequent intervals use QPC and the existing frame
-lock. Storage is a fixed 2048-sample ring (about 64 KiB per device). Each present adds one sample
+lock. Storage is a fixed 2048-sample ring (64 KiB in 0.7.1, 80 KiB in 0.7.2 with host timestamps).
+Each present adds one sample
 without allocating, sorting, reading texture data or taking the resource lock. Status copies
 the ring under the frame lock, then sorts and formats on the probe thread after releasing it.
 
@@ -39,5 +40,8 @@ the reported real-game stutter.
 The first real 0.7.1 observation is recorded in `pacing-hash-off-session.md`: foreground
 open-world host spikes persist with hashing off. `pacing-resources-off-session.md` confirms
 continuing spikes with resources off as well. Static display/background observations cannot
-establish smooth open-world play. The next-launch cfg now selects passthrough, sandbox-verified
-only: no draw/buffer tracking or probe pipe, but injection/setup/present accounting remain.
+establish smooth open-world play. A subsequent user-started passthrough comparison removed
+draw/buffer tracking and the probe pipe while retaining injection/setup/present accounting;
+the user reported smooth movement. Layer 0.7.2 adds optional
+[tracker work timings](tracker-work.md) and a shared host clock to narrow the remaining cause;
+the current package/configuration is recorded in `.ai-memory/CURRENT_STATE.md`.

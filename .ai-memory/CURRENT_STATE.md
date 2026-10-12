@@ -1,12 +1,24 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.7.1 (protocol 1), server 0.1.0. The user reports no stutter after restarting into confirmed passthrough (PID 14804). Probe mode still needs repair: resources off previously retained 105 ms host spikes. T-020 is narrowed to work added by probe, not closed or attributed to one routine. dist/ remains passthrough. T-018's four texture ambiguities are resolved. G2/G3 character-data evidence is for the display scene; open-world rendering/data compatibility remains unverified. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.7.2 (protocol 1), server 0.1.0. 0.7.2 is fully sandbox-verified and deployed to dist/, not yet game-tested. Next-launch cfg: probe, resources/image hashing off, profile_tracker on, buffer evidence retained. The user reported no stutter in 0.7.1 passthrough (PID 14804); earlier resource-off probe retained 105 ms host spikes. T-020 is narrowed to probe-only work, not closed or attributed to one routine. No mod rendering exists.
+
+## Layer 0.7.2: buffer-copy savings and optional tracker timings (sandbox only)
+
+Two confirmed unnecessary costs are removed without changing readable fallback behavior: record-time copies first check source visibility before allocating byte storage; submit writes borrow a readable source under res_mx and copy straight into the destination shadow instead of using a temporary vector. Submit-time contents still take priority; unmap snapshots and record-time fallback remain. An unreadable 64 MiB native-test source now allocates no fallback/destination byte storage. This is not yet a game stutter fix.
+
+Optional profile_tracker = 1 adds timings for buffer unmap, buffer copy recording, buffer submit, submit assembly, command reset and draw/dispatch recording. Default off; clocks/counters can perturb timing when on. A bounded 64-event history retains operations of at least 2 ms, with timestamps on the same QPC clock as present peaks' new host_end_us. Excludes forwarded driver calls, includes tracker lock wait/descheduling; nested/concurrent totals must not be added. Details: docs/tracker-work.md, D-024.
+
+Built into build/next and ran the full suite. The first run failed only a new timing assertion because the ordinary sandbox never unmaps its staging buffer; exercising its existing rewrite path fixed the scenario. Final full run passes: unit 88, native 101, 17 probe configurations 503-518 each, modes 40, limits 148, timing 126, validation 76, MCP 47, evidence 78. Logs: build/tracker-work-regression-20261012.txt and build/tracker-work-regression-final-20261012.txt.
+
+The game had exited by deployment; checked twice before replacing files. Backed up dist/ to build/backups/before-0.7.2-20261012-132253/, then copied the exact candidate package. DLL SHA-256 for both entries: f8b30ce440856995f0c7776b1adf4196d541e651b4cd4705f3f9fde6e394fde6. Candidate actual-config smoke (build/tests/sandbox-bbni7c7u/) and deployed actual-config smoke (build/tests/sandbox-_5s9b_x_/) both confirm 0.7.2 probe/inject, resources/hash off, profiling on, five correct draws and unmap measurements. No settings environment overrides; historical game log unchanged. Unmap snapshot limit 16 MiB and shadow_usage 0x40 remain enabled. No launcher change or automatic game launch.
+
+Next requires the user: start through the same Vulkan launcher configuration, return to the same open-world route and report readiness/smoothness. Verify the new PID/version/settings before collecting status-only timing. The profile can identify a candidate stall by overlap with a host present interval; no individual cause is claimed yet. If normal play is preferred, mode = passthrough remains the observed smooth fallback, requiring a process restart.
 
 ## Passthrough comparison: user reports smooth movement (2026-10-12, 13:04 launch)
 
 User-started PID 14804 began at 13:04:17; the log confirms 0.7.1 passthrough/inject at 13:04:19.597, resources and hashing off, Vulkan device created, seven exports redirected. No probe pipe exists. The user reports the stutter is gone. Evidence: captures/pacing-passthrough-20261012/; follow-up in docs/pacing-resources-off-session.md. This is a subjective game result, without a host/GPU/display timing trace. It implicates probe-only work as a group; it does not identify one routine or prove all Vulkan workloads smooth.
 
-Next: inspect and measure remaining probe hot paths in the sandbox, keeping dist/ and the running game in passthrough. Buffer unmap snapshots and record/submit copies are candidates, not confirmed causes. Build any new layer in build/next and run full regression before requesting a new game comparison. No immediate additional restart is needed for offline work.
+Offline follow-up is now built and verified as 0.7.2 above. This passthrough result remains the control; the individual source of the probe-mode stalls is still unconfirmed.
 
 ## Resources off: spikes persist; passthrough prepared (2026-10-12, 12:57)
 

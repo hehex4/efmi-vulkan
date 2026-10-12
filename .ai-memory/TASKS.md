@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. 0.7.1 game observations with hashing off and with both hashing/resources off retain foreground open-world host interval spikes (T-020). Passthrough is prepared for the next user-started process, sandbox-verified only. G2/G3 character-data evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
+T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. 0.7.1 probe still stutters with resources/hashing off; the user reports smooth passthrough. Layer 0.7.2 removes unnecessary buffer-copy work and adds opt-in tracker timings, fully sandbox-verified and deployed, awaiting a user-started game comparison (T-020). G2/G3 character-data evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
 
 ## Tasks and follow-ups
 
@@ -24,7 +24,7 @@ The frame with the mods off followed the same morning, once the user had restore
 
 ### T-009: Gate G1 in the real game (initial loading accepted; long-duration observation deferred)
 
-Route: the inject entry through the launcher, no registry (D-011). Historical G1 runs used passthrough. Later capture sessions used probe (D-014); `dist/efmi_vk.cfg` now prepares a passthrough comparison for T-020.
+Route: the inject entry through the launcher, no registry (D-011). Historical G1 runs used passthrough. Later capture sessions used probe (D-014); `dist/efmi_vk.cfg` now prepares a 0.7.2 diagnostic probe comparison for T-020.
 
 Done on 2026-10-11 (details in CURRENT_STATE): one DX11 launch with the DLL present, 78 s, clean exit; one Vulkan launch that crashed in the NVIDIA driver about 5 s after device creation, with XXMI's `d3d11.dll` and the DX11 probe also injected (BUG-001). Timing of the injection is confirmed to be early enough.
 
@@ -64,7 +64,7 @@ Original question:
 
 Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
-### T-020: Diagnose intermittent frame-time spikes (open; resource-off spikes confirmed in 0.7.1)
+### T-020: Diagnose intermittent frame-time spikes (open; smooth passthrough, 0.7.2 candidate ready)
 
 The user reports stutter during loading and steady display in the third session. Average 120 presents/s does not resolve the report. T-018's timer establishes heavy earlier upload work but only 596 microseconds in a later three-second interval. Cause of steady-scene spikes is unknown.
 
@@ -72,7 +72,9 @@ Done: fully sandbox-verified 0.7.1 diagnostics, actual-config smoke and real-gam
 
 Resource-off comparison, new user-started PID 33204: settings confirmed off, zero tracked images/descriptors/retained shaders, hashing and captures zero. The selected 30.000261-second interval has 300/300 foreground polls, 74 intervals over 33 ms, 26 over 50 ms and a retained peak of 105.000 ms. Excluded earlier background/focus-transition segments. Workload differs across sessions; do not infer that disabling resources worsens performance. See docs/pacing-resources-off-session.md.
 
-Passthrough comparison: user-started PID 14804 at 13:04:17, log confirms 0.7.1 passthrough/inject and Vulkan device creation; no pipe. The user reports no stutter. This implicates probe-only work as a group, without a timing trace or a proven individual cause. Keep dist/ passthrough while measuring and improving probe buffer/draw paths in the sandbox; build changes in build/next and fully regress before a later user-started comparison.
+Passthrough comparison: user-started PID 14804 at 13:04:17, log confirms 0.7.1 passthrough/inject and Vulkan device creation; no pipe. The user reports no stutter. This implicates probe-only work as a group, without a timing trace or a proven individual cause.
+
+0.7.2 removes allocation for unreadable buffer-copy fallbacks and the submit-time intermediate copy, retaining data semantics. Adds default-off profile_tracker counters and bounded slow operations on the present clock (docs/tracker-work.md, D-024). Full build/regression passes; deployed after observing game exit and backing up dist/. Actual-config inject smoke passes. Next cfg is probe, resources/hash off, profile_tracker on, default buffer snapshots/shadows retained. Next: user-started same-world comparison, verify loaded PID/version/settings, then collect status-only timing and correlate work events with present peaks. No game-tested fix is claimed.
 
 ### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
 
@@ -120,7 +122,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- No immediate new game test is needed: PID 14804 is confirmed passthrough and the user reports smooth movement. Continue offline T-020 probe work; ask for a new game comparison only after a tested candidate exists. The agent does not start or stop the game.
+- The T-020 candidate is ready: 0.7.2 deployed and actual-config smoke passed after game exit. Next-launch settings are probe, resources/hash off, profile_tracker on. The user starts the next same-world comparison; verify settings before measuring. The agent does not start or stop the game. The observed smooth fallback is passthrough.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
