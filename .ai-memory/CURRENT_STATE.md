@@ -1,6 +1,12 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.7.1 (protocol 1), server 0.1.0. Resource-off probe mode still stutters in the game; a 30-second foreground observation retains a 105.000 ms spike and 26 intervals over 50 ms. T-020 remains open. dist/ now prepares passthrough for the next user-started process, sandbox-verified only. T-018's four texture ambiguities are resolved. G2/G3 character-data evidence is for the display scene; open-world rendering/data compatibility remains unverified. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.7.1 (protocol 1), server 0.1.0. The user reports no stutter after restarting into confirmed passthrough (PID 14804). Probe mode still needs repair: resources off previously retained 105 ms host spikes. T-020 is narrowed to work added by probe, not closed or attributed to one routine. dist/ remains passthrough. T-018's four texture ambiguities are resolved. G2/G3 character-data evidence is for the display scene; open-world rendering/data compatibility remains unverified. No mod rendering exists.
+
+## Passthrough comparison: user reports smooth movement (2026-10-12, 13:04 launch)
+
+User-started PID 14804 began at 13:04:17; the log confirms 0.7.1 passthrough/inject at 13:04:19.597, resources and hashing off, Vulkan device created, seven exports redirected. No probe pipe exists. The user reports the stutter is gone. Evidence: captures/pacing-passthrough-20261012/; follow-up in docs/pacing-resources-off-session.md. This is a subjective game result, without a host/GPU/display timing trace. It implicates probe-only work as a group; it does not identify one routine or prove all Vulkan workloads smooth.
+
+Next: inspect and measure remaining probe hot paths in the sandbox, keeping dist/ and the running game in passthrough. Buffer unmap snapshots and record/submit copies are candidates, not confirmed causes. Build any new layer in build/next and run full regression before requesting a new game comparison. No immediate additional restart is needed for offline work.
 
 ## Resources off: spikes persist; passthrough prepared (2026-10-12, 12:57)
 

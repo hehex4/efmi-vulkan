@@ -72,7 +72,7 @@ Done: fully sandbox-verified 0.7.1 diagnostics, actual-config smoke and real-gam
 
 Resource-off comparison, new user-started PID 33204: settings confirmed off, zero tracked images/descriptors/retained shaders, hashing and captures zero. The selected 30.000261-second interval has 300/300 foreground polls, 74 intervals over 33 ms, 26 over 50 ms and a retained peak of 105.000 ms. Excluded earlier background/focus-transition segments. Workload differs across sessions; do not infer that disabling resources worsens performance. See docs/pacing-resources-off-session.md.
 
-Next: same-world movement with mode = passthrough after a user-chosen restart. The cfg is prepared, previous cfg backed up, and actual-config inject smoke passes (546 frames, normal exit, no pipe). Current PID 33204 retains probe mode with resources off. Passthrough removes remaining draw/buffer tracking and the probe service but still includes injection/setup/present accounting; it is not a no-DLL baseline. The next comparison relies on the user's report unless separate timing evidence is available. Cause is not established and no fix is claimed. No automatic game launch or focus change.
+Passthrough comparison: user-started PID 14804 at 13:04:17, log confirms 0.7.1 passthrough/inject and Vulkan device creation; no pipe. The user reports no stutter. This implicates probe-only work as a group, without a timing trace or a proven individual cause. Keep dist/ passthrough while measuring and improving probe buffer/draw paths in the sandbox; build changes in build/next and fully regress before a later user-started comparison.
 
 ### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
 
@@ -120,7 +120,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The next useful T-020 comparison is same-world movement after a user-chosen restart into passthrough. The cfg is prepared and sandbox-verified; current PID 33204 retains probe with resources/image hashing off. Passthrough has no probe pipe, so ask about smoothness without promising host interval collection. The agent does not start or stop the game.
+- No immediate new game test is needed: PID 14804 is confirmed passthrough and the user reports smooth movement. Continue offline T-020 probe work; ask for a new game comparison only after a tested candidate exists. The agent does not start or stop the game.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

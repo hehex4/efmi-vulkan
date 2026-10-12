@@ -65,3 +65,13 @@ movement/smoothness report; do not claim a new host interval trace or automatic 
 If passthrough also stutters, a user-started official-launcher run without this DLL would separate
 the remaining injection/present path from the rest of the Vulkan stack. Nothing changes those
 launcher settings automatically.
+
+## Passthrough game follow-up
+
+The user restarted again (PID 14804, 13:04:17 local) and reports that stutter is gone. The log
+confirms 0.7.1 passthrough/inject at 13:04:19.597 and Vulkan device creation; only seven exports
+are redirected and no probe pipe exists. Evidence: `captures/pacing-passthrough-20261012/`.
+This is the user's movement/smoothness report, without a host or displayed-frame timing trace.
+It implicates the work added by probe mode as a group, not an individual routine. Keep the
+current game configuration while investigating buffer snapshots, copy work and draw recording
+offline. A later tested probe candidate still needs its own game comparison.
