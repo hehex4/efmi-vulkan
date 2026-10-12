@@ -8,7 +8,7 @@ Layer 0.7.3 made those copies eleven times faster by reading write-combined memo
 loads; in the game, with 0.7.4, three of 87,005 present intervals exceeded 33 ms and the user reports
 the stutter gone. A review that blamed the game's mesh pools instead was wrong and is corrected.
 Layer 0.9.0 adds an opt-in [single-component replacement](docs/m2-component-hook.md)
-through the actual draw hook, verified in the GPU sandbox. Full mod rendering and real-character
+through the actual draw hook, verified in the GPU sandbox; 0.9.1 corrects its bone offsets. Full mod rendering and real-character
 replacement are not yet verified. See the [current state](.ai-memory/CURRENT_STATE.md)
 for the deployed package, next-launch configuration and evidence boundaries.
 

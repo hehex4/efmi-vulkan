@@ -54,7 +54,8 @@ static void run_m2(Gpu& g,bool use_rp2)
     const float positions[12]={-.22f,-.2f,0,0, .22f,-.2f,0,0, 0,.22f,0,0};
     const float uv[6]={};
     struct Blend{uint16_t weight[4];uint8_t index[4];};
-    const Blend blends[]={{{65535,0,0,0},{1,0,0,0}},{{65535,0,0,0},{1,0,0,0}},{{65535,0,0,0},{1,0,0,0}}};
+    // Bone zero of the component; the vertex shader reads it one matrix after the offset in the entry.
+    const Blend blends[]={{{65535,0,0,0},{0,0,0,0}},{{65535,0,0,0},{0,0,0,0}},{{65535,0,0,0},{0,0,0,0}}};
     const uint16_t indices[]={0,1,2,0,1,2};
     auto pos=g.buffer(sizeof(positions),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);memcpy(pos.mapped,positions,sizeof(positions));
     auto tex=g.buffer(sizeof(uv),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);memcpy(tex.mapped,uv,sizeof(uv));

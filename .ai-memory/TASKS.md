@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof, not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.0. The exact tested component-7 package/configuration was deployed after user-confirmed normal exit and passed the deployed actual-config smoke. The user requested a pause after configuration; development and collection are paused until an explicit resume. No game result for 0.9.0 exists. See docs/m2-component-hook.md and T-026.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof, not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.1: a review corrected the patched bone offsets (BUG-005, D-032) and deployed the result with the same component-7 configuration; suite and actual-config smoke pass on dist/. The pause the user requested after configuration stands; the next step is a user-started Vulkan session. No game result for 0.9.0 or 0.9.1 exists. See docs/m2-component-hook.md and T-026.
 
 ## Tasks and follow-ups
 
@@ -16,6 +16,8 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 Deployment is complete: backup build/backups/before-0.9.0-20261012-185849/, twelve candidate files hash-verified, deployed actual-config smoke clean (build/deployment-0.9.0.json). Paused at the user's request. After an explicit resume, the next checkpoint is user-started Vulkan observation in display/LOD0 and actual LOD1. Check loaded version, ready/matched/replaced/refusal counters, retained original rendering and animation; live enabled=0/1 affects future recordings. Do not claim full M2: other components, cross-component masters/LOD remaps, texture overrides, several character instances and the image panel remain open. No launcher edit or automatic game start.
 
+Review, 2026-10-12: 0.9.0 would have skinned the replaced component with each next bone's matrix (BUG-005). 0.9.1 corrects the patched offsets and is deployed (build/deployment-0.9.1.json, backup build/backups/before-0.9.1-20261012-191540/). The sandbox vertex shader now addresses bones as the game's does. At the game checkpoint read `status.replacement`: `replaced` should grow while `unsupported`, `unreadable` and `exhausted` stay at zero or are explained by `last_reason`. A capture does not mark replaced draws (LIMIT-020). The mod's index list for component 7 equals the game's, so a correct replacement should look like the original.
+
 ### T-025: Asynchronous variant cache and private draw snapshots (sandbox helpers complete)
 
 The 0.8.3 helper checkpoint adds a bounded worker cache with generation/vertex-declaration keys, cancellation and command-owned ready variants, plus immutable-after-seal per-draw bone/entry storage with full uniform-range padding. Native cache 21, snapshots 25, GPU variant runner 39 and the full suite pass. The real GPU test retires the cache before submit, retains its variant and resubmits sealed commands. Details: docs/m2-cache-and-snapshots.md. Candidate 0.9.0 now supplies actual command-hook ownership/sealing and completed-recording recycling for T-026. Game rendering remains unverified. Dist/ stays 0.8.1.
@@ -23,6 +25,8 @@ The 0.8.3 helper checkpoint adds a bounded worker cache with generation/vertex-d
 ### T-024: CPU rolling-buffer bone import and instance patch (offline helper complete)
 
 Source/candidate 0.8.2 implements the Core-derived CPU path with checked ranges, per-instance/current/previous separation, duplicate LOD remaps, finer-LOD priority and atomic failure. Native 42 and full regression pass. Offline replay of 283 draws across five saved frames matches an independent Python reference after every entry/master update. See docs/m2-bone-import.md and D-030. No captured DX11 compute-output buffer was available, so direct original-output equality and real-character animation are not claimed. GPU snapshots, command-buffer lifetime, pipeline caching and hooking remain T-022/M2 work. Dist/ stays 0.8.1.
+
+Corrected in 0.9.1 (BUG-005, D-032): the patched offsets are one matrix below the first merged bone, `(1533, 3030)` for the sample, as the core's INI, the DX11 baseline and the game's vertex shader agree. The reference of the replay follows; native checks are 43, the replay of 283 draws passes with every entry at that pair and an unchanged master.
 
 ### T-022: Owned pipeline variants and state restoration (M2; recipes and observed LOD1 bone timing captured)
 
@@ -170,7 +174,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The user explicitly paused work after configuration. 0.9.0 is deployed and verified. Wait for an explicit resume before further development or game collection; a later user-started run will test actual replacement rendering. No repeated bone capture or duration-only test is required.
+- The user explicitly paused work after configuration. 0.9.1 is deployed and verified in the sandbox (0.9.0 had BUG-005). Wait for an explicit resume before further development or game collection; a later user-started run will test actual replacement rendering. No repeated bone capture or duration-only test is required.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

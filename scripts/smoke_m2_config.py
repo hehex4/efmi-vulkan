@@ -10,6 +10,14 @@ import time
 ROOT=Path(__file__).resolve().parents[1]
 
 
+def source_version():
+    """The version the source states; the binaries under test have to be built from it."""
+    for line in (ROOT/"layer/src/common.h").read_text(encoding="utf-8").splitlines():
+        if line.startswith("#define EFVK_VERSION"):
+            return line.split('"')[1]
+    raise ValueError("EFVK_VERSION not found")
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dist",type=Path,required=True)
@@ -40,7 +48,7 @@ def main():
             status=client.status()
             while not status["replacement"]["ready"] and time.monotonic()<deadline:
                 time.sleep(.05);status=client.status()
-            assert status["version"]=="0.9.0" and status["entry"]=="inject" and status["mode"]=="probe"
+            assert status["version"]==source_version() and status["entry"]=="inject" and status["mode"]=="probe"
             assert status["resources"] and not status["counts"]["image_content"]["enabled"]
             assert not status["tracker_work"]["enabled"] and status["unmap_snapshot_all"]
             replacement=status["replacement"]

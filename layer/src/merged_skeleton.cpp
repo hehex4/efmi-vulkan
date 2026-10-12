@@ -125,7 +125,11 @@ bool MergedSkeleton::patch_entry(uint32_t instance, const InstanceEntry& input,
     reason.clear();
     if (instance >= instances_) return reject(reason, "invalid instance for entry patch");
     InstanceEntry patched = input;
-    const uint32_t offsets[2] = {rows_for_instance(instance), rows_for_instance(instance) + bones_ * kRowsPerBone};
+    // The offset in an entry names the matrix before bone zero: the game's vertex shaders read bone i
+    // at offset + 3 + 3 * i, which is why the importer above skips one source matrix. The core passes
+    // "$merged_skeleton_offset - 3" to its instance config overrider for the same reason.
+    const uint32_t first = rows_for_instance(instance) - kRowsPerBone;
+    const uint32_t offsets[2] = {first, first + bones_ * kRowsPerBone};
     for (size_t i = 0; i < 2; ++i)
         if (word(input, 80 + i * 4) >= kStaticRows)
             std::memcpy(patched.data() + 80 + i * 4, &offsets[i], sizeof(uint32_t));

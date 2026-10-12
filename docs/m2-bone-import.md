@@ -24,7 +24,13 @@ current-update stamps. The caller supplies this serial; empty present intervals 
 mistaken for complete animation updates. The helper does not decide submission boundaries.
 
 Only the two dynamic bone offsets are patched in the copied instance entry. Flags, translation
-and every other byte are preserved. Bounded component layouts must partition the merged
+and every other byte are preserved. The new offsets are one matrix (three rows) below the
+instance's first merged bone: `1536 + 6 * bones * instance - 3` for the current pose and that plus
+`3 * bones` for the previous one. The game's vertex shaders read bone `i` at
+`offset + 3 + 3 * i`, the same lead matrix that the importer skips on the source side, and the
+core passes `$merged_skeleton_offset - 3` to its instance config overrider (`MergedSkeleton.ini`;
+the subtraction is in the INI, not in the HLSL). Layers 0.8.2 to 0.9.0 wrote the offsets without
+the subtraction; see the correction below. Bounded component layouts must partition the merged
 skeleton. Both source windows, remap length, scale and all consumed floats are checked before
 any master byte or import stamp changes. An invalid import leaves the original draw available.
 An independent copy of `bytes()` remains unchanged by later imports; the GPU integration must
@@ -55,7 +61,30 @@ Full build/regression passes in `build/next`: unit 88, tracker 144, bones 42, re
 variants 37, 17 probe cases 517-532, modes 40, limits 174, timing 126, validation 76,
 MCP 47 and evidence 113. Log: `build/bone-import-regression-20261012.txt`.
 
-The Python reference is derived from the inspected Core HLSL; no saved DX11 compute-output
+## Correction in 0.9.1: the patched offsets were one matrix too high
+
+Found in review on 2026-10-12, before any game process had loaded a layer that replaces draws.
+`patch_entry` wrote `(1536, 1536 + 3 * bones)` for the first instance. Three independent sources
+say `(1533, 3030)` for the 499-bone sample:
+
+- `MergedSkeleton.ini` sets `x0 = $merged_skeleton_offset - 3` for the instance config overrider.
+- The DX11 baseline (`captures/dx11-baseline`, frames `frame-a` and `frame-on`): all 23 vertex
+  instance entries that the core patched hold `(1533, 3030, 258)` in constant 5.
+- The game's Vulkan vertex shader of the component 7 draw (shader 111231 of pipeline 402 in
+  `captures/third-probe`, disassembled): `row = constant5.x + 3 + 3 * blend index`, entry chosen by
+  `gl_InstanceIndex`.
+
+With the old value every vertex would have taken the matrix of the next bone, and the last bone
+of a component a matrix that the per-draw snapshot leaves zero. The tests did not show it because
+they shared the assumption: the native test expected 1536, the Python reference computed the same
+value, and the sandbox vertex shader read `offset + 3 * index` with the original mesh on bone 1.
+The sandbox shader now addresses bones as the game's does and the original mesh uses bone 0; with
+that shader the 0.9.0 layer fails all four GPU configurations, and 0.9.1 passes them. The native
+test also checks the measured DX11 pair. The replay over the five saved frames passes again with
+the corrected reference: all 283 patched entries hold `(1533, 3030)`, the master is unchanged
+(`build/bone-replay-yuopgr1q/report.json`).
+
+The Python reference is derived from the inspected Core HLSL and INI; no saved DX11 compute-output
 buffer was available for a direct output comparison. This result is offline agreement on
 saved game inputs, not original-HLSL GPU execution, live replacement, or animation proof.
 The installed game continues to hold dist/0.8.1.

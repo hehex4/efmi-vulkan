@@ -54,7 +54,11 @@ inline std::vector<uint32_t> shader(bool vertex)
         b.op(Bitcast,{u4,bits,config});b.op(OpCompositeExtract,{tu,current,bits,0});b.op(OpCompositeExtract,{tu,previous,bits,1});
         auto blend=b.id(),bone=b.id(),rows=b.id(),at_current=b.id(),at_previous=b.id();
         b.op(OpLoad,{u4,blend,indices});b.op(OpCompositeExtract,{tu,bone,blend,0});b.op(IMul,{tu,rows,bone,c3});
-        b.op(IAdd,{tu,at_current,current,rows});b.op(IAdd,{tu,at_previous,previous,rows});
+        // As in the game's vertex shaders, row = offset + 3 + 3 * index: the offset in the entry names
+        // the matrix before bone zero (the core's importer skips it, its patch subtracts it).
+        auto first_current=b.id(),first_previous=b.id();
+        b.op(IAdd,{tu,first_current,current,c3});b.op(IAdd,{tu,first_previous,previous,c3});
+        b.op(IAdd,{tu,at_current,first_current,rows});b.op(IAdd,{tu,at_previous,first_previous,rows});
         auto cur=load4(bone_var,at_current),prev=load4(bone_var,at_previous),sum=b.id();b.op(OpFAdd,{v4,sum,cur,prev});
         auto w=b.id(),wx=b.id(),w4=b.id(),weighted=b.id();b.op(OpLoad,{v4,w,weights});b.op(OpCompositeExtract,{tf,wx,w,0});
         b.op(OpCompositeConstruct,{v4,w4,wx,wx,wx,wx});b.op(OpFMul,{v4,weighted,sum,w4});

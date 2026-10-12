@@ -39,7 +39,8 @@ public:
                                       const InstanceEntry&, BoneWindow current, BoneWindow previous,
                                       const std::vector<uint16_t>& remap, float scale,
                                       std::string& reason);
-    // Copies all 256 bytes, replacing only nonstatic x/y offsets of constant 5.
+    // Copies all 256 bytes, replacing only nonstatic x/y offsets of constant 5. The new offsets are
+    // one matrix below the instance's first merged bone, as the vertex shader expects.
     bool patch_entry(uint32_t instance, const InstanceEntry&, InstanceEntry& output,
                      std::string& reason) const;
     const std::vector<uint8_t>& bytes() const { return master_; }

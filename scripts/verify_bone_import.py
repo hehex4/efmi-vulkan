@@ -167,10 +167,13 @@ def verify(layout: dict, records: list[dict], actual: bytes) -> dict:
             imported += 1
         else:
             skipped += 1
+        # MergedSkeleton.ini passes "$merged_skeleton_offset - 3" to the instance config overrider:
+        # the vertex shader reads bone i at offset + 3 + 3 * i. Under DX11 the patched entries of
+        # the 499-bone sample hold (1533, 3030), see docs/dx11-baseline.md.
         expected_entry = bytearray(record["entry"])
         for pose, src_offset in enumerate(offsets):
             if src_offset >= 1536:
-                struct.pack_into("<I", expected_entry, 80+pose*4, dst_base+pose*bones*3)
+                struct.pack_into("<I", expected_entry, 80+pose*4, dst_base+pose*bones*3-3)
         result = struct.unpack_from("<I", actual, at)[0]
         entry = actual[at+4:at+260]
         size = struct.unpack_from("<I", actual, at+260)[0]

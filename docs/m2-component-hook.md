@@ -7,6 +7,11 @@ compatibility. After user-confirmed normal exit, dist/ received the exact tested
 on 2026-10-12 at 18:58. Its actual-config sandbox smoke passes; no game has loaded it.
 The user requested a pause after configuration. Resume only when asked.
 
+0.9.1, deployed on the same day at 19:15 with the same settings, corrects the bone offsets that
+0.9.0 wrote into the patched entry (one matrix too high, see `m2-bone-import.md`). The sandbox
+vertex shader below now reads bones at `offset + 3 + 3 * index`, as the game's shaders do. No
+game process has loaded either version.
+
 ## Fixed sample and conditions
 
 `scripts/package_m2_component.py` reads the installed sample without changing it.

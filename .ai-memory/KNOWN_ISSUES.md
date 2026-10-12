@@ -168,3 +168,13 @@ The 87,005 present intervals with 3 over 33 ms span everything between two statu
 ## ISSUE-007: A wrong attribution was acted on before it was checked (2026-10-12)
 
 The review of the stutter work concluded from per-buffer generation counters that the game's mesh pools were being copied at unmap, changed the copy rule (0.7.4), recorded D-026 and rewrote BUG-004 accordingly. `generation` also counts tracked buffer copies, and the inventory used could not show short-lived staging buffers. The counters added in the same change showed the error in the next game session. Corrected in D-027 and `docs/unmap-snapshots.md`; the code default is restored in 0.7.5. No harm in the game: the wrong rule skipped nothing there.
+
+## BUG-005: The patched bone offsets were one matrix too high (0.8.2 to 0.9.0; fixed in 0.9.1 before any game run)
+
+`MergedSkeleton::patch_entry` wrote the row of the instance's first merged bone into constant 5. The game's vertex shaders read bone `i` at `offset + 3 + 3 * i`, so the entry has to name the matrix before it: the core passes `$merged_skeleton_offset - 3` (in `MergedSkeleton.ini`, not in the HLSL), the DX11 baseline holds `(1533, 3030)` in every patched entry of the 499-bone sample, and the disassembled Vulkan vertex shader of the component 7 draw adds the 3. With 0.9.0 every vertex of a replaced draw would have used the next bone's matrix and the last bone a zero matrix. Found in review on 2026-10-12; 0.9.0 was deployed with the replacement enabled but no game process had loaded it.
+
+Why the suite passed: the native test, the Python reference and the sandbox vertex shader were all written from the same reading (the fixture read `offset + 3 * index` and put its original mesh on bone 1). Now the fixture's shader addresses bones as the game's does, the native test checks the pair measured under DX11, and the reference follows the INI. With the corrected fixture 0.9.0 fails all four GPU configurations. Account: `docs/m2-bone-import.md`. What remains unverified is unchanged: no DX11 compute output was compared and no real character has been drawn.
+
+## LIMIT-020: A capture lists a replaced draw as the application recorded it
+
+With the M2 backend active, `vkCmdDrawIndexed` is recorded for captures before the replacement decision, and the record is not marked. A captured frame therefore shows the original draw (index range, pipeline, bindings) whether or not it reached the driver. Which draws were replaced is known only in total, from `status.replacement` (`matched`, `replaced` and the refusal counters). A per-draw mark would need the layer's own draw to be recorded as well; not built.

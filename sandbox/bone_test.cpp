@@ -66,10 +66,19 @@ static void native_tests()
     check(s.patch_entry(0, in, patched, why), "entry patch succeeds");
     bool unchanged = true;
     for (size_t i = 0; i < in.size(); ++i) if (i < 80 || i >= 88) unchanged &= in[i] == patched[i];
-    check(unchanged && read<uint32_t>(patched.data()+80) == 1536 && read<uint32_t>(patched.data()+84) == 1551,
+    // The patched offsets name the matrix before merged bone zero: the vertex shader adds one matrix.
+    check(unchanged && read<uint32_t>(patched.data()+80) == 1533 && read<uint32_t>(patched.data()+84) == 1548,
           "only dynamic bone offsets changed; flags and all other entry bytes retained");
-    check(s.patch_entry(1, in, in, why) && read<uint32_t>(in.data()+80) == 1566 && read<uint32_t>(in.data()+84) == 1581,
+    check(s.patch_entry(1, in, in, why) && read<uint32_t>(in.data()+80) == 1563 && read<uint32_t>(in.data()+84) == 1578,
           "in-place patch supports nonzero instance");
+    {
+        // Measured under DX11 with the core active: every entry of the 499-bone sample that the core
+        // patched holds (1533, 3030) in constant 5 (docs/dx11-baseline.md).
+        MergedSkeleton sample; InstanceEntry measured;
+        check(sample.configure(499, 8, {{0,499}}, why) && sample.patch_entry(0, entry(), measured, why) &&
+              read<uint32_t>(measured.data()+80) == 1533 && read<uint32_t>(measured.data()+84) == 3030,
+              "patched offsets equal the values the core wrote under DX11");
+    }
     in = entry();
     auto saved = s.bytes();
     check(s.import_component(0,0,1,in,{}, {},{},1,why) == BoneImportResult::AlreadyCurrent && s.bytes() == saved,
@@ -116,7 +125,7 @@ static void native_tests()
     check(s.import_component(0,1,0,mixed,{},view(prev),{},-1,why) == BoneImportResult::Imported &&
           bone(s,0,0,3) == 0 && bone(s,0,1,3) == -116, "1536 threshold and independent pose import");
     check(s.patch_entry(1,mixed,patched,why) && read<uint32_t>(patched.data()+80) == 1535 &&
-          read<uint32_t>(patched.data()+84) == 1581, "mixed static/dynamic offset patch");
+          read<uint32_t>(patched.data()+84) == 1578, "mixed static/dynamic offset patch");
     check(frozen != s.bytes() && read<float>(frozen.data() + 1536 * 16 + (5+3)*48) == 0,
           "copied snapshot is independent of later master writes");
     // Source pointers can be unaligned. Only consumed matrices must be finite.
