@@ -1,8 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Source/candidate 0.8.1 passes the full suite and actual-config smoke in build/next; dist/ and user-started PID 17484 still use 0.8.0. Full matched display/LOD0/LOD1 pipeline recipes are captured and pass CPU preflight; no game replacement is enabled. LOD1 color-pass bone snapshots need the new opt-in wait through empty present intervals after user exit/deployment/relaunch. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, 17:36. Layer 0.8.1 is deployed to dist/ after the user's normal game exit; full candidate regression and candidate/deployed actual-config smokes pass. No 0.8.1 game run yet. Full matched display/LOD0/LOD1 pipeline recipes are captured from 0.8.0 and pass CPU preflight; no game replacement is enabled. Next user-started LOD1 session supplies color-pass bone snapshots with the new wait through empty present intervals. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Protocol 1, server 0.1.0.
 
-## 0.8.1 capture-window fix: candidate verified, deployment waits for game exit
+## 0.8.1 deployed after normal exit (2026-10-12, 17:36)
+
+The user reported normal exit; game absence was checked before backup and again before copying. Backed up old dist/ files to build/backups/before-0.8.1-20261012-173645/. Copied the eight exact tested package files and verified every SHA-256 against build/next; both DLLs are 7e311a9f9f358aa50d90c579abfc1384877a8b391aea8ef886d1e87a90ba50d7. Manifest: build/deployment-0.8.1.json. Deployed actual-config inject smoke passes (build/capture-wait-actual-config-dist.json), including the new snapshot wait, five correct hashes before/after rewrite, full recipe and unchanged actual game log. No rebuild in dist/ and no repeated full suite was needed for byte-identical files.
+
+Settings remain probe, resources on, image hashing/profiling off; full unmap/WC defaults retained. No launcher change or game launch. Next requires the user to enter the actual LOD1 state again, then collect with --wait-draws --snapshot mod --follow instance --require-section '*_LOD1' --require-color --attempts 8 --pipeline-limit 128. The recipes and scene corrections from this round are already saved. No LOD0 recapture or duration-only test; LOD1 color-pass bone timing and game effectiveness of the capture fix are still open.
+
+## 0.8.1 capture-window fix: candidate verification before the deployment above
 
 T-023/D-029: capture(wait_draws=True) retains record-time snapshot work across empty present intervals, returns one interval containing draw commands, and reports how many empty intervals were skipped. It does not merge interval contents/statistics, change normal tracking or enable replacements. Default capture remains unchanged; original timeout stops pending snapshot work. Older layers are explicitly refused for the new option. CLI supports --wait-draws; the MCP wrapper does not yet expose it.
 

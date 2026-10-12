@@ -101,6 +101,12 @@ Both candidate DLLs SHA-256: `7e311a9f9f358aa50d90c579abfc1384877a8b391aea8ef886
 No deployment while PID 17484 holds the original DLL. The LOD1 snapshot result remains pending a
 new user-started session after deployment; successful sandbox waiting does not supply the game data.
 
+Deployment followed at 17:36 after the user reported normal exit and process absence was checked
+twice. Backup: `build/backups/before-0.8.1-20261012-173645/`; manifest: `build/deployment-0.8.1.json`.
+All eight deployed files match the tested candidate. The deployed actual-config smoke passes too
+(`build/capture-wait-actual-config-dist.json`), including a real-path game-log hash check. The settings
+are unchanged. No 0.8.1 game run yet; next observation is the actual LOD1 state, with --wait-draws.
+
 ## Correction to the earlier deployment smoke record
 
 The temporary `build/m2_actual_config_smoke.py` used `dist/efmi_vk.log`, not the actual
