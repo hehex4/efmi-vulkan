@@ -6,13 +6,15 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.1. The user resumed and the display session proves the component-7 backend emits replacement draws; visual/animation acceptance remains open. The user confirmed voluntary exit and requests whole-character support through shared logic. Continue offline T-027; do not wait on the superseded configuration pause. See docs/m2-first-replacement.md.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.9.2 with shared backend operations verified; dist remains 0.9.1. The user resumed and the display session proves the component-7 backend emits replacement draws; visual/animation acceptance remains open. The user confirmed voluntary exit and requests whole-character support through shared logic. Continue offline T-027; do not wait on the superseded configuration pause. See docs/m2-first-replacement.md and docs/general-replacement-operations.md.
 
 ## Tasks and follow-ups
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
 
 User direction: whole character support, not handwritten adapters per component. Reuse the pipeline cache, VS isolation, bone importer, command-owned storage and restoration. Introduce component/LOD/resource/draw data as input to shared backend operations; integrate the hosted XXMI frontend under D-016 rather than treating an asset packer as an INI engine. Cross-component skeleton completeness, material descriptors, multi-instance identity, conditionals/keys/reload and the image panel need explicit coverage. All existing captures can be used offline. The next user game check should show a substantial visual change, not ask the user to inspect the tiny component-7 mesh. See D-033.
+
+0.9.2 checkpoint: shared stream-contract editor and ordered draw transactions are implemented and used by the old component hook. Full suite passes in build/next; native recipes 134, mesh/declarations 49. GPU readback covers two resolved draws, atomic rejection of a later invalid item, original-state restoration and sealed resubmission. No component branches or INI execution; no deployment. See docs/general-replacement-operations.md. Continue frontend/resource/shared-skeleton/material integration.
 
 ### T-026: One self-contained component through the draw hook (sandbox complete; game execution observed)
 

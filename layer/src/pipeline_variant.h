@@ -1,4 +1,4 @@
-// A sandbox-tested M2 building block. Probe mode never requests or emits these variants.
+// Shared pipeline variants and draw transactions; the optional M2 backend uses this path.
 #pragma once
 
 #include "pipeline_recipe.h"
@@ -57,6 +57,21 @@ struct IndexedDraw {
     uint32_t count = 0, instances = 1, first = 0, first_instance = 0;
     int32_t vertex_offset = 0;
 };
+
+struct VariantDraw {
+    // Caller retains every object through completion of the recorded command buffer.
+    const PipelineVariant* variant = nullptr;
+    VkDescriptorSet own = VK_NULL_HANDLE;
+    uint32_t instance_offset = 0;
+    const DrawGeometry* geometry = nullptr;
+    IndexedDraw draw;
+};
+
+// Executes one frontend-resolved transaction. Validate the whole bounded sequence before
+// emitting anything, then restore the application once. Empty sequences are intentional skips.
+// No resource creation, allocation, INI evaluation or component-specific dispatch here.
+bool emit_variant_draws(const VariantDispatch&, VkCommandBuffer, const VariantDraw*, size_t count,
+                        VkPipeline original_pipeline, const DrawGeometry& original);
 
 // No commands on failure. Leaves sets 0..own_set-1 and dynamic state untouched; restores every
 // pipeline/vertex/index binding it changes. Texture patches and indirect draws are not supported.

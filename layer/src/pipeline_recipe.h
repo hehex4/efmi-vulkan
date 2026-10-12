@@ -50,6 +50,23 @@ struct VertexInputRecipe {
     std::vector<VkVertexInputAttributeDescription> attributes;
 };
 
+// Frontend-supplied stream contracts. Locations stay those of the application's shader;
+// matching uses the original byte offset/format, never a component number or shader hash.
+struct VertexElementPatch {
+    uint32_t source_offset = 0;
+    VkFormat source_format = VK_FORMAT_UNDEFINED;
+    uint32_t offset = 0;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+};
+struct VertexStreamPatch {
+    uint32_t binding = 0, source_stride = 0, stride = 0;
+    std::vector<VertexElementPatch> elements;
+};
+// Every element in a replaced stream must be explicitly covered. Unreplaced streams,
+// including stride-zero application defaults, survive unchanged. Failure is atomic.
+bool patch_vertex_streams(const VertexInputRecipe&, const std::vector<VertexStreamPatch>&,
+                          VertexInputRecipe& output, std::string& reason);
+
 struct GraphicsRecipe {
     bool complete = false;
     std::string reason;

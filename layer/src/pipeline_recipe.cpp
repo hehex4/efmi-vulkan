@@ -5,6 +5,78 @@
 
 namespace efvk {
 
+static uint32_t vertex_format_bytes(VkFormat format)
+{
+    switch (format) {
+    case VK_FORMAT_R8_UNORM: case VK_FORMAT_R8_SNORM: case VK_FORMAT_R8_UINT: case VK_FORMAT_R8_SINT: return 1;
+    case VK_FORMAT_R8G8_UNORM: case VK_FORMAT_R8G8_SNORM: case VK_FORMAT_R8G8_UINT: case VK_FORMAT_R8G8_SINT:
+    case VK_FORMAT_R16_UNORM: case VK_FORMAT_R16_SNORM: case VK_FORMAT_R16_UINT: case VK_FORMAT_R16_SINT:
+    case VK_FORMAT_R16_SFLOAT: return 2;
+    case VK_FORMAT_R8G8B8A8_UNORM: case VK_FORMAT_R8G8B8A8_SNORM: case VK_FORMAT_R8G8B8A8_UINT: case VK_FORMAT_R8G8B8A8_SINT:
+    case VK_FORMAT_R16G16_UNORM: case VK_FORMAT_R16G16_SNORM: case VK_FORMAT_R16G16_UINT: case VK_FORMAT_R16G16_SINT:
+    case VK_FORMAT_R16G16_SFLOAT: case VK_FORMAT_R32_SFLOAT: case VK_FORMAT_R32_UINT: case VK_FORMAT_R32_SINT:
+    case VK_FORMAT_A2B10G10R10_UNORM_PACK32: case VK_FORMAT_A2B10G10R10_UINT_PACK32: return 4;
+    case VK_FORMAT_R16G16B16A16_UNORM: case VK_FORMAT_R16G16B16A16_SNORM: case VK_FORMAT_R16G16B16A16_UINT:
+    case VK_FORMAT_R16G16B16A16_SINT: case VK_FORMAT_R16G16B16A16_SFLOAT:
+    case VK_FORMAT_R32G32_SFLOAT: case VK_FORMAT_R32G32_UINT: case VK_FORMAT_R32G32_SINT: return 8;
+    case VK_FORMAT_R32G32B32_SFLOAT: case VK_FORMAT_R32G32B32_UINT: case VK_FORMAT_R32G32B32_SINT: return 12;
+    case VK_FORMAT_R32G32B32A32_SFLOAT: case VK_FORMAT_R32G32B32A32_UINT: case VK_FORMAT_R32G32B32A32_SINT: return 16;
+    default: return 0;
+    }
+}
+
+bool patch_vertex_streams(const VertexInputRecipe& source, const std::vector<VertexStreamPatch>& patches,
+                          VertexInputRecipe& output, std::string& reason)
+{
+    reason.clear();
+    auto fail = [&](const char* text) { reason = text; return false; };
+    if (source.bindings.size() > 256 || source.attributes.size() > 256 || patches.size() > 256)
+        return fail("vertex declaration budget exceeded");
+    // Validate uniqueness even for preserved streams, before building any replacement.
+    for (size_t i = 0; i < source.bindings.size(); ++i)
+        for (size_t j = 0; j < i; ++j)
+            if (source.bindings[i].binding == source.bindings[j].binding) return fail("duplicate source binding");
+    for (size_t i = 0; i < source.attributes.size(); ++i) {
+        for (size_t j = 0; j < i; ++j)
+            if (source.attributes[i].location == source.attributes[j].location) return fail("duplicate source location");
+        if (std::none_of(source.bindings.begin(), source.bindings.end(), [&](const auto& b) {
+                return b.binding == source.attributes[i].binding; })) return fail("source attribute binding missing");
+    }
+    auto next = source;
+    for (size_t i = 0; i < patches.size(); ++i) {
+        const auto& p = patches[i];
+        for (size_t j = 0; j < i; ++j)
+            if (p.binding == patches[j].binding) return fail("duplicate stream patch");
+        auto b = std::find_if(next.bindings.begin(), next.bindings.end(), [&](const auto& v) { return v.binding == p.binding; });
+        if (b == next.bindings.end() || b->stride != p.source_stride || b->inputRate != VK_VERTEX_INPUT_RATE_VERTEX)
+            return fail("source stream does not match contract");
+        if (!p.source_stride || !p.stride || p.stride > 2048 || p.elements.size() > 256)
+            return fail("unsupported replacement stream dimensions");
+        for (size_t j = 0; j < p.elements.size(); ++j) {
+            const auto& e = p.elements[j];
+            for (size_t k = 0; k < j; ++k)
+                if (e.source_offset == p.elements[k].source_offset && e.source_format == p.elements[k].source_format)
+                    return fail("ambiguous element patch");
+            uint32_t from_bytes = vertex_format_bytes(e.source_format), to_bytes = vertex_format_bytes(e.format);
+            if (!from_bytes || !to_bytes || uint64_t(e.source_offset) + from_bytes > p.source_stride ||
+                uint64_t(e.offset) + to_bytes > p.stride) return fail("unsupported format or element outside stream");
+            if (std::none_of(source.attributes.begin(), source.attributes.end(), [&](const auto& a) {
+                    return a.binding == p.binding && a.offset == e.source_offset && a.format == e.source_format; }))
+                return fail("element patch has no source attribute");
+        }
+        for (auto& a : next.attributes) {
+            if (a.binding != p.binding) continue;
+            auto e = std::find_if(p.elements.begin(), p.elements.end(), [&](const auto& v) {
+                return v.source_offset == a.offset && v.source_format == a.format; });
+            if (e == p.elements.end()) return fail("source element is not covered by stream contract");
+            a.offset = e->offset; a.format = e->format;
+        }
+        b->stride = p.stride;
+    }
+    output = std::move(next);
+    return true;
+}
+
 namespace {
 // These are retention limits, not Vulkan limits. Larger valid objects keep working unchanged.
 constexpr uint32_t kMaxAttachments = 256, kMaxSubpasses = 256, kMaxDependencies = 4096;

@@ -372,3 +372,22 @@ using general logic, not separate per-component code. Recorded D-033/T-027. The 
 voluntary exit after the pipe disappeared. No launch/stop, runtime toggle, deployment or
 external write occurred. Details: docs/m2-first-replacement.md. Continue offline development;
 the earlier pause is superseded, and visual/animation acceptance remains open.
+
+## 2026-10-12: General stream contracts and ordered draw transactions, 0.9.2
+
+Added shared backend inputs for vertex stream stride/element mappings and an ordered list of
+resolved replacement draws. The old component-7 declaration/emitter now use the shared paths;
+no component-number or sample-hash dispatch was added. Every changed stream element is checked
+against an explicit source contract, untouched default streams are retained, and failures leave
+the output unchanged. The emitter validates the entire bounded list before issuing anything,
+supports an intentional empty skip and restores the application once after all selected ranges.
+
+Full build and suite pass in build/next (build/general-draw-0.9.2-regression.txt): recipes 134,
+mesh/declarations 49, other suite counts unchanged. Native fixtures cover six UV/blend layout
+combinations on arbitrary bindings; command tracing checks ranges, signed base vertices,
+instance arguments and restoration. GPU readback proves two distinct replacement entries,
+no partial draw on a later invalid item, unchanged FS data, original next draw and sealed
+resubmission under clean core/sync validation in both render-pass versions and layer entries.
+Source/build/next are 0.9.2; dist is unchanged at 0.9.1. No game action or full-mod compatibility
+claim. Details: docs/general-replacement-operations.md. Continue T-027's frontend, resource,
+shared-skeleton and material integration using these data inputs.

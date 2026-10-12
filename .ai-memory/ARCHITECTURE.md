@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. Source/dist 0.9.1 (0.9.0 plus the corrected bone offsets, BUG-005) add an opt-in component replacement to the development probe. Deployed sandbox verification passes; actual LOD1 data came from the earlier 0.8.1 game session. Protocol 1, server 0.1.0. Resource inspection is in `docs/probe-resources.md`, snapshots/waiting in `docs/probe-snapshots.md`, owned variants in `docs/m2-pipeline-variants.md`, and the hooked M2 path in `docs/m2-component-hook.md`. Game record-time availability is verified; real-character replacement is not.
+The target product architecture is in `docs/plan.md`, section 4. Source/build/next are 0.9.2; dist remains 0.9.1. The optional component-7 hook emitted replacements in a user-started display session; appearance/animation are not accepted. 0.9.2 adds shared stream contracts and ordered draw transactions (`docs/general-replacement-operations.md`) with full sandbox verification, not deployment. Protocol 1, server 0.1.0. Resource inspection is in `docs/probe-resources.md`, snapshots/waiting in `docs/probe-snapshots.md`, owned variants in `docs/m2-pipeline-variants.md`, and the hooked M2 path in `docs/m2-component-hook.md`. D-016/D-033 retain frontend-driven component data; no complete INI engine or whole-mod runtime exists yet.
 
 ## Data path of the development probe
 

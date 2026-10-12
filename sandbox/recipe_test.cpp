@@ -207,6 +207,63 @@ static void tracked_lifetime_tests()
     g_cfg.track_resources = saved;
 }
 
+struct Emitted {
+    char op; uintptr_t handle=0; uint32_t count=0,first=0,instances=0,first_instance=0; int32_t vertex_offset=0;
+};
+static std::vector<Emitted> emitted;
+static VKAPI_ATTR void VKAPI_CALL bind_pipeline(VkCommandBuffer,VkPipelineBindPoint,VkPipeline p)
+{ emitted.push_back({'p',reinterpret_cast<uintptr_t>(p)}); }
+static VKAPI_ATTR void VKAPI_CALL bind_vertices(VkCommandBuffer,uint32_t first,uint32_t count,const VkBuffer* b,const VkDeviceSize*)
+{ emitted.push_back({'v',reinterpret_cast<uintptr_t>(b[0]),count,first}); }
+static VKAPI_ATTR void VKAPI_CALL bind_indices(VkCommandBuffer,VkBuffer b,VkDeviceSize,VkIndexType)
+{ emitted.push_back({'i',reinterpret_cast<uintptr_t>(b)}); }
+static VKAPI_ATTR void VKAPI_CALL bind_sets(VkCommandBuffer,VkPipelineBindPoint,VkPipelineLayout,uint32_t first,
+    uint32_t count,const VkDescriptorSet* sets,uint32_t,const uint32_t* offsets)
+{ emitted.push_back({'s',reinterpret_cast<uintptr_t>(sets[0]),count,first,offsets[0]}); }
+static VKAPI_ATTR void VKAPI_CALL emit_indexed(VkCommandBuffer,uint32_t count,uint32_t instances,uint32_t first,
+    int32_t offset,uint32_t first_instance)
+{ emitted.push_back({'d',0,count,first,instances,first_instance,offset}); }
+
+static void draw_sequence_tests()
+{
+    VariantDispatch d;d.CmdBindPipeline=bind_pipeline;d.CmdBindVertexBuffers=bind_vertices;
+    d.CmdBindIndexBuffer=bind_indices;d.CmdBindDescriptorSets=bind_sets;d.CmdDrawIndexed=emit_indexed;
+    PipelineVariant variant(h<VkDevice>(1),d);
+    variant.pipeline=h<VkPipeline>(2);variant.layout=h<VkPipelineLayout>(3);variant.own_set=3;
+    const auto cmd=h<VkCommandBuffer>(4);const auto original_pipe=h<VkPipeline>(5);
+    DrawGeometry original={2,{h<VkBuffer>(6),h<VkBuffer>(7)},{32,48},h<VkBuffer>(8),16,VK_INDEX_TYPE_UINT16};
+    DrawGeometry replacement={2,{h<VkBuffer>(9),h<VkBuffer>(10)},{64,80},h<VkBuffer>(11),32,VK_INDEX_TYPE_UINT32};
+    DrawGeometry other=replacement;other.index=h<VkBuffer>(12);other.buffers[0]=h<VkBuffer>(13);
+    VariantDraw items[]={{&variant,h<VkDescriptorSet>(14),256,&replacement,{3,1,17,0,-2}},
+                         {&variant,h<VkDescriptorSet>(15),512,&other,{9,2,31,6,4}}};
+    auto reject=[&](const VariantDraw* draws,size_t count,const char* label){
+        emitted.clear();check(!emit_variant_draws(d,cmd,draws,count,original_pipe,original) && emitted.empty(),label);
+    };
+    auto saved=items[1];items[1].own=VK_NULL_HANDLE;reject(items,2,"late missing descriptor rejects without any binding or drawing");
+    items[1]=saved;items[1].variant=nullptr;reject(items,2,"late pending pipeline rejects entire sequence");
+    items[1]=saved;items[1].draw.count=0;reject(items,2,"zero-count item must be removed by frontend before transaction");
+    items[1]=saved;other.first_binding=0;reject(items,2,"all modified binding ranges must be restorable");other.first_binding=2;
+    reject(nullptr,1,"null sequence rejected");reject(items,257,"sequence budget checked before dereferencing extra items");
+    items[1]=saved;emitted.clear();
+    check(emit_variant_draws(d,cmd,items,2,original_pipe,original) && emitted.size()==13,"two items and one final restore emitted");
+    if(emitted.size()==13){
+        check(emitted[4].op=='d' && emitted[4].count==3 && emitted[4].first==17 && emitted[4].vertex_offset==-2,
+              "first range and negative base vertex preserved");
+        check(emitted[9].op=='d' && emitted[9].count==9 && emitted[9].first==31 && emitted[9].instances==2 &&
+              emitted[9].first_instance==6 && emitted[9].vertex_offset==4,"second independent range and instance arguments preserved");
+        check(emitted[8].op=='s' && emitted[8].handle==15 && emitted[8].instances==512 && emitted[8].first==3,
+              "private descriptor and dynamic offset can differ between items");
+        check(emitted[6].handle==13 && emitted[7].handle==12,"geometry can change between frontend-resolved draws");
+        check(emitted[10].op=='p' && emitted[10].handle==5 && emitted[11].op=='v' && emitted[11].handle==6 &&
+              emitted[12].op=='i' && emitted[12].handle==8,"application pipeline and geometry restored once after all draws");
+    }
+    emitted.clear();
+    check(emit_variant_draws(d,cmd,nullptr,0,original_pipe,original) && emitted.empty(),"explicit empty transaction skips without state changes");
+    d.CmdDrawIndexed=nullptr;reject(items,2,"incomplete dispatch rejected before binding");
+    // These are nonowned test handles, not objects allocated by PipelineVariant::build.
+    variant.pipeline=VK_NULL_HANDLE;variant.layout=VK_NULL_HANDLE;
+}
+
 int main(int argc, char** argv)
 {
     // Cross-check the production rewriter on previously exported, local SPIR-V modules.
@@ -225,7 +282,7 @@ int main(int argc, char** argv)
         return output ? 0 : 2;
     }
     util_init(GetModuleHandleW(nullptr));
-    rewrite_tests(); ownership_tests(); ignored_pointer_tests(); tracked_lifetime_tests();
+    rewrite_tests(); ownership_tests(); ignored_pointer_tests(); tracked_lifetime_tests(); draw_sequence_tests();
     printf("recipe_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

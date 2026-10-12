@@ -266,8 +266,9 @@ static void run(Gpu& g, bool use_rp2)
     struct ModVertex { float pos[2]; uint16_t blend[4]; };
     static_assert(sizeof(OriginalVertex) == 12 && sizeof(ModVertex) == 16, "fixture vertex strides");
     const OriginalVertex ov[] = {{{-.22f, -.2f}, {1, 0, 0, 0}}, {{.22f, -.2f}, {1, 0, 0, 0}}, {{0, .22f}, {1, 0, 0, 0}}};
-    const ModVertex mv[] = {{{-.22f, -.2f}, {257, 0, 0, 0}}, {{.22f, -.2f}, {257, 0, 0, 0}}, {{0, .22f}, {257, 0, 0, 0}}};
-    const uint16_t oi[] = {0, 1, 2}; const uint32_t mi[] = {0, 1, 2};
+    const ModVertex mv[] = {{{-.22f, -.2f}, {257, 0, 0, 0}}, {{.22f, -.2f}, {257, 0, 0, 0}}, {{0, .22f}, {257, 0, 0, 0}},
+                           {{-.22f, -.2f}, {257, 0, 0, 0}}, {{.22f, -.2f}, {257, 0, 0, 0}}, {{0, .22f}, {257, 0, 0, 0}}};
+    const uint16_t oi[] = {0, 1, 2}; const uint32_t mi[] = {0, 1, 2, 0, 1, 2};
     Buffer original_vb = g.buffer(sizeof(ov), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT); memcpy(original_vb.mapped, ov, sizeof(ov));
     Buffer mod_vb = g.buffer(sizeof(mv), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT); memcpy(mod_vb.mapped, mv, sizeof(mv));
     Buffer original_ib = g.buffer(sizeof(oi) + 16, VK_BUFFER_USAGE_INDEX_BUFFER_BIT); memcpy(static_cast<char*>(original_ib.mapped) + 16, oi, sizeof(oi));
@@ -293,15 +294,19 @@ static void run(Gpu& g, bool use_rp2)
     EFVK_SNAPSHOT_FUNCS(X)
 #undef X
     DrawSnapshots snapshots(g.device, snapshot_dispatch);
-    check(snapshots.create(g.memory, g.properties.limits, 2, static_cast<uint32_t>(own_bones.size())),
+    check(snapshots.create(g.memory, g.properties.limits, 3, static_cast<uint32_t>(own_bones.size())),
           "private snapshot storage with full 64 KiB uniform ranges created");
     if (!snapshots.size()) throw std::runtime_error(snapshots.reason);
-    SnapshotSlot bad_slot, good_slot;
+    SnapshotSlot bad_slot, good_slot, second_slot;
     check(!snapshots.append({},own_instance,bad_slot) && snapshots.used()==0, "wrong bone size does not consume a slot");
-    auto wrong_instance=own_instance; float outside=10; memcpy(wrong_instance.data(),&outside,4);
+    auto wrong_instance=own_instance;float failed_x=-.5f,failed_y=-.35f;
+    memcpy(wrong_instance.data(),&failed_x,4);memcpy(wrong_instance.data()+4,&failed_y,4);
     check(snapshots.append(own_bones,wrong_instance,bad_slot) && snapshots.append(own_bones,own_instance,good_slot),
           "each recorded draw gets a separate bone and entry slice");
-    check(good_slot.offset>=256 && snapshots.used()==2, "last snapshot has a nonzero aligned dynamic offset");
+    auto second_instance=own_instance;float second_x=-1;memcpy(second_instance.data(),&second_x,4);
+    check(snapshots.append(own_bones,second_instance,second_slot), "second replacement uses its own entry");
+    check(second_slot.offset>good_slot.offset && good_slot.offset>=256 && snapshots.used()==3,
+          "replacement entries use distinct nonzero dynamic offsets");
     check(!snapshots.append(own_bones,own_instance,bad_slot), "full snapshot storage leaves original draw available");
     snapshots.seal();
     check(!snapshots.append(own_bones,own_instance,bad_slot) &&
@@ -349,8 +354,17 @@ static void run(Gpu& g, bool use_rp2)
     // No-op failure is followed by the real transaction, then an app draw with no state rebound.
     check(!emit_variant_draw(dispatch, cmd, variant, VK_NULL_HANDLE, offset, replacement, draw, g.pipeline, original),
           "unready transaction emits nothing");
-    check(emit_variant_draw(dispatch, cmd, variant, good_slot.set, good_slot.offset, replacement, draw, g.pipeline, original),
-          "ready replacement draw emitted");
+    VariantDraw sequence[]={{&variant,good_slot.set,good_slot.offset,&replacement,draw},
+                            {&variant,second_slot.set,second_slot.offset,&replacement,draw}};
+    sequence[1].draw.first=3;sequence[1].draw.vertex_offset=3;
+    // If the emitter draws the first item before rejecting the second, this writes an extra
+    // visible triangle. Move it away from both valid draws so depth cannot hide the defect.
+    auto invalid=sequence[0];invalid.own=VK_NULL_HANDLE;
+    auto poison=sequence[0];poison.own=bad_slot.set;poison.instance_offset=bad_slot.offset;
+    VariantDraw rejected[]={poison,invalid};
+    check(!emit_variant_draws(dispatch,cmd,rejected,2,g.pipeline,original), "late failure rejects the entire draw sequence");
+    check(emit_variant_draws(dispatch,cmd,nullptr,0,g.pipeline,original), "resolved empty draw sequence is an intentional skip");
+    check(emit_variant_draws(dispatch,cmd,sequence,2,g.pipeline,original), "multiple resolved ranges emitted by one transaction");
     vkCmdDrawIndexed(cmd, 3, 1, 0, 0, 0);
     vkCmdEndRenderPass(cmd);
     VkBufferImageCopy copy = {}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; copy.imageExtent = {64, 64, 1};
@@ -372,6 +386,8 @@ static void run(Gpu& g, bool use_rp2)
                      p[0] == 0 && p[1] == 0 && p[2] == 255 && p[3] == 255, label);
     };
     pixel(48, 42, true, "mod geometry moved by both own buffers, original fragment data and blending");
+    pixel(16, 42, true, "second range uses its first index, vertex offset and private instance entry");
+    pixel(32, 19, false, "rejected transaction did not emit its valid first item");
     pixel(16, 19, true, "next draw restores original pipeline, VB, IB, sets and dynamic offsets");
     pixel(32, 32, false, "background outside both draws");
     FILE* file = nullptr; fopen_s(&file, "pixels.rgba", "wb");

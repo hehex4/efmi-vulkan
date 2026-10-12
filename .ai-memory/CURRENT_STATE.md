@@ -1,6 +1,12 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12, after the first 0.9.1 replacement observation. Source/build/next/dist remain 0.9.1. The user resumed, entered the character display, and later confirmed voluntary exit. The live backend replaced component-7 draws; appearance and animation are not accepted. The user requests the whole character mod through general replacement logic, without separate handwritten component implementations. Continue offline development (T-027, D-033). Dist retains the component-7 settings. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, general replacement operations verified. Source/build/next are 0.9.2; dist remains 0.9.1 with component 7 enabled. Shared declaration editing and ordered draw transactions pass the full sandbox suite. The user resumed, entered the character display, and later confirmed voluntary exit. The live 0.9.1 backend replaced component-7 draws; appearance and animation are not accepted. The user requests the whole character mod through general logic. Continue offline T-027/D-033; no separate handwritten component implementations. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+
+## 0.9.2 shared declaration editing and draw transactions (sandbox only)
+
+Added data-driven stream contracts (original/replacement stride and element offset/format) and ordered multi-draw transactions. The legacy M2 package delegates to these operations; its restrictive eligibility and configuration are unchanged. Contracts preserve shader locations and untouched streams, and reject incomplete/ambiguous mappings atomically. Transactions preflight all resolved items before emitting anything, allow an intentional empty skip, and restore the application's bindings once after all draws. No component identifiers are used by either operation.
+
+Full build/suite passes in build/next: unit 88, tracker 144, bones 43, recipes 134, cache 21, snapshots 25, mesh/declarations 49, variants 39, M2 hook 45, probes 517-532, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 113. Log: build/general-draw-0.9.2-regression.txt. The GPU fixture renders two private ranges and the original next draw, rejects an entire partly ready transaction with pixel proof, and resubmits sealed storage under clean core/sync validation. Details: docs/general-replacement-operations.md. No deployment or new game request; frontend/shared character skeleton/material integration remains open.
 
 ## 0.9.1 first game replacement and direction for general mod support
 

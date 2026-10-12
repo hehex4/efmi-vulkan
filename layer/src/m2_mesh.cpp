@@ -55,24 +55,28 @@ bool M2Mesh::decode(const std::vector<uint8_t>& data,std::string& reason)
 }
 bool M2Mesh::vertex_input(const VertexInputRecipe& source,VertexInputRecipe& output,std::string& reason)const
 {
-    auto next=source;reason.clear();
+    reason.clear();
     bool bindings[4]={},weights=false,indices_attr=false;
     const uint32_t strides[]={16,8,12,16};
-    for(auto& b:next.bindings){
+    for(const auto& b:source.bindings){
         if(b.binding>=4)continue; // Preserve application default attributes outside the replaced streams.
         if(bindings[b.binding] || b.inputRate!=VK_VERTEX_INPUT_RATE_VERTEX || b.stride!=strides[b.binding]){
             reason="unsupported original vertex stream";return false;
         }
-        bindings[b.binding]=true;if(b.binding==2)b.stride=16;
+        bindings[b.binding]=true;
     }
     if(!bindings[0] || !bindings[1] || !bindings[2] || !bindings[3]){reason="required original streams missing";return false;}
-    for(auto& a:next.attributes){
+    for(const auto& a:source.attributes){
         if(a.binding!=2)continue;
         if(a.offset==0 && a.format==VK_FORMAT_R16G16B16A16_UNORM && !weights)weights=true;
-        else if(a.offset==8 && a.format==VK_FORMAT_R8G8B8A8_UINT && !indices_attr){a.format=VK_FORMAT_R16G16B16A16_UINT;indices_attr=true;}
+        else if(a.offset==8 && a.format==VK_FORMAT_R8G8B8A8_UINT && !indices_attr)indices_attr=true;
         else{reason="unsupported original blend attribute";return false;}
     }
     if(!weights || !indices_attr){reason="required blend attributes missing";return false;}
-    output=std::move(next);return true;
+    // The legacy package retains its narrow eligibility rules; declaration editing is shared
+    // with future frontend-generated contracts for any component and LOD.
+    return patch_vertex_streams(source, {{2,12,16,{
+        {0,VK_FORMAT_R16G16B16A16_UNORM,0,VK_FORMAT_R16G16B16A16_UNORM},
+        {8,VK_FORMAT_R8G8B8A8_UINT,8,VK_FORMAT_R16G16B16A16_UINT}}}}, output, reason);
 }
 } // namespace efvk

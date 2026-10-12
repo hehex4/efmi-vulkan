@@ -23,6 +23,55 @@ static std::vector<uint8_t> package()
     }
     checksum(data);return data;
 }
+
+static void stream_contract_tests()
+{
+    // Three actual families of UV layouts and both packed source bone layouts, expressed
+    // entirely as data. Use different binding numbers to detect a hidden component convention.
+    for(uint32_t uv_stride: {8u,12u,20u})for(uint32_t bone_stride: {4u,12u}){
+        VertexInputRecipe source;
+        source.bindings={{5,uv_stride,VK_VERTEX_INPUT_RATE_VERTEX},{7,bone_stride,VK_VERTEX_INPUT_RATE_VERTEX},
+                         {9,0,VK_VERTEX_INPUT_RATE_VERTEX}};
+        source.attributes={{0,5,VK_FORMAT_R32G32_SFLOAT,0},{1,7,VK_FORMAT_R8G8B8A8_UINT,bone_stride-4},
+                           {2,9,VK_FORMAT_R8G8B8A8_UNORM,0}};
+        VertexStreamPatch uv={5,uv_stride,uv_stride,{{0,VK_FORMAT_R32G32_SFLOAT,0,VK_FORMAT_R32G32_SFLOAT}}};
+        if(uv_stride>8){source.attributes.push_back({3,5,VK_FORMAT_R8G8B8A8_UNORM,8});
+            uv.elements.push_back({8,VK_FORMAT_R8G8B8A8_UNORM,8,VK_FORMAT_R8G8B8A8_UNORM});}
+        if(uv_stride>12){source.attributes.push_back({4,5,VK_FORMAT_R32G32_SFLOAT,12});
+            uv.elements.push_back({12,VK_FORMAT_R32G32_SFLOAT,12,VK_FORMAT_R32G32_SFLOAT});}
+        VertexStreamPatch blend={7,bone_stride,16,{{bone_stride-4,VK_FORMAT_R8G8B8A8_UINT,8,VK_FORMAT_R16G16B16A16_UINT}}};
+        if(bone_stride==12){source.attributes.push_back({5,7,VK_FORMAT_R16G16B16A16_UNORM,0});
+            blend.elements.push_back({0,VK_FORMAT_R16G16B16A16_UNORM,0,VK_FORMAT_R16G16B16A16_UNORM});}
+        VertexInputRecipe result;std::string reason;
+        check(patch_vertex_streams(source,{uv,blend},result,reason) && result.bindings[0].stride==uv_stride &&
+              result.bindings[1].stride==16 && result.attributes[1].offset==8 &&
+              result.attributes[1].format==VK_FORMAT_R16G16B16A16_UINT && result.bindings[2].stride==0 &&
+              result.attributes[2].binding==9,"declaration families share the same data-driven editor");
+    }
+    VertexInputRecipe source;
+    source.bindings={{6,4,VK_VERTEX_INPUT_RATE_VERTEX}};
+    source.attributes={{12,6,VK_FORMAT_R8G8B8A8_UINT,0}};
+    VertexStreamPatch valid={6,4,16,{{0,VK_FORMAT_R8G8B8A8_UINT,8,VK_FORMAT_R16G16B16A16_UINT}}};
+    VertexInputRecipe result=source;std::string reason;
+    auto refuse=[&](const VertexInputRecipe& input,const std::vector<VertexStreamPatch>& patches,const char* text){
+        check(!patch_vertex_streams(input,patches,result,reason) && !reason.empty() && result.bindings[0].stride==4 &&
+              result.attributes[0].offset==0,text);
+    };
+    auto wrong=valid;wrong.stride=12;refuse(source,{wrong},"widened element past end rejected atomically");
+    wrong=valid;wrong.elements[0].offset=UINT32_MAX;refuse(source,{wrong},"overflowing offset rejected");
+    wrong=valid;wrong.elements[0].format=VK_FORMAT_BC1_RGB_UNORM_BLOCK;refuse(source,{wrong},"texture block is not a vertex format");
+    wrong=valid;wrong.elements.clear();refuse(source,{wrong},"uncovered source element rejected");
+    wrong=valid;wrong.elements.push_back(wrong.elements[0]);refuse(source,{wrong},"ambiguous source element rejected");
+    wrong=valid;wrong.elements[0].source_offset=1;refuse(source,{wrong},"incorrect original declaration rejected");
+    wrong=valid;wrong.source_stride=12;refuse(source,{wrong},"wrong stream contract rejected");
+    wrong=valid;wrong.binding=3;refuse(source,{wrong},"missing stream rejected");
+    refuse(source,{valid,valid},"duplicate patch rejected before publication");
+    auto bad=source;bad.attributes.push_back(source.attributes[0]);refuse(bad,{valid},"duplicate shader location rejected");
+    bad=source;bad.attributes[0].binding=3;refuse(bad,{valid},"unbound attribute rejected");
+    bad=source;bad.bindings[0].inputRate=VK_VERTEX_INPUT_RATE_INSTANCE;refuse(bad,{valid},"per-instance stream is not treated as vertex data");
+    check(patch_vertex_streams(source,{valid},result,reason) && result.attributes[0].location==12 &&
+          result.bindings[0].binding==6 && source.bindings[0].stride==4,"format/offset rewrite preserves shader location and original recipe");
+}
 int main(int argc,char** argv)
 {
     SetEnvironmentVariableW(L"EFMI_VK_LOG",L"mesh-test.log");
@@ -84,5 +133,6 @@ int main(int argc,char** argv)
     wrong=source;wrong.attributes[3].offset=4;refuse(wrong,"different blend offset rejected");
     wrong=source;wrong.attributes.erase(wrong.attributes.begin()+2);refuse(wrong,"missing weight attribute rejected");
     wrong=source;wrong.attributes.push_back({5,2,VK_FORMAT_R32_SFLOAT,0});refuse(wrong,"unknown blend attribute rejected");
+    stream_contract_tests();
     printf("M2 mesh package: %d checks passed, %d failed\n",passed,failed);return failed?1:0;
 }
