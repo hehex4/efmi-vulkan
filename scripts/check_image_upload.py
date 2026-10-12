@@ -20,6 +20,7 @@ from harness import inject_env
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample",action="store_true",help="Also upload/read back the ten verified sample DDS files")
+    parser.add_argument("--buffers",action="store_true",help="Also upload/read back all selected sample mesh BUF files")
     options=parser.parse_args()
     out=ROOT/"build/assets-gpu";out.mkdir(parents=True,exist_ok=True)
     report={"scope":"standalone GPU image upload, no layer/game integration", "passed":False}
@@ -29,6 +30,7 @@ def main() -> int:
                      "/Fo"+str(out)+"/", "/Fd"+str(out/"test.pdb"),
                      str(ROOT/"sandbox/asset_gpu.cpp"),str(ROOT/"frontend/assets/dds.cpp"),
                      str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/texture_cache.cpp"),
+                     str(ROOT/"frontend/assets/buffer_upload.cpp"),
                      str(ROOT/"frontend/gpu/fragment_images.cpp"),
                      "/Fe:"+str(exe),"/link","/NOLOGO","user32.lib"]
         log=io.StringIO()
@@ -40,7 +42,7 @@ def main() -> int:
             (out/"build.txt").write_text(log.getvalue().encode("ascii","backslashreplace").decode("ascii"),encoding="ascii")
         report["executable_sha256"]=hashlib.sha256(exe.read_bytes()).hexdigest()
         inputs=list((ROOT/"frontend/assets").glob("*.h"))+list((ROOT/"frontend/assets").glob("*.cpp"))
-        inputs += [ROOT/"sandbox/asset_gpu.cpp",ROOT/"sandbox/asset_cache_test.cpp",ROOT/"sandbox/xxmi_host/dds_test.cpp",Path(__file__)]
+        inputs += [ROOT/"sandbox/asset_gpu.cpp",ROOT/"sandbox/asset_cache_test.cpp",ROOT/"sandbox/asset_buffer_test.cpp",ROOT/"sandbox/xxmi_host/dds_test.cpp",Path(__file__)]
         inputs += [ROOT/"frontend/gpu/fragment_images.h",ROOT/"frontend/gpu/fragment_images.cpp",
                    ROOT/"sandbox/material_fixture.h",ROOT/"sandbox/asset_material_test.cpp",ROOT/"sandbox/src/spirv.h"]
         report["source_sha256"]={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
@@ -88,6 +90,25 @@ def main() -> int:
                 report["sample_cache_passed"]=result.returncode==0 and bool(count) and all(int(count[i])==0 for i in (2,3,4))
                 report["passed"]=report["sample_cache_passed"]
                 print(output[-5000:],flush=True)
+        if report["passed"] and options.buffers:
+            source=json.loads((ROOT/"build/xxmi-host/mod-plan-report.json").read_text())
+            if not source.get("passed"):raise RuntimeError("First verify the current mod callback/asset report")
+            report["sample_buffers"]=[]
+            for filename,metadata in source["assets"].items():
+                asset=Path(filename)
+                if asset.suffix.lower()!=".buf":continue
+                if hashlib.sha256(asset.read_bytes()).hexdigest()!=metadata["sha256"]:
+                    raise RuntimeError("Sample buffer changed after callback verification")
+                result=subprocess.run([str(exe),"--buffer",str(asset)],cwd=out,env=env,
+                                      capture_output=True,encoding="utf-8",errors="replace",timeout=45)
+                output=result.stdout+result.stderr
+                (out/(asset.stem+"-buffer.txt")).write_text(output.encode("ascii","backslashreplace").decode("ascii"),encoding="ascii")
+                count=re.search(r"asset_gpu: (\d+) checks passed, (\d+) failed; validation errors=(\d+) warnings=(\d+)",output)
+                ok=result.returncode==0 and bool(count) and all(int(count[i])==0 for i in (2,3,4))
+                report["sample_buffers"].append(dict(path=str(asset),sha256=metadata["sha256"],passed=ok))
+                print(f"{asset.name}: {'passed' if ok else 'failed'}",flush=True)
+                if not ok:report["passed"]=False;print(output[-5000:]);break
+            if not report["sample_buffers"]:raise RuntimeError("No mesh buffers in the callback report")
         return 0 if report["passed"] else 1
     except (OSError,RuntimeError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as error:
         report["passed"]=False;report["error"]=str(error);print(str(error).encode("ascii","backslashreplace").decode("ascii"),file=sys.stderr);return 1

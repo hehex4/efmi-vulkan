@@ -4,6 +4,7 @@
 #endif
 #include <windows.h>
 #include "../frontend/assets/image_upload.h"
+#include "../frontend/assets/buffer_upload.h"
 #include "xxmi_host/dds_test.cpp"
 #include <atomic>
 #include <stdexcept>
@@ -24,7 +25,8 @@ static void require(VkResult r,const char* where){if(r!=VK_SUCCESS)throw std::ru
     X(CreateRenderPass) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) \
     X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) \
     X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) \
-    X(CmdDraw) X(CmdSetViewport) X(CmdSetScissor) X(CreateSampler) X(DestroySampler)
+    X(CmdDraw) X(CmdSetViewport) X(CmdSetScissor) X(CreateSampler) X(DestroySampler) \
+    X(CmdCopyBuffer) X(CmdBindIndexBuffer) X(CmdDrawIndexed)
 #define X(n) static PFN_vk##n p##n=nullptr;
 INSTANCE_CALLS(X) DEVICE_CALLS(X)
 #undef X
@@ -193,6 +195,7 @@ static void run(Gpu& g,std::vector<uint8_t> data,bool color)
     }else check(!memcmp(b.mapped,expected.data(),expected.size()),"all compressed mip bytes survive upload after CPU source destruction");
 }
 #include "asset_cache_test.cpp"
+#include "asset_buffer_test.cpp"
 #include "asset_material_test.cpp"
 int wmain(int argc,wchar_t** argv)
 {
@@ -205,6 +208,11 @@ int wmain(int argc,wchar_t** argv)
             if(!file || file.tellg()<0 || file.tellg()>(128ull<<20))throw std::runtime_error("DDS file outside budget");
             std::vector<uint8_t> data(static_cast<size_t>(file.tellg()));file.seekg(0);file.read(reinterpret_cast<char*>(data.data()),data.size());
             if(!file)throw std::runtime_error("DDS file read failed");run(g,std::move(data),false);
+        }else if(argc==3 && !wcscmp(argv[1],L"--buffer")){
+            std::ifstream file(std::filesystem::path(argv[2]),std::ios::binary|std::ios::ate);
+            if(!file || file.tellg()<=0 || file.tellg()>(128ull<<20))throw std::runtime_error("Buffer file outside budget");
+            std::vector<uint8_t> bytes(static_cast<size_t>(file.tellg()));file.seekg(0);file.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
+            if(!file)throw std::runtime_error("Buffer file read failed");buffer_roundtrip(g,std::move(bytes));
         }else if(argc>=3 && !wcscmp(argv[1],L"--cache-dds")){
             cache_sample(g,argc-2,argv+2);
         }else if(argc==1){
@@ -212,6 +220,7 @@ int wmain(int argc,wchar_t** argv)
             for(auto format:{28u,29u}){auto rgba=fixture(format);rgba.resize(152);put(rgba,12,1);put(rgba,16,1);put(rgba,28,1);
                 rgba[148]=rgba[149]=rgba[150]=128;rgba[151]=255;run(g,rgba,true);}
             cache_tests(g);
+            buffer_tests(g);
             fragment_tests();material_test(g);
         }else throw std::runtime_error("Invalid asset fixture arguments");
     }catch(const std::exception& e){++failed;printf("FAILED: %s\n",e.what());}

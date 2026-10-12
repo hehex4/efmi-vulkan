@@ -131,3 +131,34 @@ the current executable and source inputs. Original assets remain unchanged.
 
 This is standalone texture preparation/ownership only. No mesh-buffer cache, material
 descriptor integration, complete Core execution, DLL deployment or new game test is claimed.
+
+## Immutable mesh-buffer upload ticket
+
+frontend/assets/buffer_upload implements device-local vertex/index byte ownership with
+the same prepare/record/caller-submit/poll phases as images. It preserves every source
+byte without format conversion or padding, bounds input to 128 MiB and charges actual
+Vulkan allocation requirements against shared resident/staging ledgers. The prepared
+source may be released immediately. Only a completed, polled fence exposes the buffer;
+staging and command objects release on completion. Ready owners stay alive through all
+recorded uses and device teardown. Destruction can wait only for an outstanding canceled
+upload, so cancellation/stop remains off the render path.
+
+The recording inserts transfer-write to vertex/index-read synchronization on the same
+graphics queue. Submit alone performs QueueSubmit; no files, allocation, recording or
+polling occur there. The frontend still supplies stride/index format, verifies draw
+ranges and controls the queue's external synchronization. No texel/storage buffer view,
+cross-queue ownership or live hook resource manager is implied by this byte uploader.
+
+scripts/check_image_upload.py --buffers passes 138 headless checks and full byte readback
+for all 28 BUF files selected by the verified sample callback plans. Inputs are checked
+against the prior asset fingerprints; original files remain read-only. Synthetic 1/3/6/
+4101-byte cases exercise exact copies, source destruction, hidden pre-fence handles,
+immutable state, cancellation, submit failure and both allocation budgets. The material
+pixel fixture now actually draws indexed triangles from these uploaded device-local
+vertex/index resources, including its FS/VS isolation and null/query controls. Core/sync
+validation reports no errors or warnings. Evidence: build/assets-gpu/report.json and
+build/buffer-upload-check.txt. Historical fragment validation also passes with this build.
+
+This ticket remains standalone. The common layer material pipeline/snapshot code is
+separately verified in 0.9.3 (docs/fragment-materials.md). Next, unify buffer and image
+file scheduling/ownership and connect the hosted frontend to those ready resources.

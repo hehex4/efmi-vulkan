@@ -581,3 +581,23 @@ Source/build/next are 0.9.3; dist stays 0.9.1. No game/deployment/launcher/confi
 asset changes. Continue mesh-buffer assets, frontend resolution and shared character/Core
 with existing captures; no new user game action is needed yet. Updated material docs,
 architecture, D-034, current state and tasks.
+
+## 2026-10-12: Bounded vertex/index asset uploads
+
+Added BufferUpload, an immutable device-local byte ticket with explicit prepare, record,
+caller submit and poll phases, actual allocation budgets and retained Ready ownership.
+Supports vertex/index usages, exact source lengths, transfer visibility and atomic failure
+publication. It does not infer stride/index format, parse INI, create texel/storage views
+or perform queue handoffs independently of the application.
+
+Headless asset suite passes 138 with clean core/sync validation. Exact 1/3/6/4101-byte
+readbacks, source destruction, immutable/pre-fence state, cancellation, submit failure and
+both allocation limits are covered. All 28 actual callback-selected BUF files match their
+source fingerprints and full GPU readbacks. Material pixel tests now use uploaded VB/IB.
+Historical fragment rewrite/null validation passes with the rebuilt fixture. Evidence:
+build/assets-gpu/report.json, build/buffer-upload-check.txt, build/fragment-images/report.json.
+
+Updated resource docs, architecture, current state and tasks. This is standalone asset
+work; layer/build/next stay 0.9.3 and dist stays 0.9.1. No installed asset, game, deployment
+or configuration change. Continue common buffer/image resource cache scheduling and
+frontend/shared character integration offline.

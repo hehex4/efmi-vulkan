@@ -222,12 +222,16 @@ static void material_test(Gpu& g)
         write.descriptorCount=1;write.descriptorType=is_sampler?VK_DESCRIPTOR_TYPE_SAMPLER:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         write.pImageInfo=&image;pUpdateDescriptorSets(g.device,1,&write,0,nullptr);
     }
-    const float positions[]={-.8f,-.8f,-.2f,-.8f,-.5f,-.2f};auto vb=g.buffer(sizeof(positions),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    memcpy(vb.mapped,positions,sizeof(positions));auto readback=g.readback(96*64*4);auto cmd=g.begin();
+    const float positions[]={-.8f,-.8f,-.2f,-.8f,-.5f,-.2f};const uint16_t indices[]={0,1,2};
+    auto vb=mesh_buffer(g,positions,sizeof(positions),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    auto ib=mesh_buffer(g,indices,sizeof(indices),VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    auto readback=g.readback(96*64*4);auto cmd=g.begin();
     VkClearValue clear{};clear.color.float32[1]=clear.color.float32[3]=1;
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};begin.renderPass=own.pass;begin.framebuffer=own.framebuffer;
     begin.renderArea.extent={96,64};begin.clearValueCount=1;begin.pClearValues=&clear;pCmdBeginRenderPass(cmd,&begin,VK_SUBPASS_CONTENTS_INLINE);
-    VkDeviceSize offset=0;pCmdBindVertexBuffers(cmd,0,1,&vb.buffer,&offset);VkRect2D scissor{{0,0},{96,64}};pCmdSetScissor(cmd,0,1,&scissor);
+    VkDeviceSize offset=0;VkBuffer vertex_buffer=vb->buffer();pCmdBindVertexBuffers(cmd,0,1,&vertex_buffer,&offset);
+    pCmdBindIndexBuffer(cmd,ib->buffer(),0,VK_INDEX_TYPE_UINT16);
+    VkRect2D scissor{{0,0},{96,64}};pCmdSetScissor(cmd,0,1,&scissor);
     pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[0],1,1,sets,0,nullptr);
     for(uint32_t i=0;i<6;++i){
         VkViewport vp{float((i%3)*32),float((i/3)*32),64,64,0,1};pCmdSetViewport(cmd,0,1,&vp);
@@ -235,7 +239,7 @@ static void material_test(Gpu& g)
         pCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.pipelines[pipeline]);
         if(i==0 || i==2)pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[1],3,1,&sets[i==0?1:2],0,nullptr);
         if(i==5)pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[0],1,1,&sets[3],0,nullptr);
-        pCmdDraw(cmd,3,1,0,0);
+        pCmdDrawIndexed(cmd,3,1,0,0,0);
     }
     pCmdEndRenderPass(cmd);VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={96,64,1};
     pCmdCopyImageToBuffer(cmd,target.image,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,readback.buffer,1,&copy);g.finish(cmd,readback);
