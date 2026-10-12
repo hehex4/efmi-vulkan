@@ -1149,6 +1149,14 @@ void on_present(Device* dev)
     if (dev->passive)
         return;
     std::lock_guard<std::mutex> lock(dev->frame_mx);
+    // Timestamp consecutive host present boundaries, including any previous driver present wait.
+    // Sample inside the lock to preserve order if several queues present on different threads.
+    static const uint64_t qpc_freq = [] { LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart; }();
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    const uint64_t ticks = static_cast<uint64_t>(now.QuadPart);
+    const uint64_t us = ticks / qpc_freq * 1000000 + (ticks % qpc_freq) * 1000000 / qpc_freq;
+    dev->pacing.observe(us, dev->frame_no, dev->image_hash_us.load(std::memory_order_relaxed), dev->cap_state == 2);
     dev->cur.frame = dev->frame_no;
     dev->total_draws += dev->cur.draws;
     dev->max_threads = std::max(dev->max_threads, static_cast<uint32_t>(dev->cur.threads.size()));
@@ -1259,6 +1267,49 @@ static const char* rec_name(uint8_t r)
     }
 }
 
+static void write_pacing(JsonWriter& w, const PresentPacing& p)
+{
+    auto sample = [&w](const PresentSample& s) {
+        w.begin_object(); w.kn("frame", s.frame); w.kn("microseconds", s.us);
+        w.kn("image_hash_microseconds", s.image_hash_us); w.kb("capture", s.capture); w.end_object();
+    };
+    w.begin_object();
+    w.kv("measurement", "host_present_interval");
+    w.kn("window_capacity", PresentPacing::capacity);
+    w.kn("window_intervals", p.size);
+    w.kn("total_intervals", p.intervals);
+    w.kn("total_over_16ms", p.over_16ms); w.kn("total_over_33ms", p.over_33ms); w.kn("total_over_50ms", p.over_50ms);
+    w.kn("total_capture_intervals", p.captures);
+    w.key("lifetime_peak");
+    if (p.intervals) sample(p.peak); else w.null();
+    w.key("recent");
+    if (!p.size) {
+        w.null();
+    } else {
+        std::vector<PresentSample> sorted(p.samples.begin(), p.samples.begin() + p.size);
+        std::sort(sorted.begin(), sorted.end(), [](const PresentSample& a, const PresentSample& b) { return a.us < b.us; });
+        uint64_t sum = 0, over16 = 0, over33 = 0, over50 = 0, captures = 0;
+        for (const auto& s : sorted) {
+            sum += s.us; over16 += s.us > 16000; over33 += s.us > 33000; over50 += s.us > 50000; captures += s.capture;
+        }
+        const auto& last = p.samples[(p.next + PresentPacing::capacity - 1) % PresentPacing::capacity];
+        const auto& first = p.samples[p.size == PresentPacing::capacity ? p.next : 0];
+        w.begin_object();
+        w.kn("first_frame", first.frame); w.kn("last_frame", last.frame);
+        w.kn("mean_us", sum / p.size); w.kn("min_us", sorted.front().us);
+        w.kn("p50_us", sorted[(p.size * 50 + 99) / 100 - 1].us);
+        w.kn("p95_us", sorted[(p.size * 95 + 99) / 100 - 1].us);
+        w.kn("p99_us", sorted[(p.size * 99 + 99) / 100 - 1].us);
+        w.kn("max_us", sorted.back().us);
+        w.kn("over_16ms", over16); w.kn("over_33ms", over33); w.kn("over_50ms", over50);
+        w.kn("capture_intervals", captures);
+        w.key("worst"); w.begin_array();
+        for (size_t i = 0; i < std::min<size_t>(8, p.size); ++i) sample(sorted[p.size - 1 - i]);
+        w.end_array(); w.end_object();
+    }
+    w.end_object();
+}
+
 std::string probe_status()
 {
     JsonWriter w;
@@ -1297,6 +1348,7 @@ std::string probe_status()
     w.str("push_descriptors");
     w.str("shader");
     w.str("snapshot");
+    w.str("host_pacing");
     w.end_array();
 
     DeviceRef ref;
@@ -1321,8 +1373,10 @@ std::string probe_status()
     w.kn("driver_version", dev->driver_version);
     w.end_object();
 
+    PresentPacing pacing;
     {
         std::lock_guard<std::mutex> lock(dev->frame_mx);
+        pacing = dev->pacing;
         w.kn("frame", dev->frame_no);
         w.kn("total_draws", dev->total_draws);
         w.key("last_frame");
@@ -1337,6 +1391,9 @@ std::string probe_status()
         w.kn("capture_state", static_cast<uint64_t>(dev->cap_state));
         w.kn("capture_seq", dev->cap_seq);
     }
+    // Sort/format the bounded copy outside the frame lock, on the probe thread.
+    w.key("host_pacing");
+    write_pacing(w, pacing);
     {
         std::shared_lock<std::shared_mutex> lock(dev->res_mx);
         uint64_t shadow = 0, known = 0, mapped = 0;

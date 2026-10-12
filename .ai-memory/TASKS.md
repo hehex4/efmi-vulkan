@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); T-008 is done since 2026-10-12 (four DX11 frames, mods on and off, paired with the Vulkan frame); T-017 is done and G3 b and c pass for the display scene; T-019 is decided (D-022); T-018 is built (layer 0.7.0, sandbox only) and needs its game session; then M2. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
+T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene: the third game session with 0.7.0 resolved all four texture ambiguities and captured pipeline requirements. The user reported intermittent stutter, so T-020 is open. Sandbox-verified 0.7.1 is in dist/ with upload hashing off, resource tracking on and new host interval diagnostics; it has not loaded in the game. G2/G3 evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
 
 ## Tasks and follow-ups
 
@@ -48,9 +48,9 @@ Original task text:
 
 The first probe session read the instance config and the bones live, after the frame, and most reads were already overwritten (CURRENT_STATE). The layer should keep, for the draws of a captured frame whose region hash is in a list given with the request, the bytes of each uniform buffer range of at most 64 KiB as they are at submit, and for the instance config layout the bone rows at the two offsets of entry 5. With that, G3 b and c can be checked for all 12 components in one frame and across passes, and the same code path is what M2's CPU bone import reads. Also measure whether the bytes are already in place when the draw is recorded (compare a record-time and a submit-time read). Sandbox test with a mapped buffer that is rewritten every frame. The DX11 baseline fixes what to keep: the 256 bytes of the instance entry at the dynamic offset of set 2 binding 0 (16 constants; constant 5 holds the two bone offsets in 16-byte elements) and the bone rows from there.
 
-### T-018: Tell textures apart by content (built and sandbox-verified on 2026-10-12 as layer 0.7.0; the game session is open)
+### T-018: Tell textures apart by content (done for the display scene on 2026-10-12)
 
-Done: upload hashing in the layer, `content` in descriptor elements, counters, settings, pairing by content in `dx11_baseline.py`, `mod_slots` in its summary, tests (`docs/probe-resources.md`). Open: one Vulkan session with 0.7.0 to see whether the two sides' hashes meet, to place the four open slots, and to read the cost of hashing during loading and the pipeline creation inventory. If no hash meets, compare the bytes of one texture directly (DX11 `read_texture` against the upload) before changing anything. Not checked: whether XXMI's own texture hash can be reproduced (T-016).
+The third Vulkan session with 0.7.0 resolves all four former ambiguities by content: 19 placed mod slots, 37 undeclared, none open. Pipeline inventory is captured: 936 created graphics pipelines; the character uses 39 objects, 26 shader pairs, three sets and no specialization/push constants. Exact mappings and evidence: docs/third-probe-session.md and docs/arcane-texture-slots.json. Upload processing accumulated about 8.1 seconds; hashing is disabled for the next session. Intermittent stutter is tracked separately as T-020, not considered solved. Reproducing XXMI's texture resource hash remains T-016 work.
 
 Original task text:
 
@@ -64,9 +64,15 @@ Original question:
 
 Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
+### T-020: Diagnose intermittent frame-time spikes (open; 0.7.1 prepared)
+
+The user reports stutter during loading and steady display in the third session. Average 120 presents/s does not resolve the report. T-018's timer establishes heavy earlier upload work but only 596 microseconds in a later three-second interval. Cause of steady-scene spikes is unknown.
+
+Prepared and fully sandbox-verified: 0.7.1 host present-interval diagnostics (2048 recent samples, quantiles, peaks and hash/capture tags) and dist/ image_hash = 0 while resources remain enabled. Deployed only after the user confirmed exit and no target process remained. Actual-config sandbox smoke passes. Next user-started comparison: same display scene/window state, no repeated captures during timing, inspect after at least 20 seconds plus the user's experience. If stutter persists, compare resources = 0, then passthrough as needed. No automatic game launch. See docs/frame-pacing.md; no real-game fix has been verified.
+
 ### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
 
-State after the second session and the DX11 baseline: G2 answered; G3 a, b, c, e and f pass for the display scene; G3 d is answered in kind (a slot table per Vulkan fragment shader exists for the scene, four entries open until T-018). None of this is known for the open world, combat, several instances of a character, LOD1 or scenes with indirect draws.
+State after the third session and the DX11 baseline: G2 answered; G3 a, b, c, e and f pass for the display scene; G3 d now has all 19 applicable sample slot assignments placed, including the four former ambiguities. None of this is known for the open world, combat, several instances of a character, LOD1 or scenes with indirect draws. Smoothness remains T-020 and rendering remains M2.
 
 Result of the first session (details and evidence paths in CURRENT_STATE): G2 answered for the display scene (one thread, one command buffer with all draws, classic render passes); G3 a passes (12 of 12 LOD0 components); G3 f passes for the scene; G3 b and c strongly indicated, to be made rigorous by T-017; G3 d needs T-008, and name-based mapping is ruled out because the SPIR-V is stripped; G3 e as expected. Still to observe in later sessions: open world and combat, several instances, LOD1, scenes where indirect draws occur.
 
@@ -110,7 +116,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- A Vulkan session with layer 0.7.0 on the display scene (`dist/` and the launcher are ready): the user starts the game and says so; the agent reads the status, collects one bundle and pairs it with the DX11 texture hashes (T-018).
+- A short user-started Vulkan comparison with 0.7.1 on the same display scene, upload hashing off and resources on (T-020). The previous session's data is complete; no further 0.7.0 capture is needed. The agent does not start the game.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

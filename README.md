@@ -61,6 +61,11 @@ MCP server for agents: `python server\run_server.py` (registered for this worksp
 
 See [resource inspection](docs/probe-resources.md) for the descriptor snapshot schema, SPIR-V export, verified paths and remaining limits. Ordinary set values resolve at submit; push values are retained when recorded. Resource visibility remains a submit-time observation, not evidence of record-time buffer availability.
 
+Layer 0.7.1 also reports bounded [host present intervals](docs/frame-pacing.md), including tail
+latency and capture/upload tags. The [third game session](docs/third-probe-session.md) resolved
+the sample's texture slots but exposed reported stutter; its cause and the hash-off comparison
+remain open. The prepared dist/ configuration disables upload hashing for the next process.
+
 `scripts/collect_probe.py` saves a complete frame observation and bounded pipeline/shader exports
 from an explicitly selected running probe. See [the first probe session](docs/first-probe-session.md)
 for evidence boundaries and the next game-data step. It never launches or injects a process.

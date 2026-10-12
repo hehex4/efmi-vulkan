@@ -1,0 +1,330 @@
+{
+  "schema": 1,
+  "scope": "Observed arcane fes 1.2 display-scene passes only; not runtime rendering verification.",
+  "observed_date": "2026-10-12",
+  "layer_version": "0.7.0",
+  "vulkan_frame": 22563,
+  "dx11_frame": 170064,
+  "sources": {
+    "vulkan_manifest": {
+      "path": "captures/third-probe/manifest.json",
+      "sha256": "cd9f7679e3ef1bf55a5922ed200f4a70fec371baaa2c4c58cd3720beed3dbf0f"
+    },
+    "pairing": {
+      "path": "captures/third-probe-pairing/frame-off.summary.json",
+      "sha256": "071d7b84070c40b53011ec070448cdf7325cf51a2fe6a78ea663c7e9d2fec988"
+    },
+    "dx11_texture_hashes": {
+      "path": "captures/dx11-baseline/frame-off-tex.textures.json",
+      "sha256": "2dfcb7e21e5bea38edec258696919727e78702d0e2dd3ea3a9a05cec0438903e"
+    }
+  },
+  "slots": {
+    "09e0be38": {
+      "ps-t15": {
+        "set": 1,
+        "binding": 6,
+        "evidence": "content"
+      },
+      "ps-t16": {
+        "set": 1,
+        "binding": 3,
+        "evidence": "content"
+      },
+      "ps-t17": {
+        "set": 1,
+        "binding": 1,
+        "evidence": "content"
+      }
+    },
+    "2c9bccf9": {
+      "ps-t12": {
+        "set": 1,
+        "binding": 3,
+        "evidence": "content"
+      }
+    },
+    "2e2750b8": {
+      "ps-t15": {
+        "set": 1,
+        "binding": 2,
+        "evidence": "look"
+      },
+      "ps-t16": {
+        "set": 0,
+        "binding": 38,
+        "evidence": "content"
+      },
+      "ps-t17": {
+        "set": 1,
+        "binding": 6,
+        "evidence": "content"
+      }
+    },
+    "3983573e": {
+      "ps-t17": {
+        "set": 1,
+        "binding": 8,
+        "evidence": "content"
+      },
+      "ps-t18": {
+        "set": 1,
+        "binding": 7,
+        "evidence": "content"
+      }
+    },
+    "427e2365": {
+      "ps-t15": {
+        "set": 0,
+        "binding": 35,
+        "evidence": "look"
+      }
+    },
+    "493c1a7e": {
+      "ps-t13": {
+        "set": 1,
+        "binding": 4,
+        "evidence": "content"
+      },
+      "ps-t14": {
+        "set": 1,
+        "binding": 3,
+        "evidence": "content"
+      }
+    },
+    "4e9748d0": {
+      "ps-t15": {
+        "set": 0,
+        "binding": 36,
+        "evidence": "look"
+      }
+    },
+    "50c1e4bb": {
+      "ps-t13": {
+        "set": 1,
+        "binding": 3,
+        "evidence": "content"
+      },
+      "ps-t14": {
+        "set": 0,
+        "binding": 36,
+        "evidence": "look"
+      }
+    },
+    "c90341d7": {
+      "ps-t15": {
+        "set": 1,
+        "binding": 6,
+        "evidence": "content"
+      },
+      "ps-t16": {
+        "set": 1,
+        "binding": 2,
+        "evidence": "content"
+      },
+      "ps-t17": {
+        "set": 1,
+        "binding": 5,
+        "evidence": "content"
+      },
+      "ps-t18": {
+        "set": 1,
+        "binding": 3,
+        "evidence": "content"
+      }
+    }
+  },
+  "undeclared": [
+    {
+      "component": 0,
+      "fragment": "427e2365",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 0,
+      "fragment": "427e2365",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 0,
+      "fragment": "4d003698",
+      "slot": "ps-t15"
+    },
+    {
+      "component": 0,
+      "fragment": "4d003698",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 0,
+      "fragment": "4d003698",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 0,
+      "fragment": "4e9748d0",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 0,
+      "fragment": "4e9748d0",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 0,
+      "fragment": "573dc667",
+      "slot": "ps-t15"
+    },
+    {
+      "component": 0,
+      "fragment": "573dc667",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 0,
+      "fragment": "573dc667",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 0,
+      "fragment": "abc1a467",
+      "slot": "ps-t15"
+    },
+    {
+      "component": 0,
+      "fragment": "abc1a467",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 0,
+      "fragment": "abc1a467",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 1,
+      "fragment": "573dc667",
+      "slot": "ps-t15"
+    },
+    {
+      "component": 1,
+      "fragment": "573dc667",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 1,
+      "fragment": "573dc667",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 1,
+      "fragment": "573dc667",
+      "slot": "ps-t18"
+    },
+    {
+      "component": 1,
+      "fragment": "d2ebb272",
+      "slot": "ps-t15"
+    },
+    {
+      "component": 1,
+      "fragment": "d2ebb272",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 1,
+      "fragment": "d2ebb272",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 1,
+      "fragment": "d2ebb272",
+      "slot": "ps-t18"
+    },
+    {
+      "component": 1,
+      "fragment": "d9aae250",
+      "slot": "ps-t15"
+    },
+    {
+      "component": 1,
+      "fragment": "d9aae250",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 1,
+      "fragment": "d9aae250",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 1,
+      "fragment": "d9aae250",
+      "slot": "ps-t18"
+    },
+    {
+      "component": 2,
+      "fragment": "573dc667",
+      "slot": "ps-t13"
+    },
+    {
+      "component": 2,
+      "fragment": "573dc667",
+      "slot": "ps-t14"
+    },
+    {
+      "component": 2,
+      "fragment": "66f58e2c",
+      "slot": "ps-t13"
+    },
+    {
+      "component": 2,
+      "fragment": "66f58e2c",
+      "slot": "ps-t14"
+    },
+    {
+      "component": 4,
+      "fragment": "23d8888f",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 4,
+      "fragment": "23d8888f",
+      "slot": "ps-t18"
+    },
+    {
+      "component": 4,
+      "fragment": "573dc667",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 4,
+      "fragment": "573dc667",
+      "slot": "ps-t18"
+    },
+    {
+      "component": 4,
+      "fragment": "66f58e2c",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 4,
+      "fragment": "66f58e2c",
+      "slot": "ps-t18"
+    },
+    {
+      "component": 6,
+      "fragment": "573dc667",
+      "slot": "ps-t12"
+    },
+    {
+      "component": 6,
+      "fragment": "83d4e5be",
+      "slot": "ps-t12"
+    }
+  ],
+  "limits": [
+    "All four former ambiguities are resolved by CRC-32C content matching; CRC is not collision-proof.",
+    "Mappings labelled look still rely on a unique size/format match.",
+    "Unknown fragment shaders must not use a guessed slot table.",
+    "No game assets or shader bytecode are included."
+  ]
+}

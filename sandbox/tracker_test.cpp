@@ -489,6 +489,36 @@ static void pools_and_budgets()
           "a mesh pipeline does not read its vertex input pointers");
 }
 
+static void present_pacing()
+{
+    PresentPacing p;
+    uint64_t t = 1000000;
+    p.observe(t, 0, 100, false);
+    check(p.intervals == 0 && p.size == 0, "first present has no earlier interval");
+    p.observe(t += 8000, 1, 110, false);
+    p.observe(t += 8000, 2, 110, false);
+    p.observe(t += 80000, 3, 60110, true);
+    p.observe(t += 8000, 4, 60112, false);
+    check(p.intervals == 4 && p.over_16ms == 1 && p.over_33ms == 1 && p.over_50ms == 1,
+          "one hitch remains visible among fast present intervals");
+    check(p.peak.us == 80000 && p.peak.frame == 3 && p.peak.image_hash_us == 60000 && p.peak.capture && p.captures == 1,
+          "peak preserves its frame, upload cost and capture marker");
+    for (size_t i = 0; i < PresentPacing::capacity + 7; ++i)
+        p.observe(t += 8000, i + 5, 60112, false);
+    check(p.size == PresentPacing::capacity && p.intervals == PresentPacing::capacity + 11 && p.peak.us == 80000,
+          "bounded window rolls while lifetime hitch evidence stays");
+    bool all_fast = true;
+    for (const auto& s : p.samples) all_fast &= s.us == 8000 && !s.capture;
+    check(all_fast, "old hitch leaves the recent window");
+    p.observe(t += 8000, 9999, 0, false);
+    check(p.samples[(p.next + p.capacity - 1) % p.capacity].image_hash_us == 0,
+          "a reset upload counter does not underflow");
+    const auto n = p.intervals;
+    p.observe(t, 10000, 0, false);
+    p.observe(t - 1, 10001, 0, false);
+    check(p.intervals == n, "non-increasing timestamps do not invent intervals");
+}
+
 int main()
 {
     util_init(GetModuleHandleW(nullptr));
@@ -498,6 +528,7 @@ int main()
     pushed_descriptors();
     shaders_and_views();
     pools_and_budgets();
+    present_pacing();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

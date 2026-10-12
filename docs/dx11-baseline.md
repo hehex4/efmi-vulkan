@@ -188,13 +188,13 @@ pass the same attributes sit at locations 5 and 6, so the attribute is found by 
 
 ## Open
 
-- Four table entries where two textures of a draw look alike (T-018). The DX11 half of the answer is on
-  disk: content hashes of the 65 file-backed textures of the scene, all distinct. For component 0 the
-  light map (`ps-t16`, `9a6c6973`) has CRC-32C `7309a055` and the normal map (`ps-t17`, `733efa0d`)
-  `12076a3f`. The Vulkan half needs the layer to hash uploads.
+- T-018 was closed by the third Vulkan session on 2026-10-12: all four formerly open entries match
+  by content. The sample now has 19 placed and 37 undeclared slot assignments, none open. Exact
+  mappings and evidence: `third-probe-session.md`, `arcane-texture-slots.json`. Earlier tables above
+  describe the size/format comparison before this evidence arrived.
 - Pairing by draw count needs the same state of the scene: ten minutes later every component was drawn
   once more, and that frame pairs with nothing of the mod.
-- How the fragment stage is kept on the game's data (T-019).
+- T-019 is decided as D-022; creating/rendering its vertex-only pipeline variant remains M2 work.
 - The table covers the fragment shaders of this scene. Three objects common to both frames are drawn a
   different number of times and are not paired.
 - One scene, one character; LOD1 not seen; the Vulkan frame is from another session.

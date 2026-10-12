@@ -14,6 +14,15 @@ def main() -> int:
                                                            "--frames", "60"]) as box:
             with ProbeClient(box.pid) as client:
                 frame = client.capture()
+                status = client.status()
+            pacing = status["host_pacing"]
+            c.equal(pacing["measurement"], "host_present_interval", "host timing is labelled separately from display timing")
+            c.equal(pacing["total_intervals"], status["frame"] - 1, "every interval after the first present is measured")
+            c.equal(pacing["window_intervals"], min(pacing["total_intervals"], pacing["window_capacity"]), "bounded timing window")
+            c.check(pacing["total_capture_intervals"] >= 1, "capture overhead is marked in the interval history")
+            recent = pacing["recent"]
+            c.check(0 < recent["min_us"] <= recent["p50_us"] <= recent["p95_us"] <= recent["p99_us"] <= recent["max_us"],
+                    "live timing quantiles are ordered")
             draws = frame["draws"]
             c.equal(len(draws), 37, "all repeated meshes captured")
             for got, want in zip(draws, box.expected["draws"]):

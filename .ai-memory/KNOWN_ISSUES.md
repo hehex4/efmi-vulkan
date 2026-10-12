@@ -85,6 +85,8 @@ Steam overlay, Steam Fossilize and the Epic Online Services overlay are register
 
 ## LIMIT-014: The cost of full tracking in the game is known for one scene only
 
+Third session, 0.7.0: the user reports intermittent stutter despite about 120 average presents/s. Upload processing accumulated 8.1 seconds; a later steady three-second interval adds only 596 microseconds. Attribution and tail latency remain open (ISSUE-005 / T-020); 0.7.1 is prepared with upload hashing off and host interval diagnostics, sandbox evidence only.
+
 Second figures, 2026-10-12 with 0.6.0, same scene: 120 frames per second while idle and during about 1,100 snapshot captures, working set 11.8 GB and flat over 25 minutes, 18.9 MB of SPIR-V for 1015 shaders, about 2,200 live descriptor sets, 3.4 MB kept by a capture of the mod's 45 draws and 14.1 MB by one of all 210 indexed draws.
 
 First figures, 2026-10-12, character display scene: about 120 frames per second with full tracking (no figure without the probe; it may be the game's cap), working set flat at 11.5 to 11.6 GB over 7 minutes, 22.9 MB of SPIR-V kept for 1106 shaders, about 190 descriptor set allocations and template updates per frame. The paragraph below describes what remains unmeasured.
@@ -103,7 +105,7 @@ sandbox/native_test.py now always sets EFMI_VK_LOG and its working directory to 
 
 ## LIMIT-015: Scope of the DX11 baseline
 
-Four frames of one DX11 session (mods on twice, off, on again), one scene, one character, the mod's key states as found; the Vulkan frame they are paired with comes from another session of the same morning with another window size. Pairing is by look (shape, size, mip count, format) among the slots a shader declares; equal looks are reported as ambiguous groups and never resolved by guessing. Four of the mod's slot assignments are ambiguous for that reason (T-018). Three objects common to both frames are drawn a different number of times and are not paired; ten minutes later in the same session every component was drawn once more and a frame from then pairs with nothing of the mod, so a pairing needs both frames in the same state of the scene. The slot table covers the fragment shaders of this scene only (36), and a fragment shader whose pipeline was not exported in the Vulkan bundle is listed under its pipeline number.
+Four frames of one DX11 session (mods on twice, off, on again), one scene, one character, the mod's key states as found; the Vulkan frames come from separate sessions with another window size. The third Vulkan session adds content hashes and resolves all four sample ambiguities (T-018); unique shape/size/format matches still have weaker evidence than content matches. Earlier frames with differing per-component draw counts cannot be paired, so both frames need the same scene state. The slot table covers this scene's observed fragment shaders only, and a fragment shader whose pipeline was not exported is listed under its pipeline number. M2 must not guess mappings for new shaders.
 
 ## ISSUE-003: `python` on the PATH of this machine is the Windows Store stub
 
@@ -115,8 +117,12 @@ Indexed draws only, sets 0 to 3, uniform and storage buffers. Record time is rep
 
 ## LIMIT-017: What the content hash of 0.7.0 covers
 
-Only images filled by `vkCmdCopyBufferToImage` (and its `2` forms) over the whole of mip 0, layer 0; a blit, an image copy, a clear or rendering leaves the state as it was. Formats outside the list in `format_block` report `unsupported_format`. The value is of the upload as submitted, not of what the image holds after later partial writes (those set `partial`). Whether the DX11 read-back of mip 0 and the Vulkan upload of mip 0 are the same bytes for the game's textures is not known until a session with 0.7.0; texture streaming may upload a level more than once or start below the full size. The cost in the game is unmeasured: uploads are read from mapped staging memory on the submitting thread.
+Only images filled by `vkCmdCopyBufferToImage` (and its `2` forms) over the whole of mip 0, layer 0; a blit, an image copy, a clear or rendering leaves the state as it was. Formats outside the list in `format_block` report `unsupported_format`. The value is of the upload as submitted, not of what the image holds after later partial writes (those set `partial`). The third session confirms cross-API content matches for this scene and resolves T-018; it does not prove identity for every texture, streaming state or scene. Reading/copying/hashing upload memory accumulated about 8.1 seconds for 2.55 GiB. The prepared dist/ cfg therefore disables hashing after preserving the required evidence (D-023). Counters and CRC equality alone cannot identify intermittent frame-time spikes or guarantee collision-free identity.
 
 ## ISSUE-004: The sandbox's expected file could not be opened right after it appeared (handled)
 
 2026-10-12, once in a full suite run: `PermissionError` in `harness.py` when opening `expected.json` immediately after its existence was seen. The sandbox writes a temporary file, closes it and renames it, so its own handle is gone by then; something else held the fresh file for a moment. The harness now waits out a sharing violation inside the 30 s readiness deadline it already has. This is a wait for a known condition with a deadline, not a retry of a failed build step (compare ISSUE-002).
+
+## ISSUE-005: User-visible intermittent stutter with 0.7.0 (open, T-020)
+
+The user reports spikes during loading and steady display in PID 19264 on 2026-10-12. Upload processing accumulates about 8.1 seconds for 2.55 GiB; in a later three-second interval it adds only 596 microseconds while 360 presents advance. The average does not measure tail latency, and 0.7.0 has no interval history. Cause of the steady-scene spikes is not established. The texture identity data is now complete, so dist/ disables image hashing for the next launch; it does not hot-reload. 0.7.1 adds bounded host interval diagnostics for a controlled comparison. No game-tested stutter fix is claimed. See docs/third-probe-session.md and docs/frame-pacing.md.

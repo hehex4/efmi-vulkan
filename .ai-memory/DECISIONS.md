@@ -164,3 +164,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Rejected: replacing the shared bindings. It needs a copy of the global set (about 50 bindings) for every pass that draws the character, and 20 of the 45 draws have a fragment shader that would then read the merged skeleton at a patched offset instead of the component's own first bone.
 - Cloning a set and overriding bindings is still needed for textures (set 1, and now and then a binding of the global set, fact 20). That mechanism is separate from this decision.
 - Evidence is offline: four words per module, `spirv-val` on 21 real vertex shaders. Creating and drawing with such a pipeline is the first thing M2 checks.
+
+## D-023: Disable upload hashing after the required identity capture; measure spikes separately
+
+- Date: 2026-10-12, third Vulkan probe session, user-reported intermittent stutter during loading and steady display.
+- T-018 now has its real content evidence: all four open sample slots resolve. Set image_hash = 0 in the prepared dist/ configuration for the next process; the existing process retains its original setting. Preserve full resource tracking for the first comparison.
+- The measured 8.1 seconds is cumulative time inside upload processing, including reads and locks. A steady 3-second interval advances 360 presents with only 596 microseconds added there. Do not claim that average 120/s disproves stutter or that hashing caused every reported spike.
+- Add bounded host present-interval diagnostics in 0.7.1 (T-020), including recent percentiles/peaks, lifetime threshold counts and capture/hash tags. This is host timing, not GPU/display timing. No performance fix is considered game-verified until a new user-started comparison session.

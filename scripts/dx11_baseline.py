@@ -419,13 +419,16 @@ def cmd_summarize(args) -> int:
             print("    component %d, %s, fragment shader %s: %s %s" % (s["component"], s["slot"], s["fragment"], s["result"], s.get("candidates") or ""))
     print("texture slots of the game's own textures, per Vulkan fragment shader (DX11 pixel shader) -> [set, binding]:")
     conflicts = 0
+    shared_fragments = 0
     for fragment, m in summary["texture_slot_map"].items():
-        conflicts += sum(1 for where in m["slots"].values() if len(where) > 1) + (len(m["dx_ps"]) > 1)
+        conflicts += sum(1 for where in m["slots"].values() if len(where) > 1)
+        shared_fragments += len(m["dx_ps"]) > 1
         print("  %s (%s): %s" % (fragment, "/".join(m["dx_ps"]), "  ".join(
             "%s->%s" % (slot.replace("ps-", ""), "/".join("%d.%d" % tuple(w) for w in where)) for slot, where in m["slots"].items())))
     many = {ps: f for ps, f in summary["vulkan_fragment_shaders_per_dx_ps"].items() if len(f) > 1}
     print("DX11 pixel shaders with more than one Vulkan fragment shader: %d of %d" % (len(many), len(summary["vulkan_fragment_shaders_per_dx_ps"])))
     print("table entries that contradict each other: %d" % conflicts)
+    print("Vulkan fragment shaders shared by multiple DX11 shaders: %d" % shared_fragments)
     print("written:", target)
     return 0
 

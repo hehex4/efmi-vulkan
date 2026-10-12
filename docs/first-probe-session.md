@@ -1,5 +1,11 @@
 # First real probe observation
 
+Update 2026-10-12: all three sessions below have taken place. T-018's four texture ambiguities
+are resolved (`third-probe-session.md`). The user reported intermittent stutter in the third
+session. The next comparison uses sandbox-verified 0.7.1, `image_hash = 0`, resources enabled,
+and host interval statistics (`frame-pacing.md`). It requires a new user-started process;
+no earlier DLL can hot-reload these settings or diagnostics. Historical procedures follow.
+
 Offline preparation is complete for the current M1 gate. The next observation requires an actual
 game frame; no sandbox run can identify the game's current descriptors, shaders or index regions.
 Historical run 3 remains accepted as initial G1 loading evidence. No repeated 30-minute run is needed.

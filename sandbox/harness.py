@@ -77,6 +77,9 @@ def inject_env(log_path: str | None = None, mode: str | None = "probe", extra: d
                  "VK_LOADER_LAYERS_ALLOW", "VK_LAYER_SETTINGS_PATH", "EFMI_VK_MODE", "EFMI_VK_ENTRY", "EFMI_VK_LOG"):
         env.pop(name, None)
     env["VK_LOADER_LAYERS_DISABLE"] = "~implicit~"
+    # Exercise upload hashes even when dist/ disables them for the user's game session.
+    # A test can still select the disabled path explicitly with env_extra.
+    env["EFMI_VK_IMAGE_HASH"] = "1"
     if mode is not None:
         env["EFMI_VK_MODE"] = mode
     if log_path:

@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "resources.h"
+#include "pacing.h"
 
 #include <atomic>
 #include <memory>
@@ -438,6 +439,7 @@ struct Device {
     std::mutex frame_mx;
     FrameStats cur;
     FrameStats last;
+    PresentPacing pacing; // bounded host intervals; protected by frame_mx
     uint32_t max_threads = 0;
     uint32_t max_command_buffers = 0;
     uint32_t max_submits = 0;
