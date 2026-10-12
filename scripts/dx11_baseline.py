@@ -40,6 +40,26 @@ def sibling(path: str):
     return capture_model, probe_client
 
 
+def fetch_declarations(client, doc: dict, known: dict) -> dict:
+    """Declared slots of every shader the frame's calls use, read from the game while it runs.
+
+    The byte code comes from the probe by hash and is listed with the system's compiler DLL in
+    this process. A shader that cannot be fetched or listed is left out, which leaves all of its
+    bound slots in the pairing.
+    """
+    from efmi_mcp import shader as lister  # noqa: E402
+    table = doc.get("shaders", [])
+    used = {table[sid]["hash"] for d in doc.get("draws", []) for sid in d.get("sh", [])
+            if 0 <= sid < len(table) and table[sid].get("known")}
+    for h in sorted(used - set(known)):
+        try:
+            _reply, code = client.shader(h)
+            known[h] = dx11_pair.parse_declarations(lister.disassemble(code))
+        except Exception as exc:              # a missing shader must not lose the frame
+            print("  shader %s not listed: %s" % (h, exc))
+    return known
+
+
 # --------------------------------------------------------------------------- capture
 def cmd_capture(args) -> int:
     _model, probe_client = sibling(args.efmi_mcp)
@@ -49,20 +69,41 @@ def cmd_capture(args) -> int:
         with probe_client.ProbeClient.connect(args.pid) as client:
             status = client.status()
             doc, blob = client.capture(detail="full", cb_data=True, timeout_ms=args.timeout_ms)
+            declarations = fetch_declarations(client, doc, {})
     except probe_client.ProbeError as exc:
         print("capture failed: %s" % exc)
         return 1
     (out / (args.label + ".json")).write_text(json.dumps(doc), encoding="utf-8")
     (out / (args.label + ".bin")).write_bytes(blob)
     (out / (args.label + ".status.json")).write_text(json.dumps(status, indent=1), encoding="utf-8")
+    (out / (args.label + ".shaders.json")).write_text(json.dumps(declarations), encoding="utf-8")
     origins = Counter(d.get("o", "unknown") for d in doc.get("draws", []))
-    print("frame %s of PID %s (probe %s): %d draws %s, %d bytes of contents -> %s" % (
-        doc.get("frame"), status.get("pid"), status.get("probe"), len(doc.get("draws", [])), dict(origins), len(blob), out))
+    print("frame %s of PID %s (probe %s): %d draws %s, %d bytes of contents, %d shaders listed -> %s" % (
+        doc.get("frame"), status.get("pid"), status.get("probe"), len(doc.get("draws", [])), dict(origins), len(blob),
+        len(declarations), out))
+    return 0
+
+
+def cmd_shaders(args) -> int:
+    """Shader declarations for a frame that was saved without them; the same game has to be running."""
+    _model, probe_client = sibling(args.efmi_mcp)
+    base = Path(args.out) / args.label
+    doc = json.loads(base.with_suffix(".json").read_text(encoding="utf-8"))
+    target = base.with_suffix(".shaders.json")
+    known = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
+    try:
+        with probe_client.ProbeClient.connect(args.pid) as client:
+            fetch_declarations(client, doc, known)
+    except probe_client.ProbeError as exc:
+        print("shaders failed: %s" % exc)
+        return 1
+    target.write_text(json.dumps(known), encoding="utf-8")
+    print("%d shaders listed -> %s" % (len(known), target))
     return 0
 
 
 # --------------------------------------------------------------------------- DX11 side
-def dx_draw_record(cap, d: dict) -> dict:
+def dx_draw_record(cap, d: dict, declarations: dict | None = None) -> dict:
     out = d.get("out") or {}
     colour = sorted(k for k in out if k.startswith("o") and k != "oD")
     first = cap.resource(out[colour[0]]["res"]) if colour else None
@@ -71,6 +112,8 @@ def dx_draw_record(cap, d: dict) -> dict:
     for slot, v in (d.get("tex") or {}).items():
         if int(slot.split("-t")[1]) >= 100:
             continue                      # XXMI's own slots (IniParams and the like)
+        if not dx11_pair.declared(declarations, d["shaders"], slot):
+            continue                      # left bound by an earlier draw; this shader does not read it
         res = cap.resource(v["res"]) or {}
         if res.get("kind") == "buffer":
             buffers.append({"slot": slot, "origin": res.get("origin"), "hash": v.get("hash"),
@@ -79,7 +122,8 @@ def dx_draw_record(cap, d: dict) -> dict:
         sig = dx11_pair.dx_texture_sig(res, v.get("view"))
         if sig:
             textures.append({"slot": slot, "origin": res.get("origin"), "hash": v.get("hash"), "key": sig})
-    windows = dx11_pair.dx_windows(d.get("cb") or {})
+    windows = dx11_pair.dx_windows({slot: cb for slot, cb in (d.get("cb") or {}).items()
+                                    if dx11_pair.declared(declarations, d["shaders"], slot)})
     for w in windows:
         w["origin"] = (cap.resource(w["res"]) or {}).get("origin")
         w["key"] = w["bytes"]
@@ -172,9 +216,11 @@ def pair_draw(dx: dict, vk_draw: dict, pipelines: dict) -> dict:
 
     where = lambda i: [i["set"], i["binding"]]          # noqa: E731
     pipeline = pipelines.get(vk_draw.get("pipeline"))
+    stages = {s.get("stage"): s.get("hash") for s in (pipeline or {}).get("shaders", [])}
     return {
         "dx_draw": dx["index"], "vk_draw": vk_draw["n"], "vk_render_pass": vk_draw.get("rp"), "vk_pipeline": vk_draw.get("pipeline"),
         "dx_vs": dx["vs"], "dx_ps": dx["ps"], "dx_targets": dx["target_text"],
+        "vk_vs": stages.get(1), "vk_fs": stages.get(16),
         "textures": brief(dx11_pair.match_by_key(dx["textures"], items["images"]), lambda i: i["slot"], where),
         "constant_buffers": brief(dx11_pair.match_by_key(dx["windows"], items["uniform"]), lambda i: i["slots"], where),
         "buffers": brief(dx11_pair.match_by_key(dx["buffers"], items["storage"]), lambda i: i["slot"], where),
@@ -189,7 +235,9 @@ def cmd_summarize(args) -> int:
     base = Path(args.out) / args.label
     cap = model.Capture(json.loads(base.with_suffix(".json").read_text(encoding="utf-8")), base.with_suffix(".bin").read_bytes())
     raw = list(cap.draws())
-    records = {d["index"]: dx_draw_record(cap, d) for d in raw if d["type"] < 8}
+    listed = base.with_suffix(".shaders.json")
+    declarations = json.loads(listed.read_text(encoding="utf-8")) if listed.exists() else None
+    records = {d["index"]: dx_draw_record(cap, d, declarations) for d in raw if d["type"] < 8}
     by_index = {d["index"]: d for d in raw}
 
     # The mod: which index ranges each component draws, and which Vulkan hashes stand for it.
@@ -230,9 +278,10 @@ def cmd_summarize(args) -> int:
             continue
         obj["dx"].append(r)
 
-    result_objects, mapping = [], {}
+    result_objects, mapping, variants = [], {}, {}
     for name, obj in objects.items():
-        uses = dx11_pair.group_uses(obj["dx"])
+        # A mod draws one part as several ranges, so its draws are grouped; the game's own draws are not.
+        uses = dx11_pair.group_uses(obj["dx"]) if obj["kind"] == "mod" else [[r] for r in obj["dx"]]
         vk_draws = sorted((d for h in obj["vk_hashes"] for d in vk_by_hash.get(h, [])), key=lambda d: d["n"])
         entry = {"name": name, "kind": obj["kind"], "dx_draws": [r["index"] for r in obj["dx"]],
                  "dx_ranges": sorted({(r["count"], r["first"]) for r in obj["dx"]}), "dx_uses": len(uses),
@@ -243,9 +292,14 @@ def cmd_summarize(args) -> int:
             for use, vk_draw in zip(uses, vk_draws):
                 pair = pair_draw(use[0], vk_draw, pipelines)
                 entry["pairs"].append(pair)
+                # Bindings are numbered per Vulkan program, so the table is keyed by its fragment shader.
+                fragment = pair["vk_fs"] or "pipeline %s" % pair["vk_pipeline"]
+                variants.setdefault(pair["dx_ps"], set()).add(fragment)
+                slots = mapping.setdefault(fragment, {"dx_ps": set(), "slots": {}})
+                slots["dx_ps"].add(pair["dx_ps"])
                 for p in pair["textures"]["pairs"]:
                     if p["dx_origin"] == "game" and p["dx"].startswith("ps-"):
-                        mapping.setdefault(pair["dx_ps"], {}).setdefault(p["dx"], set()).add(tuple(p["vk"]))
+                        slots["slots"].setdefault(p["dx"], set()).add(tuple(p["vk"]))
         elif vk_draws:
             entry["not_paired"] = "%d uses under DX11, %d draws under Vulkan" % (len(uses), len(vk_draws))
         result_objects.append(entry)
@@ -258,8 +312,11 @@ def cmd_summarize(args) -> int:
             n: {"ranges": s["ranges"], "slots": s["slots"], "hashes": component_hashes.get(n, [])} for n, s in sorted(sections.items())}},
         "compute_steps": compute_steps(cap, raw),
         "objects": result_objects,
-        "texture_slot_map": {ps: {slot: sorted(where) for slot, where in sorted(slots.items(), key=lambda kv: int(kv[0].split("-t")[1]))}
-                             for ps, slots in mapping.items()},
+        "shaders_listed": None if declarations is None else len(declarations),
+        "texture_slot_map": {fragment: {"dx_ps": sorted(m["dx_ps"]), "slots": {
+            slot: sorted(where) for slot, where in sorted(m["slots"].items(), key=lambda kv: int(kv[0].split("-t")[1]))}}
+            for fragment, m in mapping.items()},
+        "vulkan_fragment_shaders_per_dx_ps": {ps: sorted(fragments) for ps, fragments in variants.items()},
         "draws": [{k: v for k, v in r.items() if k != "targets"} for r in records.values()
                   if any(r["index"] in o["dx_draws"] for o in result_objects)],
     }
@@ -273,9 +330,16 @@ def cmd_summarize(args) -> int:
         print("%-16s DX11 draws %d in %d uses, ranges %s | Vulkan draws %s%s" % (
             o["name"], len(o["dx_draws"]), o["dx_uses"], o["dx_ranges"][:4], o["vk_draws"],
             "" if "not_paired" not in o else " | NOT PAIRED: " + o["not_paired"]))
-    print("texture slots of the game's own textures, per DX11 pixel shader -> Vulkan [set, binding]:")
-    for ps, slots in summary["texture_slot_map"].items():
-        print("  %s: %s" % (ps, "  ".join("%s->%s" % (slot.replace("ps-", ""), "/".join("%d.%d" % tuple(w) for w in where)) for slot, where in slots.items())))
+    print("shader declarations: %s" % ("not available, every bound slot takes part" if declarations is None else "%d shaders" % len(declarations)))
+    print("texture slots of the game's own textures, per Vulkan fragment shader (DX11 pixel shader) -> [set, binding]:")
+    conflicts = 0
+    for fragment, m in summary["texture_slot_map"].items():
+        conflicts += sum(1 for where in m["slots"].values() if len(where) > 1) + (len(m["dx_ps"]) > 1)
+        print("  %s (%s): %s" % (fragment, "/".join(m["dx_ps"]), "  ".join(
+            "%s->%s" % (slot.replace("ps-", ""), "/".join("%d.%d" % tuple(w) for w in where)) for slot, where in m["slots"].items())))
+    many = {ps: f for ps, f in summary["vulkan_fragment_shaders_per_dx_ps"].items() if len(f) > 1}
+    print("DX11 pixel shaders with more than one Vulkan fragment shader: %d of %d" % (len(many), len(summary["vulkan_fragment_shaders_per_dx_ps"])))
+    print("table entries that contradict each other: %d" % conflicts)
     print("written:", target)
     return 0
 
@@ -290,6 +354,10 @@ def main() -> int:
     c.add_argument("--pid", type=int, default=None)
     c.add_argument("--timeout-ms", type=int, default=8000)
     c.set_defaults(fn=cmd_capture)
+    h = sub.add_parser("shaders")
+    h.add_argument("--label", required=True)
+    h.add_argument("--pid", type=int, default=None)
+    h.set_defaults(fn=cmd_shaders)
     s = sub.add_parser("summarize")
     s.add_argument("--label", required=True)
     s.add_argument("--mod", help="the INI of the mod that is on screen")

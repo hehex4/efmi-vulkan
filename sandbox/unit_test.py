@@ -261,6 +261,25 @@ def test_dx11_pair(c: Checks) -> None:
     c.equal(sections[1]["ranges"], [(49488, 0), (166992, 49488)], "every range once, whichever condition it is under")
     c.equal(sections[1]["slots"], {"ps-t16": "Resource-Light", "vs-cb1": "Resource-Config"}, "texture and buffer slots")
 
+    listing = "\n".join([
+        "ps_5_0", "dcl_globalFlags refactoringAllowed", "dcl_constantbuffer CB0[45], immediateIndexed",
+        "  dcl_constantbuffer CB2[4094], dynamicIndexed", "dcl_sampler s0, mode_default",
+        "dcl_resource_structured t1, 16", "dcl_resource_texture2d (float,float,float,float) t15",
+        "dcl_resource_texturecube (float,float,float,float) t19", "dcl_resource_texture1d (float,float,float,float) t120",
+        "dcl_input_ps linear v1.xy", "dcl_temps 12",
+        "ld_structured_indexable(structured_buffer, stride=16)(mixed,mixed,mixed,mixed) r0.x, r1.x, l(12), t1.xxxx",
+        "sample_indexable(texture2d)(float,float,float,float) r0.xyzw, v1.xyxx, t7.xyzw, s0", "ret"])
+    decl = dx11_pair.parse_declarations(listing)
+    c.equal(decl, {"t": [1, 15, 19, 120], "cb": {0: 45, 2: 4094}}, "declared slots; a use in an instruction is not a declaration")
+    stages = {"vs": "v", "ps": "p"}
+    table = {"p": json.loads(json.dumps(decl))}
+    c.check(dx11_pair.declared(table, stages, "ps-t15"), "a declared texture slot takes part")
+    c.check(not dx11_pair.declared(table, stages, "ps-t16"), "a bound slot the shader does not declare is left out")
+    c.check(dx11_pair.declared(table, stages, "ps-cb2") and not dx11_pair.declared(table, stages, "ps-cb1"),
+            "constant buffer slots, also after the table went through JSON")
+    c.check(dx11_pair.declared(table, stages, "vs-t3"), "a stage whose shader was not listed keeps every slot")
+    c.check(dx11_pair.declared(None, stages, "ps-t16"), "without declarations nothing is left out")
+
 
 def main() -> int:
     c = Checks("unit_test")

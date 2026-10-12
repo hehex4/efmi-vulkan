@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); T-008 has its first frame since 2026-10-12 (mods on, paired with the Vulkan frame); next are T-017, the frame with mods off for T-008, T-018 and T-019. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); T-008 is done since 2026-10-12 (four DX11 frames, mods on and off, paired with the Vulkan frame); next are T-017, T-018 and T-019. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
 
 ## Tasks and follow-ups
 
@@ -14,13 +14,13 @@ T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP
 
 `docs/compatibility-inventory.md` and `docs/compatibility-inputs.json` cover every lexical construct/command and direct EFMIv1 item used by the main mod and Core, plus the previously missed image panel. Pinned the exact release DLL and source commit; saved Core/mod tree and game binary/content-index fingerprints. Engine version is known; the game marketing label is not inferred. D-016 retains the hosted XXMI engine approach, with explicit adapter boundaries and a later compiled prototype. Reproducible snapshot check passes. No runtime compatibility is claimed.
 
-### T-008: DX11 baseline capture with the sample mod (first frame taken and paired on 2026-10-12; a frame with the mods off is still wanted)
+### T-008: DX11 baseline capture with the sample mod (done on 2026-10-12)
 
 State of the machine for this session: at the user's request the launcher's EFMI profile was set back to DX11 by this project (`d3d11_mode_cmd_args` = `-force-d3d11`, `xxmi_dll_inject_mode` = `DIRECT`; copy of the file before the change in `build/backups/launcher-config-before-dx11-20261012-100111.json`). The injected libraries are still `efmi_probe.dll` and `efmi_vk_inject.dll`; that value is signed and was not touched, so `dist/efmi_vk.cfg` was set to `mode = passthrough` for the DX11 session. **Before the next Vulkan session**: the two launcher values back to empty and `SKIP` (by the user, or by this project when asked), and `dist/efmi_vk.cfg` back to `mode = probe`.
 
 Done on 2026-10-12 in the user's DX11 session (PID 9264): one full frame with the mod on screen and constant buffer contents, `captures/dx11-baseline/frame-a.*`, taken with `scripts/dx11_baseline.py` through the DX11 probe of the sibling project, and paired with `captures/first-probe`. Results and tables are in `docs/dx11-baseline.md`; facts 15 to 19 of the plan and D-019 follow from it. G3 d is answered in kind (a table per fragment shader), G3 b and c are confirmed in structure from the DX11 side (instance entry, constant 5, bone buffer), G3 e in detail (only the blend index attribute and its stride differ, plus 32-bit indices).
 
-Still wanted, with the game window not minimized: a frame with the mods switched off (EFMI's F11; the probe refused to press it for a minimized window and sent nothing), so that every original component pairs like-for-like, and one frame after a mod key toggle. Without them the slots the mod replaces pair with nothing, and for component 0 only the diffuse map is placed (set 1 binding 6); light map and normal map are bindings 1 and 3 in unknown order (T-018).
+The frame with the mods off followed the same morning, once the user had restored the game window: the DX11 probe pressed EFMI's F11, the frame after it (`frame-off`, EFMI printed `Mods Display: Disabled`) was saved, and a second press switched the mods on again (`frame-on`, `Mods Display: Enabled`). With it all 12 original components pair draw for draw with the Vulkan frame (45 draws each side), and each slot the mod's draw sections set was looked up per pass: 15 placed, 4 one of two (T-018), 37 not declared by the shader of that pass. The table is keyed by the Vulkan fragment shader (111 entries for 36 fragment shaders over the four frames, no contradiction). The mod's own toggle keys only select index ranges and were not exercised.
 
 ### T-009: Gate G1 in the real game (initial loading accepted; long-duration observation deferred)
 
@@ -44,7 +44,7 @@ The first probe session read the instance config and the bones live, after the f
 
 ### T-018: Tell textures apart by content (open; M1, needed by D7 and T-016)
 
-Two textures of the same size, mip count and format cannot be paired between a DX11 and a Vulkan frame, and a slot table built from looks alone stays ambiguous there (component 0: light map and normal map). The layer sees every upload from process start: hash the bytes of mip 0 when they are copied from a buffer into an image (`vkCmdCopyBufferToImage`, source mapped or shadowed), keep the hash with the image and report it with the descriptor contents. On the DX11 side the sibling probe can read mip 0 of a bound texture; `dx11_baseline.py` then keys on the content hash. Check whether XXMI's own texture hash can be reproduced from the same bytes: the image panel mod (T-016) matches by texture hash.
+Two textures of the same size, mip count and format cannot be paired between a DX11 and a Vulkan frame, and a slot table built from looks alone stays ambiguous there. Four such entries exist for the sample mod: component 0 main pass `ps-t16` and `ps-t17` (set 1 bindings 1 and 3), component 0 render pass 24 `ps-t16`, component 4 main pass `ps-t17`. The layer sees every upload from process start: hash the bytes of mip 0 when they are copied from a buffer into an image (`vkCmdCopyBufferToImage`, source mapped or shadowed), keep the hash with the image and report it with the descriptor contents. On the DX11 side the sibling probe can read mip 0 of a bound texture; `dx11_baseline.py` then keys on the content hash. Check whether XXMI's own texture hash can be reproduced from the same bytes: the image panel mod (T-016) matches by texture hash.
 
 ### T-019: Keep the fragment stage on the game's data in a replaced draw (open design question; before M2)
 
@@ -94,7 +94,6 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- While the DX11 session of 2026-10-12 is still open, or in another one: the game window restored (not minimized) with the character on screen, so that the DX11 probe can press F11 for the frame with mods off (T-008). Pressing F11 by hand works as well.
 - Before the next Vulkan session: the launcher's EFMI profile back to its Vulkan values (the user, or this project when asked) and `dist/efmi_vk.cfg` back to `mode = probe` (T-008).
 - Further probe sessions when T-017 is built: the same scene again, then open world and combat.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.

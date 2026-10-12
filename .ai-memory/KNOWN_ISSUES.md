@@ -101,7 +101,7 @@ sandbox/native_test.py now always sets EFMI_VK_LOG and its working directory to 
 
 ## LIMIT-015: Scope of the DX11 baseline
 
-One frame with the mods on, one scene, one character, key states as found; the Vulkan frame it is paired with comes from another session of the same morning with another window size. No frame with the mods off exists (the F11 press was refused for a minimized window), so the slots the mod replaces pair with nothing: for component 0 only the diffuse map is placed, light map and normal map are two bindings in unknown order. Pairing is by look (shape, size, mip count, format); equal looks are reported as ambiguous groups and never resolved by guessing (T-018). Three of 21 common objects were not paired because they are drawn twice with the same shaders into the same targets. A slot table from this frame covers the 24 pixel shaders of this scene only.
+Four frames of one DX11 session (mods on twice, off, on again), one scene, one character, the mod's key states as found; the Vulkan frame they are paired with comes from another session of the same morning with another window size. Pairing is by look (shape, size, mip count, format) among the slots a shader declares; equal looks are reported as ambiguous groups and never resolved by guessing. Four of the mod's slot assignments are ambiguous for that reason (T-018). Three objects common to both frames are drawn a different number of times and are not paired. The slot table covers the fragment shaders of this scene only (36), and a fragment shader whose pipeline was not exported in the Vulkan bundle is listed under its pipeline number.
 
 ## ISSUE-003: `python` on the PATH of this machine is the Windows Store stub
 

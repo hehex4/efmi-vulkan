@@ -40,6 +40,29 @@ _SECTION = re.compile(r"^\s*\[(.+?)\]\s*$")
 _ASSIGN = re.compile(r"^\s*([^=;]+?)\s*=\s*(.*?)\s*$")
 _DRAW_SECTION = re.compile(r"^commandlist_draw_component(\d+)$", re.IGNORECASE)
 _SLOT = re.compile(r"^(vs|ps|hs|ds|gs|cs)-(t|cb)\d+$", re.IGNORECASE)
+_DCL_RESOURCE = re.compile(r"^\s*dcl_resource_\w+.*?\bt(\d+)\b", re.MULTILINE)
+_DCL_CONSTANTS = re.compile(r"^\s*dcl_constantbuffer\s+CB(\d+)\[(\d+)\]", re.MULTILINE | re.IGNORECASE)
+
+
+def parse_declarations(listing: str) -> dict:
+    """Which slots a DX11 shader declares, from its assembly listing.
+
+    A slot that is bound but not declared is left over from an earlier draw and must not take
+    part in a pairing. Returns {"t": [slot, ...], "cb": {slot: constants}}.
+    """
+    return {"t": sorted({int(m.group(1)) for m in _DCL_RESOURCE.finditer(listing)}),
+            "cb": {int(m.group(1)): int(m.group(2)) for m in _DCL_CONSTANTS.finditer(listing)}}
+
+
+def declared(declarations: dict | None, shaders: dict, slot: str) -> bool:
+    """False only when the shader of the slot's stage is known not to declare it."""
+    stage, _, rest = slot.partition("-")
+    decl = (declarations or {}).get(shaders.get(stage))
+    if decl is None:
+        return True
+    if rest.startswith("cb"):
+        return int(rest[2:]) in {int(k) for k in decl["cb"]}
+    return int(rest[1:]) in decl["t"]
 
 
 def dx_texture_sig(resource: dict | None, view: dict | None = None) -> tuple | None:
