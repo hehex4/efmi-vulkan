@@ -126,3 +126,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - D3, two-phase execution: its premise looks right. Instance config and bones are in mapped memory and all per-frame data arrives without buffer copies. It is not proven until T-017 shows the bytes at submit and at record time.
 - D8, vertex input: confirmed as needed; the game's blend stream has stride 12 with 8-bit indices, the mod's has stride 16 with 16-bit indices.
 - Compute: 47 dispatches per frame, all outside render passes and none needed by the character's vertex shader for bones. The merged skeleton does not depend on them.
+
+## D-019: What the DX11 baseline settles in the plan
+
+- Date: 2026-10-12, after pairing a DX11 frame of the sample mod with the Vulkan frame (`docs/dx11-baseline.md`, facts 15 to 19).
+- D7, texture slots: a mod's `ps-tN` is translated through a table from (fragment shader, DX11 slot) to (set, binding). The table is data produced by `scripts/dx11_baseline.py` from paired frames, not something the layer derives at run time: binding order is not register order and there are no names. Where two textures look alike the entry stays open until content identity exists (T-018). A draw whose fragment shader has no table entry is left unreplaced and reported.
+- Instance window: taken from set 2 binding 0 at the draw's dynamic offset, 256 bytes; found by its place in the layout. The DX11 core's per-shader search for the slot has no counterpart.
+- Bone buffer: identified as a buffer (the one storage buffer of 8,413,184 bytes the character pipelines bind in set 0), not by a binding number.
+- D3, CPU work: the two compute steps of the core are a copy of bone rows per component and frame and a patched copy of 16 constants per matched draw. Both are done on the CPU before the draw is replaced, provided T-017 shows the bytes are there in time.
+- D8, vertex input: the variant changes the stride of the blend binding and the format of its unsigned-integer attribute and binds 32-bit indices; attributes are identified by binding and format, not by semantic.
+- Not decided: how the fragment stage keeps the game's bone buffer and instance window (T-019).

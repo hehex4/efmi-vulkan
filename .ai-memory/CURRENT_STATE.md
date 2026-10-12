@@ -1,6 +1,21 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.5.1 (probe, protocol 1), server 0.1.0. Probe mode ran in the real game for the first time on 2026-10-12: G2 is answered (one recording thread), G3 a passes (all 12 LOD0 components of the sample mod match by hash), G3 b and c are strongly indicated from live reads and still need a snapshot taken at submit. Long-duration stability is unverified. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.5.1 (probe, protocol 1), server 0.1.0. Probe mode ran in the real game for the first time on 2026-10-12: G2 is answered (one recording thread), G3 a passes (all 12 LOD0 components of the sample mod match by hash), G3 b and c are strongly indicated from live reads and still need a snapshot taken at submit. The DX11 baseline of the sample mod was captured on 2026-10-12 with the mods on and paired with the Vulkan frame (`docs/dx11-baseline.md`). Long-duration stability is unverified. No mod rendering exists.
+
+## DX11 baseline of the sample mod (2026-10-12, 10:09; game under DX11, started by the user)
+
+Data captured in the real game under DX11, PID 9264 (`Forcing GfxDevice: Direct3D 11` in `Player.log`), with XXMI's `d3d11.dll`, the DX11 probe 0.1.6 of the sibling project and this project's DLL in passthrough (it redirected the exports of `vulkan-1.dll` and saw one instance of another component; nothing else). One full frame, 30344, with constant buffer contents: `captures/dx11-baseline/frame-a.*` (not committed). Taken and summarised with the new `scripts/dx11_baseline.py`, which uses the sibling project's client as a library without writing there, and paired with `captures/first-probe` by `server/efmi_vk/dx11_pair.py`. Full account: `docs/dx11-baseline.md`. A second frame of the same session (`frame-b`, 150191), taken with the script's own `capture` command, has the same XXMI figures (113 calls, 12 and 45 compute runs) and the same 61 slot entries with none that differs.
+
+- 346 calls, 113 by XXMI: 56 indexed draws of six mod sections and 57 dispatches of the core's two compute shaders. 18 of the 21 objects both frames contain pair draw for draw (41 draws); component 0 is drawn 7 times under both APIs.
+- Instance entry: 16 constants; constant 3 the translation (-300, 300, -300), constant 5 (bone offset, previous bone offset, 258, 1.0f). The game's values (504633, 502851) become (1533, 3030) in the 256-byte copy the mod draw uses. Same structure as read under Vulkan. The second compute step ran 45 times; the Vulkan frame has 45 draws of the 12 original components.
+- Under Vulkan the instance window is set 2 binding 0 in 38 of 38 paired draws; under DX11 it is `vs-cb1`, `vs-cb2`, `vs-cb3` or `vs-cb6` depending on the shader. The bone buffer (8,413,184 bytes on both sides) is a storage buffer of set 0 at binding 7, 9, 18 or 19.
+- Texture slots: per shader on both sides, no common order, no names on either side. For the native part `a00ba2de`: `ps-t15` diffuse is set 1 binding 6, `ps-t16` light map binding 2, `ps-t17` normal map binding 5.
+- Vertex input: identical except the blend indices (mod RGBA16 uint in a stride of 16, game RGBA8 uint in a stride of 12); the mod's indices are 32-bit.
+- Under DX11 only the vertex stage gets the merged skeleton and the patched entry; the pixel shader keeps the game's and reads them. One Vulkan binding serves both stages (T-019).
+
+Not obtained: a frame with the mods off. The probe's F11 press was refused because the game window was minimized; no key was sent, the mods stayed on. Scope: one scene, one character, key states as found, two sessions (window sizes differ, so screen-sized textures do not pair).
+
+Checks of this round: `sandbox/unit_test.py` 69 of 69 (25 new for the pairing), `scripts/check_text.py` clean. The layer was not changed and not rebuilt; the full suite was not run.
 
 ## Machine set up for the DX11 baseline (2026-10-12 10:01; game not running)
 
@@ -176,10 +191,13 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 
 ## Next
 
-T-007 inventory, T-012 synthetic overhead and T-015 validation are complete. T-011's standard descriptor/resource paths are sandbox verified. The next backend milestone depends on actual game data:
+State on 2026-10-12 after the first probe session and the DX11 baseline:
 
-1. T-010: collect API usage and a probe frame with the sample character visible for G2/G3 a; inspect real shader/binding identities and byte-availability questions. Use the recorded run-3 launcher configuration only when the user chooses to launch.
-2. T-008: capture the still-missing modded DX11 baseline in a separate user-chosen session.
-3. Choose further descriptor hooks/read-back and M2 replacement from that evidence. Record-time bytes, GPU-produced data and actual shader bindings cannot be inferred from the sandbox. M3 must account for the newly inventoried image panel.
+1. T-008, remainder: a DX11 frame with the mods off (and one after a key toggle) while the game window is not minimized.
+2. T-017: snapshot at submit of the instance entry and the bone rows, with a record-time against submit-time comparison; then the same scene again under Vulkan. The launcher's EFMI profile and `dist/efmi_vk.cfg` have to go back to their Vulkan values first.
+3. T-018: content hash of textures at upload, so that slot tables are exact.
+4. T-019: decide how the fragment stage stays on the game's data, then M2 (minimal replacement of one component).
+
+Later sessions: open world, combat, several instances, LOD1, indirect draws. M3 must account for the image panel (T-016).
 
 Historical run 3 remains accepted initial G1 loading evidence. A repeated 30-minute passthrough run is not a prerequisite. No real-game launch or injection was performed in this development round.

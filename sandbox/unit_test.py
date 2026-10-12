@@ -14,6 +14,7 @@ from efmi_vk.hashes import crc32c, format_hash, index_region  # noqa: E402
 from efmi_vk.mods import find_ini_files, match_overrides, parse_overrides  # noqa: E402
 from efmi_vk.tools import TOOLS, Session, ToolError  # noqa: E402
 from efmi_vk.spirv import inspect_spirv  # noqa: E402
+from efmi_vk import dx11_pair  # noqa: E402
 
 INI = """\
 ; a comment
@@ -156,12 +157,118 @@ def test_spirv(c: Checks) -> None:
             c.check(True, "malformed SPIR-V is rejected")
 
 
+DRAW_INI = """\
+[CommandList_Draw_Component0]
+ib = Resource_Index
+ps-t15 = Resource-Diffuse
+ps-t15 = Resource-Other
+drawindexed = 75987,0,0
+
+[CommandList_Draw_Component1]
+ps-t16 = Resource-Light
+if $swapkey0 == 0
+  ; [mesh:a]
+  drawindexed = 49488,0,0
+endif
+if $swapkey1 == 0
+  drawindexed = 166992, 49488, 0
+  drawindexed = 166992, 49488, 0
+endif
+vs-cb1 = Resource-Config
+drawindexed = auto
+
+[CommandListOther]
+drawindexed = 3,0,0
+"""
+
+
+def test_dx11_pair(c: Checks) -> None:
+    tex = {"kind": "tex2d", "w": 2048, "h": 2048, "mips": 12, "array": 1, "fmt": 98, "fmt_name": "BC7_UNORM", "misc": 0}
+    c.equal(dx11_pair.dx_texture_sig(tex, {"format": "BC7_UNORM", "dimension": "tex2d", "mip_levels": 12}),
+            ("2d", 2048, 2048, 1, 1, 12, "BC7_UNORM"), "DX11 2D texture signature")
+    depth = {"kind": "tex2d", "w": 4096, "h": 2048, "mips": 1, "array": 1, "fmt_name": "R16_TYPELESS", "misc": 0}
+    c.equal(dx11_pair.dx_texture_sig(depth, {"format": "R16_UNORM", "dimension": "tex2d", "mip_levels": 1})[6], "R16_UNORM",
+            "a typeless texture takes the format of its view")
+    c.equal(dx11_pair.dx_texture_sig(depth)[6], "R16_TYPELESS", "without a view the resource format is kept")
+    cube = {"kind": "tex2d", "w": 128, "h": 128, "mips": 8, "array": 6, "fmt_name": "BC6H_UF16", "misc": 4}
+    c.equal(dx11_pair.dx_texture_sig(cube, {"format": "BC6H_UF16", "dimension": "cube", "mip_levels": 8})[:5],
+            ("cube", 128, 128, 1, 6), "DX11 cube signature")
+    volume = {"kind": "tex3d", "w": 128, "h": 64, "d": 128, "mips": 1, "fmt_name": "R11G11B10_FLOAT", "misc": 0}
+    c.equal(dx11_pair.dx_texture_sig(volume), ("3d", 128, 64, 128, 1, 1, "R11G11B10_FLOAT"), "DX11 3D signature")
+    c.equal(dx11_pair.dx_texture_sig({"kind": "buffer", "size": 16}), None, "a buffer has no texture signature")
+
+    def image(fmt, extent, view_type=1, levels=1, layers=1, known=True):
+        return {"image_known": known, "extent": extent, "format": fmt, "view_type": view_type,
+                "subresource": {"levels": levels, "layers": layers}, "image": 7}
+
+    c.equal(dx11_pair.vk_image_sig(image(145, [2048, 2048, 1], levels=12)), ("2d", 2048, 2048, 1, 1, 12, "BC7_UNORM"),
+            "Vulkan image signature equals the DX11 one")
+    c.equal(dx11_pair.vk_image_sig(image(143, [128, 128, 1], view_type=3, levels=8, layers=6))[:5], ("cube", 128, 128, 1, 6),
+            "Vulkan cube signature")
+    c.equal(dx11_pair.vk_image_sig(image(124, [4096, 2048, 1]))[6], "R16_UNORM", "a depth image compares as its DX11 view")
+    c.equal(dx11_pair.vk_image_sig(image(999, [4, 4, 1]))[6], "vk999", "an unlisted format never matches by accident")
+    c.equal(dx11_pair.vk_image_sig(image(145, [4, 4, 1], known=False)), None, "an unknown image has no signature")
+
+    dx = [{"slot": "ps-t15", "key": "a"}, {"slot": "ps-t16", "key": "b"}, {"slot": "ps-t17", "key": "b"},
+          {"slot": "ps-t18", "key": "c"}]
+    vk = [{"set": 1, "binding": 6, "key": "a"}, {"set": 1, "binding": 1, "key": "b"}, {"set": 1, "binding": 3, "key": "b"},
+          {"set": 0, "binding": 9, "key": "d"}]
+    m = dx11_pair.match_by_key(dx, vk)
+    c.equal([(p["dx"]["slot"], p["vk"]["binding"]) for p in m["pairs"]], [("ps-t15", 6)], "a unique signature is a pair")
+    c.equal([([i["slot"] for i in a["dx"]], [i["binding"] for i in a["vk"]]) for a in m["ambiguous"]],
+            [(["ps-t16", "ps-t17"], [1, 3])], "equal signatures stay an ambiguous group, nothing is guessed")
+    c.equal([i["slot"] for i in m["dx_only"]], ["ps-t18"], "an item without a counterpart is reported")
+    c.equal([i["binding"] for i in m["vk_only"]], [9], "also on the Vulkan side")
+
+    windows = dx11_pair.dx_windows({
+        "vs-cb2": {"res": 0, "first_constant": 8704, "num_constants": 4096},
+        "ps-cb1": {"res": 0, "first_constant": 8704, "num_constants": 4096},
+        "ps-cb3": {"res": 0, "first_constant": 3424, "num_constants": 16},
+        "vs-cb1": {"res": 60, "first_constant": 0, "num_constants": 4096}})
+    c.equal([(w["slots"], w["stages"], w["bytes"]) for w in windows],
+            [(["vs-cb2", "ps-cb1"], 17, 65536), (["ps-cb3"], 16, 256), (["vs-cb1"], 1, 65536)],
+            "one window seen by two stages is one item; another buffer is another window")
+    c.equal([dx11_pair.round_to_window(n) for n in (1, 256, 257, 1312, 11440, 65536)], [256, 256, 512, 1536, 11520, 65536],
+            "a Vulkan range rounds up to whole 16-constant windows")
+
+    sets = [{"contents": {"bindings": [
+                {"binding": 18, "type": 7, "stages": 17, "elements": [{"element": 0, "known": True, "buf": 37, "range": 8413184, "src": "mapped"}]},
+                {"binding": 2, "type": 0, "stages": 17, "elements": [{"element": 0, "sampler": 3}]}]}},
+            {"contents": {"bindings": [
+                {"binding": 6, "type": 2, "stages": 16, "elements": [image(146, [2048, 2048, 1], levels=12)]},
+                {"binding": 7, "type": 2, "stages": 16, "elements": [image(146, [4, 4, 1], known=False)]}]}},
+            {"contents": {"bindings": [
+                {"binding": 0, "type": 8, "stages": 17, "elements": [{"element": 0, "known": True, "buf": 64, "range": 65536, "src": "mapped"}]}]}},
+            {"contents": None}]
+    items = dx11_pair.vk_set_items(sets)
+    c.equal([(i["set"], i["binding"], i["sig"][6]) for i in items["images"]], [(1, 6, "BC7_UNORM_SRGB")],
+            "sampled images with a known image are listed with their set and binding")
+    c.equal([(i["set"], i["binding"], i["range"], i["dynamic"]) for i in items["uniform"]], [(2, 0, 65536, True)],
+            "uniform buffers, dynamic ones marked")
+    c.equal([(i["set"], i["binding"], i["range"]) for i in items["storage"]], [(0, 18, 8413184)], "storage buffers")
+
+    draws = [{"index": 45, "targets": "shadow", "vs": "a", "ps": "b"}, {"index": 71, "targets": "g", "vs": "c", "ps": "d"},
+             {"index": 72, "targets": "g", "vs": "c", "ps": "d"}, {"index": 74, "targets": "g", "vs": "e", "ps": "f"}]
+    c.equal([[d["index"] for d in g] for g in dx11_pair.group_uses(draws)], [[45], [71, 72], [74]],
+            "ranges drawn with the same shaders into the same targets are one use")
+
+    path = os.path.join(test_dir("unit"), "draw_sections.ini")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(DRAW_INI)
+    sections = dx11_pair.parse_draw_sections(path)
+    c.equal(sorted(sections), [0, 1], "only the component draw sections are read")
+    c.equal(sections[0], {"ranges": [(75987, 0)], "slots": {"ps-t15": "Resource-Diffuse"}}, "ranges and the first value of a slot")
+    c.equal(sections[1]["ranges"], [(49488, 0), (166992, 49488)], "every range once, whichever condition it is under")
+    c.equal(sections[1]["slots"], {"ps-t16": "Resource-Light", "vs-cb1": "Resource-Config"}, "texture and buffer slots")
+
+
 def main() -> int:
     c = Checks("unit_test")
     test_hashes(c)
     test_mods(c)
     test_mcp(c)
     test_spirv(c)
+    test_dx11_pair(c)
     return c.finish()
 
 

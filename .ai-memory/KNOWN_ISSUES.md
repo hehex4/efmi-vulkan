@@ -1,6 +1,6 @@
 # EFMI Vulkan - Known issues
 
-> Last updated: 2026-10-11.
+> Last updated: 2026-10-12.
 
 ## LIMIT-001: Probe data and long-duration stability are not verified in the real game
 
@@ -12,7 +12,7 @@ Khronos VVL 1.4.321 and SPIRV-Tools are built under `F:/vulkan`. The sandbox pas
 
 ## LIMIT-003: The existing DX11 frame dump is not a merged-skeleton baseline
 
-`FrameAnalysis-2026-10-07-123937` has zero CustomShader executions and no mod entry point hit; only the ShaderRegex checks of EFMI and RabbitFX ran. It was good for checking the region hash rule on unmodified draws, not for the merged-skeleton comparison.
+`FrameAnalysis-2026-10-07-123937` has zero CustomShader executions and no mod entry point hit; only the ShaderRegex checks of EFMI and RabbitFX ran. It was good for checking the region hash rule on unmodified draws, not for the merged-skeleton comparison. Since 2026-10-12 the comparison has its own frame: `captures/dx11-baseline/frame-a` (LIMIT-015).
 
 ## LIMIT-004: RabbitFX mods are out of reach for the first version
 
@@ -98,3 +98,11 @@ Sandbox overhead figures (`docs/probe-performance.md`) come from a program that 
 The tracker test links the layer logger, whose default path is beside its executable. Running the final suite against dist/ appended one test startup line to the existing game log. The original 2246-byte prefix exactly matched the saved backup; no historical bytes were lost. Preserved the mixed log in build/backups/native-log-repair-20261011-223459/mixed.log and restored the exact original bytes from the before-0.5 backup.
 
 sandbox/native_test.py now always sets EFMI_VK_LOG and its working directory to a new directory under build/tests/. The corrected native test passes 62 checks, with the historical log unchanged before/after (SHA-256 2e8a46cf4985363ce1b5daea4942b5195e4dee1ffaefbe67e1543946e8f961b4).
+
+## LIMIT-015: Scope of the DX11 baseline
+
+One frame with the mods on, one scene, one character, key states as found; the Vulkan frame it is paired with comes from another session of the same morning with another window size. No frame with the mods off exists (the F11 press was refused for a minimized window), so the slots the mod replaces pair with nothing: for component 0 only the diffuse map is placed, light map and normal map are two bindings in unknown order. Pairing is by look (shape, size, mip count, format); equal looks are reported as ambiguous groups and never resolved by guessing (T-018). Three of 21 common objects were not paired because they are drawn twice with the same shaders into the same targets. A slot table from this frame covers the 24 pixel shaders of this scene only.
+
+## ISSUE-003: `python` on the PATH of this machine is the Windows Store stub
+
+`python` and `python3` resolve to `%LOCALAPPDATA%\Microsoft\WindowsApps` and exit with code 49 without output. Use `D:\Python312\python.exe` (as `.mcp.json` does) or `py`. Seen on 2026-10-12 when a capture script appeared to do nothing.

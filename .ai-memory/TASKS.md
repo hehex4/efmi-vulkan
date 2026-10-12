@@ -1,12 +1,12 @@
 # EFMI Vulkan - Tasks
 
-> Last updated: 2026-10-11.
+> Last updated: 2026-10-12.
 
 Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); next are T-017 and T-008. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
+T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP server and inject entry. T-011 covers ordinary descriptors, templates, direct/template pushes, images and shader modules; after the review of 2026-10-11 the layer is 0.5.1 (bounded retention, reduced tracking level, D-017), verified with the full sandbox regression suite and copied to `dist/` with probe mode configured. The current round stayed offline/sandbox-only at the user's request. T-012 performance, T-015 core/synchronization validation and T-007 inventory are complete. The first probe session in the game took place on 2026-10-12 (T-010); T-008 has its first frame since 2026-10-12 (mods on, paired with the Vulkan frame); next are T-017, the frame with mods off for T-008, T-018 and T-019. Historical game launches used 0.2.0 passthrough; run 3 is accepted as initial G1 loading evidence with long-duration observation deferred (D-014 / T-009). Probe-mode game data exists since 2026-10-12 for one scene.
 
 ## Tasks and follow-ups
 
@@ -14,11 +14,13 @@ T-001 to T-006 and T-014 are done: workspace, build, hashes, probe, sandbox, MCP
 
 `docs/compatibility-inventory.md` and `docs/compatibility-inputs.json` cover every lexical construct/command and direct EFMIv1 item used by the main mod and Core, plus the previously missed image panel. Pinned the exact release DLL and source commit; saved Core/mod tree and game binary/content-index fingerprints. Engine version is known; the game marketing label is not inferred. D-016 retains the hosted XXMI engine approach, with explicit adapter boundaries and a later compiled prototype. Reproducible snapshot check passes. No runtime compatibility is claimed.
 
-### T-008: DX11 baseline capture with the sample mod (prepared on 2026-10-12; waits for the user's DX11 launch)
+### T-008: DX11 baseline capture with the sample mod (first frame taken and paired on 2026-10-12; a frame with the mods off is still wanted)
 
 State of the machine for this session: at the user's request the launcher's EFMI profile was set back to DX11 by this project (`d3d11_mode_cmd_args` = `-force-d3d11`, `xxmi_dll_inject_mode` = `DIRECT`; copy of the file before the change in `build/backups/launcher-config-before-dx11-20261012-100111.json`). The injected libraries are still `efmi_probe.dll` and `efmi_vk_inject.dll`; that value is signed and was not touched, so `dist/efmi_vk.cfg` was set to `mode = passthrough` for the DX11 session. **Before the next Vulkan session**: the two launcher values back to empty and `SKIP` (by the user, or by this project when asked), and `dist/efmi_vk.cfg` back to `mode = probe`.
 
-The existing frame dump has no modded draw (LIMIT-003). A new one with `arcane fes 1.2` on screen, including one key toggle, is needed for the G3 comparison table: per component the IB hash, first index and count, pixel shader hash, the textures at t12 to t18, vertex layout, constant buffer sizes. The EFMI MCP tools can take it.
+Done on 2026-10-12 in the user's DX11 session (PID 9264): one full frame with the mod on screen and constant buffer contents, `captures/dx11-baseline/frame-a.*`, taken with `scripts/dx11_baseline.py` through the DX11 probe of the sibling project, and paired with `captures/first-probe`. Results and tables are in `docs/dx11-baseline.md`; facts 15 to 19 of the plan and D-019 follow from it. G3 d is answered in kind (a table per fragment shader), G3 b and c are confirmed in structure from the DX11 side (instance entry, constant 5, bone buffer), G3 e in detail (only the blend index attribute and its stride differ, plus 32-bit indices).
+
+Still wanted, with the game window not minimized: a frame with the mods switched off (EFMI's F11; the probe refused to press it for a minimized window and sent nothing), so that every original component pairs like-for-like, and one frame after a mod key toggle. Without them the slots the mod replaces pair with nothing, and for component 0 only the diffuse map is placed (set 1 binding 6); light map and normal map are bindings 1 and 3 in unknown order (T-018).
 
 ### T-009: Gate G1 in the real game (initial loading accepted; long-duration observation deferred)
 
@@ -38,7 +40,15 @@ Where the argument lives: `d3d11_mode_cmd_args` under `Importers.EFMI.Importer` 
 
 ### T-017: Snapshot at submit of the buffer ranges a matched draw uses (next; M1 to M2 bridge)
 
-The first probe session read the instance config and the bones live, after the frame, and most reads were already overwritten (CURRENT_STATE). The layer should keep, for the draws of a captured frame whose region hash is in a list given with the request, the bytes of each uniform buffer range of at most 64 KiB as they are at submit, and for the instance config layout the bone rows at the two offsets of entry 5. With that, G3 b and c can be checked for all 12 components in one frame and across passes, and the same code path is what M2's CPU bone import reads. Also measure whether the bytes are already in place when the draw is recorded (compare a record-time and a submit-time read). Sandbox test with a mapped buffer that is rewritten every frame.
+The first probe session read the instance config and the bones live, after the frame, and most reads were already overwritten (CURRENT_STATE). The layer should keep, for the draws of a captured frame whose region hash is in a list given with the request, the bytes of each uniform buffer range of at most 64 KiB as they are at submit, and for the instance config layout the bone rows at the two offsets of entry 5. With that, G3 b and c can be checked for all 12 components in one frame and across passes, and the same code path is what M2's CPU bone import reads. Also measure whether the bytes are already in place when the draw is recorded (compare a record-time and a submit-time read). Sandbox test with a mapped buffer that is rewritten every frame. The DX11 baseline fixes what to keep: the 256 bytes of the instance entry at the dynamic offset of set 2 binding 0 (16 constants; constant 5 holds the two bone offsets in 16-byte elements) and the bone rows from there.
+
+### T-018: Tell textures apart by content (open; M1, needed by D7 and T-016)
+
+Two textures of the same size, mip count and format cannot be paired between a DX11 and a Vulkan frame, and a slot table built from looks alone stays ambiguous there (component 0: light map and normal map). The layer sees every upload from process start: hash the bytes of mip 0 when they are copied from a buffer into an image (`vkCmdCopyBufferToImage`, source mapped or shadowed), keep the hash with the image and report it with the descriptor contents. On the DX11 side the sibling probe can read mip 0 of a bound texture; `dx11_baseline.py` then keys on the content hash. Check whether XXMI's own texture hash can be reproduced from the same bytes: the image panel mod (T-016) matches by texture hash.
+
+### T-019: Keep the fragment stage on the game's data in a replaced draw (open design question; before M2)
+
+Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
 ### T-010: Gates G2 and G3 in the real game (first session done on 2026-10-12; b, c, d need more)
 
@@ -84,7 +94,8 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- A DX11 session with `arcane fes 1.2` enabled and visible, for the baseline capture of T-008 (launcher back to `-force-d3d11` and injection mode Direct for that session).
+- While the DX11 session of 2026-10-12 is still open, or in another one: the game window restored (not minimized) with the character on screen, so that the DX11 probe can press F11 for the frame with mods off (T-008). Pressing F11 by hand works as well.
+- Before the next Vulkan session: the launcher's EFMI profile back to its Vulkan values (the user, or this project when asked) and `dist/efmi_vk.cfg` back to `mode = probe` (T-008).
 - Further probe sessions when T-017 is built: the same scene again, then open world and combat.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

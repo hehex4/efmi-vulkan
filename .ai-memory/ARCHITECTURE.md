@@ -108,6 +108,7 @@ In the inject entry the pipe is started when the DLL is loaded, not at device cr
 | `server/efmi_vk/tools.py` | `Session` (pipe connection, last capture) and eleven tools; `ToolError` |
 | `server/efmi_vk/spirv.py` | Limited declared-name and direct set/binding metadata; not full reflection |
 | `server/efmi_vk/evidence.py`, `scripts/collect_probe.py` | Explicit-target raw frame/counter/match export, bounded retained shaders, file fingerprints and query-gap reporting |
+| `server/efmi_vk/dx11_pair.py`, `scripts/dx11_baseline.py` | A DX11 frame taken through the sibling project's probe (its client is used as a library, read only) and its pairing with a Vulkan bundle: objects by region hash and by the mod's index ranges, draws by order of use, resources by shape, size, mip count and format. Writes `<label>.summary.json`; results in `docs/dx11-baseline.md` |
 | `server/efmi_vk/mcp_stdio.py` | JSON-RPC 2.0 over stdio: `initialize`, `ping`, `tools/list`, `tools/call` |
 | `server/run_server.py`, `server/efvk.py` | Entry points: MCP server, command line |
 
