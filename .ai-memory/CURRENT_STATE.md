@@ -1,6 +1,16 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.8.0 (protocol 1) is deployed to dist/. The first M2 pipeline variant/state-restoration checkpoint passes real GPU sandbox readback and the full regression suite; no game replacement is enabled. Next requires a user-started session to capture full real-character pipeline recipes, missing from the older records. No 0.8.0 game run yet. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Server 0.1.0.
+> Last updated: 2026-10-12. Layer 0.8.0 (protocol 1) is deployed and running in user-started PID 17484. Full matched display/LOD0/LOD1 pipeline recipes are captured and pass CPU preflight; no game replacement is enabled. LOD1 color-pass bone snapshots remain open because snapshot captures repeatedly select empty present intervals. The stutter fix remains 0.7.3's WC reads, confirmed by the 0.7.4 session (D-027); it is not reopened. Server 0.1.0.
+
+## Current 0.8.0 game evidence and corrected LOD labels (2026-10-12)
+
+The user initially entered LOD1, then returned to LOD0 after the agent misinterpreted empty captures. Preserve that correction: display is LOD0; world-rendered-1/2 are the user's LOD0 state, with seven LOD1 sections only in depth passes. They do not establish distant LOD1 color coverage. After explicitly returning to LOD1, lod1-recipes/attempt-01 captures all nine LOD1 sections including color passes. Details and evidence limits: docs/m2-game-recipes.md.
+
+Display: 45 matched draws, 39 complete/supported recipes. LOD0 world: 61 draws, 45 recipes; all 61 entries and both VS bone windows equal at record/submit in two frames, including 14 LOD1 depth draws. Actual LOD1 world: 58 matched draws, 36 complete/supported recipes, but no buffer snapshots. All matched exports exist; unrelated omitted world pipelines are explicit. Current-session VS rewrite/spirv-val checks pass 21/21/19 modules for those scenes.
+
+T-023: 0.8.0 ends capture at the next present even if that interval contains no scene draws. A 40-status LOD1 sample has 30 empty intervals, while total draws increase; no-snapshot captures obtain graphics, but 36 full-snapshot attempts yield none. The exact present producer is unproven. The bounded collector now preserves attempts and distinguishes depth-only matches from color-subpass coverage (109 sandbox evidence checks). Next fix is an opt-in wait across empty intervals, retaining one interval's frame data and the timeout; build into build/next while the game holds dist/. No game restart or DLL replacement has occurred.
+
+Correction: the 0.8.0 temporary actual-config smoke's historical-log check used the wrong filename and compared missing-file values. It did not prove the log unchanged; the recipe/settings/hash checks remain valid. The script is corrected for future runs. See docs/m2-game-recipes.md.
 
 ## M2 owned pipeline variants and restoration: sandbox verified, 0.8.0 deployed (2026-10-12, 16:34)
 

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import time
 
 from .hashes import crc32c, format_hash
 from .mods import find_ini_files, match_overrides, parse_overrides
@@ -17,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeline_limit: int = 16,
-            snapshot: dict | None = None) -> dict:
+            snapshot: dict | None = None, *, capture_delay_ms: int = 0) -> dict:
     """Capture a raw frame, counters, optional INI matches and bounded pipeline/shader metadata.
 
     A manifest is written last; an interrupted run retains its earlier files without
@@ -29,6 +30,8 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
     """
     if target not in ("sandbox", "game") or pid <= 0 or not 0 <= pipeline_limit <= 128:
         raise ValueError("explicit target, positive PID and pipeline limit 0..128 are required")
+    if not 0 <= capture_delay_ms <= 1000:
+        raise ValueError("capture_delay_ms must be between 0 and 1000")
     output = output.resolve()
     output.relative_to(ROOT)
     if mod is not None and not mod.exists():
@@ -58,6 +61,10 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
                 if mod is None:
                     raise ValueError("a snapshot needs hashes, all draws, or a mod to take the hashes from")
                 request["hashes"] = sorted({o["hash"] for name in find_ini_files(str(mod)) for o in parse_overrides(name)})
+        # Wait after the status/API queries, whose response timing can otherwise align repeated
+        # requests with the same non-graphics present interval. Each result is still one interval.
+        if capture_delay_ms:
+            time.sleep(capture_delay_ms / 1000)
         frame = probe.capture(snapshot=request)
         blobs, missing = [], []
         if request is not None:
@@ -126,6 +133,7 @@ def collect(pid: int, target: str, output: Path, mod: Path | None = None, pipeli
         save("api-after.json", probe.api_usage())
         save("status-after.json", probe.status())
         summary = {
+            "capture_delay_ms": capture_delay_ms,
             "frame": frame["frame"], "draw_count": frame["draw_count"], "stats": frame["stats"],
             "draws_by_thread": dict(Counter(str(d["tid"]) for d in draws)),
             "draws_by_command_buffer": dict(Counter(str(d["cb"]) for d in draws)),

@@ -1,6 +1,7 @@
 # M2 first checkpoint: owned pipeline variants (0.8.0)
 
-Date: 2026-10-12. Implemented and verified in the sandbox. The deployed layer still only observes
+Date: 2026-10-12. Current-session recipes are now captured (see `m2-game-recipes.md` for scene
+corrections, LOD1 snapshot limits and the log-smoke correction). Implemented and verified in the sandbox. The deployed layer still only observes
 the game. No real character has been replaced, and M2's animation, texture and performance gates
 remain open.
 
@@ -127,7 +128,8 @@ The game was absent before backup and again before replacement. The exact tested
 Previous package: `build/backups/before-0.8.0-20261012-163359/`. Fingerprints:
 `build/deployment-0.8.0.json`. Actual-config inject smokes pass before and after copying:
 `build/m2-actual-config-next.json`, `build/m2-actual-config-dist.json`. They confirm full recipes,
-five correct draw hashes before/after rewrite, and the unchanged historical game log. The first
+five correct draw hashes before/after rewrite. The claimed historical-log equality check was invalid:
+the temporary script used a nonexistent filename (see `m2-game-recipes.md`). The first
 temporary smoke script used the wrong JSON hash path; fixing it to `draw.ib.hash` was sufficient.
 
 Settings: probe mode, resources on, image hashing off, tracker profiling off, full unmap defaults.

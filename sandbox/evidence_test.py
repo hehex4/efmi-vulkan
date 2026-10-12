@@ -1,6 +1,7 @@
 """Persist real sandbox observations and check evidence labels and query failure retention."""
 
 import hashlib
+import copy
 import json
 from pathlib import Path
 import subprocess
@@ -11,10 +12,43 @@ from harness import Checks, ROOT, Sandbox
 from efmi_vk.evidence import collect
 from efmi_vk.hashes import crc32c, format_hash
 from efmi_vk.probe_client import ProbeClient, ProbeError
+from efmi_vk.selection import collect_selected, evaluate_selection
+
+
+def test_selection(c: Checks) -> None:
+    frame = {"draws": [{"n": 0, "pipeline": 10}, {"n": 1, "pipeline": 11}]}
+    matches = [{"sections": [{"section": "TextureOverrideMain", "draws": [0]},
+                              {"section": "TextureOverrideMain_LOD1", "draws": [1]}]}]
+    color = {"id": 10, "recipe": {"complete": True, "subpass": 0,
+             "render_pass": {"complete": True, "attachments": [{}],
+                             "subpasses": [{"colors": [{"attachment": 0}]}]}}}
+    depth = copy.deepcopy(color)
+    depth["id"] = 11
+    depth["recipe"]["render_pass"]["subpasses"][0]["colors"] = []
+
+    def evaluate(pipelines, color_required=True, candidate=frame):
+        return evaluate_selection(candidate, matches, pipelines, "*_lod1", color_required)
+
+    c.check(not evaluate([color, depth])["satisfied"], "LOD0 color plus LOD1 depth is not LOD1 color")
+    c.equal(evaluate([color, depth])["non_color_draws"], [1], "depth-only LOD1 remains explicit")
+    c.check(evaluate([color, depth], False)["satisfied"], "section-only selection accepts depth coverage")
+    c.check(not evaluate([color, depth], candidate={"draws": []})["satisfied"], "empty interval is not accepted")
+    c.equal(evaluate([color])["unknown_draws"], [1], "missing pipeline is unknown, not color")
+    unused = copy.deepcopy(depth)
+    unused["recipe"]["render_pass"]["subpasses"][0]["colors"] = [{"attachment": 0xFFFFFFFF}]
+    c.check(not evaluate([color, unused])["satisfied"], "unused color slot is not color output")
+    multi = copy.deepcopy(depth)
+    multi["recipe"]["render_pass"]["subpasses"].append({"colors": [{"attachment": 0}]})
+    c.check(not evaluate([color, multi])["satisfied"], "another subpass's color does not qualify")
+    multi["recipe"]["subpass"] = 1
+    c.equal(evaluate([color, multi])["color_draws"], [1], "selected color subpass qualifies")
+    multi["recipe"]["complete"] = False
+    c.equal(evaluate([color, multi])["unknown_draws"], [1], "incomplete recipe cannot qualify")
 
 
 def main() -> int:
     c = Checks("probe evidence")
+    test_selection(c)
     for entry in ("layer", "inject"):
         with Sandbox(threads=2, entry=entry, descriptors="push-template") as box:
             dest = Path(box.dir) / "evidence"
@@ -83,6 +117,59 @@ def main() -> int:
                 m = collect(box.pid, "sandbox", gap)
                 c.equal(m["collection"], "complete_with_gaps", "post-capture lifetime gap is explicit")
                 c.equal(len(json.loads((gap / "frame.json").read_text())["draws"]), 5, "gap does not discard raw frame")
+
+            # Emulate a present interval without graphics, followed by an actual GPU sandbox frame.
+            # Keep this synthetic first interval labelled as sandbox; it is not game evidence.
+            original_capture = ProbeClient.capture
+            count = 0
+
+            def empty_first(client, *args, **kwargs):
+                nonlocal count
+                raw = original_capture(client, *args, **kwargs)
+                count += 1
+                if count == 1:
+                    raw["draws"] = []
+                    raw["draw_count"] = 0
+                return raw
+
+            selected = Path(box.dir) / "selected"
+            with patch.object(ProbeClient, "capture", empty_first):
+                series = collect_selected(box.pid, "sandbox", selected, ini,
+                                          section_pattern="TextureOverrideTest", require_color=True, max_attempts=3)
+            c.equal(series["selection"], "met", "bounded selector reaches the actual color frame")
+            c.equal(len(series["attempts"]), 2, "selection stops after success")
+            c.equal(series["selected_bundle"], "attempt-02", "selected bundle is explicit")
+            c.equal(series["attempts"][0]["draw_count"], 0, "empty attempt retained")
+            c.equal(json.loads((selected / "series.json").read_text()), series, "series persisted")
+            for attempt in series["attempts"]:
+                raw = (selected / attempt["bundle"] / "manifest.json").read_bytes()
+                c.equal(hashlib.sha256(raw).hexdigest(), attempt["manifest_sha256"], "series fingerprints child manifest")
+
+            missed_ini = Path(box.dir) / "no-match.ini"
+            missed_ini.write_text("[TextureOverrideMissing]\nhash = deadbeef\n", encoding="ascii")
+            exhausted = Path(box.dir) / "exhausted"
+            result = subprocess.run([sys.executable, "-B", str(Path(ROOT) / "scripts/collect_probe.py"),
+                                     "--pid", str(box.pid), "--target", "sandbox", "--out", str(exhausted),
+                                     "--mod", str(missed_ini), "--require-section", "*Missing", "--require-color",
+                                     "--attempts", "2"], capture_output=True, text=True, timeout=20)
+            c.equal(result.returncode, 2, "CLI reports selection exhaustion, not success")
+            series = json.loads((exhausted / "series.json").read_text())
+            c.equal((series["selection"], len(series["attempts"]), series["selected_bundle"]),
+                    ("exhausted", 2, None), "exhaustion preserves both attempts without a selected frame")
+            invalid = Path(box.dir) / "invalid-selection"
+            try:
+                collect_selected(box.pid, "sandbox", invalid, ini, section_pattern="*Absent")
+                c.check(False, "misspelled section pattern was accepted")
+            except ValueError:
+                c.check(not invalid.exists(), "unknown section pattern rejected before collection")
+            interrupted = Path(box.dir) / "interrupted-selection"
+            with patch.object(ProbeClient, "capture", side_effect=ProbeError("simulated disconnect")):
+                try:
+                    collect_selected(box.pid, "sandbox", interrupted, ini, section_pattern="*Test")
+                    c.check(False, "capture error was hidden")
+                except ProbeError:
+                    saved = json.loads((interrupted / "series.json").read_text())
+                    c.equal(saved["selection"], "interrupted", "disconnect cannot leave a successful series")
     return c.finish()
 
 

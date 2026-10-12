@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT / "server"))
 
 from efmi_vk.evidence import collect
 from efmi_vk.probe_client import ProbeError
+from efmi_vk.selection import collect_selected
 
 # Set 2 binding 0 holds the instance entries; constant 5 (byte 80) of an entry has two element
 # numbers into the bone buffer, 16 bytes per element. 12288 bytes are 256 bones of three rows;
@@ -29,7 +30,16 @@ def main() -> int:
                     help="SET:BINDING:OFFSET:COUNT:STRIDE:BYTES[:ENTRY] or the preset 'instance' "
                          "(the game's instance entry: " + INSTANCE_FOLLOW + ")")
     ap.add_argument("--snapshot-budget", type=int, default=None, help="bytes the layer may keep (its default: 32 MiB)")
+    ap.add_argument("--require-section", help="INI section glob required in the selected frame, e.g. '*_LOD1'")
+    ap.add_argument("--require-color", action="store_true",
+                    help="require a matching draw in a subpass with a used color attachment")
+    ap.add_argument("--attempts", type=int, help="selection attempt limit, 1..16 (default 8); retain every attempt")
     args = ap.parse_args()
+    if args.require_section:
+        if args.mod is None:
+            ap.error("--require-section needs --mod")
+    elif args.require_color or args.attempts is not None:
+        ap.error("--require-color and --attempts need --require-section")
     snapshot = None
     if args.snapshot:
         snapshot = {"all": True} if args.snapshot == "all" else {}
@@ -43,6 +53,13 @@ def main() -> int:
     elif args.follow or args.snapshot_budget is not None:
         ap.error("--follow and --snapshot-budget need --snapshot")
     try:
+        if args.require_section:
+            result = collect_selected(args.pid, args.target, args.out, args.mod, args.pipeline_limit, snapshot,
+                                      section_pattern=args.require_section, require_color=args.require_color,
+                                      max_attempts=args.attempts if args.attempts is not None else 8)
+            print(f"Saved {len(result['attempts'])} {args.target} attempts to {args.out.resolve()}; "
+                  f"selection {result['selection']}, selected bundle: {result['selected_bundle']}")
+            return 0 if result["selection"] == "met" else 2
         result = collect(args.pid, args.target, args.out, args.mod, args.pipeline_limit, snapshot)
     except (OSError, ValueError, ProbeError) as exc:
         print(f"collection failed: {exc}")
