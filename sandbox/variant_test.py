@@ -17,6 +17,16 @@ def main() -> int:
     Path(folder, "stdout.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
     print(result.stdout, end="")
     c.equal(result.returncode, 0, "native recipe tests", )
+    result = subprocess.run([os.path.join(DIST, "efmi_vk_cache_test.exe")], cwd=folder, env=env,
+                            capture_output=True, text=True, timeout=30)
+    Path(folder, "cache.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
+    print(result.stdout, end="")
+    c.equal(result.returncode, 0, "asynchronous cache tests")
+    result = subprocess.run([os.path.join(DIST, "efmi_vk_snapshot_test.exe")], cwd=folder, env=env,
+                            capture_output=True, text=True, timeout=30)
+    Path(folder, "snapshots.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
+    print(result.stdout, end="")
+    c.equal(result.returncode, 0, "private snapshot storage tests")
     validation = os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
     if not Path(validation, "VkLayer_khronos_validation.json").is_file():
         raise RuntimeError("validation layer missing; run scripts/build_validation.py")

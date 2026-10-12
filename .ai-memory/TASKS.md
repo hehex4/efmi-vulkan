@@ -6,9 +6,13 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof (D-022, D-028), not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.8.2 with the verified CPU bone helper; dist/ remains 0.8.1, and user-started PID 34644 supplies two actual LOD1 snapshot bundles. Full recipes and bone availability now cover the observed display, world LOD0 and actual LOD1 scenes. Continue M2 offline; no further collection is needed for bone import/remapping. See docs/m2-game-recipes.md for scope and earlier corrections.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. T-019 has a GPU sandbox proof (D-022, D-028), not a real-character result. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.8.3 with verified CPU bones, asynchronous variants and immutable draw snapshots; dist/ remains 0.8.1, and user-started PID 34644 supplies two actual LOD1 snapshot bundles. Full recipes and bone availability now cover the observed display, world LOD0 and actual LOD1 scenes. Continue M2 offline; no further collection is needed for bone import/remapping. See docs/m2-game-recipes.md for scope and earlier corrections.
 
 ## Tasks and follow-ups
+
+### T-025: Asynchronous variant cache and private draw snapshots (sandbox helpers complete)
+
+Source/candidate 0.8.3 adds a bounded worker cache with generation/vertex-declaration keys, cancellation and command-owned ready variants, plus immutable-after-seal per-draw bone/entry storage with full uniform-range padding. Native cache 21, snapshots 25, GPU variant runner 39 and the full suite pass. The real GPU test retires the cache before submit, retains its variant and resubmits sealed commands. Details: docs/m2-cache-and-snapshots.md. Actual command-hook ownership/sealing, sample geometry and live rendering remain T-022/M2 work. Dist/ stays 0.8.1.
 
 ### T-024: CPU rolling-buffer bone import and instance patch (offline helper complete)
 

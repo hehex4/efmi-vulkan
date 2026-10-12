@@ -1,0 +1,52 @@
+// Command-recording-owned, immutable-after-seal private VS buffer slices.
+#pragma once
+#include "pipeline_variant.h"
+#include "merged_skeleton.h"
+
+namespace efvk {
+
+#define EFVK_SNAPSHOT_FUNCS(X) \
+    X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) X(AllocateMemory) X(FreeMemory) \
+    X(BindBufferMemory) X(MapMemory) X(UnmapMemory) X(CreateDescriptorPool) X(DestroyDescriptorPool) \
+    X(AllocateDescriptorSets) X(UpdateDescriptorSets) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout)
+struct SnapshotDispatch {
+#define X(n) PFN_vk##n n = nullptr;
+    EFVK_SNAPSHOT_FUNCS(X)
+#undef X
+};
+struct SnapshotSlot { VkDescriptorSet set = VK_NULL_HANDLE; uint32_t offset = 0; };
+
+class DrawSnapshots {
+public:
+    DrawSnapshots(VkDevice device, const SnapshotDispatch& dispatch) : device_(device), d_(dispatch) {}
+    ~DrawSnapshots();
+    DrawSnapshots(const DrawSnapshots&) = delete;
+    DrawSnapshots& operator=(const DrawSnapshots&) = delete;
+    // Allocate off the draw path. Uses host-coherent memory only, failing closed if unavailable.
+    // Every entry has the full declared uniform range, including the last dynamic offset.
+    bool create(const VkPhysicalDeviceMemoryProperties&, const VkPhysicalDeviceLimits&,
+                uint32_t capacity, uint32_t bone_bytes, uint32_t uniform_range = 65536);
+    bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, SnapshotSlot&);
+    void seal() { sealed_ = true; }
+    bool sealed() const { return sealed_; }
+    uint32_t used() const { return used_; }
+    VkDeviceSize size() const { return bytes_; }
+    std::string reason;
+    // No reset/reuse method: recorded and resubmitted command buffers retain this object until
+    // reset/free after GPU completion. The caller releases all owners before device destruction.
+private:
+    void clear();
+    VkDevice device_;
+    SnapshotDispatch d_;
+    VkBuffer buffer_ = VK_NULL_HANDLE;
+    VkDeviceMemory memory_ = VK_NULL_HANDLE;
+    VkDescriptorPool pool_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout layout_ = VK_NULL_HANDLE;
+    uint8_t* mapped_ = nullptr;
+    std::vector<VkDescriptorSet> sets_;
+    VkDeviceSize bytes_ = 0, bone_stride_ = 0, entry_base_ = 0, entry_stride_ = 0;
+    uint32_t capacity_ = 0, bone_bytes_ = 0, used_ = 0;
+    bool sealed_ = false;
+};
+
+} // namespace efvk

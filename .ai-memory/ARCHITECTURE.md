@@ -10,6 +10,11 @@ It patches only constant 5's two dynamic offsets. Probe hooks do not call it; it
 resources. Per-submission immutable GPU storage and asynchronous pipeline caching remain
 integration work. See `docs/m2-bone-import.md`.
 
+Candidate 0.8.3 also builds a bounded `VariantCache` worker and `DrawSnapshots` with private,
+aligned per-draw bone/instance copies and immutable sealing. Both now run in the validated
+GPU sandbox. Application command-buffer ownership, release at reset/free and the actual
+replacement hook are still absent; see `docs/m2-cache-and-snapshots.md`.
+
 `agent -> Python MCP stdio (or CLI) -> named pipe -> efmi_vk_layer.dll inside the Vulkan process -> tracked state / mapped memory / shadow copies -> result`
 
 The DLL sits in front of the application's Vulkan calls. It forwards every call unchanged; the probe only observes.

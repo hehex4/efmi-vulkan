@@ -1,6 +1,12 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12, after CPU bone verification. Source/build/next are 0.8.2, with the CPU rolling-buffer bone importer verified by full regression and offline replay of 283 matched draws. Dist/ and user-started PID 34644 retain 0.8.1. Two actual LOD1 snapshot bundles verify T-023 and supply the missing color-pass bone timing. No game replacement is enabled. Continue M2 offline pipeline caching and GPU resource lifetime/integration. The stutter fix remains 0.7.3's WC reads (D-027); it is not reopened. Protocol 1, server 0.1.0.
+> Last updated: 2026-10-12, after cache/snapshot verification. Source/build/next are 0.8.3, adding sandbox-verified asynchronous pipeline caching and immutable private draw snapshots to the CPU bone importer. Dist/ and user-started PID 34644 retain 0.8.1. Two actual LOD1 snapshot bundles verify T-023 and supply the missing color-pass bone timing. No game replacement is enabled. Continue M2 sample geometry and command-hook integration. The stutter fix remains 0.7.3's WC reads (D-027); it is not reopened. Protocol 1, server 0.1.0.
+
+## 0.8.3 asynchronous variants and private snapshots verified in the sandbox
+
+VariantCache bounds/deduplicates owned requests, builds outside the drawing thread, retains failed results, cancels retired jobs and joins on shutdown. Recorded command owners retain ready pipelines. DrawSnapshots preallocates aligned per-draw bone/entry slices with full uniform-range padding; seal disallows further writes/recreation. Native cache 21 and snapshot 25 checks pass. The six positive headless GPU configurations use both production helpers, poison input arrays, retire/stop the cache before drawing via retained ownership, and resubmit immutable commands; pixels/restoration and core/sync validation pass. Three negative canaries remain active.
+
+Full build/regression passes (build/variant-cache-regression-20261012.txt): unit 88, tracker 144, bones 42, recipes 120, cache 21, snapshots 25, variant runner 39, 17 probe cases 517-532, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 113. Scope: docs/m2-cache-and-snapshots.md. No live hook integration or game replacement yet; dist/ untouched. Continue implementing the minimal self-contained sample component and command-recording resource ownership.
 
 ## 0.8.2 CPU bone import verified offline
 

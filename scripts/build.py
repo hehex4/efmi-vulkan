@@ -175,11 +175,15 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
 def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
     folder = os.path.join(ROOT, "sandbox")
     result = {}
-    for name, tracker in (("recipe_test", True), ("variant_gpu", False)):
+    for name, tracker in (("recipe_test", True), ("variant_gpu", False), ("cache_test", False), ("snapshot_test", False)):
         os.makedirs(os.path.join(folder, "build", name), exist_ok=True)
         exe = os.path.join(out, "efmi_vk_" + name + ".exe")
         sources = [name + ".cpp", "../layer/src/pipeline_recipe.cpp", "../layer/src/pipeline_variant.cpp",
                    "../layer/src/spirv_repoint.cpp"]
+        if name in ("cache_test", "variant_gpu"):
+            sources.append("../layer/src/variant_cache.cpp")
+        if name in ("variant_gpu", "snapshot_test"):
+            sources.append("../layer/src/draw_snapshots.cpp")
         if tracker:
             sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp"]
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]

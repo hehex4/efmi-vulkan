@@ -1,8 +1,12 @@
 // Headless Vulkan proof: rewritten VS, unchanged FS, wider mod vertices/indices, restored next draw.
 // All images are offscreen. No window, global layer setting, game, or installed mod is touched.
 #include "variant_fixture.h"
+#include "../layer/src/variant_cache.h"
+#include "../layer/src/draw_snapshots.h"
 
 #include <atomic>
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <stdexcept>
 #include <thread>
@@ -232,12 +236,20 @@ static void run(Gpu& g, bool use_rp2)
     VK(result);
     // Real creation handles die before the variant starts on a worker. It uses only owned recipes.
     vkDestroyRenderPass(g.device, g.pass, nullptr); g.pass = VK_NULL_HANDLE;
-    PipelineVariant variant(g.device, dispatch);
-    bool built = false;
-    std::thread worker([&] { built = variant.build(recipe, source_layout, RecipeFixture::mod_vertex(), g.properties.limits.maxBoundDescriptorSets); });
-    worker.join();
-    check(built, "variant builds on a worker from owned state");
-    if (!built) { printf("variant failed: %s (%d)\n", variant.reason.c_str(), variant.result); return; }
+    VariantCache cache(g.device, dispatch, g.properties.limits.maxBoundDescriptorSets);
+    auto owned_recipe = std::make_shared<GraphicsRecipe>(recipe);
+    auto owned_layout = std::make_shared<PipelineLayoutInfo>(source_layout);
+    auto pending = cache.request(1, owned_recipe, owned_layout, RecipeFixture::mod_vertex());
+    check(pending.state == VariantState::Queued && !pending.variant, "first live GPU cache request is pending");
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    do {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        pending = cache.request(1, owned_recipe, owned_layout, RecipeFixture::mod_vertex());
+    } while ((pending.state == VariantState::Queued || pending.state == VariantState::Building) &&
+             std::chrono::steady_clock::now() < deadline);
+    check(pending.state == VariantState::Ready, "cache publishes a driver-built variant from owned state");
+    if (!pending.variant) { printf("variant failed: %s\n", pending.reason.c_str()); return; }
+    const auto& variant = *pending.variant;
     // A separate compatible pass is used for drawing, rather than the already destroyed creation pass.
     VK(recipe.render_pass->create(g.device, vkCreateRenderPass, vkCreateRenderPass2, &g.pass));
     Image color = g.image(VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -258,39 +270,58 @@ static void run(Gpu& g, bool use_rp2)
     Buffer original_ib = g.buffer(sizeof(oi) + 16, VK_BUFFER_USAGE_INDEX_BUFFER_BIT); memcpy(static_cast<char*>(original_ib.mapped) + 16, oi, sizeof(oi));
     Buffer mod_ib = g.buffer(sizeof(mi) + 32, VK_BUFFER_USAGE_INDEX_BUFFER_BIT); memcpy(static_cast<char*>(mod_ib.mapped) + 32, mi, sizeof(mi));
     Buffer bones = g.buffer(259 * 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    Buffer own_bones = g.buffer(259 * 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    std::vector<uint8_t> own_bones(259 * 16);
     float* original_bones = static_cast<float*>(bones.mapped); original_bones[1 * 4] = -.5f;
-    float* replacement_bones = static_cast<float*>(own_bones.mapped); replacement_bones[257 * 4] = .5f;
+    float move = .5f; memcpy(own_bones.data() + 257 * 16, &move, 4);
     const float game_tint[] = {0, 1, 1, 1}, own_tint[] = {1, 0, 0, 1};
-    memcpy(original_bones + 258 * 4, game_tint, 16); memcpy(replacement_bones + 258 * 4, own_tint, 16);
+    memcpy(original_bones + 258 * 4, game_tint, 16); memcpy(own_bones.data() + 258 * 16, own_tint, 16);
     uint32_t offset = static_cast<uint32_t>(g.properties.limits.minUniformBufferOffsetAlignment);
     if (offset < 32) offset = 32;
     Buffer instance = g.buffer(offset + 32, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-    Buffer own_instance = g.buffer(offset + 32, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    InstanceEntry own_instance = {};
     const float original_instance[] = {0, -.35f, 0, 0, 1, 1, 0, .5f};
     const float replacement_instance[] = {0, .35f, 0, 0, 1, 0, 1, 1};
     memcpy(static_cast<char*>(instance.mapped) + offset, original_instance, 32);
-    memcpy(static_cast<char*>(own_instance.mapped) + offset, replacement_instance, 32);
+    memcpy(own_instance.data(), replacement_instance, 32);
     // Offset zero is deliberately wrong for both draws.
-    static_cast<float*>(instance.mapped)[0] = static_cast<float*>(own_instance.mapped)[0] = 10;
+    static_cast<float*>(instance.mapped)[0] = 10;
+    SnapshotDispatch snapshot_dispatch;
+#define X(n) snapshot_dispatch.n = vk##n;
+    EFVK_SNAPSHOT_FUNCS(X)
+#undef X
+    DrawSnapshots snapshots(g.device, snapshot_dispatch);
+    check(snapshots.create(g.memory, g.properties.limits, 2, static_cast<uint32_t>(own_bones.size())),
+          "private snapshot storage with full 64 KiB uniform ranges created");
+    if (!snapshots.size()) throw std::runtime_error(snapshots.reason);
+    SnapshotSlot bad_slot, good_slot;
+    check(!snapshots.append({},own_instance,bad_slot) && snapshots.used()==0, "wrong bone size does not consume a slot");
+    auto wrong_instance=own_instance; float outside=10; memcpy(wrong_instance.data(),&outside,4);
+    check(snapshots.append(own_bones,wrong_instance,bad_slot) && snapshots.append(own_bones,own_instance,good_slot),
+          "each recorded draw gets a separate bone and entry slice");
+    check(good_slot.offset>=256 && snapshots.used()==2, "last snapshot has a nonzero aligned dynamic offset");
+    check(!snapshots.append(own_bones,own_instance,bad_slot), "full snapshot storage leaves original draw available");
+    snapshots.seal();
+    check(!snapshots.append(own_bones,own_instance,bad_slot) &&
+          !snapshots.create(g.memory,g.properties.limits,2,static_cast<uint32_t>(own_bones.size())),
+          "sealed storage cannot be changed or recreated");
+    std::fill(own_bones.begin(),own_bones.end(),0); own_instance.fill(0);
     Buffer readback = g.buffer(64 * 64 * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2}, {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 2}};
-    VkDescriptorPoolCreateInfo dp = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; dp.maxSets = 4; dp.poolSizeCount = 2; dp.pPoolSizes = sizes;
+    VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}, {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1}};
+    VkDescriptorPoolCreateInfo dp = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO}; dp.maxSets = 3; dp.poolSizeCount = 2; dp.pPoolSizes = sizes;
     VK(vkCreateDescriptorPool(g.device, &dp, nullptr, &g.descriptors));
-    VkDescriptorSetLayout set_layouts[] = {g.sets[0], g.sets[1], g.sets[2], variant.own_layout};
-    VkDescriptorSet sets[4];
+    VkDescriptorSetLayout set_layouts[] = {g.sets[0], g.sets[1], g.sets[2]};
+    VkDescriptorSet sets[3];
     VkDescriptorSetAllocateInfo da = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO}; da.descriptorPool = g.descriptors;
-    da.descriptorSetCount = 4; da.pSetLayouts = set_layouts; VK(vkAllocateDescriptorSets(g.device, &da, sets));
-    VkDescriptorBufferInfo infos[] = {{bones.handle, 0, bones.size}, {instance.handle, 0, 32},
-                                     {own_bones.handle, 0, own_bones.size}, {own_instance.handle, 0, 32}};
-    VkWriteDescriptorSet writes[4] = {};
-    for (uint32_t i = 0; i < 4; i++) {
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; writes[i].dstSet = sets[i == 0 ? 0 : i == 1 ? 2 : 3];
-        writes[i].dstBinding = i == 0 ? 7 : i == 3 ? 1 : 0; writes[i].descriptorCount = 1;
+    da.descriptorSetCount = 3; da.pSetLayouts = set_layouts; VK(vkAllocateDescriptorSets(g.device, &da, sets));
+    VkDescriptorBufferInfo infos[] = {{bones.handle, 0, bones.size}, {instance.handle, 0, 32}};
+    VkWriteDescriptorSet writes[2] = {};
+    for (uint32_t i = 0; i < 2; i++) {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; writes[i].dstSet = sets[i == 0 ? 0 : 2];
+        writes[i].dstBinding = i == 0 ? 7 : 0; writes[i].descriptorCount = 1;
         writes[i].descriptorType = i % 2 == 0 ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         writes[i].pBufferInfo = &infos[i];
     }
-    vkUpdateDescriptorSets(g.device, 4, writes, 0, nullptr);
+    vkUpdateDescriptorSets(g.device, 2, writes, 0, nullptr);
     // The live descriptor sets and pipeline layout no longer need the creation handles either.
     for (auto s : g.sets) vkDestroyDescriptorSetLayout(g.device, s, nullptr); g.sets.clear();
     VkCommandPoolCreateInfo pc = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO}; pc.queueFamilyIndex = g.family;
@@ -315,7 +346,7 @@ static void run(Gpu& g, bool use_rp2)
     // No-op failure is followed by the real transaction, then an app draw with no state rebound.
     check(!emit_variant_draw(dispatch, cmd, variant, VK_NULL_HANDLE, offset, replacement, draw, g.pipeline, original),
           "unready transaction emits nothing");
-    check(emit_variant_draw(dispatch, cmd, variant, sets[3], offset, replacement, draw, g.pipeline, original),
+    check(emit_variant_draw(dispatch, cmd, variant, good_slot.set, good_slot.offset, replacement, draw, g.pipeline, original),
           "ready replacement draw emitted");
     vkCmdDrawIndexed(cmd, 3, 1, 0, 0, 0);
     vkCmdEndRenderPass(cmd);
@@ -326,6 +357,10 @@ static void run(Gpu& g, bool use_rp2)
     barrier.buffer = readback.handle; barrier.size = VK_WHOLE_SIZE;
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &barrier, 0, nullptr);
     VK(vkEndCommandBuffer(cmd)); VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO}; submit.commandBufferCount = 1; submit.pCommandBuffers = &cmd;
+    cache.retire(1); cache.stop();
+    check(pending.variant->pipeline != VK_NULL_HANDLE, "recorded command owner retains the retired GPU pipeline");
+    VK(vkQueueSubmit(g.queue, 1, &submit, VK_NULL_HANDLE)); VK(vkQueueWaitIdle(g.queue));
+    // Resubmitting executable commands reads the same sealed slices, with no host overwrite.
     VK(vkQueueSubmit(g.queue, 1, &submit, VK_NULL_HANDLE)); VK(vkQueueWaitIdle(g.queue));
     auto pixel = [&](uint32_t x, uint32_t y, bool mesh, const char* label) {
         auto p = static_cast<const uint8_t*>(readback.mapped) + 4 * (y * 64 + x);
