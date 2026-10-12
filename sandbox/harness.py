@@ -50,6 +50,18 @@ class Checks:
         return 0 if self.failed == 0 and total > 0 else 1
 
 
+# The defaults of layer/src/common.h, as the environment spells them.
+PINNED_SETTINGS = {
+    "EFMI_VK_RESOURCES": "1",
+    "EFMI_VK_SHADOW_USAGE": "40",
+    "EFMI_VK_PROFILE_TRACKER": "0",
+    "EFMI_VK_UNMAP_SNAPSHOT_ALL": "0",
+    "EFMI_VK_UNMAP_SNAPSHOT_LIMIT": str(16 << 20),
+    "EFMI_VK_SHADER_BUDGET": str(512 << 20),
+    "EFMI_VK_IMAGE_HASH_LIMIT": str(64 << 20),
+}
+
+
 def layer_env(log_path: str | None = None, mode: str = "probe", extra: dict | None = None) -> dict:
     """Environment of a child process that loads the layer from dist/.
 
@@ -82,6 +94,11 @@ def inject_env(log_path: str | None = None, mode: str | None = "probe", extra: d
     env["EFMI_VK_IMAGE_HASH"] = "1"
     if mode is not None:
         env["EFMI_VK_MODE"] = mode
+        # dist/efmi_vk.cfg carries diagnostic settings between game sessions (reduced tracking,
+        # profiling). A test that names its mode gets the defaults of the source for everything
+        # else, whatever that file says; env_extra still selects another value on purpose.
+        # mode=None means the caller wants the settings file and nothing is pinned.
+        env.update(PINNED_SETTINGS)
     if log_path:
         env["EFMI_VK_LOG"] = log_path
     if extra:

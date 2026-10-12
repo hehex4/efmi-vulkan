@@ -144,6 +144,11 @@ class ProbeClient:
         """(description, bytes) of one kept range of the latest capture, by the "id" its draws list."""
         return self.request("snapshot", seq=seq, id=snapshot_id)
 
+    def set(self, **settings) -> dict:
+        """Change settings of the running layer (0.7.4): ``unmap_snapshot_all`` and
+        ``unmap_snapshot_limit``. Returns the settings as they are afterwards."""
+        return self.request("set", **{name: int(value) for name, value in settings.items()})[0]
+
     def buffers(self, usage: int = 0, min_size: int = 0, limit: int = 1000) -> dict:
         return self.request("buffers", usage=usage, min_size=min_size, limit=limit)[0]
 

@@ -186,3 +186,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Classify the complete mapped range once using VirtualQuery. Use SSE4.1 streaming loads only for committed PAGE_WRITECOMBINE mappings on capable CPUs, with aligned loads, exact prefix/tail handling and memory fences. Recompute on remap, clear on unmap; unknown/mixed/cached ranges use memmove. This changes the copy implementation, not Vulkan synchronization or lock ordering.
 - Apply the helper to every mapped-read path, including unmap, record fallback, submit and direct probe reads; CPU shadows still use memmove. Expose the available strategy and current per-buffer WC classification for verification.
 - Local headless Vulkan measurements validate the mechanism (type 2: 24.023 to 1.270 ms for 8 MiB), not real-game smoothness. Type-4 device-local reads remain expensive. Keep profile_tracker on for the next comparable game run and ISSUE-005 open; source profiling defaults stay off. Full evidence: docs/pacing-tracker-session.md.
+
+## D-026: At unmap, copy staging buffers only
+
+- Date: 2026-10-12, after reviewing 0.7.1 to 0.7.3 against the buffer inventory of the 0.7.2 game session.
+- The copy at unmap exists for staging buffers. Its rule (transfer-source bit, at most 16 MiB) also matched the game's mesh pools, and they were where the bytes went: 2,612 generations on 22 pools against 87 on 76 staging buffers. The rule is now: transfer source, optionally transfer destination, no other usage, wholly inside the mapped range, within the limit.
+- This lowers coverage on purpose, which D-024 and D-025 declined to do. The reason is different from theirs: they would not trade evidence for a better-looking measurement; here the copy of a pool was never the feature's purpose, its one use (a hash while the pool is unmapped) has not occurred in any game bundle, and no layer that has to run during normal play could afford it. What is lost is reported per draw (`hash: null`, source `none`) and counted (`counts.unmap`), not hidden.
+- A buffer that is not copied has its shadow knowledge dropped at unmap. Serving bytes that the application may have overwritten through the mapping is worse than serving none.
+- 0.7.3's streaming loads stay: they are correct and help the reads that remain. They are not counted as the fix; their own benchmark shows 1.5 times on the memory type the pools use.
+- `unmap_snapshot_all` and the `set` command exist so that the old behaviour can be brought back in a running process for a comparison. Switching it on in the game brings the stalls back and is done only with the user's agreement.
+- Not decided: how draws get their index identity when a pool is unmapped (T-021).

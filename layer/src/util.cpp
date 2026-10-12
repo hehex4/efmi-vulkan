@@ -310,6 +310,8 @@ void util_init(HMODULE self)
         g_cfg.image_hash_limit = strtoull(image_limit.c_str(), nullptr, 10);
     std::string profile = setting("EFMI_VK_PROFILE_TRACKER", "profile_tracker");
     g_cfg.profile_tracker = profile == "1" || profile == "on";
+    std::string snapshot_all = setting("EFMI_VK_UNMAP_SNAPSHOT_ALL", "unmap_snapshot_all");
+    g_cfg.unmap_snapshot_all = snapshot_all == "1" || snapshot_all == "on";
 
     std::wstring log_path;
     wchar_t wbuf[1024];
@@ -327,11 +329,13 @@ void util_init(HMODULE self)
     g_log = CreateFileW(log_path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
-    logf("efmi_vk_layer %s loaded into %s, mode=%s, entry=%s, crc=%s, resources=%s, shader_budget=%llu, image_hash=%s, profile_tracker=%s",
+    logf("efmi_vk_layer %s loaded into %s, mode=%s, entry=%s, crc=%s, resources=%s, shader_budget=%llu, image_hash=%s, profile_tracker=%s, "
+         "unmap_snapshot=%s up to %llu",
          EFVK_VERSION, g_exe_name.c_str(), g_cfg.mode == Mode::Passthrough ? "passthrough" : "probe",
          g_cfg.entry == Entry::Inject ? "inject" : "layer", g_hw_crc ? "sse4.2" : "table",
          g_cfg.track_resources ? "on" : "off", static_cast<unsigned long long>(g_cfg.shader_budget),
-         g_cfg.image_hash ? "on" : "off", g_cfg.profile_tracker ? "on" : "off");
+         g_cfg.image_hash ? "on" : "off", g_cfg.profile_tracker ? "on" : "off",
+         g_cfg.unmap_snapshot_all ? "all sources" : "staging only", static_cast<unsigned long long>(g_cfg.unmap_snapshot_limit));
 }
 
 } // namespace efvk

@@ -294,25 +294,43 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
     if (it == dev->mems.end())
         return;
     MemInfo& m = it->second;
-    if (m.mapped && g_cfg.unmap_snapshot_limit) {
-        // A staging buffer may be copied from after its memory is unmapped. Keep what it holds now.
+    if (m.mapped) {
+        const uint32_t transfer = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         for (VkBuffer h : m.buffers) {
             auto bit = dev->bufs.find(h);
             if (bit == dev->bufs.end())
                 continue;
             BufInfo& b = bit->second;
-            if (!(b.usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT) || b.size == 0 || b.size > g_cfg.unmap_snapshot_limit)
+            if (b.size == 0 || b.mem_off >= m.map_off + m.map_size || b.mem_off + b.size <= m.map_off)
+                continue; // outside the mapped range: the application could not write it
+            const bool inside = b.mem_off >= m.map_off && b.size <= m.map_size - (b.mem_off - m.map_off);
+            const bool source = (b.usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT) != 0;
+            const bool staging = source && (b.usage & ~transfer) == 0;
+            const bool small = g_cfg.unmap_snapshot_limit && b.size <= g_cfg.unmap_snapshot_limit;
+            if (inside && small && (staging || (source && g_cfg.unmap_snapshot_all))) {
+                // A staging buffer may be copied from after its memory is unmapped. Keep what it holds now.
+                b.shadow.resize(static_cast<size_t>(b.size));
+                copy_buffer_bytes(b.shadow.data(), m.mapped + (b.mem_off - m.map_off),
+                                  static_cast<size_t>(b.size), m.write_combined);
+                work.bytes += b.size;
+                b.known.v.clear();
+                b.known.add(0, b.size);
+                b.gen++;
+                dev->unmap_taken.fetch_add(1, std::memory_order_relaxed);
+                dev->unmap_taken_bytes.fetch_add(b.size, std::memory_order_relaxed);
                 continue;
-            if (b.mem_off < m.map_off || b.mem_off - m.map_off > m.map_size ||
-                b.size > m.map_size - (b.mem_off - m.map_off))
-                continue;
-            b.shadow.resize(static_cast<size_t>(b.size));
-            copy_buffer_bytes(b.shadow.data(), m.mapped + (b.mem_off - m.map_off),
-                              static_cast<size_t>(b.size), m.write_combined);
-            work.bytes += b.size;
-            b.known.v.clear();
-            b.known.add(0, b.size);
-            b.gen++;
+            }
+            // Not copied. Whatever the shadow knows from earlier buffer copies may have been
+            // overwritten through the mapping without the layer seeing it, so it is no longer served.
+            if (!b.known.v.empty()) {
+                b.known.v.clear();
+                b.gen++;
+                dev->unmap_invalidated.fetch_add(1, std::memory_order_relaxed);
+            }
+            if (inside && small && source) {
+                dev->unmap_passed.fetch_add(1, std::memory_order_relaxed);
+                dev->unmap_passed_bytes.fetch_add(b.size, std::memory_order_relaxed);
+            }
         }
     }
     m.mapped = nullptr;
@@ -1384,6 +1402,7 @@ std::string probe_status()
     w.kb("resources", g_cfg.track_resources);
     w.kn("shader_budget", g_cfg.shader_budget);
     w.kn("unmap_snapshot_limit", g_cfg.unmap_snapshot_limit);
+    w.kb("unmap_snapshot_all", g_cfg.unmap_snapshot_all);
     w.kn("shadow_usage", g_cfg.shadow_usage);
     w.kv("mapped_read", streaming_reads_available() ? "wc_sse4.1" : "memmove");
     w.key("attach");
@@ -1408,6 +1427,7 @@ std::string probe_status()
     w.str("push_descriptors");
     w.str("shader");
     w.str("snapshot");
+    w.str("set");
     w.str("host_pacing");
     w.str("tracker_work");
     w.end_array();
@@ -1484,6 +1504,14 @@ std::string probe_status()
             w.kn(image_content_name(i), dev->image_uploads[i].load(std::memory_order_relaxed));
         w.kn("bytes", dev->image_hash_bytes.load(std::memory_order_relaxed));
         w.kn("microseconds", dev->image_hash_us.load(std::memory_order_relaxed));
+        w.end_object();
+        w.key("unmap");
+        w.begin_object();
+        w.kn("copied", dev->unmap_taken.load(std::memory_order_relaxed));
+        w.kn("copied_bytes", dev->unmap_taken_bytes.load(std::memory_order_relaxed));
+        w.kn("passed_over", dev->unmap_passed.load(std::memory_order_relaxed));
+        w.kn("passed_over_bytes", dev->unmap_passed_bytes.load(std::memory_order_relaxed));
+        w.kn("shadows_dropped", dev->unmap_invalidated.load(std::memory_order_relaxed));
         w.end_object();
         w.kn("images", dev->images.size());
         w.kn("image_views", dev->image_views.size());
@@ -1702,6 +1730,33 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
     w.kb("ok", true);
     w.key("result");
     write_capture(w, *cap, with_draws);
+    w.end_object();
+    return w.out;
+}
+
+std::string probe_set(int unmap_snapshot_all, int64_t unmap_snapshot_limit)
+{
+    {
+        // The unmap path reads these settings with the resource lock held, so they change under it.
+        DeviceRef ref;
+        std::unique_lock<std::shared_mutex> lock;
+        if (ref.dev)
+            lock = std::unique_lock<std::shared_mutex>(ref.dev->res_mx);
+        if (unmap_snapshot_all >= 0)
+            g_cfg.unmap_snapshot_all = unmap_snapshot_all != 0;
+        if (unmap_snapshot_limit >= 0)
+            g_cfg.unmap_snapshot_limit = static_cast<uint64_t>(unmap_snapshot_limit);
+    }
+    logf("settings changed by the probe client: unmap_snapshot=%s up to %llu",
+         g_cfg.unmap_snapshot_all ? "all sources" : "staging only", static_cast<unsigned long long>(g_cfg.unmap_snapshot_limit));
+    JsonWriter w;
+    w.begin_object();
+    w.kb("ok", true);
+    w.key("result");
+    w.begin_object();
+    w.kb("unmap_snapshot_all", g_cfg.unmap_snapshot_all);
+    w.kn("unmap_snapshot_limit", g_cfg.unmap_snapshot_limit);
+    w.end_object();
     w.end_object();
     return w.out;
 }

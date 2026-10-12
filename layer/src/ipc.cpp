@@ -106,6 +106,13 @@ std::string dispatch(const JsonRequest& req, std::vector<uint8_t>& payload)
     }
     if (cmd == "snapshot")
         return probe_snapshot(req.get_u64("seq", 0), static_cast<uint32_t>(req.get_u64("id", 0)), payload);
+    if (cmd == "set") {
+        // Only the unmap settings can be changed in a running process, and only within these bounds.
+        std::string all = req.get("unmap_snapshot_all");
+        std::string limit = req.get("unmap_snapshot_limit");
+        return probe_set(all.empty() ? -1 : (req.get_u64("unmap_snapshot_all", 0) != 0 ? 1 : 0),
+                         limit.empty() ? -1 : static_cast<int64_t>(std::min<uint64_t>(req.get_u64("unmap_snapshot_limit", 0), 256ull << 20)));
+    }
     if (cmd == "buffers")
         return probe_buffers(static_cast<uint32_t>(req.get_u64("usage", 0)), req.get_u64("min_size", 0),
                              static_cast<uint32_t>(req.get_u64("limit", 1000)));

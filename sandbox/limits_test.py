@@ -8,6 +8,7 @@ the descriptor budget of a capture, the SPIR-V budget, and resource tracking swi
 from __future__ import annotations
 
 import sys
+import time
 
 from harness import Checks, Sandbox
 
@@ -196,9 +197,42 @@ def image_hash_settings(c: Checks, entry: str) -> None:
         c.check(sb.proc.poll() is None, tag + "the sandbox keeps running", sb.output())
 
 
+def unmap_settings(c: Checks, entry: str) -> None:
+    tag = "unmap settings, %s: " % entry
+    with Sandbox(threads=0, entry=entry) as sb, ProbeClient(sb.pid) as probe:
+        status = probe.status()
+        c.equal((status["unmap_snapshot_all"], status["unmap_snapshot_limit"]), (False, 16 << 20),
+                tag + "defaults: staging buffers up to 16 MiB")
+        c.check("set" in status["features"], tag + "the set command is listed")
+        c.equal(probe.set(), {"unmap_snapshot_all": False, "unmap_snapshot_limit": 16 << 20}, tag + "an empty request changes nothing")
+        c.equal(probe.set(unmap_snapshot_all=True), {"unmap_snapshot_all": True, "unmap_snapshot_limit": 16 << 20},
+                tag + "one setting changes, the other stays")
+        c.equal(probe.set(unmap_snapshot_limit=1 << 40)["unmap_snapshot_limit"], 256 << 20, tag + "a requested limit is clamped")
+        c.equal(probe.status()["unmap_snapshot_all"], True, tag + "the status shows the running value")
+        # Every copy at unmap off. The staging buffer of the rewrite is unmapped before its copy is
+        # recorded, so the bytes are gone and the layer has to say so instead of serving older ones.
+        c.equal(probe.set(unmap_snapshot_all=False, unmap_snapshot_limit=0), {"unmap_snapshot_all": False, "unmap_snapshot_limit": 0},
+                tag + "both settings in one request")
+        before = probe.capture()
+        sb.rewrite_index_buffer()
+        time.sleep(0.1)
+        frame = probe.capture()
+        rewritten = sb.expected["rewrite_draw"]
+        hashes = [d["ib"]["hash"] for d in frame["draws"]]
+        c.equal(hashes[rewritten], None, tag + "the rewritten range has no hash without the staging copy")
+        c.equal(hashes[3:], [d["hash"] for d in sb.expected["draws"][3:]], tag + "draws from the other index buffer are unaffected")
+        index_a = frame["draws"][0]["ib"]["buf"]
+        listed = {b["id"]: b for b in probe.buffers()["buffers"]}
+        c.equal(listed[index_a]["unknown_writes"], 1, tag + "the lost write is counted on the buffer")
+        c.equal(probe.status()["counts"]["unmap"], {"copied": 0, "copied_bytes": 0, "passed_over": 0, "passed_over_bytes": 0,
+                                                    "shadows_dropped": 0}, tag + "nothing was copied at unmap")
+        c.check(before["frame"] < frame["frame"] and sb.proc.poll() is None, tag + "the sandbox keeps running", sb.output())
+
+
 def main() -> int:
     c = Checks("limits_test")
     for entry in ("layer", "inject"):
+        unmap_settings(c, entry)
         descriptor_budget(c, entry)
         shader_budget(c, entry)
         resources_off(c, entry)

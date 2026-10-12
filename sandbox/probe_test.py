@@ -317,6 +317,8 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
                         "rewrite uses the second template")
             info, data = probe.read_buffer(id_a)
             c.equal(struct.unpack("<12H", data), (0, 1, 2, 3, 5, 4, 3, 6, 5, 7, 8, 9), "buffer A content after the rewrite")
+            c.equal(probe.status()["counts"]["unmap"], {"copied": 1, "copied_bytes": 12, "passed_over": 0, "passed_over_bytes": 0,
+                                                        "shadows_dropped": 0}, "the staging buffer of the rewrite was copied at unmap")
 
             status = probe.status()
             c.check(status["frame"] > cap3["frame"], "frames keep counting")

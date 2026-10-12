@@ -443,6 +443,12 @@ struct Device {
     FrameStats last;
     PresentPacing pacing; // bounded host intervals; protected by frame_mx
     TrackerWork work; // optional tracker timings; its bounded slow history has a separate lock
+    // What happened to mapped buffers when their memory was unmapped: copied (staging), passed over
+    // although an earlier version would have copied them, and shadows dropped because the
+    // application could have written through the mapping unseen.
+    std::atomic<uint64_t> unmap_taken{0}, unmap_taken_bytes{0};
+    std::atomic<uint64_t> unmap_passed{0}, unmap_passed_bytes{0};
+    std::atomic<uint64_t> unmap_invalidated{0};
     uint32_t max_threads = 0;
     uint32_t max_command_buffers = 0;
     uint32_t max_submits = 0;
@@ -520,6 +526,8 @@ std::string probe_status();
 std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descriptor_budget,
                           std::shared_ptr<const SnapRequest> snap = nullptr);
 std::string probe_snapshot(uint64_t seq, uint32_t id, std::vector<uint8_t>& payload);
+// Changes the unmap settings of the running process; a negative value leaves a setting as it is.
+std::string probe_set(int unmap_snapshot_all, int64_t unmap_snapshot_limit);
 std::string probe_buffers(uint32_t usage_mask, uint64_t min_size, uint32_t limit);
 std::string probe_read_buffer(uint32_t id, uint64_t off, uint64_t size, std::vector<uint8_t>& payload);
 std::string probe_hash(uint32_t id, uint64_t off, uint64_t size);

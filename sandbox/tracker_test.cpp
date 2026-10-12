@@ -710,6 +710,64 @@ static void mapped_read_paths()
     VirtualFree(allocation, 0, MEM_RELEASE);
 }
 
+// What is copied when memory is unmapped: staging buffers, not buffers that only happen to have the
+// transfer-source bit, such as the index and vertex pools of a game.
+static void unmap_selection()
+{
+    const auto config = g_cfg;
+    g_cfg.shadow_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    g_cfg.unmap_snapshot_limit = 64;
+    g_cfg.unmap_snapshot_all = false;
+    Device d;
+    const auto pool = h<VkBuffer>(401), staging = h<VkBuffer>(402), scratch = h<VkBuffer>(403), half = h<VkBuffer>(404);
+    const auto memory = h<VkDeviceMemory>(405);
+    const auto cmd = h<VkCommandBuffer>(406);
+    VkMemoryAllocateInfo alloc = {}; alloc.allocationSize = 128;
+    on_alloc_memory(&d, memory, &alloc);
+    VkBufferCreateInfo info = {}; info.size = 32;
+    info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    on_create_buffer(&d, pool, &info); on_bind_buffer(&d, pool, memory, 0);
+    info.size = 16; info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    on_create_buffer(&d, staging, &info); on_bind_buffer(&d, staging, memory, 32);
+    info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    on_create_buffer(&d, scratch, &info); on_bind_buffer(&d, scratch, memory, 48);
+    info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    on_create_buffer(&d, half, &info); on_bind_buffer(&d, half, memory, 88); // the mapping below ends inside it
+    VkCommandBufferAllocateInfo ci = {}; ci.commandBufferCount = 1;
+    on_alloc_cbs(&d, &ci, &cmd);
+    auto* cb = d.cbs.at(cmd).get();
+    std::vector<uint8_t> mapped(96), result(32);
+    for (size_t i = 0; i < mapped.size(); ++i) mapped[i] = static_cast<uint8_t>(i + 1);
+    on_map_memory(&d, memory, 0, mapped.size(), mapped.data());
+    on_copy_buffer(&d, cb, staging, pool, 0, 0, 16);
+    on_submit(&d, 1, &cmd);
+    check(d.bufs.at(pool).known.total() == 16, "a tracked copy into a mapped pool is shadowed");
+    on_unmap_memory(&d, memory);
+    check(d.bufs.at(staging).known.total() == 16 && d.bufs.at(scratch).known.total() == 16,
+          "buffers that are transfer buffers and nothing else are copied at unmap");
+    check(d.bufs.at(pool).known.total() == 0 && read_buffer_locked(&d, d.bufs.at(pool), 0, 16, result.data()) == SRC_NONE,
+          "a pool with the transfer-source bit is not copied and its older shadow is no longer served");
+    check(d.bufs.at(half).shadow.empty(), "a buffer the mapping covers only in part is not copied");
+    check(d.unmap_taken == 2 && d.unmap_taken_bytes == 32 && d.unmap_passed == 1 && d.unmap_passed_bytes == 32 &&
+          d.unmap_invalidated == 1, "unmap counters: two copies, one pool passed over, one shadow dropped");
+
+    g_cfg.unmap_snapshot_all = true;
+    on_map_memory(&d, memory, 0, mapped.size(), mapped.data());
+    mapped[5] = 99;
+    on_unmap_memory(&d, memory);
+    check(read_buffer_locked(&d, d.bufs.at(pool), 0, 32, result.data()) == SRC_SHADOW && result[5] == 99 && result[31] == 32,
+          "with unmap_snapshot_all every whole transfer source is copied, as before 0.7.4");
+    check(d.unmap_taken == 5 && d.unmap_passed == 1, "the pool counts as copied then, not as passed over");
+
+    g_cfg.unmap_snapshot_limit = 0;
+    on_map_memory(&d, memory, 0, mapped.size(), mapped.data());
+    on_unmap_memory(&d, memory);
+    check(d.bufs.at(pool).known.total() == 0 && d.bufs.at(staging).known.total() == 0 && d.unmap_taken == 5,
+          "a limit of zero copies nothing and still serves no stale shadow");
+    g_cfg = config;
+}
+
 int main()
 {
     util_init(GetModuleHandleW(nullptr));
@@ -723,6 +781,7 @@ int main()
     tracker_work();
     buffer_copy_paths();
     mapped_read_paths();
+    unmap_selection();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

@@ -74,6 +74,7 @@ Pipe `\\.\pipe\efmi-vk-<PID>`, one client at a time, started when the first devi
 | `status` | | Version, protocol, pid, exe, mode, entry, `attach` (was `vulkan-1.dll` found, was it already loaded, exports redirected, instances and devices seen at creation, passive calls), device, frame counter, statistics of the last frame, maxima, counts |
 | `capture` | `timeout_ms`, `draws`, `descriptor_budget`; `snapshot`, `snapshot_all`, `snapshot_hashes`, `snapshot_max_range`, `snapshot_budget`, `follow` and `follow_*` | Statistics of one complete frame and, unless `draws` is 0, every draw. With `snapshot`, the selected draws list what they read from buffers at submit, compared with a read at record time |
 | `snapshot` | `seq`, `id` | The kept bytes of one range of the latest capture as payload |
+| `set` | `unmap_snapshot_all`, `unmap_snapshot_limit` (both optional) | Changes these two settings in the running process, under the resource lock; returns their values. The limit is clamped to 256 MiB |
 | `buffers` | `usage`, `min_size`, `limit` | Tracked buffers |
 | `read_buffer` | `id`, `offset`, `size` | Source and generation in the header, the bytes as payload (at most 64 MiB) |
 | `hash` | `id`, `offset`, `size` | CRC-32C of the range |
@@ -91,7 +92,8 @@ Each setting is read from an environment variable and, when that is not set, fro
 | `EFMI_VK_ENTRY` | `entry` | `layer` or `inject`; default from the file name |
 | `EFMI_VK_LOG` | `log` | Log file; default `efmi_vk_layer.log` next to the DLL |
 | `EFMI_VK_SHADOW_USAGE` | `shadow_usage` | Hex `VkBufferUsageFlags` mask of buffers that get a shadow |
-| `EFMI_VK_UNMAP_SNAPSHOT_LIMIT` | `unmap_snapshot_limit` | Bytes; 0 disables the snapshot at unmap |
+| `EFMI_VK_UNMAP_SNAPSHOT_LIMIT` | `unmap_snapshot_limit` | Bytes; 0 disables the snapshot at unmap. Can be changed in a running process with `set` |
+| `EFMI_VK_UNMAP_SNAPSHOT_ALL` | `unmap_snapshot_all` | `1` or `on`: copy every transfer source at unmap as before 0.7.4. Default off: staging buffers only. Can be changed with `set` |
 | `EFMI_VK_RESOURCES` | `resources` | `0` or `off`: reduced tracking. Draws, buffers, hashes and call counters stay; descriptor, image and shader metadata are not kept |
 | `EFMI_VK_SHADER_BUDGET` | `shader_budget` | Bytes of SPIR-V kept in total (default 512 MiB); past it a module keeps hash and size only |
 
@@ -154,3 +156,7 @@ Follow-up in 0.7.1: state.h owns a fixed PresentPacing ring (pacing.h). on_prese
 `vkCmdCopyBufferToImage` and its two `2` forms are tracked functions now. A copy to mip 0, layer 0 is noted in `CmdBuf::image_writes` (secondaries hand theirs to the primary) and handled in `on_submit` by `apply_image_writes` (`resources.cpp`): with `res_mx` held shared, the source bytes of a copy that covers the whole level are read through `read_buffer_locked` and hashed row by row without padding (`format_block` gives the texel block of a format); then `res_mx` is taken exclusively for the short time it takes to store state, CRC, size and upload count in `ImageInfo`. `write_element` reports them as `content` of a sampled image. Counters per outcome, bytes and microseconds are atomics of the device. Settings: `image_hash` / `EFMI_VK_IMAGE_HASH`, `image_hash_limit` / `EFMI_VK_IMAGE_HASH_LIMIT`.
 
 `note_pipeline_creation_locked` (`state.cpp`) counts into `Device::pipeline_uses` what each graphics pipeline creation uses and keeps flags, subpass, dynamic states and the presence of specialization in `PipeInfo`. It reads only state that has to be valid; depth-stencil and colour blend state are counted by presence. `api_usage` reports the counters, `pipeline` the per-pipeline part together with the ids of the set layouts and the push constant ranges of the layout.
+
+## What is copied at unmap (0.7.4)
+
+`on_unmap_memory` walks the buffers of the memory object. A buffer wholly inside the mapped range, at most `unmap_snapshot_limit` bytes, whose usage is transfer source (optionally also transfer destination) and nothing else is copied into its shadow. Every other buffer the mapping touches has its shadow knowledge dropped, because the application could have written it unseen. `unmap_snapshot_all` restores the copy of every transfer source. Counters `unmap_taken`, `unmap_passed`, `unmap_invalidated` and their bytes are atomics of the device and appear as `counts.unmap`. Reason and evidence: `docs/unmap-snapshots.md`, D-026.

@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. 0.7.2 probe still stutters; large unmap snapshots and copy-record lock waits overlap its biggest foreground spikes. Layer 0.7.3 accelerates detected WC mapped reads, preserving buffer evidence, fully sandbox-verified and deployed. T-020 awaits a user-started comparison; passthrough remains the observed smooth fallback. G2/G3 character-data evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
+T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. The probe stutters in the open world; a review attributes it to whole mesh pools being copied at unmap, which 0.7.4 no longer does (sandbox-verified, deployed, not game-tested). T-020 awaits the user-started comparison; T-021 (index identity when pools are unmapped) is new. Passthrough remains the user-confirmed smooth mode.
 
 ## Tasks and follow-ups
 
@@ -64,7 +64,11 @@ Original question:
 
 Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
-### T-020: Diagnose intermittent frame-time spikes (open; unmap stalls measured, 0.7.3 deployed)
+### T-020: Diagnose intermittent frame-time spikes (open; cause attributed to copies of the game's mesh pools at unmap, 0.7.4 deployed, game result outstanding)
+
+Review on 2026-10-12 (CURRENT_STATE, `docs/unmap-snapshots.md`, D-026): the bytes copied at unmap were 16 MiB index and vertex pools on memory type 4, which carry the transfer-source bit; the staging buffers the copy was meant for account for 7 MiB of the session. 0.7.3 speeds up memory type 2 and hardly type 4. 0.7.4 copies transfer-only buffers and drops shadows that may be stale. Open: the user-started comparison on the same route with the settings of the last sessions; what to read is listed in `docs/unmap-snapshots.md`. The task closes when the counters show the pools passed over, the tracker timings no longer accumulate seconds in the unmap path, and the user finds the movement smooth; if spikes remain, the tracker timings of that session say where to look next.
+
+Earlier record:
 
 The user reports stutter during loading and steady display in the third session. Average 120 presents/s does not resolve the report. T-018's timer establishes heavy earlier upload work but only 596 microseconds in a later three-second interval. Cause of steady-scene spikes is unknown.
 
@@ -77,6 +81,12 @@ Passthrough comparison: user-started PID 14804 at 13:04:17, log confirms 0.7.1 p
 0.7.2 removed allocation for unreadable buffer-copy fallbacks and the submit-time intermediate copy, retaining data semantics, and added default-off profile_tracker counters (D-024). Real-game PID 41044 still stutters. A 24.030379-second foreground sample has 5,093 intervals, 17 over 50 ms, retained max 129.125 ms; unmap copies 3.46 GiB in 11.625 cumulative wall seconds. Three consecutive 43-44 ms snapshots span nearly all of the largest peak; copy recording concurrently waits with zero copied bytes. See docs/pacing-tracker-session.md for retention limits and evidence.
 
 0.7.3 uses streaming loads only for detected WC mappings on capable CPUs, preserving full snapshots and fallback semantics (D-025). Full build/regression passes, native 118, and actual-config smoke passes before/after deployment. Local Vulkan type-2 8 MiB copy improves 24.023 to 1.270 ms; this is not a game result. Next: user-started same-world comparison after verifying loaded 0.7.3. Settings stay probe, resources/hash off, profile on, default snapshots/shadows. No 30-minute prerequisite; T-020 remains open until a fresh result. Source defaults still keep profiling off.
+
+### T-021: Index identity when the game's mesh pools are not readable (open; measure first, needed before M2 leaves the display scene)
+
+The game keeps index and vertex data in 16 MiB pools on device-local host-visible memory and maps and unmaps them while it streams (2,612 generations on 22 pools in 22 minutes). A draw whose pool is unmapped when the layer wants its index bytes cannot be hashed from the mapping, and copying pools at unmap is what stalled the game. Reading megabytes from that memory every frame is not an option for the product either.
+
+Measure in the next open-world session, with 0.7.4: of the indexed draws of a few captures taken while moving, how many have hash source `none`; how long a pool stays unmapped. Then choose: hash mesh data when it arrives through tracked buffer copies from staging (the 0.7.2 session recorded 2 MiB of such copies in 24 s, read from cheap memory) and key a cache on buffer, offset and count; or rely on the mapping where it is always present at draw time. Do not consider keeping the application's mapping alive behind its back without a decision of its own.
 
 ### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
 
@@ -124,7 +134,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The T-020 candidate is ready: 0.7.2 deployed and actual-config smoke passed after game exit. Next-launch settings are probe, resources/hash off, profile_tracker on. The user starts the next same-world comparison; verify settings before measuring. The agent does not start or stop the game. The observed smooth fallback is passthrough.
+- T-020: layer 0.7.4 is deployed with the diagnostic settings of the last sessions. The user starts the game under Vulkan and moves along the same open-world route; the agent verifies the loaded version and settings, then reads counters, timings and intervals and takes a few captures. The agent does not start or stop the game. Passthrough remains the smooth fallback for normal play.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
