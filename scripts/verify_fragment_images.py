@@ -101,7 +101,7 @@ def main() -> int:
         bundle=manifest_path.parent;manifest=json.loads(manifest_path.read_text())
         shaders_file=bundle/"shaders.json"
         if digest(shaders_file)!=manifest["files"]["shaders.json"]["sha256"]:raise ValueError("Shader inventory changed")
-        shaders=json.loads(shaders_file.read_text());rows=[];refused=[];source_validated=0
+        shaders=json.loads(shaders_file.read_text());rows=[];refused=[];null_rows=[];source_validated=0
         for shader_hash,bindings in sorted(slots["slots"].items()):
             candidates=[s for s in shaders if s["hash"]==shader_hash]
             if not candidates:raise ValueError("Mapped shader is missing")
@@ -116,6 +116,21 @@ def main() -> int:
                                  capture_output=True,text=True,timeout=15)
             if valid.returncode:raise ValueError("Invalid original fragment SPIR-V: "+valid.stderr)
             source_validated+=1
+            # Exercise the generic null operation on all corresponding images,
+            # including 3D. This is adapter coverage, not a policy that converts
+            # a mismatched 2D replacement into null. Only explicit INI nulls
+            # may request this operation in the frontend.
+            null_bindings=sorted({(item["set"],item["binding"]) for item in bindings.values()})
+            null_output=folder/(shader_hash+"-null.spv")
+            argv=[str(exe),"--null-fragment",str(path),str(null_output)]
+            for binding in null_bindings:argv += [str(n) for n in binding]
+            converted=subprocess.run(argv,cwd=folder,capture_output=True,text=True,timeout=15)
+            if converted.returncode:raise ValueError(f"{shader_hash} null: {converted.stderr.strip()}")
+            valid=subprocess.run([str(args.spirv_val),"--target-env","vulkan1.1",str(null_output)],cwd=folder,
+                                 capture_output=True,text=True,timeout=15)
+            if valid.returncode:raise ValueError(f"{shader_hash} null validation: {valid.stderr.strip()}")
+            null_rows.append(dict(hash=shader_hash,bindings=null_bindings,output_sha256=digest(null_output),
+                                  valid=True,scope="explicit-null adapter coverage only"))
             # A correspondence between original game images is not proof that
             # a mod's replacement view is legal for that shader dimension.
             for slot,item in bindings.items():
@@ -148,8 +163,10 @@ def main() -> int:
         dx_inputs=audit_dx_dimensions(refused,slots)
         report.update(passed=True,shaders=rows,moved_images=sum(r["moved_images"] for r in rows),expected_refusals=refused,
                       dx_audit_inputs=dx_inputs,source_shaders_validated=source_validated,
+                      null_shaders=null_rows,null_bindings=sum(len(row["bindings"]) for row in null_rows),
                       source_table_sha256=digest(args.slots),executable_sha256=digest(exe),validator_sha256=digest(args.spirv_val))
         print(f"fragment images: {len(rows)} shaders, {report['moved_images']} image moves; reference/spirv-val passed; {len(refused)} expected dimension refusals")
+        print(f"fragment nulls: {len(null_rows)} shaders, {report['null_bindings']} bindings; spirv-val passed (adapter coverage)")
         return 0
     except (OSError,ValueError,KeyError,subprocess.SubprocessError) as error:
         report["error"]=str(error);print(str(error).encode("ascii","backslashreplace").decode("ascii"),file=sys.stderr);return 1

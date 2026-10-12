@@ -22,7 +22,7 @@ reaching depth-comparison instructions or escaping through calls, stores or
 composites refuses. Depth comparisons using other images do not prevent a color
 texture move. Sparse/new instruction extensions are not implemented by this path.
 
-## Standalone GPU and historical bytecode evidence
+## Standalone GPU and historical bytecode evidence (initial relocation checkpoint)
 
 scripts/check_image_upload.py now passes 79 headless checks under core/sync
 validation, including the earlier uploader/cache coverage. A material fixture
@@ -120,3 +120,41 @@ Do not coerce all volumes to 2D, assume all drivers return zero, or claim actual
 game pixels were replayed. The next general operation is shader-level null
 resource handling; a zero 1x1 texture alone cannot reproduce every query or
 sampler-border case of an absent resource.
+
+## Explicit null resources
+
+`null_fragment_images` now implements explicit absent-image requests for direct,
+nonarray, nonmultisampled float32 sampled 2D and 3D resources. It follows opaque
+loads/copies/image construction, replaces supported sampling/fetch/size/mip
+results with typed zero constants, and removes the selected opaque definitions.
+It keeps the original numeric result ids and all other resource reads. Unused
+global declarations remain valid; the selected image is no longer accessed.
+No Vulkan null-descriptor feature or dummy image is needed. The caller must
+validate source bytecode before this bounded adapter, as for relocation.
+
+This matches the absent-resource sampling/load/resinfo behavior described by the
+[D3D11 functional specification](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm).
+Image selection/phi, function/store/composite/extension escapes, QueryLod, storage,
+arrays, multisampling and sparse instructions refuse. Refusal leaves output
+unchanged, including a valid first request followed by an invalid one. It is not
+a policy for the mismatched views in LIMIT-021. In the sample, component 1 requests
+ps-t18=null; component 4 assigns a real normal texture to the same DX11 slot.
+The backend operation has no component identifier.
+
+The headless asset suite now passes 92 checks with clean core/sync validation.
+In a 96x64 offscreen image, the original resource gives a white border sample,
+width 1 and mip count 1. Null rewriting gives zero for all three while an unrelated
+blue image still supplies alpha 1. Replacing the resource with a zero 1x1 texture
+instead retains white/nonzero results, proving the distinction. Existing private
+FS/unchanged VS and next-original-draw pixel controls still pass; a clear green
+pixel proves the draws do not cover the whole target. The fixture's source and
+null output also pass spirv-val. Evidence: build/assets-gpu/report.json,
+build/fragment-null-check.txt and material-pixels.rgba (96x64 RGBA8).
+
+Historical adapter coverage nulls all 19 mapped bindings across nine saved
+fragment shaders, including the three 3D declarations; every result passes
+spirv-val. This deliberately broad coverage is not the mod's requested null mask
+or a material rendering result. The 16 relocation/reference checks and three
+expected dimension refusals still pass. Report: build/fragment-images/report.json.
+The helper remains standalone; production descriptor/pipeline ownership and
+shared character/Core integration are the next work. No DLL/deployment/game change.

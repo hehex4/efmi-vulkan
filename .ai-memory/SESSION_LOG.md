@@ -538,3 +538,23 @@ Default Vulkan refusal remains; no universal dimension-coercion policy is inferr
 explicit-null INI semantics need their own shader operation, not just a zero 1x1 image that
 can behave differently under dimension queries or border sampling. Updated current state,
 tasks, LIMIT-021 and docs/fragment-materials.md. No layer/config/deployment or asset write.
+
+## 2026-10-12: General explicit-null image semantics
+
+Added shared bounded fragment analysis and explicit-null requests for float32 sampled 2D/3D
+images. Selected sample/fetch/size/mip results become typed zero, opaque accesses disappear,
+and other resources remain intact. Unsupported opaque merges/escapes, QueryLod, arrays/MS and
+sparse operations refuse atomically. No component identifiers or dimension-mismatch policy.
+
+Headless asset suite passes 92 with zero core/sync diagnostics. Pixel controls use white
+sampler borders and size/mip queries: a real or zero 1x1 image returns nonzero, while the null
+rewrite returns zero and another blue image remains readable. Existing FS/VS isolation and
+original-draw restoration controls still pass. Both synthetic source/output validate.
+Historical adapter coverage: nine shaders, 19 mapped bindings pass spirv-val after nulling;
+this is not a claim that the actual INI nulls all of them. Existing 16 relocation checks and
+three expected 3D/2D dimension refusals pass. Reports: build/assets-gpu/report.json and
+build/fragment-images/report.json; log build/fragment-null-check.txt.
+
+Updated docs/fragment-materials.md, architecture, tasks and current state. No layer source,
+DLL/deployment/config or asset changes. Continue production material descriptor/pipeline
+ownership and shared character/Core offline. The user already confirmed voluntary game exit.

@@ -7,6 +7,7 @@ namespace efmi::gpu {
 struct ImageBindingMove {
     uint32_t source_set=0,source_binding=0,target_set=0,target_binding=0;
 };
+struct ImageBinding {uint32_t set=0,binding=0;};
 // Moves only explicitly named, nonarray float32 sampled 2D color images in a
 // fragment-only module. Samplers, buffers, code and all other words are retained.
 // Depth=Unknown is admitted only when traced uses avoid depth comparison and
@@ -16,4 +17,13 @@ struct ImageBindingMove {
 bool repoint_fragment_images(const std::vector<uint32_t>&,
                              const std::vector<ImageBindingMove>&,
                              std::vector<uint32_t>& output,std::string& reason);
+// Implements explicitly absent resources for direct float32 sampled 2D/3D
+// images. Supported sample/fetch/size/mip results become typed zero; their opaque
+// loads are removed, leaving no descriptor access through that resource.
+// No image selection/phi, opaque escapes, sparse operations or QueryLod.
+// This never infers null from an incompatible view. Same validation/output
+// contract as repoint_fragment_images; unrelated resource uses are retained.
+bool null_fragment_images(const std::vector<uint32_t>&,
+                          const std::vector<ImageBinding>&,
+                          std::vector<uint32_t>& output,std::string& reason);
 }

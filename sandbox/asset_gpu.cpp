@@ -24,7 +24,7 @@ static void require(VkResult r,const char* where){if(r!=VK_SUCCESS)throw std::ru
     X(CreateRenderPass) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) \
     X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) \
     X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) \
-    X(CmdDraw) X(CmdSetViewport) X(CmdSetScissor)
+    X(CmdDraw) X(CmdSetViewport) X(CmdSetScissor) X(CreateSampler) X(DestroySampler)
 #define X(n) static PFN_vk##n p##n=nullptr;
 INSTANCE_CALLS(X) DEVICE_CALLS(X)
 #undef X
@@ -198,6 +198,7 @@ int wmain(int argc,wchar_t** argv)
 {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
     if(argc>=8 && !wcscmp(argv[1],L"--repoint-fragment"))return rewrite_fragment_file(argc,argv);
+    if(argc>=6 && !wcscmp(argv[1],L"--null-fragment"))return rewrite_fragment_file(argc,argv);
     try{Gpu g;g.init();
         if(argc==3 && !wcscmp(argv[1],L"--dds")){
             std::ifstream file(std::filesystem::path(argv[2]),std::ios::binary|std::ios::ate);

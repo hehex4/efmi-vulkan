@@ -5,6 +5,8 @@
 #include <array>
 using efmi::gpu::ImageBindingMove;
 using efmi::gpu::repoint_fragment_images;
+using efmi::gpu::null_fragment_images;
+using efmi::gpu::ImageBinding;
 
 static void fragment_tests()
 {
@@ -44,27 +46,56 @@ static void fragment_tests()
     retained=out;
     for(size_t i=5;i<altered.size();i+=altered[i]>>16)if((altered[i]&0xffff)==95){altered[i]=(altered[i]&0xffff0000)|90;break;}
     reject(altered,moves,"target image reaching depth comparison refuses");
+    check(null_fragment_images(original,{{1,6}},out,reason),"explicit null fetch rewrites");
+    auto probe=material_fixture::null_probe();
+    check(null_fragment_images(probe,{{1,6}},out,reason),"null sample and typed size/mip queries rewrite together");
+    retained=out;
+    auto reject_null=[&](const std::vector<uint32_t>& code,std::vector<ImageBinding> bindings,const char* label){
+        check(!null_fragment_images(code,bindings,out,reason) && out==retained && !reason.empty(),label);
+    };
+    reject_null(probe,{},"empty null operation refuses atomically");
+    reject_null(probe,{{1,6},{1,6}},"duplicate null binding refuses atomically");
+    reject_null(probe,{{1,6},{1,99}},"valid then missing null binding refuses whole operation");
+    reject_null(probe,{{1,7}},"sampler cannot be mistaken for an image");
+    reject_null(material_fixture::shader(true),{{1,6}},"null fragment operation refuses vertex shader");
+    altered=probe;
+    for(size_t i=5;i<altered.size();i+=altered[i]>>16)if((altered[i]&0xffff)==103){altered[i]=(altered[i]&0xffff0000)|105;break;}
+    reject_null(altered,{{1,6}},"unsupported LOD query refuses instead of inventing its result");
+    altered=probe;
+    for(size_t i=5;i<altered.size();i+=altered[i]>>16)if((altered[i]&0xffff)==86){
+        const auto pointer=altered[i+3],type=altered[i+1],id=altered[3]++;
+        altered.insert(altered.begin()+i,{(6u<<16)|169,type,id,1,pointer,pointer});break;
+    }
+    reject_null(altered,{{1,6}},"opaque selection refuses without mixed-null alias guesses");
+    check(null_fragment_images(probe,{{1,6},{1,8}},out,reason),"multiple null resources share one typed rewrite");
+    std::ofstream source_file("null-source.spv",std::ios::binary),null_file("null-result.spv",std::ios::binary);
+    source_file.write(reinterpret_cast<const char*>(probe.data()),probe.size()*4);
+    if(!null_fragment_images(probe,{{1,6}},out,reason))throw std::runtime_error(reason);
+    null_file.write(reinterpret_cast<const char*>(out.data()),out.size()*4);
 }
 
 static int rewrite_fragment_file(int argc,wchar_t** argv)
 {
     try{
-        if((argc-4)%4 || argc>4+32*4)throw std::runtime_error("Invalid fragment move arguments");
+        const bool null_mode=!wcscmp(argv[1],L"--null-fragment");const int width=null_mode?2:4;
+        if((argc-4)%width || argc>4+32*width)throw std::runtime_error("Invalid fragment move arguments");
         std::ifstream source(std::filesystem::path(argv[2]),std::ios::binary|std::ios::ate);
         if(!source || source.tellg()<20 || source.tellg()>(4<<20) || static_cast<size_t>(source.tellg())%4)
             throw std::runtime_error("Invalid fragment shader file size");
         std::vector<uint32_t> code(static_cast<size_t>(source.tellg())/4);source.seekg(0);
         source.read(reinterpret_cast<char*>(code.data()),code.size()*4);
         if(!source)throw std::runtime_error("Cannot read fragment shader");
-        std::vector<ImageBindingMove> moves;
-        for(int i=4;i<argc;i+=4){
+        std::vector<ImageBindingMove> moves;std::vector<ImageBinding> nulls;
+        for(int i=4;i<argc;i+=width){
             uint32_t values[4]{};
-            for(int j=0;j<4;++j){wchar_t* end=nullptr;auto n=wcstoull(argv[i+j],&end,10);
+            for(int j=0;j<width;++j){wchar_t* end=nullptr;auto n=wcstoull(argv[i+j],&end,10);
                 if(end==argv[i+j] || *end || n>UINT32_MAX)throw std::runtime_error("Invalid binding number");values[j]=static_cast<uint32_t>(n);}
             moves.push_back({values[0],values[1],values[2],values[3]});
+            nulls.push_back({values[0],values[1]});
         }
         std::vector<uint32_t> rewritten;std::string reason;
-        if(!repoint_fragment_images(code,moves,rewritten,reason))throw std::runtime_error(reason);
+        if(!(null_mode?null_fragment_images(code,nulls,rewritten,reason):repoint_fragment_images(code,moves,rewritten,reason)))
+            throw std::runtime_error(reason);
         std::ofstream output(std::filesystem::path(argv[3]),std::ios::binary|std::ios::trunc);
         output.write(reinterpret_cast<const char*>(rewritten.data()),rewritten.size()*4);
         return output?0:2;
@@ -76,11 +107,12 @@ struct MaterialObjects {
     std::vector<VkPipelineLayout> layouts;
     std::vector<VkPipeline> pipelines;
     std::vector<VkShaderModule> modules;
-    VkImageView target_view{};VkRenderPass pass{};VkFramebuffer framebuffer{};VkDescriptorPool descriptors{};
+    VkImageView target_view{};VkRenderPass pass{};VkFramebuffer framebuffer{};VkDescriptorPool descriptors{};VkSampler sampler{};
     ~MaterialObjects(){
         for(auto p:pipelines)pDestroyPipeline(device,p,nullptr);
         for(auto l:layouts)pDestroyPipelineLayout(device,l,nullptr);
         if(descriptors)pDestroyDescriptorPool(device,descriptors,nullptr);
+        if(sampler)pDestroySampler(device,sampler,nullptr);
         for(auto s:sets)pDestroyDescriptorSetLayout(device,s,nullptr);
         for(auto m:modules)pDestroyShaderModule(device,m,nullptr);
         if(framebuffer)pDestroyFramebuffer(device,framebuffer,nullptr);
@@ -118,28 +150,32 @@ static void material_test(Gpu& g)
     rp.pAttachments=&attachment;rp.pSubpasses=&sub;rp.dependencyCount=2;rp.pDependencies=dependencies;
     CHECK_VK(pCreateRenderPass(g.device,&rp,nullptr,&own.pass));
     g.images.emplace_back();auto& target=g.images.back();VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    ci.imageType=VK_IMAGE_TYPE_2D;ci.format=attachment.format;ci.extent={64,64,1};ci.mipLevels=ci.arrayLayers=1;
+    ci.imageType=VK_IMAGE_TYPE_2D;ci.format=attachment.format;ci.extent={96,64,1};ci.mipLevels=ci.arrayLayers=1;
     ci.samples=VK_SAMPLE_COUNT_1_BIT;ci.tiling=VK_IMAGE_TILING_OPTIMAL;ci.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     CHECK_VK(pCreateImage(g.device,&ci,nullptr,&target.image));VkMemoryRequirements req{};pGetImageMemoryRequirements(g.device,target.image,&req);
     target.memory=g.allocate(req,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);CHECK_VK(pBindImageMemory(g.device,target.image,target.memory,0));
     VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};vi.image=target.image;vi.viewType=VK_IMAGE_VIEW_TYPE_2D;vi.format=attachment.format;
     vi.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};CHECK_VK(pCreateImageView(g.device,&vi,nullptr,&own.target_view));
     VkFramebufferCreateInfo fb{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};fb.renderPass=own.pass;fb.attachmentCount=1;fb.pAttachments=&own.target_view;
-    fb.width=fb.height=64;fb.layers=1;CHECK_VK(pCreateFramebuffer(g.device,&fb,nullptr,&own.framebuffer));
+    fb.width=96;fb.height=64;fb.layers=1;CHECK_VK(pCreateFramebuffer(g.device,&fb,nullptr,&own.framebuffer));
     for(uint32_t set=0;set<4;++set){
-        VkDescriptorSetLayoutBinding binding{set==1?6u:2u,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,
-            set==1?VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT:VK_SHADER_STAGE_FRAGMENT_BIT,nullptr};
+        VkDescriptorSetLayoutBinding bindings[]={
+            {set==1?6u:2u,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VkShaderStageFlags(set==1?VK_SHADER_STAGE_VERTEX_BIT|VK_SHADER_STAGE_FRAGMENT_BIT:VK_SHADER_STAGE_FRAGMENT_BIT),nullptr},
+            {7,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr},
+            {8,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr}};
         VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        if(set==1 || set==3){info.bindingCount=1;info.pBindings=&binding;}
+        if(set==1 || set==3){info.bindingCount=set==1?3:1;info.pBindings=bindings;}
         VkDescriptorSetLayout layout{};CHECK_VK(pCreateDescriptorSetLayout(g.device,&info,nullptr,&layout));own.sets.push_back(layout);
     }
     for(uint32_t n:{3u,4u}){
         VkPipelineLayoutCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};info.setLayoutCount=n;info.pSetLayouts=own.sets.data();
         VkPipelineLayout layout{};CHECK_VK(pCreatePipelineLayout(g.device,&info,nullptr,&layout));own.layouts.push_back(layout);
     }
-    auto vs=material_fixture::shader(true),fs=material_fixture::shader(false);std::vector<uint32_t> replaced;std::string reason;
+    auto vs=material_fixture::shader(true),fs=material_fixture::shader(false),probe=material_fixture::null_probe();
+    std::vector<uint32_t> replaced,nulled;std::string reason;
     if(!repoint_fragment_images(fs,{{1,6,3,2}},replaced,reason))throw std::runtime_error(reason);
-    for(const auto* code:{&vs,&fs,&replaced}){
+    if(!null_fragment_images(probe,{{1,6}},nulled,reason))throw std::runtime_error(reason);
+    for(const auto* code:{&vs,&fs,&replaced,&probe,&nulled}){
         VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};info.codeSize=code->size()*4;info.pCode=code->data();
         VkShaderModule module{};CHECK_VK(pCreateShaderModule(g.device,&info,nullptr,&module));own.modules.push_back(module);
     }
@@ -154,46 +190,64 @@ static void material_test(Gpu& g)
     VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};blending.attachmentCount=1;blending.pAttachments=&blend;
     VkDynamicState dynamic[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dynamics{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};dynamics.dynamicStateCount=2;dynamics.pDynamicStates=dynamic;
-    for(size_t i=0;i<2;++i){
+    for(size_t i=0;i<4;++i){
         VkPipelineShaderStageCreateInfo stages[2]{};
         for(size_t j=0;j<2;++j){stages[j].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;stages[j].stage=j?VK_SHADER_STAGE_FRAGMENT_BIT:VK_SHADER_STAGE_VERTEX_BIT;
             stages[j].module=own.modules[j?i+1:0];stages[j].pName="main";}
         VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};info.stageCount=2;info.pStages=stages;
         info.pVertexInputState=&vertex;info.pInputAssemblyState=&ia;info.pViewportState=&viewport;info.pRasterizationState=&raster;
-        info.pMultisampleState=&ms;info.pColorBlendState=&blending;info.pDynamicState=&dynamics;info.layout=own.layouts[i];info.renderPass=own.pass;
+        info.pMultisampleState=&ms;info.pColorBlendState=&blending;info.pDynamicState=&dynamics;info.layout=own.layouts[i==1?1:0];info.renderPass=own.pass;
         VkPipeline pipeline{};CHECK_VK(pCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&info,nullptr,&pipeline));own.pipelines.push_back(pipeline);
     }
-    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,3};VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    dp.maxSets=3;dp.poolSizeCount=1;dp.pPoolSizes=&size;CHECK_VK(pCreateDescriptorPool(g.device,&dp,nullptr,&own.descriptors));
-    VkDescriptorSetLayout layouts[]={own.sets[1],own.sets[3],own.sets[3]};VkDescriptorSet sets[3]{};
-    VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};ai.descriptorPool=own.descriptors;ai.descriptorSetCount=3;ai.pSetLayouts=layouts;
+    VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};sampler.magFilter=sampler.minFilter=VK_FILTER_NEAREST;
+    sampler.addressModeU=sampler.addressModeV=sampler.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    sampler.borderColor=VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;sampler.maxLod=16;
+    CHECK_VK(pCreateSampler(g.device,&sampler,nullptr,&own.sampler));
+    VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,6},{VK_DESCRIPTOR_TYPE_SAMPLER,2}};
+    VkDescriptorPoolCreateInfo dp{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    dp.maxSets=4;dp.poolSizeCount=2;dp.pPoolSizes=sizes;CHECK_VK(pCreateDescriptorPool(g.device,&dp,nullptr,&own.descriptors));
+    VkDescriptorSetLayout layouts[]={own.sets[1],own.sets[3],own.sets[3],own.sets[1]};VkDescriptorSet sets[4]{};
+    VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};ai.descriptorPool=own.descriptors;ai.descriptorSetCount=4;ai.pSetLayouts=layouts;
     CHECK_VK(pAllocateDescriptorSets(g.device,&ai,sets));
     for(uint32_t i=0;i<3;++i){
         VkDescriptorImageInfo image{VK_NULL_HANDLE,images[i]->view(),VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};write.dstSet=sets[i];write.dstBinding=i?2:6;
         write.descriptorCount=1;write.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.pImageInfo=&image;pUpdateDescriptorSets(g.device,1,&write,0,nullptr);
     }
+    for(uint32_t index:{0u,3u})for(uint32_t binding:{6u,7u,8u}){
+        const bool is_sampler=binding==7;
+        VkDescriptorImageInfo image{is_sampler?own.sampler:VK_NULL_HANDLE,
+            is_sampler?VK_NULL_HANDLE:images[index==3 && binding==6?2:0]->view(),VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};write.dstSet=sets[index];write.dstBinding=binding;
+        write.descriptorCount=1;write.descriptorType=is_sampler?VK_DESCRIPTOR_TYPE_SAMPLER:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        write.pImageInfo=&image;pUpdateDescriptorSets(g.device,1,&write,0,nullptr);
+    }
     const float positions[]={-.8f,-.8f,-.2f,-.8f,-.5f,-.2f};auto vb=g.buffer(sizeof(positions),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    memcpy(vb.mapped,positions,sizeof(positions));auto readback=g.readback(64*64*4);auto cmd=g.begin();
+    memcpy(vb.mapped,positions,sizeof(positions));auto readback=g.readback(96*64*4);auto cmd=g.begin();
     VkClearValue clear{};clear.color.float32[1]=clear.color.float32[3]=1;
     VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};begin.renderPass=own.pass;begin.framebuffer=own.framebuffer;
-    begin.renderArea.extent={64,64};begin.clearValueCount=1;begin.pClearValues=&clear;pCmdBeginRenderPass(cmd,&begin,VK_SUBPASS_CONTENTS_INLINE);
-    VkDeviceSize offset=0;pCmdBindVertexBuffers(cmd,0,1,&vb.buffer,&offset);VkRect2D scissor{{0,0},{64,64}};pCmdSetScissor(cmd,0,1,&scissor);
+    begin.renderArea.extent={96,64};begin.clearValueCount=1;begin.pClearValues=&clear;pCmdBeginRenderPass(cmd,&begin,VK_SUBPASS_CONTENTS_INLINE);
+    VkDeviceSize offset=0;pCmdBindVertexBuffers(cmd,0,1,&vb.buffer,&offset);VkRect2D scissor{{0,0},{96,64}};pCmdSetScissor(cmd,0,1,&scissor);
     pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[0],1,1,sets,0,nullptr);
-    for(uint32_t i=0;i<3;++i){
-        VkViewport vp{i==1?32.f:0.f,i==2?32.f:0.f,64,64,0,1};pCmdSetViewport(cmd,0,1,&vp);
-        pCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.pipelines[i==1?0:1]);
-        if(i!=1)pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[1],3,1,&sets[i==0?1:2],0,nullptr);
+    for(uint32_t i=0;i<6;++i){
+        VkViewport vp{float((i%3)*32),float((i/3)*32),64,64,0,1};pCmdSetViewport(cmd,0,1,&vp);
+        const auto pipeline=i==1?0:(i<3?1:(i==4?3:2));
+        pCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.pipelines[pipeline]);
+        if(i==0 || i==2)pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[1],3,1,&sets[i==0?1:2],0,nullptr);
+        if(i==5)pCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,own.layouts[0],1,1,&sets[3],0,nullptr);
         pCmdDraw(cmd,3,1,0,0);
     }
-    pCmdEndRenderPass(cmd);VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={64,64,1};
+    pCmdEndRenderPass(cmd);VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={96,64,1};
     pCmdCopyImageToBuffer(cmd,target.image,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,readback.buffer,1,&copy);g.finish(cmd,readback);
     auto pixel=[&](unsigned x,unsigned y,const std::array<uint8_t,4>& rgba,const char* label){
-        const auto p=static_cast<uint8_t*>(readback.mapped)+4*(y*64+x);check(!memcmp(p,rgba.data(),4),label);
+        const auto p=static_cast<uint8_t*>(readback.mapped)+4*(y*96+x);check(!memcmp(p,rgba.data(),4),label);
     };
     pixel(16,14,{255,0,0,255},"private fragment image turns red while vertex reads unchanged original image");
     pixel(48,14,{0,0,255,255},"following original draw keeps original image without rebinding it");
-    pixel(16,46,{0,0,0,0},"explicit zero texture returns zero without Vulkan null-descriptor features");
-    pixel(48,46,{0,255,0,255},"vertex-stage image isolation leaves the other quadrant untouched");
-    std::ofstream pixels("material-pixels.rgba",std::ios::binary);pixels.write(static_cast<const char*>(readback.mapped),64*64*4);
+    pixel(80,14,{0,0,0,0},"zero texture fetch returns zero without Vulkan null-descriptor features");
+    pixel(16,46,{255,255,255,255},"real image reports white border and nonzero size/mips");
+    pixel(48,46,{0,0,0,255},"null rewrite zeros border sampling and queries while retaining the other blue image");
+    pixel(80,46,{255,255,255,255},"zero texture alone fails to implement null border and query semantics");
+    pixel(95,63,{0,255,0,255},"material draws leave untouched pixels green");
+    std::ofstream pixels("material-pixels.rgba",std::ios::binary);pixels.write(static_cast<const char*>(readback.mapped),96*64*4);
 }

@@ -1,5 +1,6 @@
 #pragma once
 #include "src/spirv.h"
+#include <utility>
 
 namespace material_fixture {
 // Both stages read the same ordinary image at (1,6). Vertex red moves X;
@@ -38,6 +39,41 @@ inline std::vector<uint32_t> shader(bool vertex)
         b.op(OpCompositeConstruct,{t_v4,value,moved,y,fzero,one});b.op(OpAccessChain,{p_v4,out_ptr,output,zero});
         b.op(OpStore,{out_ptr,value});
     }else b.op(OpStore,{output,texel});
+    b.op(OpReturn,{});b.op(OpFunctionEnd,{});return b.finish();
+}
+// An out-of-range sample with a white border, width/mip queries, and a second
+// image that must remain readable when the first resource is explicitly null.
+inline std::vector<uint32_t> null_probe()
+{
+    using namespace spv;Builder b;
+    auto main=b.id(),output=b.id(),source=b.id(),other=b.id(),sampler=b.id();
+    auto tv=b.id(),tf=b.id(),f=b.id(),v2=b.id(),v4=b.id(),ti=b.id(),i2=b.id();
+    auto img=b.id(),sam=b.id(),sampled=b.id(),pi=b.id(),ps=b.id(),po=b.id();
+    auto zi=b.id(),zf=b.id(),two=b.id(),uv=b.id(),xy=b.id();
+    auto label=b.id(),im=b.id(),sm=b.id(),combined=b.id(),color=b.id(),widths=b.id(),levels=b.id();
+    auto r=b.id(),w=b.id(),wf=b.id(),lf=b.id(),oi=b.id(),oc=b.id(),blue=b.id(),result=b.id();
+    b.op(OpCapability,{CapabilityShader});b.op(OpCapability,{50}); // ImageQuery.
+    b.op(OpMemoryModel,{AddressingLogical,MemoryGLSL450});b.entry_point(ModelFragment,main,"main",{output});
+    b.op(OpExecutionMode,{main,ModeOriginUpperLeft});b.op(OpDecorate,{output,DecorationLocation,0});
+    for(auto pair:{std::pair<uint32_t,uint32_t>{source,6},{sampler,7},{other,8}}){
+        b.op(OpDecorate,{pair.first,DecorationDescriptorSet,1});b.op(OpDecorate,{pair.first,DecorationBinding,pair.second});
+    }
+    b.op(OpTypeVoid,{tv});b.op(OpTypeFunction,{tf,tv});b.op(OpTypeFloat,{f,32});
+    b.op(OpTypeVector,{v2,f,2});b.op(OpTypeVector,{v4,f,4});b.op(OpTypeInt,{ti,32,1});b.op(OpTypeVector,{i2,ti,2});
+    b.op(OpTypeImage,{img,f,1,2,0,0,1,0});b.op(static_cast<Op>(26),{sam});b.op(static_cast<Op>(27),{sampled,img});
+    b.op(OpTypePointer,{pi,StorageUniformConstant,img});b.op(OpTypePointer,{ps,StorageUniformConstant,sam});
+    b.op(OpTypePointer,{po,StorageOutput,v4});
+    b.op(OpConstant,{ti,zi,0});b.op(OpConstant,{f,zf,0});b.op(OpConstant,{f,two,0x40000000});
+    b.op(OpConstantComposite,{v2,uv,two,two});b.op(OpConstantComposite,{i2,xy,zi,zi});
+    b.op(OpVariable,{pi,source,StorageUniformConstant});b.op(OpVariable,{pi,other,StorageUniformConstant});
+    b.op(OpVariable,{ps,sampler,StorageUniformConstant});b.op(OpVariable,{po,output,StorageOutput});
+    b.op(OpFunction,{tv,main,0,tf});b.op(OpLabel,{label});b.op(OpLoad,{img,im,source});b.op(OpLoad,{sam,sm,sampler});
+    b.op(static_cast<Op>(86),{sampled,combined,im,sm});b.op(static_cast<Op>(88),{v4,color,combined,uv,2,zf});
+    b.op(static_cast<Op>(103),{i2,widths,im,zi});b.op(static_cast<Op>(106),{ti,levels,im});
+    b.op(OpCompositeExtract,{f,r,color,0});b.op(OpCompositeExtract,{ti,w,widths,0});
+    b.op(static_cast<Op>(111),{f,wf,w});b.op(static_cast<Op>(111),{f,lf,levels}); // ConvertSToF.
+    b.op(OpLoad,{img,oi,other});b.op(static_cast<Op>(95),{v4,oc,oi,xy,2,zi});b.op(OpCompositeExtract,{f,blue,oc,2});
+    b.op(OpCompositeConstruct,{v4,result,r,wf,lf,blue});b.op(OpStore,{output,result});
     b.op(OpReturn,{});b.op(OpFunctionEnd,{});return b.finish();
 }
 }
