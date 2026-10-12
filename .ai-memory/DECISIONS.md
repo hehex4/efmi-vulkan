@@ -154,3 +154,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - How much to read: exactly `VertexGroupCounts[component]` bones of three rows from the entry's offset, as the DX11 core does. Never a fixed window: bytes behind a palette belong to something written later.
 - What not to use: the order or distance of palettes in the bone buffer, which changes per frame.
 - Scope: one scene with one standing character. The decision is revisited if a later session shows `different` inside a palette or an entry.
+
+## D-022: The pipeline variant gives the vertex stage a set of its own
+
+- Date: 2026-10-12 (T-019, fact 23).
+- The vertex module of a replaced draw's pipeline is rewritten so that its storage buffer and its instance window are bound at bindings 0 and 1 of the first set the pipeline does not use (set 3 for the sample character). The layer binds one set of its own there: the merged skeleton as storage buffer and its patched instance entries as dynamic uniform buffer, one 256-byte slot per replaced draw with 64 KiB of room behind the last slot, because the shader's block is 4096 constants long. The fragment module is not touched and reads the game's bone buffer and window, as it does under DX11.
+- The variant's pipeline layout keeps the game's set layouts and push constant ranges and adds one set layout at the end, so the sets the game has bound stay valid for it.
+- The two variables are found by structure: the only storage buffer of the vertex module, and its uniform buffer at set 2 binding 0. A vertex module with no or several storage buffers, or without that uniform buffer, gets no variant; its draw is left to the game and reported.
+- Rejected: replacing the shared bindings. It needs a copy of the global set (about 50 bindings) for every pass that draws the character, and 20 of the 45 draws have a fragment shader that would then read the merged skeleton at a patched offset instead of the component's own first bone.
+- Cloning a set and overriding bindings is still needed for textures (set 1, and now and then a binding of the global set, fact 20). That mechanism is separate from this decision.
+- Evidence is offline: four words per module, `spirv-val` on 21 real vertex shaders. Creating and drawing with such a pipeline is the first thing M2 checks.

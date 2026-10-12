@@ -26,6 +26,10 @@ Scope: one scene, one character, the mod's own key states as found, two sessions
 
 Checks of this round: `sandbox/unit_test.py` 75 of 75 (31 for the pairing), `scripts/check_text.py` clean. The layer was not changed and not rebuilt; the full suite was not run.
 
+## Vertex-stage bindings for the pipeline variant decided (2026-10-12; offline, from game data)
+
+T-019 is decided as D-022. `scripts/stage_usage.py` on `captures/second-probe-all` and on `captures/first-probe` gives the same result: 45 draws of the 12 components, 26 programs, 21 vertex shaders; every vertex shader has exactly one storage buffer and it is the bone buffer; all read the instance window at set 2 binding 0; 20 draws have a fragment shader that reads the bone buffer, 29 one that reads the window; three sets are bound. The variant therefore re-points the vertex module's two variables to bindings 0 and 1 of set 3 and leaves the fragment module alone. `server/efmi_vk/spirv.py` has the reference implementation (`buffer_variables`, `repoint`); applied to the 21 real vertex shaders it changes four words each and `spirv-val` accepts every result. Offline evidence only: no pipeline was created from a rewritten module. Unit tests 84 of 84, text check clean; the layer was not changed.
+
 ## Second probe session in the real game: G3 b and c (2026-10-12, 11:10 to at least 11:35; started by the user)
 
 Loads in the real game and data captured in the real game; nothing drawn, nothing verified on a character. PID 36420, Vulkan (no forced DX11 in `Player.log`), layer 0.6.0 by the launcher's injection (`efmi_vk_layer 0.6.0 loaded into Endfield.exe, mode=probe, entry=inject`), XXMI's `d3d11.dll` not injected. 120 frames per second, working set 11.8 GB and flat, `shaders_not_retained` 0, `unknown_writes` 0. Bundles `captures/second-probe` (45 draws of the 12 components with contents) and `captures/second-probe-all` (all 210 indexed draws with contents, all 117 pipelines); about 1,100 further captures for series. Full account: last section of `docs/probe-snapshots.md`.
@@ -37,7 +41,7 @@ Loads in the real game and data captured in the real game; nothing drawn, nothin
 - All other uniform ranges of sets 0 and 2: 29,967 comparisons, none different. Selection by hash at record time never failed.
 - The DX11 pairing was repeated against this session's frame with every pipeline: 36 fragment shaders by SPIR-V hash, 118 entries, none contradictory, same result for the mod's slots.
 
-D-021 follows: D3 holds for this scene without a GPU read-back. Open: other scenes (open world, combat, several instances, LOD1), T-018, T-019.
+D-021 follows: D3 holds for this scene without a GPU read-back. Open: other scenes (open world, combat, several instances, LOD1), T-018.
 
 ## Contents at submit and the record-time comparison: layer 0.6.0 in `dist/` (2026-10-12; sandbox, then the game)
 
@@ -232,8 +236,8 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 State on 2026-10-12 after the first probe session and the DX11 baseline:
 
 1. T-017 is done, G3 b and c pass for the display scene (D-021). The launcher's EFMI profile and `dist/efmi_vk.cfg` stay at their Vulkan values.
-2. T-018: content hash of textures at upload, so that slot tables are exact.
-3. T-019: decide how the fragment stage stays on the game's data, then M2 (minimal replacement of one component).
+2. T-018: content hash of textures at upload, so that slot tables are exact; with it, an inventory of what the game's pipeline creation uses, which M2 needs for re-creating pipelines.
+3. M2 (minimal replacement of one component) with the vertex-stage set of D-022.
 
 Later sessions: open world, combat, several instances, LOD1, indirect draws. M3 must account for the image panel (T-016).
 

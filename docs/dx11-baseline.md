@@ -89,10 +89,15 @@ them: `5872b5b6210fd060` picks the entry by the instance index it gets from the 
 bit 16 of `constant4.w` is set, loads the fourth component of elements `constant5.x` and
 `constant5.x + 2` of `t1` (two translation terms of the component's first bone); otherwise it takes them
 from constant 3. A Vulkan replacement that swaps the shared binding changes what the fragment shader
-reads as well. Two ways out, neither chosen yet (T-019): give the vertex stage bindings of its own in the
-pipeline variant (the stage's SPIR-V module is separate, and re-pointing a variable is a change of two
-decorations), or accept that the fragment shader reads the merged buffer at the patched offset and check
-what that changes on screen.
+reads as well. Decided on 2026-10-12 (D-022): the pipeline variant gives the vertex stage bindings of its own. In the
+45 draws of the 12 components (26 programs, 21 vertex shaders, `scripts/stage_usage.py`) every vertex
+shader has exactly one storage buffer and it is the bone buffer; all read the instance window at set 2
+binding 0; 20 draws have a fragment shader that reads the bone buffer and 29 one that reads the window;
+all bind three sets. So the vertex module's two variables are re-pointed to bindings 0 and 1 of set 3,
+which the layer owns, and the fragment module keeps reading the game's data as under DX11. Re-pointing
+changes four words of a module; `spirv-val` accepts all 21 rewritten vertex shaders. The alternative,
+replacing the shared bindings, would need a copy of the global set with its 50 bindings for every pass
+and would change what those 20 fragment shaders read.
 
 ### Texture slots: a table per Vulkan fragment shader
 

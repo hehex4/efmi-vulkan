@@ -13,7 +13,7 @@ from efmi_vk import mcp_stdio  # noqa: E402  (path set up by harness)
 from efmi_vk.hashes import crc32c, format_hash, index_region  # noqa: E402
 from efmi_vk.mods import find_ini_files, match_overrides, parse_overrides  # noqa: E402
 from efmi_vk.tools import TOOLS, Session, ToolError  # noqa: E402
-from efmi_vk.spirv import inspect_spirv  # noqa: E402
+from efmi_vk.spirv import buffer_variables, inspect_spirv, repoint  # noqa: E402
 from efmi_vk import dx11_pair  # noqa: E402
 
 INI = """\
@@ -155,6 +155,45 @@ def test_spirv(c: Checks) -> None:
             c.check(False, "malformed SPIR-V is rejected")
         except ValueError:
             c.check(True, "malformed SPIR-V is rejected")
+
+    # Buffer variables and moving them: struct 10 is a Block, 11 a BufferBlock; variables 30 to 32.
+    def decorate(target, decoration, *literal):
+        return [(3 + len(literal)) << 16 | 71, target, decoration, *literal]
+
+    body = (decorate(10, 2) + decorate(11, 3)
+            + decorate(30, 34, 2) + decorate(30, 33, 0) + decorate(31, 34, 0) + decorate(31, 33, 18)
+            + decorate(32, 34, 0) + decorate(32, 33, 12)
+            + [4 << 16 | 32, 20, 2, 10, 4 << 16 | 32, 21, 2, 11]
+            + [4 << 16 | 59, 20, 30, 2, 4 << 16 | 59, 21, 31, 2, 4 << 16 | 59, 20, 32, 2]
+            + [5 << 16 | 65, 40, 41, 31, 50, 5 << 16 | 66, 40, 42, 31, 50, 4 << 16 | 61, 43, 44, 30])
+    module = code(header + body)
+    c.equal(buffer_variables(module),
+            [{"id": 32, "set": 0, "binding": 12, "kind": "uniform", "uses": 0},
+             {"id": 31, "set": 0, "binding": 18, "kind": "storage", "uses": 2},
+             {"id": 30, "set": 2, "binding": 0, "kind": "uniform", "uses": 1}],
+            "buffer variables with their kind and the references to them")
+    moved = repoint(module, {(0, 18): (3, 0), (2, 0): (3, 1)})
+    c.equal([(v["id"], v["set"], v["binding"], v["kind"], v["uses"]) for v in buffer_variables(moved)],
+            [(32, 0, 12, "uniform", 0), (31, 3, 0, "storage", 2), (30, 3, 1, "uniform", 1)],
+            "moved variables keep their id, kind and uses")
+    c.equal((len(moved), sum(1 for i in range(0, len(module), 4) if module[i:i + 4] != moved[i:i + 4])), (len(module), 4),
+            "moving two variables changes four words and no size")
+    c.equal(repoint(moved, {(3, 0): (0, 18), (3, 1): (2, 0)}), module, "moving back restores the module")
+    c.equal(repoint(module, {(0, 18): (2, 0), (2, 0): (0, 18)}) != module, True, "two variables may swap places")
+    for bad, why in (({(5, 5): (3, 0)}, "a place nothing is declared at"),
+                     ({(0, 18): (0, 12)}, "a target that a remaining variable uses"),
+                     ({(0, 18): (3, 0), (2, 0): (3, 0)}, "two variables for one target")):
+        try:
+            repoint(module, bad)
+            c.check(False, "re-pointing refuses " + why)
+        except ValueError:
+            c.check(True, "re-pointing refuses " + why)
+    twice = code(header + body + decorate(33, 34, 0) + decorate(33, 33, 18) + [4 << 16 | 59, 21, 33, 2])
+    try:
+        repoint(twice, {(0, 18): (3, 0)})
+        c.check(False, "re-pointing refuses a place two variables share")
+    except ValueError:
+        c.check(True, "re-pointing refuses a place two variables share")
 
 
 DRAW_INI = """\
