@@ -277,3 +277,18 @@ Full build/regression: unit 88, native tracker 126, native recipes 120, variant 
 Game absence checked twice; backup build/backups/before-0.8.0-20261012-163359/; copied exact tested package to dist/. Both DLL SHA-256 values: 6e95b328e5ef019ad3e6d025cad966f2e3b326b97cd34d2b0270155610d73f3d. Settings now probe, resources on, image hashing and optional tracker profiling off; WC fix and unmap defaults retained. Actual-config smokes verify recipes, five hashes before/after rewrite and unchanged historical game log. No launcher edit, game launch or game injection this round.
 
 Stop for the user-started 0.8.0 observation with the sample character visible, display then world if available: collect full matched pipeline/layout recipes plus --snapshot mod --follow instance, prioritize all matched pipelines with --pipeline-limit 128, and inspect preflight and LOD1 bones. No 30-minute prerequisite. M2 remains partial: real animation, bone remapping, textures, asynchronous cache and in-flight retirement still need implementation/evidence. Details: docs/m2-pipeline-variants.md.
+
+## 2026-10-12: Review of 0.8.0 (recipes, variant builder, deployment): no defect found
+
+Requested by the user ("review Codex's commits"); covers `d79cce9` and `09e3e89`. No source change. The game was not running.
+
+Checked directly, not taken from the commit's own account:
+
+- Rebuilt HEAD into `build/next` and ran the whole suite: all steps pass with the documented counts (unit 88, tracker 126, recipes 120, variants 37, 17 probe configurations 514 to 529, modes 40, limits 174, timing 126, validation 76, MCP 47, evidence 78). Output: `build/next/run_all.out`.
+- `scripts/verify_variant_shaders.py captures/third-probe --dist build/next`: 21 of 21 (`build/variant-shaders-v8lds7nt/`).
+- `dist/`: both DLLs hash to `6e95b328...`, the settings file to the value in `build/deployment-0.8.0.json`. The launcher configuration was last written at 15:28:27, before both deployments, and holds the Vulkan values (`SKIP`, empty arguments).
+- Read `pipeline_recipe`, `pipeline_variant`, `spirv_repoint`, the hooks and the changes in `state.cpp`. What runs in a game process is the capture at render pass and pipeline creation and the CPU-only preflight inside the `pipeline` command; `PipelineVariant::build` and `emit_variant_draw` have no caller in the layer. The capture refuses `pNext`, flags and extended dynamic state before it follows a pointer, reads depth and blend state only when the subpass uses such attachments, and static viewport arrays only when they are not dynamic. Nothing was added to the per-draw path.
+
+What the earlier game data says about the next session (a prediction, not a result): the 936 pipeline creations of the third session had flags 0, no `pNext`, two stages and only core dynamic states; the 39 pipelines of the 45 matched draws have three set layouts, no push constants, no immutable samplers and no binding flags. Whether the game's render pass creations carry `pNext` or flags was never recorded, so `render_pass_extension` cannot be excluded beforehand.
+
+One note for the integration, added to T-022: 33 of the 45 matched draws use pipelines that declare five vertex bindings (binding 4 with stride 0, the default tangent buffer), while the tracker keeps four slots (`kMaxVb`).

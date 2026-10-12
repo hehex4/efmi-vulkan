@@ -14,6 +14,8 @@ Game absence checked twice before replacing dist/ with the exact tested package.
 
 Next: user starts Vulkan with the sample character visible, preferably display then world. Confirm loaded 0.8.0/settings, collect with --pipeline-limit 128 --snapshot mod --follow instance, inspect every matched pipeline's recipe/preflight and LOD1 bone/instance evidence. Historical captures have no full depth/blend/render-pass recipes and cannot answer this. Stop here for that observation; no duration-only or 30-minute run is needed. M2 is not complete.
 
+Reviewed on 2026-10-12, 16:47 (second agent, at the user's request): independent rebuild and full suite pass with the same counts, the 21 shader rewrites verify again, the deployed hashes and the launcher's Vulkan values are as stated, and reading the recipe, variant and re-pointing code found no defect. Only the capture at creation time and the CPU-only preflight run in a game process. Note for the integration in T-022: most character pipelines declare a fifth vertex binding that the tracker does not keep.
+
 ## Deployment of the verified 0.7.5 package (2026-10-12, 15:52)
 
 The user requested continuation after restoring memory. Endfield was no longer running. Backed up dist/ to build/backups/before-0.7.5-20261012-155227/ and copied the tested build/next binaries without rebuilding. Both DLLs have SHA-256 f331ff7c3a390affbc7adfe617a1e1364f9d5441821b86f2ecdabf4ff39c7475. The cfg comment now states the restored full transfer-source default; settings remain probe, resources/hash off and profiling on.
