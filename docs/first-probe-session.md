@@ -80,6 +80,33 @@ each, plus the 256 bytes of the entry on their own. Expect about 45 selected dra
 kept (the layer's budget is 32 MiB). Read in `frame.json`: `snapshot.record` (how many ranges were
 `equal`, `different`, `not_recorded`), and per draw the `entry` item and the `follow` items.
 
+## Third session: texture contents and pipeline creation (layer 0.7.0)
+
+The second session took place on 2026-10-12 with 0.6.0 (`captures/second-probe`,
+`captures/second-probe-all`; results in `docs/probe-snapshots.md`). What is still open for the slot
+table are four entries where two textures look alike. 0.7.0 hashes mip 0 of every texture when it is
+uploaded, which happens while the scene loads, so the layer has to be in the process from the start
+as usual. Same preconditions and scene. Before collecting, read the status once:
+
+- `counts.image_content`: uploads per outcome and `microseconds`. If loading was noticeably slower
+  than before, that number says how much of it was the hashing; the fallback is `image_hash = 0` in
+  `dist/efmi_vk.cfg`.
+
+Then one bundle with every pipeline:
+
+```powershell
+& 'D:/Python312/python.exe' -B scripts/collect_probe.py --pid <PID> --target game --out captures/third-probe --mod 'D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/arcane fes 1.2/arcane.ini' --pipeline-limit 128
+```
+
+and the pairing with the DX11 frame and its texture hashes:
+
+```powershell
+& 'D:/Python312/python.exe' -B scripts/dx11_baseline.py summarize --label frame-off --mod 'D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/arcane fes 1.2/arcane.ini' --vulkan captures/third-probe --textures captures/dx11-baseline/frame-off-tex.textures.json
+```
+
+Read in its output: how many texture pairs were found by content, and whether the four open slots
+are placed. `api-after.json` of the bundle has `pipeline_creation` for the whole session.
+
 ## Questions this observation can answer
 
 | Gate/question | Read |

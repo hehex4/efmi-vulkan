@@ -142,7 +142,7 @@ def cmd_shaders(args) -> int:
 
 
 # --------------------------------------------------------------------------- DX11 side
-def dx_draw_record(cap, d: dict, declarations: dict | None = None) -> dict:
+def dx_draw_record(cap, d: dict, declarations: dict | None = None, contents: dict | None = None) -> dict:
     out = d.get("out") or {}
     colour = sorted(k for k in out if k.startswith("o") and k != "oD")
     first = cap.resource(out[colour[0]]["res"]) if colour else None
@@ -160,7 +160,8 @@ def dx_draw_record(cap, d: dict, declarations: dict | None = None) -> dict:
             continue
         sig = dx11_pair.dx_texture_sig(res, v.get("view"))
         if sig:
-            textures.append({"slot": slot, "origin": res.get("origin"), "hash": v.get("hash"), "key": sig})
+            textures.append({"slot": slot, "origin": res.get("origin"), "hash": v.get("hash"), "key": sig,
+                             "content": ((contents or {}).get(v.get("hash")) or {}).get("crc32c")})
     windows = dx11_pair.dx_windows({slot: cb for slot, cb in (d.get("cb") or {}).items()
                                     if dx11_pair.declared(declarations, d["shaders"], slot)})
     for w in windows:
@@ -245,8 +246,8 @@ def pair_draw(dx: dict, vk_draw: dict, pipelines: dict) -> dict:
 
     def brief(match: dict, dx_name, vk_name) -> dict:
         return {
-            "pairs": [{"dx": dx_name(p["dx"]), "vk": vk_name(p["vk"]), "what": p["key"], "dx_origin": p["dx"].get("origin")}
-                      for p in match["pairs"]],
+            "pairs": [{"dx": dx_name(p["dx"]), "vk": vk_name(p["vk"]), "what": p["key"], "dx_origin": p["dx"].get("origin"),
+                       "how": p.get("how", "look")} for p in match["pairs"]],
             "ambiguous": [{"dx": [dx_name(i) for i in a["dx"]], "vk": [vk_name(i) for i in a["vk"]], "what": a["key"]}
                           for a in match["ambiguous"]],
             "dx_only": [{"dx": dx_name(i), "what": i["key"], "origin": i.get("origin")} for i in match["dx_only"]],
@@ -260,13 +261,45 @@ def pair_draw(dx: dict, vk_draw: dict, pipelines: dict) -> dict:
         "dx_draw": dx["index"], "vk_draw": vk_draw["n"], "vk_render_pass": vk_draw.get("rp"), "vk_pipeline": vk_draw.get("pipeline"),
         "dx_vs": dx["vs"], "dx_ps": dx["ps"], "dx_targets": dx["target_text"],
         "vk_vs": stages.get(1), "vk_fs": stages.get(16),
-        "textures": brief(dx11_pair.match_by_key(dx["textures"], items["images"]), lambda i: i["slot"], where),
+        "textures": brief(dx11_pair.match_textures(dx["textures"], items["images"]), lambda i: i["slot"], where),
         "constant_buffers": brief(dx11_pair.match_by_key(dx["windows"], items["uniform"]), lambda i: i["slots"], where),
         "buffers": brief(dx11_pair.match_by_key(dx["buffers"], items["storage"]), lambda i: i["slot"], where),
         "dx_vertex_input": {"strides": {v["slot"]: v["stride"] for v in dx["vb"]}, "elements": dx["layout"]},
         "vk_vertex_input": None if not pipeline else {"strides": {b["binding"]: b["stride"] for b in pipeline.get("bindings", [])},
                                                       "attributes": pipeline.get("attributes", [])},
     }
+
+
+def mod_slots(result_objects: list[dict], sections: dict, component_hashes: dict) -> list[dict]:
+    """Where each texture slot a draw section of the mod sets ends up in every paired draw of its component.
+
+    "placed": one Vulkan binding, found by content or by look; "open": one of several that look
+    alike; "no counterpart": bound under DX11 and matched by nothing; "undeclared": the shader of
+    that draw does not read the slot, so the assignment has no effect there.
+    """
+    component_of = {h: n for n, hashes in component_hashes.items() for h in hashes}
+    out = []
+    for o in result_objects:
+        if o["kind"] != "game" or o["vk_hashes"][0] not in component_of:
+            continue
+        number = component_of[o["vk_hashes"][0]]
+        for slot in sorted(k for k in (sections.get(number) or {}).get("slots", {}) if "-t" in k):
+            for pair in o["pairs"]:
+                tex = pair["textures"]
+                entry = {"component": number, "slot": slot, "dx_draw": pair["dx_draw"], "vk_draw": pair["vk_draw"],
+                         "fragment": pair["vk_fs"] or "pipeline %s" % pair["vk_pipeline"]}
+                hit = next((t for t in tex["pairs"] if t["dx"] == slot), None)
+                group = next((t for t in tex["ambiguous"] if slot in t["dx"]), None)
+                if hit:
+                    entry.update(result="placed", where=hit["vk"], how=hit["how"])
+                elif group:
+                    entry.update(result="open", candidates=group["vk"])
+                elif any(t["dx"] == slot for t in tex["dx_only"]):
+                    entry["result"] = "no counterpart"
+                else:
+                    entry["result"] = "undeclared"
+                out.append(entry)
+    return out
 
 
 def cmd_summarize(args) -> int:
@@ -276,7 +309,12 @@ def cmd_summarize(args) -> int:
     raw = list(cap.draws())
     listed = base.with_suffix(".shaders.json")
     declarations = json.loads(listed.read_text(encoding="utf-8")) if listed.exists() else None
-    records = {d["index"]: dx_draw_record(cap, d, declarations) for d in raw if d["type"] < 8}
+    wanted = Path(args.textures) if args.textures else base.with_suffix(".textures.json")
+    contents = json.loads(wanted.read_text(encoding="utf-8")) if wanted.exists() else None
+    if args.textures and contents is None:
+        print("no such file: %s" % wanted)
+        return 1
+    records = {d["index"]: dx_draw_record(cap, d, declarations, contents) for d in raw if d["type"] < 8}
     by_index = {d["index"]: d for d in raw}
 
     # The mod: which index ranges each component draws, and which Vulkan hashes stand for it.
@@ -352,6 +390,8 @@ def cmd_summarize(args) -> int:
         "compute_steps": compute_steps(cap, raw),
         "objects": result_objects,
         "shaders_listed": None if declarations is None else len(declarations),
+        "textures_hashed": None if contents is None else len(contents),
+        "mod_slots": mod_slots(result_objects, sections, component_hashes),
         "texture_slot_map": {fragment: {"dx_ps": sorted(m["dx_ps"]), "slots": {
             slot: sorted(where) for slot, where in sorted(m["slots"].items(), key=lambda kv: int(kv[0].split("-t")[1]))}}
             for fragment, m in mapping.items()},
@@ -370,6 +410,13 @@ def cmd_summarize(args) -> int:
             o["name"], len(o["dx_draws"]), o["dx_uses"], o["dx_ranges"][:4], o["vk_draws"],
             "" if "not_paired" not in o else " | NOT PAIRED: " + o["not_paired"]))
     print("shader declarations: %s" % ("not available, every bound slot takes part" if declarations is None else "%d shaders" % len(declarations)))
+    how = Counter(t["how"] for o in result_objects for p in o["pairs"] for t in p["textures"]["pairs"])
+    print("texture contents: %s; texture pairs %s" % ("not available" if contents is None else "%d DX11 textures" % len(contents), dict(how)))
+    slots = Counter(s["result"] for s in summary["mod_slots"])
+    print("slots the mod's draw sections set, per paired draw: %s" % dict(slots))
+    for s in summary["mod_slots"]:
+        if s["result"] in ("open", "no counterpart"):
+            print("    component %d, %s, fragment shader %s: %s %s" % (s["component"], s["slot"], s["fragment"], s["result"], s.get("candidates") or ""))
     print("texture slots of the game's own textures, per Vulkan fragment shader (DX11 pixel shader) -> [set, binding]:")
     conflicts = 0
     for fragment, m in summary["texture_slot_map"].items():
@@ -403,6 +450,7 @@ def main() -> int:
     s.add_argument("--label", required=True)
     s.add_argument("--mod", help="the INI of the mod that is on screen")
     s.add_argument("--vulkan", help="a bundle written by collect_probe.py for the same scene")
+    s.add_argument("--textures", help="content hashes written by capture --textures (default: those of this label)")
     s.add_argument("--min-index-count", type=int, default=100)
     s.set_defaults(fn=cmd_summarize)
     args = ap.parse_args()

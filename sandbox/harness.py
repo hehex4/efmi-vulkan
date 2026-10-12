@@ -156,8 +156,17 @@ class Sandbox:
                 if time.monotonic() > deadline:
                     raise RuntimeError("the sandbox did not become ready:\n%s" % self.output())
                 time.sleep(0.05)
-            with open(self.expected_path, "r", encoding="utf-8") as f:
-                self.expected = json.load(f)
+            # The file appears through a rename. Something else (a scanner) may hold it for a moment;
+            # a sharing violation inside the readiness deadline is waited out, not treated as a failure.
+            while True:
+                try:
+                    with open(self.expected_path, "r", encoding="utf-8") as f:
+                        self.expected = json.load(f)
+                    break
+                except PermissionError:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(0.05)
         except BaseException:
             self.__exit__()
             raise

@@ -235,6 +235,13 @@ void util_init(HMODULE self)
     if (!budget.empty())
         g_cfg.shader_budget = strtoull(budget.c_str(), nullptr, 10);
 
+    std::string image_hash = setting("EFMI_VK_IMAGE_HASH", "image_hash");
+    if (image_hash == "0" || image_hash == "off")
+        g_cfg.image_hash = false;
+    std::string image_limit = setting("EFMI_VK_IMAGE_HASH_LIMIT", "image_hash_limit");
+    if (!image_limit.empty())
+        g_cfg.image_hash_limit = strtoull(image_limit.c_str(), nullptr, 10);
+
     std::wstring log_path;
     wchar_t wbuf[1024];
     DWORD wn = GetEnvironmentVariableW(L"EFMI_VK_LOG", wbuf, 1024);
@@ -251,10 +258,11 @@ void util_init(HMODULE self)
     g_log = CreateFileW(log_path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
-    logf("efmi_vk_layer %s loaded into %s, mode=%s, entry=%s, crc=%s, resources=%s, shader_budget=%llu", EFVK_VERSION,
-         g_exe_name.c_str(), g_cfg.mode == Mode::Passthrough ? "passthrough" : "probe",
+    logf("efmi_vk_layer %s loaded into %s, mode=%s, entry=%s, crc=%s, resources=%s, shader_budget=%llu, image_hash=%s",
+         EFVK_VERSION, g_exe_name.c_str(), g_cfg.mode == Mode::Passthrough ? "passthrough" : "probe",
          g_cfg.entry == Entry::Inject ? "inject" : "layer", g_hw_crc ? "sse4.2" : "table",
-         g_cfg.track_resources ? "on" : "off", static_cast<unsigned long long>(g_cfg.shader_budget));
+         g_cfg.track_resources ? "on" : "off", static_cast<unsigned long long>(g_cfg.shader_budget),
+         g_cfg.image_hash ? "on" : "off");
 }
 
 } // namespace efvk

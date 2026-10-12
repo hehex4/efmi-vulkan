@@ -46,6 +46,7 @@ namespace efvk {
     X(CmdDrawIndirectCount) X(CmdDrawIndirectCountKHR) X(CmdDrawIndexedIndirectCount) X(CmdDrawIndexedIndirectCountKHR) \
     X(CmdDispatch) X(CmdDispatchIndirect)                                                                              \
     X(CmdCopyBuffer) X(CmdCopyBuffer2) X(CmdCopyBuffer2KHR) X(CmdUpdateBuffer) X(CmdFillBuffer)                        \
+    X(CmdCopyBufferToImage) X(CmdCopyBufferToImage2) X(CmdCopyBufferToImage2KHR)                                       \
     X(CmdBeginRenderPass) X(CmdBeginRenderPass2) X(CmdBeginRenderPass2KHR)                                             \
     X(CmdEndRenderPass) X(CmdEndRenderPass2) X(CmdEndRenderPass2KHR)                                                   \
     X(CmdBeginRendering) X(CmdBeginRenderingKHR) X(CmdEndRendering) X(CmdEndRenderingKHR)                              \
@@ -59,7 +60,6 @@ namespace efvk {
     X(CreateDescriptorPool)                                                                                           \
     X(CmdBindDescriptorBuffersEXT) X(CmdPushConstants)                                                                 \
     X(CreateSwapchainKHR) X(CreateRenderPass) X(CreateRenderPass2) X(CreateRenderPass2KHR) X(CreateFramebuffer)        \
-    X(CmdCopyBufferToImage) X(CmdCopyBufferToImage2) X(CmdCopyBufferToImage2KHR)                                       \
     X(CmdCopyImageToBuffer) X(CmdBlitImage) X(CmdNextSubpass) X(FlushMappedMemoryRanges)                               \
     X(CmdDrawMultiEXT) X(CmdDrawMultiIndexedEXT) X(CmdDrawMeshTasksEXT) X(CmdBindTransformFeedbackBuffersEXT)          \
     X(CmdBuildAccelerationStructuresKHR) X(CmdTraceRaysKHR)
@@ -141,6 +141,11 @@ struct PipeInfo {
     std::vector<Attribute> attributes;
     std::vector<ShaderStage> shaders;
     std::shared_ptr<const PipelineLayoutInfo> layout;
+    // What a copy of the pipeline would have to reproduce besides the above.
+    uint32_t create_flags = 0;
+    uint32_t subpass = 0;
+    bool specialized = false; // a stage has specialization constants
+    std::vector<uint32_t> dynamic_states;
 };
 
 enum DrawKind : uint8_t {
@@ -236,6 +241,16 @@ struct RecSnap {
     std::vector<RecRange> ranges;
 };
 
+// A copy from a buffer to mip 0, layer 0 of an image, as recorded.
+struct PendingImageWrite {
+    VkImage dst = VK_NULL_HANDLE;
+    VkBuffer src = VK_NULL_HANDLE;
+    uint64_t src_off = 0;
+    uint32_t row_length = 0, image_height = 0; // in texels; 0 means the extent of the copy
+    int32_t ox = 0, oy = 0, oz = 0;
+    uint32_t w = 0, h = 0, d = 0;
+};
+
 struct PendingWrite {
     VkBuffer dst = VK_NULL_HANDLE;
     uint64_t dst_off = 0;
@@ -269,6 +284,7 @@ struct CmdBuf {
     std::vector<uint32_t> dyn;
     std::vector<PendingWrite> writes;
     std::vector<RecSnap> rec_snaps; // record-time reads of a capture that keeps buffer contents, by draw
+    std::vector<PendingImageWrite> image_writes;
     std::vector<uint32_t> threads; // threads that recorded into this buffer or into executed secondaries
     uint32_t rp_count = 0;
     uint32_t dyn_rp_count = 0;
@@ -393,6 +409,13 @@ struct Device {
     std::unordered_map<uint32_t, std::weak_ptr<const ShaderInfo>> shader_by_id;
     std::shared_ptr<std::atomic<uint64_t>> shader_bytes = std::make_shared<std::atomic<uint64_t>>(0); // SPIR-V kept
     uint64_t shaders_not_retained = 0; // modules whose code was dropped because the budget was exhausted
+    // Uploads to mip 0, layer 0 by outcome (ImageContent), bytes hashed and time spent on it.
+    std::atomic<uint64_t> image_uploads[IMG_STATES] = {};
+    std::atomic<uint64_t> image_hash_bytes{0};
+    std::atomic<uint64_t> image_hash_us{0};
+    // How often graphics pipeline creation used a state, a flag or a chained structure.
+    uint64_t graphics_pipelines_created = 0;
+    std::map<std::string, uint64_t> pipeline_uses;
     std::unordered_map<VkImage, ImageInfo> images;
     std::unordered_map<VkImageView, ImageViewInfo> image_views;
     std::unordered_map<VkBufferView, BufferViewInfo> buffer_views;
@@ -472,6 +495,9 @@ void on_destroy_pool(Device* dev, VkCommandPool pool);
 void on_reset_pool(Device* dev, VkCommandPool pool);
 void on_copy_buffer(Device* dev, CmdBuf* cb, VkBuffer src, VkBuffer dst, uint64_t src_off, uint64_t dst_off, uint64_t size);
 void on_update_buffer(Device* dev, CmdBuf* cb, VkBuffer dst, uint64_t off, uint64_t size, const void* data);
+void on_copy_buffer_to_image(Device* dev, CmdBuf* cb, VkBuffer src, VkImage dst, uint64_t src_off, uint32_t row_length,
+                             uint32_t image_height, const VkImageSubresourceLayers& layers, VkOffset3D offset,
+                             VkExtent3D extent);
 void on_fill_buffer(Device* dev, CmdBuf* cb, VkBuffer dst, uint64_t off, uint64_t size, uint32_t value);
 void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkCommandBuffer* cbs);
 // Called after an indexed draw was appended to cb->draws: reads what a running capture wants kept.

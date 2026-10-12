@@ -1,6 +1,6 @@
 # EFMI Vulkan - Architecture
 
-The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.6.0, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`, buffer contents kept by a capture in `docs/probe-snapshots.md`.
+The target product architecture is in `docs/plan.md`, section 4. This file describes the read-only probe: layer 0.7.0, protocol 1, server 0.1.0. Resource inspection details and verification limits are in `docs/probe-resources.md`, buffer contents kept by a capture in `docs/probe-snapshots.md`.
 
 ## Data path of the development probe
 
@@ -142,3 +142,9 @@ scripts/inventory_compat.py preserves lexical section order/duplicates and emits
 ## Contents kept by a capture (0.6.0)
 
 `SnapRequest` travels with the armed capture. From the present that starts the captured frame until the one that ends it, `Device::snap_recording` is set and `on_record_indexed` (called by the `vkCmdDrawIndexed` hook) hashes the draw's index range, and for a selected draw reads its uniform ranges, the entry and the follow windows, keeping a checksum per range in `CmdBuf::rec_snaps`; secondaries hand them to the primary in `on_execute_commands`. At submit `capture_draws` reads the same ranges again through the same function (`read_snapshot_locked`), stores the bytes once per distinct (buffer, offset, size) in `Capture::blobs` up to the request's budget and sets the comparison state of each item. `collect_buffer_ranges_locked` in `resources.cpp` resolves a bound set to buffer ranges with the dynamic offsets applied. Outside such a frame the draw path costs one relaxed atomic load.
+
+## Image content and pipeline creation (0.7.0)
+
+`vkCmdCopyBufferToImage` and its two `2` forms are tracked functions now. A copy to mip 0, layer 0 is noted in `CmdBuf::image_writes` (secondaries hand theirs to the primary) and handled in `on_submit` by `apply_image_writes` (`resources.cpp`): with `res_mx` held shared, the source bytes of a copy that covers the whole level are read through `read_buffer_locked` and hashed row by row without padding (`format_block` gives the texel block of a format); then `res_mx` is taken exclusively for the short time it takes to store state, CRC, size and upload count in `ImageInfo`. `write_element` reports them as `content` of a sampled image. Counters per outcome, bytes and microseconds are atomics of the device. Settings: `image_hash` / `EFMI_VK_IMAGE_HASH`, `image_hash_limit` / `EFMI_VK_IMAGE_HASH_LIMIT`.
+
+`note_pipeline_creation_locked` (`state.cpp`) counts into `Device::pipeline_uses` what each graphics pipeline creation uses and keeps flags, subpass, dynamic states and the presence of specialization in `PipeInfo`. It reads only state that has to be valid; depth-stencil and colour blend state are counted by presence. `api_usage` reports the counters, `pipeline` the per-pipeline part together with the ids of the set layouts and the push constant ranges of the layout.

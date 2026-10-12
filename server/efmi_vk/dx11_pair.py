@@ -124,6 +124,36 @@ def match_by_key(dx_items: list[dict], vk_items: list[dict]) -> dict:
     return out
 
 
+def match_textures(dx_items: list[dict], vk_items: list[dict]) -> dict:
+    """Pairs textures by content where both sides know it, and by look otherwise.
+
+    An item may carry ``content``, the CRC-32C of mip 0 of its texture. A content value that occurs
+    once on each side is a pair, whatever else looks like it. The rest is matched by ``key`` as in
+    :func:`match_by_key`, except that two textures whose known contents differ are never paired.
+    Every pair says ``how`` it was found: "content" or "look".
+    """
+    by_content: "OrderedDict[str, tuple[list, list]]" = OrderedDict()
+    for side, items in enumerate((dx_items, vk_items)):
+        for item in items:
+            if item.get("content"):
+                by_content.setdefault(item["content"], ([], []))[side].append(item)
+    pairs, taken = [], set()
+    for content, (dx, vk) in by_content.items():
+        if len(dx) == 1 and len(vk) == 1:
+            pairs.append({"key": dx[0]["key"], "dx": dx[0], "vk": vk[0], "how": "content"})
+            taken.update((id(dx[0]), id(vk[0])))
+    rest = match_by_key([i for i in dx_items if id(i) not in taken], [i for i in vk_items if id(i) not in taken])
+    out = {"pairs": pairs, "ambiguous": rest["ambiguous"], "dx_only": rest["dx_only"], "vk_only": rest["vk_only"]}
+    for pair in rest["pairs"]:
+        a, b = pair["dx"].get("content"), pair["vk"].get("content")
+        if a and b and a != b:
+            out["dx_only"].append(pair["dx"])
+            out["vk_only"].append(pair["vk"])
+        else:
+            out["pairs"].append(dict(pair, how="look"))
+    return out
+
+
 def dx_windows(constant_buffers: dict) -> list[dict]:
     """Constant buffer bindings of one DX11 draw, merged where two stages see the same window.
 
@@ -151,7 +181,9 @@ def vk_set_items(sets: list[dict]) -> dict:
                 if binding["type"] in VK_IMAGE_TYPES:
                     sig = vk_image_sig(element)
                     if sig:
-                        out["images"].append({**where, "sig": sig, "image": element.get("image")})
+                        content = element.get("content") or {}
+                        out["images"].append({**where, "sig": sig, "image": element.get("image"),
+                                              "content": content.get("crc") if content.get("state") == "hashed" else None})
                 elif binding["type"] in VK_UNIFORM_TYPES and element.get("known"):
                     out["uniform"].append({**where, "range": element.get("range"), "buf": element.get("buf"),
                                            "dynamic": binding["type"] == 8, "src": element.get("src")})

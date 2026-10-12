@@ -183,3 +183,9 @@ The DX11 pairing was repeated against the new frame with all pipelines; the slot
 ## 2026-10-12: T-019 decided from the shaders of the two Vulkan sessions
 
 The retained SPIR-V of the character's 26 programs was read for which stage refers to the bone buffer and the instance window. The vertex shaders are uniform in the two things that matter (one storage buffer, window at set 2 binding 0), the fragment shaders are not (20 of 45 draws read the bones). That makes the vertex-only re-pointing both exact and simple, and the shared replacement neither. `spirv.py` got `buffer_variables` and `repoint` with unit tests, `scripts/stage_usage.py` reproduces the table and checks the rewritten modules with `spirv-val` from the validation layer build in `F:\vulkan`.
+
+## 2026-10-12: Layer 0.7.0, content hash of texture uploads and pipeline creation inventory (sandbox only)
+
+Built T-018 after the game was closed. Image uploads to mip 0, layer 0 are hashed at submit and the value travels with the descriptor contents; the pairing tool matches textures by content before it falls back to their look and now lists the fate of every slot the mod sets. The same build counts what graphics pipeline creation uses, as preparation for re-creating pipelines in M2. The sandbox's texture became 4x4 with three uploads, one of them with padded rows, which the first test run hashed correctly.
+
+The first full suite run had two failures, neither in the layer: an MCP test still expected the 1x1 texture, and the harness hit a sharing violation on the sandbox's freshly renamed expected file (ISSUE-004). After both corrections the two tests passed against `build/next` and the full suite passed against `dist/`.

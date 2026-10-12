@@ -102,6 +102,54 @@ size of the observed process. None of this changes what is reported for the sand
 Verified by `sandbox/limits_test.py` (100 checks through both entries) and 16 native tracker
 checks. How these costs behave in the game is unmeasured.
 
+## Image content and pipeline creation (0.7.0)
+
+Sandbox only so far.
+
+**Content of a texture.** Two textures of the same size, mip count and format cannot be told apart
+by their description, and an image handle means nothing in another process or under another API.
+From 0.7.0 the layer follows `vkCmdCopyBufferToImage` (also `2` and `2KHR`) to mip 0, layer 0 of
+an image. When the command buffer is submitted, a copy that covers the whole level has its source
+bytes read (mapped memory, or the copy taken at unmap) and hashed with CRC-32C, row by row
+without the padding a `bufferRowLength` or `bufferImageHeight` adds, so that the value is that of
+the packed level. A sampled image element of a descriptor then carries
+
+```json
+"content": {"state": "hashed", "crc": "5f3a9c21", "bytes": 4194304, "uploads": 1}
+```
+
+`state` is `hashed`, `none` (no such copy was seen), `partial` (the last copy covered a part),
+`unreadable` (the source was not CPU-visible at submit), `unsupported_format` (the layer does
+not know the texel size; it knows the 8, 16 and 32-bit colour formats, packed 32-bit formats,
+D16, D32 and BC1 to BC7) or `too_large`. `uploads` counts the copies to that level. The status
+has `counts.image_content` with the number of uploads per outcome, the bytes hashed and the
+time spent in microseconds.
+
+The same value is computed on the DX11 side by `scripts/dx11_baseline.py capture --textures`
+(mip 0 read back through the DX11 probe), and `summarize` pairs textures by content first.
+
+Cost and bounds: the work happens once per upload, on the submitting thread, with the resource
+lock held shared while reading. `image_hash_limit` (default 64 MiB, `EFMI_VK_IMAGE_HASH_LIMIT`)
+bounds one upload; `image_hash = 0` (`EFMI_VK_IMAGE_HASH`) switches the feature off, and so does
+`resources = 0`. Upload memory can be slow to read; the time counter is there to see it.
+
+Not covered: images filled by a blit, an image copy, a clear or rendering; other mips and
+layers; a copy recorded in one frame and never submitted.
+
+**What pipeline creation uses.** To replace a draw the layer will have to create pipelines like
+the game's. `api_usage` therefore has `pipeline_creation`: the number of graphics pipelines
+created and a counter per use, for example `flags:0`, `stages:2`, `dynamic:0` (one per dynamic
+state), `topology:3`, `samples:1`, `next:<sType>` and `stage_next:<sType>` for chained
+structures, `specialization`, `base_pipeline`, `tessellation`, `sample_mask`,
+`depth_stencil_given`. Only state that has to be valid is read; depth-stencil and colour blend
+state, which a pipeline without such attachments may leave dangling, are counted by presence.
+The `pipeline` command adds `create_flags`, `subpass`, `specialized`, `dynamic_states`,
+`layout_sets` (ids of the set layouts) and `push_constants`.
+
+Verified by `sandbox/probe_test.py` (the texture is uploaded as a 2x2 part, as the whole level
+with packed rows and again with padded rows; the reported value is the CRC of the last one,
+computed independently) and `sandbox/limits_test.py` (switched off; limit below the texture).
+
 ## Limits
 
 - Ordinary descriptor contents and all buffer visibility are from submit time;

@@ -1,6 +1,6 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.6.0 (probe, protocol 1), server 0.1.0; 0.6.0 adds buffer contents kept at submit; it ran in the real game on 2026-10-12 and G3 b and c pass for the display scene. Probe mode ran in the real game for the first time on 2026-10-12: G2 is answered (one recording thread), G3 a passes (all 12 LOD0 components of the sample mod match by hash), G3 b and c are strongly indicated from live reads and still need a snapshot taken at submit. The DX11 baseline of the sample mod was captured on 2026-10-12 with the mods on and off and paired with the Vulkan frame (`docs/dx11-baseline.md`). Long-duration stability is unverified. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.7.0 (probe, protocol 1), server 0.1.0. 0.6.0 (buffer contents kept at submit) ran in the real game on 2026-10-12 and G3 b and c pass for the display scene; 0.7.0 (content hash of texture uploads, inventory of pipeline creation) is in `dist/` and has run in the sandbox only. Probe mode ran in the real game for the first time on 2026-10-12: G2 is answered (one recording thread), G3 a passes (all 12 LOD0 components of the sample mod match by hash), G3 b and c are strongly indicated from live reads and still need a snapshot taken at submit. The DX11 baseline of the sample mod was captured on 2026-10-12 with the mods on and off and paired with the Vulkan frame (`docs/dx11-baseline.md`). Long-duration stability is unverified. No mod rendering exists.
 
 ## DX11 baseline of the sample mod (2026-10-12, 10:09; game under DX11, started by the user)
 
@@ -25,6 +25,18 @@ A third pair of F11 presses at 10:40 gave `frame-off-tex` (249580, mods off; the
 Scope: one scene, one character, the mod's own key states as found, two sessions (window sizes differ, so screen-sized textures do not pair).
 
 Checks of this round: `sandbox/unit_test.py` 75 of 75 (31 for the pairing), `scripts/check_text.py` clean. The layer was not changed and not rebuilt; the full suite was not run.
+
+## Texture content hashes and pipeline creation inventory: layer 0.7.0 in `dist/` (2026-10-12; sandbox only)
+
+T-018 is built. The layer hashes mip 0, layer 0 of an image when a buffer copy covers the whole level, at submit, rows without padding, and reports state, CRC-32C, size and upload count with every sampled image of a descriptor; the status counts uploads per outcome, bytes and time. `scripts/dx11_baseline.py summarize` pairs textures by content first (`--textures` names the DX11 hashes) and lists where each slot the mod sets lands (`mod_slots`: placed, open, no counterpart, undeclared). With the existing Vulkan bundles, which carry no contents yet, the result is unchanged: 15 placed, 4 open, 37 undeclared.
+
+For M2 the same build counts what the game's graphics pipeline creation uses (`api_usage.pipeline_creation`) and reports per pipeline its flags, subpass, dynamic states, specialization, set layout ids and push constant ranges. Description: `docs/probe-resources.md`, section 0.7.0; data path: ARCHITECTURE.
+
+The sandbox uploads its texture three times (a 2x2 part, the whole 4x4 level packed, the whole level with padded rows); the value reported is the CRC of the last one as the sandbox computes it itself.
+
+Evidence, sandbox only: the full `sandbox/run_all.py` against `build/next` had two failures outside the layer (an expectation of `mcp_test.py` that still said 1x1, and a start-up race of the harness, ISSUE-004); both tests passed there after the corrections, and the full suite then passed against `dist/` after the build there: unit 88, native tracker 78, 17 probe configurations (503 to 518 checks each), modes 40, limits 148, timing 84, validation 76, MCP 47, evidence 78; all passed. `dist/efmi_vk_layer.dll` and `dist/efmi_vk_inject.dll` are 0.7.0, SHA-256 `8c5657ea2f81ba9ed89714448577fb7f1dcb6824360fbc57dd8dff45fe9cb1ca`; `dist/efmi_vk.cfg` is `mode = probe`. No game process has loaded 0.7.0.
+
+What a game session has to show: that content hashes of the DX11 side and of the Vulkan side meet at all (the DX11 values are of mip 0 as read back; the Vulkan values of mip 0 as uploaded), what the hashing costs while a scene loads (22,150 image uploads were counted in the second session), and what pipeline creation uses. The command sequence is in `docs/first-probe-session.md`, third session.
 
 ## Vertex-stage bindings for the pipeline variant decided (2026-10-12; offline, from game data)
 
@@ -236,7 +248,7 @@ The user asked whether the DLL can get into the game by injection, as with d3d11
 State on 2026-10-12 after the first probe session and the DX11 baseline:
 
 1. T-017 is done, G3 b and c pass for the display scene (D-021). The launcher's EFMI profile and `dist/efmi_vk.cfg` stay at their Vulkan values.
-2. T-018: content hash of textures at upload, so that slot tables are exact; with it, an inventory of what the game's pipeline creation uses, which M2 needs for re-creating pipelines.
+2. T-018, game part: a Vulkan session with 0.7.0 on the display scene (third session in `docs/first-probe-session.md`), when the user starts it.
 3. M2 (minimal replacement of one component) with the vertex-stage set of D-022.
 
 Later sessions: open world, combat, several instances, LOD1, indirect draws. M3 must account for the image panel (T-016).

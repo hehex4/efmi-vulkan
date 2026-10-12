@@ -715,6 +715,11 @@ static void write_element(JsonWriter& w, Device* dev, const DescriptorElement& e
                 w.kn("image_format", image.format); w.kn("image_type", image.type);
                 w.kn("mip_levels", image.levels); w.kn("array_layers", image.layers);
                 w.kn("samples", image.samples); w.kn("usage", image.usage);
+                w.key("content"); w.begin_object();
+                w.kv("state", image_content_name(image.content));
+                if (image.content == IMG_HASHED) { w.key("crc"); w.hex32(image.content_crc); }
+                w.kn("bytes", image.content_bytes); w.kn("uploads", image.content_uploads);
+                w.end_object();
             }
         }
     }
@@ -821,6 +826,147 @@ void collect_buffer_ranges_locked(Device* dev, const SetBind& bind, const uint32
         }
         if (is_dynamic(b.type)) dynamic += set.counts.at(binding);
     }
+}
+
+bool format_block(uint32_t format, uint32_t& bw, uint32_t& bh, uint32_t& bytes)
+{
+    bw = bh = 1;
+    if (format >= VK_FORMAT_BC1_RGB_UNORM_BLOCK && format <= VK_FORMAT_BC7_SRGB_BLOCK) {
+        bw = bh = 4;
+        bool small = format <= VK_FORMAT_BC1_RGBA_SRGB_BLOCK || format == VK_FORMAT_BC4_UNORM_BLOCK ||
+                     format == VK_FORMAT_BC4_SNORM_BLOCK;
+        bytes = small ? 8 : 16;
+        return true;
+    }
+    struct Span { uint32_t first, last, bytes; };
+    static const Span spans[] = {
+        {VK_FORMAT_R4G4_UNORM_PACK8, VK_FORMAT_R4G4_UNORM_PACK8, 1},
+        {VK_FORMAT_R4G4B4A4_UNORM_PACK16, VK_FORMAT_A1R5G5B5_UNORM_PACK16, 2},
+        {VK_FORMAT_R8_UNORM, VK_FORMAT_R8_SRGB, 1},
+        {VK_FORMAT_R8G8_UNORM, VK_FORMAT_R8G8_SRGB, 2},
+        {VK_FORMAT_R8G8B8_UNORM, VK_FORMAT_B8G8R8_SRGB, 3},
+        {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_A2B10G10R10_SINT_PACK32, 4},
+        {VK_FORMAT_R16_UNORM, VK_FORMAT_R16_SFLOAT, 2},
+        {VK_FORMAT_R16G16_UNORM, VK_FORMAT_R16G16_SFLOAT, 4},
+        {VK_FORMAT_R16G16B16_UNORM, VK_FORMAT_R16G16B16_SFLOAT, 6},
+        {VK_FORMAT_R16G16B16A16_UNORM, VK_FORMAT_R16G16B16A16_SFLOAT, 8},
+        {VK_FORMAT_R32_UINT, VK_FORMAT_R32_SFLOAT, 4},
+        {VK_FORMAT_R32G32_UINT, VK_FORMAT_R32G32_SFLOAT, 8},
+        {VK_FORMAT_R32G32B32_UINT, VK_FORMAT_R32G32B32_SFLOAT, 12},
+        {VK_FORMAT_R32G32B32A32_UINT, VK_FORMAT_R32G32B32A32_SFLOAT, 16},
+        {VK_FORMAT_B10G11R11_UFLOAT_PACK32, VK_FORMAT_E5B9G9R9_UFLOAT_PACK32, 4},
+        {VK_FORMAT_D16_UNORM, VK_FORMAT_D16_UNORM, 2},
+        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT, 4},
+    };
+    for (const Span& s : spans)
+        if (format >= s.first && format <= s.last) {
+            bytes = s.bytes;
+            return true;
+        }
+    return false;
+}
+
+const char* image_content_name(uint8_t state)
+{
+    switch (state) {
+    case IMG_HASHED: return "hashed";
+    case IMG_PARTIAL: return "partial";
+    case IMG_UNREADABLE: return "unreadable";
+    case IMG_UNSUPPORTED: return "unsupported_format";
+    case IMG_TOO_LARGE: return "too_large";
+    default: return "none";
+    }
+}
+
+void apply_image_writes(Device* dev, CmdBuf* cb)
+{
+    if (cb->image_writes.empty())
+        return;
+    struct Result {
+        VkImage image;
+        uint8_t state;
+        uint32_t crc;
+        uint64_t bytes;
+    };
+    std::vector<Result> results;
+    results.reserve(cb->image_writes.size());
+    LARGE_INTEGER freq, t0, t1;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t0);
+    uint64_t hashed_bytes = 0;
+    {
+        // Reading and hashing needs the lock shared only; the results are stored afterwards.
+        std::shared_lock<std::shared_mutex> lock(dev->res_mx);
+        std::vector<uint8_t> tmp;
+        for (const PendingImageWrite& w : cb->image_writes) {
+            auto it = dev->images.find(w.dst);
+            if (it == dev->images.end())
+                continue;
+            const ImageInfo& img = it->second;
+            Result r = {w.dst, IMG_PARTIAL, 0, 0};
+            uint32_t bw, bh, bb;
+            bool whole = w.ox == 0 && w.oy == 0 && w.oz == 0 && w.w == img.extent.width && w.h == img.extent.height &&
+                         w.d == img.extent.depth;
+            if (!format_block(img.format, bw, bh, bb)) {
+                r.state = IMG_UNSUPPORTED;
+            } else if (whole) {
+                uint64_t row_texels = w.row_length ? w.row_length : w.w;
+                uint64_t slice_texels = w.image_height ? w.image_height : w.h;
+                uint64_t row_bytes = (static_cast<uint64_t>(w.w) + bw - 1) / bw * bb; // of one block row, without padding
+                uint64_t pitch = (row_texels + bw - 1) / bw * bb;                     // from one block row to the next
+                uint64_t rows = (static_cast<uint64_t>(w.h) + bh - 1) / bh;
+                uint64_t slice_rows = (slice_texels + bh - 1) / bh;                   // block rows from one slice to the next
+                r.bytes = row_bytes * rows * w.d;
+                auto bit = dev->bufs.find(w.src);
+                if (r.bytes > g_cfg.image_hash_limit) {
+                    r.state = IMG_TOO_LARGE;
+                } else if (bit == dev->bufs.end()) {
+                    r.state = IMG_UNREADABLE;
+                } else if (pitch == row_bytes && slice_rows == rows) {
+                    tmp.resize(static_cast<size_t>(r.bytes));
+                    if (read_buffer_locked(dev, bit->second, w.src_off, r.bytes, tmp.data()) != SRC_NONE) {
+                        r.crc = crc32c(0, tmp.data(), tmp.size());
+                        r.state = IMG_HASHED;
+                    } else {
+                        r.state = IMG_UNREADABLE;
+                    }
+                } else {
+                    // Padded rows or slices: hash the rows one after the other, as if they were packed.
+                    tmp.resize(static_cast<size_t>(row_bytes));
+                    r.state = IMG_HASHED;
+                    for (uint64_t z = 0; z < w.d && r.state == IMG_HASHED; z++)
+                        for (uint64_t y = 0; y < rows; y++) {
+                            uint64_t off = w.src_off + (z * slice_rows + y) * pitch;
+                            if (read_buffer_locked(dev, bit->second, off, row_bytes, tmp.data()) == SRC_NONE) {
+                                r.state = IMG_UNREADABLE;
+                                break;
+                            }
+                            r.crc = crc32c(r.crc, tmp.data(), tmp.size());
+                        }
+                }
+                if (r.state == IMG_HASHED)
+                    hashed_bytes += r.bytes;
+            }
+            results.push_back(r);
+        }
+    }
+    {
+        std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+        for (const Result& r : results) {
+            auto it = dev->images.find(r.image);
+            if (it == dev->images.end())
+                continue;
+            it->second.content = r.state;
+            it->second.content_crc = r.crc;
+            it->second.content_bytes = r.bytes;
+            it->second.content_uploads++;
+            dev->image_uploads[r.state].fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    QueryPerformanceCounter(&t1);
+    dev->image_hash_bytes.fetch_add(hashed_bytes, std::memory_order_relaxed);
+    dev->image_hash_us.fetch_add(static_cast<uint64_t>((t1.QuadPart - t0.QuadPart) * 1000000 / freq.QuadPart),
+                                 std::memory_order_relaxed);
 }
 
 void write_stages(JsonWriter& w, const PipeInfo& p)

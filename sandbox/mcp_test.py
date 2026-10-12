@@ -126,7 +126,9 @@ def main() -> int:
                 c.equal(draw["sets"][0]["dyn"], [want["dyn"]], "efvk_get_draw shows the dynamic offset")
                 c.equal(draw["sets"][1]["dyn"], [1024, 256], "efvk_get_draw splits offsets between sets")
                 material = draw["sets"][1]["contents"]
-                c.equal(material["bindings"][1]["elements"][0]["extent"], [1, 1, 1], "efvk_get_draw includes texture metadata")
+                texture = material["bindings"][1]["elements"][0]
+                c.equal(texture["extent"], sb.expected["texture"]["extent"], "efvk_get_draw includes texture metadata")
+                c.equal(texture["content"]["crc"], sb.expected["texture"]["crc"], "efvk_get_draw includes the texture's content hash")
                 ib_id = draw["ib"]["buf"]
 
                 err, bufs = mcp.tool("efvk_list_buffers", pid=sb.pid, usage=0x40)

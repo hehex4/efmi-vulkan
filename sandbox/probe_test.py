@@ -64,7 +64,11 @@ def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: 
         tex = bindings[1]["elements"][0]
         c.check(tex["sampler"] > 0 and tex["sampler_known"], label + " immutable sampler survives descriptor copy")
         c.check(tex["image"] > 0 and tex["image_known"] and tex["view_known"], label + " image and view are tracked")
-        c.equal((tex["format"], tex["image_format"], tex["extent"]), (37, 37, [1, 1, 1]), label + " texture format and size")
+        texture = expected["texture"]
+        c.equal((tex["format"], tex["image_format"], tex["extent"]), (texture["format"], texture["format"], texture["extent"]),
+                label + " texture format and size")
+        c.equal(tex["content"], {"state": "hashed", "crc": texture["crc"], "bytes": texture["bytes"], "uploads": texture["uploads"]},
+                label + " content hash of the last whole upload, rows without padding")
         c.equal(tex["image_layout"], 5, label + " declared shader-read image layout")
         c.equal(tex["subresource"], {"aspect": 1, "base_mip": 0, "levels": 1, "base_layer": 0, "layers": 1}, label + " image view range")
         c.check(not material["truncated"], label + " all material elements captured")
@@ -240,8 +244,16 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
                     wanted += [(1, 2, "materials"), (1, 5, "albedo")]
                 c.equal([(b["set"], b["binding"], b["name"]) for b in reflection["bindings"]], wanted, "SPIR-V declared bindings and names")
                 c.equal(probe.shader(shader["id"], code=False)[1], b"", "metadata-only shader request omits bytes")
+            c.equal({k: pipe[k] for k in ("create_flags", "subpass", "specialized", "dynamic_states", "push_constants")},
+                    {"create_flags": 0, "subpass": 0, "specialized": False, "dynamic_states": [0, 1], "push_constants": []},
+                    "what a copy of the pipeline has to reproduce")
+            c.check(len(pipe["layout_sets"]) == 2 and all(pipe["layout_sets"]), "set layouts of the pipeline layout", pipe["layout_sets"])
             counts = probe.status()["counts"]
             c.equal((counts["shader_modules"], counts["retained_shaders"]), (0, 2), "pipeline retains destroyed modules")
+            content = dict(counts["image_content"])
+            c.check(content.pop("microseconds") >= 0, "time spent on image hashing is reported")
+            c.equal(content, {"enabled": True, "hashed": 2, "partial": 1, "unreadable": 0, "unsupported_format": 0, "too_large": 0,
+                              "bytes": 2 * expected["texture"]["bytes"]}, "image uploads by outcome")
             c.equal(counts["descriptor_sets"], 1 if pushed else 2, "only allocated live descriptor sets are counted")
             c.equal(counts["descriptor_templates"], 1 if descriptors in ("template", "push-template") else 0,
                     "only live descriptor templates are counted")
@@ -254,6 +266,15 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
 
             usage = probe.api_usage()
             calls = usage["calls"]
+            creation = usage["pipeline_creation"]
+            c.equal(creation["graphics_pipelines"], 1, "one graphics pipeline creation counted")
+            c.equal({k: creation["uses"].get(k) for k in ("flags:0", "stages:2", "subpass:0", "dynamic:0", "dynamic:1", "topology:3",
+                                                         "samples:1", "viewports:1", "vertex_bindings:1", "color_blend_given")},
+                    {"flags:0": 1, "stages:2": 1, "subpass:0": 1, "dynamic:0": 1, "dynamic:1": 1, "topology:3": 1, "samples:1": 1,
+                     "viewports:1": 1, "vertex_bindings:1": 1, "color_blend_given": 1}, "what the pipeline creation used")
+            c.check(not any(k.startswith(("next:", "stage_next:")) or k in ("specialization", "base_pipeline", "tessellation")
+                            for k in creation["uses"]), "nothing is counted that the sandbox does not use", creation["uses"])
+            c.equal(calls.get("vkCmdCopyBufferToImage"), 3, "image uploads are counted")
             c.check(calls.get("vkCmdDrawIndexed", 0) >= 5, "draw calls are counted", calls.get("vkCmdDrawIndexed"))
             c.check(calls.get("vkQueueSubmit", 0) >= 2, "submits are counted", calls.get("vkQueueSubmit"))
             c.check(calls.get("vkQueuePresentKHR", 0) >= 1, "presents are counted")

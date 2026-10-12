@@ -202,6 +202,7 @@ void CmdBuf::reset_recording()
     dyn.clear();
     writes.clear();
     rec_snaps.clear();
+    image_writes.clear();
     threads.clear();
     rp_count = 0;
     dyn_rp_count = 0;
@@ -363,6 +364,109 @@ void on_bind_buffer(Device* dev, VkBuffer buf, VkDeviceMemory mem, uint64_t off)
         mit->second.buffers.push_back(buf);
 }
 
+static void note_use(Device* dev, const char* what, uint64_t value)
+{
+    char key[64];
+    snprintf(key, sizeof(key), "%s:%llu", what, static_cast<unsigned long long>(value));
+    dev->pipeline_uses[key]++;
+}
+
+static void note_chain(Device* dev, const char* what, const void* next)
+{
+    int guard = 0;
+    for (auto* s = static_cast<const VkBaseInStructure*>(next); s && guard < 16; s = s->pNext, guard++)
+        note_use(dev, what, static_cast<uint32_t>(s->sType));
+}
+
+// Counts what a graphics pipeline creation uses, for the day the layer has to create a pipeline
+// like it. Only state the specification requires to be valid is read; state that may be ignored
+// (depth-stencil and colour blend without such attachments) is counted by presence alone.
+static void note_pipeline_creation_locked(Device* dev, PipeInfo& p, const VkGraphicsPipelineCreateInfo* info)
+{
+    dev->graphics_pipelines_created++;
+    p.create_flags = info->flags;
+    p.subpass = info->subpass;
+    note_use(dev, "flags", info->flags);
+    note_use(dev, "stages", info->stageCount);
+    note_use(dev, "subpass", info->subpass);
+    note_chain(dev, "next", info->pNext);
+    if (info->basePipelineHandle)
+        dev->pipeline_uses["base_pipeline"]++;
+    if (!info->renderPass)
+        dev->pipeline_uses["no_render_pass"]++;
+    for (uint32_t i = 0; i < info->stageCount; i++) {
+        const VkPipelineShaderStageCreateInfo& st = info->pStages[i];
+        note_chain(dev, "stage_next", st.pNext);
+        if (st.flags)
+            note_use(dev, "stage_flags", st.flags);
+        if (!st.module)
+            dev->pipeline_uses["stage_without_module"]++;
+        if (st.pSpecializationInfo && st.pSpecializationInfo->mapEntryCount) {
+            p.specialized = true;
+            dev->pipeline_uses["specialization"]++;
+        }
+        if (st.pName && strcmp(st.pName, "main"))
+            dev->pipeline_uses["entry_point_not_main"]++;
+    }
+    if (const VkPipelineDynamicStateCreateInfo* dyn = info->pDynamicState) {
+        note_chain(dev, "dynamic_next", dyn->pNext);
+        for (uint32_t i = 0; i < dyn->dynamicStateCount; i++) {
+            p.dynamic_states.push_back(static_cast<uint32_t>(dyn->pDynamicStates[i]));
+            note_use(dev, "dynamic", static_cast<uint32_t>(dyn->pDynamicStates[i]));
+        }
+    } else {
+        dev->pipeline_uses["no_dynamic_state"]++;
+    }
+    // A pipeline library may leave every other state out.
+    if (info->flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR)
+        return;
+    const bool mesh = (p.stages & (VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT)) != 0;
+    if (!mesh && info->pVertexInputState) {
+        note_chain(dev, "vertex_input_next", info->pVertexInputState->pNext);
+        note_use(dev, "vertex_bindings", info->pVertexInputState->vertexBindingDescriptionCount);
+    }
+    if (!mesh && info->pInputAssemblyState) {
+        note_use(dev, "topology", info->pInputAssemblyState->topology);
+        if (info->pInputAssemblyState->primitiveRestartEnable)
+            dev->pipeline_uses["primitive_restart"]++;
+    }
+    if (info->pTessellationState && (p.stages & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT))
+        dev->pipeline_uses["tessellation"]++;
+    bool discard = false;
+    if (const VkPipelineRasterizationStateCreateInfo* rs = info->pRasterizationState) {
+        note_chain(dev, "raster_next", rs->pNext);
+        discard = rs->rasterizerDiscardEnable != VK_FALSE;
+        if (discard)
+            dev->pipeline_uses["rasterizer_discard"]++;
+        if (rs->polygonMode != VK_POLYGON_MODE_FILL)
+            note_use(dev, "polygon_mode", rs->polygonMode);
+        if (rs->depthBiasEnable)
+            dev->pipeline_uses["depth_bias"]++;
+        if (rs->depthClampEnable)
+            dev->pipeline_uses["depth_clamp"]++;
+        note_use(dev, "cull", rs->cullMode);
+    } else {
+        dev->pipeline_uses["no_rasterization_state"]++;
+    }
+    if (!discard && info->pMultisampleState) {
+        const VkPipelineMultisampleStateCreateInfo* ms = info->pMultisampleState;
+        note_chain(dev, "multisample_next", ms->pNext);
+        note_use(dev, "samples", ms->rasterizationSamples);
+        if (ms->pSampleMask)
+            dev->pipeline_uses["sample_mask"]++;
+        if (ms->sampleShadingEnable)
+            dev->pipeline_uses["sample_shading"]++;
+        if (ms->alphaToCoverageEnable)
+            dev->pipeline_uses["alpha_to_coverage"]++;
+    }
+    if (!discard && info->pViewportState) {
+        note_chain(dev, "viewport_next", info->pViewportState->pNext);
+        note_use(dev, "viewports", info->pViewportState->viewportCount);
+    }
+    dev->pipeline_uses[info->pDepthStencilState ? "depth_stencil_given" : "depth_stencil_null"]++;
+    dev->pipeline_uses[info->pColorBlendState ? "color_blend_given" : "color_blend_null"]++;
+}
+
 void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsPipelineCreateInfo* info)
 {
     if (dev->passive)
@@ -380,6 +484,7 @@ void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsP
     track_stages_locked(dev, p, info->stageCount, info->pStages);
     for (uint32_t i = 0; i < info->stageCount; i++)
         p.stages |= info->pStages[i].stage;
+    note_pipeline_creation_locked(dev, p, info);
     // A pipeline with a mesh or task stage ignores vertex input and input assembly state; the
     // pointers may then be anything.
     const bool mesh = (p.stages & (VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT)) != 0;
@@ -546,6 +651,28 @@ void on_copy_buffer(Device* dev, CmdBuf* cb, VkBuffer src, VkBuffer dst, uint64_
     cb->writes.push_back(std::move(w));
 }
 
+void on_copy_buffer_to_image(Device* dev, CmdBuf* cb, VkBuffer src, VkImage dst, uint64_t src_off, uint32_t row_length,
+                             uint32_t image_height, const VkImageSubresourceLayers& layers, VkOffset3D offset,
+                             VkExtent3D extent)
+{
+    // Only the first level of the first layer identifies a texture here; the DX11 side hashes the same.
+    if (!g_cfg.image_hash || !g_cfg.track_resources || dev->passive || layers.mipLevel != 0 || layers.baseArrayLayer != 0)
+        return;
+    PendingImageWrite w;
+    w.dst = dst;
+    w.src = src;
+    w.src_off = src_off;
+    w.row_length = row_length;
+    w.image_height = image_height;
+    w.ox = offset.x;
+    w.oy = offset.y;
+    w.oz = offset.z;
+    w.w = extent.width;
+    w.h = extent.height;
+    w.d = extent.depth;
+    cb->image_writes.push_back(w);
+}
+
 void on_update_buffer(Device* dev, CmdBuf* cb, VkBuffer dst, uint64_t off, uint64_t size, const void* data)
 {
     cb->copies++;
@@ -609,6 +736,7 @@ void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkComman
             cb->draws.push_back(r);
         }
         cb->writes.insert(cb->writes.end(), s->writes.begin(), s->writes.end());
+        cb->image_writes.insert(cb->image_writes.end(), s->image_writes.begin(), s->image_writes.end());
         cb->copies += s->copies;
         cb->rp_count += s->rp_count;
         cb->dyn_rp_count += s->dyn_rp_count;
@@ -992,6 +1120,7 @@ void on_submit(Device* dev, uint32_t count, const VkCommandBuffer* cbs)
         if (!cb)
             continue;
         apply_writes(dev, cb, st);
+        apply_image_writes(dev, cb);
         st.command_buffers++;
         st.secondaries += cb->secondaries;
         st.render_passes += cb->rp_count;
@@ -1228,6 +1357,14 @@ std::string probe_status()
         w.kn("retained_shaders", dev->shader_by_id.size());
         w.kn("retained_shader_bytes", dev->shader_bytes->load(std::memory_order_relaxed));
         w.kn("shaders_not_retained", dev->shaders_not_retained);
+        w.key("image_content");
+        w.begin_object();
+        w.kb("enabled", g_cfg.image_hash && g_cfg.track_resources);
+        for (uint8_t i = IMG_HASHED; i < IMG_STATES; i++)
+            w.kn(image_content_name(i), dev->image_uploads[i].load(std::memory_order_relaxed));
+        w.kn("bytes", dev->image_hash_bytes.load(std::memory_order_relaxed));
+        w.kn("microseconds", dev->image_hash_us.load(std::memory_order_relaxed));
+        w.end_object();
         w.kn("images", dev->images.size());
         w.kn("image_views", dev->image_views.size());
         w.kn("buffer_views", dev->buffer_views.size());
@@ -1642,6 +1779,18 @@ std::string probe_api_usage()
         for (const std::string& e : ref.dev->extensions)
             w.str(e);
     w.end_array();
+    w.key("pipeline_creation");
+    w.begin_object();
+    if (ref.dev) {
+        std::shared_lock<std::shared_mutex> lock(ref.dev->res_mx);
+        w.kn("graphics_pipelines", ref.dev->graphics_pipelines_created);
+        w.key("uses");
+        w.begin_object();
+        for (const auto& kv : ref.dev->pipeline_uses)
+            w.kn(kv.first.c_str(), kv.second);
+        w.end_object();
+    }
+    w.end_object();
     w.end_object();
     w.end_object();
     return w.out;
@@ -1671,6 +1820,31 @@ std::string probe_pipeline(uint32_t id)
     w.kn("stages", p.stages);
     w.kn("topology", p.topology);
     write_stages(w, p);
+    w.kn("create_flags", p.create_flags);
+    w.kn("subpass", p.subpass);
+    w.kb("specialized", p.specialized);
+    w.key("dynamic_states");
+    w.begin_array();
+    for (uint32_t d : p.dynamic_states)
+        w.num(d);
+    w.end_array();
+    w.key("layout_sets");
+    w.begin_array();
+    if (p.layout)
+        for (const auto& set : p.layout->sets)
+            w.num(set ? set->id : 0);
+    w.end_array();
+    w.key("push_constants");
+    w.begin_array();
+    if (p.layout)
+        for (const VkPushConstantRange& r : p.layout->pushes) {
+            w.begin_object();
+            w.kn("stages", r.stageFlags);
+            w.kn("offset", r.offset);
+            w.kn("size", r.size);
+            w.end_object();
+        }
+    w.end_array();
     w.key("bindings");
     w.begin_array();
     for (const auto& b : p.bindings) {

@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "0.6.0"
+#define EFVK_VERSION "0.7.0"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -51,6 +51,11 @@ struct Config {
     bool track_resources = true;
     // Upper bound for SPIR-V kept in memory. Past it, modules keep their hash and size only.
     uint64_t shader_budget = 512ull << 20;
+    // Probe mode hashes mip 0 of an image when a buffer is copied over the whole of it, so that a
+    // texture can be told from another of the same size and format. An upload above the limit is
+    // counted and not read. Reading upload memory costs time while a scene loads; 0 switches it off.
+    bool image_hash = true;
+    uint64_t image_hash_limit = 64ull << 20;
 };
 
 extern Config g_cfg;

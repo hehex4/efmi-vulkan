@@ -63,7 +63,7 @@
     X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets) X(CreateBuffer) X(DestroyBuffer) \
     X(CreateDescriptorUpdateTemplate) X(DestroyDescriptorUpdateTemplate) X(UpdateDescriptorSetWithTemplate)           \
     X(CreateImage) X(DestroyImage) X(GetImageMemoryRequirements) X(BindImageMemory) X(CreateSampler) X(DestroySampler) \
-    X(CmdPipelineBarrier) X(CmdClearColorImage)                                                                         \
+    X(CmdPipelineBarrier) X(CmdCopyBufferToImage)                                                                       \
     X(GetBufferMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) X(MapMemory) X(UnmapMemory)     \
     X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer)     \
     X(ResetCommandBuffer) X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindVertexBuffers)         \
@@ -120,6 +120,15 @@ static const uint32_t kUboFollowAt = 80; // two element numbers into the storage
 static const uint32_t kFollowValues[2] = {0, 2};
 static const uint32_t kFollowStride = 4; // bytes per element
 static const uint32_t kFollowBytes = 8;  // bytes read at each element number
+
+// The texture is 4x4 RGBA8 and is uploaded three times from one staging buffer: a 2x2 part, the
+// whole level with packed rows, and the whole level again with padded rows. The last one counts.
+static const uint32_t kTexSize = 4;
+static const uint32_t kTexPartAt = 0;     // staging offset of the 2x2 part
+static const uint32_t kTexPackedAt = 16;  // of the packed upload
+static const uint32_t kTexPaddedAt = 96;  // of the padded upload
+static const uint32_t kTexPaddedRow = 8;  // its row length in texels
+static const uint32_t kTexStagingBytes = 256;
 
 struct DrawDef {
     const char* label;
@@ -225,7 +234,8 @@ struct App {
     VkSampler sampler = VK_NULL_HANDLE;
     uint32_t shader_hashes[2] = {}, shader_sizes[2] = {};
 
-    Buffer vb, ib_a, ib_b, ubo, storage, staging, staging2;
+    Buffer vb, ib_a, ib_b, ubo, storage, staging, staging2, tex_staging;
+    uint32_t texture_crc = 0;
 
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer primary = VK_NULL_HANDLE;
@@ -872,6 +882,24 @@ static bool create_resources()
 
     if (!make_buffer(g.storage, kUboSlot * (kDrawCount + 1), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true, true))
         return false;
+
+    if (!make_buffer(g.tex_staging, kTexStagingBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true, true))
+        return false;
+    {
+        uint8_t* tex = static_cast<uint8_t*>(g.tex_staging.map);
+        memset(tex, 0, kTexStagingBytes);
+        for (uint32_t i = 0; i < 16; i++)
+            tex[kTexPartAt + i] = static_cast<uint8_t>(0x80 + i);
+        for (uint32_t i = 0; i < kTexSize * kTexSize * 4; i++)
+            tex[kTexPackedAt + i] = static_cast<uint8_t>(0x40 + i);
+        uint8_t last[kTexSize * kTexSize * 4];
+        for (uint32_t i = 0; i < sizeof(last); i++)
+            last[i] = static_cast<uint8_t>(i * 3 + 1);
+        // The bytes between the rows stay zero: a reader that takes them for texels gets another hash.
+        for (uint32_t y = 0; y < kTexSize; y++)
+            memcpy(tex + kTexPaddedAt + y * kTexPaddedRow * 4, last + y * kTexSize * 4, kTexSize * 4);
+        g.texture_crc = crc32c_sw(last, sizeof(last));
+    }
     memset(g.storage.map, 0, static_cast<size_t>(g.storage.size));
     for (int i = 0; i <= kDrawCount; i++) {
         float tint[] = {0.5f + 0.05f * i, 0.75f, 1.0f, 1.0f};
@@ -882,7 +910,7 @@ static bool create_resources()
     image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image.imageType = VK_IMAGE_TYPE_2D;
     image.format = VK_FORMAT_R8G8B8A8_UNORM;
-    image.extent = {1, 1, 1};
+    image.extent = {kTexSize, kTexSize, 1};
     image.mipLevels = image.arrayLayers = 1;
     image.samples = VK_SAMPLE_COUNT_1_BIT;
     image.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -1022,8 +1050,27 @@ static bool create_resources()
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &barrier);
-    VkClearColorValue white = {{1.0f, 1.0f, 1.0f, 1.0f}};
-    vkCmdClearColorImage(g.primary, g.texture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &white, 1, &barrier.subresourceRange);
+    VkBufferImageCopy upload = {};
+    upload.bufferOffset = kTexPartAt;
+    upload.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    upload.imageOffset = {1, 1, 0};
+    upload.imageExtent = {2, 2, 1};
+    vkCmdCopyBufferToImage(g.primary, g.tex_staging.buf, g.texture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &upload);
+    // One write after another to the same texels needs a barrier in between.
+    VkImageMemoryBarrier again = barrier;
+    again.oldLayout = again.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    again.srcAccessMask = again.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr,
+                         1, &again);
+    upload.bufferOffset = kTexPackedAt;
+    upload.imageOffset = {0, 0, 0};
+    upload.imageExtent = {kTexSize, kTexSize, 1};
+    vkCmdCopyBufferToImage(g.primary, g.tex_staging.buf, g.texture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &upload);
+    vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr,
+                         1, &again);
+    upload.bufferOffset = kTexPaddedAt;
+    upload.bufferRowLength = kTexPaddedRow;
+    vkCmdCopyBufferToImage(g.primary, g.tex_staging.buf, g.texture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &upload);
     barrier.oldLayout = barrier.newLayout;
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -1100,9 +1147,13 @@ static bool write_expected()
     out += line;
     snprintf(line, sizeof(line),
              "  \"uniform\": {\"slot\": %u, \"range\": %u, \"frame_at\": %u, \"late_at\": %u, \"follow_at\": %u, "
-             "\"follow_values\": [%u, %u], \"follow_stride\": %u, \"follow_bytes\": %u}\n}\n",
+             "\"follow_values\": [%u, %u], \"follow_stride\": %u, \"follow_bytes\": %u},\n",
              kUboSlot, kUboRange, kUboFrameAt, kUboLateAt, kUboFollowAt, kFollowValues[0], kFollowValues[1], kFollowStride,
              kFollowBytes);
+    out += line;
+    snprintf(line, sizeof(line),
+             "  \"texture\": {\"extent\": [%u, %u, 1], \"format\": %d, \"crc\": \"%08x\", \"bytes\": %u, \"uploads\": 3}\n}\n",
+             kTexSize, kTexSize, static_cast<int>(VK_FORMAT_R8G8B8A8_UNORM), g.texture_crc, kTexSize * kTexSize * 4);
     out += line;
 
     std::wstring tmp = g.expected_path + L".tmp";
@@ -1390,6 +1441,7 @@ static void cleanup()
     destroy_buffer(g.storage);
     destroy_buffer(g.staging);
     destroy_buffer(g.staging2);
+    destroy_buffer(g.tex_staging);
     if (g.pipeline)
         vkDestroyPipeline(g.device, g.pipeline, nullptr);
     if (g.layout)

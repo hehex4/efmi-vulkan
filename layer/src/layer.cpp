@@ -618,6 +618,45 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBuffer2KHR(VkCommandBuffer cmd, const VkCop
     dev->d.CmdCopyBuffer2KHR(cmd, info);
 }
 
+VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBufferToImage(VkCommandBuffer cmd, VkBuffer src, VkImage dst, VkImageLayout layout,
+                                                   uint32_t count, const VkBufferImageCopy* regions)
+{
+    count_call(HI_CmdCopyBufferToImage);
+    Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        for (uint32_t i = 0; i < count; i++)
+            on_copy_buffer_to_image(dev, cb, src, dst, regions[i].bufferOffset, regions[i].bufferRowLength,
+                                    regions[i].bufferImageHeight, regions[i].imageSubresource, regions[i].imageOffset,
+                                    regions[i].imageExtent);
+    dev->d.CmdCopyBufferToImage(cmd, src, dst, layout, count, regions);
+}
+
+void track_image_copy2(Device* dev, VkCommandBuffer cmd, const VkCopyBufferToImageInfo2* info)
+{
+    if (CmdBuf* cb = cb_of(dev, cmd))
+        for (uint32_t i = 0; i < info->regionCount; i++) {
+            const VkBufferImageCopy2& r = info->pRegions[i];
+            on_copy_buffer_to_image(dev, cb, info->srcBuffer, info->dstImage, r.bufferOffset, r.bufferRowLength,
+                                    r.bufferImageHeight, r.imageSubresource, r.imageOffset, r.imageExtent);
+        }
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBufferToImage2(VkCommandBuffer cmd, const VkCopyBufferToImageInfo2* info)
+{
+    count_call(HI_CmdCopyBufferToImage2);
+    Device* dev = dev_of(cmd);
+    track_image_copy2(dev, cmd, info);
+    dev->d.CmdCopyBufferToImage2(cmd, info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdCopyBufferToImage2KHR(VkCommandBuffer cmd, const VkCopyBufferToImageInfo2* info)
+{
+    count_call(HI_CmdCopyBufferToImage2KHR);
+    Device* dev = dev_of(cmd);
+    track_image_copy2(dev, cmd, info);
+    dev->d.CmdCopyBufferToImage2KHR(cmd, info);
+}
+
 VKAPI_ATTR void VKAPI_CALL hk_CmdUpdateBuffer(VkCommandBuffer cmd, VkBuffer dst, VkDeviceSize off, VkDeviceSize size,
                                               const void* data)
 {

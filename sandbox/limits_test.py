@@ -170,6 +170,32 @@ def snapshot_bounds(c: Checks, entry: str) -> None:
         c.check(sb.proc.poll() is None, tag + "the sandbox keeps running", sb.output())
 
 
+def texture_of(frame: dict) -> dict:
+    return frame["draws"][0]["sets"][1]["contents"]["bindings"][1]["elements"][0]
+
+
+def image_hash_settings(c: Checks, entry: str) -> None:
+    tag = "image hash, %s: " % entry
+    with Sandbox(threads=0, entry=entry, env_extra={"EFMI_VK_IMAGE_HASH": "0"}) as sb, ProbeClient(sb.pid) as probe:
+        frame = probe.capture()
+        check_hashes(c, frame, sb.expected, tag)
+        c.equal(texture_of(frame)["content"], {"state": "none", "bytes": 0, "uploads": 0}, tag + "switched off, nothing is read")
+        content = probe.status()["counts"]["image_content"]
+        c.equal((content["enabled"], content["hashed"], content["partial"], content["bytes"]), (False, 0, 0, 0),
+                tag + "the setting and empty counters are reported")
+        c.equal(probe.api_usage()["calls"].get("vkCmdCopyBufferToImage"), 3, tag + "the calls are still counted")
+    limit = str(sb.expected["texture"]["bytes"] - 1)
+    with Sandbox(threads=0, entry=entry, env_extra={"EFMI_VK_IMAGE_HASH_LIMIT": limit}) as sb, ProbeClient(sb.pid) as probe:
+        frame = probe.capture()
+        want = sb.expected["texture"]
+        c.equal(texture_of(frame)["content"], {"state": "too_large", "bytes": want["bytes"], "uploads": want["uploads"]},
+                tag + "an upload above the limit is counted and not hashed")
+        content = probe.status()["counts"]["image_content"]
+        c.equal((content["hashed"], content["too_large"], content["partial"], content["bytes"]), (0, 2, 1, 0),
+                tag + "outcomes with a limit below the texture")
+        c.check(sb.proc.poll() is None, tag + "the sandbox keeps running", sb.output())
+
+
 def main() -> int:
     c = Checks("limits_test")
     for entry in ("layer", "inject"):
@@ -177,6 +203,7 @@ def main() -> int:
         shader_budget(c, entry)
         resources_off(c, entry)
         snapshot_bounds(c, entry)
+        image_hash_settings(c, entry)
     return c.finish()
 
 

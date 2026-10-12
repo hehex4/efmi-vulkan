@@ -259,6 +259,26 @@ def test_dx11_pair(c: Checks) -> None:
     c.equal([i["slot"] for i in m["dx_only"]], ["ps-t18"], "an item without a counterpart is reported")
     c.equal([i["binding"] for i in m["vk_only"]], [9], "also on the Vulkan side")
 
+    # Content first: light map and normal map look alike and are told apart by their bytes.
+    dx = [{"slot": "ps-t15", "key": "srgb", "content": "aaaa0001"}, {"slot": "ps-t16", "key": "bc7", "content": "aaaa0002"},
+          {"slot": "ps-t17", "key": "bc7", "content": "aaaa0003"}, {"slot": "ps-t18", "key": "ramp"},
+          {"slot": "ps-t19", "key": "noise", "content": "aaaa0009"}, {"slot": "ps-t4", "key": "vol", "content": "aaaa0005"},
+          {"slot": "ps-t6", "key": "vol", "content": "aaaa0005"}]
+    vk = [{"set": 1, "binding": 6, "key": "srgb"}, {"set": 1, "binding": 1, "key": "bc7", "content": "aaaa0003"},
+          {"set": 1, "binding": 3, "key": "bc7", "content": "aaaa0002"}, {"set": 1, "binding": 4, "key": "ramp", "content": "aaaa0007"},
+          {"set": 0, "binding": 9, "key": "noise", "content": "aaaa0008"}, {"set": 0, "binding": 33, "key": "vol", "content": "aaaa0005"},
+          {"set": 0, "binding": 34, "key": "vol", "content": "aaaa0005"}]
+    m = dx11_pair.match_textures(dx, vk)
+    c.equal(sorted((p["dx"]["slot"], p["vk"]["binding"], p["how"]) for p in m["pairs"]),
+            [("ps-t15", 6, "look"), ("ps-t16", 3, "content"), ("ps-t17", 1, "content"), ("ps-t18", 4, "look")],
+            "equal looks are resolved by content; content known on one side only still pairs by look")
+    c.equal(([i["slot"] for i in m["dx_only"]], [i["binding"] for i in m["vk_only"]]), (["ps-t19"], [9]),
+            "the same look with different known contents is not a pair")
+    c.equal([(sorted(i["slot"] for i in a["dx"]), sorted(i["binding"] for i in a["vk"])) for a in m["ambiguous"]],
+            [(["ps-t4", "ps-t6"], [33, 34])], "one texture in several slots stays a group")
+    plain = dx11_pair.match_textures([{"slot": "a", "key": 1}], [{"set": 0, "binding": 2, "key": 1}])
+    c.equal([(p["dx"]["slot"], p["how"]) for p in plain["pairs"]], [("a", "look")], "without contents it is the match by look")
+
     windows = dx11_pair.dx_windows({
         "vs-cb2": {"res": 0, "first_constant": 8704, "num_constants": 4096},
         "ps-cb1": {"res": 0, "first_constant": 8704, "num_constants": 4096},
