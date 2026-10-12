@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. 0.7.1 probe still stutters with resources/hashing off; the user reports smooth passthrough. Layer 0.7.2 removes unnecessary buffer-copy work and adds opt-in tracker timings, fully sandbox-verified and deployed, awaiting a user-started game comparison (T-020). G2/G3 character-data evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
+T-001 to T-008, T-012, T-014, T-015 and T-017 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-019 is decided (D-022). T-018 is complete for the display scene. 0.7.2 probe still stutters; large unmap snapshots and copy-record lock waits overlap its biggest foreground spikes. Layer 0.7.3 accelerates detected WC mapped reads, preserving buffer evidence, fully sandbox-verified and deployed. T-020 awaits a user-started comparison; passthrough remains the observed smooth fallback. G2/G3 character-data evidence is for one display scene; other scenes, long-duration stability and M2 rendering remain unverified.
 
 ## Tasks and follow-ups
 
@@ -64,7 +64,7 @@ Original question:
 
 Under DX11 the core replaces the bone buffer and the instance window for the vertex shader only; the pixel shader keeps the game's and reads them (fact 19). Under Vulkan one binding serves both stages. Options: (a) in the pipeline variant, re-point the vertex module's two variables to bindings of an extra set the layer owns (two decorations each; the set layouts the game binds stay compatible because sets 0 to 2 are unchanged); (b) replace the shared bindings and show from the listings and on screen that what the fragment shader reads there (two translation terms of the component's first bone when a flag is set) stays right or does not matter. Decide with the SPIR-V of the paired fragment shaders in `captures/first-probe`.
 
-### T-020: Diagnose intermittent frame-time spikes (open; smooth passthrough, 0.7.2 candidate ready)
+### T-020: Diagnose intermittent frame-time spikes (open; unmap stalls measured, 0.7.3 deployed)
 
 The user reports stutter during loading and steady display in the third session. Average 120 presents/s does not resolve the report. T-018's timer establishes heavy earlier upload work but only 596 microseconds in a later three-second interval. Cause of steady-scene spikes is unknown.
 
@@ -74,7 +74,9 @@ Resource-off comparison, new user-started PID 33204: settings confirmed off, zer
 
 Passthrough comparison: user-started PID 14804 at 13:04:17, log confirms 0.7.1 passthrough/inject and Vulkan device creation; no pipe. The user reports no stutter. This implicates probe-only work as a group, without a timing trace or a proven individual cause.
 
-0.7.2 removes allocation for unreadable buffer-copy fallbacks and the submit-time intermediate copy, retaining data semantics. Adds default-off profile_tracker counters and bounded slow operations on the present clock (docs/tracker-work.md, D-024). Full build/regression passes; deployed after observing game exit and backing up dist/. Actual-config inject smoke passes. Next cfg is probe, resources/hash off, profile_tracker on, default buffer snapshots/shadows retained. Next: user-started same-world comparison, verify loaded PID/version/settings, then collect status-only timing and correlate work events with present peaks. No game-tested fix is claimed.
+0.7.2 removed allocation for unreadable buffer-copy fallbacks and the submit-time intermediate copy, retaining data semantics, and added default-off profile_tracker counters (D-024). Real-game PID 41044 still stutters. A 24.030379-second foreground sample has 5,093 intervals, 17 over 50 ms, retained max 129.125 ms; unmap copies 3.46 GiB in 11.625 cumulative wall seconds. Three consecutive 43-44 ms snapshots span nearly all of the largest peak; copy recording concurrently waits with zero copied bytes. See docs/pacing-tracker-session.md for retention limits and evidence.
+
+0.7.3 uses streaming loads only for detected WC mappings on capable CPUs, preserving full snapshots and fallback semantics (D-025). Full build/regression passes, native 118, and actual-config smoke passes before/after deployment. Local Vulkan type-2 8 MiB copy improves 24.023 to 1.270 ms; this is not a game result. Next: user-started same-world comparison after verifying loaded 0.7.3. Settings stay probe, resources/hash off, profile on, default snapshots/shadows. No 30-minute prerequisite; T-020 remains open until a fresh result. Source defaults still keep profiling off.
 
 ### T-010: Gates G2 and G3 in the real game (display scene answered on 2026-10-12; other scenes open)
 

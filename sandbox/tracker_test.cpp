@@ -617,6 +617,99 @@ static void buffer_copy_paths()
     g_cfg = config;
 }
 
+static void mapped_read_paths()
+{
+    SYSTEM_INFO system = {}; GetSystemInfo(&system);
+    const size_t page = system.dwPageSize;
+    auto* allocation = static_cast<uint8_t*>(VirtualAlloc(nullptr, page * 3, MEM_RESERVE | MEM_COMMIT,
+                                                         PAGE_READWRITE | PAGE_WRITECOMBINE));
+    check(allocation != nullptr, "allocate real write-combined pages for mapped-read coverage");
+    if (!allocation) return;
+    DWORD old = 0;
+    const bool guarded = VirtualProtect(allocation, page, PAGE_NOACCESS, &old) &&
+                         VirtualProtect(allocation + page * 2, page, PAGE_NOACCESS, &old);
+    check(guarded, "surround the source page with inaccessible pages");
+    if (!guarded) { VirtualFree(allocation, 0, MEM_RELEASE); return; }
+    auto* src = allocation + page;
+    std::vector<uint8_t> expected(page), output(page + 128), want(page + 128);
+    for (size_t i = 0; i < page; ++i) expected[i] = static_cast<uint8_t>(i * 13 + 5);
+    memcpy(src, expected.data(), page);
+    check(mapped_range_is_write_combined(src, page), "OS policy identifies the entire WC mapping");
+    check(!mapped_range_is_write_combined(expected.data(), expected.size()), "ordinary heap is not marked WC");
+    check(!mapped_range_is_write_combined(src + page - 1, 2) &&
+          !mapped_range_is_write_combined(nullptr, 0), "mixed/inaccessible and empty ranges fall back");
+
+    bool exact = true;
+    for (size_t offset = 0; offset < 64; ++offset) {
+        for (size_t size : {size_t(0), size_t(1), size_t(15), size_t(16), size_t(17), size_t(63),
+                            size_t(64), size_t(65), size_t(127), size_t(128), size_t(129), size_t(257)}) {
+            std::fill(output.begin(), output.end(), 0xa5);
+            want = output;
+            const size_t dst_offset = (offset * 7) % 64 + 1;
+            memcpy(want.data() + dst_offset, expected.data() + offset, size);
+            copy_buffer_bytes(output.data() + dst_offset, src + offset, size, true);
+            exact = exact && output == want;
+        }
+    }
+    check(exact, "WC copy handles all source alignments and unaligned destinations without extra writes");
+    exact = true;
+    for (size_t size = 0; size <= 513; ++size) {
+        copy_buffer_bytes(output.data(), src + page - size, size, true);
+        exact = exact && std::equal(output.begin(), output.begin() + size, expected.end() - size);
+    }
+    check(exact, "WC tails end exactly at an inaccessible page without over-reading");
+    copy_buffer_bytes(output.data(), src, page, false);
+    check(std::equal(expected.begin(), expected.end(), output.begin()), "ordinary fallback preserves WC contents");
+    want = expected;
+    memmove(want.data() + 3, want.data(), 200);
+    copy_buffer_bytes(expected.data() + 3, expected.data(), 200, false);
+    check(expected == want, "cached-shadow fallback retains overlapping memmove semantics");
+
+    const auto config = g_cfg;
+    g_cfg.shadow_usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    g_cfg.unmap_snapshot_limit = 1024;
+    g_cfg.profile_tracker = true;
+    Device d;
+    const auto source = h<VkBuffer>(301), target = h<VkBuffer>(302);
+    const auto memory = h<VkDeviceMemory>(303);
+    const auto cmd = h<VkCommandBuffer>(304);
+    VkMemoryAllocateInfo alloc = {}; alloc.allocationSize = 1024;
+    on_alloc_memory(&d, memory, &alloc);
+    VkBufferCreateInfo info = {}; info.size = 257; info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    on_create_buffer(&d, source, &info); on_bind_buffer(&d, source, memory, 131);
+    info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    on_create_buffer(&d, target, &info);
+    VkCommandBufferAllocateInfo ci = {}; ci.commandBufferCount = 1;
+    on_alloc_cbs(&d, &ci, &cmd);
+    auto* cb = d.cbs.at(cmd).get();
+    on_map_memory(&d, memory, 128, 512, src + 32);
+    check(d.mems.at(memory).write_combined, "map records page policy with a nonzero memory offset");
+    std::vector<uint8_t> first(257, 19), second(257, 23), result(257);
+    memcpy(src + 35, first.data(), first.size());
+    on_copy_buffer(&d, cb, source, target, 0, 0, 257);
+    check(cb->writes[0].data == first, "record fallback copies an unaligned WC source exactly");
+    memcpy(src + 35, second.data(), second.size());
+    on_submit(&d, 1, &cmd);
+    check(d.bufs.at(target).shadow == second, "submit reads newer WC bytes before the record fallback");
+    check(read_buffer_locked(&d, d.bufs.at(source), 0, result.size(), result.data()) == SRC_MAPPED &&
+          result == second, "direct probe reads use the same bounded mapped-copy path");
+    on_unmap_memory(&d, memory);
+    check(!d.mems.at(memory).write_combined && !d.mems.at(memory).mapped && d.bufs.at(source).shadow == second,
+          "unmap retains every source byte and clears the mapped policy");
+    cb->reset_recording();
+    on_copy_buffer(&d, cb, source, target, 0, 0, 257);
+    on_submit(&d, 1, &cmd);
+    check(d.bufs.at(target).shadow == second && d.work.snapshot().totals[WK_UNMAP].bytes == 257,
+          "later buffer copies retain the full WC unmap snapshot");
+    std::vector<uint8_t> cached(1024, 29);
+    on_map_memory(&d, memory, 0, VK_WHOLE_SIZE, cached.data());
+    check(!d.mems.at(memory).write_combined, "a remap recomputes policy instead of reusing the WC flag");
+    on_unmap_memory(&d, memory);
+    check(d.bufs.at(source).shadow == std::vector<uint8_t>(257, 29), "ordinary remapped snapshots remain exact");
+    g_cfg = config;
+    VirtualFree(allocation, 0, MEM_RELEASE);
+}
+
 int main()
 {
     util_init(GetModuleHandleW(nullptr));
@@ -629,6 +722,7 @@ int main()
     present_pacing();
     tracker_work();
     buffer_copy_paths();
+    mapped_read_paths();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

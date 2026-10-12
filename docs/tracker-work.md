@@ -1,5 +1,10 @@
 # Tracker work diagnostics and copy changes (0.7.2)
 
+Follow-up: [the 0.7.2 game session and 0.7.3 candidate](pacing-tracker-session.md) locate
+large unmap copies and lock contention overlapping the longest foreground spikes. 0.7.3
+accelerates detected write-combined mappings while preserving the full snapshots. It passes
+sandbox regression and local copy measurements; game smoothness awaits a new session.
+
 The 0.7.1 game comparisons narrow T-020: hashing off still stutters, resources off still
 stutters, and the user reports smooth movement in confirmed passthrough. That implicates
 probe-only work as a group. It does not yet identify a routine or establish a quantitative

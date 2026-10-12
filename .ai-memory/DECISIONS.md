@@ -178,3 +178,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Remove proven unnecessary copy work without discarding readable fallback data: test source visibility before allocating record-time storage, and copy directly into the target shadow at submit. Keep unmap snapshots and submit-time priority. The game's individual stall source remains unproven.
 - Add opt-in profile_tracker measurements in 0.7.2, default off, with cumulative category counters and a fixed 64-event slow history on the present diagnostic's QPC clock. Exclude forwarded driver calls. Account for profiling overhead, nesting and descheduling; never equate the sum to frame time.
 - Keep the smooth passthrough run as evidence. Any diagnostic probe candidate requires a user-started game comparison after sandbox verification. Disabling buffer snapshots is a separate capability tradeoff, not a silently applied fix.
+
+## D-025: Accelerate detected WC reads while preserving snapshot evidence
+
+- Date: 2026-10-12, after 0.7.2 foreground world timing correlates the 129 ms peak with three expensive unmaps and a zero-byte copy-record wait. The global resource lock makes these snapshot reads relevant to unrelated recording work.
+- Keep the 16 MiB unmap limit, index shadow mask, record fallback and submit priority. Do not lower data coverage to make the performance comparison appear successful.
+- Classify the complete mapped range once using VirtualQuery. Use SSE4.1 streaming loads only for committed PAGE_WRITECOMBINE mappings on capable CPUs, with aligned loads, exact prefix/tail handling and memory fences. Recompute on remap, clear on unmap; unknown/mixed/cached ranges use memmove. This changes the copy implementation, not Vulkan synchronization or lock ordering.
+- Apply the helper to every mapped-read path, including unmap, record fallback, submit and direct probe reads; CPU shadows still use memmove. Expose the available strategy and current per-buffer WC classification for verification.
+- Local headless Vulkan measurements validate the mechanism (type 2: 24.023 to 1.270 ms for 8 MiB), not real-game smoothness. Type-4 device-local reads remain expensive. Keep profile_tracker on for the next comparable game run and ISSUE-005 open; source profiling defaults stay off. Full evidence: docs/pacing-tracker-session.md.

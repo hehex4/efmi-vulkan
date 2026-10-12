@@ -8,6 +8,7 @@
 #include <mutex>
 #include <intrin.h>
 #include <nmmintrin.h>
+#include <smmintrin.h>
 
 namespace efvk {
 
@@ -20,6 +21,72 @@ static std::mutex g_log_mx;
 static HANDLE g_log = INVALID_HANDLE_VALUE;
 static bool g_hw_crc = false;
 static uint32_t g_crc_table[8][256];
+
+bool streaming_reads_available()
+{
+    static const bool available = [] {
+        int cpu[4];
+        __cpuid(cpu, 1);
+        return (cpu[2] & (1 << 19)) != 0; // SSE4.1, independently of CRC's SSE4.2
+    }();
+    return available;
+}
+
+bool mapped_range_is_write_combined(const void* data, size_t size)
+{
+    if (!data || !size) return false;
+    MEMORY_BASIC_INFORMATION info = {};
+    if (VirtualQuery(data, &info, sizeof(info)) != sizeof(info) || info.State != MEM_COMMIT ||
+        !(info.Protect & PAGE_WRITECOMBINE) || (info.Protect & (PAGE_GUARD | PAGE_NOACCESS)))
+        return false;
+    const auto offset = reinterpret_cast<uintptr_t>(data) - reinterpret_cast<uintptr_t>(info.BaseAddress);
+    return offset <= info.RegionSize && size <= info.RegionSize - offset;
+}
+
+// MOVNTDQA can collect adjacent reads from WC memory in a streaming-load buffer.
+// Align only within the requested range; never round a read past either end.
+// MFENCE orders the WC accesses before the CPU shadow is published. This does not
+// replace the application's Vulkan synchronization or noncoherent cache management.
+__declspec(noinline) static void copy_write_combined(void* dst, const void* src, size_t size)
+{
+    auto* d = static_cast<uint8_t*>(dst);
+    auto* s = static_cast<const uint8_t*>(src);
+    _mm_mfence();
+    while (size && (reinterpret_cast<uintptr_t>(s) & 15)) { *d++ = *s++; --size; }
+    // Finish a partial streaming line before the four-load body.
+    while (size >= 16 && (reinterpret_cast<uintptr_t>(s) & 63)) {
+        const auto a = _mm_stream_load_si128(reinterpret_cast<__m128i*>(const_cast<uint8_t*>(s)));
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(d), a);
+        s += 16; d += 16; size -= 16;
+    }
+    while (size >= 64) {
+        const auto a = _mm_stream_load_si128(reinterpret_cast<__m128i*>(const_cast<uint8_t*>(s)));
+        const auto b = _mm_stream_load_si128(reinterpret_cast<__m128i*>(const_cast<uint8_t*>(s + 16)));
+        const auto c = _mm_stream_load_si128(reinterpret_cast<__m128i*>(const_cast<uint8_t*>(s + 32)));
+        const auto e = _mm_stream_load_si128(reinterpret_cast<__m128i*>(const_cast<uint8_t*>(s + 48)));
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(d), a);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(d + 16), b);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(d + 32), c);
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(d + 48), e);
+        s += 64; d += 64; size -= 64;
+    }
+    while (size >= 16) {
+        const auto a = _mm_stream_load_si128(reinterpret_cast<__m128i*>(const_cast<uint8_t*>(s)));
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(d), a);
+        s += 16; d += 16; size -= 16;
+    }
+    while (size--) *d++ = *s++;
+    _mm_mfence();
+}
+
+void copy_buffer_bytes(void* dst, const void* src, size_t size, bool write_combined)
+{
+    if (!size) return;
+    if (write_combined && size >= 64 && streaming_reads_available())
+        copy_write_combined(dst, src, size);
+    else
+        memmove(dst, src, size);
+}
 
 static std::string env(const char* name)
 {

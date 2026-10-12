@@ -3,9 +3,10 @@
 Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield on the game's native Vulkan renderer, through a Vulkan layer of our own.
 
 The read-only probe has captured real character data and resolved the sample's texture slots.
-The user reports open-world stutter in 0.7.1 probe mode and smooth movement in passthrough.
-Layer 0.7.2 reduces buffer-copy work and adds optional timings for diagnosis; its game result
-is still unverified. Mod rendering is not implemented. See the [current state](.ai-memory/CURRENT_STATE.md)
+The user reports open-world stutter in probe mode and smooth movement in passthrough.
+0.7.2 timings correlate its largest spikes with expensive unmap snapshots and lock contention.
+Layer 0.7.3 accelerates detected write-combined reads, passes sandbox verification and is deployed;
+its game result is still unverified. Mod rendering is not implemented. See the [current state](.ai-memory/CURRENT_STATE.md)
 for the deployed package, next-launch configuration and evidence boundaries.
 
 ## Layout
@@ -69,7 +70,9 @@ The layer also reports bounded [host present intervals](docs/frame-pacing.md), i
 latency and capture/upload tags. The [resource-off and passthrough comparisons](docs/pacing-resources-off-session.md)
 narrow the reported stutter to probe-only work as a group. Layer 0.7.2's optional
 [tracker timings](docs/tracker-work.md), enabled by `profile_tracker = 1`, measure selected paths
-without treating host intervals as displayed-frame timings. The individual cause remains open.
+without treating host intervals as displayed-frame timings. The [latest session and 0.7.3 candidate](docs/pacing-tracker-session.md)
+identify expensive snapshot reads as a contributor and verify a local copy optimization; a fresh
+game comparison is required before calling the stutter fixed.
 
 `scripts/collect_probe.py` saves a complete frame observation and bounded pipeline/shader exports
 from an explicitly selected running probe. See [the first probe session](docs/first-probe-session.md)

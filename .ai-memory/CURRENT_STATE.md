@@ -1,8 +1,20 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-12. Layer 0.7.2 (protocol 1), server 0.1.0. 0.7.2 is fully sandbox-verified and deployed to dist/, not yet game-tested. Next-launch cfg: probe, resources/image hashing off, profile_tracker on, buffer evidence retained. The user reported no stutter in 0.7.1 passthrough (PID 14804); earlier resource-off probe retained 105 ms host spikes. T-020 is narrowed to probe-only work, not closed or attributed to one routine. No mod rendering exists.
+> Last updated: 2026-10-12. Layer 0.7.3 (protocol 1), server 0.1.0. Fully sandbox-verified and deployed, not yet game-tested. 0.7.2 still stutters: a clean 24-second world sample has 17 host intervals over 50 ms; the 129 ms peak overlaps three expensive unmap snapshots and copy-record lock waiting. 0.7.3 accelerates detected write-combined reads without removing buffer evidence. Next-launch cfg: probe, resources/hash off, profile_tracker on. T-020 remains open pending a user-started comparison. No mod rendering exists.
 
-## Layer 0.7.2: buffer-copy savings and optional tracker timings (sandbox only)
+## Layer 0.7.3: mapped-read fix prepared after measured 0.7.2 stalls
+
+User-started PID 41044 (14:22:01) loaded 0.7.2 probe/inject with resources/hash off and profiling on; the user reports renewed stutter. Initial background data is not a valid pacing comparison. After explicit readiness, the 14:44:14.810-14:44:38.840 foreground sample has 240/240 active polls, 5,093 intervals, 203/51/17 over 16/33/50 ms and a retained 129.125 ms peak. No captures or image-hash work. Unmap tracking copies 3.46 GiB and accumulates 11.625 seconds of wall time; the peak overlaps three 43-44 ms unmaps, with a zero-byte copy-record call waiting about 44 ms. res_mx is exclusive during the snapshot and shared during copy recording. This strongly identifies a contributor, not every spike's cause. Histories roll over; missing overlap is not exculpatory. Evidence: captures/pacing-tracker-work-20261012/, 21 fingerprints verified; report: docs/pacing-tracker-session.md.
+
+0.7.3 checks the mapped range's OS page policy once at map time. On SSE4.1 CPUs, PAGE_WRITECOMBINE reads use bounded streaming loads with fences; cached/unknown ranges retain memmove. Unmap snapshots, record fallback, submit priority and buffer visibility are preserved. Added status.mapped_read and buffers[].mapped_write_combined. In a separate headless Vulkan process on this GPU, an 8 MiB type-2 upload copy falls from 24.023 to 1.270 ms; cached type 3 is unchanged, type 4 remains expensive (226.258 to 150.952 ms). All bytes match. These are local copy timings, not a game speedup. D-025 / BUG-004.
+
+Full build/regression passes: unit 88, native 118, 17 probe configurations 503-518, modes 40, limits 148, timing 126, validation 76, MCP 47, evidence 78. First build caught a JSON writer method typo; corrected before the successful suite. Log: build/mapped-read-regression-final-20261012.txt. Native tests cover WC page boundaries/alignment, cached fallback, map offsets/remap, submit priority and complete unmap snapshots.
+
+Observed game exit and checked again before backup/replacement. Deployed the exact candidate from build/candidate-0.7.3-20261012/; prior files are in build/backups/before-0.7.3-20261012-150100/. Both DLL SHA-256: 4cb8fdc1c111530cdbc8d76c9c2924c1cf61ec6fa701ba64a18edc5b36548c85. Actual-config inject smoke passes on candidate and dist/ (build/tests/sandbox-wcxt2ysn/, sandbox-zg_0n_36/), five correct hashes and WC mappings reported. Game log unchanged; no launcher edit or automatic game launch/stop. Diagnostic settings stay probe, resources/hash off, profile on; 16 MiB snapshots and shadow_usage 0x40 retained.
+
+Next requires the user: start through the same Vulkan launcher setup and move along the same open-world route. Confirm loaded 0.7.3 before status-only sampling. A short clean foreground comparison is sufficient; no repeated 30-minute run. T-020 / ISSUE-005 is not closed, and 0.7.3 has no real-game result yet.
+
+## Layer 0.7.2: earlier buffer-copy savings and optional tracker timings
 
 Two confirmed unnecessary costs are removed without changing readable fallback behavior: record-time copies first check source visibility before allocating byte storage; submit writes borrow a readable source under res_mx and copy straight into the destination shadow instead of using a temporary vector. Submit-time contents still take priority; unmap snapshots and record-time fallback remain. An unreadable 64 MiB native-test source now allocates no fallback/destination byte storage. This is not yet a game stutter fix.
 
@@ -12,7 +24,7 @@ Built into build/next and ran the full suite. The first run failed only a new ti
 
 The game had exited by deployment; checked twice before replacing files. Backed up dist/ to build/backups/before-0.7.2-20261012-132253/, then copied the exact candidate package. DLL SHA-256 for both entries: f8b30ce440856995f0c7776b1adf4196d541e651b4cd4705f3f9fde6e394fde6. Candidate actual-config smoke (build/tests/sandbox-bbni7c7u/) and deployed actual-config smoke (build/tests/sandbox-_5s9b_x_/) both confirm 0.7.2 probe/inject, resources/hash off, profiling on, five correct draws and unmap measurements. No settings environment overrides; historical game log unchanged. Unmap snapshot limit 16 MiB and shadow_usage 0x40 remain enabled. No launcher change or automatic game launch.
 
-Next requires the user: start through the same Vulkan launcher configuration, return to the same open-world route and report readiness/smoothness. Verify the new PID/version/settings before collecting status-only timing. The profile can identify a candidate stall by overlap with a host present interval; no individual cause is claimed yet. If normal play is preferred, mode = passthrough remains the observed smooth fallback, requiring a process restart.
+The requested 0.7.2 comparison has now completed (section above): stutter persists and large unmap snapshots overlap the largest peaks. Its deployment/configuration details here are historical. Passthrough remains the observed smooth fallback, requiring a process restart.
 
 ## Passthrough comparison: user reports smooth movement (2026-10-12, 13:04 launch)
 

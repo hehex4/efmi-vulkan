@@ -112,6 +112,7 @@ struct MemInfo {
     uint8_t* mapped = nullptr;
     uint64_t map_off = 0;
     uint64_t map_size = 0;
+    bool write_combined = false; // OS page policy of the current mapped range
     std::vector<VkBuffer> buffers;
 };
 

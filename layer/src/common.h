@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "0.7.2"
+#define EFVK_VERSION "0.7.3"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -97,6 +97,13 @@ const std::string& exe_name();
 // CRC-32C over a byte range, continuing from a previous result (0 to start).
 uint32_t crc32c(uint32_t seed, const void* data, size_t size);
 bool crc32c_uses_hardware();
+
+// Cache the page policy at map time. Unknown/mixed ranges use the ordinary copy path.
+bool mapped_range_is_write_combined(const void* data, size_t size);
+bool streaming_reads_available();
+// A write-combined source must not overlap the ordinary CPU destination. Cached shadows
+// use memmove, preserving valid self-copies. Both paths copy exactly the requested bytes.
+void copy_buffer_bytes(void* dst, const void* src, size_t size, bool write_combined);
 
 void ipc_start();
 

@@ -281,6 +281,7 @@ void on_map_memory(Device* dev, VkDeviceMemory mem, uint64_t off, uint64_t size,
     m.mapped = static_cast<uint8_t*>(data);
     m.map_off = off;
     m.map_size = size == VK_WHOLE_SIZE ? (m.size > off ? m.size - off : 0) : size;
+    m.write_combined = mapped_range_is_write_combined(data, static_cast<size_t>(m.map_size));
 }
 
 void on_unmap_memory(Device* dev, VkDeviceMemory mem)
@@ -302,10 +303,12 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
             BufInfo& b = bit->second;
             if (!(b.usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT) || b.size == 0 || b.size > g_cfg.unmap_snapshot_limit)
                 continue;
-            if (b.mem_off < m.map_off || b.mem_off + b.size > m.map_off + m.map_size)
+            if (b.mem_off < m.map_off || b.mem_off - m.map_off > m.map_size ||
+                b.size > m.map_size - (b.mem_off - m.map_off))
                 continue;
             b.shadow.resize(static_cast<size_t>(b.size));
-            memcpy(b.shadow.data(), m.mapped + (b.mem_off - m.map_off), static_cast<size_t>(b.size));
+            copy_buffer_bytes(b.shadow.data(), m.mapped + (b.mem_off - m.map_off),
+                              static_cast<size_t>(b.size), m.write_combined);
             work.bytes += b.size;
             b.known.v.clear();
             b.known.add(0, b.size);
@@ -315,6 +318,7 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
     m.mapped = nullptr;
     m.map_off = 0;
     m.map_size = 0;
+    m.write_combined = false;
 }
 
 void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info)
@@ -541,9 +545,11 @@ void on_destroy_pipeline(Device* dev, VkPipeline pipe)
 
 // Borrow only under res_mx. No allocation/read for inaccessible memory. The caller must not
 // change the source buffer's shadow allocation while using its pointer.
-static const uint8_t* buffer_data_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, ReadSrc& source)
+static const uint8_t* buffer_data_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size,
+                                         ReadSrc& source, bool& write_combined)
 {
     source = SRC_NONE;
+    write_combined = false;
     if (off > b.size || size > b.size - off)
         return nullptr;
     if (b.mem) {
@@ -554,6 +560,7 @@ static const uint8_t* buffer_data_locked(Device* dev, const BufInfo& b, uint64_t
                 const uint64_t at = b.mem_off + off;
                 if (at >= m.map_off && at - m.map_off <= m.map_size && size <= m.map_size - (at - m.map_off)) {
                     source = SRC_MAPPED;
+                    write_combined = m.write_combined;
                     return m.mapped + (at - m.map_off);
                 }
             }
@@ -571,8 +578,9 @@ ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t
     if (off > b.size || size > b.size - off) return SRC_NONE;
     if (!size) return SRC_SHADOW;
     ReadSrc source;
-    const auto* bytes = buffer_data_locked(dev, b, off, size, source);
-    if (bytes) memcpy(out, bytes, static_cast<size_t>(size));
+    bool write_combined;
+    const auto* bytes = buffer_data_locked(dev, b, off, size, source, write_combined);
+    if (bytes) copy_buffer_bytes(out, bytes, static_cast<size_t>(size), write_combined);
     return source;
 }
 
@@ -661,8 +669,10 @@ void on_copy_buffer(Device* dev, CmdBuf* cb, VkBuffer src, VkBuffer dst, uint64_
     auto sit = dev->bufs.find(src);
     if (sit != dev->bufs.end() && size && size <= (256ull << 20)) {
         ReadSrc source;
-        if (const auto* bytes = buffer_data_locked(dev, sit->second, src_off, size, source)) {
-            w.data.assign(bytes, bytes + size);
+        bool write_combined;
+        if (const auto* bytes = buffer_data_locked(dev, sit->second, src_off, size, source, write_combined)) {
+            w.data.resize(static_cast<size_t>(size));
+            copy_buffer_bytes(w.data.data(), bytes, static_cast<size_t>(size), write_combined);
             w.have_data = true;
             work.bytes += size;
         }
@@ -786,12 +796,13 @@ static void apply_writes(Device* dev, CmdBuf* cb, FrameStats& stats)
         if (!w.size || w.dst_off > d.size || w.size > d.size - w.dst_off)
             continue;
         const uint8_t* bytes = nullptr;
+        bool write_combined = false;
         if (w.src) {
             // What the staging buffer holds at submit time is what the GPU will copy.
             auto sit = dev->bufs.find(w.src);
             if (sit != dev->bufs.end()) {
                 ReadSrc source;
-                bytes = buffer_data_locked(dev, sit->second, w.src_off, w.size, source);
+                bytes = buffer_data_locked(dev, sit->second, w.src_off, w.size, source, write_combined);
             }
         }
         if (!bytes && w.have_data)
@@ -801,7 +812,7 @@ static void apply_writes(Device* dev, CmdBuf* cb, FrameStats& stats)
                 d.shadow.resize(static_cast<size_t>(d.size));
             // A self-copy from a shadow already has full storage, so resize cannot invalidate
             // its borrowed pointer. memmove also handles aliasing without a temporary copy.
-            memmove(d.shadow.data() + w.dst_off, bytes, static_cast<size_t>(w.size));
+            copy_buffer_bytes(d.shadow.data() + w.dst_off, bytes, static_cast<size_t>(w.size), write_combined);
             work.bytes += w.size;
             d.known.add(w.dst_off, w.size);
         } else {
@@ -1374,6 +1385,7 @@ std::string probe_status()
     w.kn("shader_budget", g_cfg.shader_budget);
     w.kn("unmap_snapshot_limit", g_cfg.unmap_snapshot_limit);
     w.kn("shadow_usage", g_cfg.shadow_usage);
+    w.kv("mapped_read", streaming_reads_available() ? "wc_sse4.1" : "memmove");
     w.key("attach");
     w.begin_object();
     w.kb("loader_found", g_attach.loader_found.load() != 0);
@@ -1736,6 +1748,7 @@ static void write_buffer(JsonWriter& w, Device* dev, const BufInfo& b)
     w.kn("size", b.size);
     w.kn("usage", b.usage);
     bool mapped = false;
+    bool write_combined = false;
     uint32_t type_index = 0;
     if (b.mem) {
         auto it = dev->mems.find(b.mem);
@@ -1743,12 +1756,14 @@ static void write_buffer(JsonWriter& w, Device* dev, const BufInfo& b)
             const MemInfo& m = it->second;
             type_index = m.type_index;
             mapped = m.mapped && b.mem_off >= m.map_off && b.mem_off + b.size <= m.map_off + m.map_size;
+            write_combined = mapped && m.write_combined;
         }
     }
     w.kb("bound", b.mem != VK_NULL_HANDLE);
     w.kn("memory_offset", b.mem_off);
     w.kn("memory_type", type_index);
     w.kb("mapped", mapped);
+    w.kb("mapped_write_combined", write_combined);
     w.kn("shadow_known_bytes", b.known.total());
     w.kn("unknown_writes", b.unknown_writes);
     w.kn("generation", b.gen);
