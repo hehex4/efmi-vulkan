@@ -1,5 +1,6 @@
 #pragma once
 #include "resource_cache.h"
+namespace efmi::core {struct PaletteSnapshot;}
 
 namespace efmi::assets {
 enum class FileOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External };
@@ -33,6 +34,7 @@ struct FilePlanItem {
     std::vector<LayoutEdit> layout;
     std::wstring external;
     uint32_t phase_mask=0;
+    std::shared_ptr<const core::PaletteSnapshot> palette;
 };
 struct FilePlan {
     bool skip_original=false;

@@ -171,9 +171,12 @@ struct DrawPlanAdapter::Runtime {
     DrawPlan* active = nullptr;
     size_t steps = 0, draws = 0;
     std::unordered_set<CommandList*> adapted;
-    std::unordered_map<ExplicitCommandListSection*, std::wstring> externals;
+    struct External {std::wstring name;DrawPlanAdapter::NativeCommand command;};
+    std::unordered_map<ExplicitCommandListSection*,External> externals;
     std::unordered_map<CustomResource*,CustomResource*> references;
     std::shared_ptr<QueryService> queries=std::make_shared<QueryService>();
+    DrawPlanAdapter::PaletteSource palette_source;
+    bool nested_failed=false;
 
     CustomResource* referenced(CustomResource* resource) const
     {
@@ -225,6 +228,10 @@ struct DrawPlanAdapter::Runtime {
             for (const auto* layout : state->input_layout_overrides) {
                 if (!layout || item.layout.size() >= 256) refuse(L"Invalid layout operation list");
                 item.layout.push_back(*layout);
+            }
+            if(palette_source){
+                std::wstring reason;
+                if(!palette_source(*state,item.palette,reason))refuse(reason.empty()?L"Native draw palette unavailable":reason);
             }
             append(std::move(item));
             return;
@@ -280,8 +287,14 @@ struct DrawPlanAdapter::Runtime {
         if (auto* call = dynamic_cast<RunExplicitCommandList*>(original.get())) {
             auto found = externals.find(call->command_list_section);
             if (found != externals.end()) {
-                PlanItem item; item.operation = PlanOperation::External; item.external = found->second;
+                PlanItem item; item.operation = PlanOperation::External; item.external = found->second.name;
                 item.phase_mask = call->run_pre_and_post_together ? 3 : state->post ? 2 : 1;
+                if(found->second.command){
+                    std::wstring reason;
+                    if(!found->second.command(*state,item.phase_mask,reason) || nested_failed)
+                        refuse(reason.empty()?L"Native command refused: "+item.external:reason);
+                    return;
+                }
                 append(std::move(item));
                 return;
             }
@@ -363,8 +376,42 @@ DrawPlanAdapter::~DrawPlanAdapter() = default;
 
 void DrawPlanAdapter::external(ExplicitCommandListSection& section, const std::wstring& name)
 {
-    runtime_->externals.emplace(&section, name);
+    if(runtime_->active || !runtime_->adapted.empty())refuse(L"Register native boundaries before adaptation");
+    runtime_->externals.emplace(&section, Runtime::External{name,{}});
     section.command_list.runtime_populated = section.post_command_list.runtime_populated = true;
+}
+void DrawPlanAdapter::native(ExplicitCommandListSection& section,const std::wstring& name,NativeCommand command)
+{
+    if(!command)refuse(L"Native command handler is empty");
+    external(section,name);runtime_->externals.at(&section).command=std::move(command);
+}
+void DrawPlanAdapter::palette_source(PaletteSource source)
+{
+    if(runtime_->active || !runtime_->adapted.empty())refuse(L"Install native palette source before adaptation");
+    runtime_->palette_source=std::move(source);
+}
+bool DrawPlanAdapter::invoke(ExplicitCommandListSection& section,CommandListState& state,unsigned phases,std::wstring& reason)
+{
+    reason.clear();const auto post=state.post;
+    if(!runtime_->active || !phases || phases>3 || state.aborted ||
+       state.recursion>=MAX_COMMAND_LIST_RECURSION-1 || ++runtime_->steps>max_steps){
+        runtime_->nested_failed=true;reason=L"Native callback requires an adapted, bounded active transaction";return false;
+    }
+    ++state.recursion;
+    try{
+        auto run=[&](CommandList& list,bool post){
+            auto* resolved=list.ResolveCommandList();
+            if(!runtime_->adapted.count(resolved))refuse(L"Native callback target was not adapted");
+            state.post=post;for(auto& command:resolved->commands)command->run(&state);
+        };
+        if(phases&1)run(section.command_list,false);
+        // Original callback aliases may change during their pre phase.
+        if(phases&2)run(section.post_command_list,true);
+    }catch(const Refused& e){reason=e.reason;}
+     catch(const std::exception&){reason=L"Native callback raised a frontend exception";}
+    --state.recursion;state.post=post;
+    if(!reason.empty())runtime_->nested_failed=true;
+    return reason.empty();
 }
 
 void DrawPlanAdapter::adapt(CommandList& root)
@@ -423,9 +470,10 @@ bool DrawPlanAdapter::execute(CommandList& root, CommandListState& state,
     }
     DrawPlan candidate;
     auto saved_layout = state.input_layout_overrides;
-    runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;
+    runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;
     try {
         for (auto& command : resolved->commands) command->run(&state);
+        if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         output = std::move(candidate);
     } catch (const Refused& error) {
         reason = error.reason;

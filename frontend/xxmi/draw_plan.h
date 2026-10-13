@@ -1,6 +1,7 @@
 #pragma once
 #include "CommandList.h"
 #include <functional>
+namespace efmi::core {struct PaletteSnapshot;}
 
 namespace efmi::frontend {
 
@@ -17,6 +18,7 @@ struct PlanItem {
     std::vector<InputLayoutElementOverride> layout;
     std::wstring external;
     unsigned phase_mask = 0; // External callback: bit 0 pre, bit 1 post.
+    std::shared_ptr<const core::PaletteSnapshot> palette; // Optional owned native Core draw data.
 };
 
 struct DrawPlan {
@@ -38,6 +40,14 @@ public:
     // Register native boundaries before upstream optimisation; otherwise an
     // empty native declaration would be optimised out as a no-op.
     void external(ExplicitCommandListSection& section, const std::wstring& name);
+    using NativeCommand=std::function<bool(CommandListState&,unsigned,std::wstring&)>;
+    void native(ExplicitCommandListSection&,const std::wstring& name,NativeCommand);
+    // Invoke an adapted callback from a native command inside the same bounded
+    // transaction. A refused nested call makes that transaction fail even when
+    // its caller accidentally ignores the returned false.
+    bool invoke(ExplicitCommandListSection&,CommandListState&,unsigned phases,std::wstring& reason);
+    using PaletteSource=std::function<bool(CommandListState&,std::shared_ptr<const core::PaletteSnapshot>&,std::wstring&)>;
+    void palette_source(PaletteSource);
     void adapt(CommandList& root);
     // Serial execution only. Failure preserves output; frontend variable side
     // effects are not rolled back. Callers use a fresh CommandListState.

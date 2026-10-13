@@ -17,6 +17,7 @@ struct FileDraw {
     std::array<FileBinding,32> vertex;
     FileBinding index;
     std::array<FileBinding,128> pixel;
+    std::shared_ptr<const core::PaletteSnapshot> palette;
 };
 struct FileDraws {
     bool skip_original=false;

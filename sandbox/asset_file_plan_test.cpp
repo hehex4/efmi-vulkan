@@ -1,6 +1,7 @@
 // Bridge frontend-owned file declarations into the existing real GPU cache.
 #include "../frontend/assets/file_plan.h"
 #include "../frontend/assets/file_draws.h"
+#include "../frontend/core/palette_bank.h"
 static void file_plan_tests(Gpu& g)
 {
     const auto folder=std::filesystem::current_path()/L"file-plan-fixtures";
@@ -65,9 +66,11 @@ static void file_draw_tests(Gpu& g)
     auto bind=[&](FileOperation op,unsigned slot,std::shared_ptr<const FileResource> r){FilePlanItem i;i.operation=op;i.slot=slot;i.resource=std::move(r);plan.items.push_back(i);};
     bind(FileOperation::BindVertex,3,vertex);bind(FileOperation::BindIndex,0,index);bind(FileOperation::BindPixelResource,12,image);
     FilePlanItem draw;draw.operation=FileOperation::DrawIndexed;draw.index_count=3;draw.instance_count=2;draw.first_instance=4;
+    auto first_palette=std::make_shared<efmi::core::PaletteSnapshot>();first_palette->identity=71;
+    draw.palette=first_palette;
     LayoutEdit edit;edit.match.semantic_name="BLENDINDICES";edit.match.input_slot=3;edit.replace.format=12;draw.layout.push_back(edit);
     plan.items.push_back(draw);bind(FileOperation::BindPixelResource,12,{});bind(FileOperation::BindVertex,3,alternate);
-    draw.index_count=2;draw.first_index=1;draw.vertex_offset=1;draw.layout[0].replace.format=13;plan.items.push_back(draw);
+    draw.index_count=2;draw.first_index=1;draw.vertex_offset=1;draw.layout[0].replace.format=13;draw.palette.reset();plan.items.push_back(draw);
     ResourceBudgets budgets;ResourceCache cache(cache_device(g),budgets);PreparedFilePlan prepared;std::string reason;
     FileDraws result;result.draws.emplace_back();result.draws[0].index_count=777;
     check(prepare_file_plan(plan,cache,prepared,reason) && request_file_draws(prepared,cache,result,reason)==FileReadiness::Pending &&
@@ -76,6 +79,7 @@ static void file_draw_tests(Gpu& g)
     check(request_file_draws(prepared,cache,result,reason)==FileReadiness::Ready && result.skip_original && result.draws.size()==2,
           "ready file bindings produce one snapshot per indexed draw");
     const auto& a=result.draws[0];const auto& b=result.draws[1];
+    check(a.palette==first_palette && !b.palette,"per-draw native palette ownership survives file preparation without leaking to the next draw");
     check(a.vertex[3].buffer==b.vertex[3].buffer && a.vertex[3].resource->stride==16 && b.vertex[3].resource->stride==8 &&
           a.pixel[12].source==BindingSource::File && a.pixel[12].image && b.pixel[12].source==BindingSource::Null &&
           b.pixel[13].source==BindingSource::Application && a.vertex[4].source==BindingSource::Application,

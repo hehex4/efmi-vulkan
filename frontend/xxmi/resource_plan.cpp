@@ -80,6 +80,7 @@ bool FilePlanCompiler::compile(const DrawPlan& source,assets::FilePlan& output,s
             own.operation=assets::FileOperation::DrawIndexed;
             own.index_count=item.index_count;own.first_index=item.first_index;own.vertex_offset=item.vertex_offset;
             own.instance_count=item.instance_count;own.first_instance=item.first_instance;
+            own.palette=item.palette;
             for(const auto& layout:item.layout)own.layout.push_back(copy_layout(layout));
             next.items.push_back(std::move(own));continue;
         case PlanOperation::External:

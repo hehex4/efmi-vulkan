@@ -15,8 +15,9 @@ and the existing live hook still selects the explicit component-7 package.
 
 Register native command-list boundaries before the original optimisation pass.
 They are marked runtime-populated so an empty declaration is not eliminated.
-Each invocation remains an explicit External operation with pre/post phase bits;
-the Vulkan/Core adapter must resolve it before considering the plan executable.
+A registered native handler receives pre/post phase bits and must explicitly
+succeed. Boundaries without a handler remain External operations, which must
+resolve before a GPU transaction can execute.
 No missing Core function is silently replaced by an empty command list.
 
 After upstream optimisation, adapt the selected roots and their reachable named
@@ -154,3 +155,23 @@ retain owners after cache retirement. Late invalid draws and unresolved native
 operations reject complete transactions. Host 23/28/19/15 and 384 sample plans
 pass; historical fragment relocation/null checks pass. Logs:
 `build/file-draw-bindings-{gpu,host,mod,fragments}.txt`. No DLL/deployment change.
+
+## Native callbacks and retained draw palettes
+
+Native handlers may invoke adapted original callback lists through the same
+transaction, sharing recursion/step limits. A refused nested call makes the
+outer plan fail even if a handler mistakenly ignores false. Pre and post lists
+resolve at their execution time, preserving original alias changes during pre.
+No handler means an explicit unresolved operation, never implicit success.
+
+A native palette source supplies an immutable owner separately for each indexed
+draw. FilePlanCompiler, prepared file plans and resolved FileDraws retain it;
+an absent palette on the next draw does not inherit the prior one. Later GPU
+emission still must validate original pipeline/profile and descriptor contracts.
+This plumbing does not itself implement the EFMI native Core builtins.
+
+Validation: 12 new native bridge cases, 201 headless GPU asset checks with zero
+validation errors/warnings, original spatial 21, shared palette 24 plus 283 saved
+records, and all 384 sample callback scenarios. Reports build/xxmi-host/report.json,
+build/assets-gpu/report.json and build/shared-palettes/report.json. No layer
+source/build/version change, new game data or deployment.

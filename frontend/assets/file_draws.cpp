@@ -32,6 +32,7 @@ FileReadiness request_file_draws(const PreparedFilePlan& plan,ResourceCache& cac
             }
             state.index_count=item.index_count;state.first_index=item.first_index;state.vertex_offset=item.vertex_offset;
             state.instance_count=item.instance_count;state.first_instance=item.first_instance;state.layout=item.layout;
+            state.palette=item.palette;
             next.draws.push_back(state);continue;
         }
         FileBinding value;value.source=item.resource?BindingSource::File:BindingSource::Null;

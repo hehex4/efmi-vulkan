@@ -96,6 +96,7 @@ def main() -> int:
         sources += [ROOT / "frontend/xxmi/palette_files.cpp", ROOT / "frontend/core/palette_bank.cpp",
                     ROOT / "layer/src/merged_skeleton.cpp"]
         sources += [ROOT / "frontend/xxmi/spatial_palettes.cpp"]
+        sources += [fixture / "core_native_test.cpp"]
         sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in
                     ("DDSTextureLoader", "WICTextureLoader")]
         sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
@@ -176,10 +177,13 @@ def main() -> int:
         skeleton = re.search(r"XXMI skeleton metadata: (\d+) checks passed, (\d+) failed", output)
         report["skeleton_passed"] = int(skeleton[1]) if skeleton else 0
         report["skeleton_failed"] = int(skeleton[2]) if skeleton else None
+        native = re.search(r"XXMI native Core bridge: (\d+) checks passed, (\d+) failed", output)
+        report["native_core_passed"] = int(native[1]) if native else 0
+        report["native_core_failed"] = int(native[2]) if native else None
         report["passed"] = (result.returncode == 0 and bool(counts) and int(counts[2]) == 0
                             and bool(planner) and int(planner[2]) == 0 and bool(dds) and int(dds[2]) == 0
                             and bool(resources) and int(resources[2]) == 0 and bool(pools) and int(pools[2]) == 0
-                            and bool(skeleton) and int(skeleton[2]) == 0)
+                            and bool(skeleton) and int(skeleton[2]) == 0 and bool(native) and int(native[2]) == 0)
         print(counts[0] if counts else f"Host process failed: {result.returncode}", flush=True)
         if planner:
             print(planner[0], flush=True)
@@ -191,6 +195,8 @@ def main() -> int:
             print(pools[0], flush=True)
         if skeleton:
             print(skeleton[0], flush=True)
+        if native:
+            print(native[0], flush=True)
         return 0 if report["passed"] else 1
     except (BuildError, OSError, subprocess.SubprocessError) as exc:
         report["error"] = str(exc)
