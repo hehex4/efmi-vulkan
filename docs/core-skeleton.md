@@ -36,3 +36,28 @@ palette completeness and command-owned snapshots. Initialization metadata alone
 does not prove that every source component has supplied a valid palette or that
 two draws belong to the same character instance. Missing palettes must keep the
 original draw available, never become zero-filled replacement bones.
+
+## Original spatial identification (standalone)
+
+The selected original Core command graph is compiled transitively, including
+runtime callback sources and branches. Resource expressions use explicit query
+mediation, with bounded calls and no fallback to reference D3D graphics stubs.
+BufferQueries reads SpatialHash coordinates from a caller-owned, bounded original
+instance window, validates indices/coordinates, and invokes pinned XXMI packing.
+Original pool selection, proximity, expiration, component counting and caller
+splitting remain original INI/C++ behavior. Invalid windows and reserved hash
+sentinels refuse; a valid physical entity id is not fabricated.
+
+The installed Core's twelve headless cases pass for two separate objects,
+first-frame delay, later custom identification, movement, distant new objects,
+insufficient evidence, repeated callers, expiration and rejected inputs. Synthetic
+CPU windows are used; this is not game spatial tracking or a rendered replacement.
+All components within each of five historical captures separately have matching
+instance positions, but those isolated captures are not continuous movement data.
+
+Only LOD0/LOD1 are in scope (user, 2026-10-13). Keep Core's configured pool stride
+for correct indexing, while ignoring later-LOD asset references. No later-LOD
+adaptation or rendering test is required. Shared palette epochs/completeness and
+native component/material execution remain open. Evidence:
+build/xxmi-host/core-spatial-report.json and core-spatial-native.txt; reproducible
+runner scripts/check_core_spatial.py rejects stale host executables.

@@ -13,6 +13,7 @@ struct SkeletonFileComponent {
     std::array<SkeletonRemapFile,4> lods;
 };
 struct SkeletonFilePlan {
+    static constexpr uint32_t supported_lods=2;
     uint32_t bones=0,instances=0,lod_count=0;
     std::vector<SkeletonFileComponent> components;
 };

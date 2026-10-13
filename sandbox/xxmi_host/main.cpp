@@ -23,6 +23,7 @@ int HostResourcePlanTests();
 int HostCorePoolTests();
 int HostSkeletonPlanTests();
 int HostModSkeleton(const wchar_t*,const wchar_t*,const wchar_t*);
+int HostCoreSpatial(const wchar_t*);
 int HostModPlan(const wchar_t*,const wchar_t*,const wchar_t*);
 int HostDdsTests();
 int HostDdsFile(const wchar_t*);
@@ -59,6 +60,7 @@ int wmain(int argc,wchar_t** argv)
     if(argc==3 && !wcscmp(argv[1],L"--dds"))return HostDdsFile(argv[2]);
     if(argc==5 && !wcscmp(argv[1],L"--plan-mod"))return HostModPlan(argv[2],argv[3],argv[4]);
     if(argc==5 && !wcscmp(argv[1],L"--skeleton-mod"))return HostModSkeleton(argv[2],argv[3],argv[4]);
+    if(argc==3 && !wcscmp(argv[1],L"--spatial-core"))return HostCoreSpatial(argv[2]);
     if(argc!=1){fprintf(stderr,"Invalid host fixture arguments\n");return 2;}
     HackerContext context;CommandListState state;state.mHackerContext=&context;
     try {

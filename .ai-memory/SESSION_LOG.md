@@ -695,3 +695,21 @@ plans/404 draw ranges still pass. Reports build/xxmi-host/{report,core-skeleton-
 mod-plan-report}.json; logs build/core-skeleton-{host,metadata,mod-plans}.txt.
 No layer/deployment/game/config/installed-asset change. Continue original spatial
 identification and shared skeleton completeness before whole-character emission.
+
+## 2026-10-13: Run original spatial identification on CPU instance windows
+
+Added explicit resource-expression mediation and a bounded SpatialHash reader
+using pinned XXMI quantization. A transitive original command-graph compiler
+includes runtime callbacks; the original Core spatial state machine and pools
+execute unchanged. Native fixture tests two objects, first-frame delay, custom
+classification, movement, insufficient evidence, duplicate callers and expiration.
+Missing/truncated/nonfinite/reserved-sentinel windows refuse. Twelve cases pass.
+A pointer/member typo caused an initial host build failure and was fixed; the
+verified runner now checks executable/source hashes before this fixture.
+
+User narrowed scope to LOD0/LOD1. Recorded that decision and restricted remap
+resolution to those levels while retaining the original Core pool stride. No
+later-LOD assets or rendering tests are required. Source/build/next stay 0.9.3,
+dist stays 0.9.1. No layer/deployment/game/config or installed-asset action.
+Next: retained palette identities/completeness, native component/material effects
+and whole-character command emission through the common backend.

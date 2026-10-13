@@ -92,6 +92,7 @@ def main() -> int:
         sources += [fixture / "core_pool_test.cpp"]
         sources += [fixture / "mod_skeleton.cpp", ROOT / "frontend/xxmi/skeleton_plan.cpp"]
         sources += [fixture / "skeleton_plan_test.cpp"]
+        sources += [fixture / "core_spatial_test.cpp", ROOT / "frontend/xxmi/buffer_queries.cpp"]
         sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in
                     ("DDSTextureLoader", "WICTextureLoader")]
         sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
@@ -100,6 +101,7 @@ def main() -> int:
                   ROOT / "frontend/xxmi/draw_plan.h", ROOT / "frontend/assets/dds.h"]
         inputs += [ROOT / "frontend/xxmi/resource_plan.h"] + list((ROOT / "frontend/assets").glob("*.h"))
         inputs += [ROOT / "frontend/xxmi/skeleton_plan.h"]
+        inputs += [ROOT / "frontend/xxmi/buffer_queries.h"]
         report["source_sha256"] = {str(p): digest(p) for p in sorted(set(inputs))}
         includes = [ROOT / "frontend/xxmi", ROOT / "frontend/assets", Path(find_vulkan_include()),
                     port, pristine, upstream, upstream / "HLSLDecompiler",

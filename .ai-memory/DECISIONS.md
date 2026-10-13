@@ -252,6 +252,8 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 ## D-033: General replacement operations, component differences supplied as data
 
+- User scope amendment, 2026-10-13: only LOD0 and LOD1 are required. Do not develop/test LOD2 or later. The original Core pool indexing stride remains data; later-LOD assets are not resolved or loaded.
+
 - Date: 2026-10-12, after the user resumed and observed the component-7 experiment.
 - The user requests whole-character support and explicitly questions the cost of individually adapting every component. Component 7 was a backend bring-up fixture, not the product architecture. Do not expand it into component-number branches or separate handwritten replacement functions.
 - Keep the shared Vulkan pipeline/cache, bone import, command lifetime and state-restoration operations. Component hashes, resource declarations, draw ranges, LOD remaps and material bindings are data supplied by the frontend. New supported components must exercise the same operations without backend source edits.

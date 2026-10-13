@@ -15,7 +15,7 @@ void HostCompileNamedList(const wchar_t*);
 void HostResourceRoot(const std::wstring&);
 size_t HostDiagnosticCount();
 using namespace efmi::frontend;
-static void parse_file(const std::filesystem::path& file)
+void HostParseIniFile(const std::filesystem::path& file)
 {
     std::ifstream in(file,std::ios::binary|std::ios::ate);
     if(!in || in.tellg()<0 || in.tellg()>32*1024*1024)throw std::runtime_error("Invalid Core/INI file size");
@@ -42,8 +42,8 @@ int HostModSkeleton(const wchar_t* filename,const wchar_t* core_folder,const wch
     try{
         const auto source=std::filesystem::absolute(filename),core=std::filesystem::absolute(core_folder);
         HostResourceRoot(source.parent_path().wstring());
-        for(auto* file:{L"API.ini",L"MergedSkeleton.ini",L"SpatialIdentification.ini"})parse_file(core/file);
-        parse_file(source);HostEnumerateLists();HostParseConstants();HostParseResources();
+        for(auto* file:{L"API.ini",L"MergedSkeleton.ini",L"SpatialIdentification.ini"})HostParseIniFile(core/file);
+        HostParseIniFile(source);HostEnumerateLists();HostParseConstants();HostParseResources();
         const std::wstring ns=std::wstring(L"\\")+name+L"\\";
         const std::wstring init=L"commandlist"+ns+L"initializemergedskeleton";
         const std::wstring native=L"commandlist\\efmiv1\\initializemergedskeleton";

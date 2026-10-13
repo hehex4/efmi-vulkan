@@ -30,7 +30,8 @@ bool read_skeleton_plan(uint32_t bones,uint32_t instances,uint32_t lods,
            !integer(counts.GetVariable(float(c),false,true,false),item.count) ||
            uint64_t(item.first)+item.count>bones)return fail(L"Skeleton component range is invalid");
         if(item.count)intervals.emplace_back(item.first,item.count);
-        for(uint32_t lod=0;lod<lods;++lod){
+        // Core's pool stride may still be four. Only LOD0/LOD1 are in scope.
+        for(uint32_t lod=0;lod<std::min(lods,SkeletonFilePlan::supported_lods);++lod){
             auto* declaration=remaps.GetResource(float(c*lods+lod),false,true,false);
             if(!declaration)return fail(L"Skeleton remap pool resource is absent");
             if(!adapter.has_reference(declaration))continue;

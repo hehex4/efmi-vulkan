@@ -13,6 +13,22 @@ struct Refused : std::exception {
 };
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
+struct QueryService {DrawPlanAdapter::ResourceQuery read;size_t count=0;};
+class NativeResourceQuery final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListOperand> source;
+    std::shared_ptr<QueryService> service;
+    NativeResourceQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
+    float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
+        float result=0;std::wstring reason;
+        if(!state || !service->read || ++service->count>max_steps)refuse(L"Resource query adapter is unavailable or over budget");
+        if(!service->read(source->texture_filter_target,*state,result,reason))
+            refuse(reason.empty()?L"Native resource query refused":reason);
+        return result;
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
 class PoolIndexGuard final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListEvaluatable> source;
@@ -32,9 +48,11 @@ public:
 bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>&,size_t);
 bool cpu_target(const ResourceCopyTarget& target,size_t depth=0)
 {
-    return depth<=256 && (!target.custom_resource_pool || target.custom_resource_pool->GetPoolSize()<=max_steps) &&
+    if(!(depth<=256 && (!target.custom_resource_pool || target.custom_resource_pool->GetPoolSize()<=max_steps) &&
         (!target.pool_dynamic_index_expression || cpu_expression(target.pool_dynamic_index_expression->evaluatable,depth+1)) &&
-        (!target.slot_expression || cpu_expression(target.slot_expression->evaluatable,depth+1));
+        (!target.slot_expression || cpu_expression(target.slot_expression->evaluatable,depth+1))))return false;
+    for(const auto& arg:target.member_args)if(arg.expression && !cpu_expression(arg.expression->evaluatable,depth+1))return false;
+    return true;
 }
 
 // Inspect the original expression tree without reimplementing its evaluator.
@@ -42,6 +60,7 @@ bool cpu_target(const ResourceCopyTarget& target,size_t depth=0)
 bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t depth = 0)
 {
     if (!node || depth > 256) return false;
+    if(const auto* query=dynamic_cast<NativeResourceQuery*>(node.get()))return cpu_target(query->source->texture_filter_target,depth+1);
     if(const auto* guard=dynamic_cast<PoolIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if (const auto* operand = dynamic_cast<CommandListOperand*>(node.get())) {
         switch (operand->type) {
@@ -54,8 +73,7 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
             case ResourceCopyTargetEvaluationMode::VARIABLE:
             case ResourceCopyTargetEvaluationMode::POOL_SIZE:
             case ResourceCopyTargetEvaluationMode::POOL_INDEX:
-            case ResourceCopyTargetEvaluationMode::POOL_IDENTITY:
-            case ResourceCopyTargetEvaluationMode::POOL_LAST_FRAME:return true;
+            case ResourceCopyTargetEvaluationMode::POOL_IDENTITY:return true;
             default:return false;
             }
         }
@@ -74,38 +92,43 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
     return false;
 }
 
-void guard_expression(std::shared_ptr<CommandListEvaluatable>&,size_t=0);
-void guard_target(ResourceCopyTarget& target,size_t depth=0)
+void guard_expression(std::shared_ptr<CommandListEvaluatable>&,const std::shared_ptr<QueryService>&,size_t=0);
+void guard_target(ResourceCopyTarget& target,const std::shared_ptr<QueryService>& queries,size_t depth=0)
 {
     if(depth>256)refuse(L"Pool expression nesting budget exceeded");
     if(target.pool_dynamic_index_expression){
-        auto& expression=target.pool_dynamic_index_expression->evaluatable;guard_expression(expression,depth+1);
+        auto& expression=target.pool_dynamic_index_expression->evaluatable;guard_expression(expression,queries,depth+1);
         if(target.custom_resource_pool && !dynamic_cast<PoolIndexGuard*>(expression.get()))
             expression=std::make_shared<PoolIndexGuard>(expression,target.custom_resource_pool);
     }
-    if(target.slot_expression)guard_expression(target.slot_expression->evaluatable,depth+1);
+    if(target.slot_expression)guard_expression(target.slot_expression->evaluatable,queries,depth+1);
+    for(auto& arg:target.member_args)if(arg.expression)guard_expression(arg.expression->evaluatable,queries,depth+1);
 }
-void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,size_t depth)
+void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::shared_ptr<QueryService>& queries,size_t depth)
 {
     if(depth>256)refuse(L"Pool expression nesting budget exceeded");
-    if(auto* operand=dynamic_cast<CommandListOperand*>(node.get()))guard_target(operand->texture_filter_target,depth+1);
+    if(auto operand=std::dynamic_pointer_cast<CommandListOperand>(node)){
+        guard_target(operand->texture_filter_target,queries,depth+1);
+        if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && queries->read)
+            node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);
+    }
     else if(auto* op=dynamic_cast<CommandListOperator*>(node.get())){
-        if(op->lhs)guard_expression(op->lhs,depth+1);if(op->rhs)guard_expression(op->rhs,depth+1);
+        if(op->lhs)guard_expression(op->lhs,queries,depth+1);if(op->rhs)guard_expression(op->rhs,queries,depth+1);
     }
 }
-void guard_arguments(CommandListCommand& command)
+void guard_arguments(CommandListCommand& command,const std::shared_ptr<QueryService>& queries)
 {
     if(auto* draw=dynamic_cast<DrawCommand*>(&command)){
         const int count=draw->type==DrawCommandType::DRAW_INDEXED?3:draw->type==DrawCommandType::DRAW_INDEXED_INSTANCED?5:0;
-        for(int i=0;i<count;++i)guard_expression(draw->args[i].evaluatable);
-    }else if(auto* branch=dynamic_cast<IfCommand*>(&command))guard_expression(branch->expression.evaluatable);
+        for(int i=0;i<count;++i)guard_expression(draw->args[i].evaluatable,queries);
+    }else if(auto* branch=dynamic_cast<IfCommand*>(&command))guard_expression(branch->expression.evaluatable,queries);
     else if(auto* assignment=dynamic_cast<AssignmentCommand*>(&command)){
-        guard_expression(assignment->expression.evaluatable);
-        if(auto* pool=dynamic_cast<PoolVariableOperation*>(assignment))guard_target(pool->dst);
-    }else if(auto* binding=dynamic_cast<ResourceCopyOperation*>(&command)){guard_target(binding->src);guard_target(binding->dst);}
+        guard_expression(assignment->expression.evaluatable,queries);
+        if(auto* pool=dynamic_cast<PoolVariableOperation*>(assignment))guard_target(pool->dst,queries);
+    }else if(auto* binding=dynamic_cast<ResourceCopyOperation*>(&command)){guard_target(binding->src,queries);guard_target(binding->dst,queries);}
     else if(auto* layout=dynamic_cast<LayoutElementOperation*>(&command)){
-        if(layout->dst.member_args[1].expression)guard_expression(layout->dst.member_args[1].expression->evaluatable);
-    }else if(auto* batch=dynamic_cast<ShaderResourceBindBatch*>(&command))for(auto& binding:batch->operations)if(binding)guard_arguments(*binding);
+        if(layout->dst.member_args[1].expression)guard_expression(layout->dst.member_args[1].expression->evaluatable,queries);
+    }else if(auto* batch=dynamic_cast<ShaderResourceBindBatch*>(&command))for(auto& binding:batch->operations)if(binding)guard_arguments(*binding,queries);
 }
 
 bool cpu_arguments(CommandListCommand& command)
@@ -150,6 +173,7 @@ struct DrawPlanAdapter::Runtime {
     std::unordered_set<CommandList*> adapted;
     std::unordered_map<ExplicitCommandListSection*, std::wstring> externals;
     std::unordered_map<CustomResource*,CustomResource*> references;
+    std::shared_ptr<QueryService> queries=std::make_shared<QueryService>();
 
     CustomResource* referenced(CustomResource* resource) const
     {
@@ -325,7 +349,7 @@ public:
     BridgeCommand(std::shared_ptr<CommandListCommand> command,
                   std::shared_ptr<DrawPlanAdapter::Runtime> owner)
         : original(std::move(command)), runtime(std::move(owner)) {
-        guard_arguments(*original);arguments_supported=cpu_arguments(*original);ini_line=original->ini_line;
+        guard_arguments(*original,runtime->queries);arguments_supported=cpu_arguments(*original);ini_line=original->ini_line;
     }
     void run(CommandListState* state) override {
         if (!arguments_supported) refuse(L"Unadapted expression query: " + ini_line);
@@ -354,6 +378,11 @@ CustomResource* DrawPlanAdapter::referenced_resource(CustomResource* resource) c
 bool DrawPlanAdapter::has_reference(const CustomResource* resource) const
 {
     return runtime_->references.count(const_cast<CustomResource*>(resource))!=0;
+}
+void DrawPlanAdapter::resource_queries(ResourceQuery query)
+{
+    if(runtime_->active || !runtime_->adapted.empty())refuse(L"Install resource queries before adapting command lists");
+    runtime_->queries->read=std::move(query);
 }
 
 void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
@@ -394,7 +423,7 @@ bool DrawPlanAdapter::execute(CommandList& root, CommandListState& state,
     }
     DrawPlan candidate;
     auto saved_layout = state.input_layout_overrides;
-    runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;
+    runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;
     try {
         for (auto& command : resolved->commands) command->run(&state);
         output = std::move(candidate);

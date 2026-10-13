@@ -4,6 +4,8 @@
 
 ## 0.9.3 material pipeline and command ownership (sandbox only)
 
+User scope, 2026-10-13: support LOD0 and LOD1 only. Do not develop or test LOD2 or later. Preserve the original Core pool stride when reading its declarations, but do not resolve/load later-LOD assets or make later LODs a completion gate.
+
 User priority clarification: follow the plan from before the VRAM discussion. Finish this character's complete replacement through the general hosted frontend, resources, shared bones and draw backend first; multi-mod residency/performance optimization comes afterward. The unverified residency/eviction detour was removed from source and retained only as build/drafts/residency-unverified.patch. The verified ResourceCache from 6dfce2f is unchanged. Continue offline until actual game evidence is required.
 
 The shared backend now accepts ordered FS image relocations and explicit-null requests alongside VS bone/entry isolation. Worker-built variants recreate compatible private descriptors and key on both vertex and material contracts. Limits include original descriptors as well as added images. DrawSnapshots capture per-draw views and retain resource owners until legal command reuse/destruction; they reject partial images before mutation and remain sealed across resubmission. The existing component-7 hook requests no material changes.
@@ -13,6 +15,8 @@ Full build/suite in build/next passes: unit 88, tracker 144, bones 43, recipes 1
 Next: native Core/material resolution and shared character identity/bone completeness. The hosted frontend now converts declarations into owned file plans and hands them to the standalone ResourceCache; it is not linked into the DLL. LIMIT-021 keeps incompatible 2D-for-3D replacements refused. No deployment, launcher/config edit, installed-asset write or game start. See docs/fragment-materials.md.
 
 ## General frontend draw plans (offline only)
+
+Spatial Core checkpoint (2026-10-13): original SpatialIdentification.ini and Helpers.ini now execute through mediated queries against borrowed CPU instance windows. Only SpatialHash buffer access is adapted; quantization uses pinned XXMI code and its original pool/state machine handles identification. Twelve headless cases pass for two instances, movement, new/expired objects, duplicate callers and invalid windows. Source/skeleton/callback regressions remain separate. This does not yet assign retained palette epochs or emit character draws. LOD0/LOD1 only; shared palette completeness and native Core/material/DLL integration remain next.
 
 Core initialization checkpoint (2026-10-13): the hosted planner now executes original scalar pools, pool references and runtime callback aliases, with guarded indices and owned declaration references. read_skeleton_plan copies evaluated pool metadata without parsing INI text. Original sample initialization yields 499 bones, 8 instances, 13 declared slots/12 active components, and 8 file remaps; all agree with the older independent reference. Explicit identity and unassigned LODs stay distinct. Host tests: 23/28/19/15 plus 11 Core-pool and 10 skeleton metadata checks; 384 callback plans still pass. GPU initialization remains an unresolved native event. Shared spatial identity/completeness and Core/native material/DLL integration remain open. See docs/core-skeleton.md. Source/build/next 0.9.3 and dist 0.9.1 unchanged.
 

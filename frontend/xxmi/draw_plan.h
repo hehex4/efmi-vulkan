@@ -1,5 +1,6 @@
 #pragma once
 #include "CommandList.h"
+#include <functional>
 
 namespace efmi::frontend {
 
@@ -47,6 +48,10 @@ public:
     // for nonexpiring direct-index pools until runtime identity is connected.
     CustomResource* referenced_resource(CustomResource* declaration) const;
     bool has_reference(const CustomResource* declaration) const;
+    using ResourceQuery = std::function<bool(ResourceCopyTarget&,CommandListState&,float&,std::wstring&)>;
+    // Install before adaptation. Every mediated query must explicitly succeed;
+    // refusal never falls through to the reference D3D graphics scaffolding.
+    void resource_queries(ResourceQuery);
 private:
     void adapt_tree(CommandList& root, size_t depth);
     std::shared_ptr<Runtime> runtime_;
