@@ -203,6 +203,7 @@ int wmain(int argc,wchar_t** argv)
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
     if(argc>=8 && !wcscmp(argv[1],L"--repoint-fragment"))return rewrite_fragment_file(argc,argv);
     if(argc>=6 && !wcscmp(argv[1],L"--null-fragment"))return rewrite_fragment_file(argc,argv);
+    if(argc==5 && !wcscmp(argv[1],L"--material-profile"))return material_profile_file(argv[2],argv[3],argv[4]);
     try{Gpu g;g.init();
         if(argc==3 && !wcscmp(argv[1],L"--dds")){
             std::ifstream file(std::filesystem::path(argv[2]),std::ios::binary|std::ios::ate);

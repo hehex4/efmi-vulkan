@@ -35,6 +35,7 @@ def main() -> int:
                      str(ROOT/"frontend/assets/file_plan.cpp"),
                      str(ROOT/"frontend/assets/file_draws.cpp"),
                      str(ROOT/"frontend/gpu/fragment_images.cpp"),
+                     str(ROOT/"frontend/gpu/material_plan.cpp"),
                      "/Fe:"+str(exe),"/link","/NOLOGO","user32.lib"]
         log=io.StringIO()
         try:
@@ -50,6 +51,10 @@ def main() -> int:
         inputs += [ROOT/"frontend/core/palette_bank.h",ROOT/"layer/src/merged_skeleton.h"]
         inputs += [ROOT/"frontend/gpu/fragment_images.h",ROOT/"frontend/gpu/fragment_images.cpp",
                    ROOT/"sandbox/material_fixture.h",ROOT/"sandbox/asset_material_test.cpp",ROOT/"sandbox/src/spirv.h"]
+        inputs += [ROOT/"frontend/gpu/material_plan.h",ROOT/"frontend/gpu/material_plan.cpp",
+                   ROOT/"sandbox/asset_material_plan_test.cpp",ROOT/"layer/src/draw_snapshots.h",
+                   ROOT/"layer/src/pipeline_variant.h",ROOT/"layer/src/pipeline_recipe.h",
+                   ROOT/"layer/src/spirv_repoint.h"]
         report["source_sha256"]={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
         validation=Path(os.environ.get("EFMI_VK_VALIDATION_DIR","F:/vulkan/validation-1.4.321.0/bin"))
         if not (validation/"VkLayer_khronos_validation.json").is_file():raise RuntimeError("Validation layer missing")

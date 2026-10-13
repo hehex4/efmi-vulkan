@@ -204,3 +204,40 @@ hook passes an empty material contract, so this does not activate game texture
 replacement. The original XXMI host and TextureCache remain standalone; general
 mesh buffers, frontend resource resolution and shared character/Core are next.
 Source/build/next are 0.9.3, dist remains 0.9.1. No deployment or game run occurred.
+
+
+## Exact-shader material contracts (standalone frontend)
+
+frontend/gpu/material_plan consumes source-API correspondence separately from
+file ownership. A prepared MaterialProfile retains exact fragment words and
+explicit logical-slot rules: unknown, absent from the source shader, or mapped
+to a Vulkan image. Missing mappings refuse. Absent slots preserve source behavior
+without changing an unrelated Vulkan image; they do not mean an unknown slot can
+be dropped. Preparation verifies narrow image/null adapter support and keeps the
+old profile on failure. The caller must validate SPIR-V and the pairing evidence.
+
+Contract selection preserves deterministic image-slot order and explicit nulls;
+Ready resolution retains image owners in the same order for DrawSnapshots.
+A later unknown/unready/invalid draw rejects the whole output. A 2D file for a 3D
+shader still refuses under LIMIT-021, while an explicit null may use the validated
+3D null operation. There is no inferred-null compatibility policy.
+
+Standalone asset checks increase to 221 with clean core/sync validation. The
+existing offscreen color fixture now takes its private image mapping and views
+through this frontend contract, retaining original VS reads and next original
+pixels. Checks also cover changed exact bytecode, failed profile replacement,
+aliases, readiness, transaction budgets and deterministic multi-image order.
+
+scripts/check_material_plans.py re-executes original callback plans, fingerprints
+historical captures and matches known profiles by exact bytecode, not CRC alone.
+Across the five LOD0/LOD1 bundles, 370 indexed draws use 21 fragment modules:
+353 contracts are accepted, six refuse unknown correspondence and eleven refuse
+known dimension mismatches. Every accepted combined null/relocation shader passes
+spirv-val. Unknown fragments 0aeef59b, 310c25c3 and a6d7088a appear in actual LOD1;
+no source DX11 LOD1 pairing was captured. A shared original image in another pass
+is insufficient because source DX11 slot numbering can differ by shader.
+
+Reports: build/material-plans/report.json and build/assets-gpu/report.json.
+The check isolates material handling; original OverrideTextures remains unresolved.
+No actual game pipeline was created here, no whole-character GPU transaction was
+emitted, and no new game session, deployment or installed-asset change occurred.

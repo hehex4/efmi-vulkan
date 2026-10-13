@@ -231,3 +231,12 @@ one compact immutable palette per draw; no component-specific rendering path.
 Pre/post roots execute atomically with a separate native stack budget. Material
 OverrideTextures, complete profile resolution and DLL emission remain open.
 Historical two-update replay is synthetic CPU evidence, not game animation.
+
+
+frontend/gpu/material_plan compiles explicit logical pixel-slot correspondence
+against exact retained fragment code, independent of file readiness. It separates
+unknown/absent/image slots and emits ordered FragmentPatch plus retained
+SnapshotImage owners for each FileDraw. Entire transactions refuse on a late
+unsupported mapping or missing Ready owner. The caller proves source API
+correspondence; shared image identity across passes is not that proof. No implicit
+dimension-mismatch-to-null rule is implemented. DLL integration remains open.

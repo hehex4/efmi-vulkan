@@ -2,6 +2,7 @@
 // an offscreen render pass, not the game's pipeline reconstruction or material.
 #include "material_fixture.h"
 #include "../frontend/gpu/fragment_images.h"
+#include "asset_material_plan_test.cpp"
 #include <array>
 using efmi::gpu::ImageBindingMove;
 using efmi::gpu::repoint_fragment_images;
@@ -194,7 +195,10 @@ static void material_test(Gpu& g)
     }
     auto vs=material_fixture::shader(true),fs=material_fixture::shader(false),probe=material_fixture::null_probe();
     std::vector<uint32_t> replaced,nulled;std::string reason;
-    if(!repoint_fragment_images(fs,{{1,6,3,2}},replaced,reason))throw std::runtime_error(reason);
+    auto materials=material_plan_tests(resolved.pixel[1],resolved.pixel[2]);
+    std::vector<ImageBindingMove> moves;
+    for(size_t i=0;i<materials.draws[0].patch.images.size();++i){const auto source=materials.draws[0].patch.images[i];moves.push_back({source.set,source.binding,3,uint32_t(i)+2});}
+    if(!repoint_fragment_images(fs,moves,replaced,reason))throw std::runtime_error(reason);
     if(!null_fragment_images(probe,{{1,6}},nulled,reason))throw std::runtime_error(reason);
     for(const auto* code:{&vs,&fs,&replaced,&probe,&nulled}){
         VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};info.codeSize=code->size()*4;info.pCode=code->data();
@@ -231,7 +235,7 @@ static void material_test(Gpu& g)
     VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};ai.descriptorPool=own.descriptors;ai.descriptorSetCount=4;ai.pSetLayouts=layouts;
     CHECK_VK(pAllocateDescriptorSets(g.device,&ai,sets));
     for(uint32_t i=0;i<3;++i){
-        VkDescriptorImageInfo image{VK_NULL_HANDLE,images[i]->view(),VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo image{VK_NULL_HANDLE,i?materials.draws[i-1].images[0].view:images[0]->view(),VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};write.dstSet=sets[i];write.dstBinding=i?2:6;
         write.descriptorCount=1;write.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.pImageInfo=&image;pUpdateDescriptorSets(g.device,1,&write,0,nullptr);
     }
