@@ -6,7 +6,7 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.5. The prior 0.10.0 (= 0.9.4) session showed the whole-character mesh/bone replacement; the 0.9.5 flicker fix still needs game acceptance. The user now requests DX11 LOD1 material capture preparation: launcher switched to DX11, project layer mode passthrough, user will start the game and disable the mod. Await that readiness before capturing. T-027 hosted frontend integration and T-028 static whole-character backend remain distinct. LOD0/LOD1 only.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.5. The prior 0.10.0 (= 0.9.4) session showed the whole-character mesh/bone replacement; the 0.9.5 flicker fix still needs game acceptance. The actual original LOD1 DX11 source capture is complete and closes the three missing correspondences. The user requests texture integration after the whole-model replacement; continue offline on the static backend. Launcher remains DX11 and dist mode passthrough. T-027 hosted frontend integration and T-028 static whole-character backend remain distinct. LOD0/LOD1 only.
 
 ## Tasks and follow-ups
 
@@ -16,9 +16,9 @@ Requested by the user on 2026-10-13: replace everything, not one strip; the agen
 
 Game session of 2026-10-13 (build 0.10.0 = 0.9.4): the character is drawn in the mod's outfit; flicker at LOD 0 from `refused_set3`, 82 in 378 frames. 0.9.5 binds the application's set 3 again instead of refusing and was deployed at 13:28 after the user closed the game; confirm in a new session (`refused_set3` 0, `restored_set3` growing, no flicker). See CURRENT_STATE.
 
-Next, following the user's DX11 request of 2026-10-13, 14:28:
-1. User-started DX11 session, mod disabled, actual LOD1. Launcher values are -force-d3d11 and DIRECT; dist mode is passthrough. Both configurations were backed up to build/backups/launcher-dx11-20261013-142837/ and verified; signed launcher values are unchanged. When the user reports readiness, verify the probe and capture raw shader bytes plus all bound static texture evidence into a fresh folder. No game start or capture has occurred in this round.
-2. Complete the three LOD1 slot correspondences using saved Vulkan frames first. Step 2, textures, also needs source texture identity or a static slot table per section for this mod and the decision on LIMIT-021. A static table of the mod's `ps-tN` bindings per component is in the same plans the package already reads; the shared backend takes images since 0.9.3.
+Next, after the actual DX11 capture of 2026-10-13:
+1. Complete: original LOD1 source capture, eight rules for the three missing fragments, both historical Vulkan frames agree. Audit and native material replay pass (359 accepted, eleven dimension refusals, no unknown profile). See docs/lod1-material-capture.md. No further LOD1 source capture is needed for these profiles.
+2. Integrate textures into the static whole-character package/backend as requested. Use the original hosted pixel-binding plans, exact fragment profiles, shared ResourceCache, variant contracts and command-owned image snapshots. Keep LIMIT-021's device-specific behavior explicit; do not claim full hosted runtime integration. Build and full regression before deployment.
 3. A later user-started Vulkan session must verify the deployed 0.9.5 flicker fix, appearance and motion, with refusal/restoration counters. DX11 source capture does not verify that fix. A capture does not mark replaced draws (LIMIT-020).
 4. Generalizations the sample did not need: private set index from the layout (LIMIT-023), draws with several instances, a second mod at once.
 

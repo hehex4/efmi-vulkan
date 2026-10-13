@@ -1,6 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-13, 14:28. Source/build/next/dist are 0.9.5; the whole-character mesh/bone backend ran in the prior 0.10.0 (= 0.9.4) game session. The 0.9.5 set-3 flicker fix is deployed and sandbox-verified, not yet game-verified. At the user's explicit request, the launcher is now set to DX11 and dist/efmi_vk.cfg to passthrough for an original LOD1 material capture. Next: the user starts the game, disables the mod and reports actual LOD1 readiness; then collect the missing source profiles. No game was started by the agent. LOD0/LOD1 only. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+> Last updated: 2026-10-13. Source/build/next/dist remain 0.9.5. Actual original LOD1 DX11 source capture is complete; all three missing material correspondences are now verified against both historical Vulkan LOD1 frames. The user asks to finish the work after the whole-model replacement: next, integrate textures into the existing static character backend. Launcher is still DX11, project config passthrough; mod was disabled at the user's explicit request. No new Vulkan game acceptance. LOD0/LOD1 only.
+
+## LOD1 material evidence complete; texture integration next (2026-10-13)
+
+The user-positioned LOD1 session is PID 33852, DX11. The first capture still had mod mesh draws and is retained as initial-mod-on. The user explicitly asked the agent to disable the mod; the probe sent F11 with observed key events and restored focus. Original frame 35553 contains 954 game calls, only two XXMI overlay calls and no XXMI indexed meshes. All 212 DXBC archives and 247 bound static texture readbacks succeeded; 452 files are fingerprinted in captures/dx11-lod1-20261013/manifest.json. Probe capture released; mod remains disabled. No installed file was edited.
+
+Both historical Vulkan LOD1 frames reproduce the same complete pass sequences and three source profiles: 310c25c3 maps ps-t17 to (1,6) and ps-t18 to (1,3), uniquely by shape/format, not content; a6d7088a and 0aeef59b do not declare ps-t15/16/17 in the paired original DXBC. Adopted eight rules in docs/arcane-texture-slots.json. Evidence audit passes; native material replay now accepts 359/370 draws, with eleven existing dimension refusals and no unknown profile. Fragment relocation/null checks and rebuilt asset/host suites pass. See docs/lod1-material-capture.md for scope and evidence.
+
+The latest user instruction is to finish the next work after Claude's whole-model replacement. Continue offline texture integration using the existing static character backend and shared GPU helpers. Keep LIMIT-021 device-specific compatibility explicit. The dynamic hosted frontend and runtime source-identity queries are separate. Dist/DLL versions and launcher values are unchanged; 0.9.5 flicker acceptance still awaits a user-started Vulkan session.
 
 ## DX11 LOD1 source capture prepared (2026-10-13, 14:28)
 

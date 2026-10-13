@@ -16,6 +16,7 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"server"))
 from efmi_vk.spirv import repoint
+from material_profiles import profile_shaders
 sys.dont_write_bytecode=True
 VAL=Path("F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/build/install/bin/spirv-val.exe")
 
@@ -95,23 +96,10 @@ def main() -> int:
         for path,sha in build["source_sha256"].items():
             if digest(Path(path))!=sha:raise ValueError("Rebuild changed asset fixture source: "+path)
         slots=json.loads(args.slots.read_text())
-        for source in slots["sources"].values():
-            if digest(ROOT/source["path"])!=source["sha256"]:raise ValueError("Slot evidence fingerprint changed")
-        manifest_path=ROOT/slots["sources"]["vulkan_manifest"]["path"]
-        bundle=manifest_path.parent;manifest=json.loads(manifest_path.read_text())
-        shaders_file=bundle/"shaders.json"
-        if digest(shaders_file)!=manifest["files"]["shaders.json"]["sha256"]:raise ValueError("Shader inventory changed")
-        shaders=json.loads(shaders_file.read_text());rows=[];refused=[];null_rows=[];source_validated=0
+        profiles=profile_shaders(slots)
+        rows=[];refused=[];null_rows=[];source_validated=0
         for shader_hash,bindings in sorted(slots["slots"].items()):
-            candidates=[s for s in shaders if s["hash"]==shader_hash]
-            if not candidates:raise ValueError("Mapped shader is missing")
-            fingerprints=set()
-            for shader in candidates:
-                path=bundle/shader["file"];sha=digest(path)
-                if sha!=manifest["files"][shader["file"]]["sha256"]:raise ValueError("Historical shader changed")
-                fingerprints.add(sha)
-            if len(fingerprints)!=1:raise ValueError("CRC key names different fragment bytecode")
-            shader=candidates[0];path=bundle/shader["file"];original=path.read_bytes()
+            shader=profiles[shader_hash];path=shader["path"];original=path.read_bytes()
             valid=subprocess.run([str(args.spirv_val),"--target-env","vulkan1.1",str(path)],cwd=folder,
                                  capture_output=True,text=True,timeout=15)
             if valid.returncode:raise ValueError("Invalid original fragment SPIR-V: "+valid.stderr)

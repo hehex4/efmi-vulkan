@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "scope": "Observed arcane fes 1.2 display-scene passes only; not runtime rendering verification.",
-  "observed_date": "2026-10-12",
+  "scope": "Observed arcane fes 1.2 display and actual LOD1 passes; source correspondence, not runtime material verification.",
+  "observed_date": "2026-10-13",
   "layer_version": "0.7.0",
   "vulkan_frame": 22563,
   "dx11_frame": 170064,
@@ -17,6 +17,26 @@
     "dx11_texture_hashes": {
       "path": "captures/dx11-baseline/frame-off-tex.textures.json",
       "sha256": "2dfcb7e21e5bea38edec258696919727e78702d0e2dd3ea3a9a05cec0438903e"
+    },
+    "lod1_dx11_manifest": {
+      "path": "captures/dx11-lod1-20261013/manifest.json",
+      "sha256": "9080759e1510d87ed7cc340e6a023a066060b6478dd78c539bb1d39509cc50b2"
+    },
+    "lod1_pairing_a": {
+      "path": "captures/dx11-lod1-20261013/lod1-off-vulkan-a.summary.json",
+      "sha256": "403e50666f9ee6a017f597965319d27119b1fdc8582d4d6e397a0791206639d4"
+    },
+    "lod1_vulkan_a_manifest": {
+      "path": "captures/m2-0.8.1-20261012/lod1-a/attempt-01/manifest.json",
+      "sha256": "5b631c8521dbfbe1f3a98c888ac7a48f84af44192a4c64a5c61e188dafb42ce1"
+    },
+    "lod1_pairing_b": {
+      "path": "captures/dx11-lod1-20261013/lod1-off-vulkan-b.summary.json",
+      "sha256": "c9ce2bdb3e0d6f66dc75169e3a198c5817f6b0cab48df249715e8c8b6da43c50"
+    },
+    "lod1_vulkan_b_manifest": {
+      "path": "captures/m2-0.8.1-20261012/lod1-b/attempt-01/manifest.json",
+      "sha256": "69c9e6deabfdbdce59f1bb700b6848770ea8c4b054f761b7ec19560e051d5341"
     }
   },
   "slots": {
@@ -137,6 +157,18 @@
         "set": 1,
         "binding": 3,
         "evidence": "content"
+      }
+    },
+    "310c25c3": {
+      "ps-t17": {
+        "set": 1,
+        "binding": 6,
+        "evidence": "look"
+      },
+      "ps-t18": {
+        "set": 1,
+        "binding": 3,
+        "evidence": "look"
       }
     }
   },
@@ -325,6 +357,36 @@
       "component": 6,
       "fragment": "83d4e5be",
       "slot": "ps-t12"
+    },
+    {
+      "component": 0,
+      "fragment": "a6d7088a",
+      "slot": "ps-t15"
+    },
+    {
+      "component": 0,
+      "fragment": "0aeef59b",
+      "slot": "ps-t15"
+    },
+    {
+      "component": 0,
+      "fragment": "a6d7088a",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 0,
+      "fragment": "0aeef59b",
+      "slot": "ps-t16"
+    },
+    {
+      "component": 0,
+      "fragment": "a6d7088a",
+      "slot": "ps-t17"
+    },
+    {
+      "component": 0,
+      "fragment": "0aeef59b",
+      "slot": "ps-t17"
     }
   ],
   "limits": [
@@ -332,6 +394,12 @@
     "Mappings labelled look still rely on a unique size/format match.",
     "The three annotated 3d bindings pair 3d original placeholders in both APIs; the sample later binds 2d assets under DX11. Pairing does not authorize a 2d Vulkan replacement; that compatibility remains unresolved.",
     "Unknown fragment shaders must not use a guessed slot table.",
-    "No game assets or shader bytecode are included."
-  ]
+    "No game assets or shader bytecode are included.",
+    "The LOD1 additions use two saved 0.8.1 Vulkan frames and DX11 frame 35553 of 2026-10-13. The two mapped slots have unique shape/format signatures; Vulkan content hashes were disabled. Six absent slots are checked against archived DXBC declarations."
+  ],
+  "fragment_sources": {
+    "0aeef59b": "lod1_vulkan_a_manifest",
+    "310c25c3": "lod1_vulkan_a_manifest",
+    "a6d7088a": "lod1_vulkan_a_manifest"
+  }
 }

@@ -830,3 +830,10 @@ Fix as D-036 and BUG-006. Test first: the scene with a four-set pipeline before 
 - Changed only the project-owned layer mode from probe to passthrough for this DX11 session. No binary, version, mod/Core, game asset or system setting changed. No game launch, probe connection or capture occurred; no new layer regression is claimed for this configuration-only change.
 - Next: capture actual LOD1 after the user's ready message with shader archiving and all-bound static texture hashes, targeting the three missing material correspondences. Keep the later 0.9.5 Vulkan flicker acceptance separate. No LOD2+ or long-duration test.
 
+
+## 2026-10-13: Original LOD1 source capture and verified material profiles
+
+- User entered DX11 and positioned actual LOD1. Initial capture still had mod meshes; retained as initial-mod-on. At the user's explicit request, probe F11 disabled the mod and restored focus. Frame 35553 has 954 game calls and two overlay calls, no XXMI indexed mesh draws. Archived/verified 212 DXBC shaders and hashed 247 static textures, no failures. Capture released; no installed file write.
+- Both saved Vulkan LOD1 bundles reproduce four original-mesh pass sequences, exact target vertex declarations and eight rules for the three missing fragments. Two placed images use unique shape/format, not content. Captured source DXBC proves six undeclared slots. Evidence manifest fingerprints 452 files.
+- Added the offline raw-evidence audit and per-fragment manifest resolver; updated material checks/table. Audit and SPIR-V checks pass; native replay 359 accepted/11 dimension refusals/zero unknown out of 370. Asset suite 253 and rebuilt hosted native suites pass. No layer change/deployment or new Vulkan rendering claim.
+- Latest user asks to finish the next work after the whole-model replacement. Next: integrate static character textures, explicitly handle the device-specific dimension case, full sandbox regression, then user-started Vulkan acceptance. The general hosted runtime remains separate. See docs/lod1-material-capture.md.

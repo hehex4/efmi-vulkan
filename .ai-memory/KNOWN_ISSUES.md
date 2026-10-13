@@ -187,18 +187,16 @@ Follow-up: matching saved DX11 bytecode was located and FNV-1 checked; each affe
 
 ## LIMIT-022: Full frontend source profiles remain incomplete
 
-Three actual LOD1 fragments (0aeef59b, 310c25c3, a6d7088a) have no verified DX11
-slot correspondence, accounting for six of 370 historical custom draws. Eleven
-other refusals are LIMIT-021. The 353 accepted material draws now have 88 driver-
-created historical variants under clean validation; that does not fill the gaps.
+The three formerly missing actual LOD1 fragments (0aeef59b, 310c25c3, a6d7088a)
+have verified original DX11 correspondence from the user-positioned session of
+2026-10-13. Both historical Vulkan LOD1 frames reproduce the same eight rules;
+see docs/lod1-material-capture.md. Material replay now accepts 359 of 370 draws,
+with eleven LIMIT-021 dimension refusals and no unknown sample profile.
 Original Core texture queries need proven source-API identities, including the
 effects of prior bindings. The historical runner intentionally supplies no such
 provider and retains 283 unresolved calls. Native query mechanics are tested with
 synthetic identities only. Full runtime/generation and DLL integration are still
-implementation work and must not be marked done by a new capture. The prepared
-next evidence step is actual LOD1 DX11 capture with raw bytecode and bound texture
-metadata/content; see docs/frontend-draw-plans.md. Do not guess mappings from
-shared image identity, suppress unknown queries or broaden scope to LOD2+.
+implementation work and must not be marked done by a new capture. Do not suppress unknown runtime queries or broaden scope to LOD2+.
 
 ## LIMIT-023: The variant design assumes three application sets; a matched draw uses four
 

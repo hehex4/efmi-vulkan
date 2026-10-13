@@ -16,6 +16,7 @@ from check_mod_draw_plans import ROOT, SAMPLE, sha
 from check_shared_palettes import BUNDLES
 from verify_bone_import import sample_layout, saved_records
 from verify_fragment_images import VAL
+from material_profiles import profile_shaders
 
 
 def verified_json(folder: Path, manifest: dict, name: str):
@@ -99,23 +100,9 @@ def main() -> int:
                  for row in callbacks["runs"] if row["scenario"] == 0}
         table_path = ROOT / "docs/arcane-texture-slots.json"
         table = json.loads(table_path.read_text())
-        for item in table["sources"].values():
-            if sha(ROOT / item["path"]) != item["sha256"]:
-                raise ValueError("Material slot evidence changed")
-        original = ROOT / table["sources"]["vulkan_manifest"]["path"]
-        original_manifest = json.loads(original.read_text())
-        original_shaders = verified_json(original.parent, original_manifest, "shaders.json")
-        known = set(table["slots"]) | {row["fragment"] for row in table["undeclared"]}
-        known_hashes = {}
-        for shader in original_shaders:
-            if shader["hash"] in known:
-                path = original.parent / shader["file"]
-                fingerprint = sha(path)
-                if fingerprint != original_manifest["files"][shader["file"]]["sha256"]:
-                    raise ValueError("Original mapped shader changed")
-                if shader["hash"] in known_hashes and known_hashes[shader["hash"]] != fingerprint:
-                    raise ValueError("CRC key refers to different original bytecode")
-                known_hashes[shader["hash"]] = fingerprint
+        profiles = profile_shaders(table)
+        known = set(profiles)
+        known_hashes = {key: item["sha256"] for key, item in profiles.items()}
         reference = sample_layout(SAMPLE)
         requests = defaultdict(list)
         codes, sources = {}, {}
