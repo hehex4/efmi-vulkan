@@ -22,6 +22,8 @@ def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dist",type=Path,required=True)
     ap.add_argument("--out",type=Path,required=True)
+    ap.add_argument("--version",default=None,
+                    help="version the binaries under test must report; default: the version the source states")
     args=ap.parse_args()
     target=args.dist.resolve();out=args.out.resolve()
     if not target.is_relative_to(ROOT) or not out.is_relative_to(ROOT):
@@ -48,7 +50,7 @@ def main():
             status=client.status()
             while not status["replacement"]["ready"] and time.monotonic()<deadline:
                 time.sleep(.05);status=client.status()
-            assert status["version"]==source_version() and status["entry"]=="inject" and status["mode"]=="probe"
+            assert status["version"]==(args.version or source_version()) and status["entry"]=="inject" and status["mode"]=="probe"
             assert status["resources"] and not status["counts"]["image_content"]["enabled"]
             assert not status["tracker_work"]["enabled"] and status["unmap_snapshot_all"]
             replacement=status["replacement"]
