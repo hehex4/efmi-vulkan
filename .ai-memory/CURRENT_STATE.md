@@ -2,6 +2,8 @@
 
 > Last updated: 2026-10-13, 18:00 deployment. Source, build/next and dist/ are 0.9.8 (four-set pipelines replaced). It builds, passes the sandbox suite and the real-texture smoke on dist; it has NOT been loaded in the game. The last game session (0.9.7, PID 7784, closed by the user) showed right textures and the flicker at LOD 0. Launcher stays Vulkan; the next game start is the user's. LOD0/LOD1 only.
 
+Current architecture boundary, checked for the user's explanation request: the pinned original XXMI engine executes selected mod callbacks and Core initialization in the standalone CPU host. The packager consumes those plans for one fixed scenario, embeds mesh/remap data and records DDS paths plus verified shader-slot profiles. The deployed DLL does not link the XXMI interpreter: native character tracking, merged skeletons, resources, pipeline variants and draw restoration execute the static package. Original Core texture queries, live INI conditions/keys/persist/reload and full hosted runtime integration remain T-027; standalone tests do not mean those are active in the game. The launcher provides injection. No new game observation was made for this explanation.
+
 ## 0.9.7 in the game: textures right, flicker persists; cause found in the visibility pass; 0.9.8 built (2026-10-13, 17:20)
 
 "Loads in the real game" and "data captured in the real game" apply to 0.9.7 only. 0.9.8 "builds" and passes "in the sandbox"; it has not been in the game.
