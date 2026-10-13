@@ -1,6 +1,6 @@
 // A whole character as data: meshes, bone ranges, LOD remaps and what to draw per matched section.
 // Built offline by scripts/package_character.py from one scenario of the hosted frontend's plans.
-// No textures, keys or conditions; not an INI interpreter.
+// Optional static materials; no keys or conditions, not an INI interpreter.
 #pragma once
 #include "pipeline_recipe.h"
 
@@ -43,6 +43,19 @@ struct CharacterEdit {
     uint32_t binding = 0;
     VkFormat source = VK_FORMAT_UNDEFINED, format = VK_FORMAT_UNDEFINED;
 };
+struct CharacterPixel {
+    uint32_t slot = 0, asset = kCharacterNone; // none is an explicit null; missing slots inherit
+};
+struct CharacterMaterialRule {
+    // ZeroFile is an explicit, device-bound compatibility policy for invalid source-API
+    // image dimensions. It is never inferred merely because a relocation failed.
+    enum Kind : uint32_t { Absent = 1, Image = 2, ZeroFile = 3 };
+    uint32_t slot = 0, kind = Absent, set = 0, binding = 0;
+};
+struct CharacterMaterialProfile {
+    std::vector<uint32_t> code;
+    std::vector<CharacterMaterialRule> rules;
+};
 
 struct CharacterPackage {
     uint32_t bones = 0;
@@ -53,6 +66,11 @@ struct CharacterPackage {
     std::vector<CharacterDraw> draws;
     std::vector<CharacterEdit> edits;
     std::vector<uint8_t> payload;
+    bool materials = false;
+    uint32_t material_vendor = 0, material_device = 0;
+    std::vector<std::string> images; // absolute UTF-8 paths, immutable after load
+    std::vector<CharacterMaterialProfile> profiles;
+    std::vector<std::vector<CharacterPixel>> pixels; // one binding snapshot per mesh draw
 
     bool load(const std::string& utf8_path, std::string& reason);
     // Everything is checked before anything is accepted: sizes, ranges, index bounds of every

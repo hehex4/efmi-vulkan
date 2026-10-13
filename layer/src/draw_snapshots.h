@@ -36,12 +36,15 @@ public:
     bool create(const VkPhysicalDeviceMemoryProperties&, const VkPhysicalDeviceLimits&,
                 uint32_t capacity, uint32_t bone_bytes, uint32_t uniform_range = 65536, uint32_t image_count = 0);
     // Storage in which consecutive draws that read the same bones share one copy of them: `slices`
-    // bone copies for `entries` draws. Prefers device memory the host can write. No images.
+    // bone copies for `entries` draws. Prefers device memory the host can write.
     bool create_shared(const VkPhysicalDeviceMemoryProperties&, const VkPhysicalDeviceLimits&,
-                       uint32_t entries, uint32_t slices, uint32_t bone_bytes, uint32_t uniform_range = 65536);
+                       uint32_t entries, uint32_t slices, uint32_t bone_bytes, uint32_t uniform_range = 65536,
+                       uint32_t image_count = 0);
     // `key` names the bone bytes: an append with the key of the previous one reuses its copy.
     // The caller changes the key whenever the bytes change. Shared storage only.
     bool append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry&, SnapshotSlot&);
+    bool append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry&,
+                       const std::vector<SnapshotImage>&, SnapshotSlot&);
     uint32_t slices_used() const { return slices_used_; }
     bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, SnapshotSlot&);
     bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, const std::vector<SnapshotImage>&, SnapshotSlot&);
@@ -57,6 +60,8 @@ private:
     // Only a command owner that has completed a successful legal reset/begin may recycle it.
     void recycle_completed() { for(auto& owner:image_owners_)owner.reset(); used_ = 0; sealed_ = false; slices_used_ = 0; have_key_ = false; }
     void clear();
+    bool valid_images(const std::vector<SnapshotImage>&);
+    void write_images(const std::vector<SnapshotImage>&);
     bool create_storage(const VkPhysicalDeviceMemoryProperties&, const VkPhysicalDeviceLimits&, uint32_t capacity,
                         uint32_t slices, uint32_t bone_bytes, uint32_t uniform_range, uint32_t image_count, bool shared);
     VkDevice device_;

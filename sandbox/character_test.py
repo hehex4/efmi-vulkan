@@ -4,9 +4,12 @@ import os
 from pathlib import Path
 import struct
 import subprocess
+import sys
 
 from harness import Checks, DIST, INJECT_DLL, inject_env, layer_env, test_dir
 from efmi_vk.hashes import crc32c
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from character_materials import envelope
 
 NONE = 0xFFFFFFFF
 
@@ -64,6 +67,26 @@ def fixture_package(path):
     path.write_bytes(header + body + bytes(payload))
 
 
+def material_package(path, reject_late=False):
+    paths = []
+    for name, rgba in (("red", (255, 0, 0, 255)), ("green", (0, 255, 0, 255))):
+        data = bytearray(152)
+        for offset, value in ((0, 0x20534444), (4, 124), (8, 0x1007), (12, 1), (16, 1),
+                              (28, 1), (76, 32), (80, 4), (84, 0x30315844), (108, 0x1000),
+                              (128, 28), (132, 3), (140, 1)):
+            struct.pack_into("<I", data, offset, value)
+        data[148:] = bytes(rgba)
+        file = path.with_name(name + ".dds")
+        file.write_bytes(data)
+        paths.append(str(file))
+    shader = path.with_suffix(".spv")
+    subprocess.run([str(Path(DIST) / "efmi_vk_character_test.exe"), "--material-shader", str(shader)],
+                   cwd=path.parent, check=True, capture_output=True)
+    profiles = [dict(code=shader.read_bytes(), rules=[(15, 2, 1, 6), (18, 1, 0, 0)])]
+    pixels = [{15: 0, 18: 1}, {15: 1}, {42 if reject_late else 15: NONE}]
+    path.write_bytes(envelope(path.read_bytes(), paths, profiles, pixels))
+
+
 def main():
     checks = Checks("character replacement")
     native = Path(test_dir("character-package-"))
@@ -73,13 +96,16 @@ def main():
     checks.equal(proc.returncode, 0, "native package decoding and declaration tests")
     validation = os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
     for entry in ("layer", "inject"):
-        for rp in (1, 2):
+        for rp, material, reject_late in ((1, False, False), (2, False, False),
+                                         (1, True, False), (2, True, False), (1, True, True)):
             folder = Path(test_dir("character-"))
             package = folder / "character.bin"
             fixture_package(package)
+            if material:
+                material_package(package, reject_late)
             inspect = subprocess.run([os.path.join(DIST, "efmi_vk_character_test.exe"), "--inspect", str(package)],
                                      cwd=folder, capture_output=True, text=True, timeout=30)
-            label = f"{entry}/renderpass{rp}"
+            label = f"{entry}/renderpass{rp}/materials={material}/late-refusal={reject_late}"
             checks.check(inspect.returncode == 0 and json.loads(inspect.stdout or "{}").get("required") == [1, 1, 3, 3, 0, 0],
                          label + " fixture accepted; draw lists require the components they read")
             env = layer_env(str(folder / "layer.log")) if entry == "layer" else inject_env(str(folder / "layer.log"))
@@ -87,6 +113,10 @@ def main():
                        VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0", XDG_CACHE_HOME=str(folder), TMPDIR=str(folder),
                        TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
             args = [os.path.join(DIST, "efmi_vk_variant_gpu.exe"), "--character"]
+            if material:
+                args.append("--material")
+            if reject_late:
+                args.append("--character-reject-late")
             if entry == "inject":
                 args.extend(["--inject", INJECT_DLL])
             if rp == 2:
@@ -105,6 +135,15 @@ def main():
                 continue
             r = json.loads(final.read_text())["result"]["replacement"]
             c = r["counters"]
+            if material:
+                checks.check(r["materials"] and r["images_ready"] == 2 and r["images_failed"] == 0 and
+                             r["image_file_reads"] == 2 and r["image_submissions"] == 2,
+                             label + " each DDS decoded and uploaded once by the layer")
+                checks.check(c["material_items"] > 0, label + " shader material changes emitted through real hooks")
+            if reject_late:
+                checks.check(c["refused_material"] > 0 and c["replaced"] > 0 and c["hidden"] > 0,
+                             label + " late refusal counted while independent components still replace")
+                continue
             checks.check(r["kind"] == "character" and r["configured"] and r["enabled"] and r["ready"], label + " character backend active")
             checks.check(c["replaced"] >= 50 and c["items"] > c["replaced"] and c["hidden"] >= 25, label + " replaced draws, extra items and hidden draws counted")
             checks.check(c["identifying"] >= 3, label + " a new character is drawn by the application first")

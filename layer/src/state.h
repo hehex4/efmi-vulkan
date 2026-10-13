@@ -401,9 +401,17 @@ struct Device {
     // forwarded through the original exports and nothing is tracked.
     bool passive = false;
     PFN_vkGetDeviceProcAddr next_gdpa = nullptr;
+    PFN_vkSetDeviceLoaderData set_loader_data = nullptr;
     DeviceDispatch d;
     std::shared_ptr<M2Backend> m2;
     std::shared_ptr<CharacterBackend> character;
+    // Static material uploads use exactly one unprotected graphics queue. The application
+    // serializes it; uploads are submitted only inside its submission hooks.
+    VkQueue material_queue = VK_NULL_HANDLE;
+    uint32_t material_family = 0;
+    bool material_bc_enabled = false;
+    PFN_vkGetPhysicalDeviceFormatProperties material_format_properties = nullptr;
+    PFN_vkGetPhysicalDeviceImageFormatProperties material_image_properties = nullptr;
 
     char gpu_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = {};
     std::vector<std::string> extensions; // enabled at creation

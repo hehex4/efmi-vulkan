@@ -185,6 +185,8 @@ The display slot table has 19 original-resource correspondences. Shader typing r
 
 Follow-up: matching saved DX11 bytecode was located and FNV-1 checked; each affected declaration and SampleLevel instruction is 3D. A 2D resource therefore violates the D3D11 declaration contract. Headless DX11 controls pass on NVIDIA and WARP, but mismatched views yield zero on NVIDIA and sampled color on WARP, while both retain the bound view. Debug runtime is absent, so no DX11 validation pass is claimed. Evidence: build/dx11-dimensions/report.json. Default refusal remains; an explicit device/profile compatibility policy must not be confused with valid explicit-null semantics or actual game pixel proof.
 
+0.9.6 static-package policy: dx11-invalid-2d-to-3d-zero explicitly marks these three exact profiles and binds the package to the measured vendor/device (4318/11545); other hardware refuses. Default material selection still refuses mismatches. All eleven affected historical contracts and their pipelines pass offline with this named policy, but game pixels remain unverified. See D-037 and docs/character-materials.md.
+
 ## LIMIT-022: Full frontend source profiles remain incomplete
 
 The three formerly missing actual LOD1 fragments (0aeef59b, 310c25c3, a6d7088a)
@@ -197,6 +199,11 @@ effects of prior bindings. The historical runner intentionally supplies no such
 provider and retains 283 unresolved calls. Native query mechanics are tested with
 synthetic identities only. Full runtime/generation and DLL integration are still
 implementation work and must not be marked done by a new capture. Do not suppress unknown runtime queries or broaden scope to LOD2+.
+
+0.9.6 links static materials and shared resource helpers into the DLL under T-028;
+it deliberately does not execute original Core source-identity queries. The full
+hosted runtime remains open. Its packaged policy accepts all 370 historical draw
+contracts; this does not resolve the historical runner's 283 source-query calls.
 
 ## LIMIT-023: The variant design assumes three application sets; a matched draw uses four
 
@@ -220,9 +227,9 @@ known, and no saved frame shows a three-set matched draw with a set 3 still boun
 refusal condition would answer it in the next session. A whole-character acceptance has to
 account for every refused draw, because one fallback is one frame of the original mesh.
 
-## LIMIT-024: What the whole-character backend of 0.10.0 does not do
+## LIMIT-024: Scope of the static whole-character backend
 
-No textures: the mod's meshes are shaded with the game's textures. One scenario of the mod's variables, fixed when the package is built; keys and conditions do nothing. A draw that is instanced, in a secondary command buffer, in dynamic rendering, on a pipeline that is not three sets, or with an application set 3 bound keeps the original, each under its own counter. A texture coordinate stream whose stride differs from the game's is accepted only if every element still fits. Identity is the position in the instance entry: two characters of the same mod standing in the same 12.5 cm cell would be one object. LOD 0 and 1 only. Nothing of this has run in the game; see `docs/character-backend.md`.
+One scenario is fixed when the package is built; keys, conditions, reload and runtime Core texture-identity queries remain absent. A draw that is instanced, in a secondary command buffer, in dynamic rendering, on a pipeline that is not three sets, or with pushed descriptors at set 3 retains the original. Ordinary bound application set 3 is restored since 0.9.5. Stream elements may extend up to 64 bytes past the file stride with padded backing storage. Identity follows position across frames; within a frame it requires the same exact position. LOD0/LOD1 only. The earlier 0.10.0 mesh build ran in the game, 0.9.6 adds static materials with sandbox/offline evidence only. See docs/character-backend.md and docs/character-materials.md.
 
 ## BUG-006: Character draws refused while the application had a set 3 bound (build 0.10.0; fixed in 0.9.5)
 
@@ -231,4 +238,12 @@ The replacement binds its private set at slot 3. Both backends refused a draw wh
 ## LIMIT-025: Shadow passes of a LOD 0 character read partly LOD 1 poses
 
 Found offline on 2026-10-13 from two saved LOD 0 world frames while looking for the flicker; not its cause. The first shadow pass draws LOD 1 meshes and imports their remapped poses; the second shadow pass draws LOD 0 meshes, and a component drawn early there reads the LOD 1 poses of components that come later (component 2 for components 1 and 9, matrix terms differing by up to 0.4). Both passes are depth only on a D16 target. The passes with color attachments read the same bones as the frame's final state. The core imports by the same rule under DX11. A master per LOD would separate them.
+
+## BUG-007: Internal upload command buffers lacked loader initialization (fixed before 0.9.6 deployment)
+
+The first 0.9.6 full sandbox regression exposed access violations in all three material cases through the layer entry; the inject cases passed. The new integrated uploader allocated internal command buffers through downstream Vulkan functions without initializing their loader dispatch data. Device setup now retains the loader callback, and internal queue/command-buffer setup calls it where available. Both material entries, all ten character hook cases and the final full suite pass. This was a pre-release sandbox failure, not a game crash. Evidence: build/material-0.9.6-regression.txt, build/material-loader-fix-tests.txt and build/material-0.9.6-regression-final.txt.
+
+## LIMIT-026: Static material uploads currently require one graphics queue
+
+0.9.6 accepts exactly one enabled unprotected graphics queue and submits prepared uploads only inside the application's submission hook. Devices with other graphics queue arrangements explicitly refuse material setup. BC compression uses enabled features, not merely hardware support. Both sandbox entries and actual DDS uploads pass; the game's queue/features and real-character materials remain to be checked in the next user-started session.
 

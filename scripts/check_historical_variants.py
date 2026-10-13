@@ -7,6 +7,7 @@ explicit omissions, never replaced with guessed contracts.
 """
 from __future__ import annotations
 from collections import Counter
+import argparse
 import contextlib
 import io
 import json
@@ -186,7 +187,7 @@ def generate_case(case, index):
     return "\n".join(lines)
 
 
-def collect_cases():
+def collect_cases(character_package=None):
     for script in ("check_core_components.py", "check_material_plans.py"):
         subprocess.run([sys.executable, str(ROOT/"scripts"/script)], cwd=ROOT, check=True, capture_output=True, timeout=120)
     replay = json.loads((ROOT/"build/core-components/report.json").read_text())
@@ -201,6 +202,28 @@ def collect_cases():
     evidence = [ROOT/"build/core-components/report.json", path, ROOT/"build/core-components/input.bin",
                 ROOT/"build/material-plans/report.json", ROOT/"build/xxmi-host/mod-plans.json", ROOT/"docs/arcane-texture-slots.json"]
     sources = {str(p):sha(p) for p in evidence}
+    static = None
+    if character_package:
+        package = character_package.resolve()
+        metadata = package.with_suffix(".json")
+        static = json.loads(metadata.read_text())
+        if sha(package) != static["package_sha256"] or sha(SAMPLE) != static["ini"]["sha256"]:
+            raise ValueError("Static character package fingerprint changed")
+        exe = ROOT / "build/next/efmi_vk_character_test.exe"
+        decoded = subprocess.run([str(exe), "--materials", str(package)], cwd=ROOT / "build", check=True,
+                                 capture_output=True, text=True, timeout=30)
+        native = json.loads(decoded.stdout)
+        native_profiles = {f"{p['crc']:08x}": p for p in native["profiles"]}
+        profile_hashes = {p["fragment"]: p["sha256"] for p in static["materials"]["profiles"]}
+        firsts, cursor = {}, 0
+        for component in static["components"]:
+            for lod, count in enumerate(component["draws"]):
+                firsts[component["id"], lod] = cursor
+                cursor += count
+        if cursor != static["draws"]:
+            raise ValueError("Static component draw lists disagree")
+        for file in (package, metadata, exe):
+            sources[str(file)] = sha(file)
     for filename, fingerprint in replay["source_sha256"].items():
         if sha(Path(filename)) != fingerprint:
             raise ValueError("Original Core evidence changed after replay")
@@ -226,6 +249,33 @@ def collect_cases():
         fs, = [s for s in pipeline["shaders"] if s["stage"] == 16]
         request = material_requests(plans[component, lod])[draw]
         contract = expected_contract(request, rules_for(table, fs["hash"]))
+        if static:
+            item = firsts[component, lod] + draw
+            pixels = {int(k): v for k, v in static["materials"]["pixels"][item].items()}
+            static_request = bytearray(128)
+            for slot, asset in pixels.items():
+                static_request[slot] = 1 if asset == 0xFFFFFFFF else 2
+            if bytes(static_request) != request:
+                raise ValueError("Static pixel bindings differ from the hosted callback")
+            key = fs["hash"]
+            if pixels:
+                if sha(folder / shaders[fs["id"]]["file"]) != profile_hashes.get(key):
+                    raise ValueError("Static material profile does not match saved fragment bytes")
+                resolved = native_profiles[key]["draws"][item]
+                if not resolved["ok"]:
+                    raise ValueError("Static production material contract refused: " + resolved["reason"])
+                rules = rules_for(table, key)
+                adjusted = bytearray(request)
+                for slot, rule in rules.items():
+                    if rule.get("incompatible") and adjusted[slot] == 2 and static["materials"]["compatibility"]:
+                        adjusted[slot] = 1
+                expected = expected_contract(adjusted, rules)
+                image_assets = [[pixels[slot], s, b] for slot, s, b in expected.get("images", [])]
+                if not expected["ok"] or resolved["images"] != image_assets or resolved["nulls"] != expected["nulls"]:
+                    raise ValueError("Static native contracts disagree with source correspondence")
+                contract = expected
+                if resolved["compatibility"]:
+                    counts["dimension_zero_draws"] += 1
         if not contract["ok"]:
             counts[contract["refusal"]] += 1
             omitted.append(dict(bundle=str(folder.relative_to(ROOT)), draw=r["draw"], callback_draw=draw,
@@ -245,11 +295,14 @@ def collect_cases():
 
 
 def main():
-    out = ROOT/"build/historical-variants"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--character-package", type=Path, help="verify production static material contracts, including its explicit compatibility policy")
+    args = parser.parse_args()
+    out = ROOT / ("build/character-variants" if args.character_package else "build/historical-variants")
     out.mkdir(parents=True, exist_ok=True)
     report = dict(scope="historical LOD0/LOD1 driver pipeline creation only; no character drawing or game execution", passed=False)
     try:
-        cases, counts, sources, omitted = collect_cases()
+        cases, counts, sources, omitted = collect_cases(args.character_package)
         if not cases or len(cases) > 512:
             raise ValueError("Historical case count outside fixture budget")
         generated = "\n".join(generate_case(c, i) for i, c in enumerate(cases))

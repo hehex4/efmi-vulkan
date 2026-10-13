@@ -30,10 +30,10 @@ bool DrawSnapshots::create(const VkPhysicalDeviceMemoryProperties& memory, const
 }
 
 bool DrawSnapshots::create_shared(const VkPhysicalDeviceMemoryProperties& memory, const VkPhysicalDeviceLimits& limits,
-                                  uint32_t entries, uint32_t slices, uint32_t bone_bytes, uint32_t uniform_range)
+                                  uint32_t entries, uint32_t slices, uint32_t bone_bytes, uint32_t uniform_range, uint32_t image_count)
 {
     if (!slices || slices > 128 || entries > 1024) { reason = "snapshot dimensions exceed supported limits"; return false; }
-    return create_storage(memory, limits, entries, slices, bone_bytes, uniform_range, 0, true);
+    return create_storage(memory, limits, entries, slices, bone_bytes, uniform_range, image_count, true);
 }
 
 bool DrawSnapshots::create_storage(const VkPhysicalDeviceMemoryProperties& memory, const VkPhysicalDeviceLimits& limits,
@@ -119,6 +119,12 @@ uint32_t host_memory_type(const VkPhysicalDeviceMemoryProperties& memory, uint32
 
 bool DrawSnapshots::append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry& entry, SnapshotSlot& output)
 {
+    return append_shared(bones, size, key, entry, {}, output);
+}
+
+bool DrawSnapshots::append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry& entry,
+                                  const std::vector<SnapshotImage>& images, SnapshotSlot& output)
+{
     reason.clear();
     if (!shared_ || sealed_ || !mapped_ || !bones || size != bone_bytes_) {
         reason = "shared snapshot is sealed, uncreated or has mismatched bone bytes"; return false;
@@ -126,6 +132,7 @@ bool DrawSnapshots::append_shared(const uint8_t* bones, size_t size, uint64_t ke
     if (used_ >= capacity_) { reason = "snapshot entries are full"; return false; }
     const bool reuse = have_key_ && key == last_key_;
     if (!reuse && slices_used_ >= slice_capacity_) { reason = "snapshot bone slices are full"; return false; }
+    if (!valid_images(images)) return false;
     if (!reuse) {
         std::memcpy(mapped_ + bone_stride_ * slices_used_, bones, size);
         last_slice_ = slices_used_++; last_key_ = key; have_key_ = true;
@@ -135,6 +142,7 @@ bool DrawSnapshots::append_shared(const uint8_t* bones, size_t size, uint64_t ke
     write.dstSet = sets_[used_]; write.dstBinding = 0; write.descriptorCount = 1;
     write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; write.pBufferInfo = &info;
     d_.UpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    write_images(images);
     std::memcpy(mapped_ + entry_base_ + entry_stride_ * used_, entry.data(), entry.size());
     output = {sets_[used_], static_cast<uint32_t>(entry_stride_ * used_)};
     ++used_;
@@ -153,7 +161,24 @@ bool DrawSnapshots::append(const std::vector<uint8_t>& bones, const InstanceEntr
     if (shared_ || sealed_ || used_ >= capacity_ || bones.size() != bone_bytes_ || !mapped_ || images.size()!=image_count_) {
         reason = "snapshot is sealed, full, uncreated or has mismatched bone bytes or image count"; return false;
     }
-    for(const auto& image:images)if(!image.view || !image.owner){reason="snapshot image requires ready view and owner";return false;}
+    if (!valid_images(images)) return false;
+    write_images(images);
+    std::memcpy(mapped_ + bone_stride_ * used_, bones.data(), bones.size());
+    std::memcpy(mapped_ + entry_base_ + entry_stride_ * used_, entry.data(), entry.size());
+    output = {sets_[used_], static_cast<uint32_t>(entry_stride_ * used_)};
+    ++used_;
+    return true;
+}
+
+bool DrawSnapshots::valid_images(const std::vector<SnapshotImage>& images)
+{
+    if (images.size() != image_count_) { reason = "snapshot image count mismatch"; return false; }
+    for (const auto& image : images) if (!image.view || !image.owner) { reason = "snapshot image requires ready view and owner"; return false; }
+    return true;
+}
+
+void DrawSnapshots::write_images(const std::vector<SnapshotImage>& images)
+{
     if(image_count_){
         VkDescriptorImageInfo infos[32]{};VkWriteDescriptorSet writes[32]{};
         for(uint32_t i=0;i<image_count_;++i){
@@ -164,10 +189,5 @@ bool DrawSnapshots::append(const std::vector<uint8_t>& bones, const InstanceEntr
         }
         d_.UpdateDescriptorSets(device_,image_count_,writes,0,nullptr);
     }
-    std::memcpy(mapped_ + bone_stride_ * used_, bones.data(), bones.size());
-    std::memcpy(mapped_ + entry_base_ + entry_stride_ * used_, entry.data(), entry.size());
-    output = {sets_[used_], static_cast<uint32_t>(entry_stride_ * used_)};
-    ++used_;
-    return true;
 }
 } // namespace efvk

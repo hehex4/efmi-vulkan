@@ -9,6 +9,7 @@ namespace efmi::assets {
     X(BeginCommandBuffer) X(EndCommandBuffer) X(CmdCopyBuffer) X(CmdPipelineBarrier) \
     X(CreateFence) X(DestroyFence) X(QueueSubmit) X(GetFenceStatus) X(WaitForFences)
 struct BufferUploadDispatch {
+    VkResult (VKAPI_PTR *SetDeviceLoaderData)(VkDevice, void*) = nullptr;
 #define X(name) PFN_vk##name name=nullptr;
     EFMI_BUFFER_UPLOAD_FUNCS(X)
 #undef X

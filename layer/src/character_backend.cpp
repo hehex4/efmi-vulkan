@@ -1,14 +1,17 @@
 #include "character_backend.h"
 #include "character_package.h"
+#include "character_materials.h"
 #include "merged_skeleton.h"
 #include "state.h"
 #include "json.h"
+#include "../../frontend/assets/resource_cache.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <unordered_map>
+#include <set>
 
 namespace efvk {
 namespace {
@@ -25,13 +28,14 @@ constexpr uint64_t kRehashFrames = 256;
 enum Counter : uint32_t {
     C_MATCHED, C_REPLACED, C_ITEMS, C_HIDDEN, C_IDENTIFYING, C_INCOMPLETE, C_PENDING,
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
-    C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED, C_COUNT
+    C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
+    C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
     "refused_state", "refused_instances", "refused_set3", "refused_pipeline", "refused_vertex", "refused_variant",
     "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
-    "restored_set3"
+    "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items"
 };
 
 struct GpuMesh {
@@ -96,6 +100,7 @@ struct IndexKeyHash {
 };
 struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; };
 struct BoneSite { bool ok = false; uint32_t set = 0, binding = 0; };
+using StaticMaterial = CharacterMaterial;
 } // namespace
 
 class CharacterBackend {
@@ -110,6 +115,12 @@ public:
     std::vector<BoneComponent> ranges;
     uint32_t bone_bytes = 0;
     std::unique_ptr<VariantCache> cache;
+    efmi::assets::ResourceBudgets image_budgets;
+    std::unique_ptr<efmi::assets::ResourceCache> images;
+    std::vector<efmi::assets::ResourceHandle> image_handles;
+    std::vector<std::vector<StaticMaterial>> materials; // profile x package draw, prepared at setup
+    std::unordered_map<uint32_t, uint32_t> material_profiles; // pipeline generation -> exact profile
+    std::set<uint32_t> image_counts{0};
     std::atomic<bool> enabled{false}, ready{false};
     std::atomic<uint64_t> frame{1}, batches{0};
     std::atomic<uint64_t> counters[C_COUNT] = {};
@@ -122,8 +133,8 @@ public:
     bool stopped = false;
     std::thread worker;
     std::shared_ptr<const GpuMesh> mesh;
-    std::deque<std::shared_ptr<DrawSnapshots>> available;
-    std::vector<std::weak_ptr<DrawSnapshots>> all;
+    std::deque<std::shared_ptr<M2Command>> available;
+    std::vector<std::weak_ptr<M2Command>> all;
     std::string last_reason;
 
     // The mod's state, under the mod lock: one matched draw at a time.
@@ -156,6 +167,7 @@ public:
         for (uint32_t i = 0; i < package.sections.size(); ++i) by_count[package.sections[i].match_count].push_back(i);
         for (const auto& c : package.components) ranges.push_back({c.first, c.count});
         bone_bytes = (MergedSkeleton::kImplicitBones + 2 * package.bones) * static_cast<uint32_t>(MergedSkeleton::kBytesPerBone);
+        if (package.materials && !init_materials()) return false;
         cache = std::make_unique<VariantCache>(device->handle, draw, properties.limits.maxBoundDescriptorSets, 256, properties.limits);
         enabled = g_cfg.m2_enabled;
         worker = std::thread([this] { prepare(); });
@@ -167,7 +179,8 @@ public:
         { std::lock_guard<std::mutex> lock(pool_mx); stopped = true; enabled = false; wake.notify_all(); }
         if (worker.joinable()) worker.join();
         if (cache) cache->stop();
-        std::deque<std::shared_ptr<DrawSnapshots>> old;
+        if (images) images->stop();
+        std::deque<std::shared_ptr<M2Command>> old;
         std::shared_ptr<const GpuMesh> old_mesh;
         { std::lock_guard<std::mutex> lock(pool_mx); old.swap(available); old_mesh.swap(mesh); ready = false; }
     }
@@ -188,12 +201,23 @@ public:
                     if (stopped) return;
                     if (available.size() >= 2 || all.size() >= 8) { wake.wait_for(lock, std::chrono::milliseconds(100)); continue; }
                 }
-                auto snapshots = std::make_shared<DrawSnapshots>(device->handle, storage);
-                if (!snapshots->create_shared(memory, properties.limits, kArenaEntries, kArenaSlices, bone_bytes)) { note(snapshots->reason); return; }
+                auto batch = std::make_shared<M2Command>();
+                batch->keep = created;
+                uint64_t total_bytes = 0;
+                for (uint32_t count : image_counts) {
+                    auto snapshots = std::make_shared<DrawSnapshots>(device->handle, storage);
+                    if (!snapshots->create_shared(memory, properties.limits, kArenaEntries, kArenaSlices, bone_bytes, 65536, count)) {
+                        note(snapshots->reason); return;
+                    }
+                    total_bytes += snapshots->size();
+                    if (total_bytes > (64ull << 20)) { note("character material arenas exceed the batch budget"); return; }
+                    if (count) batch->material_snapshots.emplace(count, std::move(snapshots));
+                    else batch->snapshots = std::move(snapshots);
+                }
                 {
                     std::lock_guard<std::mutex> lock(pool_mx);
                     if (stopped) return;
-                    all.push_back(snapshots); available.push_back(std::move(snapshots)); ready = true;
+                    all.push_back(batch); available.push_back(std::move(batch)); ready = true;
                 }
             }
         } catch (const std::exception& e) { note(e.what()); }
@@ -203,11 +227,14 @@ public:
     {
         std::lock_guard<std::mutex> lock(pool_mx);
         if (stopped || available.empty() || !mesh) return {};
-        auto cmd = std::make_shared<M2Command>();
-        cmd->snapshots = available.front(); available.pop_front(); cmd->keep = mesh;
+        auto cmd = available.front(); available.pop_front();
         wake.notify_one();
         return cmd;
     }
+
+    bool init_materials();
+    bool material_draws(uint32_t pipeline_id, const GraphicsRecipe&, const CharacterList&,
+                        std::vector<const StaticMaterial*>&, std::vector<std::vector<SnapshotImage>>&);
 
     // Caller holds res_mx. The index bytes of one draw, hashed once and then recognized by a short
     // fingerprint; the full hash is repeated now and then because mapped pools change unseen.
@@ -310,6 +337,83 @@ public:
     bool record(CmdBuf* cb, const DrawRec& r);
 };
 
+bool CharacterBackend::init_materials()
+{
+    using namespace efmi;
+    if (!device->material_queue) { last_reason = "materials require one unprotected graphics queue"; return false; }
+    if (package.material_vendor && (package.material_vendor != properties.vendorID || package.material_device != properties.deviceID)) {
+        last_reason = "material dimension compatibility belongs to a different device"; return false;
+    }
+    if (!prepare_character_materials(package, materials, image_counts, last_reason)) return false;
+    assets::ResourceDevice resource;
+    resource.device = device->handle; resource.physical = device->phys; resource.memory = memory;
+    resource.graphics_family = device->material_family; resource.bc_enabled = device->material_bc_enabled;
+    resource.format_properties = device->material_format_properties; resource.image_properties = device->material_image_properties;
+    resource.dispatch.SetDeviceLoaderData = device->set_loader_data;
+    resource.buffer_dispatch.SetDeviceLoaderData = device->set_loader_data;
+#define X(n) resource.dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
+    if (!resource.dispatch.n) { last_reason = "missing material vk" #n; return false; }
+    EFMI_IMAGE_UPLOAD_FUNCS(X)
+#undef X
+#define X(n) resource.buffer_dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n));
+    EFMI_BUFFER_UPLOAD_FUNCS(X)
+#undef X
+    images = std::make_unique<assets::ResourceCache>(resource, image_budgets, 64);
+    for (const auto& path : package.images) {
+        auto handle = images->declare_image(std::filesystem::u8path(path), last_reason);
+        if (!handle || !images->demand(handle)) return false;
+        image_handles.push_back(std::move(handle));
+    }
+    return true;
+}
+
+bool CharacterBackend::material_draws(uint32_t pipeline_id, const GraphicsRecipe& recipe, const CharacterList& list,
+                                      std::vector<const StaticMaterial*>& plans, std::vector<std::vector<SnapshotImage>>& views)
+{
+    static const StaticMaterial inherited{true, false, {}, {}, {}};
+    uint32_t profile = kCharacterNone;
+    bool no_fragment = true;
+    if (package.materials) {
+        const auto found = material_profiles.find(pipeline_id);
+        if (found != material_profiles.end()) profile = found->second;
+        else {
+            for (const auto& stage : recipe.stages) if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) {
+                no_fragment = false;
+                for (uint32_t i = 0; i < package.profiles.size(); ++i)
+                    if (package.profiles[i].code == stage.shader->code) { profile = i; break; }
+            }
+            if (no_fragment) profile = kCharacterNone - 1;
+            if (material_profiles.size() >= 4096) material_profiles.clear();
+            material_profiles[pipeline_id] = profile;
+        }
+    }
+    // Decide the entire logical transaction before obtaining any views or issuing a command.
+    for (uint32_t i = 0; i < list.count; ++i) {
+        const uint32_t index = list.first + i;
+        const StaticMaterial* plan = &inherited;
+        if (package.materials && !package.pixels[index].empty() && profile != kCharacterNone - 1) {
+            if (profile == kCharacterNone) return refuse(C_MATERIAL, "exact fragment has no static material profile");
+            plan = &materials[profile][index];
+            if (!plan->supported) return refuse(C_MATERIAL, plan->reason);
+        }
+        plans.push_back(plan);
+    }
+    bool pending = false;
+    for (const auto* plan : plans) {
+        std::vector<SnapshotImage> draw_views;
+        for (uint32_t asset : plan->assets) {
+            auto result = image_handles[asset]->snapshot();
+            if (result.state == efmi::assets::ResourceState::Failed || result.state == efmi::assets::ResourceState::Stopped)
+                return refuse(C_IMAGE, "character texture: " + result.reason);
+            if (result.state != efmi::assets::ResourceState::Ready || !result.image || !result.image->view()) { pending = true; continue; }
+            draw_views.push_back({result.image->view(), result.image});
+        }
+        views.push_back(std::move(draw_views));
+    }
+    if (pending) { ++counters[C_IMAGE_PENDING]; return false; }
+    return true;
+}
+
 bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
 {
     if (!enabled.load(std::memory_order_relaxed) || !cache) return false;
@@ -326,6 +430,8 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     const CharacterList* list = nullptr;
     Identity* identity = nullptr;
     std::vector<std::shared_ptr<const PipelineVariant>> variants;
+    std::vector<const StaticMaterial*> material_plans;
+    std::vector<std::vector<SnapshotImage>> material_views;
     DrawGeometry original;
     // The application's own set 3, when it has one bound: the replacement uses that slot, so it is
     // bound again afterwards exactly as the application bound it.
@@ -458,12 +564,13 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
 
         bool pending = false;
+        if (!material_draws(pipe->second.id, *pipe->second.recipe, *list, material_plans, material_views)) return false;
         for (uint32_t i = 0; i < list->count; ++i) {
             VertexInputRecipe vertex;
             std::string reason;
             if (!package.vertex_input(package.draws[list->first + i], pipe->second.recipe->vertex, vertex, reason))
                 return refuse(C_VERTEX, "character vertex declaration: " + reason);
-            const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex);
+            const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, material_plans[i]->patch);
             if (result.variant) { variants.push_back(result.variant); continue; }
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
             return refuse(C_VARIANT, "character variant: " + result.reason);
@@ -485,8 +592,10 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     for (uint32_t i = 0; i < list->count; ++i) {
         const CharacterDraw& d = package.draws[list->first + i];
         SnapshotSlot slot;
-        if (!cb->m2->snapshots->append_shared(master.data(), master.size(), key, patched, slot))
-            return refuse(C_EXHAUSTED, cb->m2->snapshots->reason);
+        const uint32_t count = static_cast<uint32_t>(material_views[i].size());
+        auto arena = count ? cb->m2->material_snapshots.at(count) : cb->m2->snapshots;
+        if (!arena->append_shared(master.data(), master.size(), key, patched, material_views[i], slot))
+            return refuse(C_EXHAUSTED, arena->reason);
         DrawGeometry& g = geometry[i];
         g = original;
         for (uint32_t s = 0; s < g.buffers.size(); ++s)
@@ -507,7 +616,46 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     }
     ++counters[C_REPLACED];
     counters[C_ITEMS] += list->count;
+    for (const auto* plan : material_plans) {
+        if (!plan->patch.images.empty() || !plan->patch.nulls.empty()) ++counters[C_MATERIAL_ITEMS];
+        if (plan->compatibility) ++counters[C_COMPAT_ITEMS];
+    }
     return true;
+}
+
+void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkInstance instance, PFN_vkGetInstanceProcAddr gipa)
+{
+    if (!gipa) return;
+    const auto families = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(gipa(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
+    const auto get_queue = reinterpret_cast<PFN_vkGetDeviceQueue>(device->next_gdpa(device->handle, "vkGetDeviceQueue"));
+    if (!families || !get_queue) return;
+    uint32_t count = 0; families(device->phys, &count, nullptr);
+    if (!count || count > 256) return;
+    std::vector<VkQueueFamilyProperties> properties(count); families(device->phys, &count, properties.data());
+    const VkDeviceQueueCreateInfo* chosen = nullptr;
+    uint32_t graphics = 0;
+    for (uint32_t i = 0; i < info->queueCreateInfoCount; ++i) {
+        const auto& q = info->pQueueCreateInfos[i];
+        if (q.queueFamilyIndex < properties.size() && (properties[q.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+            graphics += q.queueCount; chosen = &q;
+        }
+    }
+    if (graphics != 1 || !chosen || chosen->flags) return;
+    device->material_family = chosen->queueFamilyIndex;
+    device->material_bc_enabled = info->pEnabledFeatures && info->pEnabledFeatures->textureCompressionBC;
+    for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext)
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2)
+            device->material_bc_enabled = reinterpret_cast<const VkPhysicalDeviceFeatures2*>(p)->features.textureCompressionBC != 0;
+    device->material_format_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties>(gipa(instance, "vkGetPhysicalDeviceFormatProperties"));
+    device->material_image_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceImageFormatProperties>(gipa(instance, "vkGetPhysicalDeviceImageFormatProperties"));
+    get_queue(device->handle, device->material_family, 0, &device->material_queue);
+    if (device->set_loader_data && device->set_loader_data(device->handle, device->material_queue) != VK_SUCCESS)
+        device->material_queue = VK_NULL_HANDLE;
+}
+
+void character_submit(CharacterBackend& backend, VkQueue queue)
+{
+    if (backend.images && queue == backend.device->material_queue) backend.images->submit_prepared(queue);
 }
 
 std::shared_ptr<CharacterBackend> character_create(Device* device, const VkPhysicalDeviceProperties& properties,
@@ -539,6 +687,7 @@ void character_retire(CharacterBackend& backend, uint32_t pipeline_id)
     if (backend.cache) backend.cache->retire(pipeline_id);
     std::lock_guard<std::mutex> lock(backend.mod_mx);
     backend.sites.erase(pipeline_id);
+    backend.material_profiles.erase(pipeline_id);
 }
 
 void character_frame(CharacterBackend& backend, bool had_draws)
@@ -566,6 +715,7 @@ void character_status(CharacterBackend& backend, JsonWriter& w)
     // The names the single-component backend reports, so that one reader serves both.
     uint64_t unsupported = 0, unreadable = backend.counters[C_ENTRY].load() + backend.counters[C_BONES].load();
     for (uint32_t c = C_STATE; c <= C_BINDINGS; ++c) unsupported += backend.counters[c].load();
+    unsupported += backend.counters[C_MATERIAL].load() + backend.counters[C_IMAGE].load();
     w.kn("matched", backend.counters[C_MATCHED].load());
     w.kn("replaced", backend.counters[C_REPLACED].load());
     w.kn("pending", backend.counters[C_PENDING].load());
@@ -579,6 +729,16 @@ void character_status(CharacterBackend& backend, JsonWriter& w)
     w.kn("frame", backend.frame.load());
     w.kn("sections", backend.package.sections.size());
     w.kn("package_bytes", backend.package.payload.size());
+    w.kb("materials", backend.package.materials);
+    w.kn("material_profiles", backend.package.profiles.size());
+    w.kn("image_count", backend.image_handles.size());
+    w.kn("image_resident_bytes", backend.image_budgets.resident->used());
+    w.kb("dimension_zero_policy", backend.package.material_vendor != 0);
+    if (backend.images) {
+        const auto stats = backend.images->stats();
+        w.kn("images_ready", stats.ready); w.kn("images_failed", stats.failed);
+        w.kn("image_file_reads", stats.file_reads); w.kn("image_submissions", stats.submissions);
+    }
     {
         std::lock_guard<std::mutex> lock(backend.pool_mx);
         w.kv("last_reason", backend.last_reason);

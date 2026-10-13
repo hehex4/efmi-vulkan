@@ -102,6 +102,7 @@ bool ImageUpload::record(uint32_t graphics_family)
     VkCommandBufferAllocateInfo ai={VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     ai.commandPool=pool_;ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ai.commandBufferCount=1;
     if(!result(d_.AllocateCommandBuffers(device_,&ai,&command_),"allocate image upload command"))return false;
+    if(d_.SetDeviceLoaderData && !result(d_.SetDeviceLoaderData(device_,command_),"initialize image upload dispatch"))return false;
     const auto cmd=command_;
     VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};begin.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if(!result(d_.BeginCommandBuffer(cmd,&begin),"begin image upload"))return false;

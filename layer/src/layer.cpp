@@ -10,6 +10,7 @@
 //            vulkan-1.dll to the hooks, which then call the original exports.
 #include "state.h"
 #include "m2_backend.h"
+#include "character_backend.h"
 
 #include <cstddef>
 #include <mutex>
@@ -819,6 +820,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
 {
     count_call(HI_QueueSubmit);
     Device* dev = dev_of(queue);
+    if (dev->character) character_submit(*dev->character, queue);
     for (uint32_t i = 0; i < count; i++) {
         m2_seal(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
         on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
@@ -843,6 +845,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, co
     count_call(HI_QueueSubmit2);
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
+    if (dev->character) character_submit(*dev->character, queue);
     return dev->d.QueueSubmit2(queue, count, submits, fence);
 }
 
@@ -851,6 +854,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count,
     count_call(HI_QueueSubmit2KHR);
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
+    if (dev->character) character_submit(*dev->character, queue);
     return dev->d.QueueSubmit2KHR(queue, count, submits, fence);
 }
 
@@ -1022,6 +1026,12 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
                                                const VkAllocationCallbacks* alloc, VkDevice* device)
 {
     InstanceData* inst = inst_of_key(key_of(phys));
+    PFN_vkSetDeviceLoaderData set_loader_data = nullptr;
+    for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext)
+        if (p->sType == VK_STRUCTURE_TYPE_LOADER_DEVICE_CREATE_INFO) {
+            auto link = reinterpret_cast<const VkLayerDeviceCreateInfo*>(p);
+            if (link->function == VK_LOADER_DATA_CALLBACK) set_loader_data = link->u.pfnSetDeviceLoaderData;
+        }
     PFN_vkGetDeviceProcAddr gdpa;
     PFN_vkCreateDevice next;
     if (injected()) {
@@ -1049,6 +1059,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     Device* dev = dev_create(*device);
     dev->phys = phys;
     dev->next_gdpa = gdpa;
+    dev->set_loader_data = set_loader_data;
     for (const HookEntry& h : g_hooks)
         next_slot(dev->d, h) = gdpa(*device, h.name);
     if (inst && inst->GetPhysicalDeviceProperties) {
@@ -1063,6 +1074,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         if (inst->GetPhysicalDeviceMemoryProperties && !g_cfg.m2_package.empty()) {
             VkPhysicalDeviceMemoryProperties memory;
             inst->GetPhysicalDeviceMemoryProperties(phys, &memory);
+            character_device_setup(dev, info, inst->handle, inst->gipa);
             m2_create(dev, props, memory);
         }
     }

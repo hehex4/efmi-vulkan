@@ -101,8 +101,14 @@ def sources(folder: str) -> list[str]:
 
 COMMON = [
     "/nologo", "/std:c++17", "/O2", "/MT", "/EHsc", "/W3", "/GS", "/Zi", "/DNDEBUG",
-    "/DUNICODE", "/D_UNICODE", "/DVK_USE_PLATFORM_WIN32_KHR", "/D_CRT_SECURE_NO_WARNINGS",
+    "/DUNICODE", "/D_UNICODE", "/DNOMINMAX", "/DWIN32_LEAN_AND_MEAN", "/DVK_USE_PLATFORM_WIN32_KHR", "/D_CRT_SECURE_NO_WARNINGS",
 ]
+
+
+# Shared static material path also linked by tracker/recipe fixtures with the backend.
+MATERIAL_SOURCES = ["../frontend/gpu/material_plan.cpp", "../frontend/assets/dds.cpp",
+                    "../frontend/assets/image_upload.cpp", "../frontend/assets/buffer_upload.cpp",
+                    "../frontend/assets/resource_cache.cpp"]
 
 
 def build_layer(vcvars: str, include: str, out: str) -> str:
@@ -111,7 +117,7 @@ def build_layer(vcvars: str, include: str, out: str) -> str:
     dll = os.path.join(out, LAYER_DLL)
     args = COMMON + [
         "/I" + include, "/Fobuild\\", "/Fdbuild\\efmi_vk_layer_cl.pdb", "/LD",
-    ] + sources(folder) + ["../frontend/gpu/fragment_images.cpp"] + [
+    ] + sources(folder) + ["../frontend/gpu/fragment_images.cpp"] + MATERIAL_SOURCES + [
         "/Fe:" + dll,
         "/link", "/NOLOGO", "/DLL", "/OPT:REF", "/OPT:ICF", "/DEBUG",
         "/PDB:build\\efmi_vk_layer.pdb", "/IMPLIB:build\\efmi_vk_layer.lib",
@@ -169,7 +175,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
                      "../frontend/gpu/fragment_images.cpp",
                      "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                      "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp",
+                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + [
                      "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                      "/PDB:build\\tracker\\test.pdb", "user32.lib"]
     run_cl(vcvars, folder, args)
@@ -192,12 +198,12 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
         if name == "mesh_test":
             sources += ["../layer/src/m2_mesh.cpp", "../layer/src/util.cpp"]
         if name == "character_test":
-            sources += ["../layer/src/character_package.cpp", "../layer/src/util.cpp"]
+            sources += ["../layer/src/character_package.cpp", "../layer/src/character_materials.cpp", "../frontend/gpu/material_plan.cpp", "../layer/src/util.cpp"]
         if tracker:
             sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                         "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                         "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp"]
+                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
         args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                            "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]

@@ -15,7 +15,11 @@ struct M2Command {
     std::shared_ptr<const M2GpuMesh> mesh;
     std::shared_ptr<const void> keep; // the character backend's mesh owner
     std::vector<std::shared_ptr<const PipelineVariant>> variants;
-    void reset_after_completion() { variants.clear(); snapshots->recycle_completed(); }
+    std::map<uint32_t, std::shared_ptr<DrawSnapshots>> material_snapshots;
+    void reset_after_completion() {
+        variants.clear(); snapshots->recycle_completed();
+        for (auto& arena : material_snapshots) arena.second->recycle_completed();
+    }
 };
 void m2_create(Device*,const VkPhysicalDeviceProperties&,const VkPhysicalDeviceMemoryProperties&);
 void m2_stop(Device*);

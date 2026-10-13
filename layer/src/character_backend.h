@@ -1,11 +1,13 @@
 // Whole-character replacement from a character package: every matched section of one mod, with one
-// merged skeleton per character instance. Meshes and bones only; the game's material is kept.
+// merged skeleton per character instance and optional static materials.
 // Inactive unless a character package is explicitly configured.
 #pragma once
 #include "m2_backend.h"
 
 namespace efvk {
 class CharacterBackend;
+void character_device_setup(Device*, const VkDeviceCreateInfo*, VkInstance, PFN_vkGetInstanceProcAddr);
+void character_submit(CharacterBackend&, VkQueue);
 std::shared_ptr<CharacterBackend> character_create(Device*, const VkPhysicalDeviceProperties&,
                                                    const VkPhysicalDeviceMemoryProperties&);
 void character_stop(CharacterBackend&);

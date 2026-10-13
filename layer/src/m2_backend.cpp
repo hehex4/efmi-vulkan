@@ -254,6 +254,7 @@ void m2_seal(Device* device,uint32_t count,const VkCommandBuffer* buffers){
     for(uint32_t i=0;i<count;++i)if(auto* cb=cb_of(device,buffers[i]))
         if(cb->m2 && !cb->m2->snapshots->sealed()){
             cb->m2->snapshots->seal();
+            for (auto& arena : cb->m2->material_snapshots) arena.second->seal();
             if(device->character)character_sealed(*device->character);else ++device->m2->batches;
         }
 }

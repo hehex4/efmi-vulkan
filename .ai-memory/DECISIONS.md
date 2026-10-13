@@ -287,3 +287,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - A stream of the mod that is shorter than the game's is bound as it is, with the elements where the shader expects them, as the source API does; the mesh buffer is padded so the last vertex reads inside it.
 - Version numbers (user, 2026-10-13): three single digits, add one at the right, carry at ten. Recorded in AGENTS.md. The build released as 0.10.0 keeps that name in what was written before; it is 0.9.4 in the sequence.
 
+## D-037: Extend the static character package with exact material contracts
+
+- Date: 2026-10-13, continuing the user's request to finish the next step after the whole-model replacement. Scope stays one character, LOD0/LOD1; the user explicitly authorizes switching back to Vulkan after offline verification.
+- Keep the original hosted scenario as data. Store each draw's logical image/null state and exact fragment profiles in a bounded material envelope. Reuse ResourceCache, MaterialProfile, variant compilation and command-owned snapshots. No component-specific branches or new INI interpreter; full hosted keys, conditions, reload and source-identity queries remain T-027.
+- Match profiles by exact fragment bytes and retain the entire original component when any material item is unknown, pending or failed. Precompute profile/draw contracts; image bindings keep owners for the command's lifetime, with shared bone slices and sealed resubmission semantics.
+- LIMIT-021 is handled by an explicit package option named dx11-invalid-2d-to-3d-zero, based on the existing controlled hardware experiment, for its three annotated slots only. The package records the evidence fingerprint and the measured vendor/device; other devices refuse. Default material selection still refuses dimensional mismatches. This is device-specific compatibility, never a statement of portable D3D11 semantics or proven game pixels.
+- Workers prepare uploads; only the application's graphics-queue hook submits them, using exactly one enabled unprotected graphics queue. Device features and loader dispatch initialization are taken from the actual creation chain.
+- Full rebuilt regression, historical native contracts/pipeline construction and actual-file/config smoke precede deployment. The user starts the real game. The 0.9.5 flicker fix and all 0.9.6 material appearance stay unverified there until that session.
+

@@ -13,6 +13,9 @@ namespace efmi::assets {
     X(CmdPipelineBarrier) X(CmdCopyBufferToImage) X(CreateFence) X(DestroyFence) \
     X(QueueSubmit) X(GetFenceStatus) X(WaitForFences)
 struct UploadDispatch {
+    // A Vulkan layer initializes loader dispatch on internally allocated command buffers.
+    // Ordinary application/inject entry points already do that through the loader.
+    VkResult (VKAPI_PTR *SetDeviceLoaderData)(VkDevice, void*) = nullptr;
 #define X(name) PFN_vk##name name=nullptr;
     EFMI_IMAGE_UPLOAD_FUNCS(X)
 #undef X

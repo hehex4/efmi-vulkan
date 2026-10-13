@@ -6,11 +6,11 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.5. The prior 0.10.0 (= 0.9.4) session showed the whole-character mesh/bone replacement; the 0.9.5 flicker fix still needs game acceptance. The actual original LOD1 DX11 source capture is complete and closes the three missing correspondences. The user requests texture integration after the whole-model replacement; continue offline on the static backend. Launcher remains DX11 and dist mode passthrough. T-027 hosted frontend integration and T-028 static whole-character backend remain distinct. LOD0/LOD1 only.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.6 with static whole-character materials. Full regression, actual-file/config sandbox checks and all 105 historical pipeline combinations pass. The user explicitly requested switching back to Vulkan; launcher values and probe configuration are deployed and backed up. Next is a user-started visual check of the entire outfit at LOD0/LOD1, including the 0.9.5 flicker fix. T-027 hosted frontend integration and T-028 static whole-character backend remain distinct; no new real-game acceptance yet.
 
 ## Tasks and follow-ups
 
-### T-028: Whole character from a static package (0.9.5 deployed; textures next)
+### T-028: Whole character from a static package (0.9.6 materials deployed; game check next)
 
 Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
 
@@ -18,11 +18,13 @@ Game session of 2026-10-13 (build 0.10.0 = 0.9.4): the character is drawn in the
 
 Next, after the actual DX11 capture of 2026-10-13:
 1. Complete: original LOD1 source capture, eight rules for the three missing fragments, both historical Vulkan frames agree. Audit and native material replay pass (359 accepted, eleven dimension refusals, no unknown profile). See docs/lod1-material-capture.md. No further LOD1 source capture is needed for these profiles.
-2. Integrate textures into the static whole-character package/backend as requested. Use the original hosted pixel-binding plans, exact fragment profiles, shared ResourceCache, variant contracts and command-owned image snapshots. Keep LIMIT-021's device-specific behavior explicit; do not claim full hosted runtime integration. Build and full regression before deployment.
-3. A later user-started Vulkan session must verify the deployed 0.9.5 flicker fix, appearance and motion, with refusal/restoration counters. DX11 source capture does not verify that fix. A capture does not mark replaced draws (LIMIT-020).
+2. Complete offline and deployed in 0.9.6: static hosted pixel-binding plans, 20 exact fragment profiles, nine DDS files, shared ResourceCache, native material contracts and command-owned image snapshots. LIMIT-021 uses an explicit policy bound to the measured device. Full suite passes; native contracts cover 370 historical draws with no omissions, 105 pipelines create, actual configuration uploads all nine images through both entries. This does not complete hosted runtime integration. See docs/character-materials.md and D-037.
+3. Required next: the user starts Vulkan and shows the character. Verify loaded 0.9.6, image readiness, material/replacement and refusal/restoration counters; check whole-outfit textures, motion, LOD1 and the included 0.9.5 flicker fix. The user-authorized launcher switch is complete. DX11 capture and sandbox pixels do not verify this game result. A capture does not mark replaced draws (LIMIT-020).
 4. Generalizations the sample did not need: private set index from the layout (LIMIT-023), draws with several instances, a second mod at once.
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
+
+Current boundary: T-028 now supplies deployed static meshes, bones and materials. The sample LOD1 source profiles and the explicit device policy are complete for that scope. Runtime source identities, original Core texture-query execution with those identities, keys/conditions/reload and full hosted DLL integration remain open. The review and checkpoints below are historical; the old component-7-only and missing-LOD1 prerequisites are superseded.
 
 Review, 2026-10-13 (second agent, at the user's request; implementation and design). No defect found in 0.9.2/0.9.3 or the standalone frontend; every suite was rebuilt and rerun independently with the documented counts. The architecture follows plan D2/D4 and section 4 and is judged sound. Points to settle before the frontend is linked into the DLL, in this order:
 
@@ -37,7 +39,7 @@ Structure of the sample, measured on 2026-10-13 from `arcane.ini` and its blend 
 6. The DDS reader is stricter than the loader XXMI uses (refuses a wrong linear size, trailing bytes, several legacy pixel formats). Safe, but existing mods are the target; follow the acceptance rules of the original loader.
 7. `.ai-memory/CURRENT_STATE.md` has grown to 521 lines and 110 KB of checkpoint history; a resume now reads about 160 KB before it starts. Move finished checkpoints to the session log.
 
-Next data dependency: obtain actual LOD1 DX11 source declarations/bytecode and texture identities for fragments 0aeef59b, 310c25c3 and a6d7088a. The prepared capture helper supports --archive-shaders and --all-bound-textures (11 fake-probe checks passed). No real session was started or configured. Compare against the two saved actual LOD1 Vulkan bundles first; require further evidence only if ambiguity remains. Keep LIMIT-021, source-identity provider, runtime/generation and DLL integration explicit. Existing dist remains the component-7 backend. No LOD2+ work or long-duration test requirement.
+Former data dependency closed on 2026-10-13: actual original LOD1 DX11 declarations/bytecode establish fragments 0aeef59b, 310c25c3 and a6d7088a against both saved Vulkan LOD1 bundles. Source-identity provider, runtime/generation and full hosted DLL integration are separate. Dist is now the static whole-character material backend. No LOD2+ work or long-duration test requirement.
 
 Historical driver checkpoint (2026-10-13): all 88 accepted whole-character pipeline/layout/vertex/material combinations from saved LOD0/LOD1 data create under clean validation in a separate GPU process (177 checks, 353 covered draws). The replay verifies serialized state exactly before creation and records omitted unknown/dimension cases. This closes driver-construction coverage for accepted historical contracts, not texture identity, live resources or character appearance. Runtime/profile and DLL integration remain open; no deployment/game action. See docs/fragment-materials.md.
 
@@ -261,7 +263,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The configuration pause was explicitly resumed. The user voluntarily exited after the 0.9.1 display observation. Continue offline whole-character development; the agent must not start the next game session. No repeated bone capture, tiny-part visual check or duration-only test is required.
+- The user explicitly authorized the switch back to Vulkan after 0.9.6 offline verification. Deployment and launcher configuration are complete; wait for the user to start the game and show the character. Verify whole-character textures at LOD0/LOD1 and the earlier flicker fix. The agent must not start the session. No repeated bone capture, tiny-part visual check or duration-only test is required.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

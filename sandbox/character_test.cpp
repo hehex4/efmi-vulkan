@@ -1,7 +1,11 @@
 // Bounded decoding of a character package and the vertex declaration it asks for.
 // "--inspect <file>" runs the production decoder on a real package and prints what it holds.
 #include "../layer/src/character_package.h"
+#include "../layer/src/character_materials.h"
+#include "../layer/src/json.h"
+#include "variant_fixture.h"
 #include <cstdio>
+#include <fstream>
 
 using namespace efvk;
 static int passed = 0, failed = 0;
@@ -79,6 +83,75 @@ static std::vector<uint8_t> package(Model* out = nullptr)
 }
 static void seal(std::vector<uint8_t>& data) { poke(data, 36, crc32c(0, data.data() + 48, data.size() - 48)); }
 
+static void material_tests(const std::vector<uint8_t>& mesh)
+{
+    const auto code = variant_fixture::shader(false, true);
+    const std::string path = "F:/fixture.dds";
+    std::vector<uint8_t> data{'E','F','M','I','C','H','0','2'};
+    put(data, uint64_t(mesh.size())); put(data, uint64_t(0)); put(data, uint32_t(0)); put(data, uint32_t(0));
+    data.insert(data.end(), mesh.begin(), mesh.end());
+    const size_t table = data.size();
+    for (uint32_t word : {1u, 1u, 2u, 0u, 0u, 0u}) put(data, word);
+    put(data, uint32_t(path.size())); data.insert(data.end(), path.begin(), path.end());
+    const size_t profile = data.size();
+    put(data, uint32_t(code.size())); put(data, uint32_t(1));
+    for (uint32_t word : code) put(data, word);
+    const size_t rule = data.size();
+    for (uint32_t word : {15u, 2u, 1u, 6u}) put(data, word);
+    const size_t pixels = data.size();
+    for (uint32_t word : {1u, 15u, 0u, 1u, 15u, kCharacterNone}) put(data, word);
+    poke(data, 16, uint64_t(data.size() - table));
+    auto reseal = [](std::vector<uint8_t>& bytes) { poke(bytes, 24, crc32c(0, bytes.data() + 32, bytes.size() - 32)); };
+    reseal(data);
+    CharacterPackage package;
+    std::string reason;
+    check(package.decode(data, reason) && package.materials && package.images == std::vector<std::string>{path} &&
+          package.profiles[0].code == code && package.pixels[0][0].asset == 0 && package.pixels[1][0].asset == kCharacterNone,
+          "material envelope preserves exact code, per-draw file/null and mesh bytes");
+    std::vector<std::vector<CharacterMaterial>> plans;
+    std::set<uint32_t> counts;
+    check(prepare_character_materials(package, plans, counts, reason) && plans[0][0].supported && plans[0][1].supported &&
+          plans[0][0].assets == std::vector<uint32_t>{0} && plans[0][0].patch.images.size()==1 &&
+          plans[0][1].patch.images.empty() && plans[0][1].patch.nulls.size()==1 && counts==std::set<uint32_t>{0,1},
+          "production material preparation preserves per-draw file and explicit null");
+    auto unsupported=package;unsupported.pixels[1].push_back({42,0});
+    check(prepare_character_materials(unsupported,plans,counts,reason) && plans[0][0].supported && !plans[0][1].supported &&
+          plans[0][1].patch.images.empty() && plans[0][1].patch.nulls.empty() && !plans[0][1].reason.empty(),
+          "unknown late pixel slot has an explicit refusal and no partial contract");
+    auto invalid=package;invalid.profiles[0].rules.push_back(invalid.profiles[0].rules[0]);
+    check(!prepare_character_materials(invalid,plans,counts,reason) && plans[0][0].supported && !plans[0][1].supported,
+          "invalid profile preserves all previously prepared contracts");
+    auto reject = [&](std::vector<uint8_t> bytes, const char* text, bool seal = true) {
+        if (seal) reseal(bytes);
+        check(!package.decode(bytes, reason) && !reason.empty() && package.materials && package.images[0] == path &&
+              package.profiles[0].code == code, text);
+    };
+    {auto b=data;poke(b,8,UINT64_MAX);reject(b,"material mesh length overflow refused");}
+    {auto b=data;poke(b,16,uint64_t(4u<<20)+1);reject(b,"material byte budget enforced");}
+    {auto b=data;b.back()^=1;reject(b,"material checksum covers bindings",false);}
+    {auto b=data;b[28]=1;reject(b,"material reserved flags refused");}
+    {auto b=data;b[39]='2';reject(b,"nested material envelope refused");}
+    {auto b=data;poke(b,table,uint32_t(65));reject(b,"too many images refused");}
+    {auto b=data;poke(b,table+8,uint32_t(1));reject(b,"material and mesh draw counts must agree");}
+    {auto b=data;poke(b,table+24,uint32_t(4097));reject(b,"image path byte budget enforced");}
+    {auto b=data;b[table+28]=0;reject(b,"embedded path NUL refused");}
+    {auto b=data;b[table+29]='x';reject(b,"relative image path refused");}
+    {auto b=data;b[table+28]=0xff;reject(b,"invalid UTF-8 path refused");}
+    {auto b=data;poke(b,profile,uint32_t(1u<<22));reject(b,"shader byte budget enforced");}
+    {auto b=data;poke(b,profile+8,uint32_t(0));reject(b,"shader magic checked");}
+    {auto b=data;poke(b,rule,uint32_t(128));reject(b,"logical rule slot bound checked");}
+    {auto b=data;poke(b,rule+4,uint32_t(0));reject(b,"unknown rule kind refused");}
+    {auto b=data;poke(b,rule+8,uint32_t(3));reject(b,"profile cannot address private set");}
+    {auto b=data;poke(b,rule+4,uint32_t(3));reject(b,"dimension zero cannot be implicit");}
+    {auto b=data;poke(b,table+12,uint32_t(1));reject(b,"device restriction requires a policy");}
+    {auto b=data;poke(b,pixels,uint32_t(129));reject(b,"pixel count bounded");}
+    {auto b=data;poke(b,pixels+8,uint32_t(1));reject(b,"missing image asset refused");}
+    {auto b=data;b.pop_back();poke(b,16,uint64_t(b.size()-table));reject(b,"truncated pixel binding refused");}
+    {auto b=data;b.push_back(0);poke(b,16,uint64_t(b.size()-table));reject(b,"trailing material bytes refused");}
+    check(package.decode(mesh, reason) && !package.materials && package.images.empty() && package.pixels.empty(),
+          "loading a legacy package clears previous material state");
+}
+
 static void declaration_tests(const CharacterPackage& p)
 {
     VertexInputRecipe source, result;
@@ -129,12 +202,43 @@ int main(int argc, char** argv)
     util_init(GetModuleHandleW(nullptr));
     CharacterPackage p;
     std::string why;
+    if (argc == 3 && !strcmp(argv[1], "--material-shader")) {
+        const auto code = variant_fixture::shader(false, true);
+        std::ofstream out(argv[2], std::ios::binary);
+        out.write(reinterpret_cast<const char*>(code.data()), code.size() * 4);
+        return out ? 0 : 1;
+    }
+    if (argc == 3 && !strcmp(argv[1], "--materials")) {
+        std::vector<std::vector<CharacterMaterial>> plans;
+        std::set<uint32_t> counts;
+        if (!p.load(argv[2], why) || !p.materials || !prepare_character_materials(p, plans, counts, why)) {
+            fprintf(stderr, "materials rejected: %s\n", why.c_str()); return 1;
+        }
+        JsonWriter w;w.begin_object();w.kn("vendor",p.material_vendor);w.kn("device",p.material_device);
+        w.key("profiles");w.begin_array();
+        for(size_t i=0;i<plans.size();++i){
+            const auto& code=p.profiles[i].code;
+            w.begin_object();w.kn("crc",crc32c(0,code.data(),code.size()*4));w.key("draws");w.begin_array();
+            for(const auto& plan:plans[i]){
+                w.begin_object();w.kb("ok",plan.supported);w.kb("compatibility",plan.compatibility);w.kv("reason",plan.reason);
+                w.key("images");w.begin_array();
+                for(size_t j=0;j<plan.patch.images.size();++j){
+                    w.begin_array();w.num(plan.assets[j]);w.num(plan.patch.images[j].set);w.num(plan.patch.images[j].binding);w.end_array();
+                }
+                w.end_array();w.key("nulls");w.begin_array();
+                for(const auto& image:plan.patch.nulls){w.begin_array();w.num(image.set);w.num(image.binding);w.end_array();}
+                w.end_array();w.end_object();
+            }
+            w.end_array();w.end_object();
+        }
+        w.end_array();w.end_object();printf("%s\n",w.out.c_str());return 0;
+    }
     if (argc == 3 && !strcmp(argv[1], "--inspect")) {
         if (!p.load(argv[2], why)) { fprintf(stderr, "package rejected: %s\n", why.c_str()); return 1; }
         printf("{\"bones\":%u,\"components\":%zu,\"streams\":%zu,\"sections\":%zu,\"draws\":%zu,\"payload_bytes\":%zu,\"required\":[",
                p.bones, p.components.size(), p.streams.size(), p.sections.size(), p.draws.size(), p.payload.size());
         for (size_t i = 0; i < p.lists.size(); ++i) printf("%s%u", i ? "," : "", p.lists[i].required);
-        printf("]}\n");
+        printf("],\"materials\":%s,\"images\":%zu,\"profiles\":%zu}\n", p.materials ? "true" : "false", p.images.size(), p.profiles.size());
         return 0;
     }
     Model m;
@@ -181,6 +285,7 @@ int main(int argc, char** argv)
     { auto d = valid; poke(d, payload + m.remap_data, uint16_t(2000)); reject(d, "remap source outside the window refused"); }
     check(p.decode(valid, why), "valid package still accepted after the refusals");
     declaration_tests(p);
+    material_tests(valid);
     check(!is_character_package("character-test-missing.bin"), "a missing file is not a character package");
     printf("character package: %d checks passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;

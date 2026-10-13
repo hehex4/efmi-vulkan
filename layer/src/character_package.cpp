@@ -3,10 +3,13 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
+#include <set>
 
 namespace efvk {
 namespace {
 const char kMagic[] = "EFMICH01";
+const char kMaterialMagic[] = "EFMICH02";
 constexpr size_t kHeader = 48;
 constexpr uint64_t kMaxPayload = 512ull << 20;
 
@@ -21,6 +24,81 @@ bool open_file(const std::string& path, std::ifstream& in)
     in.open(wide.c_str(), std::ios::binary | std::ios::ate);
     return bool(in);
 }
+
+// Bounded material envelope. The embedded mesh must be v1, so envelopes cannot recurse.
+bool decode_materials(const std::vector<uint8_t>& file, CharacterPackage& output, std::string& reason)
+{
+    auto fail = [&](const char* text) { reason = text; return false; };
+    if (file.size() < 32) return fail("truncated character material envelope");
+    const uint64_t mesh_size = at<uint64_t>(file.data() + 8), size = at<uint64_t>(file.data() + 16);
+    if (mesh_size < kHeader || mesh_size > kMaxPayload + (4u << 20) || size < 24 || size > (4u << 20) ||
+        file.size() != 32 + mesh_size + size || at<uint32_t>(file.data() + 28) ||
+        std::memcmp(file.data() + 32, kMagic, 8)) return fail("invalid character material envelope");
+    if (at<uint32_t>(file.data() + 24) != crc32c(0, file.data() + 32, file.size() - 32))
+        return fail("character material checksum mismatch");
+    CharacterPackage next;
+    if (!next.decode(std::vector<uint8_t>(file.begin() + 32, file.begin() + 32 + static_cast<size_t>(mesh_size)), reason)) return false;
+    const uint8_t* p = file.data() + 32 + mesh_size;
+    const uint8_t* end = file.data() + file.size();
+    const uint32_t images = at<uint32_t>(p), profiles = at<uint32_t>(p + 4), draws = at<uint32_t>(p + 8);
+    next.material_vendor = at<uint32_t>(p + 12); next.material_device = at<uint32_t>(p + 16);
+    const uint32_t policy = at<uint32_t>(p + 20); p += 24;
+    if (images > 64 || !profiles || profiles > 256 || draws != next.draws.size() || policy > 1 ||
+        (policy ? (!next.material_vendor || !next.material_device) : (next.material_vendor || next.material_device)))
+        return fail("character material dimensions or policy invalid");
+    for (uint32_t i = 0; i < images; ++i) {
+        if (end - p < 4) return fail("truncated image path");
+        const uint32_t length = at<uint32_t>(p); p += 4;
+        if (!length || length > 4096 || uint64_t(end - p) < length) return fail("image path outside budget");
+        std::string path(reinterpret_cast<const char*>(p), length); p += length;
+        if (path.find('\0') != std::string::npos ||
+            !MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), length, nullptr, 0) ||
+            !std::filesystem::u8path(path).is_absolute()) return fail("image path must be absolute UTF-8");
+        next.images.push_back(std::move(path));
+    }
+    bool uses_policy = false;
+    for (uint32_t i = 0; i < profiles; ++i) {
+        if (end - p < 8) return fail("truncated material profile");
+        const uint32_t words = at<uint32_t>(p), rules = at<uint32_t>(p + 4); p += 8;
+        if (words < 5 || words > (1u << 20) || rules > 128 || uint64_t(words) * 4 + uint64_t(rules) * 16 > uint64_t(end - p))
+            return fail("material profile outside budget");
+        CharacterMaterialProfile profile;
+        profile.code.resize(words); std::memcpy(profile.code.data(), p, words * 4); p += words * 4;
+        if (profile.code[0] != 0x07230203) return fail("material profile is not SPIR-V");
+        for (const auto& other : next.profiles) if (other.code == profile.code) return fail("duplicate material profile");
+        std::set<uint32_t> logical;
+        std::set<std::pair<uint32_t, uint32_t>> physical;
+        for (uint32_t j = 0; j < rules; ++j, p += 16) {
+            CharacterMaterialRule r = {at<uint32_t>(p), at<uint32_t>(p + 4), at<uint32_t>(p + 8), at<uint32_t>(p + 12)};
+            if (r.slot >= 128 || !logical.insert(r.slot).second || r.kind < 1 || r.kind > 3 ||
+                (r.kind == CharacterMaterialRule::Absent ? (r.set || r.binding) :
+                 (r.set >= 3 || !physical.emplace(r.set, r.binding).second))) return fail("invalid material rule");
+            if (r.kind == CharacterMaterialRule::ZeroFile) {
+                if (!policy) return fail("dimension compatibility requires an explicit device policy");
+                uses_policy = true;
+            }
+            profile.rules.push_back(r);
+        }
+        next.profiles.push_back(std::move(profile));
+    }
+    if (bool(policy) != uses_policy) return fail("unused material compatibility policy");
+    for (uint32_t i = 0; i < draws; ++i) {
+        if (end - p < 4) return fail("truncated pixel bindings");
+        const uint32_t count = at<uint32_t>(p); p += 4;
+        if (count > 128 || uint64_t(count) * 8 > uint64_t(end - p)) return fail("pixel bindings outside budget");
+        std::vector<CharacterPixel> pixels;
+        std::set<uint32_t> slots;
+        for (uint32_t j = 0; j < count; ++j, p += 8) {
+            CharacterPixel pixel = {at<uint32_t>(p), at<uint32_t>(p + 4)};
+            if (pixel.slot >= 128 || !slots.insert(pixel.slot).second || (pixel.asset != kCharacterNone && pixel.asset >= images))
+                return fail("invalid character image reference");
+            pixels.push_back(pixel);
+        }
+        next.pixels.push_back(std::move(pixels));
+    }
+    if (p != end) return fail("trailing material bytes");
+    next.materials = true; output = std::move(next); return true;
+}
 } // namespace
 
 bool is_character_package(const std::string& path)
@@ -30,7 +108,7 @@ bool is_character_package(const std::string& path)
     char magic[8];
     in.seekg(0);
     in.read(magic, 8);
-    return in && !std::memcmp(magic, kMagic, 8);
+    return in && (!std::memcmp(magic, kMagic, 8) || !std::memcmp(magic, kMaterialMagic, 8));
 }
 
 bool CharacterPackage::load(const std::string& path, std::string& reason)
@@ -38,7 +116,7 @@ bool CharacterPackage::load(const std::string& path, std::string& reason)
     std::ifstream in;
     if (!open_file(path, in)) { reason = "character package missing or path is not UTF-8"; return false; }
     const auto size = in.tellg();
-    if (size < static_cast<std::streamoff>(kHeader) || static_cast<uint64_t>(size) > kMaxPayload + (4u << 20)) {
+    if (size < static_cast<std::streamoff>(kHeader) || static_cast<uint64_t>(size) > kMaxPayload + (8u << 20) + 32) {
         reason = "character package outside size budget"; return false;
     }
     std::vector<uint8_t> data(static_cast<size_t>(size));
@@ -51,6 +129,7 @@ bool CharacterPackage::load(const std::string& path, std::string& reason)
 bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& reason)
 {
     reason.clear();
+    if (file.size() >= 8 && !std::memcmp(file.data(), kMaterialMagic, 8)) return decode_materials(file, *this, reason);
     auto fail = [&](const char* text) { reason = text; return false; };
     if (file.size() < kHeader || std::memcmp(file.data(), kMagic, 8)) return fail("unsupported character package");
     uint32_t words[8];

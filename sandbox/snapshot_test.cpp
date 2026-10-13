@@ -156,6 +156,24 @@ int main()
         DrawSnapshots s(h<VkDevice>(1),dispatch());
         check(s.create_shared(host_only,limits,2,1,145) && last_type==0,"without device memory the host can write, host memory is used");
     }
+    {
+        DrawSnapshots s(h<VkDevice>(1),dispatch());
+        auto owner=std::make_shared<int>(9);retained=owner;
+        check(s.create_shared(memory,limits,3,1,145,65536,1),"shared bones support command-owned material images");
+        std::vector<uint8_t> bones(145,0x42);InstanceEntry entry{};SnapshotSlot a,b,out{h<VkDescriptorSet>(999),999};
+        auto before=mapped;const auto descriptors_before=image_descriptors;
+        check(!s.append_shared(bones.data(),bones.size(),1,entry,{{h<VkImageView>(91),{}}},out) &&
+              s.used()==0 && s.slices_used()==0 && mapped==before && image_descriptors==descriptors_before && out.offset==999,
+              "invalid shared image consumes no bone slice, bytes, descriptors or output");
+        check(s.append_shared(bones.data(),bones.size(),1,entry,{{h<VkImageView>(91),owner}},a) &&
+              s.append_shared(bones.data(),bones.size(),1,entry,{{h<VkImageView>(92),owner}},b) && s.slices_used()==1 &&
+              image_descriptors[a.set][0]==h<VkImageView>(91) && image_descriptors[b.set][0]==h<VkImageView>(92),
+              "two shared-bone draws retain different image bindings");
+        s.seal();owner.reset();
+        check(!retained.expired() && !s.append_shared(bones.data(),bones.size(),1,entry,out),
+              "sealed shared material keeps owners and rejects further writes");
+    }
+    check(retained.expired() && live.empty(),"shared material resources release with the command owner");
     printf("draw snapshots: %d checks passed, %d failed\n",passed,failed);
     return failed?1:0;
 }

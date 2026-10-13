@@ -27,7 +27,7 @@ static void vkcheck(VkResult r, const char* name)
 
 #define INSTANCE_FUNCS(X) \
     X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) X(GetPhysicalDeviceQueueFamilyProperties) \
-    X(GetPhysicalDeviceMemoryProperties) X(CreateDevice) X(GetDeviceProcAddr)
+    X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceFeatures) X(CreateDevice) X(GetDeviceProcAddr)
 #define DEVICE_FUNCS(X) \
     EFVK_VARIANT_FUNCS(X) \
     X(DestroyDevice) X(GetDeviceQueue) X(DeviceWaitIdle) X(CreateImage) X(DestroyImage) \
@@ -109,7 +109,7 @@ public:
         if (instance) vkDestroyInstance(instance, nullptr);
     }
 
-    void init()
+    void init(bool enable_bc=false)
     {
         HMODULE lib = LoadLibraryW(L"vulkan-1.dll");
         if (!lib) throw std::runtime_error("Vulkan loader");
@@ -154,6 +154,8 @@ public:
         VkDeviceQueueCreateInfo q = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         q.queueFamilyIndex = family; q.queueCount = 1; q.pQueuePriorities = &priority;
         VkDeviceCreateInfo dc = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO}; dc.queueCreateInfoCount = 1; dc.pQueueCreateInfos = &q;
+        VkPhysicalDeviceFeatures supported{},features{};
+        if(enable_bc){vkGetPhysicalDeviceFeatures(physical,&supported);features.textureCompressionBC=supported.textureCompressionBC;dc.pEnabledFeatures=&features;}
         VK(vkCreateDevice(physical, &dc, nullptr, &device));
 #define X(n) vk##n = reinterpret_cast<PFN_vk##n>(vkGetDeviceProcAddr(device, "vk" #n)); if (!vk##n) throw std::runtime_error("vk" #n);
         DEVICE_FUNCS(X)
@@ -201,6 +203,21 @@ public:
 
 #include "m2_gpu_case.h"
 #include "character_gpu_case.h"
+
+static void run_character_assets(Gpu& g,uint32_t expected)
+{
+    const std::string marker="\"images_ready\":"+std::to_string(expected);
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(15);
+    bool ready=false;
+    do{
+        VK(vkQueueSubmit(g.queue,0,nullptr,VK_NULL_HANDLE));
+        Sleep(10);
+        const auto status=self_probe("{\"cmd\":\"status\"}","character-assets.json");
+        ready=status.find(marker)!=std::string::npos;
+    }while(!ready && std::chrono::steady_clock::now()<deadline);
+    check(ready,"actual character DDS files reach Ready through the layer's queue service");
+    VK(vkDeviceWaitIdle(g.device));
+}
 
 static void run(Gpu& g, bool use_rp2,bool material)
 {
@@ -454,7 +471,8 @@ static void run(Gpu& g, bool use_rp2,bool material)
 
 int wmain(int argc, wchar_t** argv)
 {
-    bool rp2 = false, canary = false, m2 = false, material=false, character=false;
+    bool rp2 = false, canary = false, m2 = false, material=false, character=false, reject_late=false;
+    uint32_t character_assets=0;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--inject") && i + 1 < argc) {
             if (!LoadLibraryW(argv[++i])) return 2;
@@ -463,16 +481,19 @@ int wmain(int argc, wchar_t** argv)
         else if (!wcscmp(argv[i], L"--m2")) m2 = true;
         else if (!wcscmp(argv[i], L"--character")) character = true;
         else if (!wcscmp(argv[i], L"--material")) material = true;
+        else if (!wcscmp(argv[i], L"--character-reject-late")) reject_late = true;
+        else if (!wcscmp(argv[i], L"--character-assets") && i+1<argc) character_assets=static_cast<uint32_t>(_wtoi(argv[++i]));
     }
     try {
-        Gpu g; g.init();
+        Gpu g; g.init(character_assets!=0);
         if (canary) {
             VkBufferCreateInfo bad = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO}; bad.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkBuffer handle = VK_NULL_HANDLE;
             check(vkCreateBuffer(g.device, &bad, nullptr, &handle) == VK_ERROR_VALIDATION_FAILED_EXT,
                   "validation aborts the deliberate zero-size buffer");
-        } else if (m2) run_m2(g, rp2);
-        else if (character) run_character(g, rp2);
+        } else if (character_assets) run_character_assets(g,character_assets);
+        else if (m2) run_m2(g, rp2);
+        else if (character) run_character(g, rp2,material,reject_late);
         else run(g, rp2,material);
     } catch (const std::exception& e) { printf("FAILED: %s\n", e.what()); failed++; }
     printf("validation: errors=%u warnings=%u\n", errors.load(), warnings.load());

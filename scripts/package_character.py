@@ -9,8 +9,8 @@ Inputs, all read-only:
   initialization evaluated them (scripts/check_core_skeleton.py);
 - the mesh and remap files those name.
 
-The package holds meshes and bones only. Textures are not part of it: a replaced draw keeps the
-game's own material. It is a fixed snapshot of one scenario, not an INI interpreter: keys,
+The default package holds meshes and bones. --textures adds static pixel bindings and exact
+fragment profiles. It is a fixed snapshot of one scenario, not an INI interpreter: keys,
 conditions and reloads do not exist at run time. Output goes to this project's build folder.
 
 With ``--check`` the saved game bundles given are replayed against the package: every matched
@@ -149,6 +149,7 @@ def build(args) -> dict:
 
     streams = Streams()
     lists, draws, components = [], [], []
+    images, pixels = [], []
     runs = {(r["section"], r["lod"]): r for r in plans["runs"] if r["scenario"] == args.scenario}
     found = entries(text, namespace)
     callbacks = {}
@@ -179,10 +180,30 @@ def build(args) -> dict:
             if run is None:
                 raise ValueError(f"no plan for {callback} at LOD {lod} in scenario {args.scenario}")
             bound_vb, bound_ib, first = {}, None, len(draws)
+            bound_pixel = {}
             for item in run["items"]:
                 op = item["op"]
-                if op in (OP_PIXEL, OP_EXTERNAL):
-                    continue  # textures and the core's texture pass are not part of this package
+                if op == OP_EXTERNAL:
+                    if args.textures and item.get("external") != "commandlist\\efmiv1\\overridetextures":
+                        raise ValueError("Static material package does not implement this external callback")
+                    continue  # Core source-identity queries remain outside the static scenario.
+                if op == OP_PIXEL:
+                    if args.textures:
+                        slot, binding = item["slot"], item.get("file_binding")
+                        if not 0 <= slot < 128:
+                            raise ValueError("Pixel slot outside the material limit")
+                        if binding:
+                            if binding["usage"]:
+                                raise ValueError("Pixel binding must be an image")
+                            path = str(Path(binding["path"]).resolve())
+                            if path not in images:
+                                images.append(path)
+                            bound_pixel[slot] = images.index(path)
+                        elif item.get("resource") is None:
+                            bound_pixel[slot] = NONE
+                        else:
+                            raise ValueError("Unresolved static pixel binding")
+                    continue
                 if op == OP_VERTEX or op == OP_INDEX:
                     binding = item.get("file_binding")
                     if not binding:
@@ -209,6 +230,7 @@ def build(args) -> dict:
                         raise ValueError(f"{callback}: unsupported draw item")
                     draws.append({"index": bound_ib, "count": item["count"], "first": item["first"], "base": item["base"],
                                   "vb": [bound_vb.get(s, NONE) for s in range(4)]})
+                    pixels.append(dict(bound_pixel))
                 else:
                     raise ValueError(f"{callback}: unknown plan operation {op}")
             pair.append(len(lists))
@@ -275,13 +297,20 @@ def build(args) -> dict:
     header = MAGIC + struct.pack("<8IQ", skeleton["bones"], len(components), len(table), len(sections), len(lists),
                                  len(draws), len(edits), crc32c(bytes(body) + bytes(payload)), len(payload))
     data = header + bytes(body) + bytes(payload)
+    materials = None
+    if args.textures:
+        from character_materials import build_materials
+        data, materials = build_materials(data, images, pixels, args.material_slots, args.dx11_dimension_zero)
+    elif args.dx11_dimension_zero:
+        raise ValueError("Dimension compatibility requires --textures")
     out = args.out.resolve()
     if not out.is_relative_to(ROOT):
         raise ValueError("package output must stay in this project")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(data)
     report = {
-        "scope": "meshes and bones of one scenario; no textures, keys, conditions or reload",
+        "scope": "meshes, bones and optional static materials of one scenario; no keys, conditions or reload",
+        "materials": materials,
         "ini": {"path": str(ini), "sha256": ini_hash},
         "plans": {"path": str(args.plans.resolve()), "sha256": sha(args.plans), "scenario": args.scenario,
                   "host_executable_sha256": plan_report.get("executable_sha256")},
@@ -404,6 +433,9 @@ def main() -> int:
     ap.add_argument("--skeleton", type=Path, default=ROOT / "build/xxmi-host/core-skeleton-plan.json")
     ap.add_argument("--scenario", type=int, default=0, help="scenario of the plans (0: declared defaults)")
     ap.add_argument("--out", type=Path, default=ROOT / "build/character/character.bin")
+    ap.add_argument("--textures", action="store_true", help="include static hosted pixel bindings and verified fragment profiles")
+    ap.add_argument("--material-slots", type=Path, default=ROOT / "docs/arcane-texture-slots.json")
+    ap.add_argument("--dx11-dimension-zero", type=Path, help="explicit invalid-dimension compatibility, bound to the measured hardware report")
     ap.add_argument("--check", type=Path, action="append", default=[], help="saved game bundle to replay against the package")
     args = ap.parse_args()
     report = build(args)

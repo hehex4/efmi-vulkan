@@ -1,12 +1,14 @@
-# Whole-character backend (builds 0.10.0 and 0.9.5)
+# Whole-character backend (0.9.6, earlier mesh builds 0.10.0 and 0.9.5)
 
 Numbering: 0.10.0 was named before the project's version rule (AGENTS.md); in the sequence it is 0.9.4, and 0.9.5 follows it.
 
 Replaces every draw of one mod's character with the mod's meshes, skinned with one merged skeleton
-per character instance, and hides the components the mod deletes. The game's own material is
-kept: textures are not part of this step. Verified in the sandbox and against saved game frames.
+per character instance, and hides the components the mod deletes. Since 0.9.6, an optional
+material envelope also replaces static pixel images through the shared resource and variant
+helpers; details and verification are in [character-materials.md](character-materials.md).
+The mesh-only package retains the game's material. Verified in the sandbox and saved frames.
 Build 0.10.0 ran in the game on 2026-10-13: the mod's outfit is on screen, with a flicker at LOD 0
-that 0.9.5 addresses (last section). 0.9.5 itself has not been in the game.
+that 0.9.5 addresses (last section). The included fix and 0.9.6 materials await a new game check.
 
 It is a fixed snapshot of the mod in one state of its variables, not an INI interpreter: no keys,
 conditions or reloads at run time. The general route (hosting the original XXMI engine in the
@@ -115,14 +117,16 @@ except component 10's draw in a depth-only pass on a four-set pipeline, which th
 Smoke with the deployed settings and the real package: 0.10.0, backend ready, 31,950,446 bytes
 in device memory, validation clean (`build/character-actual-config-dist.json`).
 
-Not verified: anything in the game. Variant creation by the game's driver for these
-declarations, appearance, animation and cost are the next session's questions.
+These paragraphs describe the original mesh-only sandbox checkpoint. The later first game
+result is recorded below. 0.9.6 adds validated driver creation of 105 historical material
+pipeline combinations and actual-file uploads; appearance, motion and cost of that build
+remain questions for the next user-started session.
 
 ## Limits
 
-- No textures. The mod's meshes carry the mod's texture coordinates and are shaded with the
-  game's textures, so colors are wrong wherever the layouts differ. Shape, animation and the
-  hidden components are what this step shows.
+- Mesh-only packages keep the game's textures. The optional 0.9.6 material package uses
+  exact-fragment profiles and per-draw images; unknown or unavailable contracts keep the
+  complete original component. Runtime Core source-identity queries are still outside it.
 - One scenario of the mod's variables, fixed when the package is built.
 - A component drawn on a four-set pipeline, instanced or in a secondary command buffer keeps the
   original draw (LIMIT-023 for the first). So does one with pushed descriptors at set 3.

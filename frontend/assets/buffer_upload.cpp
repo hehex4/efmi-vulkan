@@ -99,6 +99,7 @@ bool BufferUpload::record(uint32_t graphics_family)
     VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     ai.commandPool=pool_;ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ai.commandBufferCount=1;
     if(!result(d_.AllocateCommandBuffers(device_,&ai,&command_),"allocate mesh upload command"))return false;
+    if(d_.SetDeviceLoaderData && !result(d_.SetDeviceLoaderData(device_,command_),"initialize mesh upload dispatch"))return false;
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if(!result(d_.BeginCommandBuffer(command_,&bi),"begin mesh upload"))return false;
     VkBufferCopy copy{0,0,size_};d_.CmdCopyBuffer(command_,stage_,buffer_,1,&copy);
