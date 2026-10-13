@@ -6,24 +6,26 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. The 0.9.7 user-started session passed material initialization and the user reported correct-looking textures, but LOD0 flicker persisted. Source/build/next/dist are now 0.9.8, deployed at 17:59 after normal exit; the four-set visibility-pass correction passes offline/sandbox checks and dist asset smoke but awaits a user-started game session. T-027 hosted runtime integration remains distinct from T-028's deployed static package. Original XXMI executes offline plans; its interpreter is not linked into the current DLL. No new game observation or code change was made for the architecture explanation.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 1.0.1. Latest-session log proves a game load in PID 27816; the user tentatively reports correct-looking models and textures. No game process or probe remains at review time. Next: scoped LOD0/LOD1 movement/effect acceptance, correlate remaining identity events, and the first in-game module exchange (T-029); then after-images and live INI/Core integration for this character. T-027 hosted runtime remains distinct from T-028's static package: original XXMI executes offline plans and is not linked into the current DLL. No new code or module exchange was made in this review.
 
 ## Tasks and follow-ups
 
 ### T-029: Deployment without leaving the game (requested by the user on 2026-10-13; 1.0.1 deployed; first exchange in the game outstanding)
 
-State 2026-10-13, 20:25: implemented as described in docs/hot-swap.md. Remaining: deploy 1.0.1 with the game closed; the first exchange in the game; then use scripts/hot_swap.py for changes of the replacement logic. Ideas not done: warming the new backend's variants before it takes over, so that an exchange shows no frame of the game's model.
+State 2026-10-13, post-session review: implemented and deployed as described in docs/hot-swap.md; the latest game log proves that 1.0.1 loaded. Remaining: the first exchange in the game; then use scripts/hot_swap.py for changes of the replacement logic. No exchange appears in the latest log, and no build/hot-swaps.json ledger exists. Ideas not done: warming the new backend's variants before it takes over, so that an exchange shows no frame of the game's model.
 
 Decision of the user, 2026-10-13: write the replacement logic as a module of its own; whether to swap it into the running game is the agent's choice, for instance to verify a change of the replacement logic right away. Recorded in AGENTS.md. Point 4 below is thereby settled.
 
-The user asked for a way to deploy while the game runs and for the agent to refresh the deployed state itself. A loaded DLL cannot be replaced, and the tracker's state (every object the game created since start-up) cannot be rebuilt by a second copy of the layer. Proposed shape, to be confirmed before work starts:
+The user asked for a way to deploy while the game runs and for the agent to refresh the deployed state itself. A loaded DLL cannot be replaced, and the tracker's state (every object the game created since start-up) cannot be rebuilt by a second copy of the layer. The original proposal below is now implemented; its permission question was settled by the user's standing authorization recorded above:
 1. Host and module. The injected DLL keeps the hooks and the tracker and is not replaced during a session. The character backend with what it owns (variants, snapshots, skeleton, package, materials) is built a second time as a module DLL behind the ten functions of `character_backend.h`; the built-in copy stays the default, so nothing changes without a module.
 2. A probe command loads a module from a file copied to a unique name, checks an interface stamp made from the shared headers (a module built against other tracker structures is refused and needs a restart), creates its backend, and swaps the active one between draws. The old backend stops replacing and is released when its last command buffer is; old modules stay mapped until the process ends.
 3. Sandbox proof before any game use: swap in the middle of a scene under validation, with draws before and after replaced and nothing leaked; refusal of a mismatched module.
 4. Rule to settle with the user first (AGENTS.md says the layer is not loaded into the real game without the user saying so on the spot): a swap loads new code into the running game. Either each swap is announced and approved, or the user gives a standing permission and it is written into AGENTS.md.
 Limits known in advance: changes to the tracker or to shared structures still need a restart; a crash in a new module is a crash of the game.
 
-### T-028: Whole character from a static package (1.0.1 deployed, with the frame boundary fix of 1.0.0; game check next)
+### T-028: Whole character from a static package (1.0.1 game load and user appearance report; scoped acceptance remains)
+
+Latest evidence: captures/user-review-1.0.1-20261013/ archives PID 27816's 1.0.1 session. The user reports models and textures seem fine, without specifying movement, LOD or effect coverage. Fifty nearby identity creations, including 38 within zero counted frames, still need correlation with actual actions; they do not establish a visible defect. No live counter or frame was collected because the game had exited. Do not close BUG-011 solely from either the tentative appearance report or these uncorrelated lines.
 
 Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
 
@@ -280,7 +282,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The 0.9.6 game session revealed a queue-initialization refusal. After normal exit, 0.9.7 was deployed and verified on dist. The user starts the next game session; the agent must not start it. Verify actual whole-character textures at LOD0/LOD1 and the earlier flicker fix. No repeated bone capture, tiny-part visual check or duration-only test is required.
+- The user reports correct-looking models and textures in the latest 1.0.1 session; no game process remains at review time. A later user-started session can complete scoped LOD0/LOD1 movement/effect checks, correlate identity diagnostics and verify the first module exchange. Module exchange is covered by standing authorization in AGENTS.md; game starts remain the user's. No repeated bone capture, tiny-part visual check or duration-only test is required.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
