@@ -14,6 +14,7 @@ void HostCompileList(const wchar_t* name,CommandList* pre,CommandList* post)
 void HostParseConstants() { ParseConstantsSection(); }
 void HostEnumerateLists() { EnumerateExplicitCommandListSections(); }
 void HostParseResources() { ParseResourceSections(); }
+void HostParseTextureOverrides() { ParseTextureOverrideSections(); }
 void HostCompileNamedList(const wchar_t* name)
 {
     auto& list=explicitCommandListSections.at(name);
@@ -21,12 +22,12 @@ void HostCompileNamedList(const wchar_t* name)
 }
 // Compile only the original command graph reachable from a selected root.
 // Native boundaries are enumerated first and never parsed as graphics commands.
-void HostCompileGraph(const std::wstring& root,const std::vector<std::wstring>& natives)
+static void compile_graph(std::vector<ExplicitCommandListSection*> pending,const std::vector<CommandList*>& roots,
+                          const std::vector<std::wstring>& natives)
 {
     std::unordered_map<ExplicitCommandListSection*,std::wstring> names;
     for(auto& pair:explicitCommandListSections)names.emplace(&pair.second,pair.first);
     std::unordered_set<ExplicitCommandListSection*> compiled;
-    std::vector<ExplicitCommandListSection*> pending{&explicitCommandListSections.at(root)};
     std::function<void(CommandList&,size_t)> visit=[&](CommandList& list,size_t depth){
         if(depth>256)throw std::runtime_error("Original command graph nesting budget exceeded");
         for(auto& command:list.commands){
@@ -40,6 +41,7 @@ void HostCompileGraph(const std::wstring& root,const std::vector<std::wstring>& 
             }
         }
     };
+    for(auto* root:roots)if(root)visit(*root,0);
     while(!pending.empty()){
         auto* section=pending.back();pending.pop_back();
         if(!compiled.insert(section).second)continue;
@@ -48,6 +50,14 @@ void HostCompileGraph(const std::wstring& root,const std::vector<std::wstring>& 
         if(std::find(natives.begin(),natives.end(),name)!=natives.end())continue;
         HostCompileNamedList(name.c_str());visit(section->command_list,0);visit(section->post_command_list,0);
     }
+}
+void HostCompileGraph(const std::wstring& root,const std::vector<std::wstring>& natives)
+{
+    compile_graph({&explicitCommandListSections.at(root)},{},natives);
+}
+void HostCompileRoots(const std::vector<CommandList*>& roots,const std::vector<std::wstring>& natives)
+{
+    compile_graph({},roots,natives);
 }
 // Callback-only offline inspection. Core pools/dynamic resources are outside
 // this fixture; their existence is not implied by these file declarations.

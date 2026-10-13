@@ -97,6 +97,7 @@ def main() -> int:
                     ROOT / "layer/src/merged_skeleton.cpp"]
         sources += [ROOT / "frontend/xxmi/spatial_palettes.cpp"]
         sources += [fixture / "core_native_test.cpp"]
+        sources += [fixture / "core_component_test.cpp", ROOT / "frontend/xxmi/component_bridge.cpp"]
         sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in
                     ("DDSTextureLoader", "WICTextureLoader")]
         sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
@@ -109,6 +110,7 @@ def main() -> int:
         inputs += [ROOT / "frontend/xxmi/palette_files.h", ROOT / "frontend/core/palette_bank.h",
                    ROOT / "layer/src/merged_skeleton.h"]
         inputs += [ROOT / "frontend/xxmi/spatial_palettes.h"]
+        inputs += [ROOT / "frontend/xxmi/component_bridge.h"]
         report["source_sha256"] = {str(p): digest(p) for p in sorted(set(inputs))}
         includes = [ROOT / "frontend/xxmi", ROOT / "frontend/assets", Path(find_vulkan_include()),
                     port, pristine, upstream, upstream / "HLSLDecompiler",

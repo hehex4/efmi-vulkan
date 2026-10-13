@@ -114,3 +114,38 @@ ambiguous results and changed lifetime flags. The 24 direct palette tests, 283
 historical records and 384 actual callback plans remain passing. Native component
 execution and GPU/layer handoff are still open. Evidence remains under
 build/xxmi-host/core-spatial-report.json and build/shared-palettes/report.json.
+
+## Original component entry bridge (standalone CPU)
+
+CoreComponentBridge prepares one retained generation's original initialization,
+then accepts a resolved single rolling-buffer instance and selected original
+TextureOverride pre/post roots. Native boundaries cover config/window access,
+initialization, attachment, source selection and complete palette application.
+Original component matching, spatial classification, instance iteration,
+callback selection and cleanup execute unchanged. An observer immediately after
+original spatial identification collects all component bone providers, including
+mesh-empty callbacks during the original first-frame wait. Import continuity is
+invalidated on incomplete identification, while later material/readiness failure
+must retain valid imported bones. Metadata mutations refuse until re-prepared.
+
+The generic adapter resolves root post aliases after pre execution and publishes
+one atomic plan. Active command nesting is bounded independently of the original
+semantic recursion counter, which does not count every flow-control branch.
+No hand-written per-component or replacement instance-iteration loop is used.
+
+scripts/check_core_components.py exercises actual original index-hash/range
+matching against 283 saved records, each frame repeated for two synthetic updates.
+It verifies 566 plans: 283 original first-frame skips, 137 intentional empty
+callbacks, and 370 custom indexed draws. Every draw argument, patched entry and
+complete immutable palette equals an independent reference. Five isolated groups
+have separate identity epochs. Four controls reject an invalid profile and changed
+metadata, recover after restoration and preserve the disabled original branch.
+Native bridge checks 14, spatial 21 and shared palette 24/283 also pass.
+
+The fixture explicitly enables the sample instead of claiming implemented mod
+registration/UI. ComponentInput requires resolved original DX CB slots, exact
+entry/current/previous CPU windows, and one instance. Only LOD0/LOD1 are supported.
+OverrideTextures remains an explicit unresolved event (283 calls), so these plans
+cannot yet be submitted as complete GPU replacements. No new animation evidence,
+rendered material result, DLL integration or game run is implied. Report:
+build/core-components/report.json.

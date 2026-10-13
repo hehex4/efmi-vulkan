@@ -42,6 +42,8 @@ public:
     void external(ExplicitCommandListSection& section, const std::wstring& name);
     using NativeCommand=std::function<bool(CommandListState&,unsigned,std::wstring&)>;
     void native(ExplicitCommandListSection&,const std::wstring& name,NativeCommand);
+    // Keep original list execution, then observe its evaluated CPU state.
+    void after(ExplicitCommandListSection&,NativeCommand);
     // Invoke an adapted callback from a native command inside the same bounded
     // transaction. A refused nested call makes that transaction fail even when
     // its caller accidentally ignores the returned false.
@@ -53,6 +55,7 @@ public:
     // effects are not rolled back. Callers use a fresh CommandListState.
     bool execute(CommandList& root, CommandListState& state, DrawPlan& output,
                  std::wstring& reason);
+    bool execute_pair(CommandList& pre,CommandList& post,CommandListState&,DrawPlan&,std::wstring& reason);
     // CPU declaration references are snapshots, not D3D resources. The frontend
     // generation must outlive these pointers. Pool resources are supported only
     // for nonexpiring direct-index pools until runtime identity is connected.
@@ -63,6 +66,7 @@ public:
     // refusal never falls through to the reference D3D graphics scaffolding.
     void resource_queries(ResourceQuery);
 private:
+    bool execute_impl(CommandList& pre,CommandList* post,CommandListState&,DrawPlan&,std::wstring&);
     void adapt_tree(CommandList& root, size_t depth);
     std::shared_ptr<Runtime> runtime_;
 };

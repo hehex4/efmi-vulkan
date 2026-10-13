@@ -220,3 +220,14 @@ PaletteBank owns complete CPU masters by explicit identity epochs, independent o
 SpatialPalettes couples PaletteBank to observed original Core spatial results. It retains tokens only across observed original proximity/expiration continuity and retires masters on expiry, distant slot reuse or explicit invalidation. It never selects an original pool slot. Its owner must observe every successful identification and invalidate after failed execution or pool reset; see docs/core-skeleton.md.
 
 DrawPlanAdapter now supports explicit native handlers and bounded nested original callback invocation with sticky transaction failure. Optional immutable PaletteSnapshot owners travel through indexed PlanItem, FilePlanItem and resolved FileDraw without inheriting across draws. Missing native handlers remain External and block file-draw execution. EFMI Core builtin implementation and DLL linkage are still separate integration work.
+
+
+CoreComponentBridge connects one prepared original skeleton to bounded CPU
+rolling-buffer inputs. It keeps original texture-override matching, spatial
+state, iteration and callbacks; native operations supply evaluated config,
+skeleton attachment/source selection and owned complete palettes. A post-original
+spatial observer imports providers even during first-frame skips. Plans retain
+one compact immutable palette per draw; no component-specific rendering path.
+Pre/post roots execute atomically with a separate native stack budget. Material
+OverrideTextures, complete profile resolution and DLL emission remain open.
+Historical two-update replay is synthetic CPU evidence, not game animation.

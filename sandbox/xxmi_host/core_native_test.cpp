@@ -37,6 +37,13 @@ $result = $result + 2
 post $result = $result + 100
 [CommandListRetargeted]
 post $result = $result + 9
+[CommandListPair]
+$result = 2
+post $result = $result + 3
+post drawindexed = 3, $result, 0
+[CommandListPairBad]
+drawindexed = 3, 0, 0
+post dispatch = 1, 1, 1
 )",L"core-native.ini");
     HostEnumerateLists();HostParseConstants();
     const std::wstring ns=L"commandlist\\core_native\\";
@@ -66,9 +73,9 @@ post $result = $result + 9
     adapter.palette_source([&](CommandListState&,std::shared_ptr<const efmi::core::PaletteSnapshot>& out,std::wstring& reason){
         if(!palette_ready){reason=L"Character bones incomplete";return false;}out=master;return true;
     });
-    for(auto name:{L"root",L"callback",L"bad",L"unresolved",L"alias",L"retarget",L"retargeted"})HostCompileNamedList((ns+name).c_str());
+    for(auto name:{L"root",L"callback",L"bad",L"unresolved",L"alias",L"retarget",L"retargeted",L"pair",L"pairbad"})HostCompileNamedList((ns+name).c_str());
     optimise_command_lists(nullptr);
-    for(auto name:{L"root",L"callback",L"bad",L"unresolved",L"alias",L"retarget",L"retargeted"}){
+    for(auto name:{L"root",L"callback",L"bad",L"unresolved",L"alias",L"retarget",L"retargeted",L"pair",L"pairbad"}){
         auto& section=explicitCommandListSections.at(ns+name);adapter.adapt(section.command_list);adapter.adapt(section.post_command_list);
     }
     HackerContext context;std::wstring reason;DrawPlan plan;
@@ -91,6 +98,15 @@ post $result = $result + 9
     palette_ready=true;check(execute(root.command_list) && plan.items[0].first_index==7,"a failed transaction does not poison the next valid execution");
     efmi::assets::FilePlan owned;CustomResources resources;FilePlanCompiler compiler(resources);
     check(compiler.compile(plan,owned,reason) && owned.items[0].palette==master,"owned file plans preserve the native palette owner");
+    auto run_pair=[&](const wchar_t* name){
+        auto& pair=explicitCommandListSections.at(ns+name);CommandListState state;state.mHackerContext=&context;
+        const bool ok=adapter.execute_pair(pair.command_list,pair.post_command_list,state,plan,reason);
+        return ok && !state.post;
+    };
+    check(run_pair(L"pair") && plan.items.size()==1 && plan.items[0].first_index==5,
+          "root pre/post execute in one transaction and restore caller phase");
+    check(!run_pair(L"pairbad") && plan.items.size()==1 && plan.items[0].first_index==5,
+          "a late root post failure discards all earlier draw commands");
     master.reset();saved.reset();plan={};
     check(!weak.expired() && owned.items[0].palette->identity==37,"compiled native palette data outlives its source plan");
     check(execute(explicitCommandListSections.at(ns+L"unresolved").command_list) && plan.items.size()==1 &&

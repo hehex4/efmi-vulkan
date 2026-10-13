@@ -13,6 +13,7 @@ struct Refused : std::exception {
 };
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
+constexpr size_t max_active_depth = 64;
 struct QueryService {DrawPlanAdapter::ResourceQuery read;size_t count=0;};
 class NativeResourceQuery final : public CommandListEvaluatable {
 public:
@@ -173,10 +174,12 @@ struct DrawPlanAdapter::Runtime {
     std::unordered_set<CommandList*> adapted;
     struct External {std::wstring name;DrawPlanAdapter::NativeCommand command;};
     std::unordered_map<ExplicitCommandListSection*,External> externals;
+    std::unordered_map<ExplicitCommandListSection*,DrawPlanAdapter::NativeCommand> observers;
     std::unordered_map<CustomResource*,CustomResource*> references;
     std::shared_ptr<QueryService> queries=std::make_shared<QueryService>();
     DrawPlanAdapter::PaletteSource palette_source;
     bool nested_failed=false;
+    size_t active_depth=0;
 
     CustomResource* referenced(CustomResource* resource) const
     {
@@ -205,6 +208,8 @@ struct DrawPlanAdapter::Runtime {
     {
         if (!active) refuse(L"Planner command invoked outside a transaction");
         if (++steps > max_steps) refuse(L"Plan execution budget exceeded");
+        if(active_depth>=max_active_depth)refuse(L"Native command stack budget exceeded");
+        ++active_depth;struct Depth {size_t& value;~Depth(){--value;}} depth{active_depth};
         if (state->recursion >= MAX_COMMAND_LIST_RECURSION)
             refuse(L"Plan recursion budget exceeded");
         if (auto* draw = dynamic_cast<DrawCommand*>(original.get())) {
@@ -303,6 +308,12 @@ struct DrawPlanAdapter::Runtime {
                 !adapted.count(call->command_list_section->post_command_list.ResolveCommandList()))
                 refuse(L"Call target was not adapted: " + original->ini_line);
             original->run(state);
+            auto observer=observers.find(call->command_list_section);
+            if(observer!=observers.end()){
+                std::wstring reason;const unsigned phases=call->run_pre_and_post_together?3:state->post?2:1;
+                if(!observer->second(*state,phases,reason) || nested_failed)
+                    refuse(reason.empty()?L"Original command observer refused":reason);
+            }
             return;
         }
         if (dynamic_cast<SkipCommand*>(original.get())) {
@@ -385,6 +396,13 @@ void DrawPlanAdapter::native(ExplicitCommandListSection& section,const std::wstr
     if(!command)refuse(L"Native command handler is empty");
     external(section,name);runtime_->externals.at(&section).command=std::move(command);
 }
+void DrawPlanAdapter::after(ExplicitCommandListSection& section,NativeCommand command)
+{
+    if(!command || runtime_->active || !runtime_->adapted.empty() || runtime_->externals.count(&section))
+        refuse(L"Register an original command observer before adaptation");
+    runtime_->observers[&section]=std::move(command);
+    section.command_list.runtime_populated=section.post_command_list.runtime_populated=true;
+}
 void DrawPlanAdapter::palette_source(PaletteSource source)
 {
     if(runtime_->active || !runtime_->adapted.empty())refuse(L"Install native palette source before adaptation");
@@ -461,6 +479,14 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
 bool DrawPlanAdapter::execute(CommandList& root, CommandListState& state,
                               DrawPlan& output, std::wstring& reason)
 {
+    return execute_impl(root,nullptr,state,output,reason);
+}
+bool DrawPlanAdapter::execute_pair(CommandList& pre,CommandList& post,CommandListState& state,DrawPlan& output,std::wstring& reason)
+{
+    return execute_impl(pre,&post,state,output,reason);
+}
+bool DrawPlanAdapter::execute_impl(CommandList& root,CommandList* post,CommandListState& state,DrawPlan& output,std::wstring& reason)
+{
     reason.clear();
     auto* resolved = root.ResolveCommandList();
     if (runtime_->active || !runtime_->adapted.count(resolved) || !state.mHackerContext ||
@@ -469,10 +495,16 @@ bool DrawPlanAdapter::execute(CommandList& root, CommandListState& state,
         return false;
     }
     DrawPlan candidate;
-    auto saved_layout = state.input_layout_overrides;
-    runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;
+    auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
+    runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     try {
+        if(post)state.post=false;
         for (auto& command : resolved->commands) command->run(&state);
+        if(post){
+            resolved=post->ResolveCommandList();
+            if(!runtime_->adapted.count(resolved))refuse(L"Root post callback target was not adapted");
+            state.post=true;for(auto& command:resolved->commands)command->run(&state);
+        }
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         output = std::move(candidate);
     } catch (const Refused& error) {
@@ -481,7 +513,7 @@ bool DrawPlanAdapter::execute(CommandList& root, CommandListState& state,
         reason = L"Frontend raised an exception while planning";
     }
     runtime_->active = nullptr;
-    state.input_layout_overrides = std::move(saved_layout);
+    state.input_layout_overrides = std::move(saved_layout);state.post=saved_post;
     // The state is throwaway, but leave nesting counters usable for diagnostics.
     state.recursion = state.extra_indent = 0;
     return reason.empty();

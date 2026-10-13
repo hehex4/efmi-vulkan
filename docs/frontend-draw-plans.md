@@ -175,3 +175,10 @@ validation errors/warnings, original spatial 21, shared palette 24 plus 283 save
 records, and all 384 sample callback scenarios. Reports build/xxmi-host/report.json,
 build/assets-gpu/report.json and build/shared-palettes/report.json. No layer
 source/build/version change, new game data or deployment.
+
+
+The original-list observer and execute_pair APIs now retain actual Core iteration
+and pre/post lifecycle. Root pre/post execute as one plan transaction; late post
+failure preserves the prior output and caller phase. A separate 64-level active
+command-stack budget guards original flow-control nesting as well as named calls.
+The full historical component fixture and limits are in docs/core-skeleton.md.
