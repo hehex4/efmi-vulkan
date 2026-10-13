@@ -14,6 +14,7 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 Review, 2026-10-13 (second agent, at the user's request; implementation and design). No defect found in 0.9.2/0.9.3 or the standalone frontend; every suite was rebuilt and rerun independently with the documented counts. The architecture follows plan D2/D4 and section 4 and is judged sound. Points to settle before the frontend is linked into the DLL, in this order:
 
+0. In preparation since 2026-10-13, 12:04: point 1 below. Package `build/m2-component7-visible.bin`, settings file switched, waiting for the user to restart the game; details and what to look for are at the top of CURRENT_STATE.md.
 1. A visible check in the game comes first. No replaced draw has been seen to render correctly yet: component 7 has the original positions. The existing 0.9.1 path with a deliberately altered copy of the package (project-owned bytes, for example displaced positions) would confirm skinning, entry patch, variant and restoration on a real character in one short session.
 2. LIMIT-023: four-set pipelines; private set index from the layout; skip and bone import must not depend on the variant preflight; one counter per refusal condition.
 3. LIMIT-021 needs a decision, not a permanent refusal: eleven of 370 historical draws stay original otherwise. On this machine's DX11 driver the mismatched binding read zero in the headless test, which is what explicit null reproduces; that is a named policy for the user to accept, not a default.

@@ -2,6 +2,16 @@
 
 > Last updated: 2026-10-13, full original entry/Core CPU replay verified offline. Source/build/next are 0.9.3; dist remains 0.9.1 with component 7 enabled. Full layer regression passes. The standalone hosted frontend passes 23 CPU plus 28 planner checks and 384 sample callback plans; it is not linked into the DLL. The user confirmed voluntary game exit. The live 0.9.1 backend replaced component-7 draws; appearance and animation are not accepted. Continue offline T-027/D-033 toward the whole character; no separate handwritten component implementations. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
 
+## Visible replacement check prepared; waits for a restart of the game by the user (2026-10-13, 12:04)
+
+The user chose the first recommendation of the review: see a replaced draw render in the game before anything else. Layer and binaries are unchanged (dist/ 0.9.1, both DLLs `d2850254...`). Only the package changes: `scripts/package_visible_check.py` derives `build/m2-component7-visible.bin` (SHA-256 `6d395edbe94b5401fd3f3e676dc7026a2864d07cbf02b17f990f0c40540fac4f`) from the reviewed package. The 20 vertices of the strip with x < 0 are scaled 3.5 times about that strip's centroid and moved 1 cm towards -y; the strip grows from 3.5 x 1.5 cm to 12.4 x 5.1 cm. The other strip, texture coordinates, blend data, indices and the match profile are byte-identical. The decoder of the deployed 0.9.1 (`dist/efmi_vk_mesh_test.exe --inspect`) accepts it.
+
+`dist/efmi_vk.cfg` now names that package (backup `build/backups/efmi_vk.cfg-before-visible-check-20261013-120426`; `m2_enabled = 1` as before). The settings file is read when the DLL loads: Endfield PID 31340, started by the user at 11:57 under Vulkan, keeps the old package until it exits. No sandbox run was made with the new settings because the game was running; no launcher edit, no game start or stop by the agent.
+
+What the draw is, from the saved 0.9.1 frame (pipeline 368, draws 86 and 87): depth test greater-or-equal without depth write, stencil test equal under mask 0x14, back-face culling, and multiplicative blending (source factor zero, destination factor source color). The strips darken what is under them, and only on pixels the stencil admits. Expected with a correct replacement: around one eye a much larger darkened patch that stays on the face, follows the head and deforms with the eyelid; the other eye as before. Wrong skinning would show as a patch that is missing, detached, stretched or jittering. `{"cmd":"m2","enabled":0}` on the pipe returns to the original draws for a direct comparison. If nothing differs at all, the result is inconclusive (texture content or stencil may hide the patch), not a pass.
+
+After the check: restore the settings file from the backup, or set the package the next step needs.
+
 ## 0.9.3 material pipeline and command ownership (sandbox only)
 
 Reviewed on 2026-10-13, 12:00 (second agent; implementation and design, see the session log and T-027): every suite rebuilt and rerun independently with the documented counts, no defect found, architecture judged sound. Open points recorded under T-027; new LIMIT-023 (a matched draw on a four-set pipeline, which the variant design cannot take). The review's first recommendation is a visible replacement check in the game before the frontend is linked into the DLL.
