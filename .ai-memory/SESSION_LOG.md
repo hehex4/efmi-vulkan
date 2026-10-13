@@ -673,3 +673,25 @@ pass. Logs build/file-draw-bindings-{gpu,host,mod,fragments}.txt. Memory/docs sy
 This is standalone frontend/assets work, with no layer/deployment/game/config or
 installed-asset change. Source/build/next remain 0.9.3 and dist 0.9.1. Continue
 shared character/Core identity and bone completeness before the next game test.
+
+## 2026-10-13: Execute original skeleton initialization and read its evaluated pools
+
+Added bounded original CPU pool writes/reads, pool references and dynamic callback
+aliases to command mediation. Declaration references snapshot metadata instead of
+creating D3D resources. Guard direct indices against nonfinite/out-of-range casts;
+reject cyclic/unsupported operations and expiring resource aliases. Variable writes
+conservatively invalidate declaration aliases in a mixed pool. CPU effects remain
+nontransactional while refused draw output stays unchanged.
+
+The skeleton adapter copies evaluated original offsets/counts/remap references into
+owned metadata and validates a complete partition, preserving sparse/empty component
+ids. Original sample initialization gives 499 bones, 8 instances, 13 declared slots,
+12 active components and 8 exact R16 remap files. LOD2/3 remain unassigned. Native GPU
+initialization stays an explicit unresolved event, not a claimed successful no-op.
+
+Host tests pass 23/28/19/15 plus Core pools 11 and skeleton metadata 10. The actual
+initialization matches the independent earlier literal reference; all 384 callback
+plans/404 draw ranges still pass. Reports build/xxmi-host/{report,core-skeleton-report,
+mod-plan-report}.json; logs build/core-skeleton-{host,metadata,mod-plans}.txt.
+No layer/deployment/game/config/installed-asset change. Continue original spatial
+identification and shared skeleton completeness before whole-character emission.

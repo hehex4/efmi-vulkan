@@ -3,6 +3,7 @@
 #include <limits>
 #include <stdexcept>
 #include <typeinfo>
+#include <climits>
 
 namespace efmi::frontend {
 namespace {
@@ -12,16 +13,52 @@ struct Refused : std::exception {
 };
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
+class PoolIndexGuard final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListEvaluatable> source;
+    CustomResourcePool* pool;
+    PoolIndexGuard(std::shared_ptr<CommandListEvaluatable> value,CustomResourcePool* owner):source(std::move(value)),pool(owner){}
+    float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
+        auto* resolved=pool->ResolvePool();
+        if(!resolved->GetPoolSize() || resolved->GetPoolSize()>max_steps)refuse(L"Pool size outside planner budget");
+        const float value=source->evaluate(state,device);
+        if((resolved->index_type==PoolIndexType::RING || resolved->index_type==PoolIndexType::STATIC) &&
+           (!std::isfinite(value) || double(value)<INT_MIN || double(value)>INT_MAX))refuse(L"Direct pool index outside signed integer range");
+        return value;
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
+bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>&,size_t);
+bool cpu_target(const ResourceCopyTarget& target,size_t depth=0)
+{
+    return depth<=256 && (!target.custom_resource_pool || target.custom_resource_pool->GetPoolSize()<=max_steps) &&
+        (!target.pool_dynamic_index_expression || cpu_expression(target.pool_dynamic_index_expression->evaluatable,depth+1)) &&
+        (!target.slot_expression || cpu_expression(target.slot_expression->evaluatable,depth+1));
+}
 
 // Inspect the original expression tree without reimplementing its evaluator.
 // Unadapted resource/window queries must not reach the reference D3D context.
 bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t depth = 0)
 {
     if (!node || depth > 256) return false;
+    if(const auto* guard=dynamic_cast<PoolIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if (const auto* operand = dynamic_cast<CommandListOperand*>(node.get())) {
         switch (operand->type) {
         case ParamOverrideType::VALUE: return true;
         case ParamOverrideType::VARIABLE: return operand->var_ftarget != nullptr;
+        case ParamOverrideType::TEXTURE: {
+            const auto& target=operand->texture_filter_target;
+            if(!target.custom_resource_pool || !cpu_target(target,depth+1))return false;
+            switch(target.evaluation_mode){
+            case ResourceCopyTargetEvaluationMode::VARIABLE:
+            case ResourceCopyTargetEvaluationMode::POOL_SIZE:
+            case ResourceCopyTargetEvaluationMode::POOL_INDEX:
+            case ResourceCopyTargetEvaluationMode::POOL_IDENTITY:
+            case ResourceCopyTargetEvaluationMode::POOL_LAST_FRAME:return true;
+            default:return false;
+            }
+        }
         case ParamOverrideType::VERTEX_COUNT: case ParamOverrideType::INDEX_COUNT:
         case ParamOverrideType::INSTANCE_COUNT: case ParamOverrideType::FIRST_VERTEX:
         case ParamOverrideType::FIRST_INDEX: case ParamOverrideType::FIRST_INSTANCE:
@@ -37,6 +74,40 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
     return false;
 }
 
+void guard_expression(std::shared_ptr<CommandListEvaluatable>&,size_t=0);
+void guard_target(ResourceCopyTarget& target,size_t depth=0)
+{
+    if(depth>256)refuse(L"Pool expression nesting budget exceeded");
+    if(target.pool_dynamic_index_expression){
+        auto& expression=target.pool_dynamic_index_expression->evaluatable;guard_expression(expression,depth+1);
+        if(target.custom_resource_pool && !dynamic_cast<PoolIndexGuard*>(expression.get()))
+            expression=std::make_shared<PoolIndexGuard>(expression,target.custom_resource_pool);
+    }
+    if(target.slot_expression)guard_expression(target.slot_expression->evaluatable,depth+1);
+}
+void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,size_t depth)
+{
+    if(depth>256)refuse(L"Pool expression nesting budget exceeded");
+    if(auto* operand=dynamic_cast<CommandListOperand*>(node.get()))guard_target(operand->texture_filter_target,depth+1);
+    else if(auto* op=dynamic_cast<CommandListOperator*>(node.get())){
+        if(op->lhs)guard_expression(op->lhs,depth+1);if(op->rhs)guard_expression(op->rhs,depth+1);
+    }
+}
+void guard_arguments(CommandListCommand& command)
+{
+    if(auto* draw=dynamic_cast<DrawCommand*>(&command)){
+        const int count=draw->type==DrawCommandType::DRAW_INDEXED?3:draw->type==DrawCommandType::DRAW_INDEXED_INSTANCED?5:0;
+        for(int i=0;i<count;++i)guard_expression(draw->args[i].evaluatable);
+    }else if(auto* branch=dynamic_cast<IfCommand*>(&command))guard_expression(branch->expression.evaluatable);
+    else if(auto* assignment=dynamic_cast<AssignmentCommand*>(&command)){
+        guard_expression(assignment->expression.evaluatable);
+        if(auto* pool=dynamic_cast<PoolVariableOperation*>(assignment))guard_target(pool->dst);
+    }else if(auto* binding=dynamic_cast<ResourceCopyOperation*>(&command)){guard_target(binding->src);guard_target(binding->dst);}
+    else if(auto* layout=dynamic_cast<LayoutElementOperation*>(&command)){
+        if(layout->dst.member_args[1].expression)guard_expression(layout->dst.member_args[1].expression->evaluatable);
+    }else if(auto* batch=dynamic_cast<ShaderResourceBindBatch*>(&command))for(auto& binding:batch->operations)if(binding)guard_arguments(*binding);
+}
+
 bool cpu_arguments(CommandListCommand& command)
 {
     if (auto* draw = dynamic_cast<DrawCommand*>(&command)) {
@@ -46,9 +117,10 @@ bool cpu_arguments(CommandListCommand& command)
     } else if (auto* branch = dynamic_cast<IfCommand*>(&command)) {
         return cpu_expression(branch->expression.evaluatable);
     } else if (auto* assignment = dynamic_cast<AssignmentCommand*>(&command)) {
-        return cpu_expression(assignment->expression.evaluatable);
+        const auto* pool=dynamic_cast<PoolVariableOperation*>(assignment);
+        return cpu_expression(assignment->expression.evaluatable) && (!pool || cpu_target(pool->dst));
     } else if (auto* binding = dynamic_cast<ResourceCopyOperation*>(&command)) {
-        return !binding->dst.slot_expression || cpu_expression(binding->dst.slot_expression->evaluatable);
+        return cpu_target(binding->src) && cpu_target(binding->dst);
     } else if (auto* layout = dynamic_cast<LayoutElementOperation*>(&command)) {
         return layout->dst.member_args[1].expression &&
                cpu_expression(layout->dst.member_args[1].expression->evaluatable);
@@ -77,6 +149,23 @@ struct DrawPlanAdapter::Runtime {
     size_t steps = 0, draws = 0;
     std::unordered_set<CommandList*> adapted;
     std::unordered_map<ExplicitCommandListSection*, std::wstring> externals;
+    std::unordered_map<CustomResource*,CustomResource*> references;
+
+    CustomResource* referenced(CustomResource* resource) const
+    {
+        const auto found=references.find(resource);
+        return found==references.end()?resource:found->second;
+    }
+    void direct_resource(const CustomResource* resource)
+    {
+        if(!resource)refuse(L"Missing resource declaration");
+        if(resource->pool){
+            const auto* pool=resource->pool->ResolvePool();
+            if((pool->index_type!=PoolIndexType::RING && pool->index_type!=PoolIndexType::STATIC) ||
+               pool->expiration_timeout_frames!=UINT32_MAX)
+                refuse(L"Resource references require a nonexpiring direct-index pool");
+        }
+    }
 
     void append(PlanItem item)
     {
@@ -123,7 +212,17 @@ struct DrawPlanAdapter::Runtime {
                 dst.evaluation_mode != ResourceCopyTargetEvaluationMode::RESOURCE)
                 refuse(L"Unsupported resource operation: " + original->ini_line);
             PlanItem item;
-            if (dst.type == ResourceCopyTargetType::VERTEX_BUFFER)
+            if(dst.type==ResourceCopyTargetType::CUSTOM_RESOURCE){
+                auto* destination=dst.GetCustomResource(state,true);direct_resource(destination);
+                CustomResource* source=nullptr;
+                if(src.type==ResourceCopyTargetType::CUSTOM_RESOURCE && binding->options==ResourceCopyOptions::REFERENCE){
+                    source=src.GetCustomResource(state);direct_resource(source);source=referenced(source);
+                }else if(src.type!=ResourceCopyTargetType::EMPTY ||
+                         (binding->options!=ResourceCopyOptions::REFERENCE && binding->options!=ResourceCopyOptions::COPY))
+                    refuse(L"Unsupported declaration reference: "+original->ini_line);
+                if(references.size()>=max_steps && !references.count(destination))refuse(L"Declaration reference budget exceeded");
+                references[destination]=source;return;
+            }else if (dst.type == ResourceCopyTargetType::VERTEX_BUFFER)
                 item.operation = PlanOperation::BindVertex;
             else if (dst.type == ResourceCopyTargetType::INDEX_BUFFER)
                 item.operation = PlanOperation::BindIndex;
@@ -137,7 +236,7 @@ struct DrawPlanAdapter::Runtime {
             if (src.type == ResourceCopyTargetType::CUSTOM_RESOURCE &&
                 binding->options == ResourceCopyOptions::REFERENCE) {
                 item.resource = src.GetCustomResource(state);
-                if (!item.resource) refuse(L"Missing resource declaration: " + original->ini_line);
+                direct_resource(item.resource);item.resource=referenced(item.resource);
             } else if (src.type != ResourceCopyTargetType::EMPTY ||
                        (binding->options != ResourceCopyOptions::REFERENCE &&
                         binding->options != ResourceCopyOptions::COPY)) {
@@ -173,10 +272,39 @@ struct DrawPlanAdapter::Runtime {
             active->skip_original = true; // Do not mutate the live caller before GPU readiness.
             return;
         }
-        if (dynamic_cast<IfCommand*>(original.get()) ||
-            typeid(*original) == typeid(VariableAssignment)) {
+        if(auto* variable=dynamic_cast<PoolVariableOperation*>(original.get())){
+            // A variable write may reset a pool's resource element type. Until
+            // mixed resource/scalar pools have an exact lifetime adapter, drop
+            // declaration references conservatively instead of retaining stale aliases.
+            if(auto* pool=variable->dst.custom_resource_pool){
+                pool=pool->ResolvePool();
+                for(auto it=references.begin();it!=references.end();){
+                    if(it->first->pool && it->first->pool->ResolvePool()==pool)it=references.erase(it);else ++it;
+                }
+            }
+            original->run(state);return;
+        }
+        if (dynamic_cast<IfCommand*>(original.get()) || typeid(*original) == typeid(VariableAssignment)) {
             original->run(state);
             return;
+        }
+        if(auto* pool=dynamic_cast<PoolCopyOperation*>(original.get())){
+            if(pool->dst.type!=ResourceCopyTargetType::POOL || pool->src.type!=ResourceCopyTargetType::POOL ||
+               pool->options!=ResourceCopyOptions::REFERENCE || !pool->dst.custom_resource_pool || !pool->src.custom_resource_pool ||
+               !cpu_target(pool->dst) || !cpu_target(pool->src))refuse(L"Unsupported pool operation: "+original->ini_line);
+            auto* destination=pool->dst.custom_resource_pool;auto* source=pool->src.custom_resource_pool;
+            if(destination==source->ResolvePool())refuse(L"Cyclic pool reference");
+            original->run(state);
+            if(destination->ResolvePool()!=source->ResolvePool())refuse(L"Pool reference did not resolve");
+            return;
+        }
+        if(auto* copy=dynamic_cast<CopyCommandListCommand*>(original.get())){
+            if(!copy->dst || (copy->src &&
+               (!adapted.count(copy->src->command_list.ResolveCommandList()) || !adapted.count(copy->src->post_command_list.ResolveCommandList()))))
+                refuse(L"Callback source was not adapted");
+            if(copy->src && (&copy->dst->command_list==copy->src->command_list.ResolveCommandList() ||
+                            &copy->dst->post_command_list==copy->src->post_command_list.ResolveCommandList()))refuse(L"Cyclic callback reference");
+            original->run(state);return;
         }
         if (auto* layout = dynamic_cast<LayoutElementOperation*>(original.get())) {
             if (state->input_layout_overrides.size() >= 256) refuse(L"Layout operation budget exceeded");
@@ -196,8 +324,9 @@ public:
     bool arguments_supported;
     BridgeCommand(std::shared_ptr<CommandListCommand> command,
                   std::shared_ptr<DrawPlanAdapter::Runtime> owner)
-        : original(std::move(command)), runtime(std::move(owner)),
-          arguments_supported(cpu_arguments(*original)) { ini_line = original->ini_line; }
+        : original(std::move(command)), runtime(std::move(owner)) {
+        guard_arguments(*original);arguments_supported=cpu_arguments(*original);ini_line=original->ini_line;
+    }
     void run(CommandListState* state) override {
         if (!arguments_supported) refuse(L"Unadapted expression query: " + ini_line);
         runtime->run(original, state);
@@ -218,6 +347,14 @@ void DrawPlanAdapter::adapt(CommandList& root)
 {
     adapt_tree(root, 0);
 }
+CustomResource* DrawPlanAdapter::referenced_resource(CustomResource* resource) const
+{
+    return runtime_->referenced(resource);
+}
+bool DrawPlanAdapter::has_reference(const CustomResource* resource) const
+{
+    return runtime_->references.count(const_cast<CustomResource*>(resource))!=0;
+}
 
 void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
 {
@@ -235,6 +372,10 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
             if (call->command_list_section && !runtime_->externals.count(call->command_list_section)) {
                 adapt_tree(call->command_list_section->command_list, depth + 1);
                 adapt_tree(call->command_list_section->post_command_list, depth + 1);
+            }
+        } else if(auto* copy=dynamic_cast<CopyCommandListCommand*>(command.get())) {
+            for(auto* target:{copy->src,copy->dst})if(target && !runtime_->externals.count(target)){
+                adapt_tree(target->command_list,depth+1);adapt_tree(target->post_command_list,depth+1);
             }
         }
         command = std::make_shared<BridgeCommand>(command, runtime_);

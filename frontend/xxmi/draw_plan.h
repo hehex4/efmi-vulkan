@@ -42,6 +42,11 @@ public:
     // effects are not rolled back. Callers use a fresh CommandListState.
     bool execute(CommandList& root, CommandListState& state, DrawPlan& output,
                  std::wstring& reason);
+    // CPU declaration references are snapshots, not D3D resources. The frontend
+    // generation must outlive these pointers. Pool resources are supported only
+    // for nonexpiring direct-index pools until runtime identity is connected.
+    CustomResource* referenced_resource(CustomResource* declaration) const;
+    bool has_reference(const CustomResource* declaration) const;
 private:
     void adapt_tree(CommandList& root, size_t depth);
     std::shared_ptr<Runtime> runtime_;

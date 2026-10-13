@@ -89,6 +89,9 @@ def main() -> int:
         sources += [fixture / "plan_test.cpp", fixture / "mod_plan.cpp", ROOT / "frontend/xxmi/draw_plan.cpp"]
         sources += [fixture / "resource_plan_test.cpp", ROOT / "frontend/xxmi/resource_plan.cpp"]
         sources += [fixture / "dds_test.cpp", ROOT / "frontend/assets/dds.cpp"]
+        sources += [fixture / "core_pool_test.cpp"]
+        sources += [fixture / "mod_skeleton.cpp", ROOT / "frontend/xxmi/skeleton_plan.cpp"]
+        sources += [fixture / "skeleton_plan_test.cpp"]
         sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in
                     ("DDSTextureLoader", "WICTextureLoader")]
         sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
@@ -96,6 +99,7 @@ def main() -> int:
         inputs += legacy_sources + sources + list(port.glob("*.h")) + [regex_lib, Path(__file__),
                   ROOT / "frontend/xxmi/draw_plan.h", ROOT / "frontend/assets/dds.h"]
         inputs += [ROOT / "frontend/xxmi/resource_plan.h"] + list((ROOT / "frontend/assets").glob("*.h"))
+        inputs += [ROOT / "frontend/xxmi/skeleton_plan.h"]
         report["source_sha256"] = {str(p): digest(p) for p in sorted(set(inputs))}
         includes = [ROOT / "frontend/xxmi", ROOT / "frontend/assets", Path(find_vulkan_include()),
                     port, pristine, upstream, upstream / "HLSLDecompiler",
@@ -158,9 +162,16 @@ def main() -> int:
         resources = re.search(r"XXMI resource planner: (\d+) checks passed, (\d+) failed", output)
         report["resources_passed"] = int(resources[1]) if resources else 0
         report["resources_failed"] = int(resources[2]) if resources else None
+        pools = re.search(r"XXMI Core pools: (\d+) checks passed, (\d+) failed", output)
+        report["pools_passed"] = int(pools[1]) if pools else 0
+        report["pools_failed"] = int(pools[2]) if pools else None
+        skeleton = re.search(r"XXMI skeleton metadata: (\d+) checks passed, (\d+) failed", output)
+        report["skeleton_passed"] = int(skeleton[1]) if skeleton else 0
+        report["skeleton_failed"] = int(skeleton[2]) if skeleton else None
         report["passed"] = (result.returncode == 0 and bool(counts) and int(counts[2]) == 0
                             and bool(planner) and int(planner[2]) == 0 and bool(dds) and int(dds[2]) == 0
-                            and bool(resources) and int(resources[2]) == 0)
+                            and bool(resources) and int(resources[2]) == 0 and bool(pools) and int(pools[2]) == 0
+                            and bool(skeleton) and int(skeleton[2]) == 0)
         print(counts[0] if counts else f"Host process failed: {result.returncode}", flush=True)
         if planner:
             print(planner[0], flush=True)
@@ -168,6 +179,10 @@ def main() -> int:
             print(dds[0], flush=True)
         if resources:
             print(resources[0], flush=True)
+        if pools:
+            print(pools[0], flush=True)
+        if skeleton:
+            print(skeleton[0], flush=True)
         return 0 if report["passed"] else 1
     except (BuildError, OSError, subprocess.SubprocessError) as exc:
         report["error"] = str(exc)
