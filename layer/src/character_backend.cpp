@@ -25,12 +25,13 @@ constexpr uint64_t kRehashFrames = 256;
 enum Counter : uint32_t {
     C_MATCHED, C_REPLACED, C_ITEMS, C_HIDDEN, C_IDENTIFYING, C_INCOMPLETE, C_PENDING,
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
-    C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_COUNT
+    C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
     "refused_state", "refused_instances", "refused_set3", "refused_pipeline", "refused_vertex", "refused_variant",
-    "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full"
+    "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
+    "restored_set3"
 };
 
 struct GpuMesh {
@@ -49,7 +50,9 @@ struct GpuMesh {
     {
         auto good = [&](VkResult result, const char* text) { if (result == VK_SUCCESS) return true; reason = text; return false; };
         VkBufferCreateInfo ci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-        ci.size = payload.size(); ci.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        // Room behind the last stream: an element may reach past its file's stride (kCharacterOvershoot).
+        const size_t padding = 256;
+        ci.size = payload.size() + padding; ci.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         if (!good(d.CreateBuffer(device, &ci, nullptr, &buffer), "create character mesh buffer")) return false;
         VkMemoryRequirements req; d.GetBufferMemoryRequirements(device, buffer, &req);
         if (req.size > (768ull << 20)) { reason = "character mesh allocation budget exceeded"; return false; }
@@ -65,6 +68,7 @@ struct GpuMesh {
             !good(d.BindBufferMemory(device, buffer, memory, 0), "bind character mesh memory") ||
             !good(d.MapMemory(device, memory, 0, VK_WHOLE_SIZE, 0, &mapped), "map character mesh memory")) return false;
         std::memcpy(mapped, payload.data(), payload.size());
+        std::memset(static_cast<uint8_t*>(mapped) + payload.size(), 0, padding);
         d.UnmapMemory(device, memory);
         return true;
     }
@@ -323,6 +327,11 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     Identity* identity = nullptr;
     std::vector<std::shared_ptr<const PipelineVariant>> variants;
     DrawGeometry original;
+    // The application's own set 3, when it has one bound: the replacement uses that slot, so it is
+    // bound again afterwards exactly as the application bound it.
+    VkPipelineLayout restore_layout = VK_NULL_HANDLE;
+    VkDescriptorSet restore_set = VK_NULL_HANDLE;
+    std::vector<uint32_t> restore_offsets;
     {
         std::shared_lock<std::shared_mutex> lock(device->res_mx);
         uint32_t hash = 0;
@@ -420,7 +429,19 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         if (!list->count) { ++counters[C_HIDDEN]; return true; }
         for (uint32_t c = 0; c < package.components.size(); ++c)
             if ((list->required >> c & 1) && (identity->coverage[c] & dynamic) != dynamic) { ++counters[C_INCOMPLETE]; return false; }
-        if (r.sets[3].set || r.sets[3].pushed) return refuse(C_SET3, "character draw with an application set 3 bound");
+        if (r.sets[3].pushed) return refuse(C_SET3, "character draw with pushed descriptors at set 3");
+        if (r.sets[3].set) {
+            // The tracker keeps a set only while later binds left it valid, so the layout it was
+            // bound with agrees with the current one for sets 0 to 2, and binding it again there
+            // disturbs nothing. Vulkan keeps that layout alive while this recording lasts.
+            const SetBind& app = r.sets[3];
+            auto live = device->pipeline_layouts.find(app.layout_handle);
+            if (!app.layout_handle || !app.layout || app.unsupported || live == device->pipeline_layouts.end() ||
+                live->second != app.layout || (app.dyn_count && uint64_t(app.dyn_first) + app.dyn_count > cb->dyn.size()))
+                return refuse(C_SET3, "character draw with an application set 3 that cannot be bound again");
+            restore_layout = app.layout_handle; restore_set = app.set;
+            restore_offsets.assign(cb->dyn.begin() + app.dyn_first, cb->dyn.begin() + app.dyn_first + app.dyn_count);
+        }
 
         // Restore exactly the vertex bindings the pipeline can read among the four tracked ones.
         uint32_t slots = 0;
@@ -479,6 +500,11 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     cb->m2->variants.insert(cb->m2->variants.end(), variants.begin(), variants.end());
     if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.pipeline, original))
         return refuse(C_VARIANT, "character draw transaction refused");
+    if (restore_layout) {
+        draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, 3, 1, &restore_set,
+                                   static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
+        ++counters[C_SET3_RESTORED];
+    }
     ++counters[C_REPLACED];
     counters[C_ITEMS] += list->count;
     return true;

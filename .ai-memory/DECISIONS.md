@@ -279,3 +279,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Textures are step 2. Step 1 is expected to look wrong in color and right in shape and motion; that is its purpose.
 - Skeleton copies are shared between draws that read the same bytes, and meshes live in device memory the host can write. Both follow from the review (per-draw copies, system-memory vertex data for 385,000 vertices in five passes).
 - One backend per process, chosen by the package's magic; the single-component path of 0.9.1 stays as it is.
+
+## D-036: Borrow slot 3 and give it back; version numbers count in single digits
+
+- Date: 2026-10-13, after the first whole-character session.
+- The private set stays at slot 3. When the application has a set bound there, the replacement is recorded and the application's set is bound again with the layout handle and dynamic offsets it was bound with. This rests on two facts: the tracker drops a set as soon as a later bind disturbs it, so a set it still shows is valid and its layout agrees with the current one for the lower sets; and a layout used in a recording outlives the recording. Refusing was safe and wrong for this game. Moving the private set above the application's sets was considered and dropped: the layout at slot 3 would have to match whatever the application bound there.
+- A stream of the mod that is shorter than the game's is bound as it is, with the elements where the shader expects them, as the source API does; the mesh buffer is padded so the last vertex reads inside it.
+- Version numbers (user, 2026-10-13): three single digits, add one at the right, carry at ten. Recorded in AGENTS.md. The build released as 0.10.0 keeps that name in what was written before; it is 0.9.4 in the sequence.
+

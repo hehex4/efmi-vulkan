@@ -108,6 +108,7 @@ def main():
             checks.check(r["kind"] == "character" and r["configured"] and r["enabled"] and r["ready"], label + " character backend active")
             checks.check(c["replaced"] >= 50 and c["items"] > c["replaced"] and c["hidden"] >= 25, label + " replaced draws, extra items and hidden draws counted")
             checks.check(c["identifying"] >= 3, label + " a new character is drawn by the application first")
+            checks.check(c["restored_set3"] >= 10, label + " the application's set 3 was bound again after replacements")
             refused = {k: v for k, v in c.items() if k.startswith(("refused_", "unreadable_", "import_", "exhausted", "identities_full")) and v}
             checks.equal(refused, {}, label + " no refusal of any kind")
             checks.check(r["identities"] == 2 and r["identities_replaced"] == 1,

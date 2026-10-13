@@ -3,12 +3,15 @@
 #include "variant_fixture.h"
 
 namespace m2_fixture {
-inline std::vector<uint32_t> shader(bool vertex)
+// With `extra`, the fragment shader takes its color from a uniform block at set 3 binding 0
+// instead of the instance entry: a pipeline of the application that needs a fourth set.
+inline std::vector<uint32_t> shader(bool vertex,bool extra=false)
 {
     using namespace spv;
     const Op IAdd=static_cast<Op>(128),IMul=static_cast<Op>(132),Bitcast=static_cast<Op>(124);
     Builder b;
-    auto main=b.id(),bone_var=b.id(),instance_var=b.id(),output=b.id(),pv=b.id();
+    auto main=b.id(),bone_var=b.id(),instance_var=b.id(),output=b.id(),pv=b.id(),extra_var=b.id();
+    extra=extra && !vertex;
     auto position=b.id(),texcoord=b.id(),weights=b.id(),indices=b.id();
     auto tv=b.id(),fn=b.id(),tf=b.id(),tu=b.id(),v2=b.id(),v3=b.id(),v4=b.id(),u4=b.id();
     auto len=b.id(),c0=b.id(),c1=b.id(),c3=b.id(),c5=b.id(),f0=b.id(),f1=b.id(),zero4=b.id();
@@ -19,6 +22,7 @@ inline std::vector<uint32_t> shader(bool vertex)
     else{b.entry_point(ModelFragment,main,"main",{output});b.op(OpExecutionMode,{main,ModeOriginUpperLeft});}
     b.op(OpDecorate,{bone_var,DecorationDescriptorSet,0});b.op(OpDecorate,{bone_var,DecorationBinding,7});
     b.op(OpDecorate,{instance_var,DecorationDescriptorSet,2});b.op(OpDecorate,{instance_var,DecorationBinding,0});
+    if(extra){b.op(OpDecorate,{extra_var,DecorationDescriptorSet,3});b.op(OpDecorate,{extra_var,DecorationBinding,0});}
     b.op(OpDecorate,{bone_type,DecorationBufferBlock});b.op(OpMemberDecorate,{bone_type,0,DecorationOffset,0});
     b.op(OpMemberDecorate,{bone_type,0,DecorationNonWritable});
     b.op(OpDecorate,{instance_type,DecorationBlock});b.op(OpMemberDecorate,{instance_type,0,DecorationOffset,0});
@@ -45,6 +49,7 @@ inline std::vector<uint32_t> shader(bool vertex)
         b.op(OpVariable,{outpv,output,StorageOutput});
     }else b.op(OpVariable,{out4,output,StorageOutput});
     b.op(OpVariable,{pb,bone_var,StorageUniform});b.op(OpVariable,{pi,instance_var,StorageUniform});
+    if(extra)b.op(OpVariable,{pi,extra_var,StorageUniform});
     auto label=b.id();b.op(OpFunction,{tv,main,0,fn});b.op(OpLabel,{label});
     auto load4=[&](uint32_t var,uint32_t index){
         auto ptr=b.id(),value=b.id();b.op(OpAccessChain,{puf,ptr,var,c0,index});b.op(OpLoad,{v4,value,ptr});return value;
@@ -72,7 +77,7 @@ inline std::vector<uint32_t> shader(bool vertex)
         b.op(OpFAdd,{v4,translated,pos4,weighted});b.op(OpFAdd,{v4,moved,translated,instance});b.op(OpFAdd,{v4,final,moved,unused});
         b.op(OpAccessChain,{out4,out,output,c0});b.op(OpStore,{out,final});
     }else{
-        auto tint=load4(bone_var,c0),color=load4(instance_var,c1),result=b.id();b.op(OpFMul,{v4,result,tint,color});b.op(OpStore,{output,result});
+        auto tint=load4(bone_var,c0),color=load4(extra?extra_var:instance_var,c1),result=b.id();b.op(OpFMul,{v4,result,tint,color});b.op(OpStore,{output,result});
     }
     b.op(OpReturn,{});b.op(OpFunctionEnd,{});return b.finish();
 }

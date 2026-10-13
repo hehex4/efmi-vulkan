@@ -7,6 +7,7 @@
 namespace efvk {
 
 constexpr uint32_t kCharacterNone = UINT32_MAX;
+constexpr uint32_t kCharacterOvershoot = 64;
 
 struct CharacterStream {
     enum Kind : uint32_t { Vertex = 0, Index = 1, Remap = 2 };
@@ -60,6 +61,8 @@ struct CharacterPackage {
     // The declaration a replaced draw needs. A stream the draw binds takes the file's stride;
     // an edit changes the format of matching elements of its binding in place. Streams the draw
     // does not bind, the application's default attributes among them, stay as they are.
+    // An element may end up to kCharacterOvershoot bytes past the file's stride: the source API
+    // binds such a file all the same and the shader reads into the next vertex.
     bool vertex_input(const CharacterDraw&, const VertexInputRecipe& source, VertexInputRecipe& output,
                       std::string& reason) const;
 };

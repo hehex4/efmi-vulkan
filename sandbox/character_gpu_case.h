@@ -24,6 +24,26 @@ static void run_character(Gpu& g,bool use_rp2)
         VkShaderModule s;VK(vkCreateShaderModule(g.device,&ci,nullptr,&s));modules.push_back(s);
     }
     VK(recipe.create(g.device,vkCreateGraphicsPipelines,g.layout,g.pass,modules,&g.pipeline));
+    // A second pipeline of the application whose fragment shader reads a fourth set. Its layout agrees
+    // with the character's for sets 0 to 2, so a set 3 bound for it stays valid across the character's
+    // draws, which is the state the game is in when a character draw follows a four-set draw.
+    struct Extra{VkDevice device;VkPipelineLayout layout=VK_NULL_HANDLE;VkPipeline pipeline=VK_NULL_HANDLE;
+        ~Extra(){vkDeviceWaitIdle(device);if(pipeline)vkDestroyPipeline(device,pipeline,nullptr);if(layout)vkDestroyPipelineLayout(device,layout,nullptr);}
+    } four{g.device};
+    {
+        VkDescriptorSetLayoutBinding binding={0,VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr};
+        VkDescriptorSetLayoutCreateInfo ci={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};ci.bindingCount=1;ci.pBindings=&binding;
+        VkDescriptorSetLayout s;VK(vkCreateDescriptorSetLayout(g.device,&ci,nullptr,&s));g.sets.push_back(s);
+        VkPipelineLayoutCreateInfo li4={VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};li4.setLayoutCount=4;li4.pSetLayouts=g.sets.data();
+        VK(vkCreatePipelineLayout(g.device,&li4,nullptr,&four.layout));
+        const auto code=m2_fixture::shader(false,true);
+        VkShaderModuleCreateInfo ci4={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};ci4.codeSize=code.size()*4;ci4.pCode=code.data();
+        VkShaderModule fragment;VK(vkCreateShaderModule(g.device,&ci4,nullptr,&fragment));
+        size_t fs=0;while(recipe.stages[fs].stage!=VK_SHADER_STAGE_FRAGMENT_BIT)++fs;
+        auto with_extra=modules;with_extra[fs]=fragment;
+        VK(recipe.create(g.device,vkCreateGraphicsPipelines,four.layout,g.pass,with_extra,&four.pipeline));
+        vkDestroyShaderModule(g.device,fragment,nullptr);
+    }
     for(auto module:modules)vkDestroyShaderModule(g.device,module,nullptr);
     Image color=g.image(VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
     Image depth=g.image(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -49,43 +69,50 @@ static void run_character(Gpu& g,bool use_rp2)
     float tint[]={0,1,1,1};memcpy(bones.mapped,tint,16);
     // Palettes: a component's bone k is the matrix at offset + 3 + 3 * k; only its first row is used.
     enum{A_CUR=2000,A_PREV=2100,B_CUR=2200,B_PREV=2300,C_CUR=2400,C_PREV=2500,L_CUR=2600,L_PREV=2700,U_CUR=2800,U_PREV=2900,
-         N_CUR=3000,N_PREV=3100};
+         N_CUR=3000,N_PREV=3100,X_CUR=3200,X_PREV=3300,Y_CUR=3400,Y_PREV=3500};
     row(A_CUR+3,-.6f,-.6f);row(A_CUR+6,-.6f,.6f);
     row(B_CUR+3,0,-.6f);row(B_CUR+6,0,0);
     row(C_CUR+3,.6f,-.6f);
     row(L_CUR+3,-.2f,.6f);row(L_CUR+6,-.6f,-.2f);
     row(U_CUR+3,.6f,-.1f);
     row(N_CUR+3,0,.6f);
+    // The two four-set draws stand where components A and B stood before they were replaced.
+    row(X_CUR+3,-.6f,-.6f);row(Y_CUR+3,0,-.6f);
     const uint32_t dynamic=static_cast<uint32_t>(std::max<VkDeviceSize>(256,g.properties.limits.minUniformBufferOffsetAlignment));
-    auto instance=g.buffer(6*dynamic+65536,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    auto instance=g.buffer(8*dynamic+65536,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     auto entry=[&](uint32_t slot,uint32_t current,uint32_t previous,float green,float x=10){
         uint8_t* e=static_cast<uint8_t*>(instance.mapped)+slot*dynamic;
         float shade[]={1,green,0,.5f};memcpy(e+16,shade,16);
         float place[]={x,20,30,1};memcpy(e+48,place,16);
         uint32_t offsets[]={current,previous,258,0x3f800000};memcpy(e+80,offsets,16);
     };
-    enum{E_A,E_B,E_C,E_L,E_U,E_N};
+    enum{E_A,E_B,E_C,E_L,E_U,E_N,E_X,E_Y};
     entry(E_A,A_CUR,A_PREV,1);entry(E_B,B_CUR,B_PREV,.5f);entry(E_C,C_CUR,C_PREV,1);entry(E_L,L_CUR,L_PREV,1);entry(E_U,U_CUR,U_PREV,1);
     // Another object, a quarter of a unit away, that happens to use component B's mesh.
     entry(E_N,N_CUR,N_PREV,1,10.25f);
+    entry(E_X,X_CUR,X_PREV,1,50);entry(E_Y,Y_CUR,Y_PREV,1,50);
+    // The block of the fourth set, read at a nonzero dynamic offset: its color is a quarter green.
+    auto extra=g.buffer(dynamic+65536,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    {float shade[]={1,.25f,0,.5f};memcpy(static_cast<uint8_t*>(extra.mapped)+dynamic+16,shade,16);}
     auto readback=g.buffer(64*64*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1},{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,1}};
-    VkDescriptorPoolCreateInfo pi={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pi.maxSets=3;pi.poolSizeCount=2;pi.pPoolSizes=sizes;
+    VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1},{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,2}};
+    VkDescriptorPoolCreateInfo pi={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pi.maxSets=4;pi.poolSizeCount=2;pi.pPoolSizes=sizes;
     VK(vkCreateDescriptorPool(g.device,&pi,nullptr,&g.descriptors));
-    VkDescriptorSet sets[3];VkDescriptorSetAllocateInfo si={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    si.descriptorPool=g.descriptors;si.descriptorSetCount=3;si.pSetLayouts=g.sets.data();VK(vkAllocateDescriptorSets(g.device,&si,sets));
-    VkDescriptorBufferInfo infos[]={{bones.handle,0,65536},{instance.handle,0,65536}};
-    VkWriteDescriptorSet writes[2]={};
-    for(uint32_t i=0;i<2;++i){writes[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[i].dstSet=sets[i?2:0];writes[i].dstBinding=i?0:7;
+    VkDescriptorSet sets[4];VkDescriptorSetAllocateInfo si={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    si.descriptorPool=g.descriptors;si.descriptorSetCount=4;si.pSetLayouts=g.sets.data();VK(vkAllocateDescriptorSets(g.device,&si,sets));
+    VkDescriptorBufferInfo infos[]={{bones.handle,0,65536},{instance.handle,0,65536},{extra.handle,0,65536}};
+    VkWriteDescriptorSet writes[3]={};
+    for(uint32_t i=0;i<3;++i){writes[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[i].dstSet=sets[i==0?0:i+1];writes[i].dstBinding=i?0:7;
         writes[i].descriptorCount=1;writes[i].descriptorType=i?VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[i].pBufferInfo=&infos[i];}
-    vkUpdateDescriptorSets(g.device,2,writes,0,nullptr);
+    vkUpdateDescriptorSets(g.device,3,writes,0,nullptr);
     VkCommandPoolCreateInfo pc={VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};pc.queueFamilyIndex=g.family;pc.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     VK(vkCreateCommandPool(g.device,&pc,nullptr,&g.pool));
     VkCommandBufferAllocateInfo ca={VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};ca.commandPool=g.pool;ca.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ca.commandBufferCount=1;
     VkCommandBuffer cmd;VK(vkAllocateCommandBuffers(g.device,&ca,&cmd));
 
-    // 0 background, 1 a draw shaded by component A's (or C's, or the unmatched draw's) entry, 2 by B's, 3 anything else.
+    // 0 background, 1 a draw shaded by component A's (or C's, or the unmatched draw's) entry, 2 by B's,
+    // 4 by the block of the fourth set, 3 anything else.
     auto shade_at=[&](float x,float y){
         const uint32_t px=static_cast<uint32_t>((x+1)*32),py=static_cast<uint32_t>((y+1)*32);
         if(px>=64 || py>=64)return 3;
@@ -93,9 +120,10 @@ static void run_character(Gpu& g,bool use_rp2)
         if(p[0]==0 && p[1]==0 && p[2]==255)return 0;
         if(p[0]==0 && p[1]>=126 && p[1]<=129 && p[2]>=126 && p[2]<=129)return 1;
         if(p[0]==0 && p[1]>=62 && p[1]<=66 && p[2]>=126 && p[2]<=129)return 2;
+        if(p[0]==0 && p[1]>=30 && p[1]<=34 && p[2]>=126 && p[2]<=129)return 4;
         return 3;
     };
-    auto frame=[&](bool lod1){
+    auto frame=[&](bool lod1,bool four_sets=false){
         VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};VK(vkBeginCommandBuffer(cmd,&begin));
         VkClearValue clear[2]={};clear[0].color.float32[2]=clear[0].color.float32[3]=1;clear[1].depthStencil.depth=1;
         VkRenderPassBeginInfo bi={VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};bi.renderPass=g.pass;bi.framebuffer=g.framebuffer;
@@ -106,6 +134,15 @@ static void run_character(Gpu& g,bool use_rp2)
         vkCmdBindIndexBuffer(cmd,index.handle,0,VK_INDEX_TYPE_UINT16);
         auto bind=[&](uint32_t slot){uint32_t offset=slot*dynamic;
             vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.layout,0,3,sets,1,&offset);};
+        if(four_sets){
+            // The application draws with its four-set pipeline, then switches to the character's
+            // pipeline and binds only sets 0 to 2: its set 3 stays bound and valid.
+            uint32_t offsets[]={E_X*dynamic,dynamic};
+            vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,four.pipeline);
+            vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,four.layout,0,4,sets,2,offsets);
+            vkCmdDrawIndexed(cmd,3,1,30,0,0);
+            vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
+        }
         if(lod1){bind(E_L);vkCmdDrawIndexed(cmd,12,1,18,0,0);}
         else{bind(E_A);vkCmdDrawIndexed(cmd,3,1,0,0,0);}
         bind(E_B);vkCmdDrawIndexed(cmd,6,1,3,0,0);
@@ -114,6 +151,13 @@ static void run_character(Gpu& g,bool use_rp2)
         bind(E_U);vkCmdDrawIndexed(cmd,3,1,30,0,0);
         // The neighbour draws B's index region with its own entry. It is never the character.
         bind(E_N);vkCmdDrawIndexed(cmd,6,1,3,0,0);
+        if(four_sets){
+            // Back to the four-set pipeline without binding set 3 again: it must be the application's.
+            uint32_t offset=E_Y*dynamic;
+            vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,four.pipeline);
+            vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,four.layout,2,1,&sets[2],1,&offset);
+            vkCmdDrawIndexed(cmd,3,1,30,0,0);
+        }
         vkCmdEndRenderPass(cmd);
         VkBufferImageCopy copy={};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={64,64,1};
         vkCmdCopyImageToBuffer(cmd,color.handle,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,readback.handle,1,&copy);
@@ -148,6 +192,14 @@ static void run_character(Gpu& g,bool use_rp2)
     }
     row(A_CUR+3,-.6f,-.6f);
     check(follows,"20 pose changes of one component move the other component's geometry in the same frame");
+    // As in the game: a character draw recorded while the application has a set 3 bound.
+    bool kept=true;
+    for(uint32_t i=0;i<5;++i){
+        frame(false,true);
+        kept&=shade_at(-.6f,.3f)==1 && shade_at(0,0)==2 && shade_at(.6f,.3f)==2 && shade_at(0,.6f)==1 && shade_at(.6f,-.1f)==1 &&
+              shade_at(.6f,-.6f)==0 && shade_at(-.6f,-.6f)==4 && shade_at(0,-.6f)==4;
+    }
+    check(kept,"with an application set 3 bound the character is still replaced, and the next four-set draw reads that set again");
     // LOD 1 of component A: its palette is in another order and the package remaps it.
     // Merged bone 0 <- source 1 = (-.6,-.2), merged bone 1 <- source 0 = (-.2,.6).
     bool lod=false;

@@ -184,6 +184,8 @@ struct SetBind {
     uint32_t dyn_first = 0;
     uint32_t dyn_count = 0;
     std::shared_ptr<const PipelineLayoutInfo> layout;
+    // The handle the set was bound with; alive at least while the command buffer is being recorded.
+    VkPipelineLayout layout_handle = VK_NULL_HANDLE;
     std::shared_ptr<const DescriptorSetInfo> pushed; // values at record time, retained by each draw
     const char* unsupported = nullptr;
 };

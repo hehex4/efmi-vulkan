@@ -104,7 +104,16 @@ static void declaration_tests(const CharacterPackage& p)
           "streams the pipeline does not declare are ignored");
     auto wide = source;
     wide.bindings[1].stride = 20; wide.attributes[1] = {1, 1, VK_FORMAT_R32G32_SFLOAT, 12};
-    check(!p.vertex_input(p.draws[0], wide, result, why) && !why.empty(), "an element past the file's stride refuses");
+    check(p.vertex_input(p.draws[0], wide, result, why) && result.bindings[1].stride == 8 && result.attributes[1].offset == 12,
+          "an element a little past the file's stride is kept where it is, as the source API reads it");
+    wide.attributes[1].offset = 100;
+    check(!p.vertex_input(p.draws[0], wide, result, why) && !why.empty(), "an element far outside the file's stride refuses");
+    auto unknown = source;
+    unknown.attributes[1].format = VK_FORMAT_R64G64_SFLOAT;
+    check(!p.vertex_input(p.draws[0], unknown, result, why) && !why.empty(), "an element of an unknown format in a replaced stream refuses");
+    auto twice = source;
+    twice.bindings.push_back(twice.bindings[0]);
+    check(!p.vertex_input(p.draws[0], twice, result, why), "a declaration with a repeated binding refuses");
     auto instanced = source;
     instanced.bindings[2].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
     check(!p.vertex_input(p.draws[0], instanced, result, why), "a per-instance stream is not replaced");

@@ -207,28 +207,30 @@ bool CharacterPackage::vertex_input(const CharacterDraw& draw, const VertexInput
                                     std::string& reason) const
 {
     reason.clear();
-    std::vector<VertexStreamPatch> patches;
+    VertexInputRecipe next;
+    // No stream patches: this only checks the source declaration (unique bindings and locations).
+    if (!patch_vertex_streams(source, {}, next, reason)) return false;
     for (uint32_t slot = 0; slot < 4; ++slot) {
         if (draw.vb[slot] == kCharacterNone) continue;
-        const auto binding = std::find_if(source.bindings.begin(), source.bindings.end(), [&](const auto& b) { return b.binding == slot; });
+        const auto binding = std::find_if(next.bindings.begin(), next.bindings.end(), [&](const auto& b) { return b.binding == slot; });
         // A stream the pipeline does not declare is bound and ignored, as under the source API.
-        if (binding == source.bindings.end()) continue;
+        if (binding == next.bindings.end()) continue;
         if (binding->inputRate != VK_VERTEX_INPUT_RATE_VERTEX) { reason = "replaced stream is per instance in the pipeline"; return false; }
-        VertexStreamPatch patch{slot, binding->stride, streams[draw.vb[slot]].stride, {}};
-        bool changed = patch.stride != patch.source_stride;
-        for (const auto& a : source.attributes) {
+        const uint32_t stride = streams[draw.vb[slot]].stride;
+        for (auto& a : next.attributes) {
             if (a.binding != slot) continue;
-            VkFormat format = a.format;
             for (const auto& e : edits)
-                if (e.binding == slot && e.source == a.format) format = e.format;
-            changed |= format != a.format;
-            const bool known = std::any_of(patch.elements.begin(), patch.elements.end(), [&](const auto& x) {
-                return x.source_offset == a.offset && x.source_format == a.format; });
-            if (!known) patch.elements.push_back({a.offset, a.format, a.offset, format});
+                if (e.binding == slot && e.source == a.format) { a.format = e.format; break; }
+            const uint32_t bytes = vertex_format_bytes(a.format);
+            if (!bytes) { reason = "replaced stream has an element of an unknown format"; return false; }
+            if (uint64_t(a.offset) + bytes > uint64_t(stride) + kCharacterOvershoot) {
+                reason = "element far outside the file's stride"; return false;
+            }
         }
-        if (changed) patches.push_back(std::move(patch));
+        binding->stride = stride;
     }
-    return patch_vertex_streams(source, patches, output, reason);
+    output = std::move(next);
+    return true;
 }
 
 } // namespace efvk

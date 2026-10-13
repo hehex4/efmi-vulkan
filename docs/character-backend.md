@@ -1,9 +1,12 @@
-# Whole-character backend (layer 0.10.0)
+# Whole-character backend (builds 0.10.0 and 0.9.5)
+
+Numbering: 0.10.0 was named before the project's version rule (AGENTS.md); in the sequence it is 0.9.4, and 0.9.5 follows it.
 
 Replaces every draw of one mod's character with the mod's meshes, skinned with one merged skeleton
 per character instance, and hides the components the mod deletes. The game's own material is
-kept: textures are not part of this step. Verified in the sandbox and against saved game frames;
-no game process has loaded 0.10.0 yet.
+kept: textures are not part of this step. Verified in the sandbox and against saved game frames.
+Build 0.10.0 ran in the game on 2026-10-13: the mod's outfit is on screen, with a flicker at LOD 0
+that 0.9.5 addresses (last section). 0.9.5 itself has not been in the game.
 
 It is a fixed snapshot of the mod in one state of its variables, not an INI interpreter: no keys,
 conditions or reloads at run time. The general route (hosting the original XXMI engine in the
@@ -54,8 +57,9 @@ under one lock (the mod's state is global, as in the core):
 6. An empty draw list hides the draw. Otherwise every component whose bones the list uses must
    have been imported, a variant of the current pipeline must be ready for each draw of the list
    (built off the draw thread, D8), and the draw must be a single instance in a primary classic
-   render pass without an application set 3. Any refusal keeps the original draw and is counted
-   under its own name.
+   render pass. Any refusal keeps the original draw and is counted under its own name.
+   An application set at slot 3 is no obstacle since 0.9.5: the replacement uses the slot and the
+   application's set is bound again afterwards, with the layout and dynamic offsets it had.
 7. The replacement is one transaction: the patched entry and the skeleton go into the command
    buffer's arena, the mod's draws are emitted with the variant, the application's pipeline,
    vertex and index bindings are restored. Draws that read the same skeleton bytes share one copy
@@ -120,11 +124,32 @@ declarations, appearance, animation and cost are the next session's questions.
   game's textures, so colors are wrong wherever the layouts differ. Shape, animation and the
   hidden components are what this step shows.
 - One scenario of the mod's variables, fixed when the package is built.
-- A component drawn on a four-set pipeline, instanced, in a secondary command buffer or with an
-  application set 3 bound keeps the original draw (LIMIT-023 for the first).
-- A texture coordinate stream whose stride differs from the game's is accepted only when every
-  element still fits; otherwise the draw is refused. The source API would read into the next
-  vertex there.
+- A component drawn on a four-set pipeline, instanced or in a secondary command buffer keeps the
+  original draw (LIMIT-023 for the first). So does one with pushed descriptors at set 3.
+- A stream of the mod shorter than the game's is bound as it is (0.9.5): an element may lie up to
+  64 bytes past the file's stride and then reads into the next vertex, as under the source API.
+  Farther than that refuses.
 - LOD 0 and LOD 1 only.
 - Up to 16 objects are followed; one arena holds 256 draws and 64 skeleton copies per command
   buffer.
+
+## First game session and 0.9.5
+
+2026-10-13, user-started, build 0.10.0, open world. The user reports the model roughly right and
+a flicker at LOD 0 that comes and goes; a screenshot shows the character in the mod's outfit.
+Counters over four seconds (378 frames): matched 23,212, replaced 12,099, hidden 11,030,
+`refused_set3` 82, nothing else refused. Each refusal shows the game's own mesh for that draw in
+that frame. Present intervals with the replacement active: p50 10.2 ms, p99 15.9 ms, none over
+33 ms in the last 2,048.
+
+Why the application has a set 3 there: most pipelines of the game use four sets, and a set bound
+at slot 3 stays valid while three-set pipelines are drawn with compatible layouts. The saved
+frames used before the session happened to show no such draw among the matched ones.
+
+0.9.5 binds the application's set again after the replacement (`restored_set3`). The sandbox
+scene gained the same situation: a four-set pipeline draws, the character follows, the four-set
+pipeline draws again without binding set 3; validation would report a set that is missing or
+bound with another layout. Against 0.10.0 the scene fails with `refused_set3` 10. Counts with
+0.9.5: decoder 40, character scene 53 over four runs. Whether the flicker is gone in the game is
+the next session's question.
+

@@ -225,3 +225,12 @@ account for every refused draw, because one fallback is one frame of the origina
 ## LIMIT-024: What the whole-character backend of 0.10.0 does not do
 
 No textures: the mod's meshes are shaded with the game's textures. One scenario of the mod's variables, fixed when the package is built; keys and conditions do nothing. A draw that is instanced, in a secondary command buffer, in dynamic rendering, on a pipeline that is not three sets, or with an application set 3 bound keeps the original, each under its own counter. A texture coordinate stream whose stride differs from the game's is accepted only if every element still fits. Identity is the position in the instance entry: two characters of the same mod standing in the same 12.5 cm cell would be one object. LOD 0 and 1 only. Nothing of this has run in the game; see `docs/character-backend.md`.
+
+## BUG-006: Character draws refused while the application had a set 3 bound (build 0.10.0; fixed in 0.9.5)
+
+The replacement binds its private set at slot 3. Both backends refused a draw when the tracker showed an application set there, to avoid overwriting it. In this game most draws bind four sets and a set 3 stays valid across the three-set character draws, so the refusal hit about one character draw in 150 (82 in 378 frames, live counters of 2026-10-13) and each one showed the game's own mesh for a frame: the flicker the user saw at LOD 0. The same condition explains the 227 refusals of the 0.9.1 session. 0.9.5 keeps the handle of the layout a set was bound with and binds the application's set 3 again after the replacement. Verified in the sandbox with a scene that fails against the old build; the game confirmation is pending. The single-component backend of 0.9.1 still refuses; it is not in use.
+
+## LIMIT-025: Shadow passes of a LOD 0 character read partly LOD 1 poses
+
+Found offline on 2026-10-13 from two saved LOD 0 world frames while looking for the flicker; not its cause. The first shadow pass draws LOD 1 meshes and imports their remapped poses; the second shadow pass draws LOD 0 meshes, and a component drawn early there reads the LOD 1 poses of components that come later (component 2 for components 1 and 9, matrix terms differing by up to 0.4). Both passes are depth only on a D16 target. The passes with color attachments read the same bones as the frame's final state. The core imports by the same rule under DX11. A master per LOD would separate them.
+

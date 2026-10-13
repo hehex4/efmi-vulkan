@@ -62,6 +62,8 @@ struct VertexStreamPatch {
     uint32_t binding = 0, source_stride = 0, stride = 0;
     std::vector<VertexElementPatch> elements;
 };
+// Bytes one element of a vertex format occupies; 0 for a format this code does not know.
+uint32_t vertex_format_bytes(VkFormat);
 // Every element in a replaced stream must be explicitly covered. Unreplaced streams,
 // including stride-zero application defaults, survive unchanged. Failure is atomic.
 bool patch_vertex_streams(const VertexInputRecipe&, const std::vector<VertexStreamPatch>&,

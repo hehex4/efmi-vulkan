@@ -1,6 +1,26 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-13, 12:55. Source, build/next and dist/ are 0.10.0: a whole-character backend that draws all of the sample's meshes with one merged skeleton per character and hides the components the mod deletes, with the game's own textures (docs/character-backend.md, T-028, D-035). Sandbox and saved-frame checks pass; deployed with the package enabled; no game process has loaded it. Next: a user-started Vulkan session to see it. The standalone hosted frontend of 0.9.3 (T-027) is unchanged and not linked into the DLL. The live 0.9.1 session replaced component 7 without a visual verdict. The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+> Last updated: 2026-10-13, 13:35. The whole-character backend ran in the game (build 0.10.0, which is 0.9.4 under the version rule of AGENTS.md): the user sees the mod's outfit, with an intermittent flicker at LOD 0. The live counters name the cause, character draws refused while the application has a set 3 bound. Source and build/next are 0.9.5, which binds that set again after the replacement instead of refusing; full suite and smoke pass. The user closed the game and 0.9.5 was deployed to dist/ at 13:28 (backup build/backups/before-0.9.5-20261013-132836/, both DLLs 2c0ae798..., smoke with the real settings passes; the suite was not repeated on dist/, the files are byte-identical to the tested ones). Next: a user-started session to confirm that the flicker is gone. Textures are step 2 (T-028). The stutter fix remains 0.7.3's WC reads (D-027). Protocol 1, server 0.1.0.
+
+## First whole-character session in the game; flicker traced to set 3; 0.9.5 deployed (2026-10-13, 13:35)
+
+Loads in the real game, replaces in the real game. The user started Vulkan; Endfield PID 41888 loaded build 0.10.0 at 12:57 (log: character package configured, 21 sections, mesh uploaded to device memory). The user reports the model "roughly fine" and sent a screenshot of the character in the mod's outfit in the open world, and reports that LOD 0 flickers now and then. The agent neither started nor stopped the game. Appearance beyond that report, animation quality and LOD 1 were not judged.
+
+Live counters, read twice four seconds apart (378 frames): matched 23,212, replaced 12,099, hidden 11,030, `refused_set3` 82, every other refusal 0, no `incomplete`, `pending` or `exhausted`. Totals at 13:05: matched 2,665,586, replaced 1,359,667, items 3,442,115, hidden 1,278,664, identifying 3,033, pending 2,414, `refused_set3` 20,782, `refused_vertex` 1,025; one identity; `last_reason` "character draw with an application set 3 bound". So about one character draw in 150 fell back to the game's own mesh for a frame: the flicker. It is also the unexplained refusal of the 0.9.1 session (227 of 57,751).
+
+Present intervals with the replacement active, last 2,048: mean 10.5 ms, p50 10.2, p95 13.0, p99 15.9, max 23.7; 19 over 16 ms, none over 33 ms. No like-for-like figure without the replacement was taken in this session.
+
+Fix, 0.9.5. A set the tracker still shows at slot 3 is valid by Vulkan's rules, and the layout it was bound with agrees with the current one for sets 0 to 2. The tracker now keeps that layout's handle (`SetBind::layout_handle`); the backend records its replacement and then binds the application's set 3 again with that layout and its dynamic offsets (`restored_set3` counts it). Pushed descriptors at set 3 still refuse. The sandbox scene now does what the game does: a four-set pipeline draws, the character's draws follow with sets 0 to 2 bound, the four-set pipeline draws again without binding set 3. Against the deployed 0.10.0 that scene fails with `refused_set3` 10; with 0.9.5 it passes under core and synchronization validation, which would flag a set that was not put back.
+
+Also in 0.9.5: a replaced stream may have an element up to 64 bytes past the file's stride, as the source API reads it (the LOD 1 texture coordinate file on a base mesh; this was `refused_vertex`), with 256 bytes of padding behind the mesh; the version rule.
+
+Verified: full suite in `build/next` (character package 40, character replacement 53, everything else as before; `build/next/run_all-0.9.5.out`); smoke with the candidate settings and the real package (`build/character-actual-config-next-0.9.5.json`); both candidate DLLs `2c0ae7981238625d48c4c0931ee01be5593a88aef323dc2018ae152ab2718363`. Sandbox results; 0.9.5 has not been in the game.
+
+Checked offline and not the cause (LIMIT-025): in LOD 0 world frames the two shadow passes read bones that differ from the frame's final state for two components, because the first shadow pass imports LOD 1 poses. The passes that make the picture read consistent bones.
+
+Deployed at 13:28 after the user closed the game (process checked by name): thirteen files copied from build/next and compared by SHA-256, manifest build/deployment-0.9.5.json, smoke on dist/ with the real settings passes (build/character-actual-config-dist-0.9.5.json). The full suite was not run again on dist/; it ran on the same bytes in build/next. Next: the user starts again; read `refused_set3` (expected 0) and `restored_set3`, and ask about the flicker.
+
+A slip to remember: the first process check of this round cut its output after four lines, missed Endfield behind three Codex processes, and the user was told the game had exited. It had not. Check for the one process by name, unshortened.
 
 ## 0.10.0: whole-character backend deployed; waits for a user-started session (2026-10-13, 12:55)
 

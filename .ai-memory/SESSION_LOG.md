@@ -813,3 +813,12 @@ Built: `scripts/package_character.py` (draw lists from the hosted frontend's pla
 Offline against six saved frames: sections, vertex declarations (equal to the semantic reference for all 426 items), a model of the decision rules, vertex slot and layout facts. The texcoord strides of the mod's files equal the game's per component and LOD, so the only declaration change is the widened blend index; no per-shader profile is needed for this mod.
 
 Deployed 12:50 after the full suite in `build/next`; suite on `dist/` and the smoke with the real package pass. No launcher edit, no game start. Not seen in the game yet.
+
+## 2026-10-13, 13:35: The whole character is on screen; flicker at LOD 0 traced to set 3; 0.9.5
+
+The user started the game with build 0.10.0, reported "the model is roughly fine, but LOD 0 flickers now and then" and sent a screenshot showing the mod's outfit on the character in the open world. First real-game result for the whole-character backend.
+
+The agent first believed the game had exited (a process check cut after four lines, see CURRENT_STATE) and analysed saved frames instead: the suspicion that LOD 1 imports of the shadow pass disturb the color passes did not hold, the mismatch exists only in the two shadow passes (LIMIT-025). The user pointed out that the game was still running. The live counters then answered at once: `refused_set3` 82 in 378 frames and nothing else. The per-reason counters of 0.10.0 are what made this a one-read diagnosis.
+
+Fix as D-036 and BUG-006. Test first: the scene with a four-set pipeline before and after the character fails against the deployed build with the same counter, passes with the fix. Renumbered to 0.9.5 when the user set the version rule. Full suite and smoke pass in `build/next`. The user then closed the game; deployed at 13:28 with a backup, hashes compared, smoke on dist/ passes. No launcher edit, no game start or stop by the agent.
+

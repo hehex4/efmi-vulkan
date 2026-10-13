@@ -624,6 +624,7 @@ void on_bind_sets(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkPipeline
             s.set = sets[i];
             s.id = sit == dev->descriptor_sets.end() ? 0 : sit->second.id;
             s.layout = layout;
+            s.layout_handle = handle;
             if (offsets_known) { s.dyn_first = base + cursor; s.dyn_count = n; }
             else s.unsupported = "unknown_dynamic_offset_layout";
         }

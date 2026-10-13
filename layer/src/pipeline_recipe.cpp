@@ -5,7 +5,7 @@
 
 namespace efvk {
 
-static uint32_t vertex_format_bytes(VkFormat format)
+uint32_t vertex_format_bytes(VkFormat format)
 {
     switch (format) {
     case VK_FORMAT_R8_UNORM: case VK_FORMAT_R8_SNORM: case VK_FORMAT_R8_UINT: case VK_FORMAT_R8_SINT: return 1;

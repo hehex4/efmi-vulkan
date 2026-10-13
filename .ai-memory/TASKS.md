@@ -14,6 +14,8 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
 
+Game session of 2026-10-13 (build 0.10.0 = 0.9.4): the character is drawn in the mod's outfit; flicker at LOD 0 from `refused_set3`, 82 in 378 frames. 0.9.5 binds the application's set 3 again instead of refusing and was deployed at 13:28 after the user closed the game; confirm in a new session (`refused_set3` 0, `restored_set3` growing, no flicker). See CURRENT_STATE.
+
 Next, in this order:
 1. User-started Vulkan session with the sample character on screen. Confirm 0.10.0 and the package in the log, read the counters, look at shape, motion and the hidden components; toggle with the pipe command for a comparison. A capture does not mark replaced draws (LIMIT-020).
 2. Whatever that session shows: refusals by name, variant creation failures, cost. The first frame-time figures for a whole character come from here.
