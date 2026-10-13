@@ -213,6 +213,7 @@ bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& rea
         CharacterComponent c;
         c.first = raw.first; c.count = raw.count; c.lists[0] = raw.list0; c.lists[1] = raw.list1;
         if (raw.remap != kCharacterNone) {
+            c.remap_stream = raw.remap;
             if (raw.remap >= stream_count) return fail("remap stream out of range");
             const auto& s = next.streams[raw.remap];
             if (s.kind != CharacterStream::Remap || s.size != uint64_t(c.count) * 2) return fail("remap stream has the wrong kind or length");

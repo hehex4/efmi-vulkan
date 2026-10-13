@@ -4,6 +4,7 @@
 #include "draw_snapshots.h"
 #include "variant_cache.h"
 #include "character_package.h"
+#include "character_program.h"
 #include "character_materials.h"
 #include "material_sibling.h"
 #include "merged_skeleton.h"
@@ -18,6 +19,8 @@
 #include <cmath>
 #include <unordered_map>
 #include <set>
+#include <future>
+#include <fstream>
 
 namespace efvk {
 namespace {
@@ -43,6 +46,36 @@ constexpr uint64_t kRehashFrames = 256;
 constexpr uint64_t kSignatureFrames = 30, kDeriveRetryFrames = 30;
 constexpr uint32_t kSiblingExtras = 2;
 constexpr size_t kDerivedProfiles = 256, kSignaturesPerSection = 32;
+
+float ini_seconds()
+{
+    static const uint64_t origin = host_time_us();
+    return float((host_time_us() - origin) * 1.0e-6);
+}
+
+efmi::frontend::RuntimeInput sample_ini_input()
+{
+    efmi::frontend::RuntimeInput input;
+    // Deterministic headless GPU tests supply input inside their own child
+    // process only. Never send keyboard events or accept this path in the game.
+    static const std::filesystem::path fixture = [] {
+        wchar_t executable[32768] = {}, path[32768] = {};
+        GetModuleFileNameW(nullptr, executable, 32768);
+        if (_wcsicmp(std::filesystem::path(executable).filename().c_str(), L"efmi_vk_variant_gpu.exe")) return std::filesystem::path{};
+        const DWORD length = GetEnvironmentVariableW(L"EFMI_VK_TEST_KEYS", path, 32768);
+        return length && length < 32768 ? std::filesystem::path(path) : std::filesystem::path{};
+    }();
+    if (!fixture.empty()) {
+        std::ifstream in(fixture); int foreground = 0, key = 0, count = 0;
+        if (in >> foreground) input.foreground = foreground == 1;
+        while (count++ < 256 && in >> key) if (key >= 0 && key < 256) input.keys[key] = true;
+        return input;
+    }
+    DWORD foreground = 0; GetWindowThreadProcessId(GetForegroundWindow(), &foreground);
+    input.foreground = foreground == GetCurrentProcessId();
+    if (input.foreground) for (int key = 0; key < 256; ++key) input.keys[key] = (GetAsyncKeyState(key) & 0x8000) != 0;
+    return input;
+}
 
 enum Counter : uint32_t {
     C_MATCHED, C_REPLACED, C_ITEMS, C_HIDDEN, C_IDENTIFYING, C_INCOMPLETE, C_PENDING,
@@ -143,6 +176,7 @@ struct Derived {
 // The character backend's part of a command buffer. The counter outlives the backend: a command
 // may still be sealed after the code it came from was exchanged.
 struct CharacterCommand : CommandOwner {
+    std::shared_ptr<const void> generation;
     std::shared_ptr<DrawSnapshots> snapshots;
     std::shared_ptr<const void> keep; // the mesh
     std::vector<std::shared_ptr<const PipelineVariant>> variants;
@@ -171,7 +205,7 @@ struct ImageQueue {
 };
 } // namespace
 
-class CharacterBackend {
+class CharacterGeneration {
 public:
     Device* device;
     VkPhysicalDeviceProperties properties;
@@ -179,6 +213,8 @@ public:
     VariantDispatch draw;
     SnapshotDispatch storage;
     CharacterPackage package;
+    std::unique_ptr<CharacterProgram> program;
+    std::atomic<bool> save_requested{false};
     std::unordered_map<uint32_t, std::vector<uint32_t>> by_count; // immutable after init
     std::vector<BoneComponent> ranges;
     uint32_t bone_bytes = 0;
@@ -212,6 +248,7 @@ public:
     std::atomic<bool> enabled{false}, ready{false};
     std::atomic<uint64_t> frame{1};
     std::shared_ptr<std::atomic<uint64_t>> batches = std::make_shared<std::atomic<uint64_t>>(0);
+    std::shared_ptr<const void> generation_key = std::make_shared<int>(0);
     std::atomic<uint64_t> counters[C_COUNT] = {};
     std::atomic<float> frame_seconds{1.0f / 60};
     uint64_t last_frame_us = 0;
@@ -236,9 +273,9 @@ public:
     std::unordered_map<uint32_t, BoneSite> sites;
     std::vector<uint8_t> scratch, current, previous;
 
-    CharacterBackend(Device* dev, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m)
+    CharacterGeneration(Device* dev, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m)
         : device(dev), properties(p), memory(m) {}
-    ~CharacterBackend() { stop(); }
+    ~CharacterGeneration() { stop(); }
 
     void note(const std::string& reason) { std::lock_guard<std::mutex> lock(pool_mx); last_reason = reason; }
     bool refuse(Counter counter, const std::string& reason) { ++counters[counter]; note(reason); return false; }
@@ -246,6 +283,10 @@ public:
     bool init()
     {
         if (!package.load(g_cfg.m2_package, last_reason)) return false;
+        if (CharacterProgram::configured(g_cfg.m2_package)) {
+            program = std::make_unique<CharacterProgram>();
+            if (!program->init(g_cfg.m2_package, package, last_reason)) return false;
+        }
 #define X(n) draw.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n));
         EFVK_VARIANT_FUNCS(X)
 #undef X
@@ -258,6 +299,18 @@ public:
         for (const auto& c : package.components) ranges.push_back({c.first, c.count});
         bone_bytes = (MergedSkeleton::kImplicitBones + 2 * package.bones) * static_cast<uint32_t>(MergedSkeleton::kBytesPerBone);
         if (package.materials && !init_materials()) return false;
+        if (program) {
+            // Runtime null/image choices can use any count up to the profile's
+            // declared image slots. Allocate these arenas before first drawing.
+            uint32_t maximum = 0;
+            for (const auto& profile : package.profiles) {
+                uint32_t count = 0;
+                for (const auto& rule : profile.rules) count += rule.kind == CharacterMaterialRule::Image;
+                maximum = std::max(maximum, count);
+            }
+            if (maximum > 8) { last_reason = "runtime material profile exceeds the image arena budget"; return false; }
+            for (uint32_t i = 0; i <= maximum; ++i) image_counts.insert(i);
+        }
         // One variant per pipeline and mesh draw. A character is drawn by some hundred pipelines once
         // the feature variants of its shaders are counted; a full cache would refuse the rest for good.
         cache = std::make_unique<VariantCache>(device->handle, draw, properties.limits.maxBoundDescriptorSets, 2048, properties.limits);
@@ -270,6 +323,7 @@ public:
     {
         { std::lock_guard<std::mutex> lock(pool_mx); stopped = true; enabled = false; wake.notify_all(); }
         if (worker.joinable()) worker.join();
+        if (program) { std::string reason; if (!program->save(reason)) note("INI shutdown settings: " + reason); }
         if (cache) cache->stop();
         {
             std::lock_guard<std::mutex> lock(queue_mx);
@@ -301,6 +355,10 @@ public:
                  created->device_local ? "device" : "host");
             { std::lock_guard<std::mutex> lock(pool_mx); mesh = created; }
             while (true) {
+                if (program && save_requested.exchange(false)) {
+                    std::string error;
+                    if (!program->save(error)) note("INI settings: " + error);
+                }
                 {
                     std::unique_lock<std::mutex> lock(pool_mx);
                     all.erase(std::remove_if(all.begin(), all.end(), [](const auto& p) { return p.expired(); }), all.end());
@@ -308,7 +366,7 @@ public:
                     if (available.size() >= 2 || all.size() >= 8) { wake.wait_for(lock, std::chrono::milliseconds(100)); continue; }
                 }
                 auto batch = std::make_shared<CharacterCommand>();
-                batch->backend = this; batch->batches = batches;
+                batch->generation = generation_key; batch->backend = generation_key.get(); batch->batches = batches;
                 batch->keep = created;
                 uint64_t total_bytes = 0;
                 for (uint32_t count : image_counts) {
@@ -340,6 +398,18 @@ public:
     }
 
     bool init_materials();
+    bool refresh_materials()
+    {
+        std::set<uint32_t> counts;
+        std::string reason;
+        if (!prepare_character_materials(package, materials, counts, reason)) return refuse(C_MATERIAL, reason);
+        for (auto& derived : derived_profiles) {
+            CharacterMaterialProfile profile{derived->code, derived->rules};
+            if (!prepare_character_profile(package, profile, derived->plans, counts, reason)) return refuse(C_MATERIAL, reason);
+        }
+        for (auto count : counts) if (!image_counts.count(count)) return refuse(C_MATERIAL, "runtime material lacks a prepared arena");
+        return true;
+    }
     // `origin`: 0 the package's own profile or nothing to bind, 1 rules of a sibling, 2 the application's images.
     bool material_draws(const PipeInfo&, uint32_t section, const DrawRec&, uint64_t now, const CharacterList&,
                         std::vector<const StaticMaterial*>&, std::vector<std::vector<SnapshotImage>>&, uint32_t& origin);
@@ -606,7 +676,7 @@ public:
     bool record(CmdBuf* cb, const DrawRec& r);
 };
 
-bool CharacterBackend::init_materials()
+bool CharacterGeneration::init_materials()
 {
     using namespace efmi;
     if (device->material_queues.empty()) { last_reason = device->material_queue_reason; return false; }
@@ -660,7 +730,7 @@ bool CharacterBackend::init_materials()
     return true;
 }
 
-bool CharacterBackend::material_draws(const PipeInfo& pipe, uint32_t section, const DrawRec& r, uint64_t now,
+bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section, const DrawRec& r, uint64_t now,
                                       const CharacterList& list,
                                       std::vector<const StaticMaterial*>& plans, std::vector<std::vector<SnapshotImage>>& views,
                                       uint32_t& origin)
@@ -749,7 +819,7 @@ bool CharacterBackend::material_draws(const PipeInfo& pipe, uint32_t section, co
     return true;
 }
 
-bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
+bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
 {
     if (!enabled.load(std::memory_order_relaxed) || !cache) return false;
     const auto candidates = by_count.find(r.count);
@@ -763,6 +833,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     const uint64_t present = frame.load(std::memory_order_relaxed);
     InstanceEntry entry, patched;
     const CharacterList* list = nullptr;
+    CharacterList runtime_list;
     Identity* identity = nullptr;
     std::vector<std::shared_ptr<const PipelineVariant>> variants;
     std::vector<const StaticMaterial*> material_plans;
@@ -872,6 +943,17 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
             else { ++counters[C_IDENTIFYING]; return false; }
         }
         list = &package.lists[component.lists[lod]];
+        if (program) {
+            efmi::frontend::RuntimeDraw request;
+            request.hash = section->hash; request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
+            request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
+            request.seconds = ini_seconds();
+            bool skip = false, added = false; std::string reason;
+            if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI plan: " + reason);
+            if (!skip) return false;
+            if (added && !refresh_materials()) return false;
+            list = &runtime_list;
+        }
         if (!list->count) { ++counters[C_HIDDEN]; return true; }
         for (uint32_t c = 0; c < package.components.size(); ++c)
             if ((list->required >> c & 1) && (identity->coverage[c] & dynamic) != dynamic) { ++counters[C_INCOMPLETE]; return false; }
@@ -931,7 +1013,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
 
     // A recording that holds work of other replacement code keeps it to its end. What that code
     // left in a command buffer from earlier recordings gives way.
-    if (cb->m2 && cb->m2->backend != this) {
+    if (cb->m2 && cb->m2->backend != generation_key.get()) {
         if (cb->m2->used) return refuse(C_STATE, "recording holds another backend's work");
         cb->m2.reset();
     }
@@ -1024,7 +1106,7 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
     device->material_queue_reason.clear();
 }
 
-VkResult character_submit(CharacterBackend& backend, VkQueue queue)
+VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
 {
     if (!backend.images || !backend.cache) return VK_SUCCESS;
     std::lock_guard<std::mutex> lock(backend.queue_mx);
@@ -1059,10 +1141,10 @@ VkResult character_submit(CharacterBackend& backend, VkQueue queue)
     return VK_SUCCESS;
 }
 
-std::shared_ptr<CharacterBackend> character_create(Device* device, const VkPhysicalDeviceProperties& properties,
+std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkPhysicalDeviceProperties& properties,
                                                    const VkPhysicalDeviceMemoryProperties& memory)
 {
-    auto backend = std::make_shared<CharacterBackend>(device, properties, memory);
+    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory);
     try {
         if (!backend->init()) { logf("character package refused: %s", backend->last_reason.c_str()); return backend; }
         logf("character package configured: %u sections, %u components, %u bones, %u draws, enabled=%u",
@@ -1075,15 +1157,15 @@ std::shared_ptr<CharacterBackend> character_create(Device* device, const VkPhysi
     return backend;
 }
 
-void character_stop(CharacterBackend& backend) { backend.stop(); }
+void generation_stop(CharacterGeneration& backend) { backend.stop(); }
 
-bool character_record(CharacterBackend& backend, CmdBuf* cb, const DrawRec& r)
+bool generation_record(CharacterGeneration& backend, CmdBuf* cb, const DrawRec& r)
 {
     try { return backend.record(cb, r); }
     catch (const std::exception& e) { ++backend.counters[C_STATE]; backend.note(e.what()); return false; }
 }
 
-void character_retire(CharacterBackend& backend, uint32_t pipeline_id)
+void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
 {
     if (backend.cache) backend.cache->retire(pipeline_id);
     std::lock_guard<std::mutex> lock(backend.mod_mx);
@@ -1094,7 +1176,7 @@ void character_retire(CharacterBackend& backend, uint32_t pipeline_id)
         it = it->first >> 32 == pipeline_id ? backend.derived.erase(it) : std::next(it);
 }
 
-void character_frame(CharacterBackend& backend, bool had_draws)
+void generation_frame(CharacterGeneration& backend, bool had_draws)
 {
     if (!had_draws) return;
     const uint64_t now = host_time_us();
@@ -1104,18 +1186,145 @@ void character_frame(CharacterBackend& backend, bool had_draws)
     }
     backend.last_frame_us = now;
     backend.frame.fetch_add(1, std::memory_order_relaxed);
+    if (backend.program) {
+        const auto input = sample_ini_input();
+        std::lock_guard<std::mutex> lock(backend.mod_mx);
+        std::string reason;
+        if (!backend.program->present(input, backend.frame.load(), ini_seconds(), reason)) backend.note("INI Present: " + reason);
+        backend.save_requested = true; backend.wake.notify_one();
+    }
 }
 
-bool character_usable(CharacterBackend& backend, std::string& reason)
+bool generation_usable(CharacterGeneration& backend, std::string& reason)
 {
     std::lock_guard<std::mutex> lock(backend.pool_mx);
     reason = backend.last_reason;
     return bool(backend.cache);
 }
 
-bool character_ready(CharacterBackend& backend)
+bool generation_ready(CharacterGeneration& backend)
 {
     return backend.cache && backend.ready.load() && (!backend.package.materials || backend.images_published.load());
+}
+
+void generation_enable(CharacterGeneration&, bool);
+void generation_status(CharacterGeneration&, JsonWriter&);
+
+// F10 owns another complete resource generation. Its CPU parsing/validation and
+// Vulkan preparation run while the current generation continues to draw. Only
+// a Ready candidate takes over; command buffers retain their immutable owners.
+class CharacterBackend {
+public:
+    std::shared_mutex mutex;
+    std::shared_ptr<CharacterGeneration> active, staged;
+    std::future<std::shared_ptr<CharacterGeneration>> loading;
+    std::vector<std::future<void>> retiring;
+    uint64_t generation = 0, reloads = 0, rejected = 0, staged_at = 0;
+    std::string reload_error;
+    bool stopped = false;
+    ~CharacterBackend() { stop(); }
+    void retire(std::shared_ptr<CharacterGeneration> old)
+    {
+        if (old) retiring.push_back(std::async(std::launch::async, [old = std::move(old)] { old->stop(); }));
+    }
+    void stop()
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        if (stopped) return;
+        stopped = true;
+        if (loading.valid()) { auto candidate = loading.get(); if (candidate) candidate->stop(); }
+        if (staged) staged->stop();
+        if (active) active->stop();
+        for (auto& future : retiring) future.get();
+        retiring.clear(); staged.reset();
+    }
+    void frame(bool had_draws)
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        if (stopped || !active) return;
+        generation_frame(*active, had_draws);
+        for (auto it = retiring.begin(); it != retiring.end();) {
+            if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) { it->get(); it = retiring.erase(it); }
+            else ++it;
+        }
+        if (loading.valid() && loading.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            auto candidate = loading.get(); std::string reason;
+            if (!candidate || !generation_usable(*candidate, reason)) {
+                ++rejected; reload_error = reason.empty() ? "INI generation preparation failed" : reason;
+                logf("INI reload refused; current generation retained: %s", reload_error.c_str()); retire(std::move(candidate));
+            } else { staged = std::move(candidate); staged_at = host_time_us(); }
+        }
+        if (staged) {
+            if (generation_ready(*staged)) {
+                staged->enabled = active->enabled.load();
+                if (active->program && staged->program) {
+                    active->program->suspend_persistence();
+                    staged->program->inherit_persistent(*active->program);
+                }
+                staged->save_requested = true; staged->wake.notify_one();
+                auto old = std::move(active); active = std::move(staged); ++generation; ++reloads; reload_error.clear();
+                logf("INI generation %llu Ready; F10 exchange complete", static_cast<unsigned long long>(generation));
+                retire(std::move(old));
+            } else if ((staged->images && staged->images->stats().failed) || host_time_us() - staged_at > 30000000) {
+                ++rejected; reload_error = "INI candidate resource upload failed or timed out; current generation retained";
+                logf("%s", reload_error.c_str()); retire(std::move(staged));
+            }
+        }
+        if (active->program && active->program->take_reload_request() && !loading.valid() && !staged) {
+            auto previous = active;
+            loading = std::async(std::launch::async, [previous] {
+                std::string reason;
+                if (!previous->program->save(reason)) {
+                    auto failed = std::make_shared<CharacterGeneration>(previous->device, previous->properties, previous->memory);
+                    failed->note("Cannot preserve settings before reload: " + reason); return failed;
+                }
+                return generation_create(previous->device, previous->properties, previous->memory);
+            });
+        }
+    }
+};
+
+std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m)
+{
+    auto controller = std::make_shared<CharacterBackend>(); controller->active = generation_create(d, p, m); return controller;
+}
+void character_stop(CharacterBackend& b) { b.stop(); }
+bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
+{
+    std::shared_lock<std::shared_mutex> lock(b.mutex); return !b.stopped && b.active && generation_record(*b.active, cb, r);
+}
+void character_retire(CharacterBackend& b, uint32_t id)
+{
+    std::shared_lock<std::shared_mutex> lock(b.mutex);
+    if (b.active) generation_retire(*b.active, id);
+    if (b.staged) generation_retire(*b.staged, id);
+}
+VkResult character_submit(CharacterBackend& b, VkQueue q)
+{
+    std::shared_lock<std::shared_mutex> lock(b.mutex); if (b.stopped) return VK_SUCCESS;
+    auto result = b.active ? generation_submit(*b.active, q) : VK_SUCCESS;
+    if (result == VK_SUCCESS && b.staged) result = generation_submit(*b.staged, q);
+    return result;
+}
+void character_frame(CharacterBackend& b, bool had_draws) { b.frame(had_draws); }
+bool character_usable(CharacterBackend& b, std::string& reason)
+{
+    std::shared_lock<std::shared_mutex> lock(b.mutex); return b.active && generation_usable(*b.active, reason);
+}
+bool character_ready(CharacterBackend& b)
+{
+    std::shared_lock<std::shared_mutex> lock(b.mutex); return b.active && generation_ready(*b.active);
+}
+void character_enable(CharacterBackend& b, bool enabled)
+{
+    std::shared_lock<std::shared_mutex> lock(b.mutex); if (b.active) generation_enable(*b.active, enabled);
+}
+void character_status(CharacterBackend& b, JsonWriter& w)
+{
+    std::shared_lock<std::shared_mutex> lock(b.mutex);
+    w.kn("ini_generation", b.generation); w.kn("ini_reloads", b.reloads); w.kn("ini_reload_rejected", b.rejected);
+    w.kb("ini_reload_pending", b.loading.valid() || bool(b.staged)); w.kv("ini_reload_error", b.reload_error);
+    if (b.active) generation_status(*b.active, w);
 }
 
 const CharacterModule* builtin_character_module()
@@ -1131,10 +1340,20 @@ const CharacterModule* builtin_character_module()
     return &module;
 }
 
-void character_enable(CharacterBackend& backend, bool enabled) { backend.enabled = enabled && bool(backend.cache); }
+void generation_enable(CharacterGeneration& backend, bool enabled) { backend.enabled = enabled && bool(backend.cache); }
 
-void character_status(CharacterBackend& backend, JsonWriter& w)
+void generation_status(CharacterGeneration& backend, JsonWriter& w)
 {
+    if (backend.program) {
+        const auto status = backend.program->status();
+        w.key("ini"); w.begin_object();
+        w.kn("draws", status.draws); w.kn("presents", status.presents); w.kn("key_events", status.key_events);
+        w.kn("bindings", status.bindings); w.kn("saves", status.saves); w.kb("dirty", status.dirty);
+        w.kb("reload_requested", status.reload_requested);
+        w.key("variables"); w.begin_object();
+        for (const auto& value : status.variables) { w.key(value.first.c_str()); if (std::isfinite(value.second)) w.raw(std::to_string(value.second)); else w.null(); }
+        w.end_object(); w.end_object();
+    }
     w.kv("kind", "character");
     w.kb("configured", bool(backend.cache));
     w.kb("enabled", backend.enabled.load());

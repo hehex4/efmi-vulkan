@@ -201,6 +201,19 @@ struct DrawPlanAdapter::Runtime {
     size_t active_depth=0;
     DrawPlanAdapter::TextureQuery texture_query;
     std::array<DrawPlanAdapter::PixelBinding,128> pixel_bindings;
+    std::unordered_set<CustomResource*> files;
+
+    void collect_files(CommandListCommand& command)
+    {
+        if (auto* copy = dynamic_cast<ResourceCopyOperation*>(&command)) {
+            if (copy->src.type == ResourceCopyTargetType::CUSTOM_RESOURCE && !copy->src.custom_resource_pool) {
+                auto* resource = copy->src.GetCustomResource(nullptr);
+                if (resource && !resource->filename.empty()) files.insert(resource);
+            }
+        } else if (auto* batch = dynamic_cast<ShaderResourceBindBatch*>(&command)) {
+            for (const auto& copy : batch->operations) if (copy) collect_files(*copy);
+        }
+    }
 
     ResourceCopyTarget& effective_target(ResourceCopyTarget& target,CommandListState& state)
     {
@@ -545,6 +558,10 @@ void DrawPlanAdapter::texture_queries(TextureQuery query)
     };
 }
 bool DrawPlanAdapter::has_texture_queries() const {return bool(runtime_->texture_query);}
+std::vector<CustomResource*> DrawPlanAdapter::referenced_files() const
+{
+    return {runtime_->files.begin(), runtime_->files.end()};
+}
 
 void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
 {
@@ -554,6 +571,7 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
     for (auto& command : root.commands) {
         if (dynamic_cast<BridgeCommand*>(command.get()))
             refuse(L"A command list already belongs to another planner");
+        runtime_->collect_files(*command);
         if (auto* branch = dynamic_cast<IfCommand*>(command.get())) {
             for (auto* list : {branch->true_commands_pre.get(), branch->true_commands_post.get(),
                                branch->false_commands_pre.get(), branch->false_commands_post.get()})

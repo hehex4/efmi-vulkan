@@ -110,12 +110,25 @@ COMMON = [
 MODULE_DLL = "efmi_vk_backend.dll"
 MODULE_SOURCES = [
     "module/module_main.cpp", "src/character_backend.cpp", "src/character_package.cpp", "src/character_materials.cpp",
+    "src/character_program.cpp",
     "src/material_sibling.cpp", "src/merged_skeleton.cpp", "src/pipeline_variant.cpp", "src/spirv_repoint.cpp",
     "src/variant_cache.cpp", "src/draw_snapshots.cpp", "src/pipeline_recipe.cpp", "../frontend/gpu/fragment_images.cpp",
 ]
 # Headers whose structures cross between the layer and a module. A module built from other
 # contents of these is refused by the layer.
 ABI_ROOTS = ["state.h", "character_module.h", "command_owner.h", "json.h"]
+
+_runtime_link = None
+
+
+def runtime_link() -> list[str]:
+    global _runtime_link
+    if _runtime_link is None:
+        from pathlib import Path
+        from build_xxmi_runtime import build_runtime
+        print("Building original INI runtime...")
+        _runtime_link = build_runtime(Path(ROOT) / "build/xxmi-runtime", test=False)
+    return _runtime_link
 
 
 def abi_stamp() -> str:
@@ -166,7 +179,7 @@ def build_module(vcvars: str, include: str, out: str, mismatch: bool = False) ->
     stamp = abi_stamp()
     flags.append("/DEFVK_ABI=" + (stamp[:-4] + ("0" if stamp[-4] != "0" else "1") + "ull" if mismatch else stamp))
     args = flags + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\module_cl.pdb", "/LD"]
-    args += MODULE_SOURCES + MATERIAL_SOURCES + [
+    args += MODULE_SOURCES + MATERIAL_SOURCES + runtime_link() + [
         "/Fe:" + dll, "/link", "/NOLOGO", "/DLL", "/OPT:REF", "/OPT:ICF", "/DEBUG",
         "/PDB:build\\" + name + "\\" + name + ".pdb", "/IMPLIB:build\\" + name + "\\" + name + ".lib", "advapi32.lib", "user32.lib",
     ]
@@ -186,7 +199,7 @@ def build_layer(vcvars: str, include: str, out: str) -> str:
     dll = os.path.join(out, LAYER_DLL)
     args = COMMON + [
         "/I" + include, "/Fobuild\\", "/Fdbuild\\efmi_vk_layer_cl.pdb", "/LD",
-    ] + sources(folder) + ["../frontend/gpu/fragment_images.cpp"] + MATERIAL_SOURCES + [
+    ] + sources(folder) + ["../frontend/gpu/fragment_images.cpp"] + MATERIAL_SOURCES + runtime_link() + [
         "/Fe:" + dll,
         "/link", "/NOLOGO", "/DLL", "/OPT:REF", "/OPT:ICF", "/DEBUG",
         "/PDB:build\\efmi_vk_layer.pdb", "/IMPLIB:build\\efmi_vk_layer.lib",
@@ -244,7 +257,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
                      "../frontend/gpu/fragment_images.cpp",
                      "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                      "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + [
+                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + runtime_link() + [
                      "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                      "/PDB:build\\tracker\\test.pdb", "user32.lib"]
     run_cl(vcvars, folder, args)
@@ -272,7 +285,7 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
             sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                         "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                         "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES
+                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + runtime_link()
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
         args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                            "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]

@@ -164,6 +164,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
             if(p[0]==255 && p[1]>=62 && p[1]<=66 && p[2]==0)return 4;
             if(p[0]==255 && p[1]==0 && p[2]==0 && p[3]>=126 && p[3]<=129)return 5;
             if(p[0]==0 && p[1]>=126 && p[1]<=129 && p[2]==0 && p[3]>=126 && p[3]<=129)return 6;
+            if(p[0]==0 && p[1]==255 && p[2]==0 && p[3]>=126 && p[3]<=129)return 8;
             if(p[0]==0 && p[1]==0 && p[2]==0 && p[3]==0)return 7;
             return 3;
         }
@@ -436,5 +437,72 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         frame(false);
         check(replaced(-.6f),"command-pool reset recycles the module's snapshots");
         self_probe("{\"cmd\":\"status\"}","character-swapped.json");
+    }
+    if (std::getenv("EFMI_VK_TEST_KEYS")) {
+        auto write_text = [](const char* name, const std::string& contents) {
+            std::ofstream out(name, std::ios::binary); out << contents;
+            if (!out) throw std::runtime_error("Cannot update runtime test input");
+        };
+        auto press = [&](const char* keys) { write_text("keys.txt", keys); };
+        auto number = [](const std::string& text, const char* name) {
+            const auto at = text.find(std::string("\"") + name + "\":");
+            return at == std::string::npos ? UINT32_MAX : uint32_t(strtoul(text.c_str() + at + strlen(name) + 3, nullptr, 10));
+        };
+        auto status = [&] { return self_probe("{\"cmd\":\"status\"}", "runtime-status.json"); };
+        press("1 17 53\n"); // Ctrl+5, through the original dispatcher in this process only.
+        frame(false);
+        press("1\n");
+        bool green = false;
+        for (uint32_t i = 0; i < 100 && !green; ++i) { frame(false); green = shade_at(-.6f,.3f) == 8; if (!green) Sleep(5); }
+        check(green && shade_at(0,0) == 6 && shade_at(.6f,-.1f) == 1, "original INI key and branch change GPU pixels and restore the following application draw");
+        std::ifstream source("mod.ini", std::ios::binary);
+        std::string original_text((std::istreambuf_iterator<char>(source)), std::istreambuf_iterator<char>());
+        original_text.erase(std::remove(original_text.begin(), original_text.end(), '\r'), original_text.end());
+        source.close();
+        write_text("mod.ini", original_text + "\n[Present]\n$tint = (\n");
+        const auto old_generation = number(status(), "ini_generation");
+        press("1 121\n"); frame(false); press("1\n");
+        bool refused = false;
+        for (uint32_t i = 0; i < 400 && !refused; ++i) { frame(false); refused = number(status(), "ini_reload_rejected") == 1; if (!refused) Sleep(5); }
+        check(refused && number(status(), "ini_generation") == old_generation && shade_at(-.6f,.3f) == 8,
+              "malformed F10 reload is refused and the live green character continues drawing");
+        write_text("mod.ini", original_text);
+        std::ifstream texture("green.dds", std::ios::binary);
+        const std::string texture_bytes((std::istreambuf_iterator<char>(texture)), std::istreambuf_iterator<char>());
+        texture.close();
+        write_text("green.dds", "broken DDS candidate");
+        press("1 121\n"); frame(false); press("1\n");
+        bool bad_image = false;
+        for (uint32_t i = 0; i < 400 && !bad_image; ++i) { frame(false); bad_image = number(status(), "ini_reload_rejected") == 2; if (!bad_image) Sleep(5); }
+        check(bad_image && number(status(), "ini_generation") == old_generation && shade_at(-.6f,.3f) == 8,
+              "failed candidate DDS upload retains old Ready images and the live drawing generation");
+        write_text("green.dds", texture_bytes);
+        auto changed = original_text;
+        const auto alternate = changed.find("else\n ps-t15 = ResourceGreen\n");
+        if (alternate == std::string::npos) throw std::runtime_error("Runtime fixture branch not found");
+        changed.replace(alternate, strlen("else\n ps-t15 = ResourceGreen\n"), "else\n ps-t15 = ResourceRed\n");
+        write_text("mod.ini", changed);
+        // This records one more green command before F10 starts parsing. Keep
+        // resubmitting that sealed recording throughout retirement of its owner.
+        press("1 121\n"); frame(false);
+        bool swapped = false, preserved = true;
+        for (uint32_t i = 0; i < 600 && !swapped; ++i) {
+            VK(g.submit(cmd)); VK(vkQueueWaitIdle(g.queue));
+            preserved &= shade_at(-.6f,.3f) == 8;
+            self_probe("{\"cmd\":\"m2\",\"advance\":1}", "runtime-advance.json");
+            swapped = number(status(), "ini_generation") == old_generation + 1;
+            if (!swapped) Sleep(5);
+        }
+        check(swapped && preserved, "F10 publishes a Ready generation while sealed commands keep the old mesh, bones and images");
+        VK(g.submit(cmd)); VK(vkQueueWaitIdle(g.queue));
+        check(shade_at(-.6f,.3f) == 8, "sealed old-generation command remains valid after F10 exchange");
+        bool red = false;
+        for (uint32_t i = 0; i < 400 && !red; ++i) { frame(false); red = shade_at(-.6f,.3f) == 5; if (!red) Sleep(5); }
+        check(red && shade_at(0,0) == 6 && shade_at(.6f,-.1f) == 1, "new recordings use the reloaded INI and keep application state intact");
+        for (int i = 0; i < 3; ++i) frame(false);
+        check(number(status(), "ini_generation") == old_generation + 1 && status().find("\"ini_reload_pending\":false") != std::string::npos,
+              "F10 held through the exchange does not retrigger in the new generation");
+        press("1\n"); frame(false);
+        self_probe("{\"cmd\":\"status\"}", "runtime-final.json");
     }
 }

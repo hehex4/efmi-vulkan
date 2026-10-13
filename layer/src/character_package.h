@@ -32,6 +32,7 @@ struct CharacterComponent {
     bool has_remap = false;
     std::vector<uint16_t> remap_lod1;  // destination bone -> source bone, when has_remap
     uint32_t lists[2] = {0, 0};        // draw list at LOD 0 and LOD 1
+    uint32_t remap_stream = kCharacterNone;
 };
 struct CharacterSection {
     uint32_t hash = 0, match_count = 0;

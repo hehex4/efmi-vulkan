@@ -2,6 +2,11 @@
 
 Numbering: 0.10.0 was named before the project's version rule (AGENTS.md); in the sequence it is 0.9.4, and 0.9.5 follows it.
 
+1.0.2 adds an opt-in original INI runtime over this renderer; see
+[live-ini.md](live-ini.md). The static profile described below remains the default
+when no runtime sidecar is present. Earlier game/verification notes in this
+document are historical; CURRENT_STATE.md records the latest checkpoint.
+
 Replaces every draw of one mod's character with the mod's meshes, skinned with one merged skeleton
 per character instance, and hides the components the mod deletes. Since 0.9.6, an optional
 material envelope also replaces static pixel images through the shared resource and variant

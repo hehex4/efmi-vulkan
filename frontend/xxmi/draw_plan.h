@@ -77,6 +77,9 @@ public:
     // fuzzy matching is unsupported and refuses. Install before adaptation.
     void texture_queries(TextureQuery);
     bool has_texture_queries() const;
+    // File declarations referenced anywhere in the adapted command graph,
+    // including both branches. Unused INI declarations need not exist on disk.
+    std::vector<CustomResource*> referenced_files() const;
 private:
     bool execute_impl(CommandList& pre,CommandList* post,CommandListState&,DrawPlan&,std::wstring&);
     void adapt_tree(CommandList& root, size_t depth);

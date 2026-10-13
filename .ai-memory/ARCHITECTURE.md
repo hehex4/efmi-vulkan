@@ -1,6 +1,20 @@
 # EFMI Vulkan - Architecture
 
-Layer 0.10.0 (source, build/next and dist/): `character_package` and `character_backend` replace a whole character from a static package, with one merged skeleton per character instance and the game's own material; see `docs/character-backend.md`. `m2_package` selects it or the single-component backend by the file's magic.
+Current source 1.0.2: the pinned original XXMI runtime is linked into the layer and
+exchangeable backend. A `.runtime.json` sidecar opts a character profile into
+live main-INI execution. `IniRuntime` owns isolated parser/variable/pool/key
+generations; `CharacterProgram` translates owned evaluated plans into the existing
+renderer; native Core boundaries retain the verified identity, bone import and
+draw path. Original input conditions and duplicate listeners, persistent values,
+and staged F10 resource generations run inside that backend. Without a sidecar,
+the static package behavior stays available. Details and explicit unsupported
+boundaries: `docs/live-ini.md`, D-043. The image panel HLSL compiles and validates
+with DXC, but panel rendering and full-folder acceptance remain T-016. Use
+CURRENT_STATE.md for the verified/deployed/game-loaded checkpoint.
+
+The following are historical integration checkpoints.
+
+Layer 0.10.0: `character_package` and `character_backend` replace a whole character from a static package, with one merged skeleton per character instance and the game's own material; see `docs/character-backend.md`. `m2_package` selects it or the single-component backend by the file's magic.
 
 Earlier integration checkpoint: the frontend described next was built at 0.9.3 and is not in the DLL.
 FilePlanCompiler copies original XXMI file declarations into owned per-operation

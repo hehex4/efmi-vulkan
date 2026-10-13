@@ -6,6 +6,19 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.0.2 is deployed and links the original main-INI runtime into the character backend:
+conditions, thirteen original listeners, alternate stocking DDS, atomic project
+settings and staged F10. Native Core bone/identity boundaries are explicit and
+validated, not replaced by a new INI interpreter. CPU checks 45, Vulkan runtime
+runner checks 28 and the full regression pass. Candidate/deployed actual-config
+smokes upload ten images cleanly through both entries on two enabled queues.
+Backup build/backups/before-1.0.2-20261013-223323/; deployment manifest
+build/deployment-1.0.2.json. No new game load is claimed. Next is user-started
+real-character keys/F10/persistence acceptance. Details: docs/live-ini.md and CURRENT_STATE.md.
+The original panel's HLSL compiles/validates; its drawing adapter remains T-016.
+
+Earlier 1.0.1 checkpoint:
+
 T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist remain 1.0.1. User-started PID 19452 passes sampled LOD0/LOD1 checks and a 58-frame requested dash interval without new refusal, pending work or identification; the user reports apparently normal drawing/dashing. The first unchanged-code module exchange succeeds in 0.8 seconds and the user confirms normal appearance (T-029). Next: T-027 live INI/Core, keys, persist and reload for this character; its interpreter is not yet linked into the deployed backend. LIMIT-027's historical no-bone after-images were not exercised in the dash sample and remain an uncovered follow-up, not a newly reproduced visual defect.
 
 ## Tasks and follow-ups
@@ -43,7 +56,13 @@ Next, after the actual DX11 capture of 2026-10-13:
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
 
-Current boundary: T-028 now supplies deployed static meshes, bones and materials. The sample LOD1 source profiles and the explicit device policy are complete for that scope. Runtime source identities, original Core texture-query execution with those identities, keys/conditions/reload and full hosted DLL integration remain open. The review and checkpoints below are historical; the old component-7-only and missing-LOD1 prerequisites are superseded.
+Current boundary: 1.0.2 links the original main-INI engine and implements live
+conditions/keys/persist/F10 with the existing native renderer. Offline and sandbox
+verification is recorded above; actual-character acceptance remains open. General
+source-image identity queries and image-hash override registries, arbitrary
+CustomShader/Include adapters, and the auxiliary panel remain outside this
+accepted profile. T-028's material correspondences still supply the renderer's
+shader profile. The review and checkpoints below are historical.
 
 Review, 2026-10-13 (second agent, at the user's request; implementation and design). No defect found in 0.9.2/0.9.3 or the standalone frontend; every suite was rebuilt and rerun independently with the documented counts. The architecture follows plan D2/D4 and section 4 and is judged sound. Points to settle before the frontend is linked into the DLL, in this order:
 
@@ -267,6 +286,12 @@ Built pinned Khronos VVL from source under `F:/vulkan`, with child-only activati
 For buffers that are written by copies whose source was never visible to the CPU, or by compute. Appends a copy into a layer-owned buffer at submit time and reads it when the fence signals.
 
 ### T-016: Include the sample image panel in full-folder acceptance (M3 follow-up)
+
+1.0.2 preparation: the unchanged panel HLSL compiles with DXC 1.9.2609 and both
+stages validate as Vulkan 1.1 SPIR-V. Inputs/outputs agree and bindings 100/101/120
+remain explicit. Report build/panel-hlsl/report.json and docs/live-ini.md. No
+panel draw or input/present integration is implemented; k/1.ini stays outside the
+runtime input list and passing it currently refuses explicitly.
 
 The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, cursor input and the main toggle variables. Character-only rendering cannot establish full-folder compatibility. Its HLSL pipeline and input/present behavior must be implemented or explicitly reported unsupported. This follows the G2/G3-backed M2 backend; it does not justify editing or disabling the installed mod.
 

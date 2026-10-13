@@ -231,6 +231,13 @@ account for every refused draw, because one fallback is one frame of the origina
 
 ## LIMIT-024: Scope of the static whole-character backend
 
+1.0.2 follow-up: an opt-in runtime sidecar supplies original main-INI conditions,
+keys, persistence and F10; see docs/live-ini.md. Without a sidecar the package
+remains static. General image-hash override/CustomShader/Include support and the
+HLSL panel drawing adapter remain open; do not claim full-folder compatibility.
+The native rendering limits below still apply. Actual-character acceptance of
+the live main INI is pending.
+
 One scenario is fixed when the package is built; keys, conditions, reload and runtime Core texture-identity queries remain absent. A draw that is instanced, in a secondary command buffer, in dynamic rendering, on or with pushed descriptors at the private set's slot retains the original. Pipelines with three to eight sets are replaced since 0.9.8 (private set at slot 3 or above; slots past the tracked four only while no application layout is that large). Ordinary bound application set 3 is restored since 0.9.5. Stream elements may extend up to 64 bytes past the file stride with padded backing storage. Identity follows position across frames; within a frame it requires the same exact position. LOD0/LOD1 only. The earlier 0.10.0 mesh build ran in the game, 0.9.6 adds static materials with sandbox/offline evidence only. See docs/character-backend.md and docs/character-materials.md.
 
 ## BUG-006: Character draws refused while the application had a set 3 bound (build 0.10.0; fixed in 0.9.5; NOT the cause of the flicker)

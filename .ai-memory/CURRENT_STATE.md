@@ -1,6 +1,54 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-13, live 1.0.1 verification. Source/build/next/dist stay 1.0.1; user-started PID 19452 now uses the identical verified module at generation 1 after a successful 0.8-second exchange. The user reports no apparent flicker, normal appearance after exchange, and apparently normal dashing. Sampled LOD0/LOD1 and the requested dash interval show no new refusal, pending work or identification. The historical no-bone after-image path was not exercised, not fixed by this check. Next: T-027 live INI/Core functionality for this character. LOD0/LOD1 only.
+> Last updated: 2026-10-13, 22:33, 1.0.2 deployed. Source/build/next/dist are 1.0.2 with the live main INI enabled. Full regression and candidate/deployed actual ten-image smokes pass. The game was absent at two deployment checks; no new game load or observation is claimed. LOD0/LOD1 only; HLSL panel compilation passes, panel rendering remains T-016.
+
+## 1.0.2: main INI, outfit keys, persistence and F10 (deployed; game check next)
+
+User requests original INI runtime conditions, outfit keys, settings save and F10.
+They also ask whether Vulkan can support the panel's HLSL. Implemented the scoped
+original-engine runtime in frontend/xxmi/runtime*, native character Core adapters,
+renderer resource catalogue and staged F10 generations; details in docs/live-ini.md
+and D-043. The existing native bone/identity renderer remains, with contracts
+validated against original evaluated pools. This is not arbitrary DX11 emulation.
+
+- Original main INI tests: 45 checks including all 21 LOD0/LOD1 entry sections,
+  all 13 original key listeners, conditional mesh ranges, alternate stocking DDS,
+  generation isolation, foreground/hold release, atomic persistence and held F10.
+- Actual hook/GPU fixture: 28 runner checks across both entries and one/two queues,
+  including pixels after Ctrl+5, bad-INI and bad-DDS rollback, valid F10, retained
+  old sealed commands, application restoration and no held-key retrigger. Clean
+  core/synchronization validation through shutdown. Full suite passes in
+  build/next/run_all-1.0.2.out, including the unchanged static character's 357
+  checks, native packages 77, recipes 134, snapshots 52 and the probe/MCP suites.
+- Prepared build/character/arcane-live.bin and its runtime sidecar from the old
+  verified material profile. Live execution rereads the original main INI and
+  reachable files; ten DDS images include the alternate stocking. Settings go to
+  build/character/settings/arcane_fes.ini. Original mod/Core/DX11 settings stay
+  read-only. Candidate/deployed `m2_package` now selects this live profile and
+  `m2_enabled = 1`; hashing/profiling remain disabled as before.
+- HLSL: installed checksum-verified official DXC 1.9.2609 only under F:/vulkan.
+  Both stages of unmodified k/Draw_2D.hlsl compile and pass spirv-val for Vulkan
+  1.1; bindings 100, 101 and 120 are explicit. Report build/panel-hlsl/report.json.
+  No panel pipeline, cursor/IniParams adapter, backbuffer rendering or image pixels
+  are claimed; k/1.ini is not among the runtime inputs (T-016).
+
+Deployment: two stopped-process checks, backup
+build/backups/before-1.0.2-20261013-223323/, fifteen hash-matched deployed files,
+manifest build/deployment-1.0.2.json. Candidate and deployed actual-config smokes
+both load through layer/inject on two enabled graphics queues using queue 1:
+ten images Ready, zero failed, all published, clean validation. Reports:
+build/character-assets-config-next-1.0.2.json and
+build/character-assets-config-dist-1.0.2.json. Shared ABI remains
+16b90a85431f86b4. No launcher setting, original mod/Core, agent-started game or
+live module exchange changed in this implementation round.
+
+Next requires a user-started game: with this character visible, check the original
+Ctrl+5/6/7/8 and Alt+5/6/7/8/9 outfit controls, Ctrl+L stockings and F10. Read
+replacement.ini variables and generation/counters alongside the user's visual
+report. Confirm a changed choice persists through F10, then across a normal game
+restart when convenient; no duration-only test. Runtime mode starts from original
+INI defaults plus project settings, not DX11 user settings. T-016's panel adapter
+can follow; compilation alone is not a panel on screen.
 
 ## 1.0.1: stable sampled drawing, first real module exchange, and clean dash interval
 

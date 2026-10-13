@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <stdexcept>
 #include <thread>
+#include <fstream>
 
 using namespace efvk;
 using variant_fixture::RecipeFixture;

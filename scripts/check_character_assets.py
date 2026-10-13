@@ -1,4 +1,4 @@
-"""Upload actual static-package DDS files through both DLL entries in headless children."""
+"""Upload actual character DDS files through both DLL entries in headless children."""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -18,6 +18,7 @@ def main():
     ap.add_argument("--actual-config", action="store_true", help="read the DLL's actual settings instead of package environment overrides")
     ap.add_argument("--graphics-queues", type=int, default=1, help="enabled queues in the graphics family")
     ap.add_argument("--queue-index", type=int, default=0, help="only this queue submits; other enabled queues stay unused")
+    ap.add_argument("--expected-images", type=int, help="reachable image count verified by the original INI runtime, including alternate branches")
     args = ap.parse_args()
     if not 1 <= args.graphics_queues <= 32 or not 0 <= args.queue_index < args.graphics_queues:
         ap.error("queue index must be inside a 1..32 graphics queue count")
@@ -39,7 +40,14 @@ def main():
                                 sha256=hashlib.sha256((dist / "efmi_vk.cfg").read_bytes()).hexdigest())
     out = ROOT / "build/character-assets"
     out.mkdir(parents=True, exist_ok=True)
-    expected = len(metadata["materials"]["files"])
+    expected = args.expected_images if args.expected_images is not None else len(metadata["materials"]["files"])
+    if not 1 <= expected <= 64:
+        raise ValueError("Expected image count is outside runtime limits")
+    if "runtime" in metadata:
+        sidecar = Path(str(package) + ".runtime.json")
+        if hashlib.sha256(sidecar.read_bytes()).hexdigest() != metadata["runtime"]["sha256"]:
+            raise ValueError("Runtime sidecar fingerprint changed")
+        report["runtime"] = metadata["runtime"]
     try:
         for entry in ("layer", "inject"):
             folder = Path(test_dir("character-assets-"))
