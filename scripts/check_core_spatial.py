@@ -29,7 +29,7 @@ def main() -> int:
         output = result.stdout + result.stderr
         (folder / "core-spatial-native.txt").write_text(output.encode("ascii", "backslashreplace").decode("ascii"), encoding="ascii")
         counts = re.search(r"XXMI original spatial Core: (\d+) checks passed, (\d+) failed", output)
-        if result.returncode or not counts or int(counts[2]) or int(counts[1]) < 12:
+        if result.returncode or not counts or int(counts[2]) or int(counts[1]) < 21:
             raise ValueError(f"Original spatial Core refused: {result.returncode}; see core-spatial-native.txt")
         if any(sha(Path(p)) != expected for p, expected in hashes.items()):
             raise ValueError("Installed Core changed during verification")

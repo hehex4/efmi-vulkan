@@ -89,3 +89,28 @@ the game. Original metadata/file checks increase to 15; spatial 12 and all 384
 callback plans still pass. Reports: build/shared-palettes/report.json and
 build/xxmi-host/core-skeleton-report.json. No new capture, GPU skeleton draw,
 DLL integration, deployment or rendered character verification occurred.
+
+## Spatial palette epochs
+
+SpatialPalettes is retained with one original spatial pool. It consumes original
+slot/hash outputs immediately after identification, leaving the original pool
+and INI state machine in charge of identification and override status. It uses
+pinned XXMI distance calculation and the same float radius scaling to retain a
+palette only across observed nearby movement within the expiration interval.
+Expiration and a distant occupant of a recycled slot receive a fresh epoch.
+This matters because original full-pool FIFO reuse can retain a slot's scalar
+custom status. The new occupant still cannot inherit an old complete palette.
+Duplicate slots within one instanced observation refuse conservatively.
+
+The owner must observe every completed identification, keep original frame time
+valid before executing it, and invalidate after a pool reset or incomplete
+execution. Pool/configuration changes require reconfiguration. This is a
+continuity contract, not proof of physical identity beyond the original spatial
+heuristic. Masters retire independently of immutable submitted snapshot owners.
+
+The original Core fixture now passes 21 cases, adding separate complete palettes,
+movement retention, expiration, failed execution, actual full-pool FIFO reuse,
+ambiguous results and changed lifetime flags. The 24 direct palette tests, 283
+historical records and 384 actual callback plans remain passing. Native component
+execution and GPU/layer handoff are still open. Evidence remains under
+build/xxmi-host/core-spatial-report.json and build/shared-palettes/report.json.
