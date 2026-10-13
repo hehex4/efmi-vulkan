@@ -4,6 +4,11 @@
 #include <stdexcept>
 #include <typeinfo>
 #include <climits>
+#include <array>
+#include "ResourceHash.h"
+#include "globals.h"
+
+void FrontendRunCommandList(CommandList&,CommandListState&);
 
 namespace efmi::frontend {
 namespace {
@@ -14,7 +19,7 @@ struct Refused : std::exception {
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
 constexpr size_t max_active_depth = 64;
-struct QueryService {DrawPlanAdapter::ResourceQuery read;size_t count=0;};
+struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;size_t count=0;};
 class NativeResourceQuery final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListOperand> source;
@@ -22,8 +27,13 @@ public:
     NativeResourceQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
     float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
         float result=0;std::wstring reason;
-        if(!state || !service->read || ++service->count>max_steps)refuse(L"Resource query adapter is unavailable or over budget");
-        if(!service->read(source->texture_filter_target,*state,result,reason))
+        if(!state || ++service->count>max_steps)refuse(L"Resource query adapter is unavailable or over budget");
+        auto& target=source->texture_filter_target;
+        const bool pixel=target.type==ResourceCopyTargetType::THIS_RESOURCE ||
+            (target.type==ResourceCopyTargetType::SHADER_RESOURCE && target.shader_type==L'p');
+        const auto& read=pixel && target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE && service->texture?service->texture:service->read;
+        if(!read)refuse(L"Resource query adapter is unavailable");
+        if(!read(target,*state,result,reason))
             refuse(reason.empty()?L"Native resource query refused":reason);
         return result;
     }
@@ -51,7 +61,9 @@ bool cpu_target(const ResourceCopyTarget& target,size_t depth=0)
 {
     if(!(depth<=256 && (!target.custom_resource_pool || target.custom_resource_pool->GetPoolSize()<=max_steps) &&
         (!target.pool_dynamic_index_expression || cpu_expression(target.pool_dynamic_index_expression->evaluatable,depth+1)) &&
-        (!target.slot_expression || cpu_expression(target.slot_expression->evaluatable,depth+1))))return false;
+        (!target.slot_expression || cpu_expression(target.slot_expression->evaluatable,depth+1)) &&
+        (!target.range_start || cpu_expression(target.range_start->evaluatable,depth+1)) &&
+        (!target.range_end || cpu_expression(target.range_end->evaluatable,depth+1))))return false;
     for(const auto& arg:target.member_args)if(arg.expression && !cpu_expression(arg.expression->evaluatable,depth+1))return false;
     return true;
 }
@@ -103,6 +115,8 @@ void guard_target(ResourceCopyTarget& target,const std::shared_ptr<QueryService>
             expression=std::make_shared<PoolIndexGuard>(expression,target.custom_resource_pool);
     }
     if(target.slot_expression)guard_expression(target.slot_expression->evaluatable,queries,depth+1);
+    if(target.range_start)guard_expression(target.range_start->evaluatable,queries,depth+1);
+    if(target.range_end)guard_expression(target.range_end->evaluatable,queries,depth+1);
     for(auto& arg:target.member_args)if(arg.expression)guard_expression(arg.expression->evaluatable,queries,depth+1);
 }
 void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::shared_ptr<QueryService>& queries,size_t depth)
@@ -110,7 +124,7 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
     if(depth>256)refuse(L"Pool expression nesting budget exceeded");
     if(auto operand=std::dynamic_pointer_cast<CommandListOperand>(node)){
         guard_target(operand->texture_filter_target,queries,depth+1);
-        if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && queries->read)
+        if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && (queries->read || queries->texture))
             node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);
     }
     else if(auto* op=dynamic_cast<CommandListOperator*>(node.get())){
@@ -129,7 +143,10 @@ void guard_arguments(CommandListCommand& command,const std::shared_ptr<QueryServ
     }else if(auto* binding=dynamic_cast<ResourceCopyOperation*>(&command)){guard_target(binding->src,queries);guard_target(binding->dst,queries);}
     else if(auto* layout=dynamic_cast<LayoutElementOperation*>(&command)){
         if(layout->dst.member_args[1].expression)guard_expression(layout->dst.member_args[1].expression->evaluatable,queries);
-    }else if(auto* batch=dynamic_cast<ShaderResourceBindBatch*>(&command))for(auto& binding:batch->operations)if(binding)guard_arguments(*binding,queries);
+    }else if(auto* batch=dynamic_cast<ShaderResourceBindBatch*>(&command)){
+        for(auto& binding:batch->operations)if(binding)guard_arguments(*binding,queries);
+    }
+    else if(auto* check=dynamic_cast<CheckTextureOverrideCommand*>(&command))guard_target(check->target,queries);
 }
 
 bool cpu_arguments(CommandListCommand& command)
@@ -148,6 +165,8 @@ bool cpu_arguments(CommandListCommand& command)
     } else if (auto* layout = dynamic_cast<LayoutElementOperation*>(&command)) {
         return layout->dst.member_args[1].expression &&
                cpu_expression(layout->dst.member_args[1].expression->evaluatable);
+    } else if(auto* check=dynamic_cast<CheckTextureOverrideCommand*>(&command)) {
+        return cpu_target(check->target);
     }
     return true;
 }
@@ -180,6 +199,64 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::PaletteSource palette_source;
     bool nested_failed=false;
     size_t active_depth=0;
+    DrawPlanAdapter::TextureQuery texture_query;
+    std::array<DrawPlanAdapter::PixelBinding,128> pixel_bindings;
+
+    ResourceCopyTarget& effective_target(ResourceCopyTarget& target,CommandListState& state)
+    {
+        if(target.type!=ResourceCopyTargetType::THIS_RESOURCE)return target;
+        if(!state.this_target || state.this_target->type==ResourceCopyTargetType::THIS_RESOURCE)
+            refuse(L"Texture this target is missing or cyclic");
+        return *state.this_target;
+    }
+    void texture_matches(ResourceCopyTarget& target,CommandListState& state,bool& bound,TextureOverrideMatches& matches)
+    {
+        auto& resolved=effective_target(target,state);
+        if(!texture_query || resolved.type!=ResourceCopyTargetType::SHADER_RESOURCE || resolved.shader_type!=L'p' ||
+           resolved.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE || resolved.IsRange())
+            refuse(L"Texture query requires an adapted single pixel slot");
+        const auto slot=resolved.ResolveSlot(&state);
+        if(slot>=pixel_bindings.size())refuse(L"Texture query slot outside supported range");
+        DrawPlanAdapter::TextureIdentity identity;
+        const auto& binding=pixel_bindings[slot];
+        if(binding.application || binding.resource){
+            std::wstring why;
+            if(!texture_query(slot,binding,state,identity,why))refuse(why.empty()?L"Texture source identity is unknown":why);
+        }
+        bound=identity.bound;matches.clear();
+        if(!bound)return;
+        if(!G->mFuzzyTextureOverrides.empty())refuse(L"Texture descriptor fuzzy matching has no adapter");
+        find_texture_override_for_hash(identity.hash,&matches,state.call_info);
+        if(matches.size()>max_items)refuse(L"Texture match count exceeds planner budget");
+        for(auto* match:matches)if(!match || !adapted.count(match->command_list.ResolveCommandList()) ||
+                                   !adapted.count(match->post_command_list.ResolveCommandList()))
+            refuse(L"Matched texture command lists were not adapted");
+    }
+    void check_texture(CheckTextureOverrideCommand& check,CommandListState& state)
+    {
+        auto& target=effective_target(check.target,state);
+        if(target.type!=ResourceCopyTargetType::SHADER_RESOURCE || target.shader_type!=L'p' ||
+           (target.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE &&
+            target.evaluation_mode!=ResourceCopyTargetEvaluationMode::SLOT_RANGE))
+            refuse(L"Texture override only supports pixel resource slots");
+        int first=0;unsigned count=1;
+        if(target.IsRange()){
+            if(!target.ResolveRange(&state,&first,&count))refuse(L"Texture slot range cannot resolve");
+        }else first=static_cast<int>(target.ResolveSlot(&state));
+        if(first<0 || first>=128 || count>128-unsigned(first))refuse(L"Texture slot range outside supported bounds");
+        auto* saved_this=state.this_target;const auto saved_post=state.post;
+        struct Restore {CommandListState& state;ResourceCopyTarget* target;bool post;~Restore(){state.this_target=target;state.post=post;}} restore{state,saved_this,saved_post};
+        for(unsigned i=0;i<count;++i){
+            ResourceCopyTarget checked;checked.type=ResourceCopyTargetType::SHADER_RESOURCE;checked.shader_type=L'p';checked.slot=unsigned(first)+i;
+            state.this_target=&checked;bool bound=false;TextureOverrideMatches matches;texture_matches(checked,state,bound,matches);
+            auto run=[&](bool post){state.post=post;for(auto* match:matches){
+                auto& list=post?match->post_command_list:match->command_list;
+                if(!adapted.count(list.ResolveCommandList()))refuse(L"Texture callback alias target was not adapted");
+                FrontendRunCommandList(list,state);
+            }};
+            if(check.run_pre_and_post_together){run(false);run(true);}else run(saved_post);
+        }
+    }
 
     CustomResource* referenced(CustomResource* resource) const
     {
@@ -212,6 +289,9 @@ struct DrawPlanAdapter::Runtime {
         ++active_depth;struct Depth {size_t& value;~Depth(){--value;}} depth{active_depth};
         if (state->recursion >= MAX_COMMAND_LIST_RECURSION)
             refuse(L"Plan recursion budget exceeded");
+        if(auto* check=dynamic_cast<CheckTextureOverrideCommand*>(original.get())){
+            check_texture(*check,*state);return;
+        }
         if (auto* draw = dynamic_cast<DrawCommand*>(original.get())) {
             if (state->call_info && state->call_info->hunting_skip) return;
             PlanItem item; item.operation = PlanOperation::DrawIndexed;
@@ -242,7 +322,7 @@ struct DrawPlanAdapter::Runtime {
             return;
         }
         if (auto* binding = dynamic_cast<ResourceCopyOperation*>(original.get())) {
-            auto& src = binding->src; auto& dst = binding->dst;
+            auto& src = binding->src; auto& dst = effective_target(binding->dst,*state);
             if (typeid(*binding) != typeid(ResourceCopyOperation) ||
                 src.evaluation_mode != ResourceCopyTargetEvaluationMode::RESOURCE ||
                 dst.evaluation_mode != ResourceCopyTargetEvaluationMode::RESOURCE)
@@ -278,6 +358,7 @@ struct DrawPlanAdapter::Runtime {
                         binding->options != ResourceCopyOptions::COPY)) {
                 refuse(L"Unsupported resource source or copy policy: " + original->ini_line);
             }
+            if(item.operation==PlanOperation::BindPixelResource)pixel_bindings[item.slot]={false,item.resource};
             append(std::move(item));
             return;
         }
@@ -450,6 +531,21 @@ void DrawPlanAdapter::resource_queries(ResourceQuery query)
     runtime_->queries->read=std::move(query);
 }
 
+void DrawPlanAdapter::texture_queries(TextureQuery query)
+{
+    if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install texture queries before adapting command lists");
+    runtime_->texture_query=std::move(query);std::weak_ptr<Runtime> weak=runtime_;
+    runtime_->queries->texture=[weak](ResourceCopyTarget& target,CommandListState& state,float& result,std::wstring& reason){
+        auto owner=weak.lock();if(!owner || !owner->active){reason=L"Texture query outside an active plan";return false;}
+        bool bound=false;TextureOverrideMatches matches;owner->texture_matches(target,state,bound,matches);
+        if(!bound){result=-0.f;return true;}
+        if(matches.empty()){result=0.f;return true;}
+        result=1.f;for(auto it=matches.rbegin();it!=matches.rend();++it)if((*it)->filter_index!=FLT_MAX){result=(*it)->filter_index;break;}
+        return true;
+    };
+}
+bool DrawPlanAdapter::has_texture_queries() const {return bool(runtime_->texture_query);}
+
 void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
 {
     if (depth > MAX_COMMAND_LIST_RECURSION || runtime_->adapted.size() >= max_steps)
@@ -497,6 +593,7 @@ bool DrawPlanAdapter::execute_impl(CommandList& root,CommandList* post,CommandLi
     DrawPlan candidate;
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
+    runtime_->pixel_bindings={};
     try {
         if(post)state.post=false;
         for (auto& command : resolved->commands) command->run(&state);

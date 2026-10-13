@@ -38,7 +38,7 @@ struct CoreComponentBridge::Impl {
     CustomResource* skeleton_resource=nullptr;
     CustomResource* initialization_target=nullptr;
     unsigned initialization_requests=0;
-    bool preparing=false,ready=false,active=false,observed=false,attached=false;
+    bool preparing=false,ready=false,active=false,observed=false,attached=false,resolve_textures=false;
     ComponentInput input;std::vector<uint32_t> hashes;
     std::shared_ptr<const core::PaletteSnapshot> selected;
     uint64_t current_identity=0;
@@ -128,15 +128,17 @@ struct CoreComponentBridge::Impl {
 };
 CoreComponentBridge::CoreComponentBridge(DrawPlanAdapter& adapter,const FilePlanCompiler& files)
     :impl_(std::make_shared<Impl>(adapter,files)){}
-std::vector<std::wstring> CoreComponentBridge::boundaries()
+std::vector<std::wstring> CoreComponentBridge::boundaries() const
 {
-    return {command(L"initializemergedskeleton"),command(L"component_readconfig"),
+    std::vector<std::wstring> result={command(L"initializemergedskeleton"),command(L"component_readconfig"),
             command(L"mergedskeleton_attachcomponent"),command(L"mergedskeleton_detectbonedatasource"),
-            command(L"mergedskeleton_apply"),command(L"overridetextures")};
+            command(L"mergedskeleton_apply")};
+    if(!impl_->resolve_textures)result.push_back(command(L"overridetextures"));return result;
 }
 void CoreComponentBridge::install()
 {
     auto owner=impl_;auto& adapter=owner->adapter;
+    owner->resolve_textures=adapter.has_texture_queries();
     adapter.native(list(L"initializemergedskeleton"),command(L"initializemergedskeleton"),
         [owner](CommandListState&,unsigned phases,std::wstring& why){return !(phases&1) || owner->initialize(why);});
     adapter.native(list(L"component_readconfig"),command(L"component_readconfig"),
@@ -149,7 +151,7 @@ void CoreComponentBridge::install()
         [owner](CommandListState&,unsigned phases,std::wstring& why){return !(phases&1) || owner->apply(why);});
     adapter.after(list(L"spatialidentity_identifycomponentinstances"),
         [owner](CommandListState&,unsigned phases,std::wstring& why){return !(phases&1) || owner->identified(why);});
-    adapter.external(list(L"overridetextures"),command(L"overridetextures"));
+    if(!owner->resolve_textures)adapter.external(list(L"overridetextures"),command(L"overridetextures"));
     adapter.resource_queries([owner](ResourceCopyTarget& target,CommandListState& state,float& value,std::wstring& why){
         if(!owner->active)return owner->fail(why,L"Core resource query outside active planning");
         if(target.type==ResourceCopyTargetType::CUSTOM_RESOURCE && !target.custom_resource_pool &&

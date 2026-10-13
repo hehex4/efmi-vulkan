@@ -98,6 +98,7 @@ def main() -> int:
                     ROOT / "layer/src/merged_skeleton.cpp"]
         sources += [ROOT / "frontend/xxmi/spatial_palettes.cpp"]
         sources += [fixture / "core_native_test.cpp"]
+        sources += [fixture / "texture_query_test.cpp"]
         sources += [fixture / "core_component_test.cpp", ROOT / "frontend/xxmi/component_bridge.cpp"]
         sources += [fixture / "vertex_plan_test.cpp", ROOT / "frontend/xxmi/vertex_plan.cpp",
                     ROOT / "layer/src/pipeline_recipe.cpp"]
@@ -191,11 +192,14 @@ def main() -> int:
         vertex = re.search(r"XXMI vertex plans: (\d+) checks passed, (\d+) failed", output)
         report["vertex_passed"] = int(vertex[1]) if vertex else 0
         report["vertex_failed"] = int(vertex[2]) if vertex else None
+        texture = re.search(r"XXMI texture queries: (\d+) checks passed, (\d+) failed", output)
+        report["texture_queries_passed"] = int(texture[1]) if texture else 0
+        report["texture_queries_failed"] = int(texture[2]) if texture else None
         report["passed"] = (result.returncode == 0 and bool(counts) and int(counts[2]) == 0
                             and bool(planner) and int(planner[2]) == 0 and bool(dds) and int(dds[2]) == 0
                             and bool(resources) and int(resources[2]) == 0 and bool(pools) and int(pools[2]) == 0
                             and bool(skeleton) and int(skeleton[2]) == 0 and bool(native) and int(native[2]) == 0
-                            and bool(vertex) and int(vertex[2]) == 0)
+                            and bool(vertex) and int(vertex[2]) == 0 and bool(texture) and int(texture[2]) == 0)
         print(counts[0] if counts else f"Host process failed: {result.returncode}", flush=True)
         if planner:
             print(planner[0], flush=True)
@@ -211,6 +215,8 @@ def main() -> int:
             print(native[0], flush=True)
         if vertex:
             print(vertex[0], flush=True)
+        if texture:
+            print(texture[0], flush=True)
         return 0 if report["passed"] else 1
     except (BuildError, OSError, subprocess.SubprocessError) as exc:
         report["error"] = str(exc)

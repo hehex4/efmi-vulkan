@@ -243,3 +243,37 @@ validation errors/warnings; report build/assets-gpu/report.json. Historical
 material outcomes remain 353 accepted, six unknown LOD1 mappings and eleven
 dimension refusals. These are standalone helper tests, not whole-character game
 rendering or DLL integration. Native texture-override dispatch remains open.
+
+## Native texture queries and original Core callbacks
+
+The dispatch mechanism is now implemented separately from runtime source
+correspondence. DrawPlanAdapter.texture_queries accepts a provider of proven
+source-API resource hashes for logical pixel slots or previously bound custom
+declarations. This is not a Vulkan handle or an arbitrary content checksum.
+An unknown lookup must return false. Explicit unbinds need no provider lookup.
+Bound identities use original find_texture_override_for_hash and its draw-context
+filters, with original callback lists already adapted in the same generation.
+Descriptor fuzzy matches are explicitly unsupported, never silently omitted.
+
+CheckTextureOverride mediates dynamic and inclusive slot ranges with the original
+resolver. The original command executor runs callbacks, with all pre callbacks
+before post callbacks for an explicit combined request. Phase-local requests keep
+their phase. this targets the checked slot and restores through nested callbacks
+and failure. Per-plan binding state means a post query can see a custom file or
+null installed during pre. Scalar filters preserve the original negative-zero
+unbound value and highest-priority explicit filter_index behavior. Unknown data,
+unsupported targets, invalid ranges and recursion refuse the whole plan output.
+
+Install the texture provider before CoreComponentBridge.install. Its boundaries()
+then lets the original OverrideTextures list compile; without a provider that
+list remains an explicit unresolved event. This avoids separate configuration
+switches that could accidentally compile an empty texture command list.
+
+Native checks pass 21. scripts/check_texture_queries.py also reads the unchanged
+installed API.ini: 22 checks, including all 23 slots in both phases and a post
+lookup observing the pre replacement. Identities in that test are synthetic.
+Reports build/xxmi-host/report.json and texture-core-report.json; spatial 21,
+palette 24/283 and full original entry replay remain passing. The historical
+replay still contains 283 unresolved texture calls because its source identities
+are unavailable. This mechanism does not establish live source correspondence,
+whole-character material rendering or DLL integration.

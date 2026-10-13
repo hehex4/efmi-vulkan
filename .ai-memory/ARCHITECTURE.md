@@ -261,3 +261,15 @@ publishes nothing. A late append failure can consume unused arena slots but emit
 no commands and preserves the previous recording. Application objects and queue/
 command synchronization remain the caller's responsibility; no live hook uses
 this frontend bridge yet.
+
+DrawPlanAdapter mediates CheckTextureOverride and scalar pixel filters against
+an explicit source-API identity provider. The original resource hash matcher,
+draw filters, range resolver and command executor are reused. The adapter tracks
+per-plan file/null pixel bindings so later queries observe previous replacements;
+unknown source identities and descriptor fuzzy matching refuse. It preserves
+negative-zero unbound filter results, selected filter priority, phase ordering
+and nested this restoration. All returned original callback lists must already
+belong to the same adapted generation. Register the provider before installing
+CoreComponentBridge; its instance boundaries() then includes or excludes the
+unresolved texture boundary consistently. Current historical fixtures supply no
+source identity provider and continue to record that unresolved work explicitly.

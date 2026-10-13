@@ -27,8 +27,10 @@ public:
     CoreComponentBridge(DrawPlanAdapter&,const FilePlanCompiler&);
     // Install before graph compilation/optimization/adaptation. Missing Core
     // declarations throw; all original globals/lists must outlive this bridge.
+    // Install a texture identity provider first to compile/run the original
+    // OverrideTextures. Without one it remains an explicit unresolved event.
     void install();
-    static std::vector<std::wstring> boundaries();
+    std::vector<std::wstring> boundaries() const;
     // Generation preparation, outside draw execution: execute original init,
     // copy evaluated metadata and load LOD0/LOD1 remaps through read-only handles.
     bool prepare(const SkeletonSetup&,CommandListState&,std::wstring& reason);

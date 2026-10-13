@@ -57,7 +57,7 @@ int HostCoreComponents(const wchar_t* filename,const wchar_t* core_folder,const 
                 roots.push_back(&entry.command_list);roots.push_back(&entry.post_command_list);
             }
         if(roots.empty())throw std::runtime_error("Original sample entries were not parsed");
-        HostCompileRoots(roots,CoreComponentBridge::boundaries());optimise_command_lists(nullptr);
+        HostCompileRoots(roots,bridge.boundaries());optimise_command_lists(nullptr);
         for(auto* root:roots)adapter.adapt(*root);
         if(HostDiagnosticCount())throw std::runtime_error("Original entry/Core graph has parser diagnostics");
         SkeletonSetup setup;setup.initialize=&explicitCommandListSections.at(L"commandlist"+ns+L"initializemergedskeleton");

@@ -6,3 +6,8 @@ bool FrontendApplyInputLayoutOverrides(std::vector<D3D11_INPUT_ELEMENT_DESC>& el
 {
     return ApplyInputLayoutOverrides(elements,&state);
 }
+
+void FrontendRunCommandList(CommandList& list,CommandListState& state)
+{
+    _RunCommandList(&list,&state);
+}

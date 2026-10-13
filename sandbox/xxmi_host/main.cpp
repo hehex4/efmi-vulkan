@@ -24,6 +24,7 @@ int HostCorePoolTests();
 int HostSkeletonPlanTests();
 int HostCoreNativeTests();
 int HostVertexPlanTests();
+int HostTextureQueryTests(const wchar_t* api=nullptr);
 int HostModSkeleton(const wchar_t*,const wchar_t*,const wchar_t*);
 int HostCoreSpatial(const wchar_t*);
 int HostCoreComponents(const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*);
@@ -61,6 +62,7 @@ int wmain(int argc,wchar_t** argv)
     InitializeCriticalSection(&resource_creation_mode_lock);
     G->user_config=L"host-test-user-settings.ini";
     if(argc==3 && !wcscmp(argv[1],L"--dds"))return HostDdsFile(argv[2]);
+    if(argc==3 && !wcscmp(argv[1],L"--texture-core"))return HostTextureQueryTests(argv[2]);
     if(argc==5 && !wcscmp(argv[1],L"--plan-mod"))return HostModPlan(argv[2],argv[3],argv[4]);
     if(argc==5 && !wcscmp(argv[1],L"--skeleton-mod"))return HostModSkeleton(argv[2],argv[3],argv[4]);
     if(argc==3 && !wcscmp(argv[1],L"--spatial-core"))return HostCoreSpatial(argv[2]);
@@ -153,5 +155,6 @@ int wmain(int argc,wchar_t** argv)
     if(!failed)failed+=HostSkeletonPlanTests();
     if(!failed)failed+=HostCoreNativeTests();
     if(!failed)failed+=HostVertexPlanTests();
+    if(!failed)failed+=HostTextureQueryTests();
     return failed?1:0;
 }

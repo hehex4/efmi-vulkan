@@ -65,6 +65,18 @@ public:
     // Install before adaptation. Every mediated query must explicitly succeed;
     // refusal never falls through to the reference D3D graphics scaffolding.
     void resource_queries(ResourceQuery);
+    struct PixelBinding {
+        bool application=true;
+        CustomResource* resource=nullptr; // Null with application=false means an explicit unbind.
+    };
+    struct TextureIdentity {bool bound=false;uint32_t hash=0;};
+    using TextureQuery=std::function<bool(unsigned,const PixelBinding&,CommandListState&,TextureIdentity&,std::wstring&)>;
+    // The provider proves the source-API resource hash (including the original
+    // hash policy), not merely a Vulkan object identity or arbitrary byte hash.
+    // Unknown data refuses. Hash matching uses original XXMI rules; descriptor
+    // fuzzy matching is unsupported and refuses. Install before adaptation.
+    void texture_queries(TextureQuery);
+    bool has_texture_queries() const;
 private:
     bool execute_impl(CommandList& pre,CommandList* post,CommandListState&,DrawPlan&,std::wstring&);
     void adapt_tree(CommandList& root, size_t depth);
