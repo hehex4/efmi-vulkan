@@ -11,6 +11,10 @@ struct CharacterMaterial {
     std::vector<uint32_t> assets;
     std::string reason;
 };
+// One profile against every mesh draw of the package. `counts` gains the image counts its
+// supported draws use. Outputs are unchanged if the profile is malformed.
+bool prepare_character_profile(const CharacterPackage&, const CharacterMaterialProfile&, std::vector<CharacterMaterial>&,
+                               std::set<uint32_t>& counts, std::string& reason);
 // Profiles are validated once; unsupported profile/draw combinations retain reasons.
 // Outputs are unchanged if a malformed profile prevents preparation.
 bool prepare_character_materials(const CharacterPackage&, std::vector<std::vector<CharacterMaterial>>&,

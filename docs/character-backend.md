@@ -135,16 +135,19 @@ remain questions for the next user-started session.
   replaced since 0.9.8; the tracker follows slots 0 to 3, so a private set at slot 4 or above is
   used only while no pipeline layout of the application has that many sets (in the game: none of
   1,430 pipelines has more than four).
-- With a material package, a fragment shader needs a profile unless its complete layout has no
-  image descriptor for the fragment stage; then nothing of the mod's textures applies and the
-  mesh alone is replaced (0.9.8). A four-set pipeline whose fragment shader does read images is
-  covered by the rewrite and not by a sandbox scene.
+- With a material package, a fragment shader without a profile takes the rules of a profiled
+  sibling where one is found, and otherwise keeps the application's images on the mod's mesh
+  (0.9.9, `docs/character-materials.md`). The mesh is replaced either way. A four-set pipeline
+  whose fragment shader has material rules is covered by the rewrite and not by a sandbox scene.
+- A draw whose vertex shader has no bone buffer keeps the original mesh (`refused_variant`). The
+  game's after-images of a dash are such draws (LIMIT-027).
 - A stream of the mod shorter than the game's is bound as it is (0.9.5): an element may lie up to
   64 bytes past the file's stride and then reads into the next vertex, as under the source API.
   Farther than that refuses.
 - LOD 0 and LOD 1 only.
 - Up to 16 objects are followed; one arena holds 256 draws and 64 skeleton copies per command
-  buffer.
+  buffer. An object is forgotten after two counted frames and half a second without a draw
+  (0.9.9; the core's rule is the two frames alone).
 
 ## First game session and 0.9.5
 
@@ -221,3 +224,62 @@ Evidence, sandbox and offline only:
 
 What to read in the next session: `refused_material`, `refused_variant` and `refused_set3` stay 0
 while `replaced` grows, `last_reason` is empty, and the user's eyes on the flicker.
+
+## 0.9.8 in the game; feature variants of the shaders; 0.9.9
+
+2026-10-13, user-started session with 0.9.8 (PID 36720), materials on, nine images ready. What
+the user saw: standing and walking mostly fine at first, a flicker when dashing, and "a big
+problem" looking up at the character from below: the character is drawn dithered there, and parts
+of the original model and of the mod's are mixed. Later in the session: the normal state seems to
+flicker now and then too.
+
+Read from the running process (`captures/flicker-0.9.8-20261013/`):
+
+- Five seconds that included dashes: `refused_material` 828 of 26,412 matched draws, `identifying`
+  112, `pending` 160. Twelve seconds standing: no refusal, nothing identifying, nothing pending;
+  61 to 64 matched draws per frame, all at one position.
+- Thirty captured frames. In ten of them every component the mod draws is drawn with fragment
+  shaders the package has no profile for, in every pass: the shadow passes, the G-buffer, the lit
+  passes. These are the shaders of the dithered fade (camera close to the character, and the
+  dash). Each is the profiled shader of the same component and pass with one more image, a
+  256 x 256 noise texture, and the texture bindings of set 1 moved up by one or two. 0.9.8 refused
+  such a draw and kept the game's mesh for it, while the components the mod hides stayed hidden:
+  that is the mixed picture.
+- Other shaders without a profile on character draws: a four-set overlay in a lit pass
+  (fragment 96181486, all components), three after-image shaders whose vertex shader has no bone
+  buffer (fragments 0e0d487e, 74a59126, ce87bc96), and one for component 7 that was drawn twice
+  in every frame of one stretch and not at all later (95d04ba0).
+- Session totals after about 23 minutes: `identifying` 2,653, `refused_variant` 954,
+  `incomplete` 4, `refused_material` 110,256.
+
+0.9.9:
+
+- Rules for a shader without a profile come from its profiled sibling
+  (`docs/character-materials.md`, last section).
+- No sibling: the mod's mesh is drawn with the application's images. The game's mesh is never
+  kept because of a texture question.
+- The variant cache holds 2,048 pipelines instead of 256. A full cache refuses every further
+  pipeline for good; the feature variants roughly double the pipelines a character is drawn with.
+- An object's identity survives frames without a draw. `identifying` counts matched draws of an
+  object that is not yet the mod's, and each such frame shows the game's model: 2,653 in a session
+  is some forty frames beyond the first. The backend counts a frame at every present after which
+  something was drawn, 80 per second in that session against 66 frames of the game per second (four
+  presents per frame with frame generation), and the game may leave the character out during a
+  dash. The identity is now given up after two counted frames and half a second without a draw,
+  the radius grows with the frames the object was not drawn in, and with all sixteen slots taken
+  the object longest without a draw gives way. Whether lost identities are what the user saw in
+  the normal state is not known. Each new identity near a replaced object is logged with distance,
+  frames and time since that object's last draw (`identities_created`, `identities_expired`).
+
+Evidence for 0.9.9, sandbox and offline only:
+
+- Scene: after six frames without the character it is replaced in its first frame back; after
+  700 ms and six frames it is a new object. A character draw on the four-set pipeline is replaced
+  in material runs too (no profile, no sibling: application's images). A fragment shader with the
+  profiled shader's image at binding 8 instead of 6 shows the mod's texture. The deployed 0.9.8
+  fails these three (`refused_material` 800); 0.9.9 passes, validation clean.
+- Game data: see the material document.
+- Counts: character package 77, character replacement 277 over eighteen runs.
+
+Not solved: the after-images keep the game's mesh (LIMIT-027); the normal-state flicker has no
+measured cause yet.

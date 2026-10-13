@@ -48,6 +48,28 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         VK(recipe.create(g.device,vkCreateGraphicsPipelines,four.layout,g.pass,with_extra,&four.pipeline));
         vkDestroyShaderModule(g.device,fragment,nullptr);
     }
+    // Material runs: the character's fragment shader once more with its image at binding 8 of set
+    // 1 instead of 6. The package has no profile for these bytes. The application binds the same
+    // texture there, in a set of the layout this pipeline needs.
+    struct Shifted{VkDevice device;VkDescriptorSetLayout set=VK_NULL_HANDLE;VkPipelineLayout layout=VK_NULL_HANDLE;VkPipeline pipeline=VK_NULL_HANDLE;
+        ~Shifted(){vkDeviceWaitIdle(device);if(pipeline)vkDestroyPipeline(device,pipeline,nullptr);if(layout)vkDestroyPipelineLayout(device,layout,nullptr);
+                   if(set)vkDestroyDescriptorSetLayout(device,set,nullptr);}
+    } shifted{g.device};
+    if(material){
+        VkDescriptorSetLayoutBinding binding={8,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_FRAGMENT_BIT,nullptr};
+        VkDescriptorSetLayoutCreateInfo ci={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};ci.bindingCount=1;ci.pBindings=&binding;
+        VK(vkCreateDescriptorSetLayout(g.device,&ci,nullptr,&shifted.set));
+        VkDescriptorSetLayout layouts[]={g.sets[0],shifted.set,g.sets[2]};
+        VkPipelineLayoutCreateInfo ls={VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};ls.setLayoutCount=3;ls.pSetLayouts=layouts;
+        VK(vkCreatePipelineLayout(g.device,&ls,nullptr,&shifted.layout));
+        const auto code=variant_fixture::shader(false,true,8);
+        VkShaderModuleCreateInfo cs={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};cs.codeSize=code.size()*4;cs.pCode=code.data();
+        VkShaderModule fragment;VK(vkCreateShaderModule(g.device,&cs,nullptr,&fragment));
+        size_t fs=0;while(recipe.stages[fs].stage!=VK_SHADER_STAGE_FRAGMENT_BIT)++fs;
+        auto with_shifted=modules;with_shifted[fs]=fragment;
+        VK(recipe.create(g.device,vkCreateGraphicsPipelines,shifted.layout,g.pass,with_shifted,&shifted.pipeline));
+        vkDestroyShaderModule(g.device,fragment,nullptr);
+    }
     for(auto module:modules)vkDestroyShaderModule(g.device,module,nullptr);
     Image color=g.image(VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
     Image depth=g.image(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -102,9 +124,10 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     auto extra=g.buffer(dynamic+65536,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     {float shade[]={1,.25f,0,.5f};memcpy(static_cast<uint8_t*>(extra.mapped)+dynamic+16,shade,16);}
     auto readback=g.buffer(64*64*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-    VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1},{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,2},{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1}};
-    VkDescriptorPoolCreateInfo pi={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pi.maxSets=4;pi.poolSizeCount=material?3:2;pi.pPoolSizes=sizes;
+    VkDescriptorPoolSize sizes[]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1},{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,2},{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,2}};
+    VkDescriptorPoolCreateInfo pi={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pi.maxSets=5;pi.poolSizeCount=material?3:2;pi.pPoolSizes=sizes;
     VK(vkCreateDescriptorPool(g.device,&pi,nullptr,&g.descriptors));
+    VkDescriptorSet shifted_set=VK_NULL_HANDLE;
     VkDescriptorSet sets[4];VkDescriptorSetAllocateInfo si={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     si.descriptorPool=g.descriptors;si.descriptorSetCount=4;si.pSetLayouts=g.sets.data();VK(vkAllocateDescriptorSets(g.device,&si,sets));
     VkDescriptorBufferInfo infos[]={{bones.handle,0,65536},{instance.handle,0,65536},{extra.handle,0,65536}};
@@ -117,6 +140,10 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         VkDescriptorImageInfo image{VK_NULL_HANDLE,original_image.view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};write.dstSet=sets[1];write.dstBinding=6;
         write.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.descriptorCount=1;write.pImageInfo=&image;
+        vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
+        VkDescriptorSetAllocateInfo ss={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        ss.descriptorPool=g.descriptors;ss.descriptorSetCount=1;ss.pSetLayouts=&shifted.set;VK(vkAllocateDescriptorSets(g.device,&ss,&shifted_set));
+        write.dstSet=shifted_set;write.dstBinding=8;
         vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
     }
     VkCommandPoolCreateInfo pc={VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};pc.queueFamilyIndex=g.family;pc.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -147,7 +174,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         return 3;
     };
     bool image_initialized=false;
-    auto frame=[&](bool lod1,bool four_sets=false,bool character_on_four=false){
+    auto frame=[&](bool lod1,bool four_sets=false,bool character_on_four=false,bool character_on_shifted=false){
         VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};VK(vkBeginCommandBuffer(cmd,&begin));
         if(material && !image_initialized){
             VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.image=original_image.handle;
@@ -184,6 +211,14 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
             uint32_t offsets[]={E_A*dynamic,dynamic};
             vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,four.pipeline);
             vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,four.layout,0,4,sets,2,offsets);
+            vkCmdDrawIndexed(cmd,3,1,0,0,0);
+            vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
+        }
+        else if(character_on_shifted){
+            // Component A's own region drawn with the fragment shader the package has no profile for.
+            VkDescriptorSet with_shifted[]={sets[0],shifted_set,sets[2]};uint32_t offset=E_A*dynamic;
+            vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,shifted.pipeline);
+            vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,shifted.layout,0,3,with_shifted,1,&offset);
             vkCmdDrawIndexed(cmd,3,1,0,0,0);
             vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
         }
@@ -246,6 +281,20 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     }
     row(A_CUR+3,-.6f,-.6f);
     check(follows,"20 pose changes of one component move the other component's geometry in the same frame");
+    // Frames end without the character (a dash hides it; with frame generation presents pass between
+    // two of its frames). Drawn again shortly after, it is the mod's at once.
+    for(uint32_t i=0;i<6;++i)self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
+    frame(false);
+    check(replaced(-.6f),"six frames without the character do not make it a stranger: replaced in its first frame back");
+    // After several frames and more than half a second without a draw it is forgotten: the
+    // application draws its first frame, then it is identified and replaced again.
+    Sleep(700);
+    for(uint32_t i=0;i<6;++i)self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
+    frame(false);
+    check(original(),"long enough without a draw, the character is a new object and its first frame is the application's");
+    bool known=false;
+    for(uint32_t attempt=0;attempt<100 && !known;++attempt){frame(false);known=replaced(-.6f);}
+    check(known,"the forgotten character is identified and replaced again");
     // As in the game: a character draw recorded while the application has a set 3 bound.
     bool kept=true;
     for(uint32_t i=0;i<5;++i){
@@ -254,18 +303,34 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
               shade_at(.6f,-.6f)==0 && shade_at(-.6f,-.6f)==4 && shade_at(0,-.6f)==4;
     }
     check(kept,"with an application set 3 bound the character is still replaced, and the next four-set draw reads that set again");
-    if(!material){
+    {
         // The replacement of a draw on a four-set pipeline puts its private set at slot 4 and leaves
         // the application's set 3 for the fragment shader: A's mesh at its replaced place, in the
         // color of the fourth set. Until the variant is built the application's draw stays.
+        // In a material run this fragment shader has no profile and no sibling (it samples no
+        // image): the mesh is replaced all the same and nothing of the application's is rebound.
         bool four_done=false;
         for(uint32_t attempt=0;attempt<400 && !four_done;++attempt){
             frame(false,false,true);
-            four_done=shade_at(-.6f,.3f)==4 && shade_at(0,0)==2 && shade_at(.6f,.3f)==2 && shade_at(0,.6f)==1 && shade_at(.6f,-.1f)==1 &&
+            four_done=shade_at(-.6f,.3f)==4 && shade_at(0,0)==b_shade && shade_at(.6f,.3f)==cross_shade && shade_at(0,.6f)==1 && shade_at(.6f,-.1f)==1 &&
                       shade_at(.6f,-.6f)==0 && shade_at(-.6f,-.6f)==0 && shade_at(0,-.6f)==0;
             if(!four_done)Sleep(5);
         }
         check(four_done,"a character draw on a four-set pipeline is replaced, with the private set above the application's four");
+    }
+    if(material){
+        // A fragment shader without a profile that samples the profiled shader's texture at another
+        // binding takes that shader's rule to its own binding: A's mesh in the mod's texture (5).
+        // The application's texture on the mod's mesh would be 1, the application's own draw 1 at
+        // the unreplaced place.
+        bool derived=false;
+        for(uint32_t attempt=0;attempt<400 && !derived;++attempt){
+            frame(false,false,false,true);
+            derived=shade_at(-.6f,.3f)==5 && shade_at(0,0)==b_shade && shade_at(.6f,.3f)==cross_shade && shade_at(0,.6f)==1 && shade_at(.6f,-.1f)==1 &&
+                    shade_at(.6f,-.6f)==0 && shade_at(-.6f,-.6f)==0 && shade_at(0,-.6f)==0;
+            if(!derived)Sleep(5);
+        }
+        check(derived,"an unprofiled fragment shader with the texture at another binding gets the mod's texture through its profiled sibling");
     }
     // LOD 1 of component A: its palette is in another order and the package remaps it.
     // Merged bone 0 <- source 1 = (-.6,-.2), merged bone 1 <- source 0 = (-.2,.6).

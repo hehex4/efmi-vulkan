@@ -2,14 +2,11 @@
 #include "../../frontend/gpu/material_plan.h"
 
 namespace efvk {
-bool prepare_character_materials(const CharacterPackage& package, std::vector<std::vector<CharacterMaterial>>& output,
-                                 std::set<uint32_t>& image_counts, std::string& reason)
+bool prepare_character_profile(const CharacterPackage& package, const CharacterMaterialProfile& source,
+                               std::vector<CharacterMaterial>& output, std::set<uint32_t>& counts, std::string& reason)
 {
     using namespace efmi;
-    reason.clear();
-    std::vector<std::vector<CharacterMaterial>> next;
-    std::set<uint32_t> counts{0};
-    for (const auto& source : package.profiles) {
+    {
         gpu::MaterialProfile profile;
         std::vector<gpu::MaterialSlot> rules;
         for (const auto& r : source.rules)
@@ -38,6 +35,20 @@ bool prepare_character_materials(const CharacterPackage& package, std::vector<st
             }
             plans.push_back(std::move(material));
         }
+        output = std::move(plans);
+    }
+    return true;
+}
+
+bool prepare_character_materials(const CharacterPackage& package, std::vector<std::vector<CharacterMaterial>>& output,
+                                 std::set<uint32_t>& image_counts, std::string& reason)
+{
+    reason.clear();
+    std::vector<std::vector<CharacterMaterial>> next;
+    std::set<uint32_t> counts{0};
+    for (const auto& source : package.profiles) {
+        std::vector<CharacterMaterial> plans;
+        if (!prepare_character_profile(package, source, plans, counts, reason)) return false;
         next.push_back(std::move(plans));
     }
     output = std::move(next); image_counts = std::move(counts); return true;

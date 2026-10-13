@@ -197,3 +197,61 @@ counters, settled pending counts and any refusal reason. Check whole-outfit
 appearance and motion at LOD0 and LOD1, including the earlier flicker fix. Neither
 static materials nor that fix has visual game acceptance yet. No long-duration
 or LOD2+ test is required.
+
+## Fragment shaders without a profile (0.9.9)
+
+A profile is tied to the exact bytes of a fragment shader, and its rules say at which Vulkan
+binding each of the mod's fixed source slots lands. The game has more shaders per component than
+were captured: the dithered fade alone gives every pass of every component a second fragment
+shader. 0.9.6 to 0.9.8 refused a draw with such a shader and kept the whole original component.
+In the game that mixes the original model with the mod's (session of 2026-10-13 with 0.9.8).
+
+What the captured frames show for all 25 such shaders on three-set pipelines: the variant has
+the images of one profiled shader of the same component and kind of pass, bound to the same
+textures, plus one image (a 256 x 256 noise texture), at bindings moved by one or two. Example,
+component 0, lit pass: profile 09e0be38 has slot 15 at (1,6), 16 at (1,3), 17 at (1,1); the
+variant f1ded4ae holds the same three textures at (1,8), (1,4) and (1,2).
+
+So the rules of the profiled shader, the sibling, are taken to the variant through the images:
+
+- At a draw with a profiled shader the backend notes which image the application has bound at
+  each image variable of that shader (per section and kind of pass, read again every 30 frames).
+- At a draw with a shader that has no profile, the same is read for that shader. A profiled
+  shader of the same section and kind of pass is a candidate when every image it had bound has a
+  place in the new shader: the same image, or, for an image only one side holds, an image of the
+  same view type, format and extent, occurrences in binding order. The candidate that leaves the
+  fewest images of the new shader over wins, at most two; two best candidates with different
+  results give none.
+- A rule moves to the binding that holds the same image. It moves only through a certain match:
+  the same image the same number of times on both sides, or a shape that occurs once on each
+  side (the 3D texture of the dimension rule is another image every other frame). An absent slot
+  stays absent.
+- The result is prepared like a profile of the package (`prepare_character_profile`), once per
+  shader and rule set, and every draw plan must use an image count the arenas were made for.
+  Nothing yet (the sibling has not drawn so far): the application's images stay, and the search
+  is repeated 30 frames later.
+
+This keeps a variant looking like its sibling. It is not a claim about the source API's slots in
+the variant shader: a rule that puts a texture into an unrelated slot of the sibling (profile
+2e2750b8 binds the mod's normal map where that shader samples the diffuse texture) is carried
+over as it is.
+
+A shader without a profile and without a sibling keeps the application's images on the mod's
+mesh. `material_derived` and `material_inherited` count replaced draws of the two kinds;
+`material_derived_profiles` is the number of prepared rule sets, and the log names each.
+
+Evidence:
+
+- Frames and shaders from the running game: `scripts/flicker_capture.py` and
+  `scripts/flicker_shaders.py`, saved in `captures/flicker-0.9.8-20261013/`.
+- `scripts/sibling_replay.py` runs the rule over the 30 captured frames in draw order: 54
+  combinations of component, pass and unprofiled shader; 25 get one and the same sibling and rule
+  set in every draw, each with exactly one image more than the sibling; the other 29 have no
+  candidate (four-set overlay, after-images, the visibility pass, component 7's extra shader).
+- `scripts/sibling_check.py` puts the 25 real variant modules with their derived rules through
+  the production preparation (`efmi_vk_character_test --derived`): all accepted, and for every one
+  the supported draws, their textures and their null bindings equal the sibling's.
+- Native checks with the images the game had bound (`sandbox/character_test.cpp`,
+  `sibling_tests`) and a sandbox scene through the real hooks.
+
+The game result is open.

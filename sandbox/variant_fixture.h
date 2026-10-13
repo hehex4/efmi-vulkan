@@ -9,7 +9,10 @@ namespace variant_fixture {
 // Both stages read the same bone block (set 0 binding 7) and instance block (set 2 binding 0).
 // VS: position + bones.offset[blend.x] + instance.offset; FS: bones.tint * instance.color.
 // Original blend.x is 1 (RGBA8_UINT); replacement is 257 (RGBA16_UINT), beyond an 8-bit index.
-inline std::vector<uint32_t> shader(bool vertex,bool material=false)
+// `image_binding`: where the material fragment shader declares its image in set 1. Another
+// number gives other bytes and another place for the same texture, as a feature variant of a
+// game shader has.
+inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t image_binding=6)
 {
     using namespace spv;
     Builder b;
@@ -29,7 +32,7 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false)
     b.op(OpDecorate, {bone_var, DecorationBinding, 7});
     b.op(OpDecorate, {instance_var, DecorationDescriptorSet, 2});
     b.op(OpDecorate, {instance_var, DecorationBinding, 0});
-    if(material && !vertex){b.op(OpDecorate,{image_var,DecorationDescriptorSet,1});b.op(OpDecorate,{image_var,DecorationBinding,6});}
+    if(material && !vertex){b.op(OpDecorate,{image_var,DecorationDescriptorSet,1});b.op(OpDecorate,{image_var,DecorationBinding,image_binding});}
     b.op(OpDecorate, {bone_type, DecorationBufferBlock});
     b.op(OpMemberDecorate, {bone_type, 0, DecorationOffset, 0});
     b.op(OpMemberDecorate, {bone_type, 1, DecorationOffset, 258 * 16});

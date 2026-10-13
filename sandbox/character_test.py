@@ -162,6 +162,11 @@ def main():
             checks.check(c["restored_set3"] >= 10, label + " the application's set 3 was bound again after replacements")
             refused = {k: v for k, v in c.items() if k.startswith(("refused_", "unreadable_", "import_", "exhausted", "identities_full")) and v}
             checks.equal(refused, {}, label + " no refusal of any kind")
+            # A fragment shader without a profile: with a profiled sibling it takes that shader's rules,
+            # without one the mesh is replaced and the application's images stay. Mesh-only runs have neither.
+            checks.equal((c["material_derived"] > 0, c["material_inherited"] > 0, r["material_derived_profiles"]),
+                         (True, True, 1) if material else (False, False, 0),
+                         label + " unprofiled fragment shaders counted: rules from a sibling, and the application's images")
             checks.check(r["identities"] == 2 and r["identities_replaced"] == 1,
                          label + " one identity for the character, one for the neighbour that shares a mesh and is never replaced")
             checks.check(r["sealed_batches"] >= 25, label + " submission sealing counted")
