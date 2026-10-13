@@ -55,7 +55,7 @@ struct Gpu {
         if(messenger)destroy_debug(instance,messenger,nullptr);
         if(instance)pDestroyInstance(instance,nullptr);
     }
-    void init(){
+    void init(bool historical_pipelines=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");if(!loader)throw std::runtime_error("Vulkan loader missing");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -88,6 +88,7 @@ struct Gpu {
         if(!physical)throw std::runtime_error("No graphics device");
         VkPhysicalDeviceFeatures available{},enabled{};pGetPhysicalDeviceFeatures(physical,&available);
         enabled.textureCompressionBC=available.textureCompressionBC;bc=enabled.textureCompressionBC!=0;
+        if(historical_pipelines)enabled.independentBlend=available.independentBlend;
         float priority=1;VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=family;q.queueCount=1;q.pQueuePriorities=&priority;
         VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};dc.queueCreateInfoCount=1;dc.pQueueCreateInfos=&q;dc.pEnabledFeatures=&enabled;
         CHECK_VK(pCreateDevice(physical,&dc,nullptr,&device));

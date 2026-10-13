@@ -241,3 +241,33 @@ Reports: build/material-plans/report.json and build/assets-gpu/report.json.
 The check isolates material handling; original OverrideTextures remains unresolved.
 No actual game pipeline was created here, no whole-character GPU transaction was
 emitted, and no new game session, deployment or installed-asset change occurred.
+
+## Historical game pipeline creation on the driver
+
+scripts/check_historical_variants.py now builds a separate headless executable
+from verified capture metadata. It consumes vertex declarations emitted by the
+actual original Core/INI replay, checks material acceptance against the native
+audit and supplies retained game shader bytes, descriptor layouts and full
+render-pass/graphics state to the production PipelineVariant helper. Generated
+cases and game bytes stay under ignored build/capture folders. Recipe, descriptor
+layout, source/replacement vertex, material patch and dynamic-state roundtrips
+must agree before a driver call; derived blend attachment counts are also checked.
+
+All 88 distinct bundle/pipeline/contracts covering 353 historical draws create
+successfully on the NVIDIA GeForce RTX 5060 Laptop GPU: 177 checks, zero validation
+errors or warnings. The child device enables supported independent blending for
+the game's multiple color attachments; no game device features are changed.
+Six unknown LOD1 correspondence and eleven dimension-mismatch draws remain
+explicit omissions in the report. There is no guessed material fallback.
+
+The first test reconstruction omitted the derived blend attachmentCount while
+retaining the attachment vector, producing validation errors despite successful
+driver returns. Production capture already retains that field. The fixture now
+reconstructs and checks it; the final run is clean. The initial build also needed
+the shared asset fixture's header include directory. Neither was a layer defect.
+
+Report: build/historical-variants/report.json, including source fingerprints,
+case-to-draw mappings and omitted cases. This proves construction using historical
+game data in a separate process. It does not bind live game resources, draw the
+character, settle LIMIT-021, prove source texture identities or integrate the
+hosted frontend into the DLL. Source/build/next 0.9.3 and dist 0.9.1 are unchanged.
