@@ -10,7 +10,9 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 ## Tasks and follow-ups
 
-### T-029: Deployment without leaving the game (requested by the user on 2026-10-13; in work)
+### T-029: Deployment without leaving the game (requested by the user on 2026-10-13; built as 1.0.1 and verified in the sandbox; first use in the game outstanding)
+
+State 2026-10-13, 20:25: implemented as described in docs/hot-swap.md. Remaining: deploy 1.0.1 with the game closed; the first exchange in the game; then use scripts/hot_swap.py for changes of the replacement logic. Ideas not done: warming the new backend's variants before it takes over, so that an exchange shows no frame of the game's model.
 
 Decision of the user, 2026-10-13: write the replacement logic as a module of its own; whether to swap it into the running game is the agent's choice, for instance to verify a change of the replacement logic right away. Recorded in AGENTS.md. Point 4 below is thereby settled.
 

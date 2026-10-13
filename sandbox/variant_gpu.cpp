@@ -235,6 +235,8 @@ public:
     }
 };
 
+// Module DLLs for the exchange phases of the character scene (forward slashes, UTF-8); empty: skipped.
+static std::string g_module_path, g_bad_module_path;
 #include "m2_gpu_case.h"
 #include "character_gpu_case.h"
 
@@ -250,6 +252,24 @@ static void run_character_assets(Gpu& g,uint32_t expected)
         ready=status.find(marker)!=std::string::npos && status.find("\"images_published\":true")!=std::string::npos;
     }while(!ready && std::chrono::steady_clock::now()<deadline);
     check(ready,"actual character DDS files reach Ready through the layer's queue service");
+    if(ready && !g_module_path.empty()){
+        // The same files once more, brought up by a staged backend of a module while the first
+        // backend is in use, and the first backend's images released after the exchange.
+        const auto answer=self_probe(("{\"cmd\":\"module\",\"path\":\""+g_module_path+"\"}").c_str(),"character-assets-module.json");
+        check(answer.find("\"staged\":true")!=std::string::npos,"a module's backend is staged with the actual package");
+        deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
+        bool exchanged=false;
+        do{
+            VK(g.submit());
+            Sleep(10);
+            self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
+            const auto status=self_probe("{\"cmd\":\"status\"}","character-assets-swapped.json");
+            exchanged=status.find("\"generation\":1,")!=std::string::npos && status.find(marker)!=std::string::npos &&
+                      status.find("\"images_published\":true")!=std::string::npos;
+        }while(!exchanged && std::chrono::steady_clock::now()<deadline);
+        check(exchanged,"the module's backend takes over with all actual files Ready");
+        for(uint32_t i=0;i<20;++i){VK(g.submit());Sleep(10);}
+    }
     VK(vkDeviceWaitIdle(g.device));
 }
 
@@ -515,6 +535,12 @@ int wmain(int argc, wchar_t** argv)
         else if (!wcscmp(argv[i], L"--canary")) canary = true;
         else if (!wcscmp(argv[i], L"--m2")) m2 = true;
         else if (!wcscmp(argv[i], L"--character")) character = true;
+        else if ((!wcscmp(argv[i], L"--module") || !wcscmp(argv[i], L"--bad-module")) && i + 1 < argc) {
+            const bool bad = argv[i][2] == L'b';
+            std::string text;
+            for (const wchar_t* p = argv[++i]; *p; ++p) text.push_back(*p == L'\\' ? '/' : static_cast<char>(*p));
+            (bad ? g_bad_module_path : g_module_path) = text;
+        }
         else if (!wcscmp(argv[i], L"--material")) material = true;
         else if (!wcscmp(argv[i], L"--character-reject-late")) reject_late = true;
         else if (!wcscmp(argv[i], L"--character-assets") && i+1<argc) character_assets=static_cast<uint32_t>(_wtoi(argv[++i]));

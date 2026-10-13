@@ -275,3 +275,7 @@ belong to the same adapted generation. Register the provider before installing
 CoreComponentBridge; its instance boundaries() then includes or excludes the
 unresolved texture boundary consistently. Current historical fixtures supply no
 source identity provider and continue to record that unresolved work explicitly.
+
+## Host and module (1.0.1)
+
+The injected DLL is the host: hooks, tracker, probe pipe, captures, and a built-in copy of the replacement code. The replacement code (character backend, package, materials, sibling rules, merged skeleton, pipeline variants and cache, draw snapshots, texture upload) is also built alone as `efmi_vk_backend.dll`. The host calls it through `CharacterModule` (layer/src/character_module.h) under `Device::character_mx` and can take another copy of it while the process runs: staged, served by the submit hook, promoted at a frame's end, the old one destroyed off the draw path. `EFVK_ABI` stamps the shared headers; see docs/hot-swap.md and D-042.

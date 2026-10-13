@@ -105,6 +105,75 @@ COMMON = [
 ]
 
 
+# The replacement code as a module of its own (docs/hot-swap.md): what decides and records
+# character replacements, without hooks and tracker. The layer DLL has the same code built in.
+MODULE_DLL = "efmi_vk_backend.dll"
+MODULE_SOURCES = [
+    "module/module_main.cpp", "src/character_backend.cpp", "src/character_package.cpp", "src/character_materials.cpp",
+    "src/material_sibling.cpp", "src/merged_skeleton.cpp", "src/pipeline_variant.cpp", "src/spirv_repoint.cpp",
+    "src/variant_cache.cpp", "src/draw_snapshots.cpp", "src/pipeline_recipe.cpp", "../frontend/gpu/fragment_images.cpp",
+]
+# Headers whose structures cross between the layer and a module. A module built from other
+# contents of these is refused by the layer.
+ABI_ROOTS = ["state.h", "character_module.h", "command_owner.h", "json.h"]
+
+
+def abi_stamp() -> str:
+    """64-bit stamp over the shared headers and what they include from layer/src."""
+    import hashlib
+    import re
+    src = os.path.join(ROOT, "layer", "src")
+    seen, todo = [], list(ABI_ROOTS)
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.append(name)
+        with open(os.path.join(src, name), encoding="utf-8") as f:
+            text = f.read()
+        todo += [m for m in re.findall(r'^#include "([^"/]+)"', text, re.M) if os.path.isfile(os.path.join(src, m))]
+    digest = hashlib.sha256()
+    for name in sorted(seen):
+        with open(os.path.join(src, name), encoding="utf-8") as f:
+            # The version text changes with every build of the replacement code and is no structure.
+            lines = [ln for ln in f.read().splitlines() if not ln.startswith("#define EFVK_VERSION ")]
+        digest.update(name.encode() + b"\0" + "\n".join(lines).encode() + b"\0")
+    digest.update(" ".join(f for f in COMMON if not f.startswith("/DEFVK_ABI=")).encode())
+    return "0x" + digest.hexdigest()[:16] + "ull"
+
+
+def abi_headers() -> list[str]:
+    import re
+    src = os.path.join(ROOT, "layer", "src")
+    seen, todo = [], list(ABI_ROOTS)
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.append(name)
+        with open(os.path.join(src, name), encoding="utf-8") as f:
+            todo += [m for m in re.findall(r'^#include "([^"/]+)"', f.read(), re.M) if os.path.isfile(os.path.join(src, m))]
+    return sorted(seen)
+
+
+def build_module(vcvars: str, include: str, out: str, mismatch: bool = False) -> str:
+    """The module DLL. `mismatch`: a copy with another stamp, for the test that it is refused."""
+    folder = os.path.join(ROOT, "layer")
+    name = "module_mismatch" if mismatch else "module"
+    os.makedirs(os.path.join(folder, "build", name), exist_ok=True)
+    dll = os.path.join(out, "efmi_vk_backend_mismatch.dll" if mismatch else MODULE_DLL)
+    flags = [f for f in COMMON if not f.startswith("/DEFVK_ABI=")]
+    stamp = abi_stamp()
+    flags.append("/DEFVK_ABI=" + (stamp[:-4] + ("0" if stamp[-4] != "0" else "1") + "ull" if mismatch else stamp))
+    args = flags + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\module_cl.pdb", "/LD"]
+    args += MODULE_SOURCES + MATERIAL_SOURCES + [
+        "/Fe:" + dll, "/link", "/NOLOGO", "/DLL", "/OPT:REF", "/OPT:ICF", "/DEBUG",
+        "/PDB:build\\" + name + "\\" + name + ".pdb", "/IMPLIB:build\\" + name + "\\" + name + ".lib", "advapi32.lib", "user32.lib",
+    ]
+    run_cl(vcvars, folder, args)
+    return dll
+
+
 # Shared static material path also linked by tracker/recipe fixtures with the backend.
 MATERIAL_SOURCES = ["../frontend/gpu/material_plan.cpp", "../frontend/assets/dds.cpp",
                     "../frontend/assets/image_upload.cpp", "../frontend/assets/buffer_upload.cpp",
@@ -229,8 +298,15 @@ def build(targets, out: str | None = None) -> dict:
     vcvars = find_vcvars()
     include = find_vulkan_include()
     result = {"out": out, "include": include}
+    # Every binary of one build carries the stamp of the shared headers it was built from.
+    COMMON[:] = [f for f in COMMON if not f.startswith("/DEFVK_ABI=")] + ["/DEFVK_ABI=" + abi_stamp()]
+    result["abi"] = abi_stamp()
+    if "module" in targets:
+        result["module"] = build_module(vcvars, include, out)
     if "layer" in targets:
         result["layer"] = build_layer(vcvars, include, out)
+        result["module"] = build_module(vcvars, include, out)
+        result["module_mismatch"] = build_module(vcvars, include, out, mismatch=True)
         result["tracker_test"] = build_tracker_test(vcvars, include, out)
         result.update(build_recipe_tests(vcvars, include, out))
         result["bone_test"] = build_bone_test(vcvars, include, out)
@@ -241,7 +317,8 @@ def build(targets, out: str | None = None) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build the EFMI Vulkan layer and sandbox")
-    ap.add_argument("targets", nargs="*", choices=["layer", "sandbox"], help="what to build (default: both)")
+    ap.add_argument("targets", nargs="*", choices=["layer", "sandbox", "module"],
+                    help="what to build (default: layer and sandbox; 'module' builds the replacement module alone)")
     ap.add_argument("--out", help="output directory (default: dist)")
     args = ap.parse_args()
     targets = args.targets or ["layer", "sandbox"]
@@ -250,7 +327,8 @@ def main() -> int:
     except BuildError as e:
         print(str(e))
         return 1
-    for key in ("layer", "sandbox", "tracker_test", "recipe_test", "variant_gpu", "bone_test"):
+    print("shared header stamp %s" % result["abi"])
+    for key in ("layer", "module", "sandbox", "tracker_test", "recipe_test", "variant_gpu", "bone_test"):
         if key in result:
             print("built %s" % result[key])
     return 0

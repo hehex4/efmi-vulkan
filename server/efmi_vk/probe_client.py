@@ -152,6 +152,17 @@ class ProbeClient:
         """(description, bytes) of one kept range of the latest capture, by the "id" its draws list."""
         return self.request("snapshot", seq=seq, id=snapshot_id)
 
+    def swap_module(self, path: str, package: str | None = None) -> dict:
+        """Stage the replacement code of a module DLL (layer 1.0.1, docs/hot-swap.md). The layer
+        loads the file, makes its backend and lets it take over at a frame boundary once it is
+        ready; ``status()["replacement"]["module"]`` then shows a higher ``generation``. The file
+        stays loaded until the process ends, so pass a copy under a name of its own. ``package``
+        replaces the configured character package for the new backend."""
+        params = {"path": str(path).replace("\\", "/")}
+        if package:
+            params["package"] = str(package).replace("\\", "/")
+        return self.request("module", **params)[0]
+
     def set(self, **settings) -> dict:
         """Change settings of the running layer (0.7.4): ``unmap_snapshot_all`` and
         ``unmap_snapshot_limit``. Returns the settings as they are afterwards."""

@@ -328,3 +328,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - The present stays as a second clock for periodic work and expiry. It is not a frame boundary at record time under Vulkan: recording runs ahead of presenting.
 - Two command buffers with character draws in one frame would count as two frames. The rules tolerate that (place within the radius, a second import), and recordings that interleave are handled by taking the distance between frame numbers without sign.
 - Version 1.0.0 follows 0.9.9 by the counting rule of AGENTS.md; it marks no release.
+
+## D-042: The replacement code is a module; the tracker is the host
+
+- Date: 2026-10-13, on the user's request and decision (AGENTS.md: swapping the module into the running game is the agent's choice).
+- The line is drawn where state ends: hooks and tracker hold what cannot be rebuilt and stay in the injected DLL; the character backend and everything it owns can start again at any time and is the module. The built-in copy stays the default, so the layer works without any module file and the tests of both paths are the same tests.
+- Structures cross as they are, guarded by a stamp over the shared headers and compiler flags. Chosen over a C interface with copied data: the backend reads large parts of the tracker on every draw. The price is that a change to a shared header cannot be swapped; the stamp turns that into a refusal instead of a crash.
+- A used module is never unloaded and an old backend is destroyed off the draw path, after an exclusive lock has shown that no call is inside it. Chosen over reference counting on the draw path and over leaking old backends (their textures alone are some 200 MB).
+- The new backend is staged and takes over when ready, not at once: otherwise every exchange would show the game's model for as long as textures upload.
+- Every exchange in the game is recorded in build/hot-swaps.json; it is a load of new code into the real game.

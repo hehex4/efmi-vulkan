@@ -55,10 +55,9 @@ public:
     std::string reason;
     // No reset/reuse method: recorded and resubmitted command buffers retain this object until
     // reset/free after GPU completion. The caller releases all owners before device destruction.
-private:
-    friend struct M2Command;
     // Only a command owner that has completed a successful legal reset/begin may recycle it.
     void recycle_completed() { for(auto& owner:image_owners_)owner.reset(); used_ = 0; sealed_ = false; slices_used_ = 0; have_key_ = false; }
+private:
     void clear();
     bool valid_images(const std::vector<SnapshotImage>&);
     void write_images(const std::vector<SnapshotImage>&);

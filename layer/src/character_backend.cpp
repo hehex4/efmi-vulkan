@@ -1,4 +1,8 @@
 #include "character_backend.h"
+#include "character_module.h"
+#include "command_owner.h"
+#include "draw_snapshots.h"
+#include "variant_cache.h"
 #include "character_package.h"
 #include "character_materials.h"
 #include "material_sibling.h"
@@ -136,6 +140,29 @@ struct Derived {
     uint64_t retry = 0;
     std::vector<std::pair<uint32_t, uint32_t>> images;
 };
+// The character backend's part of a command buffer. The counter outlives the backend: a command
+// may still be sealed after the code it came from was exchanged.
+struct CharacterCommand : CommandOwner {
+    std::shared_ptr<DrawSnapshots> snapshots;
+    std::shared_ptr<const void> keep; // the mesh
+    std::vector<std::shared_ptr<const PipelineVariant>> variants;
+    std::map<uint32_t, std::shared_ptr<DrawSnapshots>> material_snapshots;
+    std::shared_ptr<std::atomic<uint64_t>> batches;
+    void reset_after_completion() override
+    {
+        used = false;
+        variants.clear(); snapshots->recycle_completed();
+        for (auto& arena : material_snapshots) arena.second->recycle_completed();
+    }
+    bool seal() override
+    {
+        if (snapshots->sealed()) return false;
+        snapshots->seal();
+        for (auto& arena : material_snapshots) arena.second->seal();
+        ++*batches;
+        return true;
+    }
+};
 struct ImageQueue {
     VkQueue queue = VK_NULL_HANDLE;
     VkSemaphore semaphore = VK_NULL_HANDLE;
@@ -183,7 +210,8 @@ public:
     PFN_vkDestroyFence DestroyFence = nullptr;
     PFN_vkWaitForFences WaitForFences = nullptr;
     std::atomic<bool> enabled{false}, ready{false};
-    std::atomic<uint64_t> frame{1}, batches{0};
+    std::atomic<uint64_t> frame{1};
+    std::shared_ptr<std::atomic<uint64_t>> batches = std::make_shared<std::atomic<uint64_t>>(0);
     std::atomic<uint64_t> counters[C_COUNT] = {};
     std::atomic<float> frame_seconds{1.0f / 60};
     uint64_t last_frame_us = 0;
@@ -194,8 +222,8 @@ public:
     bool stopped = false;
     std::thread worker;
     std::shared_ptr<const GpuMesh> mesh;
-    std::deque<std::shared_ptr<M2Command>> available;
-    std::vector<std::weak_ptr<M2Command>> all;
+    std::deque<std::shared_ptr<CharacterCommand>> available;
+    std::vector<std::weak_ptr<CharacterCommand>> all;
     std::string last_reason;
 
     // The mod's state, under the mod lock: one matched draw at a time.
@@ -203,7 +231,6 @@ public:
     uint32_t lod = 0;
     std::array<Identity, kIdentities> identities;
     uint64_t next_identity = 1;
-    uint64_t recordings = 0;         // frames of the character so far
     uint32_t identity_logs = 0;
     std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes;
     std::unordered_map<uint32_t, BoneSite> sites;
@@ -259,7 +286,7 @@ public:
             if (publication_fence) DestroyFence(device->handle, publication_fence, nullptr);
             publication_fence = VK_NULL_HANDLE;
         }
-        std::deque<std::shared_ptr<M2Command>> old;
+        std::deque<std::shared_ptr<CharacterCommand>> old;
         std::shared_ptr<const GpuMesh> old_mesh;
         { std::lock_guard<std::mutex> lock(pool_mx); old.swap(available); old_mesh.swap(mesh); ready = false; }
     }
@@ -280,7 +307,8 @@ public:
                     if (stopped) return;
                     if (available.size() >= 2 || all.size() >= 8) { wake.wait_for(lock, std::chrono::milliseconds(100)); continue; }
                 }
-                auto batch = std::make_shared<M2Command>();
+                auto batch = std::make_shared<CharacterCommand>();
+                batch->backend = this; batch->batches = batches;
                 batch->keep = created;
                 uint64_t total_bytes = 0;
                 for (uint32_t count : image_counts) {
@@ -302,7 +330,7 @@ public:
         } catch (const std::exception& e) { note(e.what()); }
     }
 
-    std::shared_ptr<M2Command> command()
+    std::shared_ptr<CharacterCommand> command()
     {
         std::lock_guard<std::mutex> lock(pool_mx);
         if (stopped || available.empty() || !mesh) return {};
@@ -759,7 +787,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         if (!section) return false;
         ++counters[C_MATCHED];
         // The character's frame is this recording of the command buffer (see kExpiryMicroseconds).
-        if (!cb->character_frame) cb->character_frame = ++recordings;
+        if (!cb->character_frame) cb->character_frame = ++device->character_recordings;
         const uint64_t now = cb->character_frame;
         // The mod's LOD variable: a section that assigns it changes it for the sections that do not.
         if (section->lod != kCharacterNone) lod = section->lod;
@@ -901,9 +929,17 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         if (!identity->skeleton.patch_entry(0, entry, patched, reason)) return refuse(C_IMPORT, reason);
     }
 
+    // A recording that holds work of other replacement code keeps it to its end. What that code
+    // left in a command buffer from earlier recordings gives way.
+    if (cb->m2 && cb->m2->backend != this) {
+        if (cb->m2->used) return refuse(C_STATE, "recording holds another backend's work");
+        cb->m2.reset();
+    }
     if (!cb->m2) cb->m2 = command();
     if (!cb->m2) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
-    const auto mesh_owner = std::static_pointer_cast<const GpuMesh>(cb->m2->keep);
+    CharacterCommand* const command_owner = static_cast<CharacterCommand*>(cb->m2.get());
+    command_owner->used = true;
+    const auto mesh_owner = std::static_pointer_cast<const GpuMesh>(command_owner->keep);
     if (!mesh_owner) return refuse(C_EXHAUSTED, "character command owner has no mesh");
     // Everything is decided; from here nothing can fail after a command was emitted.
     std::vector<DrawGeometry> geometry(list->count);
@@ -914,7 +950,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         const CharacterDraw& d = package.draws[list->first + i];
         SnapshotSlot slot;
         const uint32_t count = static_cast<uint32_t>(material_views[i].size());
-        auto arena = count ? cb->m2->material_snapshots.at(count) : cb->m2->snapshots;
+        auto arena = count ? command_owner->material_snapshots.at(count) : command_owner->snapshots;
         if (!arena->append_shared(master.data(), master.size(), key, patched, material_views[i], slot))
             return refuse(C_EXHAUSTED, arena->reason);
         DrawGeometry& g = geometry[i];
@@ -927,7 +963,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         items[i] = {variants[i].get(), slot.set, slot.offset, &g, args};
     }
-    cb->m2->variants.insert(cb->m2->variants.end(), variants.begin(), variants.end());
+    command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
     if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.pipeline, original))
         return refuse(C_VARIANT, "character draw transaction refused");
     if (restore_layout) {
@@ -1070,7 +1106,30 @@ void character_frame(CharacterBackend& backend, bool had_draws)
     backend.frame.fetch_add(1, std::memory_order_relaxed);
 }
 
-void character_sealed(CharacterBackend& backend) { ++backend.batches; }
+bool character_usable(CharacterBackend& backend, std::string& reason)
+{
+    std::lock_guard<std::mutex> lock(backend.pool_mx);
+    reason = backend.last_reason;
+    return bool(backend.cache);
+}
+
+bool character_ready(CharacterBackend& backend)
+{
+    return backend.cache && backend.ready.load() && (!backend.package.materials || backend.images_published.load());
+}
+
+const CharacterModule* builtin_character_module()
+{
+    static const CharacterModule module = [] {
+        CharacterModule m;
+        m.size = sizeof(CharacterModule); m.abi = EFVK_ABI; m.version = EFVK_VERSION;
+        m.create = character_create; m.usable = character_usable; m.ready = character_ready; m.stop = character_stop;
+        m.record = character_record; m.retire = character_retire; m.frame = character_frame; m.status = character_status;
+        m.enable = character_enable; m.submit = character_submit;
+        return m;
+    }();
+    return &module;
+}
 
 void character_enable(CharacterBackend& backend, bool enabled) { backend.enabled = enabled && bool(backend.cache); }
 
@@ -1090,7 +1149,7 @@ void character_status(CharacterBackend& backend, JsonWriter& w)
     w.kn("unsupported", unsupported);
     w.kn("unreadable", unreadable);
     w.kn("exhausted", backend.counters[C_EXHAUSTED].load());
-    w.kn("sealed_batches", backend.batches.load());
+    w.kn("sealed_batches", backend.batches->load());
     w.key("counters"); w.begin_object();
     for (uint32_t c = 0; c < C_COUNT; ++c) w.kn(kCounterNames[c], backend.counters[c].load());
     w.end_object();

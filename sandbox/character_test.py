@@ -116,6 +116,12 @@ def main():
                        VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0", XDG_CACHE_HOME=str(folder), TMPDIR=str(folder),
                        TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
             args = [os.path.join(DIST, "efmi_vk_variant_gpu.exe"), "--character"]
+            # Every full run exchanges the replacement code twice while the scene draws and has a
+            # module with another header stamp refused (docs/hot-swap.md).
+            module, bad_module = os.path.join(DIST, "efmi_vk_backend.dll"), os.path.join(DIST, "efmi_vk_backend_mismatch.dll")
+            if not reject_late:
+                checks.check(os.path.isfile(module) and os.path.isfile(bad_module), label + " replacement module and its mismatched copy are built")
+                args += ["--module", module, "--bad-module", bad_module]
             if material:
                 args.append("--material")
             if reject_late:
@@ -167,6 +173,21 @@ def main():
             checks.equal((c["material_derived"] > 0, c["material_inherited"] > 0, r["material_derived_profiles"]),
                          (True, True, 1) if material else (False, False, 0),
                          label + " unprofiled fragment shaders counted: rules from a sibling, and the application's images")
+            # A run on two queues brings the textures up in a phase of its own first, which exchanges once too.
+            earlier = r.get("module", {}).get("generation", -1)
+            swapped = folder / "character-swapped.json"
+            checks.check(swapped.exists(), label + " status after the exchanges saved")
+            after = json.loads(swapped.read_text())["result"]["replacement"] if swapped.exists() else {}
+            swap = after.get("module") or {}
+            refusal = folder / "character-module-bad.json"
+            checks.check(earlier == (1 if queue_case == "split" else 0) and r.get("module", {}).get("builtin") is (queue_case != "split") and
+                         after.get("counters", {}).get("replaced", 0) > 0 and after.get("ready"),
+                         label + " the scene's own exchanges come after its counted part; the module's backend replaces afterwards")
+            checks.equal((swap.get("generation"), swap.get("builtin"), swap.get("last_error"), str(swap.get("path", "")).replace("\\", "/").endswith("efmi_vk_backend.dll")),
+                         (earlier + 2, False, "", True), label + " the replacement code was exchanged twice and the module's is in use")
+            checks.check(refusal.exists() and json.loads(refusal.read_text()).get("ok") is False and
+                         ("replacement module %d in use" % (earlier + 2)) in (folder / "layer.log").read_text(),
+                         label + " mismatched module refused; both exchanges logged")
             checks.check(r["identities"] == 2 and r["identities_replaced"] == 1,
                          label + " one identity for the character, one for the neighbour that shares a mesh and is never replaced")
             checks.check(r["sealed_batches"] >= 25, label + " submission sealing counted")

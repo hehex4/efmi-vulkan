@@ -257,6 +257,14 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     auto replaced=[&](float ax){return shade_at(-.6f,.3f)==a_shade && shade_at(0,0)==b_shade && shade_at(ax+1.2f,.3f)==cross_shade && shade_at(0,.6f)==1 &&
                                        shade_at(-.6f,-.6f)==0 && shade_at(0,-.6f)==0 && shade_at(.6f,-.6f)==0 && shade_at(.6f,-.1f)==1;};
 
+    // The backend prepares its mesh and arenas on a thread of its own. The game is long past that
+    // when a character appears; the scene waits for it, so that no draw meets an empty pool.
+    bool prepared=false;
+    for(uint32_t attempt=0;attempt<1000 && !prepared;++attempt){
+        prepared=self_probe("{\"cmd\":\"status\"}","character-ready.json").find("\"ready\":true")!=std::string::npos;
+        if(!prepared)Sleep(5);
+    }
+    check(prepared,"the backend is ready before the scene begins");
     frame(false);
     check(original(),"first frame of a new character is drawn by the application");
     if(reject_late){
@@ -375,4 +383,58 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     }
     self_probe("{\"cmd\":\"status\"}","character-final.json");
     FILE* file=nullptr;fopen_s(&file,"pixels.rgba","wb");if(file){fwrite(readback.mapped,1,64*64*4,file);fclose(file);}
+    // After everything above was counted by the built-in backend: the exchange.
+    if(!g_module_path.empty()){
+        // Other replacement code takes over while the scene runs. Its backend is made and staged at
+        // once and becomes ready through the application's submissions; until it takes over, at the
+        // end of a frame, the backend in use keeps replacing. The second round exchanges a backend
+        // that itself came from a module.
+        // Exchanges completed so far in this process; an earlier phase of the program may have made one.
+        auto exchanges=[&]{
+            const auto status=self_probe("{\"cmd\":\"status\"}","character-module-status.json");
+            const auto at=status.find("\"generation\":");
+            return at==std::string::npos?0u:static_cast<uint32_t>(atoi(status.c_str()+at+13));};
+        const uint32_t before=exchanges();
+        auto generation=[&](uint32_t n){return exchanges()==before+n;};
+        auto exchange=[&](const std::string& path,const char* file){
+            return self_probe(("{\"cmd\":\"module\",\"path\":\""+path+"\"}").c_str(),file);};
+        bool settled=false;
+        for(uint32_t attempt=0;attempt<100 && !settled;++attempt){frame(false);settled=replaced(-.6f);}
+        check(settled,"the character is replaced before the exchange begins");
+        for(uint32_t round=1;round<=2;++round){
+            const auto answer=exchange(g_module_path,round==1?"character-module-1.json":"character-module-2.json");
+            check(answer.find("\"ok\":true")!=std::string::npos && answer.find("\"staged\":true")!=std::string::npos,
+                  "a module is loaded and its backend staged");
+            bool took_over=false,kept_replacing=true;
+            for(uint32_t attempt=0;attempt<600 && !took_over;++attempt){
+                frame(false);
+                took_over=generation(round);
+                if(!took_over){kept_replacing&=replaced(-.6f);Sleep(5);}
+            }
+            check(took_over,"the staged backend takes over at the end of a frame");
+            check(kept_replacing,"until then the backend in use keeps replacing");
+            bool resumed=false;
+            for(uint32_t attempt=0;attempt<400 && !resumed;++attempt){frame(false);resumed=replaced(-.6f);if(!resumed)Sleep(5);}
+            check(resumed,"the new backend identifies the character and replaces it");
+            if(round==1 && !g_bad_module_path.empty()){
+                const auto refused=exchange(g_bad_module_path,"character-module-bad.json");
+                check(refused.find("\"ok\":false")!=std::string::npos && refused.find("other structures")!=std::string::npos,
+                      "a module built against other structures of the layer is refused");
+                frame(false);
+                check(replaced(-.6f) && generation(1),"and the backend in use is untouched by the refusal");
+            }
+        }
+        // The module's backend goes through what the built-in one went through above.
+        self_probe("{\"cmd\":\"m2\",\"enabled\":0}","character-module-disabled.json");
+        frame(false);
+        check(original(),"runtime disable works on the module's backend");
+        self_probe("{\"cmd\":\"m2\",\"enabled\":1}","character-module-enabled.json");
+        bool module_again=false;
+        for(uint32_t attempt=0;attempt<100 && !module_again;++attempt){frame(false);module_again=replaced(-.6f);}
+        check(module_again,"and so does runtime enable");
+        VK(vkResetCommandPool(g.device,g.pool,0));
+        frame(false);
+        check(replaced(-.6f),"command-pool reset recycles the module's snapshots");
+        self_probe("{\"cmd\":\"status\"}","character-swapped.json");
+    }
 }

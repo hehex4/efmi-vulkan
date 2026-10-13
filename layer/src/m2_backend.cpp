@@ -1,11 +1,13 @@
 #include "m2_backend.h"
 #include "character_backend.h"
+#include "character_module.h"
 #include "character_package.h"
 #include "m2_mesh.h"
 #include "state.h"
 #include "json.h"
 #include <algorithm>
 #include <chrono>
+#include <shared_mutex>
 
 namespace efvk {
 struct M2GpuMesh {
@@ -118,7 +120,7 @@ public:
     std::shared_ptr<M2Command> command(){
         std::lock_guard<std::mutex> lock(mutex);
         if(stopped || available.empty() || !mesh)return {};
-        auto cmd=std::make_shared<M2Command>();cmd->snapshots=available.front();available.pop_front();cmd->mesh=mesh;
+        auto cmd=std::make_shared<M2Command>();cmd->backend=this;cmd->snapshots=available.front();available.pop_front();cmd->mesh=mesh;
         wake.notify_one();return cmd;
     }
     bool record(CmdBuf*,const DrawRec&);
@@ -204,21 +206,103 @@ bool M2Backend::record(CmdBuf* cb,const DrawRec& r)
     if(!skeleton.configure(profile.bones,1,components,reason) || !skeleton.begin_update(0,reason) ||
        skeleton.import_component(0,selected,0,entry,{current.data(),current.size()},{previous.data(),previous.size()}, {},1,reason)==BoneImportResult::Rejected ||
        !skeleton.patch_entry(0,entry,patched,reason))return refuse(unreadable,"M2 bone import: "+reason);
+    if(cb->m2 && cb->m2->backend!=this){
+        if(cb->m2->used)return refuse(unsupported,"recording holds another backend's work");
+        cb->m2.reset();
+    }
     if(!cb->m2)cb->m2=command();
     if(!cb->m2)return refuse(exhausted,"M2 snapshot pool is at capacity or refilling");
+    M2Command* const owner=static_cast<M2Command*>(cb->m2.get());owner->used=true;
     SnapshotSlot slot;
-    if(!cb->m2->snapshots->append(skeleton.bytes(),patched,slot))return refuse(exhausted,cb->m2->snapshots->reason);
+    if(!owner->snapshots->append(skeleton.bytes(),patched,slot))return refuse(exhausted,owner->snapshots->reason);
     // Establish ownership before recording any private handle. No allocations after the draw
     // transaction starts, so an exception cannot cause an original draw after a partial replacement.
-    cb->m2->variants.push_back(variant.variant);
+    owner->variants.push_back(variant.variant);
     IndexedDraw draw_indices;draw_indices.count=profile.indices;
-    if(!emit_variant_draw(draw,cb->handle,*variant.variant,slot.set,slot.offset,cb->m2->mesh->geometry,
+    if(!emit_variant_draw(draw,cb->handle,*variant.variant,slot.set,slot.offset,owner->mesh->geometry,
                           draw_indices,r.pipeline,original))return refuse(unsupported,"M2 draw transaction refused");
     ++replaced;return true;
 }
 
+// ---------------------------------------------------------------------------
+// The character backend and its exchange (docs/hot-swap.md).
+//
+// Every call into the backend in use holds Device::character_mx shared, so taking the lock
+// exclusively is the moment in which no thread is inside it: the staged backend takes its place
+// there, between two draws. The backend that was in use is stopped and destroyed on a thread of
+// its own, because that joins threads; what command buffers still hold of it stays alive with them.
+
+namespace {
+constexpr uint64_t kStagingMicroseconds = 30ull * 1000 * 1000; // a staged backend that is not ready by then is dropped
+
+struct ModuleState {
+    std::mutex mx;
+    uint32_t generation = 0;      // exchanges completed in this process
+    std::string path, version;    // of the code in use; no path: the copy built into the layer
+    std::string staged_path, staged_version, error;
+    uint64_t staged_us = 0;
+    int enabled = -1;             // what the probe last asked for; -1: the configured value
+    std::vector<std::thread> janitors;
+} g_module;
+
+void host_log(const char* text) { logf("%s", text); }
+uint8_t host_read_buffer(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, uint8_t* out)
+{
+    return static_cast<uint8_t>(read_buffer_locked(dev, b, off, size, out));
+}
+
+void module_status(JsonWriter& w)
+{
+    std::lock_guard<std::mutex> lock(g_module.mx);
+    char stamp[24];
+    snprintf(stamp, sizeof(stamp), "%016llx", static_cast<unsigned long long>(EFVK_ABI));
+    w.key("module"); w.begin_object();
+    w.kn("generation", g_module.generation);
+    w.kb("builtin", g_module.path.empty());
+    w.kv("version", g_module.version);
+    w.kv("path", g_module.path);
+    w.kv("staged", g_module.staged_path);
+    w.kv("last_error", g_module.error);
+    w.kv("abi", stamp);
+    w.end_object();
+}
+
+// The staged backend takes over (`promote`) or is given up.
+void exchange(Device* device, bool promote)
+{
+    std::shared_ptr<CharacterBackend> old;
+    const CharacterModule* old_module = nullptr;
+    std::string version;
+    {
+        std::unique_lock<std::shared_mutex> lock(device->character_mx);
+        if (!device->character_staged) return;
+        if (promote) {
+            old = std::move(device->character); old_module = device->character_module;
+            device->character = std::move(device->character_staged); device->character_module = device->staged_module;
+            version = device->character_module->version;
+        } else {
+            old = std::move(device->character_staged); old_module = device->staged_module;
+        }
+        device->character_staged.reset(); device->staged_module = nullptr;
+    }
+    std::lock_guard<std::mutex> lock(g_module.mx);
+    if (promote) {
+        ++g_module.generation; g_module.path = g_module.staged_path; g_module.version = version; g_module.error.clear();
+        logf("replacement module %u in use: %s (%s)", g_module.generation, g_module.path.c_str(), version.c_str());
+    } else {
+        g_module.error = "staged backend was not ready in time: " + g_module.staged_path;
+        logf("replacement module given up, not ready in time: %s", g_module.staged_path.c_str());
+    }
+    g_module.staged_path.clear(); g_module.staged_version.clear();
+    if (old) g_module.janitors.emplace_back([old, old_module]() mutable { old_module->stop(*old); old.reset(); });
+}
+} // namespace
+
 bool m2_record(Device* device,CmdBuf* cb,const DrawRec& r){
-    if(device->character)return character_record(*device->character,cb,r);
+    if(device->character_mode){
+        std::shared_lock<std::shared_mutex> lock(device->character_mx);
+        return device->character && device->character_module->record(*device->character,cb,r);
+    }
     if(!device->m2)return false;
     try{return device->m2->record(cb,r);}
     catch(const std::exception& e){++device->m2->unsupported;device->m2->note(e.what());return false;}
@@ -228,7 +312,16 @@ void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const
 {
     if(g_cfg.m2_package.empty() || g_cfg.mode!=Mode::Probe || !g_cfg.track_resources)return;
     // The file says which backend it is for: a whole character or the single-component package.
-    if(is_character_package(g_cfg.m2_package)){device->character=character_create(device,properties,memory);return;}
+    if(is_character_package(g_cfg.m2_package)){
+        device->physical_properties=properties;device->memory_properties=memory;
+        device->character_module=builtin_character_module();
+        device->character=device->character_module->create(device,properties,memory);
+        device->character_mode=true;
+        std::lock_guard<std::mutex> lock(g_module.mx);
+        g_module.generation=0;g_module.path.clear();g_module.version=device->character_module->version;
+        g_module.staged_path.clear();g_module.error.clear();g_module.enabled=-1;
+        return;
+    }
     try{
         auto backend=std::make_shared<M2Backend>(device,properties,memory);
         device->m2=backend;
@@ -240,28 +333,79 @@ void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const
         logf("M2 initialization exception: %s",e.what());
     }
 }
-void m2_stop(Device* device){if(device->character)character_stop(*device->character);if(device->m2)device->m2->stop();}
+void m2_stop(Device* device){
+    if(device->character_mode){
+        std::shared_ptr<CharacterBackend> active,staged;
+        const CharacterModule* active_module=nullptr;const CharacterModule* staged_module=nullptr;
+        {
+            std::unique_lock<std::shared_mutex> lock(device->character_mx);
+            device->character_stopped=true;
+            active.swap(device->character);staged.swap(device->character_staged);
+            active_module=device->character_module;staged_module=device->staged_module;device->staged_module=nullptr;
+        }
+        if(active)active_module->stop(*active);
+        if(staged)staged_module->stop(*staged);
+        // Backends that were exchanged earlier finish their own stop before the device goes.
+        std::vector<std::thread> janitors;
+        {std::lock_guard<std::mutex> lock(g_module.mx);janitors.swap(g_module.janitors);}
+        for(auto& thread:janitors)if(thread.joinable())thread.join();
+        active.reset();staged.reset();
+    }
+    if(device->m2)device->m2->stop();
+}
 void m2_retire(Device* device,VkPipeline handle){
-    if(!device->character && (!device->m2 || !device->m2->cache))return;
+    if(!device->character_mode && (!device->m2 || !device->m2->cache))return;
     uint32_t id=0;
     {std::shared_lock<std::shared_mutex> lock(device->res_mx);auto p=device->pipes.find(handle);if(p!=device->pipes.end())id=p->second.id;}
     if(!id)return;
-    if(device->character)character_retire(*device->character,id);
+    if(device->character_mode){
+        std::shared_lock<std::shared_mutex> lock(device->character_mx);
+        if(device->character)device->character_module->retire(*device->character,id);
+        if(device->character_staged)device->staged_module->retire(*device->character_staged,id);
+    }
     else device->m2->cache->retire(id);
 }
 void m2_seal(Device* device,uint32_t count,const VkCommandBuffer* buffers){
-    if(!device->m2 && !device->character)return;
+    if(!device->m2 && !device->character_mode)return;
     for(uint32_t i=0;i<count;++i)if(auto* cb=cb_of(device,buffers[i]))
-        if(cb->m2 && !cb->m2->snapshots->sealed()){
-            cb->m2->snapshots->seal();
-            for (auto& arena : cb->m2->material_snapshots) arena.second->seal();
-            if(device->character)character_sealed(*device->character);else ++device->m2->batches;
-        }
+        if(cb->m2 && cb->m2->seal() && device->m2)++device->m2->batches;
 }
-void m2_frame(Device* device,bool had_draws){if(device->character)character_frame(*device->character,had_draws);}
+VkResult m2_submit(Device* device,VkQueue queue){
+    if(!device->character_mode)return VK_SUCCESS;
+    std::shared_lock<std::shared_mutex> lock(device->character_mx);
+    if(device->character){
+        const VkResult result=device->character_module->submit(*device->character,queue);
+        if(result!=VK_SUCCESS)return result;
+    }
+    // A staged backend brings its images up through the same queues before it takes over. If that
+    // fails it never becomes ready and is given up; the application's submission is not its concern.
+    if(device->character_staged)device->staged_module->submit(*device->character_staged,queue);
+    return VK_SUCCESS;
+}
+void m2_frame(Device* device,bool had_draws){
+    if(!device->character_mode)return;
+    bool promote=false,late=false;
+    {
+        std::shared_lock<std::shared_mutex> lock(device->character_mx);
+        if(device->character)device->character_module->frame(*device->character,had_draws);
+        if(device->character_staged){
+            promote=device->staged_module->ready(*device->character_staged);
+            if(!promote){
+                std::lock_guard<std::mutex> state(g_module.mx);
+                late=host_time_us()-g_module.staged_us>kStagingMicroseconds;
+            }
+        }
+    }
+    if(promote || late)exchange(device,promote);
+}
 void m2_status(Device* device,JsonWriter& w){
-    if(device && device->character){
-        w.key("replacement");w.begin_object();character_status(*device->character,w);w.end_object();return;
+    if(device && device->character_mode){
+        std::shared_lock<std::shared_mutex> lock(device->character_mx);
+        w.key("replacement");w.begin_object();
+        if(device->character)device->character_module->status(*device->character,w);
+        else{w.kv("kind","character");w.kb("configured",false);w.kb("enabled",false);w.kb("ready",false);}
+        module_status(w);
+        w.end_object();return;
     }
     w.key("replacement");w.begin_object();auto backend=device?device->m2:nullptr;
     w.kb("configured",bool(backend));w.kb("enabled",backend && backend->enabled.load());
@@ -277,8 +421,12 @@ void m2_status(Device* device,JsonWriter& w){
 }
 std::string probe_m2_set(int enabled,bool advance){
     DeviceRef ref;JsonWriter w;w.begin_object();
-    if(ref.dev && ref.dev->character){
-        if(enabled>=0)character_enable(*ref.dev->character,enabled!=0);
+    if(ref.dev && ref.dev->character_mode){
+        if(enabled>=0){
+            {std::lock_guard<std::mutex> lock(g_module.mx);g_module.enabled=enabled;}
+            std::shared_lock<std::shared_mutex> lock(ref.dev->character_mx);
+            if(ref.dev->character)ref.dev->character_module->enable(*ref.dev->character,enabled!=0);
+        }
         if(advance)m2_frame(ref.dev,true);
         w.kb("ok",true);w.key("result");w.begin_object();m2_status(ref.dev,w);w.end_object();
     }
@@ -287,6 +435,65 @@ std::string probe_m2_set(int enabled,bool advance){
         if(enabled>=0)ref.dev->m2->enabled=enabled!=0;
         w.kb("ok",true);w.key("result");w.begin_object();m2_status(ref.dev,w);w.end_object();
     }
+    w.end_object();return w.out;
+}
+std::string probe_m2_module(const std::string& path,const std::string& package){
+    DeviceRef ref;JsonWriter w;w.begin_object();
+    Device* device=ref.dev;
+    auto fail=[&](const std::string& why){
+        {std::lock_guard<std::mutex> lock(g_module.mx);g_module.error=why+": "+path;}
+        logf("replacement module refused: %s: %s",why.c_str(),path.c_str());
+        w.kb("ok",false);w.kv("error",why);w.end_object();return w.out;
+    };
+    if(!device || !device->character_mode)return fail("this process has no character backend");
+    {
+        std::shared_lock<std::shared_mutex> lock(device->character_mx);
+        if(device->character_staged)return fail("another module is being staged");
+    }
+    std::wstring wide(path.size()+1,L'\0');
+    const int chars=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.c_str(),-1,&wide[0],static_cast<int>(wide.size()));
+    if(path.empty() || chars<=0)return fail("module path is not valid UTF-8");
+    const HMODULE library=LoadLibraryW(wide.c_str());
+    if(!library)return fail("module cannot be loaded, error "+std::to_string(GetLastError()));
+    const auto entry=reinterpret_cast<CharacterModuleEntry>(GetProcAddress(library,EFVK_MODULE_ENTRY));
+    // One staging at a time; the module copies the settings while its entry runs and keeps the
+    // table of functions, which therefore lives as long as the process.
+    static HostApi api;
+    Config config=g_cfg;
+    if(!package.empty())config.m2_package=package;
+    api.size=sizeof(HostApi);api.abi=EFVK_ABI;api.config=&config;api.log=host_log;api.crc32c=crc32c;
+    api.read_buffer_locked=host_read_buffer;api.collect_buffer_ranges_locked=collect_buffer_ranges_locked;
+    const CharacterModule* module=entry?entry(&api):nullptr;
+    api.config=nullptr;
+    if(!module || module->size!=sizeof(CharacterModule) || module->abi!=EFVK_ABI){
+        // Nothing of it ran beyond the entry, so it may go again.
+        FreeLibrary(library);
+        return fail("module was built against other structures of the layer; this layer cannot use it");
+    }
+    std::shared_ptr<CharacterBackend> staged=module->create(device,device->physical_properties,device->memory_properties);
+    std::string reason;
+    if(!staged || !module->usable(*staged,reason)){
+        if(staged){module->stop(*staged);staged.reset();}
+        return fail("module's backend refused: "+reason);
+    }
+    int enabled=-1;
+    {std::lock_guard<std::mutex> lock(g_module.mx);enabled=g_module.enabled;}
+    if(enabled>=0)module->enable(*staged,enabled!=0);
+    {
+        std::unique_lock<std::shared_mutex> lock(device->character_mx);
+        if(device->character_staged || device->character_stopped){
+            const bool stopped=device->character_stopped;
+            lock.unlock();module->stop(*staged);staged.reset();
+            return fail(stopped?"the device is being destroyed":"another module is being staged");
+        }
+        device->character_staged=staged;device->staged_module=module;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_module.mx);
+        g_module.staged_path=path;g_module.staged_version=module->version;g_module.staged_us=host_time_us();g_module.error.clear();
+    }
+    logf("replacement module staged: %s (%s)",path.c_str(),module->version);
+    w.kb("ok",true);w.key("result");w.begin_object();w.kb("staged",true);w.kv("version",module->version);module_status(w);w.end_object();
     w.end_object();return w.out;
 }
 } // namespace efvk

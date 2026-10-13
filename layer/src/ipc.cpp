@@ -100,6 +100,8 @@ std::string dispatch(const JsonRequest& req, std::vector<uint8_t>& payload)
     if (cmd == "m2")
         return probe_m2_set(req.get("enabled").empty() ? -1 : (req.get_u64("enabled", 0) != 0 ? 1 : 0),
                             req.get_u64("advance", 0) != 0);
+    if (cmd == "module")
+        return probe_m2_module(req.get("path"), req.get("package"));
     if (cmd == "capture") {
         uint32_t timeout = static_cast<uint32_t>(req.get_u64("timeout_ms", 5000));
         if (timeout > 60000)

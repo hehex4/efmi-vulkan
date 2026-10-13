@@ -20,7 +20,8 @@ namespace efvk {
 
 class M2Backend;
 class CharacterBackend;
-struct M2Command;
+struct CommandOwner;
+struct CharacterModule;
 
 // Device functions the layer intercepts and tracks. One next-pointer is kept per
 // name; promoted functions and their extension aliases are separate entries
@@ -280,7 +281,7 @@ struct CmdBuf {
     bool secondary = false;
     uint32_t tid = 0;
     bool m2_extended_bind = false; // the initial replacement cannot reproduce Bind*2 size/stride state
-    std::shared_ptr<M2Command> m2; // kept until a legal recording reset/free after GPU completion
+    std::shared_ptr<CommandOwner> m2; // kept until a legal recording reset/free after GPU completion
     uint64_t character_frame = 0;  // the character backend's number for this recording; 0: none yet
 
     // Current bindings while recording.
@@ -405,7 +406,18 @@ struct Device {
     PFN_vkSetDeviceLoaderData set_loader_data = nullptr;
     DeviceDispatch d;
     std::shared_ptr<M2Backend> m2;
-    std::shared_ptr<CharacterBackend> character;
+    // The character backend in use and the functions of the code it belongs to. Calls into it hold
+    // character_mx shared; exchanging it (m2_backend.cpp) takes the lock exclusively. `staged` is a
+    // backend of other code that is getting ready to take over.
+    bool character_mode = false; // set once at device creation
+    bool character_stopped = false; // the device is going: no backend is staged any more
+    std::shared_mutex character_mx;
+    std::shared_ptr<CharacterBackend> character, character_staged;
+    const CharacterModule* character_module = nullptr;
+    const CharacterModule* staged_module = nullptr;
+    uint64_t character_recordings = 0; // frames of the character, counted across backends
+    VkPhysicalDeviceProperties physical_properties = {};
+    VkPhysicalDeviceMemoryProperties memory_properties = {};
     // Queues in one unprotected graphics family. Uploads use the first active queue;
     // one-time semaphore waits publish immutable images to every other graphics queue.
     std::vector<VkQueue> material_queues;
