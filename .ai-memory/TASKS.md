@@ -10,7 +10,7 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 ## Tasks and follow-ups
 
-### T-029: Deployment without leaving the game (requested by the user on 2026-10-13; built as 1.0.1 and verified in the sandbox; first use in the game outstanding)
+### T-029: Deployment without leaving the game (requested by the user on 2026-10-13; 1.0.1 deployed; first exchange in the game outstanding)
 
 State 2026-10-13, 20:25: implemented as described in docs/hot-swap.md. Remaining: deploy 1.0.1 with the game closed; the first exchange in the game; then use scripts/hot_swap.py for changes of the replacement logic. Ideas not done: warming the new backend's variants before it takes over, so that an exchange shows no frame of the game's model.
 
@@ -23,7 +23,7 @@ The user asked for a way to deploy while the game runs and for the agent to refr
 4. Rule to settle with the user first (AGENTS.md says the layer is not loaded into the real game without the user saying so on the spot): a swap loads new code into the running game. Either each swap is announced and approved, or the user gives a standing permission and it is written into AGENTS.md.
 Limits known in advance: changes to the tracker or to shared structures still need a restart; a crash in a new module is a crash of the game.
 
-### T-028: Whole character from a static package (1.0.0 for the frame boundary deployed; game check next)
+### T-028: Whole character from a static package (1.0.1 deployed, with the frame boundary fix of 1.0.0; game check next)
 
 Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
 
