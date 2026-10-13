@@ -22,7 +22,7 @@ static void require(VkResult r,const char* where){if(r!=VK_SUCCESS)throw std::ru
     X(DeviceWaitIdle) X(CmdCopyImageToBuffer) X(CmdBlitImage) \
     X(CreateShaderModule) X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) \
     X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateGraphicsPipelines) X(DestroyPipeline) \
-    X(CreateRenderPass) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) \
+    X(CreateRenderPass) X(CreateRenderPass2) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) \
     X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) \
     X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) \
     X(CmdDraw) X(CmdSetViewport) X(CmdSetScissor) X(CreateSampler) X(DestroySampler) \
@@ -198,6 +198,7 @@ static void run(Gpu& g,std::vector<uint8_t> data,bool color)
 #include "asset_buffer_test.cpp"
 #include "asset_file_plan_test.cpp"
 #include "asset_material_test.cpp"
+#include "asset_transaction_test.cpp"
 int wmain(int argc,wchar_t** argv)
 {
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);
@@ -229,6 +230,7 @@ int wmain(int argc,wchar_t** argv)
             file_plan_tests(g);
             file_draw_tests(g);
             fragment_tests();material_test(g);
+            transaction_fixture::run(g);
         }else throw std::runtime_error("Invalid asset fixture arguments");
     }catch(const std::exception& e){++failed;printf("FAILED: %s\n",e.what());}
     check(!validation_errors && !validation_warnings,"core and synchronization validation remain clean");

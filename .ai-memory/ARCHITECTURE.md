@@ -248,3 +248,16 @@ XXMI layout evaluator exposed by command_module.cpp. Original source files stay
 untouched. Correspondence preparation and CPU declaration resolution are separate
 from GPU readiness/variant creation. Default application bindings survive;
 unsupported semantic changes, rates or aliased edits refuse the transaction.
+
+frontend/gpu/draw_transaction joins resolved frontend owners to the existing
+shared variant cache and emitter. Complete Ready buffer bounds, vertex strides,
+per-draw material owners and compact palettes are required before publication.
+Inherited advancing vertex streams currently refuse because new indices have no
+proved bound for those application buffers; stride-zero defaults remain intact.
+Variant demand never waits. Caller-allocated snapshot arenas stay immutable after
+sealing, while RecordedTransaction retains mesh, images, palettes, variants and
+arenas through GPU completion and legal resubmission. Pending/refused preparation
+publishes nothing. A late append failure can consume unused arena slots but emits
+no commands and preserves the previous recording. Application objects and queue/
+command synchronization remain the caller's responsibility; no live hook uses
+this frontend bridge yet.

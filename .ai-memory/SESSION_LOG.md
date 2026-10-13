@@ -756,3 +756,10 @@ and whole-character command emission through the common backend.
 - Native vertex tests pass 18; full original entry replay now checks all 370 vertex declarations alongside arguments, entries and bones. All 17 drawn VS modules have prior exact paired semantics. Existing host, spatial 21, palette 24/283 and callback 384 regressions pass. Reports build/xxmi-host/report.json and build/core-components/report.json.
 - An added build fingerprint initially named a nonexistent util.h; the builder stopped before compilation and was corrected to actual headers. Final build/replays pass. Source declarations and installed assets remain unchanged.
 - Continue native texture queries and unified resource/variant/snapshot handoff. This remains CPU frontend evidence; no actual game pipeline creation, layer source/version change, deployment or game action. Source/build/next 0.9.3, dist 0.9.1.
+
+## 2026-10-13 - Combined retained frontend GPU transactions
+
+- Joined Ready file draws, resolved vertex/material contracts and compact palette owners to existing asynchronous variants, snapshots and ordered emission. Late preparation/refusal is atomic; inherited advancing application streams refuse without new-index bounds proof. Snapshot append failure may consume unused arena slots but emits nothing.
+- Standalone GPU asset suite passes 253 checks with clean core/sync validation. Pixel controls prove separate materials, first/base offsets, 16-bit bone indices, original FS isolation and full original-state restoration. The recording alone retains all replacement owners after producer retirement, survives sealed resubmission, and releases them after completion.
+- Historical material audit remains 353 accepted, six unknown LOD1 correspondences and eleven dimension refusals over 370 draws. Text checks pass; no layer source/version change or full-suite rebuild is required for this standalone addition. Source/build/next 0.9.3 and dist 0.9.1 unchanged.
+- Next: original texture-query/override mediation and runtime/profile integration. No DLL deployment, game action, launcher/configuration change or installed-asset write.

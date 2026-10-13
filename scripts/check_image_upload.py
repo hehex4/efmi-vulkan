@@ -36,6 +36,9 @@ def main() -> int:
                      str(ROOT/"frontend/assets/file_draws.cpp"),
                      str(ROOT/"frontend/gpu/fragment_images.cpp"),
                      str(ROOT/"frontend/gpu/material_plan.cpp"),
+                     str(ROOT/"frontend/gpu/draw_transaction.cpp"),
+                     *[str(ROOT/"layer/src"/name) for name in ("pipeline_recipe.cpp","pipeline_variant.cpp",
+                         "spirv_repoint.cpp","variant_cache.cpp","draw_snapshots.cpp")],
                      "/Fe:"+str(exe),"/link","/NOLOGO","user32.lib"]
         log=io.StringIO()
         try:
@@ -55,6 +58,10 @@ def main() -> int:
                    ROOT/"sandbox/asset_material_plan_test.cpp",ROOT/"layer/src/draw_snapshots.h",
                    ROOT/"layer/src/pipeline_variant.h",ROOT/"layer/src/pipeline_recipe.h",
                    ROOT/"layer/src/spirv_repoint.h"]
+        inputs += [ROOT/"frontend/gpu/draw_transaction.h",ROOT/"frontend/gpu/draw_transaction.cpp",
+                   ROOT/"sandbox/asset_transaction_test.cpp",ROOT/"sandbox/variant_fixture.h"]
+        inputs += [ROOT/"layer/src"/name for name in ("pipeline_recipe.cpp","pipeline_variant.cpp","spirv_repoint.cpp",
+                   "variant_cache.h","variant_cache.cpp","draw_snapshots.cpp","common.h","state.h","json.h")]
         report["source_sha256"]={str(path):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
         validation=Path(os.environ.get("EFMI_VK_VALIDATION_DIR","F:/vulkan/validation-1.4.321.0/bin"))
         if not (validation/"VkLayer_khronos_validation.json").is_file():raise RuntimeError("Validation layer missing")

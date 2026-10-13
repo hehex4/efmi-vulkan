@@ -210,3 +210,36 @@ format, location and offset equals an independent known-sample reference. Both
 23/28/19/15/11/15/native 14, spatial 21, palette 24/283 and callback 384 checks
 remain passing. Reports build/core-components/report.json and
 build/xxmi-host/report.json. No GPU character draw or DLL integration is implied.
+
+## Combined retained draw transaction
+
+frontend/gpu/draw_transaction composes FileDraws, resolved vertex declarations,
+MaterialPlan and complete compact palette snapshots. It checks file bounds,
+direct single-instance arguments, replacement strides and the restorable
+application binding range before publishing a complete DrawTransaction. An
+inherited stream with advancing stride refuses without a replacement-index bounds
+proof; the observed stride-zero default attributes remain inherited. The source
+profile still must prove the declaration and shader correspondence.
+
+request_draw_variants asks the existing asynchronous cache for every contract;
+pending or failure preserves the caller's complete result. Equal declarations
+and material contracts share a variant. append_draw_snapshots accepts arenas
+allocated off the draw path and publishes a RecordedTransaction only after every
+append succeeds. Late exhaustion may consume unused slots but never emits a
+partial GPU draw. Seal arenas before submit, retain the recording through command
+completion and reuse/resubmission, and release it before device destruction.
+Application pipeline/geometry lifetime and queue synchronization remain external.
+
+The combined headless fixture uploads actual synthetic mesh/image files through
+ResourceCache, resolves MaterialProfile and retires all producer caches before
+emission. Pixel readback proves red/green materials on separate entry offsets,
+the 257 bone index through a 16-bit declaration, distinct first/base indices,
+explicit-null output, unchanged original FS buffers and restoration of original
+VB/IB offset/type, pipeline, descriptors and dynamic offsets. The sealed command
+is submitted twice and all replacement owners expire only after its recording is
+released. Failure controls cover late palette/material/bounds errors, pending
+variants and missing/exhausted/sealed arenas. Asset suite: 253 passes, zero
+validation errors/warnings; report build/assets-gpu/report.json. Historical
+material outcomes remain 353 accepted, six unknown LOD1 mappings and eleven
+dimension refusals. These are standalone helper tests, not whole-character game
+rendering or DLL integration. Native texture-override dispatch remains open.
