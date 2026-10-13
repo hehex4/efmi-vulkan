@@ -822,3 +822,11 @@ The agent first believed the game had exited (a process check cut after four lin
 
 Fix as D-036 and BUG-006. Test first: the scene with a four-set pipeline before and after the character fails against the deployed build with the same counter, passes with the fix. Renumbered to 0.9.5 when the user set the version rule. Full suite and smoke pass in `build/next`. The user then closed the game; deployed at 13:28 with a backup, hashes compared, smoke on dist/ passes. No launcher edit, no game start or stop by the agent.
 
+## 2026-10-13, 14:28: Switch to DX11 for the user's LOD1 source capture
+
+- Restored current memory: the static whole-character backend and 0.9.5 are now deployed, superseding this chat's earlier component-7-only state. The user explicitly requested the DX11 switch and will start the game, disable the mod and report LOD1 readiness.
+- Complete process checks found no game or launcher, including an immediate pre-write check. Backed up the active launcher JSON and dist/efmi_vk.cfg to build/backups/launcher-dx11-20261013-142837/, with hashes and change.json evidence.
+- Changed only the launcher's EFMI d3d11_mode_cmd_args from empty to -force-d3d11 and xxmi_dll_inject_mode from SKIP to DIRECT. The existing signed extra libraries already include the DX11 probe; both DLL paths exist. Signed values and all other launcher content are unchanged, verified by whole-JSON comparison and exact-byte readback.
+- Changed only the project-owned layer mode from probe to passthrough for this DX11 session. No binary, version, mod/Core, game asset or system setting changed. No game launch, probe connection or capture occurred; no new layer regression is claimed for this configuration-only change.
+- Next: capture actual LOD1 after the user's ready message with shader archiving and all-bound static texture hashes, targeting the three missing material correspondences. Keep the later 0.9.5 Vulkan flicker acceptance separate. No LOD2+ or long-duration test.
+
