@@ -91,7 +91,7 @@ builds the module from the working tree (`scripts/build.py module`), exchanges i
 seconds, outcome). `--pid`, `--target`, `--package`, `--no-build` and `--timeout` do what they
 say. Exit status 3 means the shared headers changed and the layer has to be replaced instead.
 
-## Evidence (sandbox only)
+## Sandbox evidence
 
 - Character scene through the real hooks, all sixteen full runs (layer and inject entry, render
   pass 1 and 2, mesh-only and materials, one and two queues, three submit calls): after
@@ -110,7 +110,27 @@ say. Exit status 3 means the shared headers changed and the layer has to be repl
   failed, 216,268,800 bytes resident for the backend in use, validation clean at exit through
   both entries (`build/hot-swap-real-package-1.0.1.json`).
 
-Not known: the behaviour in the game. The first exchange there is the test.
+## First game exchange (2026-10-13, 1.0.1)
+
+User-started Endfield PID 19452 runs the 1.0.1 layer. After clean sampled LOD0 and
+LOD1 intervals, the agent uses the standing authorization in AGENTS.md and runs
+`scripts/hot_swap.py --pid 19452 --out dist --no-build --timeout 35` with the
+unchanged, previously regression-verified module. Its SHA-256 matches both the
+candidate and deployment manifest:
+`e965c0e45ccf5ec6a3260016e65f1cdd5d0b1c4d91f8d14f0398f48b36804a39`.
+
+At 20:49:41 the module takes over in 0.8 seconds, generation 0 to 1, nine images
+Ready and no module error. The user confirms normal appearance without a
+persistent anomaly. A subsequent 710-frame LOD0 interval has zero new refusal,
+pending work or identification; the later requested dash interval also remains
+clean. Counters reset on exchange, so each delta uses one generation only.
+
+Evidence: `build/hot-swaps.json` and
+`captures/stability-1.0.1-20261013-204259-19452/`. The loaded copy is
+`build/modules/efmi_vk_backend-20261013-204941-e965c0e4.dll`. No source, deployed
+file, package or launcher setting was changed. This verifies one functional
+exchange in the real game, not repeated-exchange lifetime/performance or the
+absence of every transient frame during takeover.
 
 ## Limits
 

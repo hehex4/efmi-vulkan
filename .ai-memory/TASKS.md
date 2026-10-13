@@ -6,13 +6,13 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 1.0.1. Latest-session log proves a game load in PID 27816; the user tentatively reports correct-looking models and textures. No game process or probe remains at review time. Next: scoped LOD0/LOD1 movement/effect acceptance, correlate remaining identity events, and the first in-game module exchange (T-029); then after-images and live INI/Core integration for this character. T-027 hosted runtime remains distinct from T-028's static package: original XXMI executes offline plans and is not linked into the current DLL. No new code or module exchange was made in this review.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist remain 1.0.1. User-started PID 19452 passes sampled LOD0/LOD1 checks and a 58-frame requested dash interval without new refusal, pending work or identification; the user reports apparently normal drawing/dashing. The first unchanged-code module exchange succeeds in 0.8 seconds and the user confirms normal appearance (T-029). Next: T-027 live INI/Core, keys, persist and reload for this character; its interpreter is not yet linked into the deployed backend. LIMIT-027's historical no-bone after-images were not exercised in the dash sample and remain an uncovered follow-up, not a newly reproduced visual defect.
 
 ## Tasks and follow-ups
 
-### T-029: Deployment without leaving the game (requested by the user on 2026-10-13; 1.0.1 deployed; first exchange in the game outstanding)
+### T-029: Deployment without leaving the game (implemented; first exchange verified in the game)
 
-State 2026-10-13, post-session review: implemented and deployed as described in docs/hot-swap.md; the latest game log proves that 1.0.1 loaded. Remaining: the first exchange in the game; then use scripts/hot_swap.py for changes of the replacement logic. No exchange appears in the latest log, and no build/hot-swaps.json ledger exists. Ideas not done: warming the new backend's variants before it takes over, so that an exchange shows no frame of the game's model.
+State 2026-10-13, live verification: the unchanged verified 1.0.1 module takes over PID 19452 at 20:49:41, generation 1 after 0.8 seconds, nine images Ready and no module error. The user confirms normal appearance with no persistent anomaly. A post-exchange 710-frame interval is clean, followed by the clean requested dash interval. Evidence: build/hot-swaps.json and captures/stability-1.0.1-20261013-204259-19452/. Use scripts/hot_swap.py for subsequent compatible backend changes. Not claimed: repeated-exchange lifetime/performance acceptance or a seamless transition on every exchange. Variant warming remains an optional follow-up.
 
 Decision of the user, 2026-10-13: write the replacement logic as a module of its own; whether to swap it into the running game is the agent's choice, for instance to verify a change of the replacement logic right away. Recorded in AGENTS.md. Point 4 below is thereby settled.
 
@@ -23,9 +23,9 @@ The user asked for a way to deploy while the game runs and for the agent to refr
 4. Rule to settle with the user first (AGENTS.md says the layer is not loaded into the real game without the user saying so on the spot): a swap loads new code into the running game. Either each swap is announced and approved, or the user gives a standing permission and it is written into AGENTS.md.
 Limits known in advance: changes to the tracker or to shared structures still need a restart; a crash in a new module is a crash of the game.
 
-### T-028: Whole character from a static package (1.0.1 game load and user appearance report; scoped acceptance remains)
+### T-028: Whole character from a static package (1.0.1 sampled LOD0/LOD1 and dash checks pass)
 
-Latest evidence: captures/user-review-1.0.1-20261013/ archives PID 27816's 1.0.1 session. The user reports models and textures seem fine, without specifying movement, LOD or effect coverage. Fifty nearby identity creations, including 38 within zero counted frames, still need correlation with actual actions; they do not establish a visible defect. No live counter or frame was collected because the game had exited. Do not close BUG-011 solely from either the tentative appearance report or these uncorrelated lines.
+Latest evidence: captures/stability-1.0.1-20261013-204259-19452/. Before exchange, a 1,534-frame LOD0 interval and 101-frame LOD1 interval have no refusal/identification/pending. After exchange, 710 LOD0 drawing frames remain clean. A requested dash interval has 58 captured frames with 3,766 character matches on 98 supported pipelines, no new runtime refusal/identification, and active sibling/inherited material replacements. The user reports no apparent flicker, normal appearance after exchange and apparently correct dashing. Historical no-bone after-image shaders were absent; preserve LIMIT-027 as uncovered rather than requiring repair of an unobserved present defect. The earlier PID 27816 appearance-only review remains in captures/user-review-1.0.1-20261013/.
 
 Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
 
@@ -38,7 +38,7 @@ Next, after the actual DX11 capture of 2026-10-13:
 4. 0.9.7 game result (user, 2026-10-13): textures seem right, flicker at LOD 0 persists. Cause traced to the game's visibility pass on four-set pipelines (BUG-009); 0.9.8 takes the private set's index from the layout and passes sandbox, real-shader and full-suite checks. Deployed at 17:59 after the user's exit, smoke on dist passes. Open: a user-started check of counters and flicker.
 5. 0.9.8 game result (user, 2026-10-13): dithered fade and dash show the original model mixed with the mod's; the normal state seems to flicker now and then. 0.9.9 derives rules for unprofiled fragment shaders from a profiled sibling, keeps the mod's mesh in any case, and lets an identity survive gaps (BUG-010, D-040). Deployed at 19:00 after the user's exit, smoke on dist passes. Open: check dither, dash and the normal state in the game with the new counters and log lines.
 6. 0.9.9 game result (user, 2026-10-13): the view from below is right; the normal state still flickers. The 0.9.9 log shows the cause: frames were counted at the present (BUG-011). 1.0.0 counts the character's frame by the recording of its command buffer. Deployed at 19:25, smoke on dist passes. Open: the user's judgement and the identity lines of the log.
-7. After that: after-images of the dash keep the game's mesh (LIMIT-027).
+7. Latest 1.0.1 live results above are positive for ordinary LOD0/LOD1 and the requested dash sample. The historically unsupported after-image shaders did not occur in that sample (LIMIT-027); collect them when reproduced rather than assuming every dash still fails.
 8. Generalizations the sample did not need: draws with several instances, a second mod at once, a four-set pipeline with material images in a sandbox scene.
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
@@ -282,7 +282,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The user reports correct-looking models and textures in the latest 1.0.1 session; no game process remains at review time. A later user-started session can complete scoped LOD0/LOD1 movement/effect checks, correlate identity diagnostics and verify the first module exchange. Module exchange is covered by standing authorization in AGENTS.md; game starts remain the user's. No repeated bone capture, tiny-part visual check or duration-only test is required.
+- PID 19452 is the user-started 1.0.1 session; scoped drawing/dash checks and the first module exchange have passed as recorded above. No further restart or duration-only run is needed for these checks. T-027 can continue offline and use authorized compatible module exchanges when ready. The historical no-bone after-image path needs new data only when it can be reproduced.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
