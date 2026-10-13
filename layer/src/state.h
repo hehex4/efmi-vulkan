@@ -421,6 +421,7 @@ struct Device {
     uint32_t device_id = 0;
     uint32_t driver_version = 0;
     uint32_t max_bound_descriptor_sets = 0;
+    uint32_t max_layout_sets = 0; // most sets any pipeline layout of the application has had
 
     // Memory, buffers, pipelines. Readers of mapped memory hold the lock shared;
     // unmap, free and destroy take it exclusively before the call goes down.

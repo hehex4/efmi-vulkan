@@ -304,3 +304,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Semaphore/fence allocation belongs to setup, workers never submit to application queues, and no fence or idle wait is added to draw/submission. Shutdown drains outstanding publication objects. Submission errors propagate through legacy, core Submit2 and KHR Submit2 hooks.
 - New regression must reproduce the old refusal and prove queue-1-only and separate-upload/render behavior through both entries and all submit APIs. Actual-file/config smoke includes multiple enabled queues. Offline success still does not establish game appearance or the earlier flicker fix.
 
+## D-039: The private set sits right above the pipeline's own sets
+
+- Date: 2026-10-13, after the flicker survived 0.9.5 and 0.9.7.
+- The private set's index is the number of sets of the pipeline's layout: 3 for the ordinary character pipelines, 4 for the four-set pipelines of the visibility pass. The variant's layout is the application's sets unchanged plus the private one, so binding the private set disturbs none of the application's and the fragment stage keeps reading its own.
+- This replaces the constant 3 of D-022 and D-036. D-036 dropped "above the application's sets" for a three-set pipeline with a stale set 3; that case keeps its answer (use slot 3, bind the application's set again). What is new is that the slot follows the layout.
+- The tracker follows four slots. A private set at slot 4 or above cannot be given back, so it is used only while no pipeline layout of the application has ever had that many sets (`Device::max_layout_sets`); otherwise the draw is refused. Widening the tracker was not needed: the game has no layout with more than four sets.
+- With a material package a fragment shader without a profile is accepted when its complete layout has no image descriptor for the fragment stage. Refusing there kept the original mesh in a pass that has no texture to get wrong.

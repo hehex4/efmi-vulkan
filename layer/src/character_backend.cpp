@@ -266,7 +266,7 @@ public:
     }
 
     bool init_materials();
-    bool material_draws(uint32_t pipeline_id, const GraphicsRecipe&, const CharacterList&,
+    bool material_draws(uint32_t pipeline_id, const GraphicsRecipe&, const PipelineLayoutInfo&, const CharacterList&,
                         std::vector<const StaticMaterial*>&, std::vector<std::vector<SnapshotImage>>&);
 
     // Caller holds res_mx. The index bytes of one draw, hashed once and then recognized by a short
@@ -418,7 +418,8 @@ bool CharacterBackend::init_materials()
     return true;
 }
 
-bool CharacterBackend::material_draws(uint32_t pipeline_id, const GraphicsRecipe& recipe, const CharacterList& list,
+bool CharacterBackend::material_draws(uint32_t pipeline_id, const GraphicsRecipe& recipe, const PipelineLayoutInfo& layout,
+                                      const CharacterList& list,
                                       std::vector<const StaticMaterial*>& plans, std::vector<std::vector<SnapshotImage>>& views)
 {
     static const StaticMaterial inherited{true, false, {}, {}, {}};
@@ -439,6 +440,24 @@ bool CharacterBackend::material_draws(uint32_t pipeline_id, const GraphicsRecipe
                     if (package.profiles[i].code == stage.shader->code) { profile = i; break; }
             }
             if (no_fragment) profile = kCharacterNone - 1;
+            if (profile == kCharacterNone && layout.complete) {
+                // A fragment shader whose layout holds no image for it cannot read a texture: every
+                // slot the mod binds is absent there, as for the pass that tests visibility with
+                // depth only. Nothing to replace; the mesh is still the mod's.
+                bool images = false, known = true;
+                for (const auto& set : layout.sets) {
+                    if (!set || !set->complete) { known = false; break; }
+                    for (const auto& b : set->bindings) {
+                        const uint32_t type = b.second.type;
+                        if ((b.second.stages & VK_SHADER_STAGE_FRAGMENT_BIT) &&
+                            (type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE || type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
+                             type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || type == VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT ||
+                             type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER ||
+                             type > VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT)) images = true;
+                    }
+                }
+                if (known && !images) profile = kCharacterNone - 1;
+            }
             if (material_profiles.size() >= 4096) material_profiles.clear();
             material_profiles[pipeline_id] = profile;
         }
@@ -491,6 +510,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     DrawGeometry original;
     // The application's own set 3, when it has one bound: the replacement uses that slot, so it is
     // bound again afterwards exactly as the application bound it.
+    uint32_t restore_slot = 0;
     VkPipelineLayout restore_layout = VK_NULL_HANDLE;
     VkDescriptorSet restore_set = VK_NULL_HANDLE;
     std::vector<uint32_t> restore_offsets;
@@ -591,16 +611,24 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         if (!list->count) { ++counters[C_HIDDEN]; return true; }
         for (uint32_t c = 0; c < package.components.size(); ++c)
             if ((list->required >> c & 1) && (identity->coverage[c] & dynamic) != dynamic) { ++counters[C_INCOMPLETE]; return false; }
-        if (r.sets[3].pushed) return refuse(C_SET3, "character draw with pushed descriptors at set 3");
-        if (r.sets[3].set) {
+        // The private set is bound right above the pipeline's own sets: slot 3 for most character
+        // pipelines, slot 4 for the four-set ones (the game's visibility pass among them).
+        const uint32_t own = static_cast<uint32_t>(pipe->second.layout->sets.size());
+        if (own >= kMaxSets) {
+            // Not a tracked slot: usable only if no pipeline layout of the application reaches it.
+            if (device->max_layout_sets > own) return refuse(C_SET3, "character draw: the slot above the pipeline's sets is in use and not tracked");
+        } else if (r.sets[own].pushed) {
+            return refuse(C_SET3, "character draw with pushed descriptors at the private set's slot");
+        } else if (r.sets[own].set) {
             // The tracker keeps a set only while later binds left it valid, so the layout it was
-            // bound with agrees with the current one for sets 0 to 2, and binding it again there
+            // bound with agrees with the current one for the lower sets, and binding it again there
             // disturbs nothing. Vulkan keeps that layout alive while this recording lasts.
-            const SetBind& app = r.sets[3];
+            const SetBind& app = r.sets[own];
+            restore_slot = own;
             auto live = device->pipeline_layouts.find(app.layout_handle);
             if (!app.layout_handle || !app.layout || app.unsupported || live == device->pipeline_layouts.end() ||
                 live->second != app.layout || (app.dyn_count && uint64_t(app.dyn_first) + app.dyn_count > cb->dyn.size()))
-                return refuse(C_SET3, "character draw with an application set 3 that cannot be bound again");
+                return refuse(C_SET3, "character draw with an application set that cannot be bound again");
             restore_layout = app.layout_handle; restore_set = app.set;
             restore_offsets.assign(cb->dyn.begin() + app.dyn_first, cb->dyn.begin() + app.dyn_first + app.dyn_count);
         }
@@ -620,7 +648,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
 
         bool pending = false;
-        if (!material_draws(pipe->second.id, *pipe->second.recipe, *list, material_plans, material_views)) return false;
+        if (!material_draws(pipe->second.id, *pipe->second.recipe, *pipe->second.layout, *list, material_plans, material_views)) return false;
         for (uint32_t i = 0; i < list->count; ++i) {
             VertexInputRecipe vertex;
             std::string reason;
@@ -666,7 +694,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.pipeline, original))
         return refuse(C_VARIANT, "character draw transaction refused");
     if (restore_layout) {
-        draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, 3, 1, &restore_set,
+        draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
                                    static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
         ++counters[C_SET3_RESTORED];
     }

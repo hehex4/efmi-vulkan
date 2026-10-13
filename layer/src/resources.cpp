@@ -232,6 +232,7 @@ void on_create_pipeline_layout(Device* dev, VkPipelineLayout h, const VkPipeline
     layout->id = dev->next_resource_id++;
     layout->flags = info->flags;
     layout->complete = info->pNext == nullptr;
+    dev->max_layout_sets = std::max(dev->max_layout_sets, info->setLayoutCount);
     for (uint32_t i = 0; i < info->setLayoutCount; i++) {
         auto it = dev->set_layouts.find(info->pSetLayouts[i]);
         layout->sets.push_back(it == dev->set_layouts.end() ? nullptr : it->second);

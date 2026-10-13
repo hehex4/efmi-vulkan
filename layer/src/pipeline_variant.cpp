@@ -14,7 +14,7 @@ std::vector<VkDescriptorSetLayoutBinding> private_draw_bindings(uint32_t image_c
 }
 
 static bool prepare_fragment(const GraphicsRecipe& recipe,const PipelineLayoutInfo& source,
-                             const FragmentPatch& patch,const VkPhysicalDeviceLimits& limits,
+                             const FragmentPatch& patch,const VkPhysicalDeviceLimits& limits,uint32_t own_set,
                              size_t& stage,std::vector<uint32_t>& words,std::string& reason)
 {
     auto fail=[&](const char* why){reason=why;return false;};
@@ -52,7 +52,7 @@ static bool prepare_fragment(const GraphicsRecipe& recipe,const PipelineLayoutIn
     if(!patch.nulls.empty() && !efmi::gpu::null_fragment_images(words,patch.nulls,words,reason))return false;
     if(!patch.images.empty()){
         std::vector<efmi::gpu::ImageBindingMove> moves;
-        for(uint32_t i=0;i<patch.images.size();++i)moves.push_back({patch.images[i].set,patch.images[i].binding,3,2+i});
+        for(uint32_t i=0;i<patch.images.size();++i)moves.push_back({patch.images[i].set,patch.images[i].binding,own_set,2+i});
         if(!efmi::gpu::repoint_fragment_images(words,moves,words,reason))return false;
     }
     return true;
@@ -73,9 +73,12 @@ bool prepare_vertex_variant(const GraphicsRecipe& recipe, const PipelineLayoutIn
 {
     reason.clear(); rewritten = VertexRepoint();
     if (!recipe.complete) { reason = "recipe:" + recipe.reason; return false; }
-    if (!source.complete || source.flags || source.sets.size() != 3 || source.sets.size() >= max_sets) {
+    // The private set goes right above the pipeline's own sets. The instance window is at set 2, so
+    // there are at least three; the game's pipelines have three or four.
+    if (!source.complete || source.flags || source.sets.size() < 3 || source.sets.size() > 8 || source.sets.size() >= max_sets) {
         reason = "layout_requires_three_complete_sets_and_one_free_slot"; return false;
     }
+    const uint32_t own = static_cast<uint32_t>(source.sets.size());
     for (const auto& s : source.sets) {
         if (!s || !s->complete || s->flags) { reason = "set_layout_unsupported"; return false; }
         for (const auto& pair : s->bindings) {
@@ -87,7 +90,7 @@ bool prepare_vertex_variant(const GraphicsRecipe& recipe, const PipelineLayoutIn
     size_t vs_index = recipe.stages.size();
     for (size_t i = 0; i < recipe.stages.size(); i++)
         if (recipe.stages[i].stage == VK_SHADER_STAGE_VERTEX_BIT) vs_index = i;
-    if (vs_index == recipe.stages.size() || !repoint_vertex(recipe.stages[vs_index].shader->code, 3, rewritten)) {
+    if (vs_index == recipe.stages.size() || !repoint_vertex(recipe.stages[vs_index].shader->code, own, rewritten)) {
         reason = "vertex_rewrite:" + rewritten.reason; return false;
     }
     auto buffer_binding = [&](uint32_t set, uint32_t binding, bool storage) {
@@ -113,12 +116,12 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
     VertexRepoint rewritten;
     if (!prepare_vertex_variant(recipe, source, max_sets, rewritten, reason)) return false;
     size_t fs_index=recipe.stages.size();std::vector<uint32_t> fragment;
-    if(!prepare_fragment(recipe,source,patch,limits,fs_index,fragment,reason))return false;
+    own_set = static_cast<uint32_t>(source.sets.size());
+    if(!prepare_fragment(recipe,source,patch,limits,own_set,fs_index,fragment,reason))return false;
     image_count=static_cast<uint32_t>(patch.images.size());
     bone_set = rewritten.bone_set; bone_binding = rewritten.bone_binding;
     size_t vs_index = 0;
     while (recipe.stages[vs_index].stage != VK_SHADER_STAGE_VERTEX_BIT) ++vs_index;
-    own_set = 3;
     auto good = [&](VkResult r, const char* what) {
         result = r;
         if (r != VK_SUCCESS) { reason = what; return false; }

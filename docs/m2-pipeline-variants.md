@@ -37,7 +37,8 @@ specialization entries, 64 viewports/dynamic states and 1 MiB specialization dat
 
 `spirv_repoint.cpp` implements D-022 in production C++: identify exactly one storage buffer and the
 uniform block at set 2 binding 0; move their VS decorations to set 3 bindings 0 and 1. Fragment code
-is unchanged. Ambiguous, malformed, grouped/ID-decorated or colliding inputs are refused.
+is unchanged. Since 0.9.8 the target is the set right above the pipeline's own, 3 for a three-set
+layout and 4 for a four-set one (`docs/character-backend.md`, last section). Ambiguous, malformed, grouped/ID-decorated or colliding inputs are refused.
 
 `PipelineVariant` constructs private compatible layouts, render pass and shader modules from owned
 metadata. No application creation handle is borrowed. Temporary modules/pass are destroyed after

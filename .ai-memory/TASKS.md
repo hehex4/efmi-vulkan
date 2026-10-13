@@ -10,7 +10,7 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 ## Tasks and follow-ups
 
-### T-028: Whole character from a static package (0.9.7 queue fix deployed; game check next)
+### T-028: Whole character from a static package (0.9.7 in the game with textures; 0.9.8 flicker fix built, deployment waits for the game to close)
 
 Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
 
@@ -20,7 +20,8 @@ Next, after the actual DX11 capture of 2026-10-13:
 1. Complete: original LOD1 source capture, eight rules for the three missing fragments, both historical Vulkan frames agree. Audit and native material replay pass (359 accepted, eleven dimension refusals, no unknown profile). See docs/lod1-material-capture.md. No further LOD1 source capture is needed for these profiles.
 2. Complete offline and deployed in 0.9.6: static hosted pixel-binding plans, 20 exact fragment profiles, nine DDS files, shared ResourceCache, native material contracts and command-owned image snapshots. LIMIT-021 uses an explicit policy bound to the measured device. Full suite passes; native contracts cover 370 historical draws with no omissions, 105 pipelines create, actual configuration uploads all nine images through both entries. This does not complete hosted runtime integration. See docs/character-materials.md and D-037.
 3. Actual 0.9.6 game result: PID 18868 loads the right DLL but refuses initialization at the one-graphics-queue requirement, with zero replacements/images. 0.9.7 supports multiple queues in one graphics family and publishes images through one-time semaphore waits. Full rebuilt suite passes, character hooks 261 across eighteen cases, actual nine DDS files pass with only queue 1 used, and both old entries reproduce the refusal. User exited normally; 0.9.7 deployed at 16:23 and actual-config smoke passes on dist. Required next: a new user-started Vulkan check of loaded version, queue/publication/image state, replacement/refusal/restoration counters, whole-outfit textures, motion, LOD1 and flicker. Launcher remains Vulkan. A capture still does not mark replaced draws (LIMIT-020).
-4. Generalizations the sample did not need: private set index from the layout (LIMIT-023), draws with several instances, a second mod at once.
+4. 0.9.7 game result (user, 2026-10-13): textures seem right, flicker at LOD 0 persists. Cause traced to the game's visibility pass on four-set pipelines (BUG-009); 0.9.8 takes the private set's index from the layout and passes sandbox, real-shader and full-suite checks. Open: deploy after the user closes the game, then a user-started check of counters and flicker.
+5. Generalizations the sample did not need: draws with several instances, a second mod at once, a four-set pipeline with material images in a sandbox scene.
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
 

@@ -147,7 +147,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         return 3;
     };
     bool image_initialized=false;
-    auto frame=[&](bool lod1,bool four_sets=false){
+    auto frame=[&](bool lod1,bool four_sets=false,bool character_on_four=false){
         VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};VK(vkBeginCommandBuffer(cmd,&begin));
         if(material && !image_initialized){
             VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.image=original_image.handle;
@@ -178,6 +178,15 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
             vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
         }
         if(lod1){bind(E_L);vkCmdDrawIndexed(cmd,12,1,18,0,0);}
+        else if(character_on_four){
+            // Component A's own region drawn with the application's four-set pipeline, whose fragment
+            // shader reads set 3: the game does this in the pass that tests which parts are visible.
+            uint32_t offsets[]={E_A*dynamic,dynamic};
+            vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,four.pipeline);
+            vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,four.layout,0,4,sets,2,offsets);
+            vkCmdDrawIndexed(cmd,3,1,0,0,0);
+            vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
+        }
         else{bind(E_A);vkCmdDrawIndexed(cmd,3,1,0,0,0);}
         bind(E_B);vkCmdDrawIndexed(cmd,6,1,3,0,0);
         bind(E_C);vkCmdDrawIndexed(cmd,9,1,9,0,0);
@@ -245,6 +254,19 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
               shade_at(.6f,-.6f)==0 && shade_at(-.6f,-.6f)==4 && shade_at(0,-.6f)==4;
     }
     check(kept,"with an application set 3 bound the character is still replaced, and the next four-set draw reads that set again");
+    if(!material){
+        // The replacement of a draw on a four-set pipeline puts its private set at slot 4 and leaves
+        // the application's set 3 for the fragment shader: A's mesh at its replaced place, in the
+        // color of the fourth set. Until the variant is built the application's draw stays.
+        bool four_done=false;
+        for(uint32_t attempt=0;attempt<400 && !four_done;++attempt){
+            frame(false,false,true);
+            four_done=shade_at(-.6f,.3f)==4 && shade_at(0,0)==2 && shade_at(.6f,.3f)==2 && shade_at(0,.6f)==1 && shade_at(.6f,-.1f)==1 &&
+                      shade_at(.6f,-.6f)==0 && shade_at(-.6f,-.6f)==0 && shade_at(0,-.6f)==0;
+            if(!four_done)Sleep(5);
+        }
+        check(four_done,"a character draw on a four-set pipeline is replaced, with the private set above the application's four");
+    }
     // LOD 1 of component A: its palette is in another order and the package remaps it.
     // Merged bone 0 <- source 1 = (-.6,-.2), merged bone 1 <- source 0 = (-.2,.6).
     bool lod=false;

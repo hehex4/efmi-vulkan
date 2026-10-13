@@ -1,6 +1,23 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-13, 16:23 deployment. Source/build/next/dist are 0.9.7 with the verified graphics-queue fix. The user exited 0.9.6 normally after its initialization refusal left the original model visible. Full rebuilt regression and actual-config two-queue DDS smoke pass on candidate and dist. Launcher stays Vulkan; the next game start is the user's. LOD0/LOD1 only; real-character materials and the earlier flicker fix remain unverified.
+> Last updated: 2026-10-13, 17:20. Source and build/next are 0.9.8 (four-set pipelines replaced; sandbox and offline evidence only). dist/ and the running game (PID 7784, user-started) are still 0.9.7: textures look right to the user, the flicker at LOD 0 persists. 0.9.8 is deployed once the user has closed the game; the game check after that is the user's. LOD0/LOD1 only.
+
+## 0.9.7 in the game: textures right, flicker persists; cause found in the visibility pass; 0.9.8 built (2026-10-13, 17:20)
+
+"Loads in the real game" and "data captured in the real game" apply to 0.9.7 only. 0.9.8 "builds" and passes "in the sandbox"; it has not been in the game.
+
+User-started Vulkan session, PID 7784, layer 0.9.7 with the material package. The user: textures seem right, the flicker is still there. Read-only on that process:
+- Status: nine images ready, none failed; counters over 393 frames `refused_material` 85, every other refusal 0.
+- Forty captured frames (captures/flicker-0.9.7-20261013/): all refused character draws are on pipelines 399/402/404/406 in render pass 12: no color attachment, depth format 130 tested EQUAL and not written, four-set layouts, bone buffer at set 3 binding 2, a fragment-written storage buffer at set 3 binding 3, no images. Of the 1,430 pipelines of that process 1,157 have three sets, 190 four, none more.
+- These are the draws 0.10.0 counted as `refused_set3`. The 0.9.5 change (bind the application's set 3 again) was a real correction of a wrong refusal but not the cause of the flicker; BUG-006 is corrected accordingly and the cause is BUG-009.
+
+Reading: the pass tells the game which parts are visible (its only output is that storage buffer). The original mesh fails the equal-depth test against the mod's depth, the game takes the part for hidden and leaves it out for some frames, and the mod's draws go with it. The refused draws are measured; that the flicker follows from them is an inference until a session with 0.9.8.
+
+0.9.8: the private set's index is the pipeline's set count (variant preparation, builder, fragment images, restoration of an application set at that slot); a slot above the tracked four is used only while `Device::max_layout_sets` shows no application layout that large; a fragment shader whose layout has no fragment-stage image needs no material profile. Evidence: the new scene phase (character draw on the four-set pipeline) passes with 0.9.8 and fails against the deployed 0.9.7 with `refused_variant`; the real shaders of the four pipelines rewrite to set 4 and pass spirv-val; full suite in build/next passes (build/next/run_all-0.9.8.out); actual settings plus the nine real DDS files pass through both entries (build/character-assets-config-next-0.9.8.json). Candidate DLLs SHA-256 19ca13424e73e622af3a4a4703bcf709309731a4cfb2ecc58c681898c9b1f461. See docs/character-backend.md, last section.
+
+Note on tools: `scripts/smoke_m2_config.py` reports `images_failed` 5 for a material package because its sandbox device does not enable BC compression; that is the script's device, not the layer. For a material package use `scripts/check_character_assets.py --actual-config`.
+
+Next: the user closes the game; check `tasklist /FI "IMAGENAME eq Endfield.exe"` unshortened; back up dist/, copy the tested files from build/next, compare hashes, run the asset smoke on dist. Then a user-started session: `refused_material`, `refused_variant`, `refused_set3` 0 with `replaced` growing, `last_reason` empty, and the user's judgement of the flicker. If it still flickers, capture frames while it does and compare which components the game draws in the frames before and after.
 
 ## 0.9.6 refused in the game; 0.9.7 deployed after normal exit
 

@@ -60,8 +60,10 @@ under one lock (the mod's state is global, as in the core):
    have been imported, a variant of the current pipeline must be ready for each draw of the list
    (built off the draw thread, D8), and the draw must be a single instance in a primary classic
    render pass. Any refusal keeps the original draw and is counted under its own name.
-   An application set at slot 3 is no obstacle since 0.9.5: the replacement uses the slot and the
-   application's set is bound again afterwards, with the layout and dynamic offsets it had.
+   The private set is bound right above the pipeline's own sets (0.9.8): slot 3 for a three-set
+   pipeline, slot 4 for a four-set one. An application set at that slot is no obstacle since
+   0.9.5: the replacement uses the slot and the application's set is bound again afterwards, with
+   the layout and dynamic offsets it had.
 7. The replacement is one transaction: the patched entry and the skeleton go into the command
    buffer's arena, the mod's draws are emitted with the variant, the application's pipeline,
    vertex and index bindings are restored. Draws that read the same skeleton bytes share one copy
@@ -128,8 +130,15 @@ remain questions for the next user-started session.
   exact-fragment profiles and per-draw images; unknown or unavailable contracts keep the
   complete original component. Runtime Core source-identity queries are still outside it.
 - One scenario of the mod's variables, fixed when the package is built.
-- A component drawn on a four-set pipeline, instanced or in a secondary command buffer keeps the
-  original draw (LIMIT-023 for the first). So does one with pushed descriptors at set 3.
+- A component drawn instanced or in a secondary command buffer keeps the original draw. So does
+  one with pushed descriptors at the private set's slot. Pipelines with three to eight sets are
+  replaced since 0.9.8; the tracker follows slots 0 to 3, so a private set at slot 4 or above is
+  used only while no pipeline layout of the application has that many sets (in the game: none of
+  1,430 pipelines has more than four).
+- With a material package, a fragment shader needs a profile unless its complete layout has no
+  image descriptor for the fragment stage; then nothing of the mod's textures applies and the
+  mesh alone is replaced (0.9.8). A four-set pipeline whose fragment shader does read images is
+  covered by the rewrite and not by a sandbox scene.
 - A stream of the mod shorter than the game's is bound as it is (0.9.5): an element may lie up to
   64 bytes past the file's stride and then reads into the next vertex, as under the source API.
   Farther than that refuses.
@@ -146,9 +155,11 @@ Counters over four seconds (378 frames): matched 23,212, replaced 12,099, hidden
 that frame. Present intervals with the replacement active: p50 10.2 ms, p99 15.9 ms, none over
 33 ms in the last 2,048.
 
-Why the application has a set 3 there: most pipelines of the game use four sets, and a set bound
-at slot 3 stays valid while three-set pipelines are drawn with compatible layouts. The saved
-frames used before the session happened to show no such draw among the matched ones.
+Why the application has a set 3 there: some pipelines of the game use four sets (190 of 1,430
+in the session of 0.9.7; 1,157 have three), and a set bound at slot 3 stays valid while three-set
+pipelines are drawn with compatible layouts. The saved frames used before the session happened to
+show no such draw among the matched ones. This paragraph and the next describe a real defect of
+0.10.0, but not the cause of the flicker: see the last section.
 
 0.9.5 binds the application's set again after the replacement (`restored_set3`). The sandbox
 scene gained the same situation: a four-set pipeline draws, the character follows, the four-set
@@ -157,3 +168,56 @@ bound with another layout. Against 0.10.0 the scene fails with `refused_set3` 10
 0.9.5: decoder 40, character scene 53 over four runs. Whether the flicker is gone in the game is
 the next session's question.
 
+## The flicker again: the visibility pass and 0.9.8
+
+2026-10-13, user-started session with 0.9.7 (materials on): the textures look right to the user
+and the flicker at LOD 0 is still there. So 0.9.5 did not remove it, and the attribution above
+was wrong. What the running process showed, read-only:
+
+- Counters over 393 frames: `refused_material` 85, every other refusal 0. Under 0.10.0 the same
+  draws were counted as `refused_set3` (82 in 378 frames); 0.9.5 let them pass that check and
+  they then failed the next one. The rate is the same, about one draw in 4.6 frames.
+- Forty captured frames (`captures/flicker-0.9.7-20261013/`): every refused character draw is on
+  one of four pipelines (399, 402, 404, 406) in one render pass (12). That pass has no color
+  attachment and one depth attachment of the G-buffer's format (130), tests depth with EQUAL and
+  does not write it. The pipelines have four sets: set 3 holds two uniform buffers and the bone
+  storage buffer (binding 2) for the vertex shader and a storage buffer (binding 3) that the
+  fragment shader writes. There is no image anywhere in the layout.
+
+A draw without color and without depth write changes nothing on screen by itself; its only
+output is that storage buffer. The reading that fits: the game draws a part of the character
+there to learn whether it is visible. The original mesh, tested for equal depth against the depth
+the mod's mesh wrote, mostly fails, the game takes the part for hidden, and leaves it out for a
+while; the mod's draws hang on the game's draw of that part and go with it. That the refused
+draws are these is measured. That the flicker follows from them is an inference; the next session
+decides it. Under DX11 the core replaces the draw in this pass like in any other, so the mod's
+mesh is what gets tested there.
+
+0.9.8 makes the replacement work on these pipelines:
+
+- `prepare_vertex_variant` and the variant builder take the private set's index from the layout:
+  the number of sets the pipeline has (three to eight, below `maxBoundDescriptorSets`). The
+  vertex shader's bone buffer and instance window move there, wherever the bone buffer was.
+  Fragment images of a material profile move to the same set.
+- The draw path restores an application set at that slot, whichever it is. A slot the tracker
+  does not follow (4 and above) is taken only if no pipeline layout of the application ever had
+  that many sets (`Device::max_layout_sets`); otherwise the draw is refused under `refused_set3`.
+- A fragment shader without a material profile is accepted when its layout has no image for the
+  fragment stage.
+
+Evidence, sandbox and offline only:
+
+- The character scene draws component A's own region with the four-set pipeline whose fragment
+  shader reads set 3. With 0.9.8 the mod's mesh appears at its replaced place in the fourth set's
+  color under core and synchronization validation; the deployed 0.9.7 fails the same scene with
+  `refused_variant`.
+- The shaders of the game's four pipelines, fetched from the running process: each vertex shader
+  has one storage buffer, at set 3 binding 2, and the instance window at set 2 binding 0; the
+  rewrite to set 4 passes `spirv-val` for all four.
+- Full suite in `build/next`: all steps pass (character package 67, character replacement 261
+  over eighteen cases; the new phase runs inside the ten mesh-only cases and fails their exit
+  status if it fails). Actual settings and the nine real textures through both entries: nine
+  ready, none failed (`build/character-assets-config-next-0.9.8.json`).
+
+What to read in the next session: `refused_material`, `refused_variant` and `refused_set3` stay 0
+while `replaced` grows, `last_reason` is empty, and the user's eyes on the flicker.
