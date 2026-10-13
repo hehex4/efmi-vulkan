@@ -10,7 +10,16 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 ## Tasks and follow-ups
 
-### T-028: Whole character from a static package (0.9.9 for shader variants and identity deployed; game check next)
+### T-029: Deployment without leaving the game (requested by the user on 2026-10-13; not started)
+
+The user asked for a way to deploy while the game runs and for the agent to refresh the deployed state itself. A loaded DLL cannot be replaced, and the tracker's state (every object the game created since start-up) cannot be rebuilt by a second copy of the layer. Proposed shape, to be confirmed before work starts:
+1. Host and module. The injected DLL keeps the hooks and the tracker and is not replaced during a session. The character backend with what it owns (variants, snapshots, skeleton, package, materials) is built a second time as a module DLL behind the ten functions of `character_backend.h`; the built-in copy stays the default, so nothing changes without a module.
+2. A probe command loads a module from a file copied to a unique name, checks an interface stamp made from the shared headers (a module built against other tracker structures is refused and needs a restart), creates its backend, and swaps the active one between draws. The old backend stops replacing and is released when its last command buffer is; old modules stay mapped until the process ends.
+3. Sandbox proof before any game use: swap in the middle of a scene under validation, with draws before and after replaced and nothing leaked; refusal of a mismatched module.
+4. Rule to settle with the user first (AGENTS.md says the layer is not loaded into the real game without the user saying so on the spot): a swap loads new code into the running game. Either each swap is announced and approved, or the user gives a standing permission and it is written into AGENTS.md.
+Limits known in advance: changes to the tracker or to shared structures still need a restart; a crash in a new module is a crash of the game.
+
+### T-028: Whole character from a static package (0.9.9 in the game; 1.0.0 for the frame boundary built, deployment waits for the game to close)
 
 Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
 
@@ -22,8 +31,9 @@ Next, after the actual DX11 capture of 2026-10-13:
 3. Actual 0.9.6 game result: PID 18868 loads the right DLL but refuses initialization at the one-graphics-queue requirement, with zero replacements/images. 0.9.7 supports multiple queues in one graphics family and publishes images through one-time semaphore waits. Full rebuilt suite passes, character hooks 261 across eighteen cases, actual nine DDS files pass with only queue 1 used, and both old entries reproduce the refusal. User exited normally; 0.9.7 deployed at 16:23 and actual-config smoke passes on dist. Required next: a new user-started Vulkan check of loaded version, queue/publication/image state, replacement/refusal/restoration counters, whole-outfit textures, motion, LOD1 and flicker. Launcher remains Vulkan. A capture still does not mark replaced draws (LIMIT-020).
 4. 0.9.7 game result (user, 2026-10-13): textures seem right, flicker at LOD 0 persists. Cause traced to the game's visibility pass on four-set pipelines (BUG-009); 0.9.8 takes the private set's index from the layout and passes sandbox, real-shader and full-suite checks. Deployed at 17:59 after the user's exit, smoke on dist passes. Open: a user-started check of counters and flicker.
 5. 0.9.8 game result (user, 2026-10-13): dithered fade and dash show the original model mixed with the mod's; the normal state seems to flicker now and then. 0.9.9 derives rules for unprofiled fragment shaders from a profiled sibling, keeps the mod's mesh in any case, and lets an identity survive gaps (BUG-010, D-040). Deployed at 19:00 after the user's exit, smoke on dist passes. Open: check dither, dash and the normal state in the game with the new counters and log lines.
-6. After that: after-images of the dash keep the game's mesh (LIMIT-027); the cause of a normal-state flicker, if it remains.
-7. Generalizations the sample did not need: draws with several instances, a second mod at once, a four-set pipeline with material images in a sandbox scene.
+6. 0.9.9 game result (user, 2026-10-13): the view from below is right; the normal state still flickers. The 0.9.9 log shows the cause: frames were counted at the present (BUG-011). 1.0.0 counts the character's frame by the recording of its command buffer. Open: deploy, then the user's judgement and the identity lines of the log.
+7. After that: after-images of the dash keep the game's mesh (LIMIT-027).
+8. Generalizations the sample did not need: draws with several instances, a second mod at once, a four-set pipeline with material images in a sandbox scene.
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
 

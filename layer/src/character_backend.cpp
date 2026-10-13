@@ -23,10 +23,13 @@ constexpr float kCellSize = 0.125f;
 constexpr float kBaseRadius = 3.0f;
 constexpr uint32_t kIdentifyingComponents = 4;
 constexpr uint64_t kExpiryFrames = 2;
-// A counted frame is a present after which something was drawn. That is not always a frame in
-// which the game draws the character: with frame generation presents come in between, and the game
-// leaves the character out for some frames of a dash. So an identity is given up only when both
-// have passed without a draw: the core's two frames and this much time.
+// Two clocks. The character's frame is one recording of the command buffer its draws are in: the
+// game records all draws of a character for one frame into one command buffer, and it starts on
+// the next frame before the previous one is presented, so a present is no boundary while
+// recording. Presents after which something was drawn are counted too; they pace the periodic work
+// and, together with time, the expiry: with frame generation presents come between the game's
+// frames, and the game leaves the character out for some frames of a dash, so an identity is given
+// up only after the core's two counted presents and this much time without a draw.
 constexpr uint64_t kExpiryMicroseconds = 500000;
 constexpr size_t kIdentities = 16;
 constexpr uint32_t kArenaEntries = 256, kArenaSlices = 64;
@@ -95,7 +98,8 @@ struct GpuMesh {
 struct Identity {
     bool used = false, custom = false;
     int32_t cell[3] = {};
-    uint64_t first_frame = 0, last_frame = 0, update_frame = 0;
+    uint64_t first_frame = 0, last_frame = 0, update_frame = 0; // in frames of the character
+    uint64_t last_present = 0;       // counted presents at the last draw
     uint64_t last_us = 0;            // host time of the last draw
     uint64_t id = 0, generation = 0; // generation changes whenever the master's bytes change
     uint32_t seen = 0;               // components met since this identity appeared
@@ -199,6 +203,7 @@ public:
     uint32_t lod = 0;
     std::array<Identity, kIdentities> identities;
     uint64_t next_identity = 1;
+    uint64_t recordings = 0;         // frames of the character so far
     uint32_t identity_logs = 0;
     std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes;
     std::unordered_map<uint32_t, BoneSite> sites;
@@ -474,7 +479,8 @@ public:
         return true;
     }
 
-    Identity* identify(const InstanceEntry& entry, uint64_t now)
+    // `now`: the character's frame; `present`: counted presents.
+    Identity* identify(const InstanceEntry& entry, uint64_t now, uint64_t present)
     {
         float position[3];
         std::memcpy(position, entry.data() + 48, sizeof(position));
@@ -499,9 +505,11 @@ public:
         for (auto& identity : identities) {
             int32_t distance = 0;
             for (int i = 0; i < 3; ++i) distance = std::max(distance, std::abs(cell[i] - identity.cell[i]));
-            const uint64_t gap = now - identity.last_frame;
+            // Recordings of two threads may interleave, so a frame number can be behind the last one.
+            const uint64_t gap = now > identity.last_frame ? now - identity.last_frame : identity.last_frame - now;
+            const bool unseen = present - identity.last_present > kExpiryFrames;
             bool expired = false;
-            if (identity.used && gap > kExpiryFrames && clock - identity.last_us > kExpiryMicroseconds) {
+            if (identity.used && unseen && clock - identity.last_us > kExpiryMicroseconds) {
                 identity.used = false; expired = true;
                 ++counters[C_IDENTITY_EXPIRED];
             }
@@ -517,7 +525,7 @@ public:
             uint32_t bits = 0;
             for (uint32_t value = identity.seen; value; value &= value - 1) ++bits;
             if (!identity.custom && bits < weakest_seen) { weakest = &identity; weakest_seen = bits; }
-            if (gap > kExpiryFrames && (!stale || identity.last_frame < stale->last_frame)) stale = &identity;
+            if (unseen && (!stale || identity.last_present < stale->last_present)) stale = &identity;
         }
         if (!best) {
             // Objects that merely share a mesh with the character must not keep it out: when every
@@ -543,6 +551,7 @@ public:
         }
         std::memcpy(best->cell, cell, sizeof(cell));
         best->last_frame = now;
+        best->last_present = present;
         best->last_us = clock;
         return best;
     }
@@ -723,7 +732,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     if (!possible) return false;
 
     std::lock_guard<std::mutex> mod_lock(mod_mx);
-    const uint64_t now = frame.load(std::memory_order_relaxed);
+    const uint64_t present = frame.load(std::memory_order_relaxed);
     InstanceEntry entry, patched;
     const CharacterList* list = nullptr;
     Identity* identity = nullptr;
@@ -741,7 +750,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
     {
         std::shared_lock<std::shared_mutex> lock(device->res_mx);
         uint32_t hash = 0;
-        if (!region_hash(r, now, hash)) return false;
+        if (!region_hash(r, present, hash)) return false;
         const CharacterSection* section = nullptr;
         for (uint32_t index : candidates->second) {
             const auto& s = package.sections[index];
@@ -749,6 +758,9 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         }
         if (!section) return false;
         ++counters[C_MATCHED];
+        // The character's frame is this recording of the command buffer (see kExpiryMicroseconds).
+        if (!cb->character_frame) cb->character_frame = ++recordings;
+        const uint64_t now = cb->character_frame;
         // The mod's LOD variable: a section that assigns it changes it for the sections that do not.
         if (section->lod != kCharacterNone) lod = section->lod;
         const CharacterComponent& component = package.components[section->component];
@@ -775,10 +787,10 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
             if (range.element == 0 && range.binding == 0 &&
                 (range.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || range.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)) instance = &range;
         if (!read_range(instance, 0, entry.size(), entry.data())) return refuse(C_ENTRY, "character instance entry is not mapped");
-        identity = identify(entry, now);
+        identity = identify(entry, now, present);
         if (!identity) return refuse(C_IDENTITIES, "character position invalid or all identities in use");
         identity->seen |= 1u << section->component;
-        if (identity->update_frame != now) {
+        if (now > identity->update_frame) {
             std::string reason;
             if (!identity->skeleton.begin_update(now, reason)) return refuse(C_IMPORT, reason);
             identity->update_frame = now;
@@ -872,7 +884,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
         original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
 
         bool pending = false;
-        if (!material_draws(pipe->second, static_cast<uint32_t>(section - package.sections.data()), r, now, *list,
+        if (!material_draws(pipe->second, static_cast<uint32_t>(section - package.sections.data()), r, present, *list,
                             material_plans, material_views, material_origin)) return false;
         for (uint32_t i = 0; i < list->count; ++i) {
             VertexInputRecipe vertex;

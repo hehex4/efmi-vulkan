@@ -69,9 +69,11 @@ under one lock (the mod's state is global, as in the core):
    vertex and index bindings are restored. Draws that read the same skeleton bytes share one copy
    in the arena (`DrawSnapshots::create_shared`); the bytes change only at an import.
 
-The frame is the present, except that a present after which nothing was drawn does not count:
-the game presents intervals without scene draws in the LOD 1 world (ISSUE in
-`docs/m2-game-recipes.md`).
+The character's frame is one recording of the command buffer its draws are in (1.0.0; all
+matched draws of a frame are in one command buffer, 30 of 30 captured frames). Until 0.9.9 it was
+the present, which is no boundary while recording: see the last section. Presents after which
+something was drawn are still counted; they pace periodic work and, with time, the expiry of an
+identity.
 
 The mesh is written once into device memory that the host can map, the kind the game uses for
 its own mesh pools (memory type 4 on this machine); host memory is the fallback and the status
@@ -283,3 +285,40 @@ Evidence for 0.9.9, sandbox and offline only:
 
 Not solved: the after-images keep the game's mesh (LIMIT-027); the normal-state flicker has no
 measured cause yet.
+
+## 0.9.9 in the game; the frame boundary; 1.0.0
+
+2026-10-13, user-started session with 0.9.9 (PID 32004). The user: looking up at the character
+is right now; the normal state still flickers.
+
+From the running process (`captures/flicker-0.9.9-20261013/`):
+
+- No refusal of any kind. `material_derived` 8,397 and `material_inherited` 2,387 replaced draws;
+  the log names 26 fragment shaders that took a sibling's rules, 17 of them with one image more
+  (the dithered fade) and 9 with the same images.
+- The identity lines of 0.9.9: 19 new identities next to a replaced object in about 50 seconds
+  of play. 16 of them were made within the same counted frame as the object's last draw, 4 to
+  8 ms after it, 1 to 3 cells away. The other three were 36 to 40 cells away one frame later.
+
+Sixteen times, then, draws arrived that the backend took for the same frame as the ones before
+and that named a place a cell or two further. The backend counted frames at the present and read
+the count when a draw was recorded. The game records the draws of its next frame before the
+previous frame is presented, more or less often depending on timing (frame generation presents
+on its own schedule: 80 counted presents per second against 66 frames). Within a frame an
+identity only matches the very same place, so the moved character became a new object, which the
+game draws until it is identified: the original model for a frame, at random moments while the
+character moves. Standing still the place does not change, which is why twelve seconds of
+standing showed nothing. The same misreading left the poses of the second frame unimported
+(one import per component and frame).
+
+1.0.0: the character's frame is the recording of its command buffer. `CmdBuf` carries the number,
+cleared when a recording begins or its pool is reset; the first matched draw of a recording takes
+the next number. The exact-place rule, the one import per component, and "a frame has passed" use
+it. Counted presents remain for the periodic work and, together with half a second, for giving an
+identity up.
+
+Evidence, sandbox only: two recordings without a present between them, the character one cell
+further in the second, are both replaced; the deployed 0.9.9 draws the original there. Counts:
+character package 77, character replacement 277 over eighteen runs.
+
+Open after this: whether the flicker is gone in the game; the after-images (LIMIT-027).

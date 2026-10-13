@@ -885,3 +885,10 @@ Deployment follow-up, 17:59: the user reports the exit; process checks by full i
 - Not done: deployment (the game is running), any game check of 0.9.9, the after-images (LIMIT-027), the cause of the normal-state flicker (ISSUE-009).
 
 Deployment follow-up, 19:00: the user reports the exit; process checks by full image list find neither game nor launcher. The 0.9.8 session log is saved with the captures. Backup build/backups/before-0.9.9-20261013-190005/, thirteen files copied from build/next with equal hashes, manifest build/deployment-0.9.9.json. Real-texture smoke on dist (actual settings, two graphics queues, queue 1 only) passes through both entries, nine images ready. No launcher edit, no system setting, no agent-started game. Remaining: the user's game session with 0.9.9.
+
+## 2026-10-13, 19:20: 0.9.9 in the game; the frame boundary; 1.0.0 built, not deployed
+
+- Deployed 0.9.9 at 19:00 (previous entry). The user: looking up is right, the normal state still flickers; and asked for deployment without leaving the game with the agent refreshing it (T-029, not started, needs a decision on the loading rule).
+- Read-only on PID 32004: no refusals; derived rules in use; the identity log shows 16 of 19 new identities within the same counted frame as the replaced object's last draw, a few cells away. Cause: frames counted at the present, read at record time (BUG-011, D-041).
+- 1.0.0: `CmdBuf::character_frame` (state.h, state.cpp), character_backend.cpp (two clocks; identify takes both), common.h; sandbox/character_gpu_case.h (two recordings without a present, the character a cell further). Red against the deployed 0.9.9, green with 1.0.0; character tests 77 and 277; full suite in build/next (run_all-1.0.0.out).
+- Not done: deployment (the game is running), any game check of 1.0.0, T-029, LIMIT-027.

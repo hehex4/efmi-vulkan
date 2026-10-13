@@ -320,3 +320,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Guard rails: same kind of pass (attachment formats, depth write and compare), every image of the sibling present, at most two images more, one best candidate, rule moves only through certain matches, preparation by the production code, image counts the arenas exist for. Anything else: application's images, retried later.
 - An identity is given up after the core's two frames and, in addition, half a second without a draw. A counted frame under Vulkan is a present after which something was drawn, which with frame generation is not a frame of the game.
 - The next version number after 0.9.9 is 1.0.0 (AGENTS.md rule); it does not mean a release.
+
+## D-041: The character's frame is a command-buffer recording
+
+- Date: 2026-10-13, after the identity lines of 0.9.9.
+- The frame of the mod's logic (same place within a frame, one import per component, "a frame has passed") is the recording of the command buffer that holds the character's draws. Basis: all matched draws of a frame are in one command buffer and one submit in every captured frame, and a recording begins before each frame.
+- The present stays as a second clock for periodic work and expiry. It is not a frame boundary at record time under Vulkan: recording runs ahead of presenting.
+- Two command buffers with character draws in one frame would count as two frames. The rules tolerate that (place within the radius, a second import), and recordings that interleave are handled by taking the distance between frame numbers without sign.
+- Version 1.0.0 follows 0.9.9 by the counting rule of AGENTS.md; it marks no release.

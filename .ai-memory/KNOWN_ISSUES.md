@@ -265,7 +265,9 @@ User report with 0.10.0 and again with 0.9.7. Measured on the running 0.9.7 proc
 
 The first diagnosis took the counter name `refused_set3` for the mechanism and "fixed" it in 0.9.5 without capturing a frame that contained a refused draw; the user reported the flicker unchanged two builds later. Same kind of error as ISSUE-007. Rule: a refusal counter names the check that fired, not why the draw is what it is; before acting on one, capture a frame with such a draw and read its pipeline and pass. Also: `scripts/smoke_m2_config.py` shows `images_failed` for a material package because its sandbox device has no BC compression enabled; `scripts/check_character_assets.py` is the check for materials.
 
-## BUG-010: A fragment shader without a profile kept the game's mesh (0.9.6 to 0.9.8; fixed offline in 0.9.9)
+## BUG-010: A fragment shader without a profile kept the game's mesh (0.9.6 to 0.9.8; fixed in 0.9.9, confirmed in the game for the view from below)
+
+Game, 2026-10-13 with 0.9.9: the user finds the view from below right; no draw is refused; 26 fragment shaders took a sibling's rules.
 
 Game, 2026-10-13 with 0.9.8. The dithered fade (camera close to the character; dash) switches every pass of every component to another fragment shader. The material package knows shaders by their exact bytes, and the backend refused a draw whose shader it did not know, keeping the game's mesh; components the mod hides stayed hidden. On screen: the original model mixed with the mod's, as a flicker in the dash and steadily when looking up from below. 0.9.9 takes the rules from the profiled sibling (docs/character-materials.md) and otherwise draws the mod's mesh with the application's images. Verified on the captured game data and in the sandbox; game result pending.
 
@@ -273,6 +275,10 @@ Game, 2026-10-13 with 0.9.8. The dithered fade (camera close to the character; d
 
 Seen in captures/flicker-0.9.8-20261013/ (frame 150562 and others): character draws on four-set pipelines whose vertex shaders (8d5133a1, 2cf51393) have no storage buffer; the variant preflight says `spirv_required_buffer_missing` and the draw is refused under `refused_variant` (954 in that session). Where these shaders take the pose from is not known. The after-image therefore has the shape of the original model.
 
-## ISSUE-009: The normal-state flicker has no measured cause (2026-10-13)
+## ISSUE-009: The normal-state flicker has no measured cause (2026-10-13; answered the same day, see BUG-011)
 
 With 0.9.8 the user reports an occasional flicker while standing or walking. Twelve seconds of counters in that state: nothing refused, nothing identifying, nothing pending, one position for all character draws. Candidates not yet tested: lost identities (2,653 `identifying` draws in the session; 0.9.9 makes identities survive gaps and logs each new one), poses of other components being one import behind within a frame, the picture of generated frames. Do not act on any of these before the 0.9.9 counters and log say which.
+
+## BUG-011: Frames counted at the present; a moving character became a new object for a frame (0.10.0 to 0.9.9; fixed offline in 1.0.0)
+
+The flicker the user reported from the first whole-character session on, in the normal state. Measured with the identity lines of 0.9.9 on 2026-10-13: 16 of 19 new identities next to a replaced object were made within the same counted frame as that object's last draw, 4 to 8 ms after it and 1 to 3 cells away. The backend read a present-based frame count when a draw was recorded; the game records its next frame before the previous one is presented, at irregular moments (frame generation). Within a frame an identity matches only the same place, so the character that had moved was a new object, and the game drew it for a frame. Earlier explanations (BUG-006, BUG-009) removed real faults that were not this one. 1.0.0 takes the recording of the command buffer as the frame. Sandbox phase red against 0.9.9 and green with 1.0.0; game result pending.

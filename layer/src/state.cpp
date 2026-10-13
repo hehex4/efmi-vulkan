@@ -189,6 +189,7 @@ DeviceRef::DeviceRef() : lock(g_dev_mx)
 void CmdBuf::reset_recording()
 {
     if (m2) m2->reset_after_completion();
+    character_frame = 0;
     m2_extended_bind = false;
     gfx_pipeline = VK_NULL_HANDLE;
     comp_pipeline = VK_NULL_HANDLE;

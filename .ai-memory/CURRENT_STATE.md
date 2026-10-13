@@ -1,8 +1,20 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-13, 19:00 deployment. Source, build/next and dist/ are 0.9.9 (rules for unprofiled fragment shaders, identity that survives gaps). It builds, passes the sandbox suite and the real-texture smoke on dist; it has NOT been loaded in the game. The last game session (0.9.8, PID 36720, closed by the user) showed the original model mixed with the mod's in the dithered fade and the dash, and an occasional flicker in the normal state. Launcher stays Vulkan; the next game start is the user's. The version after 0.9.9 is 1.0.0. LOD0/LOD1 only.
+> Last updated: 2026-10-13, 19:20. Source and build/next are 1.0.0 (the character's frame is one command-buffer recording); sandbox evidence only. dist/ and the running game (PID 32004, user-started) are 0.9.9: in the game looking up at the character is right (user), nothing is refused, the dithered shaders take their siblings' rules; the normal state still flickers, and the 0.9.9 log shows why. 1.0.0 is deployed once the user has closed the game. The user asked for deployment without leaving the game (T-029). LOD0/LOD1 only.
 
 Current architecture boundary, checked for the user's explanation request: the pinned original XXMI engine executes selected mod callbacks and Core initialization in the standalone CPU host. The packager consumes those plans for one fixed scenario, embeds mesh/remap data and records DDS paths plus verified shader-slot profiles. The deployed DLL does not link the XXMI interpreter: native character tracking, merged skeletons, resources, pipeline variants and draw restoration execute the static package. Original Core texture queries, live INI conditions/keys/persist/reload and full hosted runtime integration remain T-027; standalone tests do not mean those are active in the game. The launcher provides injection. No new game observation was made for this explanation.
+
+## 0.9.9 in the game: variants right; the normal-state flicker is the frame boundary; 1.0.0 built (2026-10-13, 19:20)
+
+"Loads in the real game" and "data captured in the real game" apply to 0.9.9. 1.0.0 "builds" and passes "in the sandbox"; it has not been in the game.
+
+User-started session with 0.9.9, PID 32004. The user: looking up is right now; the normal state still flickers. Read-only on that process, evidence in captures/flicker-0.9.9-20261013/ (three status pairs, the layer log):
+- No refusal of any kind; `material_derived` 8,397, `material_inherited` 2,387; 26 fragment shaders took a sibling's rules (17 with one image more, 9 with the same images). This is the game result for BUG-010: fixed, by the user's eyes for the view from below.
+- 19 new identities next to a replaced object in about 50 seconds: 16 within the same counted frame as the object's last draw (4 to 8 ms after it, 1 to 3 cells away), 3 one frame later 36 to 40 cells away. ISSUE-009 is answered: the backend's frame was the present, read at record time, and the game records its next frame before the previous present; the moved character was a new object for a frame and the game drew it (BUG-011).
+
+1.0.0: the character's frame is the recording of its command buffer (`CmdBuf::character_frame`, cleared at begin and pool reset). Exact-place rule, one import per component and "a frame has passed" use it; counted presents pace periodic work and, with half a second, the expiry. Evidence: a sandbox phase with two recordings and no present between them, the character a cell further, passes with 1.0.0 and fails against the deployed 0.9.9; character package 77, character replacement 277; full suite build/next/run_all-1.0.0.out. All steps pass. Real-texture smoke with two queues on build/next passes through both entries (build/character-assets-config-next-1.0.0.json). Candidate DLLs SHA-256 4d25aa9d9369b6c3dec4109b0e8e8efd65237632702be7f3c12c399e417a1adc.
+
+Open, in this order: deploy 1.0.0 after the user closes the game; in the next session `identities_created` should stay near the number of real jumps and the log should show no "0 frames" line; the user's judgement of the normal state. Then T-029 (deployment without leaving the game) and LIMIT-027 (after-images).
 
 ## 0.9.8 in the game: dither and dash break the picture; 0.9.9 built (2026-10-13, 19:00)
 

@@ -281,6 +281,7 @@ struct CmdBuf {
     uint32_t tid = 0;
     bool m2_extended_bind = false; // the initial replacement cannot reproduce Bind*2 size/stride state
     std::shared_ptr<M2Command> m2; // kept until a legal recording reset/free after GPU completion
+    uint64_t character_frame = 0;  // the character backend's number for this recording; 0: none yet
 
     // Current bindings while recording.
     VkPipeline gfx_pipeline = VK_NULL_HANDLE;

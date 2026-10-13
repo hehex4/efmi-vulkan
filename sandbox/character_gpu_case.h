@@ -174,7 +174,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         return 3;
     };
     bool image_initialized=false;
-    auto frame=[&](bool lod1,bool four_sets=false,bool character_on_four=false,bool character_on_shifted=false){
+    auto frame=[&](bool lod1,bool four_sets=false,bool character_on_four=false,bool character_on_shifted=false,bool presented=true){
         VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};VK(vkBeginCommandBuffer(cmd,&begin));
         if(material && !image_initialized){
             VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.image=original_image.handle;
@@ -246,7 +246,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         VK(vkEndCommandBuffer(cmd));
         VK(g.submit(cmd));VK(vkQueueWaitIdle(g.queue));
         // There is no swapchain here: tell the backend that a frame with draws ended.
-        self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
+        if(presented)self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
     };
     // What the game draws by itself: every component at bone zero of its own palette.
     auto original=[&]{return shade_at(-.6f,-.6f)==1 && shade_at(0,-.6f)==2 && shade_at(.6f,-.6f)==1 && shade_at(.6f,-.1f)==1 && shade_at(0,.6f)==1 &&
@@ -281,6 +281,19 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     }
     row(A_CUR+3,-.6f,-.6f);
     check(follows,"20 pose changes of one component move the other component's geometry in the same frame");
+    // The game records its next frame before the previous one is presented: two recordings and no
+    // present between them, the character one cell further in the second. It is the same object.
+    {
+        auto place=[&](float x){for(uint32_t slot:{uint32_t(E_A),uint32_t(E_B),uint32_t(E_C),uint32_t(E_L)}){
+            float p[]={x,20,30,1};memcpy(static_cast<uint8_t*>(instance.mapped)+slot*dynamic+48,p,16);}};
+        frame(false,false,false,false,false);
+        place(9.875f);
+        frame(false);
+        check(replaced(-.6f),"a frame recorded before the previous one was presented, with the character a cell further, is replaced");
+        place(10);
+        frame(false);
+        check(replaced(-.6f),"and so is the frame after it");
+    }
     // Frames end without the character (a dash hides it; with frame generation presents pass between
     // two of its frames). Drawn again shortly after, it is the mod's at once.
     for(uint32_t i=0;i<6;++i)self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
