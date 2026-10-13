@@ -1,6 +1,6 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-13, 17:20. Source and build/next are 0.9.8 (four-set pipelines replaced; sandbox and offline evidence only). dist/ and the running game (PID 7784, user-started) are still 0.9.7: textures look right to the user, the flicker at LOD 0 persists. 0.9.8 is deployed once the user has closed the game; the game check after that is the user's. LOD0/LOD1 only.
+> Last updated: 2026-10-13, 18:00 deployment. Source, build/next and dist/ are 0.9.8 (four-set pipelines replaced). It builds, passes the sandbox suite and the real-texture smoke on dist; it has NOT been loaded in the game. The last game session (0.9.7, PID 7784, closed by the user) showed right textures and the flicker at LOD 0. Launcher stays Vulkan; the next game start is the user's. LOD0/LOD1 only.
 
 ## 0.9.7 in the game: textures right, flicker persists; cause found in the visibility pass; 0.9.8 built (2026-10-13, 17:20)
 
@@ -17,7 +17,9 @@ Reading: the pass tells the game which parts are visible (its only output is tha
 
 Note on tools: `scripts/smoke_m2_config.py` reports `images_failed` 5 for a material package because its sandbox device does not enable BC compression; that is the script's device, not the layer. For a material package use `scripts/check_character_assets.py --actual-config`.
 
-Next: the user closes the game; check `tasklist /FI "IMAGENAME eq Endfield.exe"` unshortened; back up dist/, copy the tested files from build/next, compare hashes, run the asset smoke on dist. Then a user-started session: `refused_material`, `refused_variant`, `refused_set3` 0 with `replaced` growing, `last_reason` empty, and the user's judgement of the flicker. If it still flickers, capture frames while it does and compare which components the game draws in the frames before and after.
+Deployed at 17:59 after the user reported the exit: three complete process checks found neither game nor launcher; backup build/backups/before-0.9.8-20261013-175909/ (thirteen files and the layer log); thirteen files copied from build/next, each hash equal to the tested candidate; manifest build/deployment-0.9.8.json. Real-texture smoke on dist with the actual settings and the game's queue setup (two graphics queues, only queue 1 submitting) passes through both entries: nine images ready, none failed, publication complete (build/character-assets-config-dist-0.9.8.json). dist files, layer log and launcher configuration are unchanged by the smoke. The launcher file differs from its state at the 0.9.7 deployment because the user ran the launcher in between; it was only read, and the two named values are as before (inject mode SKIP, no DX11 arguments). The 0.9.7 session's layer log is kept in captures/flicker-0.9.7-20261013/. The full suite ran on the identical bytes in build/next and was not repeated on dist.
+
+Next, in a user-started session: loaded version 0.9.8, nine images ready, `refused_material`, `refused_variant` and `refused_set3` 0 with `replaced` growing, `last_reason` empty, and the user's judgement of the flicker. If it still flickers, capture frames while it does and compare which components the game draws in the frames before and after.
 
 ## 0.9.6 refused in the game; 0.9.7 deployed after normal exit
 
