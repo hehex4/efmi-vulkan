@@ -6,9 +6,19 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next are 0.9.3 with shared material pipeline/snapshot operations verified; dist remains 0.9.1. The user resumed and the display session proves the component-7 backend emits replacement draws; visual/animation acceptance remains open. The user confirmed voluntary exit and requests whole-character support through shared logic. Continue offline T-027; do not wait on the superseded configuration pause. See docs/m2-first-replacement.md and docs/general-replacement-operations.md.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.10.0 (T-028); the frontend work described next was at 0.9.3 with shared material pipeline/snapshot operations verified; dist remains 0.9.1. The user resumed and the display session proves the component-7 backend emits replacement draws; visual/animation acceptance remains open. The user confirmed voluntary exit and requests whole-character support through shared logic. Continue offline T-027; do not wait on the superseded configuration pause. See docs/m2-first-replacement.md and docs/general-replacement-operations.md.
 
 ## Tasks and follow-ups
+
+### T-028: Whole character from a static package (0.10.0; sandbox done, game session next)
+
+Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
+
+Next, in this order:
+1. User-started Vulkan session with the sample character on screen. Confirm 0.10.0 and the package in the log, read the counters, look at shape, motion and the hidden components; toggle with the pipe command for a comparison. A capture does not mark replaced draws (LIMIT-020).
+2. Whatever that session shows: refusals by name, variant creation failures, cost. The first frame-time figures for a whole character come from here.
+3. Step 2, textures. It needs what T-027 lists as open: slot correspondences for three LOD1 fragments, source texture identity or a static slot table per section for this mod, the decision on LIMIT-021. A static table of the mod's `ps-tN` bindings per component is in the same plans the package already reads; the shared backend takes images since 0.9.3.
+4. Generalizations the sample did not need: private set index from the layout (LIMIT-023), draws with several instances, a second mod at once.
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
 

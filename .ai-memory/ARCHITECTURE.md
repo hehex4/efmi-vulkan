@@ -1,6 +1,8 @@
 # EFMI Vulkan - Architecture
 
-Current integration checkpoint: source/build/next are 0.9.3 and dist is 0.9.1.
+Layer 0.10.0 (source, build/next and dist/): `character_package` and `character_backend` replace a whole character from a static package, with one merged skeleton per character instance and the game's own material; see `docs/character-backend.md`. `m2_package` selects it or the single-component backend by the file's magic.
+
+Earlier integration checkpoint: the frontend described next was built at 0.9.3 and is not in the DLL.
 FilePlanCompiler copies original XXMI file declarations into owned per-operation
 contracts; frontend/assets/file_plan declares/demands the shared ResourceCache and
 collects immutable typed GPU owners atomically. Explicit nulls and native pre/post

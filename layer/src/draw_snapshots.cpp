@@ -19,14 +19,30 @@ void DrawSnapshots::clear()
     if (memory_) d_.FreeMemory(device_, memory_, nullptr);
     pool_ = VK_NULL_HANDLE; layout_ = VK_NULL_HANDLE; buffer_ = VK_NULL_HANDLE; memory_ = VK_NULL_HANDLE;
     mapped_ = nullptr; sets_.clear(); image_owners_.clear(); bytes_ = 0; capacity_ = used_ = image_count_ = 0;
+    shared_ = false; slice_capacity_ = slices_used_ = 0; have_key_ = false;
 }
 
 bool DrawSnapshots::create(const VkPhysicalDeviceMemoryProperties& memory, const VkPhysicalDeviceLimits& limits,
                            uint32_t capacity, uint32_t bone_bytes, uint32_t uniform_range,uint32_t image_count)
 {
+    if (capacity > 128) { reason = "snapshot dimensions exceed supported limits"; return false; }
+    return create_storage(memory, limits, capacity, capacity, bone_bytes, uniform_range, image_count, false);
+}
+
+bool DrawSnapshots::create_shared(const VkPhysicalDeviceMemoryProperties& memory, const VkPhysicalDeviceLimits& limits,
+                                  uint32_t entries, uint32_t slices, uint32_t bone_bytes, uint32_t uniform_range)
+{
+    if (!slices || slices > 128 || entries > 1024) { reason = "snapshot dimensions exceed supported limits"; return false; }
+    return create_storage(memory, limits, entries, slices, bone_bytes, uniform_range, 0, true);
+}
+
+bool DrawSnapshots::create_storage(const VkPhysicalDeviceMemoryProperties& memory, const VkPhysicalDeviceLimits& limits,
+                                   uint32_t capacity, uint32_t slices, uint32_t bone_bytes, uint32_t uniform_range,
+                                   uint32_t image_count, bool shared)
+{
     reason.clear();
     if (buffer_ || sealed_) { reason = "snapshot storage cannot be recreated"; return false; }
-    if (!capacity || capacity > 128 || !bone_bytes || bone_bytes > limits.maxStorageBufferRange ||
+    if (!capacity || !bone_bytes || bone_bytes > limits.maxStorageBufferRange ||
         uniform_range < 256 || uniform_range > limits.maxUniformBufferRange || uniform_range > 65536 ||
         limits.minStorageBufferOffsetAlignment > (1u<<20) || limits.minUniformBufferOffsetAlignment > (1u<<20) ||
         image_count>32 || image_count>limits.maxPerStageDescriptorSampledImages || image_count>limits.maxDescriptorSetSampledImages ||
@@ -34,7 +50,7 @@ bool DrawSnapshots::create(const VkPhysicalDeviceMemoryProperties& memory, const
         reason = "snapshot dimensions exceed supported limits"; return false;
     }
     bone_stride_ = aligned(bone_bytes, limits.minStorageBufferOffsetAlignment);
-    entry_base_ = aligned(bone_stride_ * capacity, limits.minUniformBufferOffsetAlignment);
+    entry_base_ = aligned(bone_stride_ * slices, limits.minUniformBufferOffsetAlignment);
     entry_stride_ = aligned(256, limits.minUniformBufferOffsetAlignment);
     bytes_ = entry_base_ + entry_stride_ * (capacity - 1) + uniform_range;
     if (bytes_ > (64ull<<20)) { reason = "snapshot byte budget exceeded"; bytes_ = 0; return false; }
@@ -47,11 +63,10 @@ bool DrawSnapshots::create(const VkPhysicalDeviceMemoryProperties& memory, const
     if (!good(d_.CreateBuffer(device_, &bi, nullptr, &buffer_), "create snapshot buffer")) return false;
     VkMemoryRequirements req; d_.GetBufferMemoryRequirements(device_, buffer_, &req);
     if (req.size > (128ull<<20)) { reason = "snapshot allocation budget exceeded"; clear(); return false; }
-    uint32_t type = UINT32_MAX;
-    for (uint32_t i = 0; i < memory.memoryTypeCount; ++i)
-        if ((req.memoryTypeBits & (1u << i)) &&
-            (memory.memoryTypes[i].propertyFlags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
-            (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) { type = i; break; }
+    // Shared storage is read by every replaced draw of a frame: prefer memory on the device that the
+    // host can write, as the application uses for its own bone buffer; fall back to host memory.
+    uint32_t type = shared ? host_memory_type(memory, req.memoryTypeBits, true) : UINT32_MAX;
+    if (type == UINT32_MAX) type = host_memory_type(memory, req.memoryTypeBits, false);
     if (type == UINT32_MAX) { reason = "host-coherent snapshot memory unavailable"; clear(); return false; }
     VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO}; ai.allocationSize = req.size; ai.memoryTypeIndex = type;
     if (!good(d_.AllocateMemory(device_, &ai, nullptr, &memory_), "allocate snapshot memory")) return false;
@@ -74,7 +89,8 @@ bool DrawSnapshots::create(const VkPhysicalDeviceMemoryProperties& memory, const
     si.descriptorPool = pool_; si.descriptorSetCount = capacity; si.pSetLayouts = layouts.data();
     if (!good(d_.AllocateDescriptorSets(device_, &si, sets_.data()), "allocate snapshot sets")) return false;
     for (uint32_t i = 0; i < capacity; ++i) {
-        VkDescriptorBufferInfo infos[] = {{buffer_,bone_stride_*i,bone_bytes},{buffer_,entry_base_,uniform_range}};
+        // With shared slices binding 0 is pointed at its slice when the slot is appended.
+        VkDescriptorBufferInfo infos[] = {{buffer_,shared?0:bone_stride_*i,bone_bytes},{buffer_,entry_base_,uniform_range}};
         VkWriteDescriptorSet writes[2] = {};
         for (uint32_t j = 0; j < 2; ++j) {
             writes[j].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; writes[j].dstSet=sets_[i];
@@ -85,6 +101,43 @@ bool DrawSnapshots::create(const VkPhysicalDeviceMemoryProperties& memory, const
     }
     image_owners_.resize(size_t(capacity)*image_count);
     capacity_ = capacity; bone_bytes_ = bone_bytes; image_count_=image_count;
+    shared_ = shared; slice_capacity_ = slices; slices_used_ = 0; have_key_ = false;
+    return true;
+}
+
+uint32_t host_memory_type(const VkPhysicalDeviceMemoryProperties& memory, uint32_t type_bits, bool device_local)
+{
+    const VkMemoryPropertyFlags host = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    for (uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
+        const auto flags = memory.memoryTypes[i].propertyFlags;
+        if (!(type_bits & (1u << i)) || (flags & host) != host) continue;
+        if (device_local && !(flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) continue;
+        return i;
+    }
+    return UINT32_MAX;
+}
+
+bool DrawSnapshots::append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry& entry, SnapshotSlot& output)
+{
+    reason.clear();
+    if (!shared_ || sealed_ || !mapped_ || !bones || size != bone_bytes_) {
+        reason = "shared snapshot is sealed, uncreated or has mismatched bone bytes"; return false;
+    }
+    if (used_ >= capacity_) { reason = "snapshot entries are full"; return false; }
+    const bool reuse = have_key_ && key == last_key_;
+    if (!reuse && slices_used_ >= slice_capacity_) { reason = "snapshot bone slices are full"; return false; }
+    if (!reuse) {
+        std::memcpy(mapped_ + bone_stride_ * slices_used_, bones, size);
+        last_slice_ = slices_used_++; last_key_ = key; have_key_ = true;
+    }
+    VkDescriptorBufferInfo info = {buffer_, bone_stride_ * last_slice_, bone_bytes_};
+    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = sets_[used_]; write.dstBinding = 0; write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; write.pBufferInfo = &info;
+    d_.UpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    std::memcpy(mapped_ + entry_base_ + entry_stride_ * used_, entry.data(), entry.size());
+    output = {sets_[used_], static_cast<uint32_t>(entry_stride_ * used_)};
+    ++used_;
     return true;
 }
 
@@ -97,7 +150,7 @@ bool DrawSnapshots::append(const std::vector<uint8_t>& bones, const InstanceEntr
                            const std::vector<SnapshotImage>& images,SnapshotSlot& output)
 {
     reason.clear();
-    if (sealed_ || used_ >= capacity_ || bones.size() != bone_bytes_ || !mapped_ || images.size()!=image_count_) {
+    if (shared_ || sealed_ || used_ >= capacity_ || bones.size() != bone_bytes_ || !mapped_ || images.size()!=image_count_) {
         reason = "snapshot is sealed, full, uncreated or has mismatched bone bytes or image count"; return false;
     }
     for(const auto& image:images)if(!image.view || !image.owner){reason="snapshot image requires ready view and owner";return false;}

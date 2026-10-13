@@ -19,6 +19,7 @@
 namespace efvk {
 
 class M2Backend;
+class CharacterBackend;
 struct M2Command;
 
 // Device functions the layer intercepts and tracks. One next-pointer is kept per
@@ -400,6 +401,7 @@ struct Device {
     PFN_vkGetDeviceProcAddr next_gdpa = nullptr;
     DeviceDispatch d;
     std::shared_ptr<M2Backend> m2;
+    std::shared_ptr<CharacterBackend> character;
 
     char gpu_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = {};
     std::vector<std::string> extensions; // enabled at creation

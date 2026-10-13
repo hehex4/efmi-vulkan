@@ -1,4 +1,6 @@
 #include "m2_backend.h"
+#include "character_backend.h"
+#include "character_package.h"
 #include "m2_mesh.h"
 #include "state.h"
 #include "json.h"
@@ -216,6 +218,7 @@ bool M2Backend::record(CmdBuf* cb,const DrawRec& r)
 }
 
 bool m2_record(Device* device,CmdBuf* cb,const DrawRec& r){
+    if(device->character)return character_record(*device->character,cb,r);
     if(!device->m2)return false;
     try{return device->m2->record(cb,r);}
     catch(const std::exception& e){++device->m2->unsupported;device->m2->note(e.what());return false;}
@@ -224,6 +227,8 @@ bool m2_record(Device* device,CmdBuf* cb,const DrawRec& r){
 void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const VkPhysicalDeviceMemoryProperties& memory)
 {
     if(g_cfg.m2_package.empty() || g_cfg.mode!=Mode::Probe || !g_cfg.track_resources)return;
+    // The file says which backend it is for: a whole character or the single-component package.
+    if(is_character_package(g_cfg.m2_package)){device->character=character_create(device,properties,memory);return;}
     try{
         auto backend=std::make_shared<M2Backend>(device,properties,memory);
         device->m2=backend;
@@ -235,19 +240,28 @@ void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const
         logf("M2 initialization exception: %s",e.what());
     }
 }
-void m2_stop(Device* device){if(device->m2)device->m2->stop();}
+void m2_stop(Device* device){if(device->character)character_stop(*device->character);if(device->m2)device->m2->stop();}
 void m2_retire(Device* device,VkPipeline handle){
-    if(!device->m2 || !device->m2->cache)return;
+    if(!device->character && (!device->m2 || !device->m2->cache))return;
     uint32_t id=0;
     {std::shared_lock<std::shared_mutex> lock(device->res_mx);auto p=device->pipes.find(handle);if(p!=device->pipes.end())id=p->second.id;}
-    if(id)device->m2->cache->retire(id);
+    if(!id)return;
+    if(device->character)character_retire(*device->character,id);
+    else device->m2->cache->retire(id);
 }
 void m2_seal(Device* device,uint32_t count,const VkCommandBuffer* buffers){
-    if(!device->m2)return;
+    if(!device->m2 && !device->character)return;
     for(uint32_t i=0;i<count;++i)if(auto* cb=cb_of(device,buffers[i]))
-        if(cb->m2 && !cb->m2->snapshots->sealed()){cb->m2->snapshots->seal();++device->m2->batches;}
+        if(cb->m2 && !cb->m2->snapshots->sealed()){
+            cb->m2->snapshots->seal();
+            if(device->character)character_sealed(*device->character);else ++device->m2->batches;
+        }
 }
+void m2_frame(Device* device,bool had_draws){if(device->character)character_frame(*device->character,had_draws);}
 void m2_status(Device* device,JsonWriter& w){
+    if(device && device->character){
+        w.key("replacement");w.begin_object();character_status(*device->character,w);w.end_object();return;
+    }
     w.key("replacement");w.begin_object();auto backend=device?device->m2:nullptr;
     w.kb("configured",bool(backend));w.kb("enabled",backend && backend->enabled.load());
     w.kb("ready",backend && backend->ready.load());
@@ -260,9 +274,14 @@ void m2_status(Device* device,JsonWriter& w){
     }
     w.end_object();
 }
-std::string probe_m2_set(int enabled){
+std::string probe_m2_set(int enabled,bool advance){
     DeviceRef ref;JsonWriter w;w.begin_object();
-    if(!ref.dev || !ref.dev->m2 || !ref.dev->m2->cache){w.kb("ok",false);w.kv("error","M2 package is not configured");}
+    if(ref.dev && ref.dev->character){
+        if(enabled>=0)character_enable(*ref.dev->character,enabled!=0);
+        if(advance)m2_frame(ref.dev,true);
+        w.kb("ok",true);w.key("result");w.begin_object();m2_status(ref.dev,w);w.end_object();
+    }
+    else if(!ref.dev || !ref.dev->m2 || !ref.dev->m2->cache){w.kb("ok",false);w.kv("error","M2 package is not configured");}
     else{
         if(enabled>=0)ref.dev->m2->enabled=enabled!=0;
         w.kb("ok",true);w.key("result");w.begin_object();m2_status(ref.dev,w);w.end_object();

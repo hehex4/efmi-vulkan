@@ -200,6 +200,7 @@ public:
 };
 
 #include "m2_gpu_case.h"
+#include "character_gpu_case.h"
 
 static void run(Gpu& g, bool use_rp2,bool material)
 {
@@ -453,13 +454,14 @@ static void run(Gpu& g, bool use_rp2,bool material)
 
 int wmain(int argc, wchar_t** argv)
 {
-    bool rp2 = false, canary = false, m2 = false, material=false;
+    bool rp2 = false, canary = false, m2 = false, material=false, character=false;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--inject") && i + 1 < argc) {
             if (!LoadLibraryW(argv[++i])) return 2;
         } else if (!wcscmp(argv[i], L"--renderpass2")) rp2 = true;
         else if (!wcscmp(argv[i], L"--canary")) canary = true;
         else if (!wcscmp(argv[i], L"--m2")) m2 = true;
+        else if (!wcscmp(argv[i], L"--character")) character = true;
         else if (!wcscmp(argv[i], L"--material")) material = true;
     }
     try {
@@ -470,6 +472,7 @@ int wmain(int argc, wchar_t** argv)
             check(vkCreateBuffer(g.device, &bad, nullptr, &handle) == VK_ERROR_VALIDATION_FAILED_EXT,
                   "validation aborts the deliberate zero-size buffer");
         } else if (m2) run_m2(g, rp2);
+        else if (character) run_character(g, rp2);
         else run(g, rp2,material);
     } catch (const std::exception& e) { printf("FAILED: %s\n", e.what()); failed++; }
     printf("validation: errors=%u warnings=%u\n", errors.load(), warnings.load());

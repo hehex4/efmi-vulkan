@@ -26,6 +26,7 @@ STEPS = [
     ("CPU skeleton import", [os.path.join(HERE, "bone_test.py")]),
     ("pipeline recipes and variants", [os.path.join(HERE, "variant_test.py")]),
     ("M2 hook rendering", [os.path.join(HERE, "m2_test.py")]),
+    ("character replacement", [os.path.join(HERE, "character_test.py")]),
     ("probe end to end", [os.path.join(HERE, "probe_test.py")]),
     ("modes", [os.path.join(HERE, "modes_test.py")]),
     ("budgets and reduced tracking", [os.path.join(HERE, "limits_test.py")]),

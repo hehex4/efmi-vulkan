@@ -221,3 +221,7 @@ instead of the constant 3. Related and unexplained: the live 0.9.1 session count
 known, and no saved frame shows a three-set matched draw with a set 3 still bound. A counter per
 refusal condition would answer it in the next session. A whole-character acceptance has to
 account for every refused draw, because one fallback is one frame of the original mesh.
+
+## LIMIT-024: What the whole-character backend of 0.10.0 does not do
+
+No textures: the mod's meshes are shaded with the game's textures. One scenario of the mod's variables, fixed when the package is built; keys and conditions do nothing. A draw that is instanced, in a secondary command buffer, in dynamic rendering, on a pipeline that is not three sets, or with an application set 3 bound keeps the original, each under its own counter. A texture coordinate stream whose stride differs from the game's is accepted only if every element still fits. Identity is the position in the instance entry: two characters of the same mod standing in the same 12.5 cm cell would be one object. LOD 0 and 1 only. Nothing of this has run in the game; see `docs/character-backend.md`.

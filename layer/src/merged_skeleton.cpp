@@ -67,6 +67,13 @@ bool MergedSkeleton::updated(uint32_t instance, uint32_t component) const
     return stamp.valid && stamp.serial == serial_;
 }
 
+bool MergedSkeleton::needs_import(uint32_t instance, uint32_t component, uint32_t lod) const
+{
+    if (!begun_ || instance >= instances_ || component >= components_.size()) return true;
+    const auto& stamp = stamps_[size_t(instance) * components_.size() + component];
+    return !(stamp.valid && stamp.serial == serial_ && lod >= stamp.lod);
+}
+
 BoneImportResult MergedSkeleton::import_component(uint32_t instance, uint32_t component, uint32_t lod,
     const InstanceEntry& entry, BoneWindow current, BoneWindow previous,
     const std::vector<uint16_t>& remap, float scale, std::string& reason)

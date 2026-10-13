@@ -1241,6 +1241,7 @@ void on_present(Device* dev)
     const uint64_t us = host_time_us();
     dev->pacing.observe(us, dev->frame_no, dev->image_hash_us.load(std::memory_order_relaxed), dev->cap_state == 2);
     dev->cur.frame = dev->frame_no;
+    m2_frame(dev, dev->cur.draws != 0);
     dev->total_draws += dev->cur.draws;
     dev->max_threads = std::max(dev->max_threads, static_cast<uint32_t>(dev->cur.threads.size()));
     dev->max_command_buffers = std::max(dev->max_command_buffers, dev->cur.command_buffers);

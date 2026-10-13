@@ -48,6 +48,8 @@ public:
     uint32_t instances() const { return instances_; }
     uint32_t rows_for_instance(uint32_t instance) const;
     bool updated(uint32_t instance, uint32_t component) const;
+    // False when import_component would answer AlreadyCurrent: the caller need not read the source.
+    bool needs_import(uint32_t instance, uint32_t component, uint32_t lod) const;
 
 private:
     struct Stamp { uint64_t serial = 0; uint32_t lod = 0; bool valid = false; };

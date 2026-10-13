@@ -13,6 +13,7 @@ static std::set<uintptr_t> live;
 static uintptr_t next=1;
 static uint32_t step=0,fail_step=0;
 static VkDeviceSize buffer_size=0,allocation_size=0;
+static uint32_t type_bits=1,last_type=0;
 static std::vector<uint8_t> mapped;
 static std::map<VkDescriptorSet,std::array<VkDescriptorBufferInfo,2>> descriptors;
 static std::map<VkDescriptorSet,std::vector<VkImageView>> image_descriptors;
@@ -26,9 +27,9 @@ static VKAPI_ATTR VkResult VKAPI_CALL buffer(VkDevice,const VkBufferCreateInfo* 
 { buffer_size=p->size; return create(out); }
 static VKAPI_ATTR void VKAPI_CALL destroy_buffer(VkDevice,VkBuffer b,const VkAllocationCallbacks*) {destroy(b);}
 static VKAPI_ATTR void VKAPI_CALL requirements(VkDevice,VkBuffer,VkMemoryRequirements* out)
-{ *out={((buffer_size+4095)/4096)*4096,256,1}; }
+{ *out={((buffer_size+4095)/4096)*4096,256,type_bits}; }
 static VKAPI_ATTR VkResult VKAPI_CALL allocate(VkDevice,const VkMemoryAllocateInfo* p,const VkAllocationCallbacks*,VkDeviceMemory* out)
-{ allocation_size=p->allocationSize;return create(out); }
+{ allocation_size=p->allocationSize;last_type=p->memoryTypeIndex;return create(out); }
 static VKAPI_ATTR void VKAPI_CALL free_memory(VkDevice,VkDeviceMemory m,const VkAllocationCallbacks*) {destroy(m);}
 static VKAPI_ATTR VkResult VKAPI_CALL bind(VkDevice,VkBuffer,VkDeviceMemory,VkDeviceSize)
 { return fail()?VK_ERROR_OUT_OF_DEVICE_MEMORY:VK_SUCCESS; }
@@ -118,6 +119,43 @@ int main()
         check(!retained.expired() && !s.append(bones,entry,{},out),"sealed owner survives caller retirement and refuses mutation");
     }
     check(retained.expired() && live.empty(),"images release after their last command snapshot owner");
+    {
+        // Shared slices: draws that read the same bones share one copy of them.
+        VkPhysicalDeviceMemoryProperties both=memory;both.memoryTypeCount=2;
+        both.memoryTypes[1].propertyFlags=VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT|VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        type_bits=3;
+        DrawSnapshots s(h<VkDevice>(1),dispatch());
+        check(!s.create_shared(both,limits,4,0,145) && !s.create_shared(both,limits,2000,2,145) && live.empty(),
+              "shared storage rejects zero slices and excess entries");
+        check(s.create_shared(both,limits,4,2,145) && last_type==1 && s.size()==1024+3*1024+65536,
+              "shared storage prefers device memory the host can write; two slices, four entries");
+        std::vector<uint8_t> first(145,0x11),second(145,0x22);InstanceEntry entry;entry.fill(0x38);
+        SnapshotSlot a,b,c,d,out{h<VkDescriptorSet>(999),999};
+        check(!s.append(first,entry,out) && out.offset==999,"per-draw append is refused on shared storage");
+        check(!s.append_shared(first.data(),144,7,entry,out) && !s.append_shared(nullptr,145,7,entry,out) && s.used()==0 && s.slices_used()==0,
+              "wrong bone size or missing bytes consume nothing");
+        check(s.append_shared(first.data(),first.size(),7,entry,a) && s.append_shared(first.data(),first.size(),7,entry,b) && s.slices_used()==1,
+              "equal keys share one bone copy");
+        check(a.set!=b.set && a.offset==0 && b.offset==1024 && descriptors.at(a.set)[0].offset==0 && descriptors.at(b.set)[0].offset==0 &&
+              descriptors.at(a.set)[0].range==145,"draws that share bones keep their own set and entry");
+        check(s.append_shared(second.data(),second.size(),8,entry,c) && s.slices_used()==2 && descriptors.at(c.set)[0].offset==256 &&
+              mapped[0]==0x11 && mapped[256]==0x22 && mapped[1024+2*1024]==0x38,"a new key takes the next slice and leaves the first intact");
+        check(!s.append_shared(first.data(),first.size(),9,entry,out) && s.used()==3 && out.offset==999,
+              "exhausted slices refuse without consuming an entry");
+        check(s.append_shared(second.data(),second.size(),8,entry,d) && !s.append_shared(second.data(),second.size(),8,entry,out),
+              "entries are bounded separately from slices");
+        const auto last=descriptors.at(d.set)[1];
+        check(last.offset+d.offset+last.range<=s.size(),"the last entry keeps its full uniform window inside the buffer");
+        s.seal();
+        check(!s.append_shared(second.data(),second.size(),8,entry,out),"sealed shared storage refuses mutation");
+        type_bits=1;
+    }
+    check(live.empty(),"shared storage releases every object");
+    {
+        VkPhysicalDeviceMemoryProperties host_only=memory;type_bits=1;
+        DrawSnapshots s(h<VkDevice>(1),dispatch());
+        check(s.create_shared(host_only,limits,2,1,145) && last_type==0,"without device memory the host can write, host memory is used");
+    }
     printf("draw snapshots: %d checks passed, %d failed\n",passed,failed);
     return failed?1:0;
 }
