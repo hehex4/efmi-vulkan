@@ -199,3 +199,25 @@ implementation work and must not be marked done by a new capture. The prepared
 next evidence step is actual LOD1 DX11 capture with raw bytecode and bound texture
 metadata/content; see docs/frontend-draw-plans.md. Do not guess mappings from
 shared image identity, suppress unknown queries or broaden scope to LOD2+.
+
+## LIMIT-023: The variant design assumes three application sets; a matched draw uses four
+
+Found in review on 2026-10-13 from saved game frames, no new session. `prepare_vertex_variant`
+requires exactly three source sets, moves the vertex buffers to a private set 3 and expects the
+instance window at set 2 binding 0; the fragment patch and `MaterialProfile` also name set 3. In
+the 0.9.1 display frame (`captures/m2-component-0.9.1-20261012/.../display-a/attempt-01`) matched
+draw 38, component 10, is recorded with pipeline 437: four sets, depth only (no color attachment),
+bone buffer at set 3 binding 2. Its preflight refuses. Four-set pipelines are ordinary in this
+game: 73 to 120 draws per saved frame have a set 3 bound. The other four saved frames have no
+matched draw on such a pipeline, so the case depends on the scene or the pass.
+
+Consequences. The sample deletes the mesh of component 10, so the right result for that draw is a
+skip, and a skip needs the frontend to run for the draw, which needs its entry and bone windows
+located without the variant preflight. If the draw falls back, the original mesh stays in that
+depth pass while the color passes omit it. A mod that draws geometry for such a component needs a
+variant whose private set index follows the layout (set count, below `maxBoundDescriptorSets`)
+instead of the constant 3. Related and unexplained: the live 0.9.1 session counted 227 refusals of
+57,751 matches under one combined reason string; whether a bound set 3 was the condition is not
+known, and no saved frame shows a three-set matched draw with a set 3 still bound. A counter per
+refusal condition would answer it in the next session. A whole-character acceptance has to
+account for every refused draw, because one fallback is one frame of the original mesh.

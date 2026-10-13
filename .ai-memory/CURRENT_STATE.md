@@ -4,6 +4,8 @@
 
 ## 0.9.3 material pipeline and command ownership (sandbox only)
 
+Reviewed on 2026-10-13, 12:00 (second agent; implementation and design, see the session log and T-027): every suite rebuilt and rerun independently with the documented counts, no defect found, architecture judged sound. Open points recorded under T-027; new LIMIT-023 (a matched draw on a four-set pipeline, which the variant design cannot take). The review's first recommendation is a visible replacement check in the game before the frontend is linked into the DLL.
+
 User scope, 2026-10-13: support LOD0 and LOD1 only. Do not develop or test LOD2 or later. Preserve the original Core pool stride when reading its declarations, but do not resolve/load later-LOD assets or make later LODs a completion gate.
 
 User priority clarification: follow the plan from before the VRAM discussion. Finish this character's complete replacement through the general hosted frontend, resources, shared bones and draw backend first; multi-mod residency/performance optimization comes afterward. The unverified residency/eviction detour was removed from source and retained only as build/drafts/residency-unverified.patch. The verified ResourceCache from 6dfce2f is unchanged. Continue offline until actual game evidence is required.
