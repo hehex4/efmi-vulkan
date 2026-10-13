@@ -84,7 +84,8 @@ def main() -> int:
             "#define VERSION_REVISION 2\n#define VERSION_BUILD 0\n", encoding="ascii")
         fixture = ROOT / "sandbox/xxmi_host"
         legacy_sources = [pristine / f"{name}.cpp" for name in
-                          ("CommandList", "ResourceHash", "profiling", "util", "Override")]
+                          ("ResourceHash", "profiling", "util", "Override")]
+        legacy_sources += [ROOT / "frontend/xxmi/command_module.cpp"]
         sources = [fixture / f"{name}.cpp" for name in ("main", "shim", "ini", "host_input")]
         sources += [fixture / "plan_test.cpp", fixture / "mod_plan.cpp", ROOT / "frontend/xxmi/draw_plan.cpp"]
         sources += [fixture / "resource_plan_test.cpp", ROOT / "frontend/xxmi/resource_plan.cpp"]
@@ -98,6 +99,8 @@ def main() -> int:
         sources += [ROOT / "frontend/xxmi/spatial_palettes.cpp"]
         sources += [fixture / "core_native_test.cpp"]
         sources += [fixture / "core_component_test.cpp", ROOT / "frontend/xxmi/component_bridge.cpp"]
+        sources += [fixture / "vertex_plan_test.cpp", ROOT / "frontend/xxmi/vertex_plan.cpp",
+                    ROOT / "layer/src/pipeline_recipe.cpp"]
         sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in
                     ("DDSTextureLoader", "WICTextureLoader")]
         sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
@@ -111,6 +114,9 @@ def main() -> int:
                    ROOT / "layer/src/merged_skeleton.h"]
         inputs += [ROOT / "frontend/xxmi/spatial_palettes.h"]
         inputs += [ROOT / "frontend/xxmi/component_bridge.h"]
+        inputs += [ROOT / "frontend/xxmi/vertex_plan.h", ROOT / "frontend/assets/file_draws.h",
+                   ROOT / "layer/src/pipeline_recipe.h", ROOT / "sandbox/material_fixture.h", ROOT / "sandbox/src/spirv.h"]
+        inputs += [ROOT / "layer/src" / name for name in ("common.h", "state.h", "json.h")]
         report["source_sha256"] = {str(p): digest(p) for p in sorted(set(inputs))}
         includes = [ROOT / "frontend/xxmi", ROOT / "frontend/assets", Path(find_vulkan_include()),
                     port, pristine, upstream, upstream / "HLSLDecompiler",
@@ -182,10 +188,14 @@ def main() -> int:
         native = re.search(r"XXMI native Core bridge: (\d+) checks passed, (\d+) failed", output)
         report["native_core_passed"] = int(native[1]) if native else 0
         report["native_core_failed"] = int(native[2]) if native else None
+        vertex = re.search(r"XXMI vertex plans: (\d+) checks passed, (\d+) failed", output)
+        report["vertex_passed"] = int(vertex[1]) if vertex else 0
+        report["vertex_failed"] = int(vertex[2]) if vertex else None
         report["passed"] = (result.returncode == 0 and bool(counts) and int(counts[2]) == 0
                             and bool(planner) and int(planner[2]) == 0 and bool(dds) and int(dds[2]) == 0
                             and bool(resources) and int(resources[2]) == 0 and bool(pools) and int(pools[2]) == 0
-                            and bool(skeleton) and int(skeleton[2]) == 0 and bool(native) and int(native[2]) == 0)
+                            and bool(skeleton) and int(skeleton[2]) == 0 and bool(native) and int(native[2]) == 0
+                            and bool(vertex) and int(vertex[2]) == 0)
         print(counts[0] if counts else f"Host process failed: {result.returncode}", flush=True)
         if planner:
             print(planner[0], flush=True)
@@ -199,6 +209,8 @@ def main() -> int:
             print(skeleton[0], flush=True)
         if native:
             print(native[0], flush=True)
+        if vertex:
+            print(vertex[0], flush=True)
         return 0 if report["passed"] else 1
     except (BuildError, OSError, subprocess.SubprocessError) as exc:
         report["error"] = str(exc)

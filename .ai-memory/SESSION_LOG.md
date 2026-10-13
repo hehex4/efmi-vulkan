@@ -748,3 +748,11 @@ and whole-character command emission through the common backend.
 - Asset GPU suite passes 221 checks with zero validation diagnostics. The rendered private-image fixture uses the new material plan. Historical audit: 21 fragment modules, 370 draws, 353 accepted contracts, six unknown LOD1 mapping refusals and eleven known 2D-for-3D refusals. Combined accepted shader patches validate. Existing fragment checks remain 16 moves and 19 null targets passing.
 - Existing captures cannot identify source DX11 slots for LOD1 fragments 0aeef59b, 310c25c3 and a6d7088a. Did not propagate source slots solely from shared Vulkan image identity: slot numbers differ by source shader. Reports build/material-plans/report.json and build/assets-gpu/report.json.
 - Continue vertex declarations and remaining frontend/Core/backend integration offline. No layer source/version change, deployment, game action or installed-asset write. Source/build/next 0.9.3 and dist 0.9.1 unchanged.
+
+
+## 2026-10-13 - Original vertex layout rules through general stream contracts
+
+- Wrapped the pinned original command translation unit to expose its CPU layout evaluator. Added exact-VS semantic profiles and per-draw declarations using original ordered layout rules plus shared stream patches. File strides and element formats are data, including index-only four-byte source streams.
+- Native vertex tests pass 18; full original entry replay now checks all 370 vertex declarations alongside arguments, entries and bones. All 17 drawn VS modules have prior exact paired semantics. Existing host, spatial 21, palette 24/283 and callback 384 regressions pass. Reports build/xxmi-host/report.json and build/core-components/report.json.
+- An added build fingerprint initially named a nonexistent util.h; the builder stopped before compilation and was corrected to actual headers. Final build/replays pass. Source declarations and installed assets remain unchanged.
+- Continue native texture queries and unified resource/variant/snapshot handoff. This remains CPU frontend evidence; no actual game pipeline creation, layer source/version change, deployment or game action. Source/build/next 0.9.3, dist 0.9.1.

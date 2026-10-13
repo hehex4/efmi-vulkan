@@ -182,3 +182,31 @@ and pre/post lifecycle. Root pre/post execute as one plan transaction; late post
 failure preserves the prior output and caller phase. A separate 64-level active
 command-stack budget guards original flow-control nesting as well as named calls.
 The full historical component fixture and limits are in docs/core-skeleton.md.
+
+
+## Original input-layout evaluation and shared vertex contracts
+
+frontend/xxmi/command_module.cpp includes the pinned original CommandList.cpp
+without editing it and exposes only its CPU layout evaluator. VertexProfile
+uses exact retained VS words and caller-proven semantic names/indices by Vulkan
+location. It reconstructs supported original element formats, runs the original
+ordered matching/format/offset rules and feeds the shared stream patcher with
+file strides. It does not reimplement the original matching or realignment code.
+Semantic relinking, unsupported formats/rates, changed inherited streams and
+conflicting edits to aliased bytes refuse. The original stride-zero tangent
+binding survives; no component number or hash drives the implementation.
+
+The historical profile reader accepts only complete equal-order DX/Vulkan
+layouts with matching format/stream/offset fields and consistent semantics across
+all paired uses. Profiles are observed data, not a general semantic inference
+algorithm. All 17 vertex modules of actual custom draws have this earlier paired
+evidence; current code must match its full fingerprint, not only CRC. Only
+LOD0/LOD1 are replayed.
+
+Native vertex tests pass 18. The full original entry/Core fixture now emits the
+resolved vertex declarations after each of its 370 custom draws; every stride,
+format, location and offset equals an independent known-sample reference. Both
+12-to-16 and 4-to-8 byte blend streams work through the same evaluator. Host
+23/28/19/15/11/15/native 14, spatial 21, palette 24/283 and callback 384 checks
+remain passing. Reports build/core-components/report.json and
+build/xxmi-host/report.json. No GPU character draw or DLL integration is implied.

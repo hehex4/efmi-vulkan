@@ -15,31 +15,44 @@ import sys
 from check_mod_draw_plans import ROOT, SAMPLE, sha
 from check_shared_palettes import BUNDLES
 from verify_bone_import import sample_layout, saved_records
+from vertex_profiles import historical_vertex_profiles, encode_vertex, reference_vertex
 
 
 def inputs(reference: dict) -> list[dict]:
     records = []
+    profiles = historical_vertex_profiles()
     for serial, name in enumerate(BUNDLES, 1):
         bundle = ROOT / "captures" / name
         draws = {d["n"]: d for d in json.loads((bundle / "frame.json").read_text())["draws"]}
+        pipelines = {p["id"]: p for p in json.loads((bundle / "pipelines.json").read_text())}
+        shaders = {s["id"]: s for s in json.loads((bundle / "shaders.json").read_text())}
         for r in saved_records(bundle, serial, reference):
             d = draws[r["draw"]]
             r.update(hash=int(d["ib"]["hash"], 16), count=d["count"], first=d["first"], base=d["vertex_offset"])
+            pipeline = pipelines[d["pipeline"]]
+            stage, = [s for s in pipeline["shaders"] if s["stage"] == 1]
+            profile = profiles.get(stage["hash"])
+            code_path = bundle / shaders[stage["id"]]["file"]
+            if profile and sha(code_path) != profile["sha256"]:
+                raise ValueError("Vertex CRC key does not name the same exact paired bytecode")
+            r["vertex"] = dict(code=code_path.read_bytes() if profile else b"", semantics=profile["semantics"] if profile else [],
+                               bindings=pipeline["bindings"], attributes=pipeline["attributes"])
             records.append(r)
     return records
 
 
 def encode(records: list[dict]) -> bytes:
-    data = bytearray(b"EFMICP01") + struct.pack("<I", len(records))
+    data = bytearray(b"EFMICP02") + struct.pack("<I", len(records))
     for r in records:
         data += struct.pack("<4Ii", r["serial"], r["hash"], r["count"], r["first"], r["base"]) + r["entry"]
         for key in ("current", "previous"):
             data += struct.pack("<I", len(r[key])) + r[key]
+        data += encode_vertex(r["vertex"])
     return bytes(data)
 
 
 def verify(reference: dict, records: list[dict], callbacks: dict, actual: bytes) -> dict:
-    if actual[:8] != b"EFMICO01" or struct.unpack_from("<I", actual, 8)[0] != 2*len(records):
+    if actual[:8] != b"EFMICO02" or struct.unpack_from("<I", actual, 8)[0] != 2*len(records):
         raise ValueError("Bad component output header")
     plans = {(int(re.search(r"component(\d+)$", run["section"])[1]), run["lod"]): run
              for run in callbacks["runs"] if run["scenario"] == 0}
@@ -78,7 +91,12 @@ def verify(reference: dict, records: list[dict], callbacks: dict, actual: bytes)
                 if len(complete) != len(reference["components"]):
                     raise ValueError("Synthetic follow-up frame has incomplete reference bones")
                 expected = plans[component, lod]["items"]
-                expected_draws = [item for item in expected if item["op"] == 3]
+                expected_draws, vertex_files = [], {}
+                for item in expected:
+                    if item["op"] == 0:
+                        vertex_files[item["slot"]] = item["file_binding"]
+                    elif item["op"] == 3:
+                        expected_draws.append(dict(**item, vertex_files=vertex_files.copy()))
                 expected_native = sum(item["op"] == 4 for item in expected)
                 if count != len(expected_draws) or native != expected_native:
                     raise ValueError(f"Full original entry differs from isolated callback at record {n}")
@@ -95,6 +113,16 @@ def verify(reference: dict, records: list[dict], callbacks: dict, actual: bytes)
                             actual[at:at+256] != entry or actual[at+260:at+260+size] != master:
                         raise ValueError(f"Native draw, entry or complete bones differ at record {n}")
                     at += 260+size
+                    declaration = []
+                    for width in (3, 4):
+                        length = struct.unpack_from("<I", actual, at)[0]
+                        at += 4
+                        if length > 256:
+                            raise ValueError("Vertex declaration output budget")
+                        declaration.append([list(struct.unpack_from(f"<{width}I", actual, at+i*width*4)) for i in range(length)])
+                        at += length*width*4
+                    if tuple(declaration) != reference_vertex(r["vertex"], item["vertex_files"]):
+                        raise ValueError(f"Native original-layout declaration differs at record {n}")
                     if not identity or (epoch is not None and epoch != identity):
                         raise ValueError("Components in one isolated capture did not share a palette epoch")
                     epoch = identity
@@ -106,7 +134,8 @@ def verify(reference: dict, records: list[dict], callbacks: dict, actual: bytes)
         raise ValueError("Trailing component output")
     return dict(source_records=len(records), planned_entries=2*len(records), original_first_frame_skips=warm_empty,
                 intentional_mesh_empty_callbacks=mesh_empty, custom_draws=draws, unresolved_material_calls=unresolved,
-                isolated_identity_epochs=len(epochs), all_draw_arguments_entries_and_palettes_equal=True)
+                isolated_identity_epochs=len(epochs), all_draw_arguments_entries_and_palettes_equal=True,
+                all_vertex_declarations_equal=True)
 
 
 def main() -> int:

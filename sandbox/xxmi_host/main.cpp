@@ -23,6 +23,7 @@ int HostResourcePlanTests();
 int HostCorePoolTests();
 int HostSkeletonPlanTests();
 int HostCoreNativeTests();
+int HostVertexPlanTests();
 int HostModSkeleton(const wchar_t*,const wchar_t*,const wchar_t*);
 int HostCoreSpatial(const wchar_t*);
 int HostCoreComponents(const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*);
@@ -151,5 +152,6 @@ int wmain(int argc,wchar_t** argv)
     if(!failed)failed+=HostCorePoolTests();
     if(!failed)failed+=HostSkeletonPlanTests();
     if(!failed)failed+=HostCoreNativeTests();
+    if(!failed)failed+=HostVertexPlanTests();
     return failed?1:0;
 }

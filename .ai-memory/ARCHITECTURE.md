@@ -240,3 +240,11 @@ SnapshotImage owners for each FileDraw. Entire transactions refuse on a late
 unsupported mapping or missing Ready owner. The caller proves source API
 correspondence; shared image identity across passes is not that proof. No implicit
 dimension-mismatch-to-null rule is implemented. DLL integration remains open.
+
+
+VertexProfile connects owned FileDraw layout/stride metadata to shared
+patch_vertex_streams using exact-shader semantic correspondence and the original
+XXMI layout evaluator exposed by command_module.cpp. Original source files stay
+untouched. Correspondence preparation and CPU declaration resolution are separate
+from GPU readiness/variant creation. Default application bindings survive;
+unsupported semantic changes, rates or aliased edits refuse the transaction.
