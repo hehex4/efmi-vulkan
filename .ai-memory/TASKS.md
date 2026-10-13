@@ -28,6 +28,19 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 ## Tasks and follow-ups
 
+### T-030: From one mod to all mods (question of the user, 2026-10-13; ideas only, nothing decided)
+
+Survey of the nine character mods installed on this machine (pattern counts over the INI files, read-only, approximate): all nine use the merged skeleton, LOD1 sections and the same one vertex-layout edit; each has 12 to 22 key sections and 27 to 40 variables. Textures: fixed `ps-t` slots only in two (arcane, ardelia); overrides by texture hash (`this =`) in six (liino, tangtang, xaihi, yvonne, laevatain, perlica), four of them with fixed slots as well; six reference RabbitFX (liino, tangtang, typhoeus, yvonne, laevatain, perlica; LIMIT-004), which patches DX11 shader assembly by regular expressions per shader family.
+
+What is already general: finding the mod's components (the INI's hash is the CRC-32C the layer computes, plan fact 5), merged bones, identity, LOD, the layout edit, feature variants of shaders (sibling rules), building a package from INI and core. What is tied to the one mod: the table from source slots to Vulkan bindings per fragment shader (20 profiles from paired DX11 and Vulkan captures); one fixed state of the variables; one package per process; no RabbitFX.
+
+Ideas put to the user, in the order proposed:
+1. Move the knowledge from the mod to the game: a table per fragment shader of the game (which binding is which source slot), shared by every mod, and replacement by the identity of the original texture as the main mechanism, which is what overrides by texture hash already mean. Two cheap experiments decide the route: whether 3DMigoto's texture hash can be recomputed from what the layer sees (offline, from captures/dx11-baseline, where DX11 resource hashes and content hashes are both recorded), and how many fragment shaders of a second character are already among the 20 profiles and their siblings (needs frames with another character on screen).
+2. Variables and keys at run time: the packager compiles the mod's command lists into a table of conditions per component instead of one scenario, a small interpreter in the module evaluates it, the hosted original engine stays the reference for differential tests.
+3. Several mods at once: a table of packages, textures loaded on demand within a budget, the mods folder scanned.
+4. RabbitFX as its own work: first only what it does for textures (the mod's texture instead of the original one, which falls under 1), effects later as SPIR-V rewrites per shader family.
+Also noted: profiles keyed by exact shader bytes all expire with a game update; identity of textures does not.
+
 ### T-029: Deployment without leaving the game (implemented; first exchange verified in the game)
 
 State 2026-10-13, live verification: the unchanged verified 1.0.1 module takes over PID 19452 at 20:49:41, generation 1 after 0.8 seconds, nine images Ready and no module error. The user confirms normal appearance with no persistent anomaly. A post-exchange 710-frame interval is clean, followed by the clean requested dash interval. Evidence: build/hot-swaps.json and captures/stability-1.0.1-20261013-204259-19452/. Use scripts/hot_swap.py for subsequent compatible backend changes. Not claimed: repeated-exchange lifetime/performance acceptance or a seamless transition on every exchange. Variant warming remains an optional follow-up.
