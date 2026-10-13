@@ -184,3 +184,18 @@ With the M2 backend active, `vkCmdDrawIndexed` is recorded for captures before t
 The display slot table has 19 original-resource correspondences. Shader typing reveals three 3D targets: 427e2365 ps-t15 to (0,35), 4e9748d0 ps-t15 to (0,36), 50c1e4bb ps-t14 to (0,36). The saved pairing confirms 1x1x1 3D sRGB RGBA8 originals on both APIs; the mapping itself is not disproven. Both saved DX11 mod-on captures bind 2D custom assets in those slots (draws 162, 145, 126). Binding metadata does not prove the DX11 shader's actual interpretation/pixel output. The Vulkan image adapter refuses these assignments and the slot table marks their incompatible dimensions. Do not silently treat the entire material callback as ready after dropping these operations. Sixteen other assignments pass the 2D rewriter offline. Details/evidence: docs/fragment-materials.md and build/fragment-images/report.json. Source/API semantics can be investigated offline before requesting more game input.
 
 Follow-up: matching saved DX11 bytecode was located and FNV-1 checked; each affected declaration and SampleLevel instruction is 3D. A 2D resource therefore violates the D3D11 declaration contract. Headless DX11 controls pass on NVIDIA and WARP, but mismatched views yield zero on NVIDIA and sampled color on WARP, while both retain the bound view. Debug runtime is absent, so no DX11 validation pass is claimed. Evidence: build/dx11-dimensions/report.json. Default refusal remains; an explicit device/profile compatibility policy must not be confused with valid explicit-null semantics or actual game pixel proof.
+
+## LIMIT-022: Full frontend source profiles remain incomplete
+
+Three actual LOD1 fragments (0aeef59b, 310c25c3, a6d7088a) have no verified DX11
+slot correspondence, accounting for six of 370 historical custom draws. Eleven
+other refusals are LIMIT-021. The 353 accepted material draws now have 88 driver-
+created historical variants under clean validation; that does not fill the gaps.
+Original Core texture queries need proven source-API identities, including the
+effects of prior bindings. The historical runner intentionally supplies no such
+provider and retains 283 unresolved calls. Native query mechanics are tested with
+synthetic identities only. Full runtime/generation and DLL integration are still
+implementation work and must not be marked done by a new capture. The prepared
+next evidence step is actual LOD1 DX11 capture with raw bytecode and bound texture
+metadata/content; see docs/frontend-draw-plans.md. Do not guess mappings from
+shared image identity, suppress unknown queries or broaden scope to LOD2+.

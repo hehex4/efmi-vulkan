@@ -42,7 +42,7 @@ def sibling(path: str):
     return capture_model, probe_client
 
 
-def fetch_declarations(client, doc: dict, known: dict) -> dict:
+def fetch_declarations(client, doc: dict, known: dict, archive: Path | None = None) -> dict:
     """Declared slots of every shader the frame's calls use, read from the game while it runs.
 
     The byte code comes from the probe by hash and is listed with the system's compiler DLL in
@@ -53,16 +53,34 @@ def fetch_declarations(client, doc: dict, known: dict) -> dict:
     table = doc.get("shaders", [])
     used = {table[sid]["hash"] for d in doc.get("draws", []) for sid in d.get("sh", [])
             if 0 <= sid < len(table) and table[sid].get("known")}
-    for h in sorted(used - set(known)):
+    saved, errors = {}, {}
+    if archive is not None:
+        archive = archive.resolve()
+        if not archive.is_relative_to(ROOT.resolve()):
+            raise ValueError("Shader archive must stay inside this project")
+        archive.mkdir(parents=True, exist_ok=True)
+    for h in sorted(used if archive is not None else used - set(known)):
         try:
+            if archive is not None and not re.fullmatch(r"[0-9a-fA-F]{16}", h):
+                raise ValueError("Shader hash is not a canonical 64-bit name")
             _reply, code = client.shader(h)
+            if archive is not None:
+                path = archive / (h.lower() + ".dxbc")
+                if path.exists() and path.read_bytes() != code:
+                    raise ValueError("Existing shader archive has different bytes for this hash")
+                path.write_bytes(code)
+                saved[h] = dict(file=path.name, bytes=len(code), sha256=hashlib.sha256(code).hexdigest())
             known[h] = dx11_pair.parse_declarations(lister.disassemble(code))
         except Exception as exc:              # a missing shader must not lose the frame
+            errors[h] = str(exc)
             print("  shader %s not listed: %s" % (h, exc))
+    if archive is not None:
+        (archive / "index.json").write_text(json.dumps(dict(requested=sorted(used), shaders=saved, errors=errors),
+                                                    indent=2, ensure_ascii=True) + "\n", encoding="ascii")
     return known
 
 
-def hash_textures(client, cap, declarations: dict) -> dict:
+def hash_textures(client, cap, declarations: dict, all_bound: bool = False) -> dict:
     """Content hashes of the game's file-backed textures the frame's draws read: mip 0, first slice.
 
     Keyed by the DX11 resource hash. CRC-32C because that is what the layer computes; the bytes
@@ -73,7 +91,7 @@ def hash_textures(client, cap, declarations: dict) -> dict:
         if d["type"] >= 8:
             continue
         for slot, v in (d.get("tex") or {}).items():
-            if int(slot.split("-t")[1]) >= 100 or not dx11_pair.declared(declarations, d["shaders"], slot):
+            if int(slot.split("-t")[1]) >= 100 or (not all_bound and not dx11_pair.declared(declarations, d["shaders"], slot)):
                 continue
             res = cap.resource(v["res"]) or {}
             # bind 8 is "shader resource" alone: loaded from a file, not rendered to.
@@ -102,9 +120,10 @@ def cmd_capture(args) -> int:
         with probe_client.ProbeClient.connect(args.pid) as client:
             status = client.status()
             doc, blob = client.capture(detail="full", cb_data=True, timeout_ms=args.timeout_ms)
-            declarations = fetch_declarations(client, doc, {})
-            if args.textures:
-                textures = hash_textures(client, model.Capture(doc, blob), declarations)
+            archive = out / (args.label + ".dxbc") if args.archive_shaders else None
+            declarations = fetch_declarations(client, doc, {}, archive)
+            if args.textures or args.all_bound_textures:
+                textures = hash_textures(client, model.Capture(doc, blob), declarations, args.all_bound_textures)
     except probe_client.ProbeError as exc:
         print("capture failed: %s" % exc)
         return 1
@@ -132,7 +151,8 @@ def cmd_shaders(args) -> int:
     known = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
     try:
         with probe_client.ProbeClient.connect(args.pid) as client:
-            fetch_declarations(client, doc, known)
+            archive = Path(args.out) / (args.label + ".dxbc") if args.archive_shaders else None
+            fetch_declarations(client, doc, known, archive)
     except probe_client.ProbeError as exc:
         print("shaders failed: %s" % exc)
         return 1
@@ -444,10 +464,14 @@ def main() -> int:
     c.add_argument("--timeout-ms", type=int, default=8000)
     c.add_argument("--textures", action="store_true",
                    help="also hash mip 0 of every file-backed texture the frame reads (takes about a minute)")
+    c.add_argument("--all-bound-textures", action="store_true",
+                   help="hash all bound game file-backed 2D textures, including slots the current shader does not declare")
+    c.add_argument("--archive-shaders", action="store_true", help="save original DXBC bytes and fingerprints beside the frame")
     c.set_defaults(fn=cmd_capture)
     h = sub.add_parser("shaders")
     h.add_argument("--label", required=True)
     h.add_argument("--pid", type=int, default=None)
+    h.add_argument("--archive-shaders", action="store_true", help="save original DXBC bytes and fingerprints beside the frame")
     h.set_defaults(fn=cmd_shaders)
     s = sub.add_parser("summarize")
     s.add_argument("--label", required=True)

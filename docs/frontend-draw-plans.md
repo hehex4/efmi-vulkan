@@ -277,3 +277,35 @@ palette 24/283 and full original entry replay remain passing. The historical
 replay still contains 283 unresolved texture calls because its source identities
 are unavailable. This mechanism does not establish live source correspondence,
 whole-character material rendering or DLL integration.
+
+## Next LOD1 source evidence
+
+The next missing source correspondences are Vulkan fragment modules 0aeef59b,
+310c25c3 and a6d7088a. Their six historical draws are retained as unknown. The
+eleven dimension-refused draws are a different problem (LIMIT-021); a fresh slot
+table alone does not settle that incompatible source binding behavior.
+
+Only after the user initiates the DX11 test, capture the same character in actual
+LOD1 with original meshes/materials (mod disabled). Use a new output folder.
+The prepared command is:
+
+```powershell
+D:/Python312/python.exe scripts/dx11_baseline.py --out captures/lod1-source-20261013 capture --label lod1-off --archive-shaders --all-bound-textures
+```
+
+Choose another fresh folder if that folder exists. This command connects to an
+already loaded DX11 probe; it does not launch the game, inject a DLL, switch APIs,
+change launcher settings or toggle the mod. Those session actions must follow the
+project's existing authorization rules. Compare first against the saved
+m2-0.8.1-20261012/lod1-a and lod1-b bundles; do not require another Vulkan session
+unless the new source data still leaves an ambiguous correspondence.
+
+--archive-shaders saves original bytes even when disassembly fails, plus an
+index of SHA-256 fingerprints and explicit errors. Hash-name collisions preserve
+previous bytes. --all-bound-textures extends existing file-backed game 2D texture
+hashing to inactive bound slots; it still does not claim readback of render-target,
+3D, mod-owned or unreadable images. Full frame metadata remains available for
+their identities. Unknown source state must not become an inferred empty query.
+scripts/check_dx11_capture.py verifies bookkeeping with a fake probe: 11 checks,
+no real connection. Shader capture needs only a short stationary scene; no
+30-minute observation is required for this data dependency.
