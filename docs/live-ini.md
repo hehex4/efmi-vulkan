@@ -138,5 +138,17 @@ application-state restoration and held-F10 suppression. The key fixture file is
 recognized only inside `efmi_vk_variant_gpu.exe`; tests never synthesize input to
 the desktop or game. All checks run under core and synchronization validation.
 
-These are sandbox and offline results. Actual-character key handling, F10 visual
-behavior and persistence across a game restart require a user-started session.
+Real-game follow-up on 2026-10-13: user-started PID 31108 loads 1.0.2 and the
+user confirms working outfit keys. Logs record successful F10 exchanges at
+22:53:43.879 and 22:53:49.113, generations 1 and 2. Read-only status snapshots
+confirm two reloads, no reload rejection/error/pending work, ten images Ready and
+published, and all thirteen project-saved variables equal to live state. Settings
+are clean; stocking is 1 and outfit switches are 0. Evidence:
+`captures/live-ini-1.0.2-20261013-225835-31108/`.
+
+The user cannot see an F10 change; unchanged inputs with retained persistent
+choices can produce the same appearance. No pre-reload snapshot was taken, so
+preservation across these two exchanges is not independently measured. Restart
+persistence and visual coverage of every key remain untested. Replacement
+continues in the sampled interval, but historical missing-buffer variant refusals
+also increase; this is F10 evidence, not a clean effect/stability acceptance.

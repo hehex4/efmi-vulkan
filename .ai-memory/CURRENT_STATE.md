@@ -1,8 +1,8 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-13, 22:33, 1.0.2 deployed. Source/build/next/dist are 1.0.2 with the live main INI enabled. Full regression and candidate/deployed actual ten-image smokes pass. The game was absent at two deployment checks; no new game load or observation is claimed. LOD0/LOD1 only; HLSL panel compilation passes, panel rendering remains T-016.
+> Last updated: 2026-10-13, 22:58 live check. Source/build/next/dist are 1.0.2. The user confirms outfit keys work; PID 31108 has completed two F10 exchanges with ten images Ready and no reload failures. Project settings match the live choices. Restart persistence and all-key visual coverage remain untested. The user now requests extending support beyond this character; inspect and remove profile/import restrictions next. LOD0/LOD1 only; panel rendering remains T-016.
 
-## 1.0.2: main INI, outfit keys, persistence and F10 (deployed; game check next)
+## 1.0.2: main INI, outfit keys, persistence and F10 (first game check)
 
 User requests original INI runtime conditions, outfit keys, settings save and F10.
 They also ask whether Vulkan can support the panel's HLSL. Implemented the scoped
@@ -42,13 +42,29 @@ build/character-assets-config-dist-1.0.2.json. Shared ABI remains
 16b90a85431f86b4. No launcher setting, original mod/Core, agent-started game or
 live module exchange changed in this implementation round.
 
-Next requires a user-started game: with this character visible, check the original
-Ctrl+5/6/7/8 and Alt+5/6/7/8/9 outfit controls, Ctrl+L stockings and F10. Read
-replacement.ini variables and generation/counters alongside the user's visual
-report. Confirm a changed choice persists through F10, then across a normal game
-restart when convenient; no duration-only test. Runtime mode starts from original
-INI defaults plus project settings, not DX11 user settings. T-016's panel adapter
-can follow; compilation alone is not a panel on screen.
+Live follow-up: user-started PID 31108 loaded 1.0.2/inject/probe at 22:50:45.
+The user reports working outfit keys and cannot see a change from F10. The log
+records completed INI generations 1 and 2 at 22:53:43.879 and 22:53:49.113.
+Two read-only statuses at 22:58:35/38 confirm two reloads, zero rejected/pending,
+no reload error, ten Ready/published images and no failed images. All thirteen
+saved variables match the latest status (stocking 1, outfit switches 0); dirty is
+false. Evidence: captures/live-ini-1.0.2-20261013-225835-31108/.
+
+Replacement continues after reload: 182 drawing frames add 6,155 replacements
+and 6,107 intentional hides. This is not a clean stability interval: 504 variant
+refusals, 72 identifying and two incomplete draws also occur. The retained
+reason is the historical missing vertex buffer; no effect/shader correlation or
+new visible defect is established. See LIMIT-027. No pre-F10 snapshot exists,
+so choice preservation across these exchanges is not independently measured;
+restart persistence and visual coverage of every key remain open. Unchanged
+files and retained settings can naturally produce the same appearance on F10.
+
+New user request: extend the current capability to arbitrary characters. Audit
+profile/import and runtime assumptions, remove character-specific restrictions,
+and validate a second character selected by the user. Do not claim arbitrary mod
+compatibility from the existing character's result. Original sources remain
+read-only; LOD2+ and multi-mod performance optimization remain outside scope.
+T-016 panel drawing is still separate from successful HLSL compilation.
 
 ## 1.0.1: stable sampled drawing, first real module exchange, and clean dash interval
 

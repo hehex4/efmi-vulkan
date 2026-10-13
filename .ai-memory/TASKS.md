@@ -13,8 +13,13 @@ validated, not replaced by a new INI interpreter. CPU checks 45, Vulkan runtime
 runner checks 28 and the full regression pass. Candidate/deployed actual-config
 smokes upload ten images cleanly through both entries on two enabled queues.
 Backup build/backups/before-1.0.2-20261013-223323/; deployment manifest
-build/deployment-1.0.2.json. No new game load is claimed. Next is user-started
-real-character keys/F10/persistence acceptance. Details: docs/live-ini.md and CURRENT_STATE.md.
+build/deployment-1.0.2.json. User-started PID 31108 confirms real-character key
+changes, two completed F10 exchanges and ten Ready images; thirteen project-saved
+choices match live variables. Restart persistence and all-key visual coverage
+remain open. Evidence: captures/live-ini-1.0.2-20261013-225835-31108/.
+The user now requests extension to arbitrary characters; audit generic import,
+profiles and runtime boundaries, then validate a second character. Details:
+docs/live-ini.md and CURRENT_STATE.md.
 The original panel's HLSL compiles/validates; its drawing adapter remains T-016.
 
 Earlier 1.0.1 checkpoint:
@@ -58,7 +63,13 @@ Next, after the actual DX11 capture of 2026-10-13:
 
 Current boundary: 1.0.2 links the original main-INI engine and implements live
 conditions/keys/persist/F10 with the existing native renderer. Offline and sandbox
-verification is recorded above; actual-character acceptance remains open. General
+verification is recorded above. The user confirms outfit keys in the game;
+read-only PID 31108 evidence proves two F10 exchanges and saved choices matching
+live state. Across-restart persistence and exhaustive key/effect acceptance remain
+open; the short status interval has missing-buffer variant refusals (LIMIT-027).
+The latest request is to generalize beyond this character without per-component
+code; second-character selection is pending while the generic boundaries are
+audited. General
 source-image identity queries and image-hash override registries, arbitrary
 CustomShader/Include adapters, and the auxiliary panel remain outside this
 accepted profile. T-028's material correspondences still supply the renderer's
