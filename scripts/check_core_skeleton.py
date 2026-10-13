@@ -50,7 +50,7 @@ def main() -> int:
                 raise ValueError("Executed bone partition differs")
             for lod, remap in enumerate(component["remaps"][:2]):
                 if lod not in expected["remaps"]:
-                    if remap != {"state": 0, "path": ""}:
+                    if remap != {"state": 0, "path": "", "indices": []}:
                         raise ValueError("Unassigned LOD must stay distinct from explicit identity")
                     continue
                 if remap["state"] == 2:
@@ -67,7 +67,7 @@ def main() -> int:
                     actual = []
                 else:
                     raise ValueError("Initialized LOD has no explicit remap")
-                if actual != expected["remaps"][lod]:
+                if actual != expected["remaps"][lod] or actual != remap["indices"]:
                     raise ValueError("Executed remap bytes differ from independent source")
         if any(c["count"] or c["first"] for c in plan["components"][len(active):]):
             raise ValueError("Unused declared component slot was not preserved")
@@ -76,7 +76,7 @@ def main() -> int:
         (folder / "core-skeleton-plan.json").write_text(json.dumps(plan, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
         report.update(passed=True, source_sha256=hashes, executable_sha256=sha(exe), bones=plan["bones"],
                       instances=plan["instances"], declared_components=len(plan["components"]),
-                      active_components=len(active), remap_files=remap_files, supported_lods=[0, 1],
+                      active_components=len(active), remap_files=remap_files, owned_remap_bytes_verified=True, supported_lods=[0, 1],
                       unassigned_supported_lod_slots=sum(r["state"] == 0 for c in plan["components"] for r in c["remaps"][:2]))
         print(json.dumps({k: v for k, v in report.items() if k not in ("source_sha256", "remap_files")}, indent=2))
         return 0

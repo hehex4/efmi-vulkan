@@ -1,6 +1,7 @@
 // Execute the selected original initialization list, then export evaluated pools.
 // GPU initialization is an explicit native event, not executed by this fixture.
 #include "skeleton_plan.h"
+#include "palette_files.h"
 #include "globals.h"
 #include "HackerContext.h"
 #include <fstream>
@@ -72,13 +73,21 @@ int HostModSkeleton(const wchar_t* filename,const wchar_t* core_folder,const wch
             adapter,files,plan,reason)){
             fwprintf(stderr,L"Skeleton metadata refused: %ls\n",reason.c_str());return 1;
         }
-        printf("{\"scope\":\"evaluated original initialization; native GPU initialization unresolved\",\"bones\":%u,\"instances\":%u,\"lods\":%u,\"components\":[",
+        efmi::core::PaletteDefinition palette;std::string error;
+        if(!load_palette_files(plan,palette,error))throw std::runtime_error(error);
+        printf("{\"scope\":\"evaluated original initialization and owned remap bytes; native GPU initialization unresolved\",\"bones\":%u,\"instances\":%u,\"lods\":%u,\"components\":[",
                plan.bones,plan.instances,plan.lod_count);
         for(size_t c=0;c<plan.components.size();++c){
             const auto& item=plan.components[c];if(c)putchar(',');
             printf("{\"id\":%zu,\"first\":%u,\"count\":%u,\"remaps\":[",c,item.first,item.count);
             for(uint32_t lod=0;lod<plan.lod_count;++lod){if(lod)putchar(',');const auto& remap=item.lods[lod];
-                printf("{\"state\":%d,\"path\":",int(remap.source));json(remap.path.wstring());putchar('}');
+                printf("{\"state\":%d,\"path\":",int(remap.source));json(remap.path.wstring());
+                if(lod<SkeletonFilePlan::supported_lods){
+                    printf(",\"indices\":[");const auto& indices=palette.components[c].lods[lod].indices;
+                    for(size_t n=0;n<indices.size();++n){if(n)putchar(',');printf("%u",indices[n]);}
+                    putchar(']');
+                }
+                putchar('}');
             }
             printf("]}");
         }

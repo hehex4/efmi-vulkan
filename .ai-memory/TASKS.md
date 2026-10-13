@@ -1,6 +1,6 @@
 # EFMI Vulkan - Tasks
 
-> Last updated: 2026-10-12.
+> Last updated: 2026-10-13.
 
 Milestones and gates refer to `docs/plan.md`.
 
@@ -11,6 +11,8 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 ## Tasks and follow-ups
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
+
+Shared palette checkpoint (2026-10-13): PaletteBank owns bounded per-identity masters for LOD0/LOD1, with original component ids, per-pose completeness, better-LOD priority and immutable compact snapshots. The original initialization file loader owns all eight R16 remaps. Native palette checks 24 and metadata checks 15 pass; 283 historical records yield 74 imports, 21 complete snapshots equal to an independent reference, and 262 expected incomplete refusals. Each saved frame uses a separate identity, so no continuous tracking is inferred. Original spatial checks 12 and all 384 callback plans still pass. Caller-supplied identity epochs, native Core/material execution and DLL integration remain open. No layer/deployment/game change; report build/shared-palettes/report.json.
 
 Spatial Core checkpoint (2026-10-13): original SpatialIdentification.ini and Helpers.ini now execute through mediated queries against borrowed CPU instance windows. Only SpatialHash buffer access is adapted; quantization uses pinned XXMI code and its original pool/state machine handles identification. Twelve headless cases pass for two instances, movement, new/expired objects, duplicate callers and invalid windows. Source/skeleton/callback regressions remain separate. This does not yet assign retained palette epochs or emit character draws. LOD0/LOD1 only; shared palette completeness and native Core/material/DLL integration remain next.
 

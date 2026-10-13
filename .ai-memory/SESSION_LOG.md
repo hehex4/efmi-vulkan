@@ -713,3 +713,10 @@ later-LOD assets or rendering tests are required. Source/build/next stay 0.9.3,
 dist stays 0.9.1. No layer/deployment/game/config or installed-asset action.
 Next: retained palette identities/completeness, native component/material effects
 and whole-character command emission through the common backend.
+
+## 2026-10-13 - Shared palette masters and owned remaps
+
+- Continued LOD0/LOD1 single-character priority. Added a bounded CPU palette bank and generation-prepared R16 remap loading from executed original initialization; no component-specific importer.
+- Verified sparse ids, cross-component completeness, separate current/previous poses, LOD priority, update retention, invalid input atomicity, identity capacity/retirement and immutable snapshots (24 native checks). Host metadata/file checks now 15; host 23/planner 28/resources 19/DDS 15/pools 11 unchanged. Original spatial 12 and 384 sample plans pass.
+- Historical replay: 283 records, 74 imports, 262 incomplete snapshot refusals, 21 complete byte-identical snapshots. Five isolated frames use separate identities, not assumed animation continuity. Eight native-loaded remaps match the independent source bytes. Evidence build/shared-palettes/report.json and build/xxmi-host/core-skeleton-report.json.
+- Reviewed the new sources and changed host/tests. Runtime epoch adapter, native Core/material resolution and layer integration remain next. No layer source change or rebuild required; source/build/next 0.9.3 and dist 0.9.1 unchanged. No deployment, installed-asset write, launcher edit or game action.

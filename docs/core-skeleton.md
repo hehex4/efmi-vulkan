@@ -22,8 +22,8 @@ original Core files without changes. It runs the actual initialization command
 list through XXMI, retains the native GPU initialization as an unresolved event,
 and exports its resulting metadata. The eight remap files, 499 bones, eight
 instances and twelve active components match the earlier independent literal
-reference. The thirteenth component slot is empty; 28 LOD slots are unassigned,
-including that slot's four entries.
+reference. The thirteenth component slot is empty. In the supported LOD0/LOD1 scope,
+only that slot's two entries are unassigned.
 
 Validation: original CPU host 23, draw planner 28, resource planner 19, DDS 15,
 Core pools 11 and metadata 10. All 384 prior callback scenarios still pass, with
@@ -61,3 +61,31 @@ adaptation or rendering test is required. Shared palette epochs/completeness and
 native component/material execution remain open. Evidence:
 build/xxmi-host/core-spatial-report.json and core-spatial-native.txt; reproducible
 runner scripts/check_core_spatial.py rejects stale host executables.
+
+## Owned shared palettes (CPU only)
+
+frontend/xxmi/palette_files prepares exact R16 remaps from evaluated metadata,
+validating the complete partition before opening files. Files must be absolute,
+readable with a stable read handle, and exactly the declared length. Explicit
+identity and unavailable LODs remain distinct; only LOD0/LOD1 files are loaded.
+
+frontend/core/palette_bank owns one bounded MergedSkeleton master per caller
+identity epoch. Sparse original ids map to validated complete bone ranges.
+A better LOD may replace an earlier import in the same logical update. Both
+poses validate before mutation. A snapshot requires every active component's
+needed dynamic poses to have arrived in that epoch, and retains previous-update
+bones as the original Core does. Snapshots compact one identity to slot zero,
+patch only the two entry offsets and retain immutable bytes through updates and
+retirement. The caller must supply identity epochs and retire them, never use a
+reusable raw spatial slot alone. That adapter remains the next integration step.
+
+Validation: scripts/check_shared_palettes.py passes 24 CPU cases and replays 283
+saved records from five separately identified historical frames. Of these, 74
+import new/better data, 262 refuse snapshots before completeness, and all 21
+complete snapshots equal the independent Core-derived byte reference. Each
+snapshot is 72,480 bytes for 499 bones, including implicit bones and both poses.
+This is CPU snapshot storage, not an allocation or performance measurement in
+the game. Original metadata/file checks increase to 15; spatial 12 and all 384
+callback plans still pass. Reports: build/shared-palettes/report.json and
+build/xxmi-host/core-skeleton-report.json. No new capture, GPU skeleton draw,
+DLL integration, deployment or rendered character verification occurred.

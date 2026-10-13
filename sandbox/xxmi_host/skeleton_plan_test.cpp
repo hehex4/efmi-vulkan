@@ -1,4 +1,6 @@
 #include "skeleton_plan.h"
+#include "palette_files.h"
+#include <fstream>
 #include <cstdio>
 #include <limits>
 using namespace efmi::frontend;
@@ -32,5 +34,26 @@ int HostSkeletonPlanTests()
     check(!read(2,3,2) && unchanged(),"remap pool dimensions must cover every component and LOD");
     check(!read(2,UINT32_MAX,1) && unchanged(),"skeleton byte budget checks wide instance arithmetic");
     check(read() && unchanged(),"a refused metadata read does not damage a later valid read");
+    SkeletonFilePlan source;source.bones=2;source.instances=2;source.lod_count=2;source.components.resize(2);
+    source.components[0].count=source.components[1].count=1;source.components[1].first=1;
+    for(auto& c:source.components)for(auto& lod:c.lods)lod.source=RemapSource::Identity;
+    std::filesystem::create_directories("build/tmp");
+    const auto path=std::filesystem::absolute("build/tmp/palette-test-remap.buf");
+    {std::ofstream file(path,std::ios::binary);const char bytes[2]={7,0};file.write(bytes,2);}
+    source.components[0].lods[1]={RemapSource::File,path};
+    efmi::core::PaletteDefinition owned;std::string error;
+    check(load_palette_files(source,owned,error) && owned.components[0].lods[1].indices==std::vector<uint16_t>{7} &&
+          owned.components[1].lods[0].available && owned.components[1].lods[0].indices.empty(),
+          "exact R16 remap bytes and explicit identity are owned by the prepared definition");
+    auto retained=[&](){return owned.components.size()==2 && owned.components[0].lods[1].indices==std::vector<uint16_t>{7};};
+    {std::ofstream file(path,std::ios::binary|std::ios::app);file.put(0);}
+    check(!load_palette_files(source,owned,error) && retained(),"oversized remap file refuses without changing prepared output");
+    source.components[0].lods[1].path="relative.buf";
+    check(!load_palette_files(source,owned,error) && retained(),"relative remap paths cannot depend on the application's working directory");
+    source.components[0].lods[1]={RemapSource::Unassigned,{}};
+    check(load_palette_files(source,owned,error) && !owned.components[0].lods[1].available,
+          "unassigned LOD remains unavailable after preparation");
+    source.components[1].first=0;
+    check(!load_palette_files(source,owned,error),"invalid bone partitions refuse before file loading");
     printf("XXMI skeleton metadata: %d checks passed, %d failed\n",passed,failed);return failed;
 }
