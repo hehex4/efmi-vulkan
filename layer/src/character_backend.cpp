@@ -101,6 +101,12 @@ struct IndexKeyHash {
 struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; };
 struct BoneSite { bool ok = false; uint32_t set = 0, binding = 0; };
 using StaticMaterial = CharacterMaterial;
+struct ImageQueue {
+    VkQueue queue = VK_NULL_HANDLE;
+    VkSemaphore semaphore = VK_NULL_HANDLE;
+    VkFence fence = VK_NULL_HANDLE;
+    bool waited = false;
+};
 } // namespace
 
 class CharacterBackend {
@@ -121,6 +127,19 @@ public:
     std::vector<std::vector<StaticMaterial>> materials; // profile x package draw, prepared at setup
     std::unordered_map<uint32_t, uint32_t> material_profiles; // pipeline generation -> exact profile
     std::set<uint32_t> image_counts{0};
+    std::mutex queue_mx;
+    bool queues_stopped = false;
+    std::vector<ImageQueue> image_queues;
+    std::vector<VkSemaphore> image_signals;
+    VkQueue upload_queue = VK_NULL_HANDLE;
+    VkFence publication_fence = VK_NULL_HANDLE;
+    std::atomic<bool> images_published{false};
+    std::atomic<uint32_t> image_queue_waits{0}, upload_queue_index{UINT32_MAX};
+    PFN_vkCreateSemaphore CreateSemaphore = nullptr;
+    PFN_vkDestroySemaphore DestroySemaphore = nullptr;
+    PFN_vkCreateFence CreateFence = nullptr;
+    PFN_vkDestroyFence DestroyFence = nullptr;
+    PFN_vkWaitForFences WaitForFences = nullptr;
     std::atomic<bool> enabled{false}, ready{false};
     std::atomic<uint64_t> frame{1}, batches{0};
     std::atomic<uint64_t> counters[C_COUNT] = {};
@@ -179,7 +198,21 @@ public:
         { std::lock_guard<std::mutex> lock(pool_mx); stopped = true; enabled = false; wake.notify_all(); }
         if (worker.joinable()) worker.join();
         if (cache) cache->stop();
-        if (images) images->stop();
+        {
+            std::lock_guard<std::mutex> lock(queue_mx);
+            queues_stopped = true;
+            if (images) images->stop();
+            // Device shutdown only. Never wait for a queue or fence on the draw/submit path.
+            if (images_published && publication_fence) WaitForFences(device->handle, 1, &publication_fence, VK_TRUE, UINT64_MAX);
+            for (auto& q : image_queues) {
+                if (q.waited) WaitForFences(device->handle, 1, &q.fence, VK_TRUE, UINT64_MAX);
+                if (q.semaphore) DestroySemaphore(device->handle, q.semaphore, nullptr);
+                if (q.fence) DestroyFence(device->handle, q.fence, nullptr);
+            }
+            image_queues.clear();
+            if (publication_fence) DestroyFence(device->handle, publication_fence, nullptr);
+            publication_fence = VK_NULL_HANDLE;
+        }
         std::deque<std::shared_ptr<M2Command>> old;
         std::shared_ptr<const GpuMesh> old_mesh;
         { std::lock_guard<std::mutex> lock(pool_mx); old.swap(available); old_mesh.swap(mesh); ready = false; }
@@ -340,11 +373,29 @@ public:
 bool CharacterBackend::init_materials()
 {
     using namespace efmi;
-    if (!device->material_queue) { last_reason = "materials require one unprotected graphics queue"; return false; }
+    if (device->material_queues.empty()) { last_reason = device->material_queue_reason; return false; }
     if (package.material_vendor && (package.material_vendor != properties.vendorID || package.material_device != properties.deviceID)) {
         last_reason = "material dimension compatibility belongs to a different device"; return false;
     }
     if (!prepare_character_materials(package, materials, image_counts, last_reason)) return false;
+#define X(n) n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
+    if (!n) { last_reason = "missing material vk" #n; return false; }
+    X(CreateSemaphore) X(DestroySemaphore) X(CreateFence) X(DestroyFence) X(WaitForFences)
+#undef X
+    VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    for (auto queue : device->material_queues) {
+        image_queues.push_back({queue});
+        auto& q = image_queues.back();
+        if (CreateSemaphore(device->handle, &si, nullptr, &q.semaphore) != VK_SUCCESS ||
+            CreateFence(device->handle, &fi, nullptr, &q.fence) != VK_SUCCESS) {
+            last_reason = "cannot allocate material queue publication"; return false;
+        }
+        image_signals.push_back(q.semaphore);
+    }
+    if (CreateFence(device->handle, &fi, nullptr, &publication_fence) != VK_SUCCESS) {
+        last_reason = "cannot allocate material publication fence"; return false;
+    }
     assets::ResourceDevice resource;
     resource.device = device->handle; resource.physical = device->phys; resource.memory = memory;
     resource.graphics_family = device->material_family; resource.bc_enabled = device->material_bc_enabled;
@@ -371,6 +422,11 @@ bool CharacterBackend::material_draws(uint32_t pipeline_id, const GraphicsRecipe
                                       std::vector<const StaticMaterial*>& plans, std::vector<std::vector<SnapshotImage>>& views)
 {
     static const StaticMaterial inherited{true, false, {}, {}, {}};
+    // No command can retain a file image until its publication signal is enqueued.
+    // Every consumer queue inserts its own wait before forwarding application work.
+    if (package.materials && !images_published.load(std::memory_order_acquire)) {
+        ++counters[C_IMAGE_PENDING]; return false;
+    }
     uint32_t profile = kCharacterNone;
     bool no_fragment = true;
     if (package.materials) {
@@ -625,6 +681,7 @@ bool CharacterBackend::record(CmdBuf* cb, const DrawRec& r)
 
 void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkInstance instance, PFN_vkGetInstanceProcAddr gipa)
 {
+    device->material_queue_reason = "material queue discovery unavailable";
     if (!gipa) return;
     const auto families = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(gipa(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
     const auto get_queue = reinterpret_cast<PFN_vkGetDeviceQueue>(device->next_gdpa(device->handle, "vkGetDeviceQueue"));
@@ -633,14 +690,18 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
     if (!count || count > 256) return;
     std::vector<VkQueueFamilyProperties> properties(count); families(device->phys, &count, properties.data());
     const VkDeviceQueueCreateInfo* chosen = nullptr;
-    uint32_t graphics = 0;
     for (uint32_t i = 0; i < info->queueCreateInfoCount; ++i) {
         const auto& q = info->pQueueCreateInfos[i];
         if (q.queueFamilyIndex < properties.size() && (properties[q.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
-            graphics += q.queueCount; chosen = &q;
+            logf("character graphics queue request: family=%u count=%u flags=%u", q.queueFamilyIndex, q.queueCount, q.flags);
+            if (chosen || q.flags || !q.queueCount || q.queueCount > 32) {
+                device->material_queue_reason = "materials require one unprotected graphics queue family, at most 32 queues";
+                return;
+            }
+            chosen = &q;
         }
     }
-    if (graphics != 1 || !chosen || chosen->flags) return;
+    if (!chosen) { device->material_queue_reason = "no enabled graphics queue family"; return; }
     device->material_family = chosen->queueFamilyIndex;
     device->material_bc_enabled = info->pEnabledFeatures && info->pEnabledFeatures->textureCompressionBC;
     for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext)
@@ -648,14 +709,52 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
             device->material_bc_enabled = reinterpret_cast<const VkPhysicalDeviceFeatures2*>(p)->features.textureCompressionBC != 0;
     device->material_format_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties>(gipa(instance, "vkGetPhysicalDeviceFormatProperties"));
     device->material_image_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceImageFormatProperties>(gipa(instance, "vkGetPhysicalDeviceImageFormatProperties"));
-    get_queue(device->handle, device->material_family, 0, &device->material_queue);
-    if (device->set_loader_data && device->set_loader_data(device->handle, device->material_queue) != VK_SUCCESS)
-        device->material_queue = VK_NULL_HANDLE;
+    std::vector<VkQueue> queues;
+    for (uint32_t i = 0; i < chosen->queueCount; ++i) {
+        VkQueue queue = VK_NULL_HANDLE;
+        get_queue(device->handle, device->material_family, i, &queue);
+        if (!queue || (device->set_loader_data && device->set_loader_data(device->handle, queue) != VK_SUCCESS)) {
+            device->material_queue_reason = "cannot initialize material queue dispatch"; return;
+        }
+        queues.push_back(queue);
+    }
+    device->material_queues = std::move(queues);
+    device->material_queue_reason.clear();
 }
 
-void character_submit(CharacterBackend& backend, VkQueue queue)
+VkResult character_submit(CharacterBackend& backend, VkQueue queue)
 {
-    if (backend.images && queue == backend.device->material_queue) backend.images->submit_prepared(queue);
+    if (!backend.images || !backend.cache) return VK_SUCCESS;
+    std::lock_guard<std::mutex> lock(backend.queue_mx);
+    if (backend.queues_stopped) return VK_SUCCESS;
+    auto found = std::find_if(backend.image_queues.begin(), backend.image_queues.end(),
+                              [&](const ImageQueue& q) { return q.queue == queue; });
+    if (found == backend.image_queues.end()) return VK_SUCCESS;
+    if (!backend.upload_queue) {
+        backend.upload_queue = queue;
+        backend.upload_queue_index = static_cast<uint32_t>(found - backend.image_queues.begin());
+    }
+    if (queue == backend.upload_queue) {
+        backend.images->submit_prepared(queue);
+        if (!backend.images_published && backend.images->stats().ready == backend.image_handles.size()) {
+            VkSubmitInfo publish{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            publish.signalSemaphoreCount = static_cast<uint32_t>(backend.image_signals.size());
+            publish.pSignalSemaphores = backend.image_signals.data();
+            const auto result = backend.device->d.QueueSubmit(queue, 1, &publish, backend.publication_fence);
+            if (result != VK_SUCCESS) { backend.note("material publication submission failed"); return result; }
+            backend.images_published.store(true, std::memory_order_release);
+        }
+    }
+    if (backend.images_published && !found->waited) {
+        VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        VkSubmitInfo wait{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        wait.waitSemaphoreCount = 1; wait.pWaitSemaphores = &found->semaphore; wait.pWaitDstStageMask = &stage;
+        const auto result = backend.device->d.QueueSubmit(queue, 1, &wait, found->fence);
+        if (result != VK_SUCCESS) { backend.note("material consumer queue wait failed"); return result; }
+        found->waited = true;
+        ++backend.image_queue_waits;
+    }
+    return VK_SUCCESS;
 }
 
 std::shared_ptr<CharacterBackend> character_create(Device* device, const VkPhysicalDeviceProperties& properties,
@@ -734,6 +833,11 @@ void character_status(CharacterBackend& backend, JsonWriter& w)
     w.kn("image_count", backend.image_handles.size());
     w.kn("image_resident_bytes", backend.image_budgets.resident->used());
     w.kb("dimension_zero_policy", backend.package.material_vendor != 0);
+    w.kn("material_graphics_queues", backend.device->material_queues.size());
+    w.kn("material_graphics_family", backend.device->material_family);
+    w.kn("image_upload_queue_index", backend.upload_queue_index.load());
+    w.kb("images_published", backend.images_published.load());
+    w.kn("image_queue_waits", backend.image_queue_waits.load());
     if (backend.images) {
         const auto stats = backend.images->stats();
         w.kn("images_ready", stats.ready); w.kn("images_failed", stats.failed);

@@ -6,11 +6,11 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. Source/build/next/dist are 0.9.6 with static whole-character materials. Full regression, actual-file/config sandbox checks and all 105 historical pipeline combinations pass. The user explicitly requested switching back to Vulkan; launcher values and probe configuration are deployed and backed up. Next is a user-started visual check of the entire outfit at LOD0/LOD1, including the 0.9.5 flicker fix. T-027 hosted frontend integration and T-028 static whole-character backend remain distinct; no new real-game acceptance yet.
+T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within their recorded scope. T-011's standard descriptor/resource paths are implemented. T-018 is complete for the display scene. The stutter fix remains 0.7.3's streaming loads; T-021 is withdrawn. The user-started 0.9.6 Vulkan session refused the character package at queue setup (BUG-008), leaving the original model. Source/build/next/dist 0.9.7 fix that restriction with multiple queues and explicit image publication; full regression, old-build control and actual-file/config checks pass. Deployed at 16:23 after the user's normal exit, with backups and exact file hashes. Next is a new user-started LOD0/LOD1 session. T-027 hosted integration and T-028 static backend remain distinct; real-character materials and the flicker fix are unverified.
 
 ## Tasks and follow-ups
 
-### T-028: Whole character from a static package (0.9.6 materials deployed; game check next)
+### T-028: Whole character from a static package (0.9.7 queue fix deployed; game check next)
 
 Requested by the user on 2026-10-13: replace everything, not one strip; the agent builds it. Step 1, meshes and shared bones with the game's textures, is built, verified in the sandbox and against saved frames, and deployed (`docs/character-backend.md`, D-035). The backend takes its draw lists from the hosted frontend's plans and its bone logic from `MergedSkeleton`; it adds identity, identification, coverage and hiding natively, following the core's INI.
 
@@ -19,7 +19,7 @@ Game session of 2026-10-13 (build 0.10.0 = 0.9.4): the character is drawn in the
 Next, after the actual DX11 capture of 2026-10-13:
 1. Complete: original LOD1 source capture, eight rules for the three missing fragments, both historical Vulkan frames agree. Audit and native material replay pass (359 accepted, eleven dimension refusals, no unknown profile). See docs/lod1-material-capture.md. No further LOD1 source capture is needed for these profiles.
 2. Complete offline and deployed in 0.9.6: static hosted pixel-binding plans, 20 exact fragment profiles, nine DDS files, shared ResourceCache, native material contracts and command-owned image snapshots. LIMIT-021 uses an explicit policy bound to the measured device. Full suite passes; native contracts cover 370 historical draws with no omissions, 105 pipelines create, actual configuration uploads all nine images through both entries. This does not complete hosted runtime integration. See docs/character-materials.md and D-037.
-3. Required next: the user starts Vulkan and shows the character. Verify loaded 0.9.6, image readiness, material/replacement and refusal/restoration counters; check whole-outfit textures, motion, LOD1 and the included 0.9.5 flicker fix. The user-authorized launcher switch is complete. DX11 capture and sandbox pixels do not verify this game result. A capture does not mark replaced draws (LIMIT-020).
+3. Actual 0.9.6 game result: PID 18868 loads the right DLL but refuses initialization at the one-graphics-queue requirement, with zero replacements/images. 0.9.7 supports multiple queues in one graphics family and publishes images through one-time semaphore waits. Full rebuilt suite passes, character hooks 261 across eighteen cases, actual nine DDS files pass with only queue 1 used, and both old entries reproduce the refusal. User exited normally; 0.9.7 deployed at 16:23 and actual-config smoke passes on dist. Required next: a new user-started Vulkan check of loaded version, queue/publication/image state, replacement/refusal/restoration counters, whole-outfit textures, motion, LOD1 and flicker. Launcher remains Vulkan. A capture still does not mark replaced draws (LIMIT-020).
 4. Generalizations the sample did not need: private set index from the layout (LIMIT-023), draws with several instances, a second mod at once.
 
 ### T-027: Data-driven character replacement and frontend integration (in progress)
@@ -263,7 +263,7 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 
 ## Waiting for the user
 
-- The user explicitly authorized the switch back to Vulkan after 0.9.6 offline verification. Deployment and launcher configuration are complete; wait for the user to start the game and show the character. Verify whole-character textures at LOD0/LOD1 and the earlier flicker fix. The agent must not start the session. No repeated bone capture, tiny-part visual check or duration-only test is required.
+- The 0.9.6 game session revealed a queue-initialization refusal. After normal exit, 0.9.7 was deployed and verified on dist. The user starts the next game session; the agent must not start it. Verify actual whole-character textures at LOD0/LOD1 and the earlier flicker fix. No repeated bone capture, tiny-part visual check or duration-only test is required.
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.

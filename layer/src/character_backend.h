@@ -7,7 +7,7 @@
 namespace efvk {
 class CharacterBackend;
 void character_device_setup(Device*, const VkDeviceCreateInfo*, VkInstance, PFN_vkGetInstanceProcAddr);
-void character_submit(CharacterBackend&, VkQueue);
+VkResult character_submit(CharacterBackend&, VkQueue);
 std::shared_ptr<CharacterBackend> character_create(Device*, const VkPhysicalDeviceProperties&,
                                                    const VkPhysicalDeviceMemoryProperties&);
 void character_stop(CharacterBackend&);

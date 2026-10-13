@@ -27,7 +27,7 @@ static void vkcheck(VkResult r, const char* name)
 
 #define INSTANCE_FUNCS(X) \
     X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) X(GetPhysicalDeviceQueueFamilyProperties) \
-    X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceFeatures) X(CreateDevice) X(GetDeviceProcAddr)
+    X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceFeatures) X(GetPhysicalDeviceFeatures2) X(CreateDevice) X(GetDeviceProcAddr)
 #define DEVICE_FUNCS(X) \
     EFVK_VARIANT_FUNCS(X) \
     X(DestroyDevice) X(GetDeviceQueue) X(DeviceWaitIdle) X(CreateImage) X(DestroyImage) \
@@ -67,6 +67,9 @@ public:
     VkPhysicalDevice physical = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     VkQueue queue = VK_NULL_HANDLE;
+    std::vector<VkQueue> queues;
+    uint32_t submit_kind = 0;
+    PFN_vkQueueSubmit2 Submit2 = nullptr;
     VkPhysicalDeviceProperties properties = {};
     VkPhysicalDeviceMemoryProperties memory = {};
     uint32_t family = 0;
@@ -109,14 +112,14 @@ public:
         if (instance) vkDestroyInstance(instance, nullptr);
     }
 
-    void init(bool enable_bc=false)
+    void init(bool enable_bc=false, uint32_t queue_count=1, uint32_t queue_index=0, uint32_t kind=0)
     {
         HMODULE lib = LoadLibraryW(L"vulkan-1.dll");
         if (!lib) throw std::runtime_error("Vulkan loader");
         auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(lib, "vkGetInstanceProcAddr"));
         auto create = reinterpret_cast<PFN_vkCreateInstance>(gipa(VK_NULL_HANDLE, "vkCreateInstance"));
         VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        app.pApplicationName = "efmi_vk_variant_gpu"; app.apiVersion = VK_API_VERSION_1_2;
+        app.pApplicationName = "efmi_vk_variant_gpu"; app.apiVersion = kind ? VK_API_VERSION_1_3 : VK_API_VERSION_1_2;
         const char* vvl = "VK_LAYER_KHRONOS_validation";
         const char* debug_ext = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
         VkDebugUtilsMessengerCreateInfoEXT debug = {VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
@@ -139,10 +142,11 @@ public:
         int score = -1;
         for (auto pd : devices) {
             VkPhysicalDeviceProperties props; vkGetPhysicalDeviceProperties(pd, &props);
-            if (props.apiVersion < VK_API_VERSION_1_2) continue;
+            if (props.apiVersion < app.apiVersion) continue;
             uint32_t n = 0; vkGetPhysicalDeviceQueueFamilyProperties(pd, &n, nullptr);
             std::vector<VkQueueFamilyProperties> families(n); vkGetPhysicalDeviceQueueFamilyProperties(pd, &n, families.data());
             for (uint32_t i = 0; i < n; i++) if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                if (families[i].queueCount < queue_count) continue;
                 int candidate = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2 : 1;
                 if (candidate > score) { physical = pd; family = i; properties = props; score = candidate; }
                 break;
@@ -150,18 +154,48 @@ public:
         }
         if (!physical) throw std::runtime_error("graphics device");
         vkGetPhysicalDeviceMemoryProperties(physical, &memory);
-        float priority = 1;
+        if (!queue_count || queue_count > 32 || queue_index >= queue_count) throw std::runtime_error("graphics queue selection");
+        std::vector<float> priorities(queue_count, 1.f);
         VkDeviceQueueCreateInfo q = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        q.queueFamilyIndex = family; q.queueCount = 1; q.pQueuePriorities = &priority;
+        q.queueFamilyIndex = family; q.queueCount = queue_count; q.pQueuePriorities = priorities.data();
         VkDeviceCreateInfo dc = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO}; dc.queueCreateInfoCount = 1; dc.pQueueCreateInfos = &q;
         VkPhysicalDeviceFeatures supported{},features{};
         if(enable_bc){vkGetPhysicalDeviceFeatures(physical,&supported);features.textureCompressionBC=supported.textureCompressionBC;dc.pEnabledFeatures=&features;}
+        VkPhysicalDeviceSynchronization2Features sync{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+        const char* sync_extension = VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME;
+        if (kind) {
+            VkPhysicalDeviceFeatures2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2}; query.pNext = &sync;
+            vkGetPhysicalDeviceFeatures2(physical, &query);
+            if (!sync.synchronization2) throw std::runtime_error("synchronization2 unsupported");
+            dc.pNext = &sync;
+            if (kind == 2) { dc.enabledExtensionCount = 1; dc.ppEnabledExtensionNames = &sync_extension; }
+        }
         VK(vkCreateDevice(physical, &dc, nullptr, &device));
 #define X(n) vk##n = reinterpret_cast<PFN_vk##n>(vkGetDeviceProcAddr(device, "vk" #n)); if (!vk##n) throw std::runtime_error("vk" #n);
         DEVICE_FUNCS(X)
 #undef X
-        vkGetDeviceQueue(device, family, 0, &queue);
+        for (uint32_t i = 0; i < queue_count; ++i) {
+            VkQueue handle = VK_NULL_HANDLE; vkGetDeviceQueue(device, family, i, &handle); queues.push_back(handle);
+        }
+        queue = queues[queue_index]; submit_kind = kind;
+        if (kind) {
+            Submit2 = reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(device, kind == 1 ? "vkQueueSubmit2" : "vkQueueSubmit2KHR"));
+            if (!Submit2) throw std::runtime_error("submission2 entry missing");
+        }
         printf("device: %s\n", properties.deviceName);
+    }
+
+    VkResult submit(VkCommandBuffer command = VK_NULL_HANDLE)
+    {
+        if (submit_kind) {
+            VkCommandBufferSubmitInfo cb{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO}; cb.commandBuffer = command;
+            VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+            submit.commandBufferInfoCount = command ? 1u : 0u; submit.pCommandBufferInfos = command ? &cb : nullptr;
+            return Submit2(queue, 1, &submit, VK_NULL_HANDLE);
+        }
+        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        submit.commandBufferCount = command ? 1u : 0u; submit.pCommandBuffers = command ? &command : nullptr;
+        return vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE);
     }
 
     VkDeviceMemory allocate(const VkMemoryRequirements& requirements, VkMemoryPropertyFlags flags)
@@ -210,10 +244,10 @@ static void run_character_assets(Gpu& g,uint32_t expected)
     auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(15);
     bool ready=false;
     do{
-        VK(vkQueueSubmit(g.queue,0,nullptr,VK_NULL_HANDLE));
+        VK(g.submit());
         Sleep(10);
         const auto status=self_probe("{\"cmd\":\"status\"}","character-assets.json");
-        ready=status.find(marker)!=std::string::npos;
+        ready=status.find(marker)!=std::string::npos && status.find("\"images_published\":true")!=std::string::npos;
     }while(!ready && std::chrono::steady_clock::now()<deadline);
     check(ready,"actual character DDS files reach Ready through the layer's queue service");
     VK(vkDeviceWaitIdle(g.device));
@@ -471,8 +505,9 @@ static void run(Gpu& g, bool use_rp2,bool material)
 
 int wmain(int argc, wchar_t** argv)
 {
-    bool rp2 = false, canary = false, m2 = false, material=false, character=false, reject_late=false;
+    bool rp2 = false, canary = false, m2 = false, material=false, character=false, reject_late=false, split_queues=false;
     uint32_t character_assets=0;
+    uint32_t graphics_queues=1, queue_index=0, submit_kind=0;
     for (int i = 1; i < argc; i++) {
         if (!wcscmp(argv[i], L"--inject") && i + 1 < argc) {
             if (!LoadLibraryW(argv[++i])) return 2;
@@ -483,9 +518,20 @@ int wmain(int argc, wchar_t** argv)
         else if (!wcscmp(argv[i], L"--material")) material = true;
         else if (!wcscmp(argv[i], L"--character-reject-late")) reject_late = true;
         else if (!wcscmp(argv[i], L"--character-assets") && i+1<argc) character_assets=static_cast<uint32_t>(_wtoi(argv[++i]));
+        else if (!wcscmp(argv[i], L"--graphics-queues") && i+1<argc) graphics_queues=static_cast<uint32_t>(_wtoi(argv[++i]));
+        else if (!wcscmp(argv[i], L"--queue-index") && i+1<argc) queue_index=static_cast<uint32_t>(_wtoi(argv[++i]));
+        else if (!wcscmp(argv[i], L"--submit2")) submit_kind=1;
+        else if (!wcscmp(argv[i], L"--submit2-khr")) submit_kind=2;
+        else if (!wcscmp(argv[i], L"--split-material-queues")) split_queues=true;
     }
     try {
-        Gpu g; g.init(character_assets!=0);
+        Gpu g; g.init(character_assets!=0,graphics_queues,queue_index,submit_kind);
+        if (split_queues) {
+            if (!character || !material || g.queues.size()!=2) throw std::runtime_error("split material fixture requires two queues");
+            // Upload the layer's images on queue 0, then create all application scene
+            // resources on queue 1. No application semaphore hides a missing layer dependency.
+            g.queue=g.queues[0]; run_character_assets(g,2); g.queue=g.queues[1];
+        }
         if (canary) {
             VkBufferCreateInfo bad = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO}; bad.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
             VkBuffer handle = VK_NULL_HANDLE;

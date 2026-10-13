@@ -199,8 +199,8 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         barrier.dstAccessMask=VK_ACCESS_HOST_READ_BIT;barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
         barrier.buffer=readback.handle;barrier.size=VK_WHOLE_SIZE;
         vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_HOST_BIT,0,0,nullptr,1,&barrier,0,nullptr);
-        VK(vkEndCommandBuffer(cmd));VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&cmd;
-        VK(vkQueueSubmit(g.queue,1,&submit,VK_NULL_HANDLE));VK(vkQueueWaitIdle(g.queue));
+        VK(vkEndCommandBuffer(cmd));
+        VK(g.submit(cmd));VK(vkQueueWaitIdle(g.queue));
         // There is no swapchain here: tell the backend that a frame with draws ended.
         self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
     };
@@ -269,8 +269,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     check(replaced(-.6f),"command-pool reset recycles the shared snapshots");
     if(material){
         self_probe("{\"cmd\":\"m2\",\"enabled\":0}","character-resubmit-disabled.json");
-        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&cmd;
-        VK(vkQueueSubmit(g.queue,1,&submit,VK_NULL_HANDLE));VK(vkQueueWaitIdle(g.queue));
+        VK(g.submit(cmd));VK(vkQueueWaitIdle(g.queue));
         check(replaced(-.6f),"sealed shared bone and image snapshots survive command resubmission after runtime disable");
         self_probe("{\"cmd\":\"m2\",\"enabled\":1}","character-resubmit-enabled.json");
     }

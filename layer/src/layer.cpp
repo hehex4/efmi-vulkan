@@ -820,7 +820,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
 {
     count_call(HI_QueueSubmit);
     Device* dev = dev_of(queue);
-    if (dev->character) character_submit(*dev->character, queue);
+    if (dev->character) {
+        const auto result = character_submit(*dev->character, queue);
+        if (result != VK_SUCCESS) return result;
+    }
     for (uint32_t i = 0; i < count; i++) {
         m2_seal(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
         on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
@@ -845,7 +848,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, co
     count_call(HI_QueueSubmit2);
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
-    if (dev->character) character_submit(*dev->character, queue);
+    if (dev->character) {
+        const auto result = character_submit(*dev->character, queue);
+        if (result != VK_SUCCESS) return result;
+    }
     return dev->d.QueueSubmit2(queue, count, submits, fence);
 }
 
@@ -854,7 +860,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count,
     count_call(HI_QueueSubmit2KHR);
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
-    if (dev->character) character_submit(*dev->character, queue);
+    if (dev->character) {
+        const auto result = character_submit(*dev->character, queue);
+        if (result != VK_SUCCESS) return result;
+    }
     return dev->d.QueueSubmit2KHR(queue, count, submits, fence);
 }
 

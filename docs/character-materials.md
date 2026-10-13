@@ -1,10 +1,75 @@
-# Static whole-character materials (0.9.6)
+# Static whole-character materials (0.9.6; queue fix 0.9.7)
 
 The static character backend now replaces meshes, shared bones and pixel images for
 one fixed scenario, at LOD0 and LOD1. It uses the original hosted callback plans,
 verified exact-fragment correspondences and the existing shared resource, variant
 and snapshot helpers. There are no component-specific material branches. This
 extends D-035; it does not complete the hosted runtime in T-027.
+
+## Game initialization refusal and 0.9.7
+
+The user-started Vulkan session of 2026-10-13, PID 18868, loaded 0.9.6 at 15:56
+but displayed the original character. The actual layer log says
+`character package refused: materials require one unprotected graphics queue`.
+Live status confirms configured/enabled/ready false, replaced zero and image_count
+zero. Initialization refused before either the mesh or textures prepared; this
+was not an unknown shader or incorrect asset path. Evidence:
+`captures/materials-0.9.6-20261013/`. The old status did not retain the actual
+requested queue counts, so no exact count is claimed for that session.
+
+0.9.7 accepts up to 32 enabled queues in one unprotected graphics family. It
+retrieves all their actual handles and uses the first active queue as the single
+uploader. No worker submits to an application's queue. Once all immutable images
+are Ready, that queue submits one publication signal per graphics queue. Each
+consumer queue inserts its own one-time wait before forwarding application work.
+Only after the signals have been submitted can recording retain image views.
+Thus the replacement does not depend on queue 0 being used or on an application
+semaphore accidentally ordering the layer's uploads. Images stay in the same
+queue family; multiple graphics families and protected queues still refuse.
+
+The signal scope includes earlier queue work and the wait scope includes later
+work, with ALL_COMMANDS as its destination stage; see the primary
+[vkQueueSubmit synchronization rules](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueueSubmit.html).
+Submission failures propagate through all three hooked submit entries. Semaphore
+and fence storage is allocated at setup and drained only at device shutdown.
+The draw and submit paths do not wait for a fence or queue idle. The chosen
+uploader must continue submitting while files are being prepared; the backend
+does not move uploads to another queue midway through initialization.
+
+New status fields are material_graphics_queues, material_graphics_family,
+image_upload_queue_index, images_published and image_queue_waits. Initialization
+also logs each requested graphics family's queue count and flags.
+
+Verification of 0.9.7 is sandbox only so far:
+
+- Complete rebuilt suite passes, `build/material-0.9.7-regression.txt`. Character
+  hook coverage increases from 127 to 261 checks across eighteen runs. The added
+  cases use only queue 1 while queue 0 stays unused, and upload on queue 0 then
+  create/draw the application scene on queue 1. Both DLL entries pass with legacy
+  QueueSubmit, core QueueSubmit2 and QueueSubmit2KHR, clean core/sync validation,
+  material pixels, original state restoration and sealed resubmission.
+- The same two-queue scene against both old 0.9.6 DLL entries reproduces the game's
+  initialization refusal, with zero replacement and zero textures. The original
+  scene is still drawn, validation is clean. Control evidence:
+  `build/material-queues-0.9.6-control.json`.
+- Actual candidate configuration and nine real DDS files pass through both 0.9.7
+  entries with two enabled queues, only queue 1 active: nine reads/submissions,
+  nine Ready, published true, one queue wait, zero failures and 216,268,800
+  resident image bytes. Report: `build/character-assets-config-next-0.9.7.json`.
+- Both candidate DLLs SHA-256:
+  `3ff4517d29ac23cdd877b45f34f777f2146391488955d91f6eb181b40e02995d`.
+  No package, installed mod, launcher value or system setting changed in the fix.
+
+The user then exited normally. Repeated complete process checks found neither
+game nor launcher. At 16:23, thirteen verified files were backed up to
+`build/backups/before-0.9.7-20261013-162318/` and copied to dist with exact hash
+comparison. Actual-config two-queue smoke passes again through both deployed
+entries (`build/character-assets-config-dist-0.9.7.json`). The historical game log
+and launcher bytes are unchanged; launcher stays Vulkan. Manifest:
+`build/deployment-0.9.7.json`. The full suite ran on identical candidate bytes.
+The user starts again; image publication and actual character appearance must be
+checked in that new process. A queue that is enabled but never used need not
+increment image_queue_waits.
 
 ## Package and contracts
 
@@ -60,8 +125,9 @@ successful Vulkan pipeline construction establishes the actual game's pixels.
 
 ResourceCache reads and prepares the files off the recording thread. Only the
 application's graphics-queue submission hook calls `submit_prepared`; the worker
-never submits concurrently to the application's queue. This path currently
-requires exactly one enabled unprotected graphics queue. Format support and BC
+never submits concurrently to the application's queue. 0.9.6 required exactly one
+enabled graphics queue; 0.9.7 adds the family-wide publication described above.
+Format support and BC
 compression use the physical device's properties and the features actually
 enabled at device creation.
 
@@ -82,7 +148,7 @@ Status adds `materials`, `material_profiles`, `image_count`, `images_ready`,
 and `dimension_zero_policy`. New counters are `refused_material`, `refused_image`,
 `image_pending`, `material_items` and `dimension_zero_items`.
 
-## Verification and deployment
+## Historical 0.9.6 verification and deployment
 
 - Full rebuilt suite in `build/next` passes:
   `build/material-0.9.6-regression-final.txt`. Character decoder/preparation 67,
@@ -123,10 +189,11 @@ and `dimension_zero_policy`. New counters are `refused_material`, `refused_image
   `build/character-assets-config-dist-0.9.6.json`. The historical game log is
   unchanged. The full suite was not repeated on identical deployed bytes.
 
-The deployed settings are probe mode, resources on, image hashing and tracker
-profiling off, `m2_enabled = 1`, and the new material package. No game was started
-by the agent. Next, the user starts Vulkan and shows the character: verify loaded
-0.9.6, image readiness, growing replacement/material counters, settled pending
-counts and any refusal reason. Check whole-outfit appearance and motion at LOD0
-and LOD1, including the earlier flicker fix. Static materials and the 0.9.5 fix
-have no new real-game acceptance yet. No long-duration or LOD2+ test is required.
+The settings are probe mode, resources on, image hashing and tracker
+profiling off, `m2_enabled = 1`, and the material package. The first user-started
+0.9.6 session refused initialization as recorded above. After the 0.9.7 update,
+verify its loaded version, image readiness/publication, replacement/material
+counters, settled pending counts and any refusal reason. Check whole-outfit
+appearance and motion at LOD0 and LOD1, including the earlier flicker fix. Neither
+static materials nor that fix has visual game acceptance yet. No long-duration
+or LOD2+ test is required.

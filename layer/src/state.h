@@ -405,10 +405,11 @@ struct Device {
     DeviceDispatch d;
     std::shared_ptr<M2Backend> m2;
     std::shared_ptr<CharacterBackend> character;
-    // Static material uploads use exactly one unprotected graphics queue. The application
-    // serializes it; uploads are submitted only inside its submission hooks.
-    VkQueue material_queue = VK_NULL_HANDLE;
+    // Queues in one unprotected graphics family. Uploads use the first active queue;
+    // one-time semaphore waits publish immutable images to every other graphics queue.
+    std::vector<VkQueue> material_queues;
     uint32_t material_family = 0;
+    std::string material_queue_reason;
     bool material_bc_enabled = false;
     PFN_vkGetPhysicalDeviceFormatProperties material_format_properties = nullptr;
     PFN_vkGetPhysicalDeviceImageFormatProperties material_image_properties = nullptr;

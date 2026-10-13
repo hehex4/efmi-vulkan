@@ -96,8 +96,11 @@ def main():
     checks.equal(proc.returncode, 0, "native package decoding and declaration tests")
     validation = os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
     for entry in ("layer", "inject"):
-        for rp, material, reject_late in ((1, False, False), (2, False, False),
-                                         (1, True, False), (2, True, False), (1, True, True)):
+        for rp, material, reject_late, queue_case, submit_kind in (
+                (1, False, False, "single", 0), (2, False, False, "single", 0),
+                (1, True, False, "single", 0), (2, True, False, "single", 0), (1, True, True, "single", 0),
+                (1, True, False, "second-only", 0),
+                (1, True, False, "split", 0), (2, True, False, "split", 1), (1, True, False, "split", 2)):
             folder = Path(test_dir("character-"))
             package = folder / "character.bin"
             fixture_package(package)
@@ -105,7 +108,7 @@ def main():
                 material_package(package, reject_late)
             inspect = subprocess.run([os.path.join(DIST, "efmi_vk_character_test.exe"), "--inspect", str(package)],
                                      cwd=folder, capture_output=True, text=True, timeout=30)
-            label = f"{entry}/renderpass{rp}/materials={material}/late-refusal={reject_late}"
+            label = f"{entry}/renderpass{rp}/materials={material}/late-refusal={reject_late}/queues={queue_case}/submit={submit_kind}"
             checks.check(inspect.returncode == 0 and json.loads(inspect.stdout or "{}").get("required") == [1, 1, 3, 3, 0, 0],
                          label + " fixture accepted; draw lists require the components they read")
             env = layer_env(str(folder / "layer.log")) if entry == "layer" else inject_env(str(folder / "layer.log"))
@@ -117,6 +120,11 @@ def main():
                 args.append("--material")
             if reject_late:
                 args.append("--character-reject-late")
+            if queue_case != "single":
+                args += ["--graphics-queues", "2"]
+                args += ["--queue-index", "1"] if queue_case == "second-only" else ["--split-material-queues"]
+            if submit_kind:
+                args.append("--submit2" if submit_kind == 1 else "--submit2-khr")
             if entry == "inject":
                 args.extend(["--inject", INJECT_DLL])
             if rp == 2:
@@ -140,6 +148,10 @@ def main():
                              r["image_file_reads"] == 2 and r["image_submissions"] == 2,
                              label + " each DDS decoded and uploaded once by the layer")
                 checks.check(c["material_items"] > 0, label + " shader material changes emitted through real hooks")
+                checks.check(r["images_published"] and r["material_graphics_queues"] == (1 if queue_case == "single" else 2) and
+                             r["image_queue_waits"] == (2 if queue_case == "split" else 1) and
+                             r["image_upload_queue_index"] == (1 if queue_case == "second-only" else 0),
+                             label + " image publication reaches every used queue, including a nonzero uploader")
             if reject_late:
                 checks.check(c["refused_material"] > 0 and c["replaced"] > 0 and c["hidden"] > 0,
                              label + " late refusal counted while independent components still replace")

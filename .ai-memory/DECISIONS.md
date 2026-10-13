@@ -296,3 +296,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Workers prepare uploads; only the application's graphics-queue hook submits them, using exactly one enabled unprotected graphics queue. Device features and loader dispatch initialization are taken from the actual creation chain.
 - Full rebuilt regression, historical native contracts/pipeline construction and actual-file/config smoke precede deployment. The user starts the real game. The 0.9.5 flicker fix and all 0.9.6 material appearance stay unverified there until that session.
 
+## D-038: Publish immutable character images to every enabled graphics queue
+
+- Date: 2026-10-13, after 0.9.6 refused graphics-queue setup in the user's real Vulkan session (BUG-008).
+- Support all queues of one unprotected graphics family rather than assuming that only one queue is created or that queue index 0 is active. Keep one uploader, selected from the application's actual submission hooks, and retain ResourceCache's single-queue submission contract. Other families/protected arrangements remain explicit refusals.
+- After every static image is Ready, enqueue one semaphore signal per graphics queue on the uploader. Only then permit command recording to retain those images. Before forwarding each consumer queue's first application submission, enqueue its one-time wait at ALL_COMMANDS. This supplies cross-queue visibility instead of assuming application synchronization covers private uploads.
+- Semaphore/fence allocation belongs to setup, workers never submit to application queues, and no fence or idle wait is added to draw/submission. Shutdown drains outstanding publication objects. Submission errors propagate through legacy, core Submit2 and KHR Submit2 hooks.
+- New regression must reproduce the old refusal and prove queue-1-only and separate-upload/render behavior through both entries and all submit APIs. Actual-file/config smoke includes multiple enabled queues. Offline success still does not establish game appearance or the earlier flicker fix.
+
