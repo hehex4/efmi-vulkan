@@ -37,7 +37,7 @@ struct Device {
     PFN_vkDeviceWaitIdle wait_idle=nullptr;PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     ~Device(){if(resource.device){wait_idle(resource.device);destroy_device(resource.device,nullptr);}
         if(messenger)destroy_debug(instance,messenger,nullptr);if(instance)destroy_instance(instance,nullptr);}
-    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false){
+    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -77,6 +77,8 @@ struct Device {
         resource.enabled_features.textureCompressionASTC_LDR=features.textureCompressionASTC_LDR;
         resource.enabled_features.imageCubeArray=features.imageCubeArray;
         resource.enabled_features.shaderStorageImageMultisample=features.shaderStorageImageMultisample;
+        if(geometry){check(features.geometryShader && features.depthClamp,"Requested geometry and depth clamp features available");
+            resource.enabled_features.geometryShader=VK_TRUE;resource.enabled_features.depthClamp=VK_TRUE;}
         float priority=1;VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=resource.queue_family;q.queueCount=1;q.pQueuePriorities=&priority;
         VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};dc.queueCreateInfoCount=1;dc.pQueueCreateInfos=&q;
         dc.pEnabledFeatures=&resource.enabled_features;
@@ -1349,6 +1351,8 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_graphics_state_cases.h"
 #include "resource_graphics_cases.h"
 #include "resource_ini_graphics_cases.h"
+#include "resource_geometry_cases.h"
+#include "resource_text_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1378,7 +1382,8 @@ int wmain(int argc,wchar_t** argv){
         graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();owned_graphics(device,root/"owned-graphics");
         original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
         original_ini_graphics_sampling(device,root/"ini-graphics-sampling");original_ini_graphics_state_pixels(device,root/"ini-graphics-state");
-        original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");}
+        original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");
+        original_ini_geometry(device,root/"ini-geometry");original_core_text(root/"core-text");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

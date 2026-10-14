@@ -302,3 +302,38 @@ point/line raster rules, depth bias, multisampling, comparison sampling, null
 resource emulation and attachment-free graphics. Source state validity beyond the
 measured cases remains a compatibility boundary, not a full native fallback proof.
 No game input needed; continue without stopping. PNG paused; LOD0/LOD1 only.
+
+
+## Owned geometry and original Core text (verified candidate1.2.5)
+
+Original CustomShader now executes VS/GS/PS on owned resources. Point, line and
+triangle assembly feed triangle-strip geometry output; actual geometryShader,
+depthClamp, scalar-layout and draw-parameter enablement are checked. Geometry
+primitive compatibility, invocation/output counts and component limits refuse
+before Vulkan pipeline creation. The last raster stage must provide position.
+Descriptors remain stage-specific and submission-retained. Tessellation, geometry
+point/line output, adjacency and standalone point raster rules remain explicit.
+
+The unchanged installed TextPrinter.hlsl and LiberationSans-Bold.dds now run
+through original INI resource/compute/graphics commands in the headless sandbox.
+Three cases cover ordinary text, newline/wrapping/DPI/centering, and70-character
+right/bottom alignment across the64-character geometry chunk boundary. Native
+DX11 WARP agrees on exact chunk start/count fields; maximum floating position
+and RGBA differences are5.96046448e-08 (test tolerance1e-6). Visible glyph/background
+assertions prevent an empty-image false pass. Native default alpha blending is
+ONE/ZERO when only the RGB blend key is set. Scalar stride72 requires enablement.
+This is the original HLSL/font with controlled owned fixtures, not the complete
+Core INI, application backbuffer/window integration or a game rendering result.
+
+Full frozen-source rebuild/regression:build/next/run_all-1.2.5.out exit0, all
+steps pass. Resources5644, compiler172/58 valid, full directory37/37 programs,
+zero core/sync errors/warnings through shutdown;84 resource,9 compiler,12 corpus
+source hashes match. Installed shader/font and corpus sources unchanged.
+Dist1.0.2 unchanged; no game/deployment/launcher/system action.
+
+Continue1.2.6 with owned input layouts and original layout-edit lifetime, then
+remaining shader/state/resource and matching/directory/application integration.
+Independent native probes confirm layouts retain their creation-signature
+register map, even after switching VS; APPEND alignment and native failure rules
+are recorded in docs/input-layout-audit.md. These probes are not Vulkan layout
+execution yet. No game input needed; keep going. PNG paused, LOD0/LOD1 only.

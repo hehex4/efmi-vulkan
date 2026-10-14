@@ -529,3 +529,17 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   layout options rather than treating relaxed validation as device enablement.
 - Full-directory compilation, owned shader execution and application/game
   rendering remain separate milestones. Continue execution work after the audit.
+
+
+## D-055: Validate owned geometry with unchanged Core HLSL and native output
+
+- Date:2026-10-14, candidate1.2.5. Use actual enabled geometry/layout/raster
+  features, primitive modes and bounded interface/output limits. Geometry-stage
+  storage belongs to vertexPipelineStoresAndAtomics; stage resource slots remain
+  distinct. Last-stage position is required before rasterization.
+- Reuse the original installed TextPrinter source and font as read-only inputs.
+  Compare actual compute chunk records and rendered glyphs to native WARP; permit
+  only bounded floating arithmetic/blend rounding (1e-6, observed5.96e-08), with
+  exact integer chunk fields and nonempty foreground/background checks.
+- Original HLSL execution in controlled owned fixtures is distinct from complete
+  Core INI/window/backbuffer integration and real-game rendering. Continue offline.

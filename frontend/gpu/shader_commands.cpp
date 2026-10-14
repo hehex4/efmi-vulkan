@@ -32,6 +32,7 @@ void shader_capabilities(const HlslProgram& program,const ShaderDevice& device){
         case SpvCapabilitySampledBuffer:case SpvCapabilityImageBuffer:case SpvCapabilityImageQuery:
         case SpvCapabilityImageMSArray:case SpvCapabilityAtomicStorage:supported=true;break;
         case SpvCapabilityDrawParameters:supported=device.host.shader_draw_parameters;break;
+        case SpvCapabilityGeometry:supported=f.geometryShader;break;
         case SpvCapabilityFloat64:supported=f.shaderFloat64;break;
         case SpvCapabilityInt64:supported=f.shaderInt64;break;
         case SpvCapabilityInt16:supported=f.shaderInt16;break;

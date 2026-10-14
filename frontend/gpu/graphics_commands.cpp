@@ -1,6 +1,7 @@
 #include "shader_commands_internal.h"
 #include "graphics_link.h"
 #include "image_formats.h"
+#include <spirv_reflect.h>
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -14,7 +15,7 @@ void state_valid(const GraphicsDescription& s,const ShaderDevice& d){
     const auto& l=d.host.properties.limits;const auto& f=d.resource.enabled_features;
     require(s.colors.size()<=l.maxColorAttachments && s.colors.size()<=8 && s.blend.size()==s.colors.size(),"Graphics color attachment count invalid");
     require(s.samples && !(uint32_t(s.samples)&(uint32_t(s.samples)-1)) && uint32_t(s.samples)<=64,"Graphics sample count invalid");
-    require(s.topology==VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST || s.topology==VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP ||
+    require(s.topology==VK_PRIMITIVE_TOPOLOGY_POINT_LIST || s.topology==VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST || s.topology==VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP ||
         s.topology==VK_PRIMITIVE_TOPOLOGY_LINE_LIST || s.topology==VK_PRIMITIVE_TOPOLOGY_LINE_STRIP,"Graphics topology requires another stage/raster adapter");
     require(!s.primitive_restart || s.topology==VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP || s.topology==VK_PRIMITIVE_TOPOLOGY_LINE_STRIP,"Primitive restart requires strip topology");
     const auto& r=s.raster;
@@ -77,14 +78,24 @@ const std::vector<HlslProgram>& GraphicsPipeline::programs() const {return impl_
 Graphics ShaderCommands::compile_graphics(const std::vector<HlslProgram>& programs,const GraphicsDescription& state){
     const auto d=impl_->device;require(d->resource.queue_flags&VK_QUEUE_GRAPHICS_BIT,"Graphics requires an owned graphics queue");
     state_valid(state,*d);auto linked=link_graphics(programs,d->host.maintenance4);
-    require(linked.size()<=2 && (linked.size()==1 || linked.back().stage==VK_SHADER_STAGE_FRAGMENT_BIT),"Geometry/tessellation execution needs another graphics adapter");
+    bool geometry=false;for(const auto& program:linked){
+        require(program.stage==VK_SHADER_STAGE_VERTEX_BIT || program.stage==VK_SHADER_STAGE_GEOMETRY_BIT || program.stage==VK_SHADER_STAGE_FRAGMENT_BIT,
+            "Tessellation execution needs another graphics adapter");
+        if(program.stage==VK_SHADER_STAGE_GEOMETRY_BIT){geometry=true;
+            require(d->resource.enabled_features.geometryShader,"Geometry shader feature was not enabled");
+            validate_geometry(program,state.topology,d->host.properties.limits);}
+    }
+    require(geometry || state.topology!=VK_PRIMITIVE_TOPOLOGY_POINT_LIST,"Vertex point output needs source point-size lowering");
+    const auto& raster_stage=linked.back().stage==VK_SHADER_STAGE_FRAGMENT_BIT?linked[linked.size()-2]:linked.back();
+    require(state.raster.rasterizerDiscardEnable || std::any_of(raster_stage.outputs.begin(),raster_stage.outputs.end(),
+        [](const auto& value){return value.builtin==SpvBuiltInPosition;}),"Rasterized graphics requires position from the last pre-raster stage");
     auto result=std::make_shared<ShaderPipelineState>(d);result->programs=std::move(linked);result->graphics=state;result->is_graphics=true;
     for(const auto& program:result->programs){require(program.vulkan_version<=d->resource.api_version,"Graphics shader target exceeds this device");
         shader_capabilities(program,*d);d->validate(program);auto usage=shader_usage(program);
         require(!usage.workgroup_bytes,"Graphics stage declares compute workgroup storage");
         result->usage.sampled_pairs.insert(result->usage.sampled_pairs.end(),usage.sampled_pairs.begin(),usage.sampled_pairs.end());
-        for(const auto& b:program.bindings)if(b.source_type=='u')require(program.stage==VK_SHADER_STAGE_VERTEX_BIT?
-            d->resource.enabled_features.vertexPipelineStoresAndAtomics:d->resource.enabled_features.fragmentStoresAndAtomics,
+        for(const auto& b:program.bindings)if(b.source_type=='u')require(program.stage==VK_SHADER_STAGE_FRAGMENT_BIT?
+            d->resource.enabled_features.fragmentStoresAndAtomics:d->resource.enabled_features.vertexPipelineStoresAndAtomics,
             "Graphics UAV use requires enabled stage storage features");
         if(program.stage==VK_SHADER_STAGE_FRAGMENT_BIT)for(const auto& output:program.outputs)
             if(output.builtin==UINT32_MAX && output.location<state.colors.size() && state.colors[output.location])

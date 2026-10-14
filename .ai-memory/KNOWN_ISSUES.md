@@ -555,3 +555,13 @@ CPU payload and repeated comparison-op scans still need review before broad use.
 Application state import, source shader matching, complete directory scheduling
 and actual game command placement remain separate work. Do not infer all-INI
 compatibility from parser or owned graphics success. PNG remains paused.
+
+
+LIMIT-032 follow-up1.2.5: owned geometry now accepts point/line/triangle input
+with triangle-strip output and enabled features/limits. Original TextPrinter
+HLSL/font executes against owned sandbox resources with native pixel/formatter
+comparisons, including scalar stride72 and unclipped packed z/w. The full Core
+INI, application backbuffer/window queries and real placement are not proven.
+Input layouts/edits remain next; docs/input-layout-audit.md records native
+creation-register matching and lifetime behavior. Do not restore edited layouts
+at each CustomShader or reinterpret valid large native offsets as creation failure.

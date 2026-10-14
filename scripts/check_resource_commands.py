@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from build import find_vcvars, run_cl
@@ -18,9 +19,16 @@ from generate_image_formats import verify as verify_image_formats
 def main() -> int:
     out = ROOT / "build/resource-commands"
     out.mkdir(parents=True, exist_ok=True)
-    report = {"scope": "owned original INI resources/compute/VS-PS graphics with native DX11 references; no application import or game integration", "passed": False}
+    report = {"scope": "owned original INI resources/compute/VS-GS-PS graphics and original Core HLSL with native DX11 references; no application import or game integration", "passed": False}
     try:
         verify_image_formats()
+        core = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Core/EFMI")
+        original_inputs = {core / "Shaders/TextPrinter.hlsl": "text.hlsl", core / "Fonts/LiberationSans-Bold.dds": "font.dds"}
+        report["installed_source_sha256"] = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in original_inputs}
+        copied = out / "fixture/core-text/source"
+        copied.mkdir(parents=True, exist_ok=True)
+        for original, name in original_inputs.items():
+            shutil.copyfile(original, copied / name)
         from check_panel_hlsl import DXC, SPIRV
         shader = ROOT / "sandbox/shaders/parameters.hlsl"
         spirv = out / "parameters.spv"
@@ -56,6 +64,8 @@ def main() -> int:
                             ROOT / "sandbox/resource_graphics_state_cases.h",
                             ROOT / "sandbox/resource_graphics_cases.h",
                             ROOT / "sandbox/resource_ini_graphics_cases.h",
+                            ROOT / "sandbox/resource_geometry_cases.h",
+                            ROOT / "sandbox/resource_text_cases.h",
                             shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))
@@ -79,6 +89,9 @@ def main() -> int:
         match = re.search(r"resource_gpu: (\d+) checks passed; validation errors=(\d+) warnings=(\d+)", output)
         report.update(returncode=result.returncode, checks=int(match[1]) if match else 0)
         report["passed"] = result.returncode == 0 and bool(match) and match[2] == match[3] == "0"
+        report["installed_sources_unchanged"] = all(hashlib.sha256(Path(p).read_bytes()).hexdigest() == digest
+                                                   for p, digest in report["installed_source_sha256"].items())
+        report["passed"] = report["passed"] and report["installed_sources_unchanged"]
         print(match[0] if report["passed"] else output[-6000:])
     except Exception as e:
         report["error"] = str(e)

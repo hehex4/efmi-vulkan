@@ -7,6 +7,7 @@ struct GraphicsReferenceOptions {
     std::vector<uint32_t> indices;
     uint32_t first_index=0;
     int32_t base_vertex=0;
+    uint32_t width=4,height=4; // Native reference target; legacy independent Vulkan host is 4x4.
 };
 struct LinkedGraphicsConsumer {
     Device& device;
@@ -105,7 +106,7 @@ static std::vector<uint8_t> native_linked_graphics(const gpu::HlslProgram& verte
     ImageNativeReference::Ptr<ID3D11VertexShader> vs;ImageNativeReference::Ptr<ID3D11PixelShader> ps;
     check(SUCCEEDED(d->CreateVertexShader(vertex.dxbc.data(),vertex.dxbc.size(),nullptr,&vs)) &&
         SUCCEEDED(d->CreatePixelShader(pixel.dxbc.data(),pixel.dxbc.size(),nullptr,&ps)),"Native original graphics shaders");
-    D3D11_TEXTURE2D_DESC desc{4,4,1,1,DXGI_FORMAT_R32G32B32A32_FLOAT,{1,0},D3D11_USAGE_DEFAULT,D3D11_BIND_RENDER_TARGET,0,0};
+    D3D11_TEXTURE2D_DESC desc{options.width,options.height,1,1,DXGI_FORMAT_R32G32B32A32_FLOAT,{1,0},D3D11_USAGE_DEFAULT,D3D11_BIND_RENDER_TARGET,0,0};
     ImageNativeReference::Ptr<ID3D11Texture2D> image,read;ImageNativeReference::Ptr<ID3D11RenderTargetView> rtv;ImageNativeReference::Ptr<ID3D11RasterizerState> raster;
     check(SUCCEEDED(d->CreateTexture2D(&desc,nullptr,&image)) && SUCCEEDED(d->CreateRenderTargetView(image.Get(),nullptr,&rtv)),"Native graphics output");
     desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
@@ -114,7 +115,7 @@ static std::vector<uint8_t> native_linked_graphics(const gpu::HlslProgram& verte
     rs.FrontCounterClockwise=options.front_ccw;rs.DepthClipEnable=TRUE;
     check(SUCCEEDED(d->CreateRasterizerState(&rs,&raster)),"Native graphics raster state");
     auto* target=rtv.Get();const float zero[4]={};c->ClearRenderTargetView(target,zero);c->OMSetRenderTargets(1,&target,nullptr);
-    c->RSSetState(raster.Get());D3D11_VIEWPORT viewport{0,0,4,4,0,1};c->RSSetViewports(1,&viewport);
+    c->RSSetState(raster.Get());D3D11_VIEWPORT viewport{0,0,float(options.width),float(options.height),0,1};c->RSSetViewports(1,&viewport);
     c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);c->VSSetShader(vs.Get(),nullptr,0);c->PSSetShader(ps.Get(),nullptr,0);
     if(setup)setup(d,c);
     ImageNativeReference::Ptr<ID3D11Buffer> indices;
@@ -123,7 +124,8 @@ static std::vector<uint8_t> native_linked_graphics(const gpu::HlslProgram& verte
         c->IASetIndexBuffer(indices.Get(),DXGI_FORMAT_R32_UINT,0);c->DrawIndexedInstanced(options.count,options.instances,options.first_index,options.base_vertex,options.first_instance);}
     else c->DrawInstanced(options.count,options.instances,options.first_vertex,options.first_instance);c->CopyResource(read.Get(),image.Get());
     D3D11_MAPPED_SUBRESOURCE mapped{};check(SUCCEEDED(c->Map(read.Get(),0,D3D11_MAP_READ,0,&mapped)),"Native graphics pixels");
-    std::vector<uint8_t> bytes(4*4*16);for(unsigned y=0;y<4;++y)memcpy(bytes.data()+y*64,static_cast<const uint8_t*>(mapped.pData)+y*mapped.RowPitch,64);
+    std::vector<uint8_t> bytes(size_t(options.width)*options.height*16);for(unsigned y=0;y<options.height;++y)
+        memcpy(bytes.data()+size_t(y)*options.width*16,static_cast<const uint8_t*>(mapped.pData)+y*mapped.RowPitch,size_t(options.width)*16);
     c->Unmap(read.Get(),0);return bytes;
 }
 static void graphics_link_pixels(Device& d,const std::filesystem::path& root){

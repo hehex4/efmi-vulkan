@@ -8,4 +8,7 @@ namespace efmi::gpu {
 // device limits/features and independent SPIR-V validation belong to the host.
 // maintenance4 must describe logical-device enablement, not physical support.
 std::vector<HlslProgram> link_graphics(const std::vector<HlslProgram>&,bool maintenance4=false);
+// Validate a geometry executable against the actual assembly and device limits.
+// Current output path is triangle strips; point/line output needs raster adapters.
+void validate_geometry(const HlslProgram&,VkPrimitiveTopology,const VkPhysicalDeviceLimits&);
 }

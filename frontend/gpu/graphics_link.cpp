@@ -109,6 +109,37 @@ bool compatible(const Shape& output,const Shape& input,bool maintenance4){
         output.components>input.components && input.components>1;
 }
 }
+void validate_geometry(const HlslProgram& program,VkPrimitiveTopology topology,const VkPhysicalDeviceLimits& limits){
+    require(program.stage==VK_SHADER_STAGE_GEOMETRY_BIT,"Geometry validation requires a geometry program");
+    Module module(program);require(module.value.entry_point_count==1,"Geometry requires one entry point");
+    const auto& entry=module.value.entry_points[0];bool matching=false,triangles=false;
+    for(uint32_t i=0;i<entry.execution_mode_count;++i)switch(entry.execution_modes[i]){
+        case SpvExecutionModeInputPoints:matching=topology==VK_PRIMITIVE_TOPOLOGY_POINT_LIST;break;
+        case SpvExecutionModeInputLines:matching=topology==VK_PRIMITIVE_TOPOLOGY_LINE_LIST || topology==VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;break;
+        case SpvExecutionModeTriangles:matching=topology==VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST || topology==VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;break;
+        case SpvExecutionModeOutputTriangleStrip:triangles=true;break;
+        default:break;
+    }
+    require(matching,"Geometry input primitive differs from supported assembly topology");
+    require(triangles,"Geometry point/line output requires another raster adapter");
+    require(entry.invocations && entry.invocations<=limits.maxGeometryShaderInvocations,"Geometry invocation count exceeds device limit");
+    require(entry.output_vertices && entry.output_vertices<=limits.maxGeometryOutputVertices,"Geometry output vertex count exceeds device limit");
+    auto components=[&](bool input){uint64_t count=0;const auto n=input?entry.input_variable_count:entry.output_variable_count;
+        auto** variables=input?entry.input_variables:entry.output_variables;require(n<=1024,"Geometry interface count exceeds budget");
+        for(uint32_t i=0;i<n;++i){const auto& v=*variables[i];const bool builtin=v.built_in>=0;
+            // Invocation/primitive IDs are scalar system inputs, not per-vertex arrays.
+            const bool vertex_input=input && (!builtin || v.built_in==SpvBuiltInPosition || v.built_in==SpvBuiltInPointSize ||
+                v.built_in==SpvBuiltInClipDistance || v.built_in==SpvBuiltInCullDistance);
+            const auto s=shape(v,program.stage,vertex_input);uint64_t size=uint64_t((s.width+31)/32)*s.components*std::max(1u,s.columns);
+            for(auto dim:s.dimensions)size*=dim;count+=size;
+            const uint32_t limit=input?limits.maxGeometryInputComponents:limits.maxGeometryOutputComponents;
+            require(count<=limit,"Geometry interface components exceed device limit");
+            if(!builtin)require(uint64_t(v.location)*4+uint64_t(s.locations()-1)*4+uint64_t((s.width+31)/32)*s.components<=limit,
+                "Geometry interface location exceeds device component limit");
+        }return count;};
+    components(true);const auto outputs=components(false);
+    require(outputs*entry.output_vertices<=limits.maxGeometryTotalOutputComponents,"Geometry total output components exceed device limit");
+}
 std::vector<HlslProgram> link_graphics(const std::vector<HlslProgram>& programs,bool maintenance4){
     require(!programs.empty() && programs.size()<=5,"Graphics link requires one to five stages");
     // Bound executable payload before copying source programs for relocation.

@@ -5,7 +5,7 @@
 
 namespace efmi::frontend {
 // Original CustomShader lists with owned Vulkan resources. The first execution
-// adapter handles compute and owned VS/PS draws; unsupported device cases refuse.
+// adapter handles compute and owned VS/GS/PS draws; unsupported device cases refuse.
 class GpuShaderRuntime final : public RuntimeExtension {
 public:
     GpuShaderRuntime(gpu::ResourceDevice,gpu::ShaderHost,const std::filesystem::path& compiler,gpu::ResourceBudgets={},

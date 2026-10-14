@@ -1527,3 +1527,30 @@ A separate native/Vulkan diagnostic confirms unclipped fragment z/w=(2,1) for
 both APIs (build/source-state-probe/clip-coordinates.cpp/.txt). No text rendering
 claim yet. Continue immediately with geometry/Core text execution, then remaining
 layouts/state/resources and application/directory integration. No game input.
+
+
+## 2026-10-14: Geometry and original Core text, candidate1.2.5
+
+Connected owned geometry pipelines and original stage bindings, with actual
+feature, topology, interface-component and output-limit gates. Native point/line/
+triangle input tests preserve source draw IDs and unclipped z/w; original font
+and TextPrinter v/g/p/c run through owned INI execution. Three text cases cover
+wrapping/DPI/alignment and multiple64-character chunks. Corrected development
+reference expectations for source first-vertex IDs and alpha ONE/ZERO default;
+no production semantics were changed for those fixture errors. Native floating
+position/blend differences peak at5.96046448e-08; exact chunk integers remain
+required. The explicit1e-6 float tolerance is not a bit-exact pixel claim.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.2.5.out exit0, all steps
+pass; resources5644, compiler172/58 valid, corpus37/37, core/sync clean, source
+hashes84/9/12 match. Installed sources unchanged; no deployment/game/system action,
+dist1.0.2 unchanged. This is controlled original HLSL execution, not full Core INI
+or game rendering. Preserve the separate launcher DX11 state.
+
+During regression, independent native input-layout probes confirmed stored
+creation-register mapping, APPEND alignment, unused-required signature elements,
+slot/class/divisor rules and valid large aligned offsets. Read-only source audit
+shows layout edits survive nested CustomShader calls and restore at intercepted
+AfterDraw, not Present/key roots. Evidence:docs/input-layout-audit.md and
+build/source-state-probe/input-layout*.cpp/.txt. Continue immediately with owned
+input-layout execution1.2.6; no game input needed. PNG paused, LOD0/LOD1 only.

@@ -1,8 +1,42 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, full-directory HLSL1.2.4 verified. All37 installed source programs compile/validate; full rebuilt suite passes. Continue owned geometry/Core text execution. Dist1.0.2 unchanged.
+> Last updated: 2026-10-14, geometry/Core-text1.2.5 verified. Full suite passes; continue owned input layouts1.2.6. Dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
+
+## Owned geometry and original Core text (verified candidate1.2.5)
+
+Original CustomShader now executes VS/GS/PS on owned resources. Point, line and
+triangle assembly feed triangle-strip geometry output; actual geometryShader,
+depthClamp, scalar-layout and draw-parameter enablement are checked. Geometry
+primitive compatibility, invocation/output counts and component limits refuse
+before Vulkan pipeline creation. The last raster stage must provide position.
+Descriptors remain stage-specific and submission-retained. Tessellation, geometry
+point/line output, adjacency and standalone point raster rules remain explicit.
+
+The unchanged installed TextPrinter.hlsl and LiberationSans-Bold.dds now run
+through original INI resource/compute/graphics commands in the headless sandbox.
+Three cases cover ordinary text, newline/wrapping/DPI/centering, and70-character
+right/bottom alignment across the64-character geometry chunk boundary. Native
+DX11 WARP agrees on exact chunk start/count fields; maximum floating position
+and RGBA differences are5.96046448e-08 (test tolerance1e-6). Visible glyph/background
+assertions prevent an empty-image false pass. Native default alpha blending is
+ONE/ZERO when only the RGB blend key is set. Scalar stride72 requires enablement.
+This is the original HLSL/font with controlled owned fixtures, not the complete
+Core INI, application backbuffer/window integration or a game rendering result.
+
+Full frozen-source rebuild/regression:build/next/run_all-1.2.5.out exit0, all
+steps pass. Resources5644, compiler172/58 valid, full directory37/37 programs,
+zero core/sync errors/warnings through shutdown;84 resource,9 compiler,12 corpus
+source hashes match. Installed shader/font and corpus sources unchanged.
+Dist1.0.2 unchanged; no game/deployment/launcher/system action.
+
+Continue1.2.6 with owned input layouts and original layout-edit lifetime, then
+remaining shader/state/resource and matching/directory/application integration.
+Independent native probes confirm layouts retain their creation-signature
+register map, even after switching VS; APPEND alignment and native failure rules
+are recorded in docs/input-layout-audit.md. These probes are not Vulkan layout
+execution yet. No game input needed; keep going. PNG paused, LOD0/LOD1 only.
 
 ## Full enabled-directory HLSL audit (verified candidate1.2.4)
 

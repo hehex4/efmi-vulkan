@@ -31,7 +31,7 @@ VkBlendFactor factor(D3D11_BLEND value,bool alpha){switch(value){
     case D3D11_BLEND_INV_BLEND_FACTOR:return alpha?VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA:VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
     default:throw std::runtime_error("Source dual-source blending needs output-index lowering");}}
 VkBlendOp blend_op(D3D11_BLEND_OP value){require(value>=1 && value<=5,"Source blend operation is invalid");return VkBlendOp(value-1);}
-gpu::GraphicsDescription description(const SourceGraphicsState& source,const gpu::GraphicsDraw& draw,bool pixel){
+gpu::GraphicsDescription description(const SourceGraphicsState& source,const gpu::GraphicsDraw& draw,bool pixel,bool geometry){
     gpu::GraphicsDescription result;
     for(const auto& color:draw.colors)result.colors.push_back(color?color->format():VK_FORMAT_UNDEFINED);
     if(draw.depth)result.depth_format=draw.depth->format();
@@ -40,6 +40,9 @@ gpu::GraphicsDescription description(const SourceGraphicsState& source,const gpu
     require(result.samples==VK_SAMPLE_COUNT_1_BIT,"Source multisample raster rules need a native reference adapter");
     if(source.topology==D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)result.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     else if(source.topology==D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP){result.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;result.primitive_restart=true;}
+    else if(geometry && source.topology==D3D11_PRIMITIVE_TOPOLOGY_POINTLIST)result.topology=VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+    else if(geometry && source.topology==D3D11_PRIMITIVE_TOPOLOGY_LINELIST)result.topology=VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    else if(geometry && source.topology==D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP){result.topology=VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;result.primitive_restart=true;}
     else throw std::runtime_error("Source point/line/adjacency/patch topology requires another raster adapter");
     const auto& r=source.raster;require(r.FillMode==D3D11_FILL_SOLID || r.FillMode==D3D11_FILL_WIREFRAME,"Source fill mode invalid");
     require(r.CullMode>=D3D11_CULL_NONE && r.CullMode<=D3D11_CULL_BACK,"Source cull mode invalid");
@@ -136,7 +139,7 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
         if(c->type==DrawCall::DrawInstanced || c->type==DrawCall::DrawIndexedInstanced){draw.instances=c->InstanceCount;draw.first_instance=c->FirstInstance;}break;}
     default:throw std::runtime_error("Source DrawAuto requires a stream-output count adapter");}
     if(!stages_[0] || (!draw.arguments && (!draw.count || !draw.instances)) || graphics_.topology==D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED)return true;
-    for(unsigned i=1;i<4;++i)require(!stages_[i],"Source geometry/tessellation execution needs another graphics adapter");
+    require(!stages_[1] && !stages_[2],"Source tessellation execution needs another graphics adapter");
     for(const auto& input:stages_[0]->inputs)require(input.builtin!=UINT32_MAX,"Source vertex inputs require a current input-layout adapter");
     const auto& viewport=resources_.viewport();if(viewport.Width==0 || viewport.Height==0)return true;
     require(viewport.Width>0 && viewport.Height>0,"Source viewport dimensions are invalid");
@@ -154,7 +157,7 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
     if(draw.indexed){const auto index=resources_.binding(L'\0',Target::INDEX_BUFFER,0);require(bool(index.buffer),"Source null index buffer needs null-fetch emulation");
         require(index.format==DXGI_FORMAT_R16_UINT || index.format==DXGI_FORMAT_R32_UINT,"Source index format is invalid");draw.indices=index.buffer;draw.index_offset=index.offset;
         draw.index_type=index.format==DXGI_FORMAT_R16_UINT?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;}
-    auto config=description(graphics_,draw,bool(stages_[4]));auto key=pipeline_key(stages_,config);
+    auto config=description(graphics_,draw,bool(stages_[4]),bool(stages_[3]));auto key=pipeline_key(stages_,config);
     auto found=graphics_pipelines_.find(key);gpu::Graphics pipeline;
     if(found!=graphics_pipelines_.end())pipeline=found->second;
     else{require(graphics_pipelines_.size()<512,"Source graphics pipeline cache budget exceeded");std::vector<gpu::HlslProgram> programs;

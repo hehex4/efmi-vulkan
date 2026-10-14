@@ -108,6 +108,7 @@ std::vector<gpu::ShaderDescriptor> GpuShaderRuntime::descriptors(const std::vect
                     op!=SpvOpImageSampleProjDrefImplicitLod && op!=SpvOpImageSampleProjDrefExplicitLod && op!=SpvOpImageDrefGather,
                     "Source comparison sampling needs an instruction-aware image adapter");pos+=count;}
             const wchar_t stage=program->stage==VK_SHADER_STAGE_VERTEX_BIT?L'v':program->stage==VK_SHADER_STAGE_FRAGMENT_BIT?L'p':
+                program->stage==VK_SHADER_STAGE_GEOMETRY_BIT?L'g':
                 program->stage==VK_SHADER_STAGE_COMPUTE_BIT?L'c':L'\0';
             require(stage!=L'\0',"Source descriptors need another graphics stage adapter");
             for(const auto& binding:program->bindings)for(uint32_t element=0;element<binding.count;++element){

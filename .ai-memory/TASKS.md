@@ -6,6 +6,18 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.5 executes owned original VS/GS/PS geometry and unchanged Core TextPrinter
+HLSL/font. Native DX11 chunk fields match exactly; float positions/pixels differ
+by at most5.96e-08. Full rebuilt suite passes in build/next/run_all-1.2.5.out:
+resources5644, compiler172/58, corpus37/37, core/sync clean; source hashes84/9/12
+match and installed sources unchanged. This is controlled owned shader execution,
+not complete Core/application rendering. Next1.2.6: original input layouts/edits
+and creation-register/lifetime semantics (docs/input-layout-audit.md), then
+remaining state/resources and matching/directory/application integration.
+No game input needed; continue. Dist1.0.2, PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
 1.2.4 audits all original enabled Mods/Core HLSL declarations.34 INI inputs,
 30 shader sections,37 distinct programs all compile/validate; four use the
 conditional scalar/standard-layout validation profile. Sources unchanged; this
