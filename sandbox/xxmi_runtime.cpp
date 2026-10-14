@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <stdexcept>
 #include <thread>
+#include <cstring>
 using namespace efmi::frontend;
 // Independent slow CRC for fixture files, not the production hot path.
 namespace efvk { uint32_t crc32c(uint32_t seed, const void* data, size_t size) {
@@ -128,6 +129,28 @@ int wmain(int argc, wchar_t** argv)
 {
     try {
         if (argc > 1 && !wcscmp(argv[1], L"--inspect-character")) return inspect_character(argc, argv);
+        if (argc == 4 && !wcscmp(argv[1], L"--evaluate-language")) {
+            const auto path = std::filesystem::absolute(argv[2]);
+            const auto count = std::stoi(argv[3]);
+            if (count < 1 || count > 512) throw std::runtime_error("Invalid language fixture size");
+            RuntimeConfig config{path.parent_path(), {path}, path.parent_path() / "settings", "evaluation"};
+            std::string reason;
+            auto runtime = IniRuntime::load(config, {}, reason);
+            if (!runtime) throw std::runtime_error(reason);
+            RuntimeInput input; input.foreground = true;
+            if (!runtime->present(input, 24, 2.5f, reason)) throw std::runtime_error(reason);
+            RuntimeDraw draw; draw.hash = 0x12345678; draw.count = 30; draw.frame = 24; draw.seconds = 2.5f;
+            efmi::assets::FilePlan plan;
+            if (!runtime->draw(draw, plan, reason)) throw std::runtime_error(reason);
+            const auto state = runtime->status();
+            printf("{\"variable_bits\":[");
+            for (int i = 0; i < count; ++i) {
+                const auto value = state.variables.at("$\\evaluation\\case" + std::to_string(i));
+                uint32_t bits; std::memcpy(&bits, &value, sizeof(bits));
+                printf("%s%u", i ? "," : "", bits);
+            }
+            printf("]}\n"); return 0;
+        }
         check(argc == 2, "Fixture directory argument");
         const std::filesystem::path folder = std::filesystem::path(argv[1]) / "fixture";
         std::filesystem::create_directories(folder);
@@ -194,6 +217,129 @@ int wmain(int argc, wchar_t** argv)
               plan.items[0].operation == efmi::assets::FileOperation::BindIndex,
               "IB override this=null uses the actual triggering index binding");
         render(second); check(plan.items.back().index_count == 9, "Pure hide does not change another generation's draw");
+        const auto tree = folder / "directory";
+        std::filesystem::create_directories(tree / "Mods/first");
+        std::filesystem::create_directories(tree / "Mods/second");
+        std::filesystem::create_directories(tree / "Mods/DISABLED-old");
+        std::filesystem::create_directories(tree / "library");
+        std::filesystem::remove(settings / "directory.ini");
+        std::filesystem::remove(tree / "Mods/second/dormant.ini");
+        write(tree / "root.ini", "[Include]\ninclude = library/shared.ini\nuser_config = outside-settings.ini\n");
+        write(tree / "library/shared.ini", "namespace = shared\n[Constants]\nglobal $n = 3\n[CommandListCount]\nif 1\n$n = $n + 1\nendif\n[CommandListDormant]\nif 0\nif 0\n$n = 123\nendif\nendif\n");
+        write(tree / "Mods/first/1.ini", "namespace = first\n[Constants]\nglobal persist $hits = 0\n[TextureOverrideMesh]\nhash = 12345678\nmatch_index_count = 30\nrun = CommandList\\shared\\Count\n$hits = $\\shared\\n\nhandling = skip\ndrawindexed = 3,0,0\n");
+        write(tree / "Mods/second/1.ini", "namespace = second\n[Constants]\nglobal $hits = 20\n[TextureOverrideMesh]\nhash = 22345678\nmatch_index_count = 30\n$hits = $hits + 2\nhandling = skip\ndrawindexed = 6,0,0\n");
+        write(tree / "Mods/DISABLED-old/bad.ini", "[CommandListBad]\ninvalid_operation = 1\n");
+        write(tree / "Mods/conditional.ini", "condition = 0\n[CommandListBad]\ninvalid_operation = 1\n");
+        RuntimeConfig folder_config{tree, {tree / "root.ini"}, settings, "directory", tree / "Mods"};
+        auto directory = IniRuntime::load(folder_config, {}, reason);
+        if (!directory) throw std::runtime_error("Original directory runtime: " + reason);
+        render(directory);
+        check(plan.skip_original && plan.items.back().index_count == 3 &&
+              directory->status().variables.at("$\\first\\hits") == 4,
+              "Directory runtime resolves recursive files, original Include and cross-file commands");
+        draw.hash = 0x22345678; render(directory);
+        check(plan.items.back().index_count == 6 && directory->status().variables.at("$\\second\\hits") == 22,
+              "Original directory matcher routes a second namespace independently");
+        write(tree / "Mods/second/dormant.ini", "[CommandListUnused]\ninvalid_operation = 1\n");
+        check(!IniRuntime::load(folder_config, {}, reason), "Invalid dormant command is rejected by original parsing");
+        render(directory);
+        check(plan.items.back().index_count == 6 && directory->status().variables.at("$\\second\\hits") == 24,
+              "Failed directory reload leaves the previous generation usable");
+        std::filesystem::remove(tree / "Mods/second/dormant.ini");
+        write(tree / "library/shared.ini", "namespace = shared\n[Constants]\nglobal $n = 30\n[CommandListCount]\n$n = $n + 1\n");
+        auto directory_next = IniRuntime::load(folder_config, {}, reason);
+        if (!directory_next) throw std::runtime_error("Original directory reload: " + reason);
+        draw.hash = 0x12345678; render(directory_next);
+        check(directory_next->status().variables.at("$\\first\\hits") == 31,
+              "Fresh directory generation reloads changed companion commands");
+        check(directory_next->save(reason) && std::filesystem::exists(settings / "directory.ini") &&
+              !std::filesystem::exists(tree / "outside-settings.ini"), "Original Include user_config cannot redirect project settings writes");
+        auto directory_saved = IniRuntime::load(folder_config, {}, reason);
+        check(directory_saved && directory_saved->status().variables.at("$\\first\\hits") == 31,
+              "Directory persistent values reload only from the explicit project settings");
+        write(ini, R"ini(namespace = language_runtime
+[Constants]
+global $result = 0
+global $preset_hits = 0
+global $preset_calls = 0
+global $clock = 0
+global $post_seen = 0
+global $key_calls = 0
+global $cycle_calls = 0
+x = 2
+w17 = 3
+preset = PresetStart
+[PresetStart]
+$preset_hits = 7
+run = CommandListPresetInit
+[CommandListPresetInit]
+$preset_calls = $preset_calls + 1
+[KeyParameter]
+key = no_modifiers VK_F1
+type = hold
+z3 = 9
+run = CommandListOnlyKey
+[CommandListOnlyKey]
+$key_calls = $key_calls + 1
+post $key_calls = $key_calls + 10
+[KeyCallbackCycle]
+key = no_modifiers VK_F2
+type = cycle
+smart = false
+run = CommandListOnlyCycleOne, CommandListOnlyCycleTwo
+[CommandListOnlyCycleOne]
+$cycle_calls = $cycle_calls + 1
+post $cycle_calls = $cycle_calls + 100
+[CommandListOnlyCycleTwo]
+$cycle_calls = $cycle_calls + 10
+post $cycle_calls = $cycle_calls + 1000
+[Present]
+$result = x + w17 + z3
+$clock = time
+[TextureOverrideMesh]
+hash = 12345678
+match_index_count = 30
+handling = skip
+drawindexed = 3,0,0
+run = CommandListAbort
+drawindexed = 6,0,0
+post $post_seen = 1
+[CommandListAbort]
+if index_count == 30
+handling = abort
+endif
+$post_seen = 2
+)ini");
+        RuntimeConfig language_config{folder, {ini}, settings, "language"};
+        auto language = IniRuntime::load(language_config, {}, reason);
+        if (!language) throw std::runtime_error("Original parameter/preset runtime: " + reason);
+        input = {}; input.foreground = true; present(language);
+        auto language_value = [&](const char* key) { return language->status().variables.at(std::string("$\\language_runtime\\") + key); };
+        check(language_value("result") == 5 && language_value("clock") == 1,
+              "Original parameter initialization and time operands evaluate in the runtime");
+        check(language_value("preset_hits") == 7 && language_value("preset_calls") == 1,
+              "Constants can reference a later preset and its original command callback");
+        input.keys[VK_F1] = true; present(language);
+        check(language_value("result") == 14, "Original hold key updates an INI parameter without a D3D device");
+        check(language_value("key_calls") == 1, "Key-only activation callback is compiled even without a scene reference");
+        input.keys.fill(false); present(language);
+        check(language_value("result") == 5, "Original hold release restores the earlier parameter value");
+        check(language_value("key_calls") == 11, "Hold deactivation executes the original callback post list");
+        input.keys[VK_F2] = true; present(language);
+        check(language_value("cycle_calls") == 101, "Cycle-only callback executes its pre and deferred post list");
+        input.keys.fill(false); present(language); input.keys[VK_F2] = true; present(language);
+        // Pinned Override.cpp accumulates earlier run entries in later cycle
+        // presets. Preserve that source behavior: 101 + (1+10) + (100+1000).
+        check(language_value("cycle_calls") == 1212, "Later cycle callback preserves original accumulated run entries");
+        input.keys.fill(false); present(language);
+        render(language);
+        check(plan.skip_original && plan.items.size() == 1 && plan.items[0].index_count == 3 && language_value("post_seen") == 0,
+              "Nested handling=abort stops the remaining root and post commands without discarding earlier draws");
+        auto language_second = IniRuntime::load(language_config, {}, reason);
+        if (!language_second) throw std::runtime_error("Second parameter runtime: " + reason);
+        input.keys[VK_F1] = true; present(language); input.keys.fill(false); present(language_second);
+        check(language_value("result") == 14 && language_second->status().variables.at("$\\language_runtime\\result") == 5,
+              "INI parameter storage and preset activation remain isolated between generations");
         write(ini, fixture);
         // Read-only acceptance of the actual main INI. The panel is a separate
         // input with a CustomShader and remains explicitly outside this fixture.

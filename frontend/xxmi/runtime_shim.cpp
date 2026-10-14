@@ -9,6 +9,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <stdexcept>
+#include <deque>
 
 [[noreturn]] static void unsupported(const char* call) { throw std::runtime_error(call); }
 HINSTANCE migoto_handle=nullptr;
@@ -16,7 +17,22 @@ CRITICAL_SECTION resource_creation_mode_lock;
 DWORD tls_idx=TLS_OUT_OF_INDEXES;
 static std::wstring resource_root;
 static size_t diagnostic_count=0;
+static std::deque<std::pair<size_t, std::string>> diagnostics;
 size_t HostDiagnosticCount() { return diagnostic_count; }
+static void diagnostic(std::string text)
+{
+    diagnostics.emplace_back(++diagnostic_count, std::move(text));
+    if (diagnostics.size() > 8) diagnostics.pop_front();
+}
+std::string HostDiagnosticsSince(size_t count)
+{
+    std::string result;
+    for (const auto& entry : diagnostics) if (entry.first > count) {
+        if (!result.empty()) result += " | ";
+        result += entry.second;
+    }
+    return result;
+}
 void HostResourceRoot(const std::wstring& root)
 {
     if(root.empty() || root.size()+12>=MAX_PATH)unsupported("prototype resource root too long");
@@ -34,8 +50,25 @@ Dx12Context* Context() { unsupported("prototype graphics context adapter"); }
 Dx12Device* Device() { unsupported("prototype graphics device adapter"); }
 ID3D11Texture2D* BackBufferAsD3D11() { unsupported("prototype backbuffer adapter"); }
 }
-void LogOverlay(LogLevel,char*,...) { ++diagnostic_count; }
-void LogOverlayW(LogLevel,wchar_t*,...) { ++diagnostic_count; }
+void LogOverlay(LogLevel level, char* format, ...)
+{
+    // Upstream notices (such as a recognized deprecated option) are not parse errors.
+    if (level > LOG_WARNING_MONOSPACE) return;
+    char text[2048]{}; va_list args; va_start(args, format);
+    _vsnprintf_s(text, sizeof(text), _TRUNCATE, format, args); va_end(args);
+    diagnostic(text);
+}
+void LogOverlayW(LogLevel level, wchar_t* format, ...)
+{
+    if (level > LOG_WARNING_MONOSPACE) return;
+    wchar_t text[2048]{}; va_list args; va_start(args, format);
+    _vsnwprintf_s(text, _countof(text), _TRUNCATE, format, args); va_end(args);
+    const auto length = int(wcslen(text));
+    const auto size = WideCharToMultiByte(CP_UTF8, 0, text, length, nullptr, 0, nullptr, nullptr);
+    std::string utf8(size, '\0');
+    if (size) WideCharToMultiByte(CP_UTF8, 0, text, length, utf8.data(), size, nullptr, nullptr);
+    diagnostic(std::move(utf8));
+}
 void ClearNotices() {}
 void ParseHuntingSection() { unsupported("prototype hunting settings"); }
 void CleanupShaderMaps(ID3D11DeviceChild*) { unsupported("prototype shader lifetime"); }

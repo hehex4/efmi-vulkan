@@ -78,6 +78,8 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
     if (const auto* operand = dynamic_cast<CommandListOperand*>(node.get())) {
         switch (operand->type) {
         case ParamOverrideType::VALUE: return true;
+        case ParamOverrideType::INI_PARAM:
+            return G && operand->param_idx >= 0 && size_t(operand->param_idx) < G->iniParams.size();
         case ParamOverrideType::VARIABLE: return operand->var_ftarget != nullptr;
         case ParamOverrideType::TEXTURE: {
             const auto& target=operand->texture_filter_target;
@@ -95,6 +97,9 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
         case ParamOverrideType::FIRST_INDEX: case ParamOverrideType::FIRST_INSTANCE:
         case ParamOverrideType::DRAW_TYPE: case ParamOverrideType::FRAME_NUMBER:
         case ParamOverrideType::DRAW_NUMBER: case ParamOverrideType::DISPATCH_NUMBER:
+        case ParamOverrideType::TIME:
+        case ParamOverrideType::THREAD_GROUP_COUNT_X: case ParamOverrideType::THREAD_GROUP_COUNT_Y:
+        case ParamOverrideType::THREAD_GROUP_COUNT_Z: case ParamOverrideType::INDIRECT_OFFSET:
             return true;
         default: return false;
         }
@@ -420,6 +425,11 @@ struct DrawPlanAdapter::Runtime {
             active->skip_original = true; // Do not mutate the live caller before GPU readiness.
             return;
         }
+        if (auto* param = dynamic_cast<ParamOverride*>(original.get())) {
+            if (!G || param->param_idx < 0 || size_t(param->param_idx) >= G->iniParams.size())
+                refuse(L"INI parameter assignment exceeds generation storage");
+            original->run(state); return;
+        }
         if(auto* variable=dynamic_cast<PoolVariableOperation*>(original.get())){
             // A variable write may reset a pool's resource element type. Until
             // mixed resource/scalar pools have an exact lifetime adapter, drop
@@ -432,7 +442,8 @@ struct DrawPlanAdapter::Runtime {
             }
             original->run(state);return;
         }
-        if (dynamic_cast<IfCommand*>(original.get()) || typeid(*original) == typeid(VariableAssignment)) {
+        if (dynamic_cast<IfCommand*>(original.get()) || typeid(*original) == typeid(VariableAssignment) ||
+            dynamic_cast<AbortCommand*>(original.get()) || dynamic_cast<PresetCommand*>(original.get())) {
             original->run(state);
             return;
         }
@@ -518,9 +529,14 @@ bool DrawPlanAdapter::invoke(ExplicitCommandListSection& section,CommandListStat
     ++state.recursion;
     try{
         auto run=[&](CommandList& list,bool post){
+            if(state.aborted)return;
             auto* resolved=list.ResolveCommandList();
             if(!runtime_->adapted.count(resolved))refuse(L"Native callback target was not adapted");
-            state.post=post;for(auto& command:resolved->commands)command->run(&state);
+            state.post=post;
+            for(auto& command:resolved->commands){
+                if(state.aborted)break;
+                command->run(&state);
+            }
         };
         if(phases&1)run(section.command_list,false);
         // Original callback aliases may change during their pre phase.
@@ -620,11 +636,18 @@ bool DrawPlanAdapter::execute_impl(CommandList& root,CommandList* post,CommandLi
     runtime_->pixel_bindings={};
     try {
         if(post)state.post=false;
-        for (auto& command : resolved->commands) command->run(&state);
+        for (auto& command : resolved->commands) {
+            if (state.aborted) break;
+            command->run(&state);
+        }
         if(post){
             resolved=post->ResolveCommandList();
             if(!runtime_->adapted.count(resolved))refuse(L"Root post callback target was not adapted");
-            state.post=true;for(auto& command:resolved->commands)command->run(&state);
+            state.post=true;
+            for (auto& command : resolved->commands) {
+                if (state.aborted) break;
+                command->run(&state);
+            }
         }
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         output = std::move(candidate);

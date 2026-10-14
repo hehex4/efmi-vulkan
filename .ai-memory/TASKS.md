@@ -6,14 +6,16 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-Current work is T-030's directory-wide language/resource implementation. Source
-1.0.3 passes the full candidate regression, not deployed. The original parser
-accepts all 36 installed INIs with no diagnostics; all nine exported skeleton
-initializers and six isolated callback fixtures pass. DDS/buffer auditing covers
-every declared file; PNG/custom operations and whole-directory runtime execution
-remain work. See CURRENT_STATE.md and docs/mod-folder-runtime.md. The user has
-deferred new game collection; continue offline and do not require capture per
-character. The following 1.0.2 deployment evidence remains valid historically.
+Current work is T-030's source-defined language/runtime implementation. Source
+and candidate are 1.0.4, with a passing full rebuilt regression; dist remains 1.0.2.
+726 original-parser checks and 65 expression checks pass. Production CPU directory
+generations now resolve Includes, namespaces and callback-only dependencies;
+65 runtime checks cover existing profiles and the added language behavior.
+General graphics operations and shader sections still need Vulkan adapters.
+PNG integration is paused under the latest user steering. The user has deferred
+new game collection; continue offline and do not require capture per character.
+See CURRENT_STATE.md and docs/ini-language-coverage.md. The following 1.0.2
+deployment evidence remains valid historically.
 
 1.0.2 is deployed and links the original main-INI runtime into the character backend:
 conditions, thirteen original listeners, alternate stocking DDS, atomic project
@@ -60,9 +62,15 @@ inventory and connect directory dependencies to production generations. Pause
 PNG integration until this language/runtime work is addressed.
 The standalone PNG decoder is verified in 28 CPU cases and committed separately;
 it is not linked into the runtime and does not close the PNG rendering gap.
-Acceptance still needs a complete directory generation, cross-file command
-execution, registration/routing, common mesh/image ownership and shader contracts,
-then actual supported Mods in Vulkan. Parsing alone is not rendering acceptance.
+1.0.4 connects original Include loading to CPU directory generations and parses
+all dormant explicit lists in that mode. Key/preset run targets are compiled,
+IniParams/presets/abort execute on the CPU, and stable-root adaptation repairs
+optimizer branch lifetime. Source-derived parser/evaluator fixtures are now in
+run_all.py; docs/ini-language-coverage.md records the remaining families.
+Acceptance still needs a complete graphics directory generation, native
+registration/routing of multiple objects, common mesh/image ownership and shader
+contracts, general CustomShader/copy/dispatch and ShaderRegex adapters, then actual
+supported Mods in Vulkan. Parsing alone is not rendering acceptance.
 
 Historical survey and preliminary ideas (not the current implementation plan):
 

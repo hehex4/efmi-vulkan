@@ -1,8 +1,55 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, offline directory work. Source/build/next is 1.0.3 and passes the full regression; dist remains 1.0.2. All 36 installed Mods/Core INIs parse without diagnostics through the original engine. This does not establish coverage of all source-defined INI syntax or an all-Mod renderer. No new game capture or deployment. LOD0/LOD1 only.
+> Last updated: 2026-10-14, source-defined INI compatibility. Source/candidate 1.0.4 passes the full rebuilt regression. Dist remains 1.0.2. Original source defines the target, not the installed Mod sample. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
 
-## Directory-wide language and asset work (verified offline checkpoint)
+## Source-defined language and production CPU generations (1.0.4)
+
+The user's latest request is to inspect upstream source and adapt every original
+INI construct. PNG integration stays paused. Read docs/ini-language-coverage.md
+for the grammar inventory and the separate execution boundaries; do not equate
+the full-folder inspector with the production renderer.
+
+- scripts/ini_language.py derives commands, operators, operands, target members,
+  section metadata, formats, enums and setting reads from the pinned C++ sources.
+  scripts/check_ini_language.py checks 726 parser cases, including negative
+  diagnostics and every ordinary command keyword, all 48 operators and all
+  source-declared shader/resource members. It checks source/executable freshness
+  and distinguishes recognized deprecated notices from syntax errors.
+- scripts/check_ini_evaluation.py runs all 48 operators through the production
+  original engine with independent expected values: 65 checks including signed
+  zero, precedence, negative rounding, parameters, time and draw context. These
+  are CPU results; system/driver options and all argument combinations are not
+  exhaustively validated.
+- RuntimeConfig.mods_directory loads the enabled directory through original
+  Includes, namespaces and exclusions. Directory generations parse dormant
+  command lists too; bad candidates retain the previous generation. Two routed
+  namespaces, companion reload and explicit project-only settings pass CPU tests.
+  Legacy explicit-input profiles retain their scoped reachable Core graph.
+- Key/preset-only callbacks now enter dependency compilation, including copied
+  cycle callbacks. Presets are enumerated before Constants. Isolated CPU
+  IniParams, original hold restoration, presets and abort handling are connected.
+  Original cycle smart-start and accumulated run-list behavior are preserved.
+- Expanded dependency loading exposed dangling optimizer-owned branch pointers;
+  adaptation now follows only stable roots and surviving children. Native
+  callback abort is covered by a red-then-green source-semantics fixture. Failed
+  loads report the phase and bounded original diagnostics.
+
+Reports: build/ini-language/report.json, build/ini-evaluation/report.json,
+build/xxmi-runtime/runtime.txt and build/next/run_all-1.0.4-final.out. Final full
+rebuild/regression passes after the native-abort correction: source parser 726,
+evaluation 65, runtime 65 plus Yvonne inspection, native callbacks 15, character
+package/GPU 79/357, live INI GPU 28, modes 40, validation 76 and every other step.
+Shared ABI remains 16b90a85431f86b4. Next source-defined adapter work is pool
+reset/description semantics, followed by the still-open graphics families.
+
+Non-native CustomShader, ShaderOverride and ShaderRegex sections still refuse
+in the production character runtime. General copies/clear/store/readback,
+non-indexed/indirect draw and dispatch, GPU IniParams, shader contracts and
+complete directory rendering remain implementation work. The inspector accepts
+their original syntax; that is not a working Vulkan adapter. No new real-game
+result, source asset modification, launcher change, deployment or module swap.
+
+## Earlier directory-wide language and asset checkpoint (1.0.3)
 
 The user selected Yvonne Ensnared Heart 1.6 as a second regression input, then
 explicitly deferred game collection and corrected the goal: load the enabled

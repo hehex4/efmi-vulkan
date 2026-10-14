@@ -18,6 +18,10 @@ Scanning the directory must not eagerly upload every discovered asset to VRAM.
 
 ## Original-language inspection
 
+The source-defined syntax and execution matrix is maintained in
+`docs/ini-language-coverage.md`. It supersedes any interpretation of the installed
+corpus count as proof of support for every original construct.
+
 `scripts/check_ini_folder.py` uses `host_probe.exe --parse-folder` with the Core
 and Mods directories. The original Include implementation handles recursive
 ordering, implicit namespaces, conditions and DISABLED*/desktop.ini exclusions.
@@ -98,13 +102,20 @@ component-number mapping from evaluated bone ranges and exact IB-only hides,
 and supports an explicit native bone-source query boundary without
 character-specific branches. Texture-role planning remains an offline fixture.
 
-Remaining offline work includes a single directory generation with companion
-dependencies, shared registration/input/persistence/F10, routing multiple matched
+Remaining offline work includes a complete graphics directory generation, shared
+registration/input/persistence/F10 in that renderer, routing multiple matched
 objects, demand-driven model/image ownership, source-image identity, shared
 shader binding contracts, general resource transformations/copies, PNG/WIC,
 CustomShader draw/dispatch and ShaderRegex effects. Panel HLSL compilation remains
 separate from panel rendering. Report unsupported operations instead of ignoring
 them, and preserve the last working generation when a reload cannot be prepared.
+
+1.0.4 adds a production CPU directory generation for the currently executable
+section families, original Include loading, independent namespace routing and
+directory settings/reload tests. It also repairs key/preset-only command
+dependencies, IniParams CPU execution and optimizer-owned branch lifetimes.
+This does not remove the non-native shader-section refusal or turn the deployed
+single-character profile into a complete-directory GPU renderer.
 
 No deployment, running-game module exchange, new game capture or new-character
 visual acceptance is implied by any result in this document.

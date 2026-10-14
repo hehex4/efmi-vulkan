@@ -10,8 +10,14 @@
 #include <sstream>
 #include <mutex>
 #include <cmath>
+#include <unordered_set>
 
 void HostParseExcerpt(const wchar_t*, const wchar_t*);
+void HostParseIncludes();
+void HostCompileRemainingLists(const std::vector<std::wstring>&);
+void HostCompileEntries(const std::vector<ExplicitCommandListSection*>&, const std::vector<std::wstring>&);
+const std::vector<ExplicitCommandListSection*>& RuntimeInputDependencies();
+void RuntimeResetInputDependencies();
 void HostParseConstants();
 void HostEnumerateLists();
 void HostParseResources();
@@ -19,8 +25,10 @@ void HostParseTextureOverrides();
 void HostCompileRoots(const std::vector<CommandList*>&, const std::vector<std::wstring>&);
 void HostResourceRoot(const std::wstring&);
 size_t HostDiagnosticCount();
+std::string HostDiagnosticsSince(size_t);
 void RuntimeResetParser();
 void RuntimeParseKeys();
+void RuntimeEnumerateCustomShaders();
 void RuntimeCompilePresent();
 void RuntimeCompileConstants(CommandList&);
 void RuntimeValidateSections(const std::vector<std::wstring>&);
@@ -164,22 +172,36 @@ IniRuntime::~IniRuntime()
 
 std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::shared_ptr<RuntimeExtension> extension, std::string& reason)
 {
+    const char* phase = "input loading";
     try {
         auto runtime = std::shared_ptr<IniRuntime>(new IniRuntime);
         auto& p = *runtime->impl_; p.config = config; p.extension = std::move(extension);
-        if (config.inputs.empty() || config.inputs.size() > 128 || !config.resource_root.is_absolute() ||
+        if ((config.inputs.empty() && config.mods_directory.empty()) || config.inputs.size() > 128 || !config.resource_root.is_absolute() ||
             !config.settings_directory.is_absolute() || config.settings_name.empty() || config.settings_name.size() > 80 ||
             config.settings_name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != std::string::npos)
             throw std::runtime_error("Invalid frontend input/settings location");
         p.settings = config.settings_directory / (config.settings_name + ".ini");
-        Scope scope(p.state); RuntimeResetParser();
+        Scope scope(p.state); RuntimeResetParser(); RuntimeResetInputDependencies();
         const auto diagnostics = HostDiagnosticCount();
         HostResourceRoot(config.resource_root.wstring());
+        if (!config.mods_directory.empty()) {
+            auto relative = config.mods_directory.lexically_relative(config.resource_root);
+            if (!config.mods_directory.is_absolute() || relative.empty() || *relative.begin() == L".." ||
+                !std::filesystem::is_directory(config.mods_directory))
+                throw std::runtime_error("Enabled Mods directory must be inside the resource root");
+            const auto root = L"[Include]\ninclude_recursive = " + relative.wstring() +
+                L"\nexclude_recursive = DISABLED*\nexclude_recursive = desktop.ini\n";
+            HostParseExcerpt(root.c_str(), nullptr);
+        }
         for (const auto& path : config.inputs) {
             if (!path.is_absolute()) throw std::runtime_error("INI input path must be absolute");
             auto relative = path.lexically_relative(config.resource_root);
             read_ini(path, relative.empty() || *relative.begin() == L".." ? path.filename().wstring() : relative.wstring());
         }
+        HostParseIncludes();
+        // The original loader may declare user_config, but our persistence
+        // destination is always the explicit project-owned generation path.
+        G->user_config = p.settings.wstring();
         RuntimeValidateSections(p.extension ? p.extension->native_shaders() : std::vector<std::wstring>{});
         if (p.extension) {
             const auto declarations = p.extension->declarations();
@@ -193,7 +215,8 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         // Original [Constants] parsing consumes declarations and later executes
         // assignments from the generated settings file after default values.
         if (std::filesystem::exists(p.settings)) read_ini(p.settings, L"efvk-user-settings.ini");
-        HostEnumerateLists(); HostParseConstants(); HostParseResources();
+        phase = "declaration parsing";
+        RuntimeEnumerateCustomShaders(); HostEnumerateLists(); HostParseConstants(); HostParseResources();
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
         HostParseTextureOverrides(); RuntimeCompilePresent(); RuntimeParseKeys();
         std::wstring validation;
@@ -201,24 +224,44 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         RegisterKeyBinding(L"reload_config", L"no_modifiers VK_F10", std::make_shared<InputCallbacks>(f10, nullptr, nullptr), 0, 0, 0, InputDisableScope::ALL);
         CommandList constants; RuntimeCompileConstants(constants);
         auto roots = registered_command_lists;
+        phase = "command parsing";
         HostCompileRoots(roots, boundaries);
+        HostCompileEntries(RuntimeInputDependencies(), boundaries);
+        RuntimeResetInputDependencies();
+        // Directory generations validate all enabled files. Legacy explicit
+        // profiles intentionally import only a reachable Core subgraph; those
+        // partial inputs do not declare the rest of the Core's dependencies.
+        if (!config.mods_directory.empty()) HostCompileRemainingLists(boundaries);
         auto all_roots = registered_command_lists;
+        // The optimizer releases its temporary ownership of branch lists.
+        // Removed branches then die; only adapt surviving children through
+        // their owning IfCommand, never through the old raw registration list.
+        std::unordered_set<CommandList*> branch_lists;
+        for (const auto& branch : dynamically_allocated_command_lists) branch_lists.insert(branch.get());
+        all_roots.erase(std::remove_if(all_roots.begin(), all_roots.end(),
+            [&](const auto* root) { return branch_lists.count(const_cast<CommandList*>(root)); }), all_roots.end());
+        if (G->iniParamsReserved < 0 || G->iniParamsReserved > 65536)
+            throw std::runtime_error("INI parameter reservation exceeds generation budget");
+        G->iniParams.assign(G->iniParamsReserved, DirectX::XMFLOAT4(0, 0, 0, 0));
+        phase = "original command optimization";
         optimise_command_lists(nullptr);
         // Includes key-owned activation/post lists as well as Present and the
         // original hash matcher lists; do not adapt only named callbacks.
+        phase = "Vulkan command adaptation";
         for (auto* root : all_roots) p.adapter.adapt(*root);
         p.adapter.adapt(constants);
         p.adapter.adapt(G->present_command_list); p.adapter.adapt(G->post_present_command_list);
         for (auto& hashed : G->mTextureOverrideMap) for (auto& entry : hashed.second) {
             p.adapter.adapt(entry.command_list); p.adapter.adapt(entry.post_command_list);
         }
+        phase = "file declaration adaptation";
         p.files = std::make_unique<FilePlanCompiler>(customResources);
         auto initial = p.command_state(); DrawPlan unused; std::wstring why;
         if (!p.adapter.execute(constants, initial, unused, why) || !unused.items.empty())
             throw std::runtime_error("Constants execution refused: " + utf8(why));
         if (p.extension && !p.extension->prepare(p.adapter, initial, why))
             throw std::runtime_error("Native generation preparation refused: " + utf8(why));
-        if (HostDiagnosticCount() != diagnostics) throw std::runtime_error("Original INI parser reported diagnostics");
+        if (HostDiagnosticCount() != diagnostics) throw std::runtime_error("Original INI parser: " + HostDiagnosticsSince(diagnostics));
         // Collect every branch's reachable files, not dormant declarations.
         // Original resource copy/alias commands are included by the adapter.
         for (auto* resource : p.adapter.referenced_files()) {
@@ -230,7 +273,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         }
         p.stats.bindings = RuntimeInputCount(); G->user_config_dirty = false;
         RuntimeResetParser(); return runtime;
-    } catch (const std::exception& e) { reason = e.what(); return {}; }
+    } catch (const std::exception& e) { reason = std::string(phase) + ": " + e.what(); return {}; }
 }
 
 bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason)

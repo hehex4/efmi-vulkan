@@ -11,6 +11,9 @@ struct RuntimeConfig {
     // The caller supplies a project-owned directory. Never writes next to a mod.
     std::filesystem::path settings_directory;
     std::string settings_name;
+    // Optional enabled Mods tree; the original Include implementation owns
+    // recursion, ordering, namespaces, conditions and exclusions.
+    std::filesystem::path mods_directory;
 };
 struct RuntimeInput {
     bool foreground = false;

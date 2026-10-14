@@ -952,3 +952,38 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
 - Implemented frontend/assets/png.h/.cpp using Windows WIC, with typed grayscale/RGBA precision, default sRGB metadata, immutable decoded output, per-image bounds and shared source reservations. It is not linked into the layer or resource cache.
 - scripts/check_png.py passes 28 CPU cases: seven independent valid pixel fixtures, five malformed/dimension/budget refusals preserving output, and all sixteen installed PNGs compared to Pillow. Report build/png/report.json. Original files unchanged; no GPU upload or panel result.
 - User redirects priority to all source-defined INI syntax before integration. Preserve this verified standalone component and continue language/runtime work. No version/deployment change; source/candidate remains 1.0.3.
+
+## 2026-10-14: Source-defined INI corpus and CPU directory generations (1.0.4)
+
+- User explicitly requires reading upstream code and adapting all original syntax,
+  beyond the installed examples. Added a source-derived inventory, original-parser
+  fixtures and independent production-runtime expression results. Source/executable
+  fingerprints prevent stale parser evidence; negative tests require structured
+  diagnostics. Recognized deprecated notices are not syntax failures.
+- 726 syntax cases cover all ordinary dispatch keywords, 48 operators, named
+  operands, target members, resource/pool declarations, stages/ranges, CustomShader
+  state, key/preset options, override metadata and regex structure. 65 expression
+  results validate every operator plus edge semantics. No exhaustive system/driver
+  option or graphics-execution claim is made.
+- Production RuntimeConfig.mods_directory imports original Includes and compiles
+  dormant explicit lists. Namespace routing, companion updates, settings confinement
+  and failed reload isolation pass. Legacy explicit inputs keep reachable Core scope.
+  Callback-only key/preset dependencies, preset forward references, CPU IniParams,
+  hold restoration and abort are now executed through the original engine.
+- Expanded Core graphs reproduced a dangling optimizer branch pointer (BUG-012);
+  stable-root adaptation fixes it. Key/preset-only targets could remain empty
+  (BUG-013); stable named callee discovery fixes copied cycles too. Native callback
+  abort failed a new fixture, then passed after its pre/post loops were corrected.
+- Initial cycle test expectations were wrong for original smart selection and
+  accumulated callback lists; corrected the fixture, preserving original behavior.
+  One late-injection sandbox exited normally after two frames before a probe request;
+  no cause established (ISSUE-010). Unmodified modes subsequently passed; no blind
+  retry or IPC change. The full original failure log remains available.
+- Full rebuilt suite passes in build/next/run_all-1.0.4-final.out: parser 726,
+  evaluation 65, runtime 65 plus Yvonne inspection, native callbacks 15, character
+  package/GPU 79/357, live INI GPU 28, modes 40, validation 76 and all other steps.
+  ABI remains 16b90a85431f86b4. Docs distinguish parser acceptance, CPU execution
+  and actual Vulkan graphics support. Diff/text checks completed for local commit.
+- Dist remains 1.0.2. No deployment, module swap, capture, game input, process
+  start/stop or original-installation writes. Continue offline source-defined pool
+  reset/description adapters and general graphics families; PNG integration paused.

@@ -1,6 +1,6 @@
 # EFMI Vulkan - Known issues
 
-> Last updated: 2026-10-12.
+> Last updated: 2026-10-14.
 
 ## LIMIT-001: Probe data and long-duration stability are not verified in the real game
 
@@ -295,3 +295,44 @@ The flicker the user reported from the first whole-character session on, in the 
 Follow-up on 2026-10-13: the latest log proves 1.0.1 loaded in PID 27816; the user now says models and textures seem fine. The session still records 50 nearby identity creations, 38 within zero counted frames. No game process or probe remains at review time, and the events have not been correlated with actions or pixels. This neither establishes a new flicker diagnosis nor closes full movement acceptance. Evidence: captures/user-review-1.0.1-20261013/.
 
 New session PID 19452: the user reports no apparent flicker. Before exchange, 1,534 LOD0 and 101 LOD1 drawing frames have no refusal/identification/pending; after the unchanged-code exchange, 710 LOD0 frames and a requested 964-frame dash interval also stay clean. The user confirms normal appearance after exchange. This is positive real-game evidence for the sampled paths. Clustered identity lines elsewhere, with user-reported dashing, remain uncorrelated with individual effect draws and are not proof that ordinary flicker persists. See captures/stability-1.0.1-20261013-204259-19452/; LIMIT-027 remains a separate uncovered path.
+
+## BUG-012: Expanded INI dependency graphs exposed freed optimizer branches (fixed in candidate 1.0.4)
+
+The original optimizer owns conditional branch lists temporarily and releases
+them when finished. The adapter retained every raw registered pointer, including
+removed branches, and the expanded Core dependency graph produced an RTTI access
+violation during adaptation. Filter temporary branch roots before optimization,
+then recurse through surviving owning commands. Nested eliminated-branch and
+original Core fixtures cover the repair. This was reproduced offline; no game
+crash is attributed to it.
+
+## BUG-013: Key/preset-only callees were left uncompiled (fixed in candidate 1.0.4)
+
+Dependency discovery previously started from scene/Present roots. A command
+called only by a key or preset could stay empty; cycle parsing also copies its
+temporary activation lists, so retaining those list addresses is invalid.
+Record stable named callees at the original Override parser boundary and compile
+their dependency graphs once. Enumerate presets before Constants. Fixtures
+exercise hold activation/release, callbacks from Constants presets and both
+cycle entries. Preserve original accumulated cycle callbacks and smart selection.
+
+## LIMIT-028: Original INI syntax coverage is not complete Vulkan execution
+
+Candidate 1.0.4 adds source-derived parsing/evaluation checks and CPU directory
+generations. The full-folder inspector parses shader/resource metadata that the
+production character runtime cannot yet execute. Non-native CustomShader,
+ShaderOverride and ShaderRegex sections refuse; general copy/clear/readback,
+non-indexed/indirect draws, dispatch and GPU parameters remain open. Global
+system/driver settings and every argument combination are not exhaustively
+validated. docs/ini-language-coverage.md is the current operation-family table.
+
+## ISSUE-010: A mode fixture exited before its first probe request
+
+During the first 1.0.4 full regression, inject-late sandbox PID 3612 ended
+normally after two frames (build/tests/sandbox-vv5mn581/stdout.txt). Its output
+was already closed within the startup second, before the scheduled status
+request; the client reported a closed-pipe error. The mode code's normal timeout
+is four seconds, so timeout expiration is not established. No failure cause or
+game implication is inferred. The unmodified standalone modes test and the next
+complete suite both passed all 40 checks. Keep the original failure record in
+build/next/run_all-1.0.4.out; no blind retry or production IPC change was added.

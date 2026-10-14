@@ -7,8 +7,9 @@ void RuntimeResetParser()
 }
 void RuntimeParseKeys()
 {
-    EnumeratePresetOverrideSections(); RegisterPresetKeyBindings(); ParsePresetOverrideSections();
+    RegisterPresetKeyBindings(); ParsePresetOverrideSections();
 }
+void RuntimeEnumerateCustomShaders() { EnumerateCustomShaderSections(); EnumeratePresetOverrideSections(); }
 void RuntimeCompilePresent()
 {
     ParseCommandList(L"Present", &G->present_command_list, &G->post_present_command_list, nullptr);

@@ -12,6 +12,7 @@ void HostInsertBuiltins();
 void HostResourceRoot(const std::wstring&);
 void HostInspectAllSections();
 size_t HostDiagnosticCount();
+size_t HostNoticeCount();
 size_t HostInputCount();
 
 static void json(const std::wstring& value)
@@ -67,7 +68,7 @@ int HostParseFolder(const wchar_t* root_name, const wchar_t* core_name, const wc
             if (comma) putchar(','); comma = true;
             json(std::wstring(pair.first.begin(), pair.first.end())); printf(":%zu", pair.second);
         }
-        printf("},\"diagnostics\":%zu}\n", HostDiagnosticCount());
+        printf("},\"diagnostics\":%zu,\"notices\":%zu}\n", HostDiagnosticCount(), HostNoticeCount());
         return HostDiagnosticCount() ? 1 : 0;
     } catch (const std::exception& e) { fprintf(stderr, "Full INI inspection failed: %s\n", e.what()); return 2; }
 }

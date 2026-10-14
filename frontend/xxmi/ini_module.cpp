@@ -38,6 +38,9 @@ void HostInspectAllSections()
     for (auto& pair : customShaders) {
         auto* shader = &pair.second;
         const auto* name = pair.first.c_str();
+        wchar_t flags[MAX_PATH];
+        if (GetIniStringAndLog(name, L"flags", nullptr, flags, MAX_PATH))
+            shader->compile_flags = parse_enum_option_string<const wchar_t*, D3DCompileFlags, wchar_t*>(D3DCompileFlagNames, flags, nullptr);
         ParseBlendState(shader, name); ParseDepthStencilState(shader, name);
         ParseRSState(shader, name); ParseTopology(shader, name); ParseSamplerState(shader, name);
         shader->max_executions_per_frame = GetIniInt(name, L"max_executions_per_frame", 0, nullptr);
@@ -46,6 +49,8 @@ void HostInspectAllSections()
     ParseExplicitCommandListSections();
     ParseShaderOverrideSections();
     ParseShaderRegexSections();
+    // Inspection validates resizing metadata too, without creating a resource.
+    G->allow_buffer_resize = true;
     ParseTextureOverrideSections();
     ParseCommandList(L"Present", &G->present_command_list, &G->post_present_command_list, nullptr);
     ParseCommandList(L"ClearRenderTargetView", &G->clear_rtv_command_list, &G->post_clear_rtv_command_list, nullptr);
@@ -97,7 +102,9 @@ static void compile_graph(std::vector<ExplicitCommandListSection*> pending,const
         if(compiled.size()>4096)throw std::runtime_error("Original command graph section budget exceeded");
         const auto& name=names.at(section);
         if(std::find(natives.begin(),natives.end(),name)!=natives.end())continue;
-        HostCompileNamedList(name.c_str());visit(section->command_list,0);visit(section->post_command_list,0);
+        if (std::find(registered_command_lists.begin(), registered_command_lists.end(), &section->command_list) == registered_command_lists.end())
+            HostCompileNamedList(name.c_str());
+        visit(section->command_list,0);visit(section->post_command_list,0);
     }
 }
 void HostCompileGraph(const std::wstring& root,const std::vector<std::wstring>& natives)
@@ -107,6 +114,20 @@ void HostCompileGraph(const std::wstring& root,const std::vector<std::wstring>& 
 void HostCompileRoots(const std::vector<CommandList*>& roots,const std::vector<std::wstring>& natives)
 {
     compile_graph({},roots,natives);
+}
+void HostCompileEntries(const std::vector<ExplicitCommandListSection*>& entries, const std::vector<std::wstring>& natives)
+{
+    compile_graph(entries, {}, natives);
+}
+void HostCompileRemainingLists(const std::vector<std::wstring>& natives)
+{
+    // Original XXMI parses dormant command lists too. Do not accept a typo
+    // merely because the current character's graph does not reach it.
+    for (auto& entry : explicitCommandListSections) {
+        if (std::find(natives.begin(), natives.end(), entry.first) != natives.end()) continue;
+        if (std::find(registered_command_lists.begin(), registered_command_lists.end(), &entry.second.command_list) != registered_command_lists.end()) continue;
+        HostCompileNamedList(entry.first.c_str());
+    }
 }
 // Callback-only offline inspection. Core pools/dynamic resources are outside
 // this fixture; their existence is not implied by these file declarations.

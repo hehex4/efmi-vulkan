@@ -44,6 +44,11 @@ post drawindexed = 3, $result, 0
 [CommandListPairBad]
 drawindexed = 3, 0, 0
 post dispatch = 1, 1, 1
+[CommandListAbort]
+$result = 13
+handling = abort
+$result = 99
+post $result = 100
 )",L"core-native.ini");
     HostEnumerateLists();HostParseConstants();
     const std::wstring ns=L"commandlist\\core_native\\";
@@ -61,6 +66,7 @@ post dispatch = 1, 1, 1
             if(mode==1){reason=L"Core input unavailable";return false;}
             if(mode==2){adapter.invoke(bad,state,1,reason);reason.clear();return true;} // Deliberately mishandled by caller.
             if(mode==3)return adapter.invoke(root,state,1,reason);
+            if(mode==5)return adapter.invoke(explicitCommandListSections.at(ns+L"abort"),state,3,reason);
             if(mode==4){
                 alias.command_list.SetSourceCommandList(&retarget.command_list);
                 alias.post_command_list.SetSourceCommandList(&retarget.post_command_list);
@@ -73,9 +79,9 @@ post dispatch = 1, 1, 1
     adapter.palette_source([&](CommandListState&,std::shared_ptr<const efmi::core::PaletteSnapshot>& out,std::wstring& reason){
         if(!palette_ready){reason=L"Character bones incomplete";return false;}out=master;return true;
     });
-    for(auto name:{L"root",L"callback",L"bad",L"unresolved",L"alias",L"retarget",L"retargeted",L"pair",L"pairbad"})HostCompileNamedList((ns+name).c_str());
+    for(auto name:{L"root",L"callback",L"bad",L"unresolved",L"alias",L"retarget",L"retargeted",L"pair",L"pairbad",L"abort"})HostCompileNamedList((ns+name).c_str());
     optimise_command_lists(nullptr);
-    for(auto name:{L"root",L"callback",L"bad",L"unresolved",L"alias",L"retarget",L"retargeted",L"pair",L"pairbad"}){
+    for(auto name:{L"root",L"callback",L"bad",L"unresolved",L"alias",L"retarget",L"retargeted",L"pair",L"pairbad",L"abort"}){
         auto& section=explicitCommandListSections.at(ns+name);adapter.adapt(section.command_list);adapter.adapt(section.post_command_list);
     }
     HackerContext context;std::wstring reason;DrawPlan plan;
@@ -107,6 +113,10 @@ post dispatch = 1, 1, 1
           "root pre/post execute in one transaction and restore caller phase");
     check(!run_pair(L"pairbad") && plan.items.size()==1 && plan.items[0].first_index==5,
           "a late root post failure discards all earlier draw commands");
+    mode=5;
+    check(execute(root.command_list) && plan.skip_original && plan.items.empty() &&
+          command_list_globals.at(L"$\\core_native\\result").fval==13,
+          "native callback abort stops its own pre/post lists and the parent draw");
     master.reset();saved.reset();plan={};
     check(!weak.expired() && owned.items[0].palette->identity==37,"compiled native palette data outlives its source plan");
     check(execute(explicitCommandListSections.at(ns+L"unresolved").command_list) && plan.items.size()==1 &&
