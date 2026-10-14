@@ -495,7 +495,7 @@ serialized queue scope are explicit host inputs. General directory rendering,
 application import/render-pass integration are not enabled. See custom-shaders.md.
 
 
-## BUG-022: Source binding hazards and batch publication are missing (open after1.1.8)
+## BUG-022: Source binding hazards and batch publication (fixed in 1.1.9)
 
 Native WARP proves UAV binding clears conflicting SRV/VB/IB and output slots;
 input binding against an output yields null. Buffer view ranges still conflict.
@@ -508,7 +508,17 @@ Probe source/results:build/source-state-probe/hazards.cpp and hazards.txt.
 Invalid duplicate-UAV batches preserve prior bindings, but can contaminate later
 native hazard observations even after ClearState. Isolate invalid cases or run
 last. New1.1.8 distinct-resource compute/native output comparisons remain valid.
-This is an offline semantic gap, not a game regression. Fix next1.1.9.
+This was an offline semantic gap, not a game regression. Reproduced by the new
+native reference before the fix at 3728 checks; evidence is retained under
+build/resource-commands/binding-hazards-before-fix/. Candidate 1.1.9 fixes source
+hazards, atomic publication and OM restoration. Additional native probes show
+pixel UAV assignments replace their whole set (unlike compute), DSV dimensions
+may exceed color dimensions, and complete OM binding discards high pixel UAVs.
+The pinned save helper only preserves slots 0-7. Old fixtures now unbind writers
+before reading, without removing byte assertions. Full rebuilt suite passes:
+resources 4006, clean core/sync through shutdown and all remaining steps in
+build/next/run_all-1.1.9.out. This does not implement application binding import,
+read-only application DSV flags or graphics drawing.
 
 LIMIT-031 follow-up1.1.8: ordinary fixed shared storage, constructor/array sample
 pairs, indirect dispatch and owned sampler defaults/host snapshots now work.

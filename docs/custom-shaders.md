@@ -143,3 +143,33 @@ References: pinned XXMI CommandList.cpp/IniHandler.cpp;
 [DXC buffer layouts](https://github.com/microsoft/DirectXShaderCompiler/blob/main/docs/SPIR-V.rst),
 [source null sampler state](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-cssetsamplers),
 and [Vulkan sampler limits](https://docs.vulkan.org/refpages/latest/refpages/source/VkSamplerCreateInfo.html).
+
+
+## Source binding follow-up, candidate 1.1.9
+
+BUG-022 is fixed for owned resources. Source bindings now resolve read/write
+hazards across every shader stage and IA slot. A buffer is one D3D11 subresource
+regardless of view byte ranges. Texture mip and array-layer ranges can coexist.
+Source slot ranges materialize all views/copies before one atomic binding update;
+conflicting output batches preserve the previous state as native D3D11 does.
+
+RTV/DSV assignments validate complete attachment compatibility. Depth dimensions
+may exceed color dimensions. Every such assignment clears the pixel UAV set.
+Pixel UAV calls replace the whole pixel UAV set, unlike compute UAV calls, and
+also remove RTV registers at/after the first assigned UAV register, including
+null UAV assignments. CustomShader OM restoration clears conflicting inputs and
+compute UAVs. The original save helper only captures pixel slots 0-7; complete
+restoration clears higher slots. The original optimizer removes empty shader
+calls, so an empty list does not exercise restoration.
+
+Native WARP references cover these state transitions, disjoint texture ranges,
+invalid batches, attachment sizes and high registers. Invalid native calls are
+isolated because they can affect later observations even after ClearState. Older
+fixtures now unbind outputs before reading, preserving all data checks. Full
+rebuilt regression: build/next/run_all-1.1.9.out, all steps pass; resources 4006,
+core/sync clean through shutdown, 71 resource and 6 compiler hashes match.
+No application binding import or graphics drawing is implied. No game action.
+
+Native contracts and observed source behavior are checked alongside
+[OM target binding](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetrendertargets)
+and [OM UAV binding](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetrendertargetsandunorderedaccessviews).

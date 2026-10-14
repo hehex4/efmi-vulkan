@@ -111,19 +111,6 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
 void GpuResourceRuntime::draw_commands(DrawExecutor executor){
     require(!installed_ && bool(executor),"Install GPU draw executor before generation adaptation");draw_executor_=std::move(executor);
 }
-namespace {
-bool output_slot(const std::tuple<wchar_t,ResourceCopyTargetType,unsigned>& slot){
-    const auto type=std::get<1>(slot);return type==Target::RENDER_TARGET || type==Target::DEPTH_STENCIL_TARGET ||
-        (type==Target::UNORDERED_ACCESS_VIEW && std::get<0>(slot)==L'p');
-}
-}
-GpuResourceRuntime::OutputState GpuResourceRuntime::save_outputs() const {
-    active();OutputState state;state.viewport=viewport_;for(const auto& pair:slots_)if(output_slot(pair.first))state.bindings.insert(pair);return state;
-}
-void GpuResourceRuntime::restore_outputs(OutputState&& state) noexcept {
-    for(auto i=slots_.begin();i!=slots_.end();)if(output_slot(i->first))i=slots_.erase(i);else ++i;
-    slots_.merge(state.bindings);viewport_=state.viewport;
-}
 void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
     require(!failed_,"GPU resource generation failed; prepare a new generation");
     require(!active_ && queue && site==ExecutionSite::OutsideRenderPass,"GPU resource execution requires an explicit outside-render-pass scope");
@@ -238,7 +225,7 @@ void GpuResourceRuntime::set(ResourceCopyTarget& input,CommandListState& state,c
         if(t.type==Target::CONSTANT_BUFFER && bound.region)
             require(bound.offset%16==0 && bound.visible_size%16==0 && bound.visible_size<=bound.description.ByteWidth-bound.offset,
                     "GPU constant-buffer reference region is not aligned or outside allocation");
-        slots_[key]=std::move(bound);
+        assign_binding(key,std::move(bound));
     }
 }
 void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state) {
@@ -423,6 +410,12 @@ void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& sta
     // owners independently of aliases and element switches during assignment.
     std::vector<GpuResourceBinding> fetched;
     if(!bind)for(unsigned i=0;i<count;++i){auto& one=operation(i);fetched.push_back(get(one.src,state));}
+    Bindings pending;
+    if(bind)for(unsigned i=0;i<count;++i){auto& one=operation(i);auto key=slot(one.dst,state);
+        pending.emplace(key,binding(std::get<0>(key),std::get<1>(key),std::get<2>(key)));}
+    require(!deferred_bindings_,"Nested GPU binding publication is invalid");
+    struct DeferredScope {Bindings*& target;~DeferredScope(){target=nullptr;}} deferred{deferred_bindings_};
+    if(bind)deferred_bindings_=&pending;
     CustomResource* broadcast=bind && other.type==Target::CUSTOM_RESOURCE?declaration(other,state):nullptr;
     for(unsigned i=0;i<count;++i){auto& one=operation(i);
         if(bind){
@@ -457,7 +450,7 @@ void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& sta
                 // metadata is forwarded by the original fast path.
                 value.stride=0;value.offset=0;value.visible_size=0;value.format=DXGI_FORMAT_UNKNOWN;value.region=false;
             }
-            slots_[slot(one.dst,state)]=std::move(value);
+            pending[slot(one.dst,state)]=std::move(value);
         }else{
             const auto& source=fetched[i];
             if(!source && (op.options&ResourceCopyOptions::UNLESS_NULL))continue;
@@ -470,6 +463,8 @@ void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& sta
             set(one.dst,state,value);
         }
     }
+    deferred_bindings_=nullptr;
+    if(bind)publish_bindings(std::move(pending));
     if(op.options&ResourceCopyOptions::NO_VIEW_CACHE)for(auto& cached:views)cached={};
 }
 void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {

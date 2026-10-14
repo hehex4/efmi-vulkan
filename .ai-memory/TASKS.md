@@ -6,6 +6,16 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.9 fixes BUG-022 with native source binding hazards, atomic slot ranges,
+attachment compatibility, complete pixel UAV replacement and OM restore effects.
+Full rebuilt regression: build/next/run_all-1.1.9.out, all steps pass; resources
+4006, compiler 117/33 valid modules, core/sync clean. Source hashes match.
+Continue immediately with graphics semantic linking/state/draws, then shader
+matching and enabled-directory integration. No game input needed. Next 1.2.0;
+dist 1.0.2 unchanged, PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
 1.1.8 adds shared memory, exact constant sample pairs, GPU indirect compute and
 owned source sampler defaults/quotas. Complete rebuilt regression passes:
 build/next/run_all-1.1.8.out, resources3720 and all other steps, core/sync clean.

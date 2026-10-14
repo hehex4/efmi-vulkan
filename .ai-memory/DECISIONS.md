@@ -454,3 +454,17 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Original owned INI UAV creation does not support append/counter flags. Importing
   application counter views remains separate. Source binding hazards and batch/OM
   effects are required; BUG-022 must be fixed before graphics integration.
+
+
+## D-049: Source binding state follows native API side effects
+
+- Date: 2026-10-14, binding fix 1.1.9. Logical Vulkan-owned slots represent
+  D3D11 state, including read/write hazards and complete OM behavior. Buffer
+  ranges are one source subresource; image mip/layer ranges remain distinct.
+- Materialize an entire source slot range before publication. Native invalid
+  output batches preserve prior bindings; do not publish part of a range.
+- Validate semantics using actual system D3D11 WARP calls, with fresh devices for
+  invalid calls. Preserve pixel/compute UAV differences and source OM save scope.
+  Native queries and owned Vulkan validation are separate from game evidence.
+- Correct historical fixtures that assumed invalid simultaneous bindings, while
+  keeping their original data assertions. No game or deployment was needed.

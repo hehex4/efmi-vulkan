@@ -1,7 +1,42 @@
 # EFMI Vulkan - Current development state
 
-> Last updated:2026-10-14, compute follow-up1.1.8. Full rebuilt regression passes: resources3720, compiler117/33 valid modules, core/sync clean. Native audit found BUG-022 binding hazards; fix next, then graphics. Dist1.0.2 unchanged. Continue offline, LOD0/LOD1 only.
+> Last updated: 2026-10-14, source binding fix 1.1.9. Complete rebuilt regression passes, resources 4006 and core/sync clean. BUG-022 fixed. Continue offline with graphics semantics/state/draws; no game input needed. Dist 1.0.2 unchanged.
 
+
+## Source binding semantics (verified candidate 1.1.9)
+
+Owned bindings now reproduce native D3D11 input/output conflicts. Buffer byte
+ranges still conflict; image mip/layer ranges can be independent. All six shader
+stages and IA bindings participate. Ranges materialize every element before one
+publication, and duplicate output batches preserve the complete prior state.
+RTV/DSV assignment validates the complete attachment set and clears pixel UAVs.
+A depth target can be larger than color targets. Pixel UAV assignments replace
+the entire pixel UAV set and remove RTV registers at/after the first UAV slot;
+compute UAV assignments preserve other nonconflicting registers.
+
+CustomShader OM restoration applies native input/compute-output hazards. The
+pinned helper saves only pixel UAV slots 0-7; complete restoration discards high
+slots. Empty CustomShader calls can be removed by the original optimizer.
+Older resource fixtures now explicitly unbind writers before later reads; their
+byte assertions remain intact. The old UAV+SRV coexistence assertion is corrected.
+
+BUG-022 was reproduced before the fix at 3728 checks. New native WARP references
+use fresh devices for invalid calls, which can contaminate later observations.
+Complete frozen-source rebuild/regression: build/next/run_all-1.1.9.out, all steps
+pass. Resources 4006, compiler 117/33 valid modules, parser 726/evaluator 65/runtime
+68, character 79/357, live INI 28, validation 76/modes 40/MCP 47/evidence 113.
+Core/sync clean through shutdown; 71 resource and 6 compiler hashes match.
+This is owned binding and sandbox evidence, with no deployment or game action.
+
+Next version 1.2.0: graphics semantic linking, original state and draw execution,
+then shader matching and enabled-directory integration. Alphabetic DXC IO order
+alone is insufficient when stage signatures differ. Preserve source semantics
+and verify coordinate/position/vertex/instance behavior against native DX11.
+Current compiler lacks the DXC position-w option. Vector-width differences need
+actual maintenance4 enablement or rewriting; do not silently assume it. Original
+sampler overrides affect PS s0, use comparison filters, and save all 16 PS samplers.
+No game input is needed. Continue without stopping between verified increments.
+Dist 1.0.2, PNG paused, LOD0/LOD1 only. See docs/custom-shaders.md and D-049.
 
 ## Compute follow-up (verified candidate1.1.8)
 

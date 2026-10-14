@@ -5,12 +5,11 @@ struct ImageNativeReference {
     HMODULE library=nullptr;
     Ptr<ID3D11Device> device;
     Ptr<ID3D11DeviceContext> context;
-    ImageNativeReference(){
+    ImageNativeReference(D3D_FEATURE_LEVEL level=D3D_FEATURE_LEVEL_11_0){
         library=LoadLibraryExW(L"d3d11.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
         check(library!=nullptr,"Load source image conversion reference");
         const auto create=reinterpret_cast<PFN_D3D11_CREATE_DEVICE>(GetProcAddress(library,"D3D11CreateDevice"));
         check(create!=nullptr,"Source image conversion device entry");
-        const D3D_FEATURE_LEVEL level=D3D_FEATURE_LEVEL_11_0;
         check(SUCCEEDED(create(nullptr,D3D_DRIVER_TYPE_WARP,nullptr,0,&level,1,D3D11_SDK_VERSION,&device,nullptr,&context)),"Create source image conversion reference");
     }
     ~ImageNativeReference(){context.Reset();device.Reset();if(library)FreeLibrary(library);}
@@ -82,7 +81,7 @@ static void image_ini_integer_rtv(Device& d,const std::filesystem::path& root){
         source+="[ResourceView]\nformat = "+std::string(format.name)+"\n[Present]\nResourceView = ref ResourceImage\no0 = ref ResourceView\n";
         for(size_t phase=0;phase<std::size(clears);++phase)source+=(phase?"elif":"if")+std::string(" $phase == ")+std::to_string(phase)+
             "\n clear = o0 "+clears[phase].ini+"\n";
-        source+="endif\nps-t0 = ref ResourceView\n$phase = $phase + 1\n";
+        source+="endif\no0 = null\nps-t0 = ref ResourceView\n$phase = $phase + 1\n";
         ImageIniFixture f(d,root/std::to_string(index),source);
         for(size_t phase=0;phase<std::size(clears);++phase){f.present(unsigned(phase+1));
             const auto expected=reference.clear(format.dxgi,clears[phase].values,format.bytes),bytes=f.read(0);

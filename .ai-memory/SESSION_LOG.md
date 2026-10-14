@@ -1377,3 +1377,30 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   full source equivalence. Fix immediately in1.1.9, then graphics/integration.
 - Source1.1.8; dist1.0.2 unchanged. No game/deployment/launcher/system action.
   Continue offline without stopping; no game input needed, PNG paused, LOD0/LOD1.
+
+
+## 2026-10-14: Native source binding semantics, candidate 1.1.9
+
+Continued offline without user input, as requested. Reproduced BUG-022 before
+changing production code: new native buffer reference failed at 3728 checks.
+Added source subresource conflicts, atomic range publication, complete attachment
+validation and source OM save/restore effects. Pixel UAV assignment replaces its
+whole set while compute assignment preserves other nonconflicting registers.
+Native WARP also verifies larger depth targets, disjoint image mip/layer reads,
+null UAV register effects, and high pixel UAV loss during complete OM binding.
+Invalid native calls use isolated devices. Empty CustomShader calls are optimized
+away upstream; the restore test now contains an actual command.
+
+Old fixtures explicitly unbind writers before subsequent SRV use; all prior byte
+checks remain. Fixed the incorrect compute UAV/SRV coexistence assertion. Full
+frozen-source build and regression passes in build/next/run_all-1.1.9.out:
+resources 4006 with zero core/sync messages through shutdown, compiler 117/33 valid
+modules, parser 726/evaluator 65/runtime 68, character 79/357, live INI 28,
+validation 76, modes 40, MCP 47, evidence 113, and every other step. All 71 resource
+and 6 compiler source hashes match. Dist stays 1.0.2; no game/deployment action.
+
+Continue immediately with graphics semantic linking, source state and draws,
+then matching and complete enabled-directory integration. Next 1.2.0. Alphabetic
+IO sorting alone is not stage linking; DX11 position-w and vertex/instance offsets
+need native output comparisons. No game input is needed. PNG remains paused;
+LOD0/LOD1 only.

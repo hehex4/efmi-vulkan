@@ -175,6 +175,7 @@ clear = ResourceSigned 0xfffffffe 0x81 0x7f 0x123
 ResourceSrgbView = ref ResourceSrgb
 o0 = ref ResourceSrgbView
 clear = o0 0.5 0.5 0.5 0.25
+o0 = null
 ps-t0 = ref ResourceBits
 ps-t1 = ref ResourceUnorm
 ps-t2 = ref ResourceHalf
@@ -223,12 +224,12 @@ bind_flags = shader_resource render_target
 [ResourceResolved]
 bind_flags = shader_resource
 [Present]
+od = ref ResourceDepth
 if $phase == 0
  clear = ResourceDepth 0.25 7
  od = ref ResourceDepth
  clear = od depth stencil 0.5 33
  ResourceDepthCopy = copy ResourceDepth
- ps-t0 = ref ResourceDepth
  ps-t1 = ref ResourceDepthCopy
  clear = ResourceMS 0.2 0.4 0.6 1.0
  ResourceResolved = resolve_msaa set_viewport ResourceMS
@@ -240,6 +241,8 @@ elif $phase == 2
 else
  clear = od depth 2
 endif
+od = null
+ps-t0 = ref ResourceDepth
 $phase = $phase + 1
 )ini");
     f.present();check(f.srv(0).image_view->range().aspectMask==VK_IMAGE_ASPECT_DEPTH_BIT,"Original depth-compatible SRV selects only the depth aspect");

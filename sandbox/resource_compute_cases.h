@@ -255,8 +255,8 @@ post $post_root = 1
     check(!f.variable("unreachable") && !f.variable("post_shader") && f.variable("post_root")==1,"CustomShader abort shares nested state but root post still executes");
     check(resources.binding(0,T::RENDER_TARGET,0).image->image()==original && resources.binding(L'p',T::UNORDERED_ACCESS_VIEW,1).buffer->buffer()==uav &&
         resources.viewport().Width==4 && resources.viewport().Height==5,"CustomShader restores OM resources and viewport after abort");
-    check(resources.binding(L'c',T::UNORDERED_ACCESS_VIEW,3).buffer && resources.binding(L'c',T::SHADER_RESOURCE,8).buffer==
-        resources.binding(L'c',T::UNORDERED_ACCESS_VIEW,3).buffer,"Ordinary compute UAV/SRV bindings survive CustomShader scope");
+    check(resources.binding(L'c',T::UNORDERED_ACCESS_VIEW,3).buffer && !resources.binding(L'c',T::SHADER_RESOURCE,8),
+        "Ordinary compute UAV survives CustomShader scope; its conflicting SRV remains null");
     // A failed candidate cannot disturb an already-working generation.
     auto bad_root=root/"bad";std::filesystem::create_directories(bad_root/"Mods");
     write(bad_root/"Mods/mod.ini","[CustomShaderDormant]\ncs = broken.hlsl\n");write(bad_root/"Mods/broken.hlsl","this is invalid HLSL");

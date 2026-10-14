@@ -421,6 +421,8 @@ cs-u[$first:$last] = ref PoolRows[0:2]
 clear = cs-u2 0x40000000
 store = $cleared, ResourceSource, 0
 store = $tail, ResourceSource, 2
+cs-u[$first:$last] = null
+cs-t[$first:$last] = ref PoolRows[0:2]
 ps-t6 = ref ResourceSource
 PoolViews[0] = ref ps-t6
 ps-t[10:11] = ref PoolViews[0]
@@ -1119,6 +1121,8 @@ ps-t4 = raw ref ResourceTypedAlias
 cs-u4 = raw ref ResourceTypedAlias
 clear = cs-u4 0x42280000
 store = $raw, ResourceRaw, 0
+cs-u4 = null
+ps-t4 = raw ref ResourceTypedAlias
 ps-t5 = ref ResourceTypedAlias
 ResourceTemporary = no_view_cache ref ps-t5
 clear = ResourceTemporary 0x422c0000
@@ -1198,6 +1202,7 @@ pool_size = 2
 ResourceTyped = ref ResourceRaw
 cs-u0 = ref ResourceTyped
 PoolViews[0:0] = ref cs-u[0:0]
+cs-u0 = null
 ps-t0 = ref PoolViews[0]
 ps-t1 = ref ResourceTyped
 ResourceSaved = ref ps-t1
@@ -1281,6 +1286,8 @@ bind_flags = shader_resource
 [Present]
 ps-t0 = ref ResourceData
 cs-u0 = ref ResourceData
+cs-u0 = null
+ps-t0 = ref ResourceData
 ResourceAlias = ref ResourceData
 PoolViews[0] = ref ResourceAlias
 PoolViews[0:0] = ref ps-t[0:0]
@@ -1329,6 +1336,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_shader_cases.h"
 #include "resource_compute_cases.h"
 #include "resource_usage_cases.h"
+#include "resource_binding_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1351,7 +1359,10 @@ int wmain(int argc,wchar_t** argv){
         original_shader_scopes(device,root/"original-shader-scopes");
         compute_shared_memory(device,root/"compute-shared-memory");compute_sample_pairs(device,root/"compute-sample-pairs");
         compute_indirect(device,root/"compute-indirect");original_indirect(device,root/"original-indirect");
-        original_sampling(device,root/"original-sampling");}
+        original_sampling(device,root/"original-sampling");original_buffer_hazards(device,root/"original-buffer-hazards");
+        original_binding_batches(device,root/"binding-batches");original_restore_hazards(device,root/"restore-hazards");
+        original_image_binding_ranges(device);original_attachment_bindings(device,root/"attachment-bindings");
+        original_pixel_binding_sets(device,root/"pixel-binding-sets");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

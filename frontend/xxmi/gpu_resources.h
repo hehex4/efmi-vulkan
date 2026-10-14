@@ -23,6 +23,8 @@ struct GpuResourceBinding {
     UINT bind_flags() const {return image?image_description.texture.BindFlags:description.BindFlags;}
     void drop_view(){view=View::None;image_view.reset();}
 };
+// D3D11 hazards operate on source subresources, not Vulkan byte intervals.
+bool source_bindings_overlap(const GpuResourceBinding&,const GpuResourceBinding&) noexcept;
 // Original INI adapter for owned mutable resources. Stage slots are logical
 // source-API bindings; graphics/compute descriptor emission is a separate host
 // responsibility. They must not be mistaken for changed application bindings.
@@ -77,6 +79,9 @@ private:
     void image_copy(ResourceCopyOperation&,ResourceCopyTarget&,CommandListState&,GpuResourceBinding,CustomResource*,GpuResourceBinding&);
     void image_clear(GpuResourceBinding,ClearViewCommand&);
     void set(ResourceCopyTarget&,CommandListState&,const GpuResourceBinding&);
+    using Bindings=std::map<Slot,GpuResourceBinding>;
+    void assign_binding(Slot,GpuResourceBinding);
+    void publish_bindings(Bindings);
     void copy(ResourceCopyOperation&,CommandListState&);
     void copy_to(ResourceCopyOperation&,ResourceCopyTarget&,CommandListState&,GpuResourceBinding);
     void ranges(SlotRangeCopyOperation&,CommandListState&);
@@ -92,6 +97,8 @@ private:
     bool parameters_initialized_=false;
     std::map<CustomResource*,GpuResourceBinding> resources_;
     std::map<Slot,GpuResourceBinding> slots_;
+    // A source slot-range command materializes every view before one API bind.
+    Bindings* deferred_bindings_=nullptr;
     // Copies to a stage slot cache per instruction, as in the original engine.
     std::map<ResourceCopyOperation*,GpuResourceBinding> copies_;
     // A current alias is not a writable copy-cache allocation. Original
