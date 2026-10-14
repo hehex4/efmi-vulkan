@@ -28,6 +28,7 @@ STEPS = [
     ("installed Mods and Core syntax", [os.path.join(ROOT, "scripts", "check_ini_folder.py")]),
     ("original INI runtime", [os.path.join(ROOT, "scripts", "build_xxmi_runtime.py")]),
     ("source-defined INI evaluation", [os.path.join(ROOT, "scripts", "check_ini_evaluation.py")]),
+    ("original INI GPU resources", [os.path.join(ROOT, "scripts", "check_resource_commands.py")]),
     ("original panel HLSL compilation", [os.path.join(ROOT, "scripts", "check_panel_hlsl.py")]),
     ("native tracker tests", [os.path.join(HERE, "native_test.py")]),
     ("CPU skeleton import", [os.path.join(HERE, "bone_test.py")]),

@@ -1013,3 +1013,35 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   ShaderRegex and full directory rendering remain open. PNG integration stays
   paused. Dist remains 1.0.2; no game actions, original-installation writes,
   deployment or module exchange occurred.
+
+## 2026-10-14: Original INI GPU buffer command foundation (1.0.6)
+
+- The user approves the resource -> CustomShader -> shader matching -> directory
+  graphics order and asks to continue offline until a game check is needed. The
+  goal remains active; this checkpoint is one implementation stage, not complete
+  original-language Vulkan execution.
+- Added ResourceCommands allocation, transfer, clear, readback and fence owners,
+  plus GpuResourceRuntime as an opt-in extension of the production original
+  parser/evaluator. Original buffer descriptions, store range calculation,
+  variable output and buffer-view element calculation are reused directly.
+  References, compatible copies/copy_desc, typed/structured/raw clear, immediate
+  store feedback, dynamic slots, optimizer batches, pool reset and copy limits
+  now have actual GPU byte-result checks. Stage slots remain logical bindings.
+- New tests exposed an SRV clear mismatch in the first full run. Preserved
+  build/resource-commands/view-before-fix.{json,txt} and
+  build/next/run_all-1.0.6.out. Corrected view kind, format/range retention, cached
+  views, and the distinction between original SRV/UAV end boundaries and CB
+  region lengths. Raw-capable buffers can have typed float views too.
+- The targeted fixture has 120 passing checks with zero core/sync validation
+  errors or warnings through shutdown. File padding/size metadata, same-list
+  branches, two independent generations, rejected candidates, retained owners,
+  allocation accounting and failed-scope cleanup are covered. The second full
+  suite passes in build/next/run_all-1.0.6-final.out. The frozen-source rebuild and
+  full suite also pass in build/next/run_all-1.0.6-verified.out: syntax 726,
+  expression results 65, CPU runtime 68, character package/GPU 79/357, live INI
+  GPU 28, validation 76 and every remaining step. Diff/text reviewed for commit.
+- D-045 and docs/gpu-resource-commands.md describe the explicit private outside-
+  render-pass execution domain. It performs no application imports, descriptor
+  emission, draw-hook waits, deployment or game operations. Dist stays 1.0.2.
+  Next offline work: slot ranges and general buffer regions/properties/options,
+  then images and the remaining common shader/directory adapters. PNG stays paused.

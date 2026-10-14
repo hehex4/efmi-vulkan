@@ -356,3 +356,26 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Model components, bone ranges, LOD maps, vertex/index buffers and texture choices come from original evaluated declarations and commands. No handwritten per-character/component branches. Keep game shader correspondence in a shared shader catalogue; per-character paired captures are not a normal installation requirement. Unknown shader semantics remain an explicit adapter gap rather than a guessed binding.
 - Verify the installed directory offline: original syntax and references, declared file storage/decoding, model draw bounds and bone initialization, then sandbox graphics and generation lifetime. Keep the remaining PNG, CustomShader, ShaderRegex, resource-copy and complete-directory routing work visible. Do not edit original INIs or omit companion files to manufacture compatibility.
 - Source audit follow-up, 2026-10-14: inventory the pinned parser dispatch, metadata and operand/operator tables; make missing/new constructs fail coverage checks. Validate parsing and actual execution separately with independent expected values. Retain original key-cycle semantics even when surprising. PNG integration is paused until the requested language/runtime work advances; no all-language claim follows from installed-folder or syntax-only success.
+
+## D-045: Execute original GPU resource commands in an explicit owned domain
+
+- Date: 2026-10-14, user-directed implementation order: general GPU resources,
+  then CustomShader, shared shader matching, and complete directory graphics.
+  Continue offline until game evidence is actually necessary.
+- Keep the pinned original parser/evaluator. The command adapter dispatches
+  GPU operations to a generation-owned extension; it does not build another
+  INI interpreter. Initial buffers use original description and view-element
+  helpers, logical source slots and explicit allocation/view metadata.
+- Start with owned resources and private primary command buffers, requiring an
+  explicit outside-render-pass scope and host serialization of one queue.
+  This is not permission to split game render passes or submit concurrently
+  with game calls. Application import and arbitrary inline placement remain
+  architecture work; do not sneak waits into the existing character draw hook.
+- Original store can affect the same command list's next condition. Read actual
+  GPU bytes and wait only in an explicit supported scope; do not silently return
+  an older asynchronous value. Regular submissions retain owners through fences.
+  Share budget ledgers across reload generations, while isolating mutable data.
+- Failed scopes cannot be submitted. Discard makes the candidate unusable;
+  original CPU assignments and already-submitted feedback are not transactional.
+  A working prior generation retains its own state. A logical source binding is
+  not a Vulkan descriptor bind, and buffer execution is not shader execution.

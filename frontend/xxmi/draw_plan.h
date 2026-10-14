@@ -65,6 +65,11 @@ public:
     // Install before adaptation. Every mediated query must explicitly succeed;
     // refusal never falls through to the reference D3D graphics scaffolding.
     void resource_queries(ResourceQuery);
+    using ResourceCommand=std::function<bool(CommandListCommand&,CommandListState&,std::wstring&)>;
+    // An opt-in execution backend owns resource state, GPU synchronization and
+    // feedback. Without one, the existing immutable file-plan path is retained.
+    // Install before adaptation; backend refusal never falls through to D3D.
+    void resource_commands(ResourceCommand);
     struct PixelBinding {
         bool application=true;
         CustomResource* resource=nullptr; // Null with application=false means an explicit unbind.

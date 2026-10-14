@@ -11,3 +11,12 @@ void FrontendRunCommandList(CommandList& list,CommandListState& state)
 {
     _RunCommandList(&list,&state);
 }
+
+// Preserve the original buffer-view element calculation, including its use of
+// buf_src_size as an end boundary rather than a length after offset.
+void FrontendBufferViewElements(UINT stride,UINT offset,DXGI_FORMAT format,UINT end,UINT& first,UINT& count)
+{
+    D3D11_BUFFER_UAV view{};
+    FillOutBufferDescCommon(&view,stride,offset,format,end);
+    first=view.FirstElement;count=view.NumElements;
+}

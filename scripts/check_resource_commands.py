@@ -1,0 +1,65 @@
+"""Original INI GPU resource commands, with headless child-only validation."""
+from __future__ import annotations
+import contextlib
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from build import find_vcvars, run_cl
+from build_xxmi_runtime import build_runtime, runtime_flags
+from probe_xxmi_host import ROOT, write_ascii
+
+
+def main() -> int:
+    out = ROOT / "build/resource-commands"
+    out.mkdir(parents=True, exist_ok=True)
+    report = {"scope": "original INI owned buffer operations on Vulkan; no game or draw-hook integration", "passed": False}
+    try:
+        objects = build_runtime(ROOT / "build/xxmi-runtime")
+        executable = out / "resource_gpu.exe"
+        sources = [ROOT / "sandbox/resource_gpu.cpp", ROOT / "layer/src/merged_skeleton.cpp"]
+        log = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(log):
+                run_cl(find_vcvars(), str(out), runtime_flags(out) + ["/DNOMINMAX"] + [str(p) for p in sources] +
+                       objects + ["/Fe:" + str(executable), "/link", "/NOLOGO", "/OPT:REF", "/OPT:ICF"])
+        except Exception as e:
+            log.write(str(e))
+            raise
+        finally:
+            write_ascii(out / "build.txt", log.getvalue())
+        inputs = sources + list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
+        inputs += [ROOT / "frontend/gpu/resource_commands.cpp", ROOT / "frontend/gpu/resource_commands.h",
+                   Path(__file__), ROOT / "scripts/build_xxmi_runtime.py"]
+        report["source_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
+        report["executable_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
+        sys.path.insert(0, str(ROOT / "sandbox"))
+        from harness import inject_env
+        env = inject_env(str(out / "unexpected-injection.log"))
+        validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))
+        if not (validation / "VkLayer_khronos_validation.json").is_file():
+            raise RuntimeError("Required validation layer is unavailable")
+        env.update(VK_LAYER_PATH=str(validation), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
+                   XDG_CACHE_HOME=str(out), TMPDIR=str(out), TEMP=str(out), TMP=str(out))
+        result = subprocess.run([str(executable), str(out / "fixture")], cwd=out, env=env, capture_output=True,
+                                encoding="utf-8", errors="replace", timeout=60)
+        output = result.stdout + result.stderr
+        write_ascii(out / "runtime.txt", output)
+        match = re.search(r"resource_gpu: (\d+) checks passed; validation errors=(\d+) warnings=(\d+)", output)
+        report.update(returncode=result.returncode, checks=int(match[1]) if match else 0)
+        report["passed"] = result.returncode == 0 and bool(match) and match[2] == match[3] == "0"
+        print(match[0] if report["passed"] else output[-6000:])
+    except Exception as e:
+        report["error"] = str(e)
+        print(str(e).encode("ascii", "backslashreplace").decode("ascii"))
+    finally:
+        write_ascii(out / "report.json", json.dumps(report, indent=2, ensure_ascii=True) + "\n")
+    return 0 if report["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

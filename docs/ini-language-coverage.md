@@ -118,7 +118,8 @@ pools, pending a broader GPU lifetime adapter.
 | IniParams, time, call counters, presets, keys, persist, F10 | CPU runtime; shader upload and full rendering context still needed |
 | Indexed draws, VB/IB and pixel-resource references, layout edits | Existing scoped character Vulkan backend; not every draw/resource form |
 | Scalar pools, metadata/reset, native merged-skeleton/identity contracts | Original CPU logic plus explicit native Core boundaries; GPU resource pools are partial |
-| General custom-resource copy/description/clear/store/readback and slot ranges | Parse support; general Vulkan execution remains open |
+| Custom-resource buffer references, compatible copy/copy_desc, clear/store/readback | 1.0.6 opt-in original-runtime GPU adapter in an explicit private outside-render-pass domain; logical slots, no application descriptor emission |
+| Image operations, general regions/conversions/properties, slot ranges and expiring GPU pools | Parse support; general Vulkan execution remains open |
 | Non-indexed/automatic/indirect draws and compute dispatch | Parse support; general Vulkan execution remains open |
 | CustomShader render state and HLSL | Original metadata parsing; original panel HLSL compiles separately, general pipeline execution remains open |
 | ShaderOverride/ShaderRegex | Original metadata/pattern parsing; source-shader identity and DX11 assembly-to-SPIR-V adaptation remain open |
@@ -149,3 +150,11 @@ generation. No deployment; ABI is unchanged.
 
 No game load, deployment, module swap, new capture or new character acceptance is
 implied by these source, CPU or sandbox checks.
+
+The next 1.0.6 checkpoint adds real GPU buffer execution through the production
+original engine. Targeted checks pass (120, clean core/sync validation), as does
+a full suite. The final frozen-source rebuilt suite passes in
+`build/next/run_all-1.0.6-verified.out`. See docs/gpu-resource-commands.md for
+scope, source-view semantics, synchronous store feedback and lifetime boundaries.
+This opt-in extension does not enable complete directory graphics in the existing
+character renderer or remove the remaining shader/image execution gaps.

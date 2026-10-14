@@ -148,7 +148,11 @@ void guard_arguments(CommandListCommand& command,const std::shared_ptr<QueryServ
     }else if(auto* binding=dynamic_cast<ResourceCopyOperation*>(&command)){guard_target(binding->src,queries);guard_target(binding->dst,queries);}
     else if(auto* layout=dynamic_cast<LayoutElementOperation*>(&command)){
         if(layout->dst.member_args[1].expression)guard_expression(layout->dst.member_args[1].expression->evaluatable,queries);
-    }else if(auto* batch=dynamic_cast<ShaderResourceBindBatch*>(&command)){
+    }else if(auto* clear=dynamic_cast<ClearViewCommand*>(&command))guard_target(clear->target,queries);
+    else if(auto* store=dynamic_cast<StoreCommand*>(&command)){
+        guard_target(store->src,queries);guard_target(store->pool_var,queries);
+        if(store->offset_expression)guard_expression(store->offset_expression->evaluatable,queries);
+    }else if(auto* batch=dynamic_cast<ShaderResourceBatch*>(&command)){
         for(auto& binding:batch->operations)if(binding)guard_arguments(*binding,queries);
     }
     else if(auto* check=dynamic_cast<CheckTextureOverrideCommand*>(&command))guard_target(check->target,queries);
@@ -167,6 +171,11 @@ bool cpu_arguments(CommandListCommand& command)
         return cpu_expression(assignment->expression.evaluatable) && (!pool || cpu_target(pool->dst));
     } else if (auto* binding = dynamic_cast<ResourceCopyOperation*>(&command)) {
         return cpu_target(binding->src) && cpu_target(binding->dst);
+    } else if(auto* clear=dynamic_cast<ClearViewCommand*>(&command)) {
+        return cpu_target(clear->target);
+    } else if(auto* store=dynamic_cast<StoreCommand*>(&command)) {
+        return cpu_target(store->src) && cpu_target(store->pool_var) && store->offset_expression &&
+               cpu_expression(store->offset_expression->evaluatable);
     } else if (auto* layout = dynamic_cast<LayoutElementOperation*>(&command)) {
         return layout->dst.member_args[1].expression &&
                cpu_expression(layout->dst.member_args[1].expression->evaluatable);
@@ -202,6 +211,7 @@ struct DrawPlanAdapter::Runtime {
     std::unordered_map<CustomResource*,CustomResource*> references;
     std::shared_ptr<QueryService> queries=std::make_shared<QueryService>();
     DrawPlanAdapter::PaletteSource palette_source;
+    DrawPlanAdapter::ResourceCommand resource_command;
     bool nested_failed=false;
     size_t active_depth=0;
     DrawPlanAdapter::TextureQuery texture_query;
@@ -319,6 +329,13 @@ struct DrawPlanAdapter::Runtime {
         if(auto* check=dynamic_cast<CheckTextureOverrideCommand*>(original.get())){
             check_texture(*check,*state);return;
         }
+        if(resource_command && (dynamic_cast<ResourceCopyOperation*>(original.get()) ||
+           dynamic_cast<ClearViewCommand*>(original.get()) || dynamic_cast<StoreCommand*>(original.get()) ||
+           dynamic_cast<DrawCommand*>(original.get()))) {
+            std::wstring why;
+            if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
+            return;
+        }
         if (auto* draw = dynamic_cast<DrawCommand*>(original.get())) {
             if (state->call_info && state->call_info->hunting_skip) return;
             PlanItem item; item.operation = PlanOperation::DrawIndexed;
@@ -391,7 +408,9 @@ struct DrawPlanAdapter::Runtime {
             append(std::move(item));
             return;
         }
-        if (auto* batch = dynamic_cast<ShaderResourceBindBatch*>(original.get())) {
+        if (auto* batch = dynamic_cast<ShaderResourceBatch*>(original.get())) {
+            if(!resource_command && !dynamic_cast<ShaderResourceBindBatch*>(batch))
+                refuse(L"Shader resource fetch requires a GPU resource adapter");
             // Upstream batches adjacent reference operations after parsing.
             for (auto& operation : batch->operations) {
                 if (!operation || !cpu_arguments(*operation)) refuse(L"Unadapted batched binding query");
@@ -562,6 +581,11 @@ void DrawPlanAdapter::resource_queries(ResourceQuery query)
 {
     if(runtime_->active || !runtime_->adapted.empty())refuse(L"Install resource queries before adapting command lists");
     runtime_->queries->read=std::move(query);
+}
+void DrawPlanAdapter::resource_commands(ResourceCommand command)
+{
+    if(runtime_->active || !runtime_->adapted.empty() || !command)refuse(L"Install resource commands before adaptation");
+    runtime_->resource_command=std::move(command);
 }
 
 void DrawPlanAdapter::texture_queries(TextureQuery query)

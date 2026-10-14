@@ -13,6 +13,21 @@ from build import find_vcvars, find_vulkan_include, run_cl
 from probe_xxmi_host import DEPS, PINS, ROOT, digest, pinned_checkout, write_ascii
 
 
+def runtime_flags(out: Path) -> list[str]:
+    upstream = DEPS / "XXMI-Libs-Package"
+    port = DEPS / "wwmi-dx12/reshade_addon/migoto"
+    pristine = DEPS / "efmi-xxmi-host-prototype/pristine"
+    includes = [ROOT / "frontend/xxmi", Path(find_vulkan_include()), port, pristine, upstream,
+                upstream / "HLSLDecompiler", upstream / "D3D_Shaders", upstream / "DirectXTK/Inc",
+                upstream / "DirectXTK/Src", upstream / "crc32c-hw-1.0.5/include", upstream / "pcre2"]
+    flags = ["/nologo", "/std:c++17", "/permissive", "/W0", "/O2", "/MT", "/EHa", "/Gy", "/Gw",
+             "/DUNICODE", "/D_UNICODE", "/D_HAS_STD_BYTE=0", "/DMIGOTO_DX=11",
+             "/DPCRE2_CODE_UNIT_WIDTH=8", "/DPCRE2_STATIC", "/DCRC32C_STATIC", "/D_CRT_SECURE_NO_WARNINGS",
+             "/D_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING", "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1",
+             "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_COUNT=1", "/FI" + str(port / "port_compat.h")]
+    return flags + ["/I" + str(path) for path in includes] + ["/Fo" + str(out) + "/"]
+
+
 def build_runtime(out: Path, test: bool = False) -> list[str]:
     upstream, reference = DEPS / "XXMI-Libs-Package", DEPS / "wwmi-dx12"
     pinned_checkout(upstream, PINS["xxmi"])
@@ -29,20 +44,13 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     legacy = [pristine / (name + ".cpp") for name in ("ResourceHash", "profiling", "util")]
     legacy += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("command_module", "runtime_override")]
     sources = [ROOT / "frontend/xxmi" / (name + ".cpp") for name in
-               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan")]
+               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "gpu_resources")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/core/palette_bank.cpp"]
+    sources += [ROOT / "frontend/gpu/resource_commands.cpp"]
     sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in ("DDSTextureLoader", "WICTextureLoader")]
     sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
-    includes = [ROOT / "frontend/xxmi", Path(find_vulkan_include()), port, pristine, upstream,
-                upstream / "HLSLDecompiler", upstream / "D3D_Shaders", upstream / "DirectXTK/Inc",
-                upstream / "DirectXTK/Src", upstream / "crc32c-hw-1.0.5/include", upstream / "pcre2"]
-    flags = ["/nologo", "/std:c++17", "/permissive", "/W0", "/O2", "/MT", "/EHa", "/Gy", "/Gw",
-             "/DUNICODE", "/D_UNICODE", "/D_HAS_STD_BYTE=0", "/DMIGOTO_DX=11",
-             "/DPCRE2_CODE_UNIT_WIDTH=8", "/DPCRE2_STATIC", "/DCRC32C_STATIC", "/D_CRT_SECURE_NO_WARNINGS",
-             "/D_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING", "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1",
-             "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_COUNT=1", "/FI" + str(port / "port_compat.h")]
-    flags += ["/I" + str(path) for path in includes] + ["/Fo" + str(out) + "/"]
+    flags = runtime_flags(out)
     libraries = ["user32.lib", "gdi32.lib", "advapi32.lib", "d3dcompiler.lib", "dxguid.lib", "ole32.lib",
                  "xinput.lib", "dbghelp.lib", str(upstream / "pcre2/pcre2-8-64.lib")]
     objects = [str(out / (path.stem + ".obj")) for path in legacy + sources]

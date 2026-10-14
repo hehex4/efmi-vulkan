@@ -1,6 +1,49 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, source-defined INI compatibility. Source/candidate 1.0.5 passes the full rebuilt regression. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, original INI GPU resource commands. Source/candidate 1.0.6 passes the frozen-source full rebuild/regression, including 120 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+
+## Original INI owned GPU buffers (verified candidate 1.0.6)
+
+User directs continued offline implementation in this order: common resource
+commands, CustomShader, shader matching/overrides, then enabled-directory GPU
+execution. Stop for game input only when the offline work requires it. The goal
+remains active; this buffer checkpoint does not complete the requested scope.
+
+The opt-in GpuResourceRuntime extension uses the production original INI engine
+to execute owned mutable Buffer/StructuredBuffer/ByteAddressBuffer declarations,
+references, compatible copies/copy_desc, 32-bit typed and raw/structured clears,
+GPU store feedback, dynamic slots and optimized bind/fetch batches. Original
+pool reset/copy counters remain active. Slots are source-API logical bindings,
+not emitted Vulkan descriptors. The old character renderer is unchanged.
+
+ResourceCommands records private outside-render-pass command buffers on one
+explicit host-serialized queue. Shared allocation budgets and fence-owned
+resources survive generation retirement. Store waits explicitly for real GPU
+readback and may drive the next original INI branch; no draw-hook wait or
+application resource import has been added. Failed scopes cannot submit and
+discarded generations cannot resume.
+
+Targeted build/resource-commands/report.json: 120 checks pass, zero core/sync
+validation errors or warnings through device shutdown. Checks cover byte results,
+same-list branches, file padding, copy/alias isolation, regions, view semantics,
+pool resets, per-frame limits, bad candidates, retained owners and failure cleanup.
+The first full suite found the new SRV-clear fixture failing, with every other
+step passing. Preserve build/next/run_all-1.0.6.out and
+build/resource-commands/view-before-fix.{json,txt}; the adapter now retains view
+kind/format/range and calls the original buffer-view element helper. In that
+helper, size metadata is an end boundary, not a length after the offset; tests
+preserve this behavior separately from CB region lengths. The following full
+suite passes in build/next/run_all-1.0.6-final.out. Because final corrections were
+made during that build, the final checkpoint is the passing frozen-source full
+rebuild/regression in build/next/run_all-1.0.6-verified.out: GPU resources 120,
+original syntax 726, evaluation 65, CPU runtime 68, character package/GPU 79/357,
+live INI GPU 28, Vulkan validation 76 and all remaining steps.
+
+Read docs/gpu-resource-commands.md. Still open: image commands/conversions,
+general region copies/options/properties, slot ranges, keyed/expiring pools,
+GPU IniParams, application scheduling/import, CustomShader, ShaderOverride/Regex
+and complete directory drawing/reload. PNG integration remains paused. No game,
+launcher, original Mod/Core, deployment or module exchange was touched.
 
 ## Original pool reset and reference semantics (verified candidate 1.0.5)
 

@@ -6,6 +6,21 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.0.6 now connects original INI commands to an opt-in owned-buffer Vulkan backend.
+The 120-check targeted GPU test passes with clean core/sync validation, including
+real store feedback, aliases/copies, source view semantics, file padding, pool
+resets, generation lifetime and failure cleanup. A full suite passes in
+build/next/run_all-1.0.6-final.out. The frozen-source rebuild/regression also passes
+in build/next/run_all-1.0.6-verified.out; this is the final candidate checkpoint.
+The first full run failed only the newly added SRV-view clear fixture; its fix
+now uses explicit view metadata and the original buffer-view element helper.
+Continue the user-authorized order offline: finish general resources, then
+CustomShader, shared shader matching and complete directory graphics. The goal
+is not complete and no game action is needed for the next increments. Details:
+docs/gpu-resource-commands.md. Dist stays 1.0.2; PNG integration stays paused.
+
+Earlier verified checkpoint:
+
 Current work is T-030's source-defined language/runtime implementation. Source
 and candidate are now 1.0.5 with a passing full rebuilt regression;
 dist remains 1.0.2. Pool copy_desc/reset and mixed-element references now pass
