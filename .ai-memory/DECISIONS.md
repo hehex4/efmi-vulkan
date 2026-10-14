@@ -401,3 +401,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   VK_EXT_depth_range_unrestricted, not support alone. Host float-depth uploads
   validate copied values when that extension is absent (BUG-019). This does not
   authorize changes to an application's enabled extensions or its render passes.
+- Parameter follow-up (1.1.5): retain the original float4 Texture1D contract,
+  zero-before-Constants initialization, dirty float comparisons, root/draw flush
+  boundaries and forced transition publication. iniparams reads the published
+  allocation without flushing. Add an explicit initialization hook instead of
+  moving existing native Core prepare. Shader consumers use retained views;
+  logical stage slots alone do not change application descriptors. A draw host
+  callback is optional and absent execution refuses. Keep owned scopes explicit
+  through generation preparation and poison them on load/draw failure.

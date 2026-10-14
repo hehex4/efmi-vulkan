@@ -12,6 +12,9 @@ public:
     virtual std::vector<std::wstring> declaration_units() { return {}; }
     virtual std::vector<std::wstring> native_shaders() { return {}; }
     virtual std::vector<std::wstring> install(DrawPlanAdapter&) = 0;
+    // Called with zeroed original parameter storage, before either Constants
+    // phase. GPU extensions require their host's explicit queue scope here.
+    virtual bool initialize_parameters(CommandListState&,std::wstring&) { return true; }
     virtual bool prepare(DrawPlanAdapter&, CommandListState&, std::wstring&) { return true; }
     virtual bool validate_overrides(std::wstring&) { return true; }
     virtual bool before_draw(const RuntimeDraw&, CommandListState&, std::wstring&) { return true; }
@@ -20,4 +23,5 @@ public:
     virtual void execution_failed() noexcept {}
 };
 void RuntimeRunInputList(CommandList*, bool post);
+void RuntimePublishTransitionParameters();
 }

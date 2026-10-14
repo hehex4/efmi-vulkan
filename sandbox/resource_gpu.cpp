@@ -23,6 +23,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL diagnostic(VkDebugUtilsMessageSeverityFlag
     printf("VALIDATION: %s\n",data->pMessage);return VK_FALSE;
 }
 struct Device {
+    PFN_vkGetDeviceProcAddr get_device_proc=nullptr;
     VkInstance instance=VK_NULL_HANDLE;gpu::ResourceDevice resource;VkQueue queue=VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT messenger=VK_NULL_HANDLE;
     PFN_vkDestroyInstance destroy_instance=nullptr;PFN_vkDestroyDevice destroy_device=nullptr;
@@ -47,6 +48,7 @@ struct Device {
         vkcheck(CreateDebugUtilsMessengerEXT(instance,&debug,nullptr,&messenger),"Create debug messenger");
         GET(EnumeratePhysicalDevices);GET(GetPhysicalDeviceQueueFamilyProperties);GET(GetPhysicalDeviceMemoryProperties);
         GET(CreateDevice);GET(GetDeviceProcAddr);GET(GetPhysicalDeviceFeatures);GET(GetPhysicalDeviceProperties);
+        get_device_proc=GetDeviceProcAddr;
         GET(GetPhysicalDeviceImageFormatProperties);GET(GetPhysicalDeviceFormatProperties);
         GET(EnumerateDeviceExtensionProperties);
 #undef GET
@@ -1311,6 +1313,8 @@ vb0 = ref ResourceVertex->Region(12, 48)
 }
 #include "resource_image_ini_cases.h"
 #include "resource_image_conversion_cases.h"
+#include "resource_parameter_consumer.h"
+#include "resource_parameter_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1323,7 +1327,10 @@ int wmain(int argc,wchar_t** argv){
         image_ini_depth_dds(device,root/"image-depth-dds");image_ini_failures(device,root/"image-failures");
         image_ini_pool_lifetime(device,root/"image-pool-lifetime");
         image_ini_integer_rtv(device,root/"image-integer-rtv");
-        image_depth_conversion(device,root/"image-depth-conversion");}
+        image_depth_conversion(device,root/"image-depth-conversion");
+        parameter_boundaries(device,root/"parameter-boundaries");parameter_draws_and_dirty(device,root/"parameter-draws");
+        parameter_keys(device,root/"parameter-keys");parameter_registers_and_failures(device,root/"parameter-failures");
+        parameter_lifetime(device,root/"parameter-lifetime");parameter_draw_failure(device,root/"parameter-draw-failure");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

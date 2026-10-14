@@ -5,13 +5,14 @@ seen in a few installed character Mods. The original C++ engine remains the
 parser and evaluator. A successful parse does not establish that an executed
 graphics command has a working Vulkan implementation.
 
-Latest owned-execution checkpoint: 1.1.4 adds native-reference integer RTV clears
-and single-sample R16/R32 color/depth bit copies, with explicit extension/range
-checks. The 3285-check resource fixture and complete rebuilt regression pass in
-`build/next/run_all-1.1.4.out`. This extends the existing DDS, views, copy/cache/
-pool, clear, property and color-resolve paths. Remaining formats/conversions,
-GPU parameters, CustomShader, general shader matching and complete directory
-graphics remain open. Dist stays 1.0.2; these resource tests are not game evidence.
+Latest owned-execution checkpoint: 1.1.5 publishes original GPU IniParams at
+zero/Constants, root, draw/dispatch and key-transition boundaries. It corrects
+Constants post and root abort behavior. The 3509-check resource fixture includes
+native HLSL Texture1D consumption; the complete rebuilt regression passes in
+`build/next/run_all-1.1.5.out`. This extends the existing buffer/image commands.
+Remaining formats/conversions, CustomShader, general shader matching, application
+integration and complete directory graphics remain open. Dist stays 1.0.2;
+owned resource/shader-consumer tests are not game evidence.
 
 ## Source authority and coverage checks
 

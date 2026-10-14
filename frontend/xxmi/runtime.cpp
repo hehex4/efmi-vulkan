@@ -30,7 +30,9 @@ void RuntimeResetParser();
 void RuntimeParseKeys();
 void RuntimeEnumerateCustomShaders();
 void RuntimeCompilePresent();
-void RuntimeCompileConstants(CommandList&);
+void RuntimeCompileConstants(CommandList&,CommandList&);
+void RuntimeParseParameterRegister();
+void RuntimeUpdateTransitions(HackerDevice*);
 void RuntimeValidateSections(const std::vector<std::wstring>&);
 void RuntimeSwapInput(std::vector<InputAction*>&);
 size_t RuntimeInputCount();
@@ -176,6 +178,10 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
     try {
         auto runtime = std::shared_ptr<IniRuntime>(new IniRuntime);
         auto& p = *runtime->impl_; p.config = config; p.extension = std::move(extension);
+        struct LoadGuard {
+            std::shared_ptr<RuntimeExtension> extension;bool complete=false;
+            ~LoadGuard(){if(!complete && extension)extension->execution_failed();}
+        } load_guard{p.extension};
         if ((config.inputs.empty() && config.mods_directory.empty()) || config.inputs.size() > 128 || !config.resource_root.is_absolute() ||
             !config.settings_directory.is_absolute() || config.settings_name.empty() || config.settings_name.size() > 80 ||
             config.settings_name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != std::string::npos)
@@ -216,13 +222,13 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         // assignments from the generated settings file after default values.
         if (std::filesystem::exists(p.settings)) read_ini(p.settings, L"efvk-user-settings.ini");
         phase = "declaration parsing";
-        RuntimeEnumerateCustomShaders(); HostEnumerateLists(); HostParseConstants(); HostParseResources();
+        RuntimeEnumerateCustomShaders(); HostEnumerateLists(); HostParseConstants(); HostParseResources();RuntimeParseParameterRegister();
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
         HostParseTextureOverrides(); RuntimeCompilePresent(); RuntimeParseKeys();
         std::wstring validation;
         if (p.extension && !p.extension->validate_overrides(validation)) throw std::runtime_error("Native override registry refused: " + utf8(validation));
         RegisterKeyBinding(L"reload_config", L"no_modifiers VK_F10", std::make_shared<InputCallbacks>(f10, nullptr, nullptr), 0, 0, 0, InputDisableScope::ALL);
-        CommandList constants; RuntimeCompileConstants(constants);
+        CommandList constants,post_constants; RuntimeCompileConstants(constants,post_constants);
         auto roots = registered_command_lists;
         phase = "command parsing";
         HostCompileRoots(roots, boundaries);
@@ -249,7 +255,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         // original hash matcher lists; do not adapt only named callbacks.
         phase = "Vulkan command adaptation";
         for (auto* root : all_roots) p.adapter.adapt(*root);
-        p.adapter.adapt(constants);
+        p.adapter.adapt(constants);p.adapter.adapt(post_constants);
         p.adapter.adapt(G->present_command_list); p.adapter.adapt(G->post_present_command_list);
         for (auto& hashed : G->mTextureOverrideMap) for (auto& entry : hashed.second) {
             p.adapter.adapt(entry.command_list); p.adapter.adapt(entry.post_command_list);
@@ -257,8 +263,16 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         phase = "file declaration adaptation";
         p.files = std::make_unique<FilePlanCompiler>(customResources);
         auto initial = p.command_state(); DrawPlan unused; std::wstring why;
+        if(p.extension && !p.extension->initialize_parameters(initial,why))
+            throw std::runtime_error("GPU parameter initialization refused: "+utf8(why));
         if (!p.adapter.execute(constants, initial, unused, why) || !unused.items.empty())
             throw std::runtime_error("Constants execution refused: " + utf8(why));
+        // Match InitIniParams: defaults and persisted pre values are not dirty;
+        // post-Constants assignments can make the user settings dirty again.
+        G->user_config_dirty=false;
+        auto post_initial=p.command_state();post_initial.post=true;
+        if(!p.adapter.execute(post_constants,post_initial,unused,why) || !unused.items.empty())
+            throw std::runtime_error("Post-Constants execution refused: "+utf8(why));
         if (p.extension && !p.extension->prepare(p.adapter, initial, why))
             throw std::runtime_error("Native generation preparation refused: " + utf8(why));
         if (HostDiagnosticCount() != diagnostics) throw std::runtime_error("Original INI parser: " + HostDiagnosticsSince(diagnostics));
@@ -271,8 +285,8 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 if (p.files->compile(plan, owned, why) && owned.items[0].resource) p.resources.push_back(owned.items[0].resource);
             }
         }
-        p.stats.bindings = RuntimeInputCount(); G->user_config_dirty = false;
-        RuntimeResetParser(); return runtime;
+        p.stats.bindings = RuntimeInputCount();G->constants_run=true;
+        RuntimeResetParser();load_guard.complete=true;return runtime;
     } catch (const std::exception& e) { reason = std::string(phase) + ": " + e.what(); return {}; }
 }
 
@@ -313,6 +327,13 @@ void RuntimeRunInputList(CommandList* list, bool post)
     if (!input_adapter->execute(*list, state, result, why) || !result.items.empty())
         throw std::runtime_error("Input command requires unavailable render context: " + utf8(why));
 }
+void RuntimePublishTransitionParameters()
+{
+    if(!input_adapter || !input_context)throw std::runtime_error("Parameter transition outside active generation");
+    CommandListState state;state.mHackerContext=input_context;state.mHackerDevice=input_context->mHackerDevice;
+    std::wstring why;
+    if(!input_adapter->flush_parameters(state,true,why))throw std::runtime_error("Parameter transition refused: "+utf8(why));
+}
 bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float seconds, std::string& reason)
 {
     try {
@@ -326,7 +347,7 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         }
         input_adapter = &p.adapter; input_context = &p.context;
         if (RuntimeDispatchInput(&p.device, sampled)) ++p.stats.key_events;
-        CurrentTransition.UpdatePresets(&p.device); CurrentTransition.UpdateTransitions(&p.device);
+        CurrentTransition.UpdatePresets(&p.device);RuntimeUpdateTransitions(&p.device);
         assets::FilePlan ignored; std::wstring why;
         if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why) || !ignored.items.empty())
             throw std::runtime_error("Present requires unavailable render context: " + utf8(why));

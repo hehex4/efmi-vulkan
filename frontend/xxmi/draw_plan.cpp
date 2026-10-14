@@ -246,11 +246,18 @@ struct DrawPlanAdapter::Runtime {
     std::shared_ptr<QueryService> queries=std::make_shared<QueryService>();
     DrawPlanAdapter::PaletteSource palette_source;
     DrawPlanAdapter::ResourceCommand resource_command;
+    DrawPlanAdapter::ParameterFlush parameter_flush;
     bool nested_failed=false;
     size_t active_depth=0;
     DrawPlanAdapter::TextureQuery texture_query;
     std::array<DrawPlanAdapter::PixelBinding,128> pixel_bindings;
     std::unordered_set<CustomResource*> files;
+
+    void flush(CommandListState& state,bool force=false){
+        if(!parameter_flush || (!force && !state.update_params))return;
+        std::wstring why;
+        if(!parameter_flush(state,force,why))refuse(why.empty()?L"GPU parameter publication refused":why);
+    }
 
     void collect_files(CommandListCommand& command)
     {
@@ -362,6 +369,12 @@ struct DrawPlanAdapter::Runtime {
             refuse(L"Plan recursion budget exceeded");
         if(auto* check=dynamic_cast<CheckTextureOverrideCommand*>(original.get())){
             check_texture(*check,*state);return;
+        }
+        if(dynamic_cast<DrawCommand*>(original.get())){
+            if(state->call_info && state->call_info->hunting_skip)return;
+            // Original DrawCommand flushes even for a zero-count draw, before
+            // evaluating arguments or entering the draw/dispatch implementation.
+            flush(*state);
         }
         if(resource_command && (dynamic_cast<ResourceCopyOperation*>(original.get()) ||
            dynamic_cast<ClearViewCommand*>(original.get()) || dynamic_cast<StoreCommand*>(original.get()) ||
@@ -621,6 +634,19 @@ void DrawPlanAdapter::resource_commands(ResourceCommand command)
     if(runtime_->active || !runtime_->adapted.empty() || !command)refuse(L"Install resource commands before adaptation");
     runtime_->resource_command=std::move(command);
 }
+void DrawPlanAdapter::parameter_flush(ParameterFlush callback)
+{
+    if(runtime_->active || !runtime_->adapted.empty() || !callback)refuse(L"Install parameter publication before adaptation");
+    runtime_->parameter_flush=std::move(callback);
+}
+bool DrawPlanAdapter::flush_parameters(CommandListState& state,bool force,std::wstring& reason)
+{
+    reason.clear();
+    try{runtime_->flush(state,force);return true;}
+    catch(const Refused& e){reason=e.reason;}
+    catch(const std::exception&){reason=L"Frontend raised an exception publishing parameters";}
+    return false;
+}
 
 void DrawPlanAdapter::texture_queries(TextureQuery query)
 {
@@ -696,14 +722,20 @@ bool DrawPlanAdapter::execute_impl(CommandList& root,CommandList* post,CommandLi
             if (state.aborted) break;
             command->run(&state);
         }
+        if(runtime_->nested_failed)refuse(L"Nested native callback failed");
+        runtime_->flush(state);
         if(post){
             resolved=post->ResolveCommandList();
             if(!runtime_->adapted.count(resolved))refuse(L"Root post callback target was not adapted");
-            state.post=true;
+            // Source root pre/post lists use separate RunCommandListComplete
+            // states. Abort stops its phase, not the later post invocation.
+            state.post=true;state.aborted=false;
             for (auto& command : resolved->commands) {
                 if (state.aborted) break;
                 command->run(&state);
             }
+            if(runtime_->nested_failed)refuse(L"Nested native callback failed");
+            runtime_->flush(state);
         }
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         output = std::move(candidate);
@@ -715,7 +747,7 @@ bool DrawPlanAdapter::execute_impl(CommandList& root,CommandList* post,CommandLi
     runtime_->active = nullptr;
     state.input_layout_overrides = std::move(saved_layout);state.post=saved_post;
     // The state is throwaway, but leave nesting counters usable for diagnostics.
-    state.recursion = state.extra_indent = 0;
+    state.recursion = state.extra_indent = 0;state.aborted=false;
     return reason.empty();
 }
 

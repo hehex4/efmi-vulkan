@@ -30,6 +30,12 @@ Scratch owners share budgets and submission lifetime. Opaque bits entering D32
 require actual logical-device unrestricted-depth enablement; CPU float-depth
 uploads otherwise validate copied texels before recording. These checks do not
 change the application's device features or introduce an implicit GPU wait.
+The 1.1.5 parameter adapter owns a float4 Texture1D/SRV, publishes zero before
+Constants and preserves original dirty/root/draw/transition update boundaries.
+Its source special target returns the published image without forcing an update.
+Root pre/post abort is isolated; nested phases still share state. An optional
+draw callback is a shader host boundary, not a general shader implementation.
+The native test consumer verifies actual HLSL reads separately from this adapter.
 This requires an explicit outside-render-pass scope on a host-serialized queue.
 It does not replace the character hook's file-plan renderer, import application
 resources, or emit shader descriptors/draws. Remaining image formats/conversions, shader adapters and complete

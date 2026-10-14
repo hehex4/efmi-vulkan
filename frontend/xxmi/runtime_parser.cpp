@@ -14,9 +14,16 @@ void RuntimeCompilePresent()
 {
     ParseCommandList(L"Present", &G->present_command_list, &G->post_present_command_list, nullptr);
 }
-void RuntimeCompileConstants(CommandList& list)
+void RuntimeCompileConstants(CommandList& pre,CommandList& post)
 {
-    ParseCommandList(L"Constants", &list, nullptr, nullptr);
+    ParseCommandList(L"Constants", &pre, &post, nullptr);
+}
+void RuntimeParseParameterRegister()
+{
+    G->IniParamsReg=GetIniInt(L"Rendering",L"ini_params",120,nullptr);
+    // The source disables out-of-range registers. Negative registers also
+    // disable automatic binding; the resource itself is still allocated.
+    if(G->IniParamsReg>=D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT)G->IniParamsReg=-1;
 }
 void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders)
 {

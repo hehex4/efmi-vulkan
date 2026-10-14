@@ -1,8 +1,45 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, original image format conversion. Source/candidate 1.1.4 passes the full rebuilt regression, including 3285 resource checks with clean core/sync validation. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, original GPU parameter publication. Source/candidate 1.1.5 passes the full rebuilt regression, including 3509 resource checks with clean core/sync validation. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
 
 Material matching clarification (2026-10-14): deployed 1.0.2 executes the original main INI to choose logical pixel bindings. Exact fragment bytes select the verified source-slot/Vulkan-binding profile. Unprofiled fragments derive a profile from the same override section and pass kind, matching shared image ids first and otherwise unique view-type/format/extent signatures. Every sibling image must be represented, at most two target images may be extra, and equal-best candidates with different rules refuse derivation. Unknown correspondence keeps game images on the mod mesh and retries later; it does not by itself revert geometry. image_hash remains 0; original source-image hash override execution is not enabled in this character registry. This explanation inspected commits/code only, with no new game observation. Candidate image-command work does not replace the deployed character material policy.
+
+## Original GPU parameters (verified candidate 1.1.5)
+
+GpuResourceRuntime now owns the original float4 Texture1D/SRV, publishes zeros
+before Constants and flushes at injected draw/dispatch and root pre/post ends.
+Original dirty comparisons preserve signed-zero and NaN behavior. Key/preset
+transitions force an upload before deferred post callbacks, including equal
+values. iniparams reads the published image without flushing; references and
+copies preserve their distinct behavior. Initial logical stage slots honor
+Rendering.ini_params and explicit unbinding survives subsequent updates.
+
+BUG-020 fixes omitted Constants post execution and abort leaking across root
+phases. Nested abort still stops its own phase, including explicitly combined
+pre/post nested calls. Post-Constants persistent writes remain dirty. Failed
+load/draw scopes cannot submit partially recorded parameter updates. The host
+must open its serialized queue domain before loading nonempty parameters; no
+implicit queue submission, application descriptor binding or game wait is added.
+
+The headless suite checks actual GPU values, key/hold restoration, zero-count
+draws, dispatch boundaries, hunting skip, budgets, discard and retired owners.
+A native DXC HLSL consumer reads Texture1D snapshots and a resized 65-element
+vector. It is not the general CustomShader adapter. Frozen-source full regression
+passes in build/next/run_all-1.1.5.out: resources 3509, parser 726, evaluation 65,
+CPU runtime 68, character package/GPU 79/357, live INI GPU 28, validation 76,
+modes 40, MCP 47, evidence 113 and all other steps. Resource validation stays
+clean through device shutdown. ABI remains 16b90a85431f86b4.
+
+Continue immediately with CustomShader source loading/compiler/descriptor and
+execution adapters, then shared shader matching and complete directory graphics.
+The user reaffirmed on 2026-10-14: finish each offline part and continue without
+stopping until game testing is actually required. No game input is needed now.
+Next source audit is in docs/gpu-resource-commands.md. SPIRV-Reflect SDK tag
+1.4.321.0 was installed at F:/vulkan/SPIRV-Reflect-1.4.321.0, commit
+e55086b044225f9b511ae44dbf9b079d3625943f, for the next shader work; it is not linked
+in 1.1.5. Remaining image formats/conversions, resource hashes/properties,
+application import and inline placement remain tracked. PNG stays paused.
+Next version is 1.1.6; dist stays 1.0.2.
 
 ## Integer RTV and color/depth conversion (verified candidate 1.1.4)
 

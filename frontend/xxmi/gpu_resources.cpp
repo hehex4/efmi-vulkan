@@ -104,7 +104,11 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     require(!installed_,"GPU resource runtime cannot belong to two INI generations");installed_=true;
     adapter.resource_commands([this](auto& command,auto& state,auto& why){return run(command,state,why);});
     adapter.resource_queries([this](auto& target,auto& state,float& value,auto& why){return query(target,state,value,why);});
+    adapter.parameter_flush([this](auto& state,bool force,auto& why){return flush_parameters(state,force,why);});
     return {};
+}
+void GpuResourceRuntime::draw_commands(DrawExecutor executor){
+    require(!installed_ && bool(executor),"Install GPU draw executor before generation adaptation");draw_executor_=std::move(executor);
 }
 void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
     require(!failed_,"GPU resource generation failed; prepare a new generation");
@@ -177,7 +181,12 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
     auto& t=effective(input,state);GpuResourceBinding b;
     require(!t.IsRange(),"GPU range command requires the slot-range adapter");
     if(t.type==Target::EMPTY)return {};
-    if(t.type==Target::CUSTOM_RESOURCE){if(auto* r=declaration(t,state))b=load(*r);}
+    if(t.type==Target::INI_PARAMS){
+        require(parameters_initialized_,"GPU parameters used before initialization");b=parameters_;
+        // The original special target returns its image/view without supplying
+        // any out-of-band format or buffer metadata. Reading never flushes it.
+        b.format=DXGI_FORMAT_UNKNOWN;b.stride=b.source_stride=b.offset=b.visible_size=0;
+    }else if(t.type==Target::CUSTOM_RESOURCE){if(auto* r=declaration(t,state))b=load(*r);}
     else {const auto key=slot(t,state);const auto found=slots_.find(key);if(found!=slots_.end())b=found->second;
         // XXGetShaderResources/UnorderedAccessViews return resource and view,
         // not the custom declaration's out-of-band stride/offset/size/format.
@@ -463,11 +472,14 @@ void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
     op.SetOutputValue(&state,value);
 }
 bool GpuResourceRuntime::run(CommandListCommand& command,CommandListState& state,std::wstring& reason) {
-    try{active();
+    try{active();require(!failed_,"GPU resource generation failed");
         if(auto* c=dynamic_cast<ResourceCopyOperation*>(&command))copy(*c,state);
         else if(auto* c=dynamic_cast<SlotRangeCopyOperation*>(&command))ranges(*c,state);
         else if(auto* c=dynamic_cast<ClearViewCommand*>(&command))clear(*c,state);
         else if(auto* c=dynamic_cast<StoreCommand*>(&command))store(*c,state);
+        else if(auto* c=dynamic_cast<DrawCommand*>(&command);c && draw_executor_){
+            if(!draw_executor_(*c,state,reason)){failed_=true;return false;}
+        }
         else throw std::runtime_error("GPU draw/dispatch needs a shader execution adapter");
         return true;
     }catch(const std::exception& e){if(active_)failed_=true;reason=widen(e.what())+L": "+command.ini_line;return false;}

@@ -340,14 +340,20 @@ and retirement after the last fence ticket releases its owners.
 Remaining image format/conversion cases above; region/spatial hash;
 fresh typed/raw plain-range views; invalid source-API
 description combinations; GPU
-IniParams; application resource import and command placement; shared shader
+parameter application binding; application resource import and command placement; shared shader
 contracts; CustomShader draw/dispatch/state; ShaderOverride/ShaderRegex; complete
 directory routing and graphical reload. PNG integration remains paused. No
 deployment, game load, module swap or character acceptance follows from this test.
 
-## Next source audit: GPU IniParams
+## GPU IniParams publication (candidate 1.1.5)
 
-This is implementation guidance, not a completed parameter/shader adapter.
+The owned runtime publishes a persistent Vulkan image/SRV before Constants and
+at original flush boundaries. The host must begin its explicit queue scope
+before loading a generation with parameters. Empty reservations need no image.
+The source description stays DYNAMIC/CPU_WRITE; Vulkan uses staged writes.
+Original and physical image limits, shared budgets and fence ownership apply.
+
+The following source audit defines the implemented publication boundaries.
 The pinned HackerDevice::CreateIniParamResources creates a single-mip, single-
 layer R32G32B32A32_FLOAT Texture1D, with width equal to iniParamsReserved; an
 empty parameter vector creates no image. HackerContext::InitIniParams publishes
@@ -368,11 +374,48 @@ which can lag the CPU vector before a flush. Test Constants, pre/post, nested
 commands, signed-zero bits, reload lifetime and actual GPU consumption. The
 current owned executor still requires an explicit serialized queue scope;
 application binding and render-pass placement remain separate integration work.
-The current RuntimeExtension::prepare runs after Constants, so it is too late
-for zero publication before those commands. Add an explicit initialization
-boundary rather than silently moving existing native Core preparation. The
-current DrawPlanAdapter also finishes root pre/post lists without an extension
-flush callback; cover root completion and each injected draw/dispatch separately.
+RuntimeExtension::initialize_parameters runs before Constants. Existing native
+Core prepare stays after both Constants phases. Root pre/post calls flush
+separately, including an aborted phase; nested abort still stops its current
+phase. Explicit pre/post run invokes both nested phases together, as the source
+parser specifies. CustomShader nested phases must likewise share command state.
+
+Original key/preset transitions force publication when their parameter map was
+nonempty, even for equal values. The unchanged loop is wrapped to publish before
+its first deferred post callback, or on return when there is none. No GPU command
+can observe the intervening variable loop. Rendering.ini_params defaults to 120;
+negative/out-of-range registers disable automatic logical binding. Explicit slot
+unbinding survives later uploads. Reading iniparams never flushes CPU changes;
+copies snapshot the published image and references retain its mutable owner.
+
+Tests check zero initialization, Constants pre/post and persist dirty state,
+nested/aborted roots, signed zero, NaN, zero-count draws, dispatch, hunting skip,
+activation/hold/equal-value transitions, registers, failed load/draw scopes,
+budgets, discarded updates and retired generations. A DXC-compiled native compute
+consumer reads the real Texture1D SRV, including a 65-element resized vector and
+distinct draw-boundary snapshots. This is actual shader-consumption evidence,
+not general CustomShader or application rendering. Without an explicit shader
+host callback, draw/dispatch still refuse. Upload counts mean recorded uploads,
+not GPU completion. The resource suite passes 3509 checks with clean core/sync
+validation; the full regression is build/next/run_all-1.1.5.out.
+
+## Next source audit: CustomShader
+
+Pinned ParseCustomShaderSections parses six stages, flags, fixed-function state,
+per-frame limits and pre/post lists. CustomShader::compile uses empty-valued
+stage macros, main and shader model 5.0; it searches the INI namespace directory
+before the resource root and supports explicit null. All new caches must remain
+project-owned. Hunting.cpp MigotoIncludeHandler has distinct recursive_include
+rules for parent-relative versus initial-directory includes and legacy CWD
+fallback. Do not silently replace them with DXC's ordinary include search.
+
+RunCustomShaderCommand saves overridden shaders/states, all viewports and OM
+targets; executes its pre/post lists in the current command state; then restores
+the saved values even after abort. Ordinary SRV/CB/VB assignments are not all
+restored. Sampler override changes pixel sampler zero and restores the saved
+pixel sampler array. Preserve frame counters and reset_per_frame_limits. Parse
+and adapt shader graphs before optimization can remove them as empty. Compilation
+alone does not prove pipeline execution or full-directory graphical acceptance.
 
 ## References
 

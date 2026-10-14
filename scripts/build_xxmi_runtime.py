@@ -44,7 +44,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     legacy = [pristine / (name + ".cpp") for name in ("ResourceHash", "profiling", "util")]
     legacy += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("command_module", "runtime_override")]
     sources = [ROOT / "frontend/xxmi" / (name + ".cpp") for name in
-               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "gpu_resources", "gpu_images", "image_formats")]
+               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "gpu_resources", "gpu_images", "gpu_parameters", "image_formats")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/core/palette_bank.cpp"]
     sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in ("resource_commands", "resource_images")]

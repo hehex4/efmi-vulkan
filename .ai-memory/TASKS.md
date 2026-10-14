@@ -6,6 +6,24 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.5 implements owned GPU IniParams publication: zero initialization, original
+dirty comparisons, draw/dispatch/root boundaries and forced key transitions.
+Constants post and root-phase abort isolation are corrected (BUG-020). Tests
+read real GPU values and execute a native HLSL Texture1D consumer. Scope failure,
+discard, reload sizing and fence-retained lifetime pass. Complete rebuilt
+regression: build/next/run_all-1.1.5.out, resources 3509 with clean core/sync
+validation and all remaining steps passing. ABI is unchanged; dist is 1.0.2.
+
+Next: CustomShader source loading, compilation, descriptors and draw/dispatch
+execution; then shared shader matching and complete enabled-directory graphics.
+Preserve source include rules, state save/restore, nested pre/post behavior and
+frame counters (audit: docs/gpu-resource-commands.md). SPIRV-Reflect is installed
+under F:/vulkan for the next implementation, not linked yet. Continue offline
+without stopping between verified increments, as the user reiterated. No game
+input is needed now. PNG stays paused; LOD0/LOD1 only. Next version is 1.1.6.
+
+Earlier verified checkpoint:
+
 1.1.4 adds integer RTV float conversion and single-sample R16/R32 color/depth
 bit copies to the owned original-runtime adapter. Native WARP pixel/copy
 references, actual Vulkan bytes, arrays/mips/partial regions, scratch reuse,

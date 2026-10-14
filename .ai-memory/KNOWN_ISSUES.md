@@ -445,3 +445,19 @@ Tests compare 19 integer formats and two typeless-view cases against WARP. The
 archived DDI specification's rounding wording also differs from both measured
 native devices; no cross-vendor bit-identical overflow behavior is claimed.
 See docs/gpu-resource-commands.md and build/resource-commands/dx11-clear-*.txt.
+
+## BUG-020: Constants post was omitted and root abort leaked into post (fixed in candidate 1.1.5)
+
+RuntimeCompileConstants previously supplied no post list. execute_pair reused
+the pre phase's aborted flag for post, although original RunCommandListComplete
+creates a fresh state for each root invocation. The adapter now compiles/runs
+both Constants phases, clears default persist dirty state between them, and
+isolates root abort while preserving nested abort behavior. A plain run can
+execute the nested abort in both phases; the new root-isolation fixture uses
+explicit pre run to distinguish that legitimate case from leaked state.
+
+The GPU fixture verifies separate zero/pre/post publication, post-persist dirty
+state, aborted-pre values and post execution. The CPU fixture also exercises
+pre-only nested abort with post execution. Full regression passes in
+build/next/run_all-1.1.5.out. This was an offline source-audit finding, not a newly
+observed game defect.

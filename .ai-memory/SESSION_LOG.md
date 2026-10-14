@@ -1285,3 +1285,32 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   boundary. Further resource formats/options, CustomShader, shared shader
   matching and complete directory graphics stay open. PNG paused, LOD0/LOD1 only.
   The active goal is incomplete; next version 1.1.5 needs no game input.
+
+## 2026-10-14: Original GPU parameter publication, 1.1.5
+
+- Finished the previously unverified parameter boundary interfaces and added
+  GpuResourceRuntime's persistent float4 Texture1D/SRV. Zero publication precedes
+  Constants; original dirty comparisons, root ends, injected draws/dispatch and
+  forced key transitions determine later uploads. Special target reads do not
+  flush, and explicit logical slot unbinding survives updates.
+- Corrected Constants post execution and root abort leakage (BUG-020), keeping
+  nested abort and source pre/post-run semantics. Initial load failure now
+  poisons an active GPU scope just like Present/draw failure. Source dimensions,
+  budgets, discarded commands and retained submission/view owners are tested.
+- Headless GPU tests read actual boundary values, signed-zero/NaN behavior,
+  hold restoration and equal-value transitions. A native DXC compute consumer
+  reads parameter views and resized arrays. This does not implement general
+  CustomShader or change the application's shader bindings.
+- Frozen-source full build/regression: build/next/run_all-1.1.5.out, all steps
+  pass. Resources 3509, parser 726, evaluator 65, CPU runtime 68, character
+  package/GPU 79/357, live INI GPU 28, validation 76, modes 40, MCP 47, evidence
+  113. Resource core/sync validation is clean through shutdown; all 57 source
+  hashes match. Text check: 288 files clean. ABI remains 16b90a85431f86b4.
+- Source/candidate 1.1.5; dist 1.0.2 unchanged. No game/deployment/system action.
+  User reiterated continuing each offline part without stopping until a game
+  test is necessary. Continue with CustomShader; source include, nested phase,
+  state restoration and counter rules are audited in docs/gpu-resource-commands.md.
+  Installed SPIRV-Reflect SDK 1.4.321.0 under F:/vulkan, commit
+  e55086b044225f9b511ae44dbf9b079d3625943f, for upcoming reflection work; not yet
+  linked. Remaining resource formats, shader matching and directory graphics
+  stay open. PNG paused, LOD0/LOD1 only. Next version: 1.1.6.

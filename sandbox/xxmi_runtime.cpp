@@ -301,7 +301,7 @@ hash = 12345678
 match_index_count = 30
 handling = skip
 drawindexed = 3,0,0
-run = CommandListAbort
+pre run = CommandListAbort
 drawindexed = 6,0,0
 post $post_seen = 1
 [CommandListAbort]
@@ -333,8 +333,8 @@ $post_seen = 2
         check(language_value("cycle_calls") == 1212, "Later cycle callback preserves original accumulated run entries");
         input.keys.fill(false); present(language);
         render(language);
-        check(plan.skip_original && plan.items.size() == 1 && plan.items[0].index_count == 3 && language_value("post_seen") == 0,
-              "Nested handling=abort stops the remaining root and post commands without discarding earlier draws");
+        check(plan.skip_original && plan.items.size() == 1 && plan.items[0].index_count == 3 && language_value("post_seen") == 1,
+              "Nested handling=abort stops its root phase; the independent post phase still executes");
         auto language_second = IniRuntime::load(language_config, {}, reason);
         if (!language_second) throw std::runtime_error("Second parameter runtime: " + reason);
         input.keys[VK_F1] = true; present(language); input.keys.fill(false); present(language_second);

@@ -74,6 +74,11 @@ public:
     // feedback. Without one, the existing immutable file-plan path is retained.
     // Install before adaptation; backend refusal never falls through to D3D.
     void resource_commands(ResourceCommand);
+    using ParameterFlush=std::function<bool(CommandListState&,bool force,std::wstring&)>;
+    // Root pre/post completion and every injected draw/dispatch publish dirty
+    // parameters. Transitions can force publication outside a command root.
+    void parameter_flush(ParameterFlush);
+    bool flush_parameters(CommandListState&,bool force,std::wstring&);
     struct PixelBinding {
         bool application=true;
         CustomResource* resource=nullptr; // Null with application=false means an explicit unbind.

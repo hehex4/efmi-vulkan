@@ -32,6 +32,11 @@ public:
     enum class ExecutionSite { OutsideRenderPass, InsideRenderPass };
     GpuResourceRuntime(gpu::ResourceDevice,gpu::ResourceBudgets={});
     std::vector<std::wstring> install(DrawPlanAdapter&) override;
+    bool initialize_parameters(CommandListState&,std::wstring&) override;
+    using DrawExecutor=std::function<bool(DrawCommand&,CommandListState&,std::wstring&)>;
+    // A shader host may execute draws in this same explicit queue domain. The
+    // original parameter flush runs before this callback, including count zero.
+    void draw_commands(DrawExecutor);
     void execution_failed() noexcept override {if(active_)failed_=true;}
     // The host owns this queue's synchronization for the complete scope. Store
     // may submit and wait for GPU feedback inside it. A draw hook cannot opt in
@@ -43,6 +48,9 @@ public:
     void discard();
     GpuResourceBinding binding(wchar_t stage,ResourceCopyTargetType,unsigned slot) const;
     const D3D11_VIEWPORT& viewport() const {return viewport_;}
+    const GpuResourceBinding& ini_parameters() const {return parameters_;}
+    // Recorded uploads, not completed GPU execution or application binding.
+    uint64_t parameter_uploads() const {return parameter_uploads_;}
     gpu::ResourceCommands& commands(){return commands_;}
 private:
     using Slot=std::tuple<wchar_t,ResourceCopyTargetType,unsigned>;
@@ -67,7 +75,13 @@ private:
     void clear(ClearViewCommand&,CommandListState&);
     void store(StoreCommand&,CommandListState&);
     void active() const;
+    bool flush_parameters(CommandListState&,bool,std::wstring&);
+    void publish_parameters();
     gpu::ResourceCommands commands_;
+    GpuResourceBinding parameters_;
+    DrawExecutor draw_executor_;
+    uint64_t parameter_uploads_=0;
+    bool parameters_initialized_=false;
     std::map<CustomResource*,GpuResourceBinding> resources_;
     std::map<Slot,GpuResourceBinding> slots_;
     // Copies to a stage slot cache per instruction, as in the original engine.

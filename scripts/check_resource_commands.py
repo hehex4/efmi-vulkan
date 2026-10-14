@@ -21,6 +21,19 @@ def main() -> int:
     report = {"scope": "original INI owned buffer/image commands and native image-view reference; no game or draw-hook integration", "passed": False}
     try:
         verify_image_formats()
+        from check_panel_hlsl import DXC, SPIRV
+        shader = ROOT / "sandbox/shaders/parameters.hlsl"
+        spirv = out / "parameters.spv"
+        compile_shader = subprocess.run([str(DXC), "-spirv", "-fspv-target-env=vulkan1.1", "-fvk-use-dx-layout",
+                                        "-T", "cs_6_0", "-E", "main", "-Fo", str(spirv), str(shader)],
+                                       capture_output=True, text=True, errors="replace", timeout=30)
+        write_ascii(out / "parameters-build.txt", compile_shader.stdout + compile_shader.stderr)
+        compile_shader.check_returncode()
+        validate_shader = subprocess.run([str(SPIRV / "spirv-val.exe"), "--target-env", "vulkan1.1", str(spirv)],
+                                        capture_output=True, text=True, errors="replace", timeout=30)
+        write_ascii(out / "parameters-validation.txt", validate_shader.stdout + validate_shader.stderr)
+        validate_shader.check_returncode()
+        report["parameter_consumer_sha256"] = hashlib.sha256(spirv.read_bytes()).hexdigest()
         objects = build_runtime(ROOT / "build/xxmi-runtime")
         executable = out / "resource_gpu.exe"
         sources = [ROOT / "sandbox/resource_gpu.cpp", ROOT / "layer/src/merged_skeleton.cpp"]
@@ -35,7 +48,8 @@ def main() -> int:
         finally:
             write_ascii(out / "build.txt", log.getvalue())
         inputs = sources + [ROOT / "sandbox/resource_image_cases.h", ROOT / "sandbox/resource_image_ini_cases.h",
-                            ROOT / "sandbox/resource_image_conversion_cases.h"]
+                            ROOT / "sandbox/resource_image_conversion_cases.h", ROOT / "sandbox/resource_parameter_cases.h",
+                            ROOT / "sandbox/resource_parameter_consumer.h", shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))
         inputs += [Path(__file__), ROOT / "scripts/build_xxmi_runtime.py", ROOT / "scripts/generate_image_formats.py"]
