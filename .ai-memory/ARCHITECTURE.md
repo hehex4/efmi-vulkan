@@ -1,6 +1,19 @@
 # EFMI Vulkan - Architecture
 
-Current source 1.0.2: the pinned original XXMI runtime is linked into the layer and
+Current development: the pinned original parser/evaluator owns enabled-directory
+generations, dependency graphs, CPU variables/keys/presets/pools and command
+objects. The optional GpuResourceRuntime extension connects those original
+commands to ResourceCommands, an owned Vulkan execution domain for mutable
+buffers, transfers, clears, store feedback and logical source slots. Copy pools
+own per-description allocations independently of aliases; fence tickets retain
+resources through submission. Details: docs/gpu-resource-commands.md and D-045.
+This requires an explicit outside-render-pass scope on a host-serialized queue.
+It does not replace the character hook's file-plan renderer, import application
+resources, or emit shader descriptors/draws. Image/shader adapters and complete
+directory graphics remain development work. Use CURRENT_STATE.md for verified
+source, candidate and deployed versions rather than historical paragraphs below.
+
+Deployed 1.0.2 integration: the pinned original XXMI runtime is linked into the layer and
 exchangeable backend. A `.runtime.json` sidecar opts a character profile into
 live main-INI execution. `IniRuntime` owns isolated parser/variable/pool/key
 generations; `CharacterProgram` translates owned evaluated plans into the existing

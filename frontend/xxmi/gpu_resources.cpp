@@ -46,9 +46,6 @@ uint32_t bind_flag(Target t) {
     default:throw std::runtime_error("GPU target needs a non-buffer adapter");
     }
 }
-bool same_desc(const D3D11_BUFFER_DESC& a,const D3D11_BUFFER_DESC& b) {
-    return a.ByteWidth==b.ByteWidth && a.BindFlags==b.BindFlags && a.MiscFlags==b.MiscFlags && a.StructureByteStride==b.StructureByteStride;
-}
 void fill_info(GpuBufferBinding& b){
     // CPU mirror of the resource/view facts consumed by original FillInMissingInfo.
     b.visible_size=b.visible_size?std::min(b.visible_size,b.description.ByteWidth):b.description.ByteWidth;
@@ -61,12 +58,13 @@ void fill_info(GpuBufferBinding& b){
     if(!b.stride)b.stride=dxgi_format_size(b.format);
     if(!b.stride)b.stride=b.visible_size;
 }
-void select_view(GpuBufferBinding& b,GpuBufferBinding::View kind){
+void select_view(GpuBufferBinding& b,GpuBufferBinding::View kind,bool force_raw=false,bool complete_info=true){
     if(!b.buffer || b.view==kind)return;
     if(kind==GpuBufferBinding::View::None){b.view=kind;return;}
-    fill_info(b);auto format=b.format;auto stride=b.stride;
-    const bool raw=(b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS) &&
-        (format==DXGI_FORMAT_UNKNOWN || format==DXGI_FORMAT_R32_TYPELESS);
+    if(complete_info)fill_info(b);auto format=b.format;auto stride=b.stride;
+    require(!force_raw || (b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS),"GPU raw view requires raw allocation flags");
+    const bool raw=force_raw || ((b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS) &&
+        (format==DXGI_FORMAT_UNKNOWN || format==DXGI_FORMAT_R32_TYPELESS));
     if(raw){format=DXGI_FORMAT_R32_TYPELESS;stride=4;}
     require(format!=DXGI_FORMAT_R32_TYPELESS || raw,"GPU typeless buffer view requires raw view flags");
     require(!(b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) || format==DXGI_FORMAT_UNKNOWN,
@@ -144,9 +142,9 @@ GpuBufferBinding GpuResourceRuntime::load(CustomResource& r) {
     if(r.override_type==CustomResourceType::STRUCTURED_BUFFER)b.description.StructureByteStride=UINT(bytes.size());
     // Original description rules, including format-derived stride and array.
     r.OverrideBufferDesc(&b.description);validate_desc(b.description);
-    r.OverrideOutOfBandInfo(&b.format,&b.stride);b.source_stride=b.stride;
+    r.OverrideOutOfBandInfo(&b.format,&b.stride);b.source_stride=r.source_stride;
     b.buffer=commands_.create(b.description.ByteWidth,usage(b.description),bytes.empty()?nullptr:bytes.data(),std::min<size_t>(bytes.size(),b.description.ByteWidth),true);
-    r.is_null=false;resources_[&r]=b;return b;
+    r.is_null=false;r.stride=b.stride;r.format=b.format;r.buf_size=b.visible_size;resources_[&r]=b;return b;
 }
 GpuBufferBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListState& state) {
     auto& t=effective(input,state);GpuBufferBinding b;
@@ -156,7 +154,11 @@ GpuBufferBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListSt
     else {const auto key=slot(t,state);const auto found=slots_.find(key);if(found!=slots_.end())b=found->second;
         // XXGetShaderResources/UnorderedAccessViews return resource and view,
         // not the custom declaration's out-of-band stride/offset/size/format.
-        if(t.type==Target::SHADER_RESOURCE || t.type==Target::UNORDERED_ACCESS_VIEW){b.stride=0;b.offset=0;b.visible_size=0;b.format=DXGI_FORMAT_UNKNOWN;b.region=false;}}
+        b.source_stride=0;
+        if(t.type==Target::SHADER_RESOURCE || t.type==Target::UNORDERED_ACCESS_VIEW){b.stride=0;b.offset=0;b.visible_size=0;b.format=DXGI_FORMAT_UNKNOWN;b.region=false;}
+        else if(t.type==Target::CONSTANT_BUFFER){b.stride=0;b.format=DXGI_FORMAT_UNKNOWN;}
+        else if(t.type==Target::INDEX_BUFFER){b.stride=dxgi_format_size(b.format);b.visible_size=0;}
+        else if(t.type==Target::VERTEX_BUFFER){b.format=DXGI_FORMAT_UNKNOWN;b.visible_size=0;}}
     if(b.buffer && t.evaluation_mode==Mode::RESOURCE_REGION) {
         require(t.member_args[0].expression && t.member_args[1].expression,"GPU region requires offset and size");
         b.offset=uint_value(t.member_args[0].GetValue(&state));b.visible_size=uint_value(t.member_args[1].GetValue(&state));
@@ -185,7 +187,8 @@ void GpuResourceRuntime::set(ResourceCopyTarget& input,CommandListState& state,c
 void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state) {
     require(typeid(op)==typeid(ResourceCopyOperation),"GPU staging command requires staging adaptation");
     require(op.src.evaluation_mode==Mode::RESOURCE || op.src.evaluation_mode==Mode::RESOURCE_REGION,"GPU copy source is not a resource");
-    constexpr auto allowed=uint32_t(ResourceCopyOptions::COPY)|uint32_t(ResourceCopyOptions::COPY_DESC)|uint32_t(ResourceCopyOptions::REFERENCE)|uint32_t(ResourceCopyOptions::UNLESS_NULL);
+    constexpr auto allowed=uint32_t(ResourceCopyOptions::COPY)|uint32_t(ResourceCopyOptions::COPY_DESC)|uint32_t(ResourceCopyOptions::REFERENCE)|
+        uint32_t(ResourceCopyOptions::UNLESS_NULL)|uint32_t(ResourceCopyOptions::NO_VIEW_CACHE)|uint32_t(ResourceCopyOptions::RAW_VIEW);
     require(!(uint32_t(op.options)&~allowed),"GPU copy option requires an additional adapter");
     auto& dst=effective(op.dst,state);
     if(op.src.type==Target::EMPTY){set(dst,state,{});return;} // Explicit null ignores unless_null upstream.
@@ -199,36 +202,79 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
         else if(custom->copies_this_frame++>=custom->max_copies_per_frame)return;
     }
     if(custom)custom->OverrideOutOfBandInfo(&source.format,&source.stride);
+    source.source_stride=op.src.type==Target::CUSTOM_RESOURCE && source.source_stride?source.source_stride:source.stride;
     fill_info(source);
+    require(!custom || resources_.size()<65536 || resources_.count(custom),"GPU resource declaration budget exceeded");
+    auto& cache=custom?resources_[custom]:copies_[&op];
+    const bool no_view_cache=bool(op.options&ResourceCopyOptions::NO_VIEW_CACHE) || op.src.forbid_view_cache;
+    const bool raw_view=bool(op.options&ResourceCopyOptions::RAW_VIEW);
+    auto reuse_view=[&](GpuBufferBinding& value){
+        if(cache.buffer==value.buffer){value.view=cache.view;value.view_format=cache.view_format;
+            value.view_offset=cache.view_offset;value.view_size=cache.view_size;}
+    };
     if(!(op.options&ResourceCopyOptions::COPY_MASK)){
         // UsableRefView retains a source view on a custom resource. If the
         // source has none, the original may reuse its old compatible view.
-        if(custom && source.view==GpuBufferBinding::View::None){const auto cached=resources_.find(custom);
-            if(cached!=resources_.end() && cached->second.buffer==source.buffer){source.view=cached->second.view;
-                source.view_format=cached->second.view_format;source.view_offset=cached->second.view_offset;source.view_size=cached->second.view_size;}}
-        if(!custom)select_view(source,view_kind(dst.type));
+        if(custom && source.view==GpuBufferBinding::View::None)reuse_view(source);
+        if(!custom && source.view!=view_kind(dst.type)){
+            source.view=GpuBufferBinding::View::None;reuse_view(source);
+            select_view(source,view_kind(dst.type),raw_view);cache=source;
+        }
         source.visible_size=explicit_region?region_size:0;source.region=explicit_region;
         // The original clears a constant-slot offset unless ->Region was used.
         if(dst.type==Target::CONSTANT_BUFFER && op.src.evaluation_mode!=Mode::RESOURCE_REGION){source.offset=0;source.visible_size=0;source.region=false;}
-        set(dst,state,source);return;
+        set(dst,state,source);if(no_view_cache)cache.view=GpuBufferBinding::View::None;return;
     }
-    require(!source.offset && !source.region,"GPU region copy/conversion requires explicit source-view semantics");
     GpuBufferBinding out=source;out.description.BindFlags=custom?custom->bind_flags:bind_flag(dst.type);
+    if(custom)out.description.MiscFlags|=custom->misc_flags;
     if(!(out.description.BindFlags&(D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS)))out.description.MiscFlags&=~D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-    if(out.description.BindFlags&D3D11_BIND_CONSTANT_BUFFER){
-        require(out.description.ByteWidth%16==0 && out.description.ByteWidth<=65536,"GPU copy constant-buffer resizing is not yet adapted");
-        out.description.MiscFlags&=~D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;out.description.StructureByteStride=0;
+    UINT source_end=source.visible_size,destination_size=0;
+    const bool source_view=source.view!=GpuBufferBinding::View::None;
+    // RecreateCompatibleBuffer: visible CB windows, CB size constraints,
+    // view-less structure conversion, then the original declaration overrides.
+    if((out.description.BindFlags&D3D11_BIND_CONSTANT_BUFFER) || op.src.type==Target::CONSTANT_BUFFER){
+        if(op.src.type==Target::CONSTANT_BUFFER && source_end){destination_size=source_end;
+            source_end=out.description.ByteWidth;out.description.ByteWidth=destination_size;}
+        if(out.description.BindFlags&D3D11_BIND_CONSTANT_BUFFER){
+            const auto rounded=std::min((out.description.ByteWidth+15)&~15u,65536u);
+            out.description.MiscFlags&=~D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;out.description.StructureByteStride=0;
+            if(source.offset || rounded!=out.description.ByteWidth){destination_size=rounded;out.description.ByteWidth=rounded;}
+        }
+    }else if(!source_view && source.format==DXGI_FORMAT_UNKNOWN && source.stride &&
+             (out.description.BindFlags&(D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS))){
+        out.description.MiscFlags|=D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;out.description.StructureByteStride=source.stride;
+        const auto rounded=out.description.ByteWidth/source.stride*source.stride;
+        if(source.offset || rounded!=out.description.ByteWidth){destination_size=rounded;out.description.ByteWidth=rounded;}
+    }else if(!source_view && source.offset){
+        destination_size=out.description.ByteWidth;
     }
     if(custom){custom->OverrideBufferDesc(&out.description);custom->OverrideOutOfBandInfo(&out.format,&out.stride);}
-    out.offset=0;out.visible_size=0;out.region=false;out.view=GpuBufferBinding::View::None;
+    out.view=GpuBufferBinding::View::None;
     validate_desc(out.description);
-    require((op.options&ResourceCopyOptions::COPY_DESC) || out.description.ByteWidth==source.description.ByteWidth,"GPU size-changing copy requires a region adapter");
-    auto& cache=custom?resources_[custom]:copies_[&op];
-    if(cache.buffer && same_desc(cache.description,out.description)){out.buffer=cache.buffer;out.view=cache.view;
-        out.view_format=cache.view_format;out.view_offset=cache.view_offset;out.view_size=cache.view_size;}
-    else out.buffer=commands_.create(out.description.ByteWidth,usage(out.description));
-    if(!(op.options&ResourceCopyOptions::COPY_DESC))commands_.copy(source.buffer,0,out.buffer,0,source.description.ByteWidth);
-    cache=out;set(dst,state,out);
+    auto& pool=custom?resource_copy_pools_[custom]:command_copy_pools_[&op];
+    const std::array<UINT,4> key={out.description.ByteWidth,out.description.BindFlags,out.description.MiscFlags,out.description.StructureByteStride};
+    auto found=pool.find(key);
+    if(found!=pool.end())out.buffer=found->second;
+    else{out.buffer=commands_.create(out.description.ByteWidth,usage(out.description));pool.emplace(key,out.buffer);}
+    reuse_view(out);
+    if(!(op.options&ResourceCopyOptions::COPY_DESC)){
+        if(destination_size){
+            // SpecialCopyBufferRegion treats source size as an end boundary.
+            const uint64_t end=std::min<uint64_t>(source_end,uint64_t(source.offset)+destination_size);
+            require(end>=source.offset,"GPU buffer copy region ends before its offset");
+            auto bytes=end-source.offset;if(source.stride)bytes=bytes/source.stride*source.stride;
+            require(bytes<=out.description.ByteWidth,"GPU copy override truncates the original region");
+            if(bytes)commands_.copy(source.buffer,source.offset,out.buffer,0,bytes);
+            out.offset=0;
+        }else{
+            require(out.description.ByteWidth==source.description.ByteWidth,"GPU whole copy has incompatible allocation sizes");
+            commands_.copy(source.buffer,0,out.buffer,0,source.description.ByteWidth);
+        }
+    }
+    out.visible_size=source_end;
+    if(!custom)select_view(out,view_kind(dst.type),raw_view,false);
+    out.visible_size=destination_size;out.region=dst.type==Target::CONSTANT_BUFFER && (out.offset || out.visible_size);
+    cache=out;set(dst,state,out);if(no_view_cache)cache.view=GpuBufferBinding::View::None;
 }
 void GpuResourceRuntime::clear(ClearViewCommand& op,CommandListState& state) {
     auto b=get(op.target,state);if(!b.buffer)return;

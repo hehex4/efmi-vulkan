@@ -33,6 +33,9 @@ remain distinct. Resources are instantiated on first use, within shared budgets.
   original command order. Explicit null and `unless_null` have distinct behavior.
 - Whole-buffer `copy` copies bytes to a compatible cached destination.
   `copy_desc` creates/reuses its description without asserting initialized data.
+  Copy pools retain their own allocation per description, separately from a
+  current resource alias. A ref followed by copy cannot overwrite the referenced
+  source. Returning to a previous description restores that owned allocation.
 - UAV clear supports raw/structured views and one/two/four-component 32-bit typed
   float/integer views. Typed float conversion and exact uint bit patterns differ.
 - `store` reads the actual GPU through staging and a fence. It uses the original
@@ -44,8 +47,14 @@ remain distinct. Resources are instantiated on first use, within shared budgets.
 - Original slot ranges bind/fetch pools and broadcast resources, including
   dynamic bounds, explicit null, unless_null and per-slot copies. Plain fetch
   bypasses single-copy counters and custom overrides, as upstream does.
-- Reference regions preserve allocation ownership and view ranges. General
-  copy regions, size-changing conversions and all source properties remain work.
+- Buffer copy regions preserve the original CB-window and end-boundary rules,
+  stride truncation, CB rounding and view-less vertex-to-structured conversion.
+  Unwritten tails retain existing cached bytes; newly allocated undefined tails
+  are not promised to be zero. Incompatible overrides refuse rather than emit an
+  invalid copy. A source view and a buffer offset without a view are distinct.
+- `raw` creates a raw view only when the allocation permits it; it does not
+  change a compatible borrowed source view. `no_view_cache` drops the cached
+  view while retaining live slot bindings and copy-pool ownership.
 
 Original source views matter independently of allocation bind flags. A resource
 fetched from an SRV slot carries an SRV view; original `clear` does not clear that
@@ -107,7 +116,8 @@ Final counts and the full regression checkpoint belong in CURRENT_STATE.md.
 ## Remaining execution work
 
 Image commands and format conversions; general source-resource/view properties;
-fresh typed/raw plain-range views; region copies and copy options; expiring/keyed GPU pools; GPU
+fresh typed/raw plain-range views; remaining copy options and invalid source-API
+description combinations; expiring/keyed GPU pools; GPU
 IniParams; application resource import and command placement; shared shader
 contracts; CustomShader draw/dispatch/state; ShaderOverride/ShaderRegex; complete
 directory routing and graphical reload. PNG integration remains paused. No

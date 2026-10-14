@@ -1,6 +1,36 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, original INI GPU slot ranges. Source/candidate 1.0.7 passes the full rebuilt regression, including 155 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, original GPU copy pools and buffer regions. Source/candidate 1.0.8 passes the full rebuilt regression, including 243 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+
+## Owned copy pools and original buffer regions (verified candidate 1.0.8)
+
+Source audit found BUG-015: a resource assigned by reference was reused as a
+writable copy destination, modifying its source; the single-description cache
+also lost old contents after a size change. A GPU byte-result test first fails
+against 1.0.7 (build/resource-commands/copy-alias-before-fix.{json,txt}). Copy
+pools now own allocations independently of current aliases, keyed by the full
+buffer description. Returning via copy_desc preserves the earlier allocation.
+
+Buffer region copies, CB windows/rounding, complete-structure conversion, raw
+view selection and no_view_cache execute with original source semantics.
+Slot reads preserve only metadata actually returned by that source API; IB
+copies use the bound index format's stride, and CB copies use its visible window.
+Invalid ranges/overrides refuse before their copy; unwritten cached tails stay
+untouched. A new allocation's unwritten tail is deliberately not asserted.
+
+Targeted headless tests pass 243 checks with clean core/sync validation, including
+copy alias isolation, repeated descriptions, known bytes, cache/view ownership,
+retained generations and failed-scope cleanup. Full rebuilt regression passes in
+build/next/run_all-1.0.8.out: source parser 726, evaluation 65, CPU runtime 68,
+character package/GPU 79/357, live INI GPU 28, validation 76 and all other steps.
+Further offline work: remaining properties/options, image operations, GPU
+IniParams, CustomShader, shader matching and complete directory graphics. PNG
+integration remains paused. No game, deployment or original-installation action.
+
+Next source audit: property getters use target-specific GetViewInfo, so metadata
+queried from a slot and from a plain pool-fetched view can differ. Add execution
+fixtures before extending queries. Also check format-only unassigned declarations,
+source_stride preservation on null/range fetch and original cached-null behavior.
 
 ## Original INI GPU slot ranges (verified candidate 1.0.7)
 

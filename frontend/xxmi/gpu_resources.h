@@ -55,6 +55,11 @@ private:
     std::map<Slot,GpuBufferBinding> slots_;
     // Copies to a stage slot cache per instruction, as in the original engine.
     std::map<ResourceCopyOperation*,GpuBufferBinding> copies_;
+    // A current alias is not a writable copy-cache allocation. Original
+    // ResourcePool retains owned allocations for every description it creates.
+    using CopyPool=std::map<std::array<UINT,4>,gpu::Buffer>;
+    std::map<CustomResource*,CopyPool> resource_copy_pools_;
+    std::map<ResourceCopyOperation*,CopyPool> command_copy_pools_;
     std::map<SlotRangeCopyOperation*,std::vector<std::unique_ptr<ResourceCopyOperation>>> range_operations_;
     std::map<SlotRangeCopyOperation*,std::vector<GpuBufferBinding>> range_views_;
     VkQueue queue_=VK_NULL_HANDLE;

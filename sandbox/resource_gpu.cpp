@@ -453,9 +453,201 @@ vs-cb4 = ref PoolCB[1]->Region(16, 16)
         backend->discard();ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Invalid range leaves no allocations");
     }
 }
+static void copy_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    std::filesystem::create_directories(root/"Mods");
+    write(root/"Mods/copies.ini",R"ini(namespace = copies
+[Constants]
+global $source = 0
+global $destination = 0
+global $cached = 0
+[ResourceSource]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 1 2 3 4 5 6 7 8
+bind_flags = shader_resource unordered_access
+[ResourceOther]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 9 10 11 12 13 14 15 16
+bind_flags = shader_resource unordered_access
+[ResourceNarrow]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 9 10 11 12
+bind_flags = shader_resource unordered_access
+[ResourceDestination]
+bind_flags = shader_resource unordered_access
+[ResourceSaved]
+[Present]
+ResourceDestination = ref ResourceSource
+ResourceDestination = copy ResourceOther
+clear = ResourceDestination 0x41a00000
+store = $source, ResourceSource, 0
+store = $destination, ResourceDestination, 0
+ResourceSaved = ref ResourceDestination
+ResourceDestination = copy ResourceNarrow
+ResourceDestination = copy_desc ResourceSource
+store = $cached, ResourceDestination, 0
+ps-t0 = ref ResourceSource
+ps-t1 = ref ResourceDestination
+ps-t2 = ref ResourceSaved
+)ini");
+    RuntimeConfig config{root,{},root/"settings","copies",root/"Mods"};gpu::ResourceBudgets budgets;std::string why;
+    auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);auto ini=IniRuntime::load(config,backend,why);
+    if(!ini)throw std::runtime_error(why);backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    if(!ini->present({},1,0,why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();ticket.reset();
+    const auto vars=ini->status().variables;
+    check(vars.at("$\\copies\\source")==1,"Copy destination cannot overwrite a referenced source allocation");
+    check(vars.at("$\\copies\\destination")==20 && vars.at("$\\copies\\cached")==20,"Description cache retains owned contents across size changes");
+    auto source=backend->binding(L'p',T::SHADER_RESOURCE,0),destination=backend->binding(L'p',T::SHADER_RESOURCE,1),saved=backend->binding(L'p',T::SHADER_RESOURCE,2);
+    check(destination.buffer!=source.buffer && destination.buffer==saved.buffer,"Copy description pool restores the original owned allocation");
+    ini.reset();backend.reset();source={};destination={};saved={};check(!budgets.resident->used() && !budgets.staging->used(),"All copy-pool descriptions release with the generation");
+}
+static void regions_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    std::filesystem::create_directories(root/"Mods");
+    const std::string declarations=R"ini(namespace = regions
+[Constants]
+global $raw = 0
+global $nocache = 0
+[ResourceSource]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 1 2 3 4 5 6 7 8
+bind_flags = shader_resource unordered_access
+[ResourceCopy]
+bind_flags = shader_resource unordered_access
+[ResourceWindow]
+bind_flags = shader_resource unordered_access
+[ResourceVertex]
+type = Buffer
+stride = 12
+data = R32_FLOAT 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+bind_flags = vertex_buffer
+[ResourceCB]
+type = Buffer
+data = R32_FLOAT 101 102 103 104 105 106 107 108
+bind_flags = constant_buffer
+[ResourceCBWindow]
+bind_flags = constant_buffer
+[ResourceCBExplicit]
+bind_flags = constant_buffer
+[ResourceSmall]
+type = StructuredBuffer
+stride = 12
+data = R32_FLOAT 1 2 3 4 5 6
+bind_flags = shader_resource unordered_access
+[ResourceRounded]
+bind_flags = constant_buffer
+[ResourceRaw]
+type = ByteAddressBuffer
+data = R32_FLOAT 1 2 3 4
+bind_flags = shader_resource unordered_access
+[ResourceTypedAlias]
+format = R32_FLOAT
+bind_flags = shader_resource unordered_access
+[ResourceTemporary]
+bind_flags = shader_resource unordered_access
+[ResourceTruncated]
+byte_width = 16
+bind_flags = shader_resource unordered_access
+[ResourceStrideAlias]
+stride = 16
+bind_flags = shader_resource
+[ResourceIndex]
+type = Buffer
+format = R16_UINT
+stride = 4
+data = R16_UINT 1 2 3 4 5 6 7 8
+bind_flags = index_buffer
+[ResourceIndexCopy]
+bind_flags = shader_resource
+[Present]
+)ini";
+    const std::string commands=R"ini(ResourceCopy = copy ResourceSource
+ResourceCopy = copy ResourceSource->Region(8, 32)
+ps-t0 = ref ResourceCopy
+ResourceWindow = copy ResourceSource
+ResourceWindow = copy ResourceSource->Region(8, 16)
+ps-t1 = ref ResourceWindow
+vb0 = ref ResourceVertex
+cs-t2 = copy vb0
+cs-t3 = copy vb0->Region(12, 56)
+vs-cb0 = ref ResourceCB->Region(16, 16)
+ResourceCBWindow = copy vs-cb0
+ResourceCBExplicit = copy vs-cb0->Region(0, 16)
+vs-cb1 = ref ResourceCBWindow
+vs-cb2 = ref ResourceCBExplicit
+ResourceRounded = copy ResourceCB
+ResourceRounded = copy ResourceSmall
+vs-cb3 = ref ResourceRounded
+ResourceTypedAlias = ref ResourceRaw
+ps-t4 = raw ref ResourceTypedAlias
+cs-u4 = raw ref ResourceTypedAlias
+clear = cs-u4 0x42280000
+store = $raw, ResourceRaw, 0
+ps-t5 = ref ResourceTypedAlias
+ResourceTemporary = no_view_cache ref ps-t5
+clear = ResourceTemporary 0x422c0000
+store = $nocache, ResourceRaw, 0
+ResourceStrideAlias = ref ResourceSource
+ps-t7 = ref ResourceStrideAlias
+ib = ref ResourceIndex->Region(2, 16)
+ResourceIndexCopy = copy ib
+ps-t8 = ref ResourceIndexCopy
+)ini";
+    write(root/"Mods/regions.ini",(declarations+commands).c_str());RuntimeConfig config{root,{},root/"settings","regions",root/"Mods"};
+    gpu::ResourceBudgets budgets;std::string why;auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
+    auto ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error(why);
+    backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    if(!ini->present({},1,0,why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();ticket.reset();
+    auto bytes_at=[&](wchar_t stage,T type,unsigned slot,UINT size){const auto b=backend->binding(stage,type,slot);
+        check(b.buffer && b.description.ByteWidth>=size,"Region result has an owned allocation");
+        return backend->commands().readback(d.queue,b.buffer,0,size);};
+    const float shifted[]={3,4,5,6,7,8,7,8},window[]={3,4,3,4,5,6,7,8};
+    auto data=bytes_at(L'p',T::SHADER_RESOURCE,0,32);check(!memcmp(data.data(),shifted,32),"Region shift preserves unwritten cached tail");
+    data=bytes_at(L'p',T::SHADER_RESOURCE,1,32);check(!memcmp(data.data(),window,32),"Original non-CB region size is an end boundary");
+    data=bytes_at(L'c',T::SHADER_RESOURCE,2,48);
+    for(unsigned i=0;i<12;++i)check(value(data,i*4)==float(i+1),"Vertex-to-structured copy preserves complete elements");
+    auto converted=backend->binding(L'c',T::SHADER_RESOURCE,2);
+    check(converted.description.ByteWidth==48 && converted.description.StructureByteStride==12 && converted.view_size==48,
+          "Vertex conversion rounds the allocation to complete structures");
+    data=bytes_at(L'c',T::SHADER_RESOURCE,3,36);
+    for(unsigned i=0;i<9;++i)check(value(data,i*4)==float(i+4),"Region conversion rounds copied bytes by source stride");
+    data=bytes_at(L'v',T::CONSTANT_BUFFER,1,16);check(value(data)==105 && value(data,12)==108,"CB source visible range is copied without its original offset");
+    data=bytes_at(L'v',T::CONSTANT_BUFFER,2,16);check(value(data)==101 && value(data,12)==104,"Explicit CB source region overrides the bound window");
+    data=bytes_at(L'v',T::CONSTANT_BUFFER,3,32);check(value(data)==1 && value(data,20)==6 && value(data,24)==107 && value(data,28)==108,
+          "CB size rounds up while uncopied cached padding remains unchanged");
+    check(backend->binding(L'p',T::SHADER_RESOURCE,4).view_format==DXGI_FORMAT_R32_TYPELESS &&
+          backend->binding(L'p',T::SHADER_RESOURCE,5).view_format==DXGI_FORMAT_R32_FLOAT,"Raw modifier creates a raw view without changing a typed alias");
+    const auto vars=ini->status().variables;
+    check(vars.at("$\\regions\\raw")==42 && vars.at("$\\regions\\nocache")==43,"No-view-cache drops a custom SRV before its next clear");
+    check(backend->binding(L'p',T::SHADER_RESOURCE,7).source_stride==16,
+          "First custom reference captures the overridden stride, not an invented initial source stride");
+    data=bytes_at(L'p',T::SHADER_RESOURCE,8,14);const uint16_t indices[]={2,3,4,5,6,7,8};
+    check(!memcmp(data.data(),indices,sizeof(indices)) && backend->binding(L'p',T::SHADER_RESOURCE,8).source_stride==2,
+          "Index-buffer copies use bound format width and offset, independent of declaration stride");
+    ini.reset();backend.reset();
+    // The converted binding above deliberately outlives this generation.
+    check(budgets.resident->used()>0 && !budgets.staging->used(),"Retained region binding outlives generation retirement");
+    const std::vector<std::pair<std::string,std::string>> bad={
+        {"ResourceCopy = copy ResourceSource->Region(16, 8)\n","ends before"},
+        {"ResourceTruncated = copy ResourceSource\n","incompatible allocation sizes"},
+        {"ResourceTruncated = copy ResourceSource->Region(8, 32)\n","truncates"},
+    };
+    for(const auto& failure:bad){write(root/"Mods/regions.ini",(declarations+failure.first).c_str());
+        backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);ini=IniRuntime::load(config,backend,why);
+        if(!ini)throw std::runtime_error("Region rejection must parse: "+why);backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        check(!ini->present({},2,0,why),"Invalid copy region refuses execution");
+        if(why.find(failure.second)==std::string::npos)throw std::runtime_error("Unexpected region refusal: "+why);++checks;
+        refuses([&]{backend->finish();},"Invalid region cannot submit its partial scope");backend->discard();ini.reset();backend.reset();
+    }
+    converted={};check(!budgets.resident->used() && !budgets.staging->used(),"Successful and rejected region generations release all allocations");
+}
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);const auto root=std::filesystem::absolute(argv[1]);
-        ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");}
+        ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

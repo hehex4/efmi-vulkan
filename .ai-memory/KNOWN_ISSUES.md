@@ -349,3 +349,17 @@ and resource reset, mixed values, independent slots and proxy behavior. The
 separate production-runtime fixtures check owned plans and generation isolation.
 No historical game symptom has been attributed to this offline-found defect.
 The full rebuilt regression passes in build/next/run_all-1.0.5.out; not deployed.
+
+## BUG-015: Referenced buffers were reused as writable copy-cache allocations (fixed in candidate 1.0.8)
+
+The owned GPU adapter reused a destination's current binding when its buffer
+description matched. If that binding came from ref, a subsequent copy overwrote
+the aliased source. It also retained only the current description, unlike the
+original ResourcePool, so copy_desc could lose previous cached data after a size
+change. The GPU byte-result test reproduces the first defect against 1.0.7 in
+build/resource-commands/copy-alias-before-fix.{json,txt}. Separate owned pools now
+retain allocations per description and instruction/custom resource. Reference
+assignments change the binding without entering borrowed allocations in a copy
+pool. The fix and region-copy fixtures pass 243 GPU checks with clean validation;
+the full rebuilt suite passes in build/next/run_all-1.0.8.out. This backend was
+never deployed into the game.

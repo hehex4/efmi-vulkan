@@ -6,6 +6,16 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.0.8 fixes copy-pool alias ownership (BUG-015) and adds original buffer region
+copies, CB windows/rounding, vertex-to-structured conversion, raw views and
+no_view_cache. Targeted GPU checks: 243 passing, no validation messages. Complete
+rebuilt regression passes in build/next/run_all-1.0.8.out. Continue offline with remaining properties/options,
+images, shaders and directory graphics; the active goal remains incomplete.
+Property fixtures must distinguish slot views from custom/pool metadata and
+check original null/cache/source-stride behavior before the next adapter change.
+
+Earlier verified checkpoint:
+
 1.0.7 adds original buffer slot-range bind/fetch/broadcast/copy execution. The
 155-check headless GPU fixture passes with clean validation; the complete rebuilt
 suite passes in build/next/run_all-1.0.7.out. Source-specific null, view,

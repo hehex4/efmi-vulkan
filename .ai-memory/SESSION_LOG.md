@@ -1067,3 +1067,26 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   deployment or module exchange. Next: buffer regions/options/properties, then
   images and the shared shader/directory stages. PNG integration stays paused;
   the active goal is not complete and further offline work needs no user input.
+
+## 2026-10-14: Owned GPU copy pools and original buffer regions (1.0.8)
+
+- After 5087006, the next GPU fixture reproduced BUG-015 against 1.0.7: ref then
+  copy reused a borrowed allocation and overwrote the source. Preserved
+  build/resource-commands/copy-alias-before-fix.{json,txt}. Separate owned pools
+  now retain each original buffer description; copy_desc restores its previous
+  allocation and bytes across size changes without mutating a source alias.
+- Adapted source CB windows, CB rounding, view-less structure conversion, region
+  bounds/stride truncation, raw views and no_view_cache. Slot reads use only the
+  metadata returned by the source API. Unwritten cached bytes remain unchanged;
+  tests make no promise about new uninitialized tails. Invalid ranges/overrides
+  poison the scope. Indexed copies use the bound format width instead of a
+  conflicting declaration stride. New source_stride starts as the original zero.
+- Targeted GPU suite: 243 passing checks, zero core/sync validation messages.
+  Full frozen-source rebuild/regression passes in build/next/run_all-1.0.8.out:
+  parser 726, evaluation 65, CPU runtime 68, character package/GPU 79/357,
+  live INI GPU 28, validation 76 and all remaining steps. Reviewed diff, report
+  source hashes and English text before local commit. ABI remains unchanged.
+- Continue offline with resource properties, including target-specific view
+  metadata, null/cache and source_stride behavior, before images and shaders.
+  Dist remains 1.0.2. No game action, deployment, module swap or writes to the
+  original installation. PNG integration stays paused; the goal remains active.

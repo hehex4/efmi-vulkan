@@ -118,9 +118,9 @@ pools, pending a broader GPU lifetime adapter.
 | IniParams, time, call counters, presets, keys, persist, F10 | CPU runtime; shader upload and full rendering context still needed |
 | Indexed draws, VB/IB and pixel-resource references, layout edits | Existing scoped character Vulkan backend; not every draw/resource form |
 | Scalar pools, metadata/reset, native merged-skeleton/identity contracts | Original CPU logic plus explicit native Core boundaries; GPU resource pools are partial |
-| Custom-resource buffer references, compatible copy/copy_desc, clear/store/readback | 1.0.6 opt-in original-runtime GPU adapter in an explicit private outside-render-pass domain; logical slots, no application descriptor emission |
+| Custom-resource buffer references, copy/copy_desc, buffer regions, clear/store/readback | Opt-in original-runtime GPU adapter in an explicit private outside-render-pass domain; raw/no_view_cache and owned per-description copies; logical slots, no application descriptor emission |
 | Buffer slot ranges and broadcasts | Owned GPU adapter, plain reference and compatible copy paths; original null/view/counter behavior; fresh typed/raw views remain open |
-| Image operations, general regions/conversions/properties and expiring GPU pools | Parse support; general Vulkan execution remains open |
+| Image operations, remaining conversions/options/properties and expiring GPU pools | Parse support; general Vulkan execution remains open |
 | Non-indexed/automatic/indirect draws and compute dispatch | Parse support; general Vulkan execution remains open |
 | CustomShader render state and HLSL | Original metadata parsing; original panel HLSL compiles separately, general pipeline execution remains open |
 | ShaderOverride/ShaderRegex | Original metadata/pattern parsing; source-shader identity and DX11 assembly-to-SPIR-V adaptation remain open |
@@ -165,3 +165,10 @@ resource checks and clean validation. The full rebuilt suite passes in
 `build/next/run_all-1.0.7.out`. Plain ranges preserve their original view creation,
 null handling, constant-buffer regions and counter bypass. This remains owned
 buffer execution rather than application descriptor emission or shader drawing.
+
+Candidate 1.0.8 adds source-defined buffer regions, CB windows/rounding,
+vertex-to-structured conversion, raw/no_view_cache and separate owned copy pools.
+The alias-overwrite fixture fails against 1.0.7 and passes after the correction.
+All 243 GPU resource checks and the complete rebuilt suite pass in
+`build/next/run_all-1.0.8.out`. Unwritten new-allocation tails remain undefined;
+tests compare only specified bytes or retained contents of known cached buffers.
