@@ -79,6 +79,26 @@ Fresh typed/raw plain-range views without a compatible source view still refuse
 explicitly. Their original view descriptor is not silently replaced with a
 guessed format or full-buffer range. Other copy options remain separate work.
 
+## Resource properties
+
+Original resource identity, stride/source_stride, size, format, bind flags,
+offset, width, height, array and mip queries now use the owned buffer domain.
+Declaration overrides take precedence, even on an unassigned alias; those
+queries need no GPU allocation or active scope in Constants. Other queries need
+an explicit execution scope. Missing resources, unknown values and non-texture
+buffers preserve the distinct original sentinels. Vertex/index offsets use the
+original helpers with an actual draw context; Present does not invent one.
+
+View metadata is target-specific: GetViewInfo reads stage views, not a view
+stored in a custom resource by plain range fetch. The latter retains its zero
+format/stride metadata until the original rules derive other facts. Null keeps
+the cached allocation/view, while resetting visible binding metadata; original
+source_stride survives null and direct range fetch. A declaration containing
+only format/stride overrides remains unassigned until something binds it.
+The `this` target retains its requested property/region arguments when resolving
+the underlying resource. Region/spatial hashes and texture-backed queries still
+need additional adapters.
+
 ## Synchronization and lifetime
 
 Every owned allocation is charged against a shared resident or staging ledger.
@@ -115,7 +135,7 @@ Final counts and the full regression checkpoint belong in CURRENT_STATE.md.
 
 ## Remaining execution work
 
-Image commands and format conversions; general source-resource/view properties;
+Image commands and format conversions; region/spatial hash and texture properties;
 fresh typed/raw plain-range views; remaining copy options and invalid source-API
 description combinations; expiring/keyed GPU pools; GPU
 IniParams; application resource import and command placement; shared shader

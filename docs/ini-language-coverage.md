@@ -120,7 +120,8 @@ pools, pending a broader GPU lifetime adapter.
 | Scalar pools, metadata/reset, native merged-skeleton/identity contracts | Original CPU logic plus explicit native Core boundaries; GPU resource pools are partial |
 | Custom-resource buffer references, copy/copy_desc, buffer regions, clear/store/readback | Opt-in original-runtime GPU adapter in an explicit private outside-render-pass domain; raw/no_view_cache and owned per-description copies; logical slots, no application descriptor emission |
 | Buffer slot ranges and broadcasts | Owned GPU adapter, plain reference and compatible copy paths; original null/view/counter behavior; fresh typed/raw views remain open |
-| Image operations, remaining conversions/options/properties and expiring GPU pools | Parse support; general Vulkan execution remains open |
+| Buffer identity/size/stride/source-stride/format/flags/offset and extent metadata | Owned GPU adapter with original sentinels, override precedence and actual draw-context offsets; declaration-only Constants queries allocate nothing |
+| Image operations, remaining conversions/options, region/spatial hashes and expiring GPU pools | Parse support; general Vulkan execution remains open |
 | Non-indexed/automatic/indirect draws and compute dispatch | Parse support; general Vulkan execution remains open |
 | CustomShader render state and HLSL | Original metadata parsing; original panel HLSL compiles separately, general pipeline execution remains open |
 | ShaderOverride/ShaderRegex | Original metadata/pattern parsing; source-shader identity and DX11 assembly-to-SPIR-V adaptation remain open |
@@ -172,3 +173,11 @@ The alias-overwrite fixture fails against 1.0.7 and passes after the correction.
 All 243 GPU resource checks and the complete rebuilt suite pass in
 `build/next/run_all-1.0.8.out`. Unwritten new-allocation tails remain undefined;
 tests compare only specified bytes or retained contents of known cached buffers.
+
+Candidate 1.0.9 adds original buffer property queries and fixes target-specific
+view metadata, cached-null behavior and source_stride retention. Its new view
+fixture fails against 1.0.8 before the correction. The 303 GPU resource checks
+and full rebuilt suite pass in `build/next/run_all-1.0.9.out`. Pure declaration
+queries allocate nothing in Constants; VB/IB offsets require an actual draw
+context. Hash properties, image execution and shader/directory drawing remain
+explicit development work.

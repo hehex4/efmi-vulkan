@@ -363,3 +363,17 @@ assignments change the binding without entering borrowed allocations in a copy
 pool. The fix and region-copy fixtures pass 243 GPU checks with clean validation;
 the full rebuilt suite passes in build/next/run_all-1.0.8.out. This backend was
 never deployed into the game.
+
+## BUG-016: Custom pool view metadata and null caches differed from the source (fixed in candidate 1.0.9)
+
+The adapter inferred format/offset from every source view. Original GetViewInfo
+only interprets stage target views, so a typed UAV fetched into a pool by a plain
+range still has unknown custom-resource format. Rebinding it as an SRV can select
+a raw view. The GPU fixture fails against 1.0.8; preserved in
+build/resource-commands/metadata-before-fix.{json,txt}. Target-specific metadata
+now matches the original helper. Null keeps its cached resource/view, and
+source_stride is set by copies rather than overwritten by generic SetResource.
+Format/stride-only unassigned aliases do not create zero-sized buffers. The
+303-check GPU suite passes with clean validation; the complete rebuilt regression
+passes in build/next/run_all-1.0.9.out.
+No deployed/game result is implied.

@@ -1,6 +1,7 @@
 #include "gpu_resources.h"
 #include "globals.h"
 #include "util.h"
+#include "ResourceHash.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -46,11 +47,11 @@ uint32_t bind_flag(Target t) {
     default:throw std::runtime_error("GPU target needs a non-buffer adapter");
     }
 }
-void fill_info(GpuBufferBinding& b){
+void fill_info(GpuBufferBinding& b,Target type=Target::CUSTOM_RESOURCE){
     // CPU mirror of the resource/view facts consumed by original FillInMissingInfo.
     b.visible_size=b.visible_size?std::min(b.visible_size,b.description.ByteWidth):b.description.ByteWidth;
     if(!b.stride)b.stride=b.description.StructureByteStride;
-    if(b.view!=GpuBufferBinding::View::None){
+    if(b.view!=GpuBufferBinding::View::None && (type==Target::SHADER_RESOURCE || type==Target::UNORDERED_ACCESS_VIEW)){
         if(b.format==DXGI_FORMAT_UNKNOWN)b.format=b.view_format;
         if(!b.stride)b.stride=dxgi_format_size(b.format);
         if(!b.offset)b.offset=b.view_offset;
@@ -123,9 +124,13 @@ CustomResource* GpuResourceRuntime::declaration(ResourceCopyTarget& t,CommandLis
 }
 GpuBufferBinding GpuResourceRuntime::load(CustomResource& r) {
     const auto found=resources_.find(&r);
-    if(found!=resources_.end())return r.is_null?GpuBufferBinding{}:found->second;
+    if(found!=resources_.end()){
+        if(r.is_null)return {};
+        auto value=found->second;value.stride=r.stride;value.offset=r.offset;value.format=r.format;
+        value.visible_size=r.buf_size;value.source_stride=r.source_stride;return value;
+    }
     require(resources_.size()<65536,"GPU resource declaration budget exceeded");
-    if(r.filename.empty() && !r.initial_data && r.override_type==CustomResourceType::INVALID && r.override_format==DXGI_FORMAT(-1) && r.override_stride==-1)
+    if(r.filename.empty() && r.override_type==CustomResourceType::INVALID)
         return {};
     require(r.override_type==CustomResourceType::BUFFER || r.override_type==CustomResourceType::STRUCTURED_BUFFER ||
             r.override_type==CustomResourceType::RAW_BUFFER || r.override_type==CustomResourceType::INVALID,"GPU image declaration requires image commands");
@@ -159,9 +164,9 @@ GpuBufferBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListSt
         else if(t.type==Target::CONSTANT_BUFFER){b.stride=0;b.format=DXGI_FORMAT_UNKNOWN;}
         else if(t.type==Target::INDEX_BUFFER){b.stride=dxgi_format_size(b.format);b.visible_size=0;}
         else if(t.type==Target::VERTEX_BUFFER){b.format=DXGI_FORMAT_UNKNOWN;b.visible_size=0;}}
-    if(b.buffer && t.evaluation_mode==Mode::RESOURCE_REGION) {
-        require(t.member_args[0].expression && t.member_args[1].expression,"GPU region requires offset and size");
-        b.offset=uint_value(t.member_args[0].GetValue(&state));b.visible_size=uint_value(t.member_args[1].GetValue(&state));
+    if(b.buffer && input.evaluation_mode==Mode::RESOURCE_REGION) {
+        require(input.member_args[0].expression && input.member_args[1].expression,"GPU region requires offset and size");
+        b.offset=uint_value(input.member_args[0].GetValue(&state));b.visible_size=uint_value(input.member_args[1].GetValue(&state));
         b.region=true;
         require(b.offset<b.buffer->size() && b.visible_size<=b.buffer->size(),"GPU resource region outside allocation");
     }
@@ -172,7 +177,12 @@ void GpuResourceRuntime::set(ResourceCopyTarget& input,CommandListState& state,c
     require(t.evaluation_mode==Mode::RESOURCE && !t.IsRange(),"GPU assignment needs a single resource target");
     if(t.type==Target::CUSTOM_RESOURCE){auto* r=declaration(t,state,true);require(r!=nullptr,"GPU resource destination missing");
         require(resources_.size()<65536 || resources_.count(r),"GPU resource declaration budget exceeded");
-        resources_[r]=b;r->is_null=!b.buffer;r->stride=b.stride;r->source_stride=b.source_stride;r->offset=b.offset;r->buf_size=b.visible_size;r->format=b.format;
+        auto& cached=resources_[r];
+        // Original SetResource(null) retains the old resource/view as a cache.
+        // source_stride is changed by copy instructions, not SetResource itself.
+        if(b.buffer)cached=b;
+        cached.stride=b.stride;cached.offset=b.offset;cached.visible_size=b.visible_size;cached.format=b.format;cached.source_stride=r->source_stride;
+        r->is_null=!b.buffer;r->stride=b.stride;r->offset=b.offset;r->buf_size=b.visible_size;r->format=b.format;
     }else {
         auto key=slot(t,state);
         require(!b.buffer || (b.description.BindFlags&bind_flag(t.type)),"Referenced GPU resource lacks destination bind flags");
@@ -203,7 +213,8 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
     }
     if(custom)custom->OverrideOutOfBandInfo(&source.format,&source.stride);
     source.source_stride=op.src.type==Target::CUSTOM_RESOURCE && source.source_stride?source.source_stride:source.stride;
-    fill_info(source);
+    if(custom)custom->source_stride=source.source_stride;
+    fill_info(source,op.src.type);
     require(!custom || resources_.size()<65536 || resources_.count(custom),"GPU resource declaration budget exceeded");
     auto& cache=custom?resources_[custom]:copies_[&op];
     const bool no_view_cache=bool(op.options&ResourceCopyOptions::NO_VIEW_CACHE) || op.src.forbid_view_cache;
@@ -218,7 +229,7 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
         if(custom && source.view==GpuBufferBinding::View::None)reuse_view(source);
         if(!custom && source.view!=view_kind(dst.type)){
             source.view=GpuBufferBinding::View::None;reuse_view(source);
-            select_view(source,view_kind(dst.type),raw_view);cache=source;
+            select_view(source,view_kind(dst.type),raw_view,false);cache=source;
         }
         source.visible_size=explicit_region?region_size:0;source.region=explicit_region;
         // The original clears a constant-slot offset unless ->Region was used.
@@ -409,17 +420,54 @@ bool GpuResourceRuntime::run(CommandListCommand& command,CommandListState& state
     }catch(const std::exception& e){if(active_)failed_=true;reason=widen(e.what())+L": "+command.ini_line;return false;}
 }
 bool GpuResourceRuntime::query(ResourceCopyTarget& input,CommandListState& state,float& result,std::wstring& reason) {
-    try{active();auto& t=effective(input,state);
-        require(t.evaluation_mode==Mode::RESOURCE_STRIDE || t.evaluation_mode==Mode::RESOURCE_SIZE,
-                "GPU resource property requires source-semantic adaptation");
-        if(t.evaluation_mode==Mode::RESOURCE_STRIDE && t.type==Target::CUSTOM_RESOURCE){result=t.GetResourceStride(&state);return true;}
-        if(t.evaluation_mode==Mode::RESOURCE_STRIDE && t.type==Target::CONSTANT_BUFFER){result=16;return true;}
-        auto b=get(t,state);
+    try{require(!failed_,"GPU resource generation failed");const auto mode=input.evaluation_mode;
+        require(mode==Mode::RESOURCE_STRIDE || mode==Mode::RESOURCE_SIZE || mode==Mode::RESOURCE_SOURCE_STRIDE ||
+                mode==Mode::RESOURCE_FORMAT || mode==Mode::RESOURCE_WIDTH || mode==Mode::RESOURCE_HEIGHT ||
+                mode==Mode::RESOURCE_ARRAY || mode==Mode::RESOURCE_MIPS || mode==Mode::RESOURCE_BIND_FLAGS ||
+                mode==Mode::RESOURCE_OFFSET || mode==Mode::RESOURCE_IDENTITY,"GPU resource property requires source-semantic adaptation");
+        auto* custom=input.type==Target::CUSTOM_RESOURCE?declaration(input,state):nullptr;
+        // These original getters return declaration metadata before attempting
+        // resource creation. They also work in Constants without a GPU scope.
+        if(mode==Mode::RESOURCE_SOURCE_STRIDE){result=custom?float(custom->source_stride):-1.0f;return true;}
+        if(mode==Mode::RESOURCE_STRIDE && input.type==Target::CUSTOM_RESOURCE){result=input.GetResourceStride(&state);return true;}
+        if(mode==Mode::RESOURCE_STRIDE && input.type==Target::CONSTANT_BUFFER){result=16;return true;}
+        if(custom){
+            if(mode==Mode::RESOURCE_BIND_FLAGS){result=float(custom->bind_flags);return true;}
+            if(mode==Mode::RESOURCE_SIZE && custom->buf_size){result=float(custom->buf_size);return true;}
+            if(mode==Mode::RESOURCE_FORMAT){
+                if(custom->override_format!=DXGI_FORMAT(-1) && custom->override_format!=DXGI_FORMAT_UNKNOWN){result=float(custom->override_format);return true;}
+                if(custom->format!=DXGI_FORMAT_UNKNOWN){result=float(custom->format);return true;}
+            }
+            const int declared=mode==Mode::RESOURCE_WIDTH?custom->override_width:mode==Mode::RESOURCE_HEIGHT?custom->override_height:
+                mode==Mode::RESOURCE_ARRAY?custom->override_array:mode==Mode::RESOURCE_MIPS?custom->override_mips:-1;
+            if(declared!=-1){result=float(declared);return true;}
+        }
+        active();auto b=get(input,state);
         // Sentinels from the pinned CommandList.cpp ResourcePropertyResult.
-        if(!b.buffer){result=-2.0f;return true;}
-        switch(t.evaluation_mode){
+        if(!b.buffer){result=mode==Mode::RESOURCE_IDENTITY || mode==Mode::RESOURCE_BIND_FLAGS?0.0f:-2.0f;return true;}
+        switch(mode){
         case Mode::RESOURCE_SIZE:result=float(b.visible_size?b.visible_size:b.description.ByteWidth);break;
-        case Mode::RESOURCE_STRIDE:result=b.stride?float(b.stride):b.description.StructureByteStride?float(b.description.StructureByteStride):-1.0f;break;
+        case Mode::RESOURCE_STRIDE:
+            // This getter does not request a format, so IAGetIndexBuffer does
+            // not derive stride from it. The resource description is used.
+            if(effective(input,state).type==Target::INDEX_BUFFER)b.stride=0;
+            result=b.stride?float(b.stride):b.description.StructureByteStride?float(b.description.StructureByteStride):-1.0f;break;
+        case Mode::RESOURCE_IDENTITY:result=EncodeFloat30(uint32_t(HashPointer(b.buffer.get())));break;
+        case Mode::RESOURCE_BIND_FLAGS:result=float(b.description.BindFlags);break;
+        case Mode::RESOURCE_FORMAT:{
+            auto format=b.format;
+            if(format==DXGI_FORMAT_UNKNOWN && (input.type==Target::SHADER_RESOURCE || input.type==Target::UNORDERED_ACCESS_VIEW))format=b.view_format;
+            result=format==DXGI_FORMAT_UNKNOWN?-1.0f:float(format);break;
+        }
+        case Mode::RESOURCE_OFFSET:
+            result=-1.0f;
+            if(input.type==Target::CONSTANT_BUFFER)result=float(b.offset);
+            else if(input.type==Target::VERTEX_BUFFER || input.type==Target::INDEX_BUFFER){
+                require(state.call_info!=nullptr,"GPU buffer offset query requires a draw context");
+                result=float(input.type==Target::VERTEX_BUFFER?GetVertexBufferRegionOffset(b.stride,state.call_info,b.offset):
+                             GetIndexBufferRegionOffset(b.format,state.call_info,b.offset));
+            }break;
+        case Mode::RESOURCE_WIDTH:case Mode::RESOURCE_HEIGHT:case Mode::RESOURCE_ARRAY:case Mode::RESOURCE_MIPS:result=-4.0f;break;
         default:throw std::runtime_error("GPU resource property requires source-semantic adaptation");
         }
         return true;

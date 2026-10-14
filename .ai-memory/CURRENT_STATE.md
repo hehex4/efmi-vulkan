@@ -1,6 +1,36 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, original GPU copy pools and buffer regions. Source/candidate 1.0.8 passes the full rebuilt regression, including 243 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, owned GPU resource properties and metadata. Source/candidate 1.0.9 passes the full rebuilt regression, including 303 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+
+## Original buffer properties and target metadata (verified candidate 1.0.9)
+
+The owned GPU extension now evaluates identity, stride/source_stride, size,
+format, flags, offset and extent metadata with original precedence/sentinels.
+Pure declaration overrides work during Constants without allocation or a GPU
+scope. VB/IB offsets use the original helpers with a real RuntimeDraw context;
+using those draw offsets from Present refuses. this-target property and region
+arguments survive target resolution. Region/spatial hashes remain explicit gaps.
+
+Source audit and a new GPU test reproduce incorrect inferred format after plain
+pool view fetch against 1.0.8; preserved in
+build/resource-commands/metadata-before-fix.{json,txt}. FillInMissingInfo now
+applies view facts only for the original stage target types. Null retains its
+cached owner/view, source_stride survives null and direct range fetch, and a
+format/stride-only declaration remains unassigned. These source behaviors have
+separate GPU/view/property fixtures; an invalid context poisons the scope.
+
+Targeted suite: 303 checks passing, zero core/sync validation messages. Full
+frozen-source rebuild/regression passes in build/next/run_all-1.0.9.out: parser
+726, evaluation 65, CPU runtime 68, character package/GPU 79/357, live INI GPU 28,
+validation 76 and all remaining steps. ABI remains 16b90a85431f86b4.
+Further offline work: remaining buffer options and ownership cases, images,
+GPU IniParams, CustomShader, shader matching and complete directory graphics.
+PNG integration stays paused; no deployment/game/original-installation action.
+Next buffer increment: whole-pool resource assignment and remaining copy flags
+under their original buffer semantics. Whole-pool copy must resolve its source
+once, retaining it through every destination assignment. Check upstream before
+adding range behavior to other commands; ClearViewCommand itself has no range
+loop. The next version after 1.0.9 is 1.1.0, per the user's digit-counter rule.
 
 ## Owned copy pools and original buffer regions (verified candidate 1.0.8)
 

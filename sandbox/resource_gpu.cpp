@@ -645,9 +645,155 @@ ps-t8 = ref ResourceIndexCopy
     }
     converted={};check(!budgets.resident->used() && !budgets.staging->used(),"Successful and rejected region generations release all allocations");
 }
+static void view_metadata_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    std::filesystem::create_directories(root/"Mods");
+    write(root/"Mods/views.ini",R"ini(namespace = view_metadata
+[Constants]
+global $cached_null = 0
+[ResourceRaw]
+type = ByteAddressBuffer
+data = R32_FLOAT 1 2 3 4
+bind_flags = shader_resource unordered_access
+[ResourceTyped]
+format = R32_FLOAT
+bind_flags = shader_resource unordered_access
+[ResourceSaved]
+bind_flags = shader_resource unordered_access
+[PoolViews]
+pool_size = 2
+[Present]
+ResourceTyped = ref ResourceRaw
+cs-u0 = ref ResourceTyped
+PoolViews[0:0] = ref cs-u[0:0]
+ps-t0 = ref PoolViews[0]
+ps-t1 = ref ResourceTyped
+ResourceSaved = ref ps-t1
+ResourceSaved = null
+ResourceSaved = ref ResourceTyped
+clear = ResourceSaved 0x40a00000
+store = $cached_null, ResourceRaw, 0
+)ini");
+    RuntimeConfig config{root,{},root/"settings","view_metadata",root/"Mods"};gpu::ResourceBudgets budgets;std::string why;
+    auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);auto ini=IniRuntime::load(config,backend,why);
+    if(!ini)throw std::runtime_error(why);backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    if(!ini->present({},1,0,why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();ticket.reset();
+    check(backend->binding(L'p',T::SHADER_RESOURCE,0).view_format==DXGI_FORMAT_R32_TYPELESS,
+          "Custom pool source does not infer typed metadata from a fetched view");
+    check(ini->status().variables.at("$\\view_metadata\\cached_null")==1,
+          "Original null keeps a compatible cached SRV for the next reference");
+    ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Null/view metadata fixture releases all owners");
+}
+static void properties_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    struct Case{const char* name;const char* expression;float value;};
+    const std::vector<Case> early={
+        {"early_format","ResourceUnassigned->format",41},{"early_stride","ResourceUnassigned->stride",16},
+        {"early_width","ResourceUnassigned->width",7},{"early_height","ResourceUnassigned->height",8},
+        {"early_array","ResourceUnassigned->array",9},{"early_mips","ResourceUnassigned->mips",3},
+        {"early_source","ResourceUnassigned->sourcestride",0},
+    };
+    const std::vector<Case> expected={
+        {"size","ResourceData->size",32},{"stride","ResourceData->stride",8},{"source","ResourceData->sourcestride",0},
+        {"format","ResourceData->format",-1},{"width","ResourceData->width",-4},{"height","ResourceData->height",-4},
+        {"array","ResourceData->array",-4},{"mips","ResourceData->mips",-4},{"flags","ResourceData->bindflags",136},
+        {"slot_stride","ps-t0->stride",8},{"slot_source","ps-t0->sourcestride",-1},{"slot_flags","ps-t0->bindflags",136},
+        {"slot_offset","ps-t0->offset",-1},{"slot_same","@ps-t0 == @ResourceData",1},
+        {"null_size","ResourceUnassigned->size",-2},{"null_id","@ResourceUnassigned",0},
+        {"null_slot_format","ps-t30->format",-2},{"null_slot_flags","ps-t30->bindflags",0},
+        {"null_slot_size","ps-t30->size",-2},{"null_slot_offset","ps-t30->offset",-2},
+        {"cb_size","vs-cb0->size",16},{"cb_stride","vs-cb0->stride",16},{"cb_offset","vs-cb0->offset",16},
+        {"ib_format","ib->format",57},{"ib_stride","ib->stride",4},{"ib_size","ib->size",16},
+        {"alias_null_source","ResourceAlias->sourcestride",16},{"alias_null_size","ResourceAlias->size",-2},
+        {"pool_source","PoolViews[0]->sourcestride",16},{"pool_format","PoolViews[0]->format",-1},
+    };
+    const std::vector<Case> drawn={{"vb_offset","vb0->offset",24},{"ib_offset","ib->offset",6},
+        {"this_format","this->format",57},{"this_same","@this == @ib",1},{"this_offset","this->offset",-1}};
+    std::string source="namespace = properties\n[Constants]\n";
+    for(const auto* group:{&early,&expected,&drawn})for(const auto& c:*group)source+="global $"+std::string(c.name)+" = 0\n";
+    for(const auto& c:early)source+="$"+std::string(c.name)+" = "+c.expression+"\n";
+    source+=R"ini([ResourceUnassigned]
+format = R32_FLOAT
+stride = 16
+width = 7
+height = 8
+array = 9
+mips = 3
+[ResourceData]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 1 2 3 4 5 6 7 8
+bind_flags = shader_resource unordered_access
+[ResourceAlias]
+stride = 16
+bind_flags = shader_resource
+[PoolViews]
+pool_size = 2
+[ResourceCB]
+type = Buffer
+data = R32_FLOAT 1 2 3 4 5 6 7 8
+bind_flags = constant_buffer
+[ResourceIB]
+type = Buffer
+format = R16_UINT
+stride = 4
+data = R16_UINT 1 2 3 4 5 6 7 8
+bind_flags = index_buffer
+[ResourceVertex]
+type = Buffer
+stride = 12
+data = R32_FLOAT 1 2 3 4 5 6 7 8 9 10 11 12
+bind_flags = vertex_buffer
+[ResourceThis]
+bind_flags = shader_resource
+[Present]
+ps-t0 = ref ResourceData
+cs-u0 = ref ResourceData
+ResourceAlias = ref ResourceData
+PoolViews[0] = ref ResourceAlias
+PoolViews[0:0] = ref ps-t[0:0]
+ResourceAlias = null
+vs-cb0 = ref ResourceCB->Region(16, 16)
+ib = ref ResourceIB->Region(2, 16)
+vb0 = ref ResourceVertex->Region(12, 48)
+)ini";
+    for(const auto& c:expected)source+="$"+std::string(c.name)+" = "+c.expression+"\n";
+    source+="[TextureOverrideTest]\nhash = 12345678\nmatch_index_count = 3\n";
+    for(const auto& c:drawn)source+="$"+std::string(c.name)+" = "+c.expression+"\n";
+    source+="ResourceThis = copy this->Region(4, 16)\nps-t9 = ref ResourceThis\n";
+    std::filesystem::create_directories(root/"Mods");write(root/"Mods/properties.ini",source.c_str());
+    RuntimeConfig config{root,{},root/"settings","properties",root/"Mods"};gpu::ResourceBudgets budgets;std::string why;
+    auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);auto ini=IniRuntime::load(config,backend,why);
+    if(!ini)throw std::runtime_error(why);check(!budgets.resident->used() && !budgets.staging->used(),"Declaration property queries do not allocate in Constants");
+    auto assert_cases=[&](const std::vector<Case>& cases){const auto vars=ini->status().variables;for(const auto& c:cases){
+        const auto actual=vars.at("$\\properties\\"+std::string(c.name));
+        if(actual!=c.value)throw std::runtime_error(std::string(c.name)+" expected "+std::to_string(c.value)+", actual "+std::to_string(actual));++checks;}};
+    assert_cases(early);backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    if(!ini->present({},1,0,why))throw std::runtime_error(why);assert_cases(expected);
+    RuntimeDraw draw;draw.hash=0x12345678;draw.count=3;draw.base=1;draw.first=2;draw.frame=1;
+    assets::FilePlan plan;if(!ini->draw(draw,plan,why))throw std::runtime_error(why);assert_cases(drawn);
+    auto ticket=backend->finish();if(ticket)ticket->wait();ticket.reset();
+    auto binding=backend->binding(L'p',T::SHADER_RESOURCE,9);auto bytes=backend->commands().readback(d.queue,binding.buffer,0,12);
+    const uint16_t indices[]={3,4,5,6,7,8};check(!memcmp(bytes.data(),indices,sizeof(indices)),"This-resource region arguments survive target resolution");
+    binding={};ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Property and draw-context fixture releases all owners");
+    const std::vector<std::pair<std::string,std::string>> bad={
+        {"vb0 = ref ResourceVertex\n$vb_offset = vb0->offset\n","requires a draw context"},
+        {"$vb_offset = ResourceData->hashregion(0, 4)\n","requires source-semantic adaptation"},
+    };
+    for(const auto& failure:bad){const auto rejected=source.substr(0,source.find("[Present]"))+"[Present]\n"+failure.first;
+        write(root/"Mods/properties.ini",rejected.c_str());backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
+        ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error("Property rejection must parse: "+why);
+        backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        check(!ini->present({},2,0,why),"Unavailable property context refuses execution");
+        if(why.find(failure.second)==std::string::npos)throw std::runtime_error("Unexpected property refusal: "+why);++checks;
+        refuses([&]{backend->finish();},"Failed property query poisons its GPU scope");backend->discard();ini.reset();backend.reset();
+        check(!budgets.resident->used() && !budgets.staging->used(),"Rejected property query releases its generation");
+    }
+}
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);const auto root=std::filesystem::absolute(argv[1]);
-        ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");}
+        ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
+        view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

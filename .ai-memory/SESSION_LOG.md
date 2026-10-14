@@ -1090,3 +1090,29 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   metadata, null/cache and source_stride behavior, before images and shaders.
   Dist remains 1.0.2. No game action, deployment, module swap or writes to the
   original installation. PNG integration stays paused; the goal remains active.
+
+## 2026-10-14: Buffer properties and source view/null metadata (1.0.9)
+
+- Continued after 73efd18. A new GPU fixture reproduces BUG-016 against 1.0.8:
+  plain pool fetch preserves unknown custom format, but the adapter inferred the
+  stored view's typed format. Preserved metadata-before-fix.{json,txt} under
+  build/resource-commands. Use target-specific view facts as the source does.
+- Added owned resource identity, stride/source_stride, size, format, flags,
+  offset and extent metadata queries. Original declaration overrides/sentinels
+  remain distinct; pure Constants queries do not allocate. Draw offsets reuse
+  original VB/IB helpers with RuntimeDraw context. this preserves its property
+  and region arguments. Source hash/spatial properties remain unadapted.
+- Null now retains cached resource/view owners, source_stride survives null and
+  direct range fetch, and format/stride-only aliases remain unassigned. The GPU
+  fixtures check these independently plus actual this-region bytes, declaration
+  queries, context refusals, poisoned submissions and complete owner cleanup.
+- Full frozen-source rebuild/regression passes in build/next/run_all-1.0.9.out:
+  GPU resources 303 with zero core/sync validation messages, source parser 726,
+  evaluation 65, CPU runtime 68, character package/GPU 79/357, live INI GPU 28,
+  validation 76 and all remaining steps. Reviewed diff, exact report source
+  hashes and English text before local commit; ABI stays 16b90a85431f86b4.
+- Next offline increment is whole-pool assignment/remaining buffer copy options,
+  then images and the shader/directory stages. Source clear does not implement a
+  range loop, so do not invent one from keyword similarity. Next version 1.1.0.
+  Dist stays 1.0.2, PNG integration paused, no game action or deployment. The
+  requested complete directory/GPU-language goal remains active and incomplete.

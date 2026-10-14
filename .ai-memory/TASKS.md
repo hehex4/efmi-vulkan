@@ -6,6 +6,17 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.0.9 adds owned buffer property queries and original target-specific metadata,
+null view caching and source_stride retention. Targeted GPU suite: 303 passing
+checks, clean validation. Full rebuild/regression passes in
+build/next/run_all-1.0.9.out. Further resource/image/shader/directory work remains
+offline; the active goal is not complete and no game input is needed now.
+Next: whole-pool resource assignments and remaining buffer copy flags, then
+image operations and GPU parameters/shaders. Preserve one resolved source for a
+whole-pool operation. Next version is 1.1.0; deployment stays 1.0.2.
+
+Earlier verified checkpoint:
+
 1.0.8 fixes copy-pool alias ownership (BUG-015) and adds original buffer region
 copies, CB windows/rounding, vertex-to-structured conversion, raw views and
 no_view_cache. Targeted GPU checks: 243 passing, no validation messages. Complete
