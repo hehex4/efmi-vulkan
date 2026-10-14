@@ -6,6 +6,23 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.6 supplies original HLSL preprocessing/model-5 validation, DXC compilation
+and source-reflected Vulkan descriptor mapping. All six stages and source
+edge cases pass 116 compiler checks; 33 modules validate. Actual Vulkan compute
+output matches native DX11 WARP and input bytes. Full rebuilt regression passes
+in build/next/run_all-1.1.6.out, resources 3544 with clean validation, every other
+step passing. This is the compiler foundation, not general CustomShader
+execution. Source flag/device differences are explicit in LIMIT-030 and
+docs/hlsl-compiler.md. Dist remains 1.0.2; no game or deployment action.
+
+Next: owned shader descriptor/pipeline execution and original CustomShader
+calls, then graphics state, shader matching and complete directory integration.
+Continue without stopping at this checkpoint. No game input needed. Normalize
+native diagnostic trailing NULs in the next compiler review. Next version1.1.7.
+PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
 1.1.5 implements owned GPU IniParams publication: zero initialization, original
 dirty comparisons, draw/dispatch/root boundaries and forced key transitions.
 Constants post and root-phase abort isolation are corrected (BUG-020). Tests

@@ -6,6 +6,7 @@ struct ParameterConsumer {
     VkPipelineLayout layout=VK_NULL_HANDLE;
     VkPipeline pipeline=VK_NULL_HANDLE;
     VkShaderModule shader=VK_NULL_HANDLE;
+    uint32_t image_binding=0,buffer_binding=1;
 #define PARAMETER_FUNCS(X) \
     X(CreateShaderModule) X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) \
     X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateComputePipelines) X(DestroyPipeline) \
@@ -23,15 +24,18 @@ struct ParameterConsumer {
         if(pipeline)DestroyPipeline(dev,pipeline,nullptr);if(layout)DestroyPipelineLayout(dev,layout,nullptr);
         if(set_layout)DestroyDescriptorSetLayout(dev,set_layout,nullptr);if(shader)DestroyShaderModule(dev,shader,nullptr);}
     void init(const std::filesystem::path& path){
-        const auto dev=device.resource.device;
         std::ifstream file(path,std::ios::binary|std::ios::ate);check(bool(file) && file.tellg()>0 && size_t(file.tellg())%4==0,"Compiled parameter consumer SPIR-V");
         std::vector<uint32_t> code(size_t(file.tellg())/4);file.seekg(0);file.read(reinterpret_cast<char*>(code.data()),code.size()*4);
         check(bool(file),"Read complete parameter consumer code");
+        init(code);
+    }
+    void init(const std::vector<uint32_t>& code,uint32_t sampled_binding=0,uint32_t storage_binding=1){
+        const auto dev=device.resource.device;image_binding=sampled_binding;buffer_binding=storage_binding;
         VkShaderModuleCreateInfo module={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};module.codeSize=code.size()*4;module.pCode=code.data();
         vkcheck(CreateShaderModule(dev,&module,nullptr,&shader),"Create parameter consumer shader");
         const VkDescriptorSetLayoutBinding bindings[]={
-            {0,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_COMPUTE_BIT,nullptr},
-            {1,VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1,VK_SHADER_STAGE_COMPUTE_BIT,nullptr}};
+            {image_binding,VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_COMPUTE_BIT,nullptr},
+            {buffer_binding,VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1,VK_SHADER_STAGE_COMPUTE_BIT,nullptr}};
         VkDescriptorSetLayoutCreateInfo set={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};set.bindingCount=2;set.pBindings=bindings;
         vkcheck(CreateDescriptorSetLayout(dev,&set,nullptr,&set_layout),"Create parameter consumer descriptor layout");
         VkPipelineLayoutCreateInfo pi={VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};pi.setLayoutCount=1;pi.pSetLayouts=&set_layout;
@@ -58,8 +62,8 @@ struct ParameterConsumer {
         VkDescriptorSet descriptor;vkcheck(AllocateDescriptorSets(dev,&set,&descriptor),"Allocate parameter consumer descriptor set");
         VkDescriptorImageInfo image{VK_NULL_HANDLE,view->view(),VK_IMAGE_LAYOUT_GENERAL};VkDescriptorBufferInfo buffer{output->buffer(),0,output->size()};
         VkWriteDescriptorSet writes[2]{};for(auto& write:writes){write.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;write.dstSet=descriptor;write.descriptorCount=1;}
-        writes[0].dstBinding=0;writes[0].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[0].pImageInfo=&image;
-        writes[1].dstBinding=1;writes[1].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;writes[1].pBufferInfo=&buffer;
+        writes[0].dstBinding=image_binding;writes[0].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[0].pImageInfo=&image;
+        writes[1].dstBinding=buffer_binding;writes[1].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;writes[1].pBufferInfo=&buffer;
         UpdateDescriptorSets(dev,2,writes,0,nullptr);
         VkCommandPoolCreateInfo command_pool={VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};command_pool.queueFamilyIndex=device.resource.queue_family;
         vkcheck(dispatch.CreateCommandPool(dev,&command_pool,nullptr,&work.pool),"Create parameter consumer commands");

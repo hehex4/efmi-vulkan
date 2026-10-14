@@ -1314,3 +1314,23 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   e55086b044225f9b511ae44dbf9b079d3625943f, for upcoming reflection work; not yet
   linked. Remaining resource formats, shader matching and directory graphics
   stay open. PNG paused, LOD0/LOD1 only. Next version: 1.1.6.
+
+## 2026-10-14: Original HLSL compiler foundation, 1.1.6
+
+- Added a read-only bounded source/include compiler preserving original macros,
+  main/model-5 validation and include policies. Native DXBC reflection selects
+  source slots; DXC and pinned SPIRV-Reflect supply remapped SPIR-V and metadata.
+  Counter descriptors and stage/register-class ranges remain independent.
+- Fixed standalone D3DPreprocess's empty-include rejection with a whitespace-only
+  preprocessing representation. Native D3DCompile comparison proves the source
+  accepts the empty file; recorded dependency bytes are unchanged.
+- Targeted and full-suite compiler checks: 116, 33 independently valid modules.
+  Actual Vulkan compute output matches native DX11 WARP and 65 float4 inputs.
+  All rebuilt regression steps pass: build/next/run_all-1.1.6.out; resource checks
+  3544, zero core/sync messages through shutdown, character package/GPU 79/357,
+  live INI GPU 28, parser726/evaluator65/runtime68, validation76/modes40/MCP47/
+  evidence113. ABI unchanged. Compiler evidence includes dependency hashes.
+- Source/candidate1.1.6, dist1.0.2. No deployment, game, launcher or system action.
+  General INI CustomShader execution is next, not claimed by these tests.
+  Remaining flag/device limitations are LIMIT-030; architecture choice D-046.
+  Continue offline immediately per user, next1.1.7; PNG paused, LOD0/LOD1 only.

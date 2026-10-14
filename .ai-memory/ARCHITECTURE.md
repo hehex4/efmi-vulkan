@@ -1,5 +1,14 @@
 # EFMI Vulkan - Architecture
 
+HlslCompiler (1.1.6) supplies original preprocessing/model-5 validation followed
+by DXC SPIR-V compilation. FXC reflection owns the source register mapping;
+SPIRV-Reflect supplies Vulkan descriptor/IO metadata and counters. Stages and
+register classes occupy separate bindings. Dependencies remain read-only and
+bounded; compilation never changes process CWD or writes caches beside Mods.
+Native GPU reference tests cover a parameter consumer. General CustomShader
+execution, pipeline state and application integration are still separate work.
+Details: docs/hlsl-compiler.md.
+
 Current development: the pinned original parser/evaluator owns enabled-directory
 generations, dependency graphs, CPU variables/keys/presets/pools and command
 objects. The optional GpuResourceRuntime extension connects those original

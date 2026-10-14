@@ -18,6 +18,7 @@ def runtime_flags(out: Path) -> list[str]:
     port = DEPS / "wwmi-dx12/reshade_addon/migoto"
     pristine = DEPS / "efmi-xxmi-host-prototype/pristine"
     includes = [ROOT / "frontend/xxmi", Path(find_vulkan_include()), port, pristine, upstream,
+                DEPS / "dxc-1.9.2609/inc", DEPS / "SPIRV-Reflect-1.4.321.0",
                 upstream / "HLSLDecompiler", upstream / "D3D_Shaders", upstream / "DirectXTK/Inc",
                 upstream / "DirectXTK/Src", upstream / "crc32c-hw-1.0.5/include", upstream / "pcre2"]
     flags = ["/nologo", "/std:c++17", "/permissive", "/W0", "/O2", "/MT", "/EHa", "/Gy", "/Gw",
@@ -32,6 +33,8 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     upstream, reference = DEPS / "XXMI-Libs-Package", DEPS / "wwmi-dx12"
     pinned_checkout(upstream, PINS["xxmi"])
     pinned_checkout(reference, PINS["reference"])
+    reflection = DEPS / "SPIRV-Reflect-1.4.321.0"
+    pinned_checkout(reflection, "e55086b044225f9b511ae44dbf9b079d3625943f")
     port = reference / "reshade_addon/migoto"
     pristine = DEPS / "efmi-xxmi-host-prototype/pristine"
     for line in (port / "PRISTINE.txt").read_text().splitlines():
@@ -47,7 +50,8 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
                ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "gpu_resources", "gpu_images", "gpu_parameters", "image_formats")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/core/palette_bank.cpp"]
-    sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in ("resource_commands", "resource_images")]
+    sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in
+                ("resource_commands", "resource_images", "hlsl_compiler", "shader_reflection")]
     sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in ("DDSTextureLoader", "WICTextureLoader")]
     sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
     flags = runtime_flags(out)
@@ -62,6 +66,8 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     common_files = list(pristine.glob("*")) + list(port.glob("*.h"))
     common_files += list((ROOT / "frontend").rglob("*.h")) + [ROOT / "frontend/xxmi/ini_module.cpp"]
     common_files += list((ROOT / "layer/src").glob("*.h"))
+    common_files += [DEPS / "dxc-1.9.2609/inc/dxcapi.h", reflection / "spirv_reflect.h",
+                     reflection / "spirv_reflect.c", reflection / "include/spirv/unified1/spirv.h"]
     common_hash = hashlib.sha256("".join(digest(p) for p in sorted(common_files) if p.is_file()).encode()).hexdigest()
     def compile_sources(units, extra):
         pending, next_stamps = [], {}

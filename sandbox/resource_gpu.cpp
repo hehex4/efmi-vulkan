@@ -1,5 +1,6 @@
 // Original production INI -> owned Vulkan commands -> GPU readback. Headless.
 #include "../frontend/xxmi/gpu_resources.h"
+#include "../frontend/gpu/hlsl_compiler.h"
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -1315,6 +1316,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_image_conversion_cases.h"
 #include "resource_parameter_consumer.h"
 #include "resource_parameter_cases.h"
+#include "resource_shader_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1330,7 +1332,8 @@ int wmain(int argc,wchar_t** argv){
         image_depth_conversion(device,root/"image-depth-conversion");
         parameter_boundaries(device,root/"parameter-boundaries");parameter_draws_and_dirty(device,root/"parameter-draws");
         parameter_keys(device,root/"parameter-keys");parameter_registers_and_failures(device,root/"parameter-failures");
-        parameter_lifetime(device,root/"parameter-lifetime");parameter_draw_failure(device,root/"parameter-draw-failure");}
+        parameter_lifetime(device,root/"parameter-lifetime");parameter_draw_failure(device,root/"parameter-draw-failure");
+        shader_compiler_gpu(device,root/"shader-compiler");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

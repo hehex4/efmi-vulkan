@@ -461,3 +461,15 @@ state, aborted-pre values and post execution. The CPU fixture also exercises
 pre-only nested abort with post execution. Full regression passes in
 build/next/run_all-1.1.5.out. This was an offline source-audit finding, not a newly
 observed game defect.
+
+## LIMIT-030: HLSL compilation is not complete CustomShader execution
+
+Candidate 1.1.6 compiles all six original stage kinds and retains native source
+registers, but the general INI shader executor is not connected yet. DXC refuses
+the original enable_backwards_compatibility flag in SPIR-V mode. Native model-5
+compilation itself rejects the old software/preshader flags. ieee_strictness
+passes for the tested Vulkan 1.2 target, not the 1.1 target; the eventual executor
+must check actual logical-device support and float-control properties. Shader
+storage formats, device limits, null resources, graphics conventions/state and
+application placement require execution adapters. See docs/hlsl-compiler.md.
+This is an offline compatibility boundary, not a new game regression.

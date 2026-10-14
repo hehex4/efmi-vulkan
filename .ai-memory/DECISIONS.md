@@ -409,3 +409,20 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   logical stage slots alone do not change application descriptors. A draw host
   callback is optional and absent execution refuses. Keep owned scopes explicit
   through generation preparation and poison them on load/draw failure.
+
+## D-046: Original reflection owns HLSL register identity
+
+- Date: 2026-10-14, compiler foundation 1.1.6.
+- Preserve original preprocessing, stage macros, model-5 source validation and
+  include rules before DXC compilation. Derive slot numbers from original FXC
+  reflection rather than assuming DXC automatic assignment agrees. Reserve
+  independent Vulkan binding ranges for stages/classes/counters.
+- Keep exact read-only source dependency snapshots and an unchanged old program
+  after failed compilation. No caches in installed Mod directories or global
+  compiler environment/CWD changes. SPIRV-Reflect is a pinned external source
+  dependency under F:/vulkan; retain metadata and strip reflection-only Google
+  executable annotations after reading it.
+- Independent SPIR-V validation and native DX11/Vulkan output comparisons are
+  separate evidence from INI shader execution. Unsupported legacy flags and
+  target/device requirements remain explicit. Do not label syntax coverage or
+  successful compilation as complete shader/Mod compatibility.

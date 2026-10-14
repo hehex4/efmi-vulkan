@@ -5,7 +5,14 @@ seen in a few installed character Mods. The original C++ engine remains the
 parser and evaluator. A successful parse does not establish that an executed
 graphics command has a working Vulkan implementation.
 
-Latest owned-execution checkpoint: 1.1.5 publishes original GPU IniParams at
+Latest compiler checkpoint: 1.1.6 preserves original HLSL source/includes and
+maps native reflected slots into SPIR-V for all six stages. Compiler checks 116,
+independently valid modules 33; actual Vulkan compute output agrees with native
+DX11 WARP. Full regression passes in build/next/run_all-1.1.6.out, including
+3544 resource checks with clean validation. This does not execute general INI
+CustomShader yet. See docs/hlsl-compiler.md for remaining flags/device gaps.
+
+Owned-execution checkpoint 1.1.5 publishes original GPU IniParams at
 zero/Constants, root, draw/dispatch and key-transition boundaries. It corrects
 Constants post and root abort behavior. The 3509-check resource fixture includes
 native HLSL Texture1D consumption; the complete rebuilt regression passes in

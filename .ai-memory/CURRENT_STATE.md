@@ -1,6 +1,37 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, original GPU parameter publication. Source/candidate 1.1.5 passes the full rebuilt regression, including 3509 resource checks with clean core/sync validation. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, original HLSL compiler foundation. Source/candidate 1.1.6 passes the full rebuilt regression: compiler 116, 33 valid modules, resources 3544 with clean core/sync validation. Dist remains 1.0.2. CustomShader execution is next; no deployment or game action. LOD0/LOD1 only.
+
+## Original HLSL compiler (verified candidate 1.1.6)
+
+HlslCompiler preserves original main/stage macros, model-5 validation and
+include policies, then compiles expanded source to SPIR-V with DXC. Original
+DXBC reflection supplies source slots; Vulkan binding ranges separate stages,
+resource classes and UAV counters. SPIRV-Reflect is now linked from its pinned
+external checkout. Exact dependencies, capabilities, descriptor/IO metadata and
+original DXBC are retained. Source files and installed Mods remain read-only.
+
+All six stages, flag cases, arrays, automatic slots, raw/typed resources,
+include modes/fallback/cycles and failed-candidate preservation pass 116 checks;
+33 generated modules pass spirv-val. The headless resource fixture compares
+actual Vulkan and native D3D11 WARP output for an unchanged-style parameter
+consumer: all bytes match the 65-float4 input. Native D3DCompile accepts empty
+includes while standalone D3DPreprocess fails; a whitespace-only preprocessing
+workaround preserves original empty dependency bytes and is tested.
+
+The full rebuilt suite passes in build/next/run_all-1.1.6.out: resources 3544,
+compiler 116, parser 726, evaluator 65, CPU runtime 68, character package/GPU
+79/357, live INI GPU 28, validation 76, modes 40, MCP 47, evidence 113 and every
+other step. Resource core/sync validation remains clean through shutdown.
+This proves the compiler and the tested native GPU consumer, not general INI
+CustomShader execution or game rendering. ABI remains 16b90a85431f86b4.
+
+Continue immediately with owned shader descriptors/pipelines and original
+CustomShader execution, then graphics, shader matching and directory integration.
+No game input is needed. Details and remaining flag/device differences are in
+docs/hlsl-compiler.md and LIMIT-030. The next review should also normalize
+trailing NULs in native diagnostics so a warning cannot hide a later DXC error.
+Next version 1.1.7; dist remains 1.0.2. PNG paused, LOD0/LOD1 only.
 
 Material matching clarification (2026-10-14): deployed 1.0.2 executes the original main INI to choose logical pixel bindings. Exact fragment bytes select the verified source-slot/Vulkan-binding profile. Unprofiled fragments derive a profile from the same override section and pass kind, matching shared image ids first and otherwise unique view-type/format/extent signatures. Every sibling image must be represented, at most two target images may be extra, and equal-best candidates with different rules refuse derivation. Unknown correspondence keeps game images on the mod mesh and retries later; it does not by itself revert geometry. image_hash remains 0; original source-image hash override execution is not enabled in this character registry. This explanation inspected commits/code only, with no new game observation. Candidate image-command work does not replace the deployed character material policy.
 
