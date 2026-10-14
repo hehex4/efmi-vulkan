@@ -70,6 +70,10 @@ void state_valid(const GraphicsDescription& s,const ShaderDevice& d){
         const auto& info=format(a.format);require(info.aspects==VK_IMAGE_ASPECT_COLOR_BIT && !info.compression,"Invalid vertex attribute format");
         VkFormatProperties properties{};d.resource.GetFormatProperties(d.resource.physical,a.format,&properties);
         require(properties.bufferFeatures&VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT,"Vertex format unsupported");}
+    require(s.input_conversions.size()<=s.attributes.size(),"Vertex conversion count exceeds attributes");locations.clear();
+    for(const auto& conversion:s.input_conversions){const auto attribute=std::find_if(s.attributes.begin(),s.attributes.end(),[&](const auto& a){return a.location==conversion.location;});
+        require(attribute!=s.attributes.end() && locations.insert(conversion.location).second && format(attribute->format).scalar_type==conversion.scalar,
+            "Vertex conversion has no matching fetched scalar class");}
 }
 bool overlap(const ImageView& a,const ImageView& b){
     if(a->owner()!=b->owner())return false;const auto& x=a->range();const auto& y=b->range();
@@ -83,6 +87,7 @@ const std::vector<HlslProgram>& GraphicsPipeline::programs() const {return impl_
 Graphics ShaderCommands::compile_graphics(const std::vector<HlslProgram>& programs,const GraphicsDescription& state){
     const auto d=impl_->device;require(d->resource.queue_flags&VK_QUEUE_GRAPHICS_BIT,"Graphics requires an owned graphics queue");
     state_valid(state,*d);auto linked=link_graphics(programs,d->host.maintenance4);
+    if(!state.input_conversions.empty()){d->validate(linked.front());linked.front()=lower_vertex_inputs(linked.front(),state.input_conversions);}
     bool geometry=false;for(const auto& program:linked){
         require(program.stage==VK_SHADER_STAGE_VERTEX_BIT || program.stage==VK_SHADER_STAGE_GEOMETRY_BIT || program.stage==VK_SHADER_STAGE_FRAGMENT_BIT,
             "Tessellation execution needs another graphics adapter");

@@ -64,9 +64,11 @@ std::vector<SourceVertexElement> copy_vertex_elements(const std::vector<D3D11_IN
 }
 VkFormat vertex_format(DXGI_FORMAT source){
     source_bytes(source);
-    // Packed BGR and BGRX require a dedicated fetch/conversion reference first.
-    require(source!=DXGI_FORMAT_B5G6R5_UNORM && source!=DXGI_FORMAT_B5G5R5A1_UNORM && source!=DXGI_FORMAT_B4G4R4A4_UNORM && source!=DXGI_FORMAT_B8G8R8X8_UNORM,
-        "Packed BGR/BGRX vertex fetch requires another format adapter");
+    // Packed16 BGR is not a vertex format on the measured devices. BGRX uses
+    // BGRA fetch followed by an explicit alpha1 input override before bitcast.
+    require(source!=DXGI_FORMAT_B5G6R5_UNORM && source!=DXGI_FORMAT_B5G5R5A1_UNORM && source!=DXGI_FORMAT_B4G4R4A4_UNORM,
+        "Packed16 BGR vertex fetch requires another format adapter");
+    if(source==DXGI_FORMAT_B8G8R8X8_UNORM)return VK_FORMAT_B8G8R8A8_UNORM;
     return source_image_format(source).format;
 }
 }

@@ -582,3 +582,23 @@ steps0/2/3/max for direct/indexed/indirect draws with native pixels. Unknown
 indirect bases require actual nonzero-base property support; unavailable features
 still refuse. Type reinterpretation/BGRX, packed16 BGR and null/OOB fetch remain
 next, independently from application feature enablement and directory execution.
+
+
+LIMIT-032 follow-up1.2.8: owned float/int/uint reinterpretation, fetched defaults
+and BGRX alpha1 now execute with exact native pixels. Scalar/vector widths1..4
+and ordinary/component/aliased loads are covered. Arrays/packed signatures,
+null/OOB fetch and pointer-function/copy/selection forms remain explicit.
+Packed16 BGR is optional native IA support: the local NVIDIA hardware rejects
+it, while WARP accepts but produces defaults rather than decoded data. Do not
+promote its creation-only evidence to pixel compatibility. See input layout audit.
+
+## BUG-024: Direct multi-match entry interleaves pre and post phases
+
+Status: reproduced; correction next in1.2.9. IniRuntime::draw executes each
+matched TextureOverride pre/post pair separately. Original texture checking runs
+all matches of the current phase before the later root post invocation. A trace
+fixture yields1324 instead of1234. Per-match resets also split shared planner
+bindings, pending layout edits and execution budgets. Root post must receive
+fresh transient state while keeping already-applied device bindings/layout.
+Evidence:docs/matched-command-order.md; build/source-state-probe/matched-order
+.cpp/.txt. No game evidence is required to reproduce or correct this ordering.

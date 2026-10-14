@@ -1369,6 +1369,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_text_cases.h"
 #include "resource_layout_cases.h"
 #include "resource_divisor_cases.h"
+#include "resource_vertex_input_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1401,7 +1402,8 @@ int wmain(int argc,wchar_t** argv){
         original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");
         original_ini_geometry(device,root/"ini-geometry");original_core_text(root/"core-text");
         source_layout_creation(root/"source-layouts");original_layout_pixels(device,root/"ini-layout-pixels");original_layout_edits(device,root/"ini-layout-edits");
-        original_layout_append(device,root/"ini-layout-append");original_layout_divisors(device,root/"ini-layout-divisors");}
+        original_layout_append(device,root/"ini-layout-append");original_layout_divisors(device,root/"ini-layout-divisors");
+        original_vertex_input_types(device,root/"ini-input-types");vertex_input_lowering_guards(device,root/"input-lowering");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

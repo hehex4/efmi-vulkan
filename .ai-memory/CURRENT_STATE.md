@@ -1,9 +1,41 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, divisor1.2.7 verified. Continue vertex type reinterpretation and matching/integration offline; dist1.0.2 unchanged.
+> Last updated: 2026-10-14, input-bit1.2.8 verified. Continue matched-phase BUG-024 and shader/directory integration offline; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
+
+
+## Native vertex input bits (verified candidate1.2.8)
+
+Owned source layouts now preserve float/int/uint input register reinterpretation
+by retyping executable inputs to the actual fetched scalar class and bitcasting
+loads back to the original shader type. Missing components use fetched-format
+defaults. BGRX uses BGRA hardware fetch with alpha1 inserted before the bitcast.
+Immutable source signatures/executables remain intact; conversion flags enter
+pipeline identity. Original and lowered SPIR-V validate before GPU creation.
+Numeric types and pointers are reused/reordered without duplicate declarations.
+
+Native WARP bit-exact pixel references cover66 original INI combinations, input
+widths1..4, normalization/sign extension, missing components, BGRA/BGRX cache
+switches and indirect draws. Additional executable cases force pointer aliases
+and scalar access chains with constant and computed indices. Full rebuilt frozen
+suite:build/next/run_all-1.2.8.out exit0/all steps; resources8962, compiler172/58,
+corpus37/37, core/sync clean, source hashes92/9/12 match. Installed inputs and
+dist1.0.2 unchanged. No game/deployment/system action. Text333 clean after docs.
+
+The packed16 native audit found device-dependent support: RTX5060 DX11 rejects
+formats85/86/115 (IA flag0, E_INVALIDARG); WARP advertises/creates them but returns
+constant(0,0,0,1) over all65536 words. R16_UNORM controls pass every value on both.
+Keep packed16 explicitly unsupported; do not turn that WARP result into a decoder.
+See docs/input-layout-audit.md. Null/OOB and complex input shapes remain separate.
+
+Next1.2.9 fixes BUG-024: direct multi-match hash entry executes1324 while equivalent
+source pre/post texture checking executes1234. Group pre lists before post lists,
+preserve within-phase state/budgets and reset transient state at the independent
+post root. Evidence:docs/matched-command-order.md and matched-order diagnostic.
+Then continue source shader matching/directory/application integration. No game
+input needed; keep going. PNG paused, LOD0/LOD1 only.
 
 ## Owned instance divisors (verified candidate1.2.7)
 

@@ -1,6 +1,7 @@
 // Independent headless graphics host for the production semantic linker.
 // Explicit test submissions/waits do not implement original INI draw execution.
 struct GraphicsReferenceOptions {
+    DXGI_FORMAT color_format=DXGI_FORMAT_R32G32B32A32_FLOAT;
     uint32_t count=3,instances=1,first_vertex=0,first_instance=0;
     uint32_t cull=0; // 0 none, 1 front, 2 back; source winding below.
     bool front_ccw=false;
@@ -106,7 +107,8 @@ static std::vector<uint8_t> native_linked_graphics(const gpu::HlslProgram& verte
     ImageNativeReference::Ptr<ID3D11VertexShader> vs;ImageNativeReference::Ptr<ID3D11PixelShader> ps;
     check(SUCCEEDED(d->CreateVertexShader(vertex.dxbc.data(),vertex.dxbc.size(),nullptr,&vs)) &&
         SUCCEEDED(d->CreatePixelShader(pixel.dxbc.data(),pixel.dxbc.size(),nullptr,&ps)),"Native original graphics shaders");
-    D3D11_TEXTURE2D_DESC desc{options.width,options.height,1,1,DXGI_FORMAT_R32G32B32A32_FLOAT,{1,0},D3D11_USAGE_DEFAULT,D3D11_BIND_RENDER_TARGET,0,0};
+    check(options.color_format==DXGI_FORMAT_R32G32B32A32_FLOAT || options.color_format==DXGI_FORMAT_R32G32B32A32_UINT,"Native reference color byte width");
+    D3D11_TEXTURE2D_DESC desc{options.width,options.height,1,1,options.color_format,{1,0},D3D11_USAGE_DEFAULT,D3D11_BIND_RENDER_TARGET,0,0};
     ImageNativeReference::Ptr<ID3D11Texture2D> image,read;ImageNativeReference::Ptr<ID3D11RenderTargetView> rtv;ImageNativeReference::Ptr<ID3D11RasterizerState> raster;
     check(SUCCEEDED(d->CreateTexture2D(&desc,nullptr,&image)) && SUCCEEDED(d->CreateRenderTargetView(image.Get(),nullptr,&rtv)),"Native graphics output");
     desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;

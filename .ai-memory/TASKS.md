@@ -6,6 +6,19 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.8 implements original vertex input bit reinterpretation and BGRX alpha1,
+including aliased/scalar loads, source defaults and cache identity. Native exact
+pixels pass66 original INI cases. Full rebuilt regression passes in
+build/next/run_all-1.2.8.out:resources8962, compiler172/58, corpus37/37, core/sync
+clean; hashes92/9/12 match. Installed inputs/dist1.0.2 unchanged; no game action.
+Next1.2.9: fix reproduced BUG-024 multi-match phase order and shared budgets/state,
+then source matching/directory/application integration. Optional packed16 BGR has
+no reliable native pixel oracle here; keep the explicit boundary (audit recorded).
+No game input needed; continue. PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
+
 1.2.7 executes original instance divisors with actual enabled KHR/core features,
 zero/max/nonzero-base properties and pipeline/buffer validation. Native DX11
 pixels agree for steps0/2/3/max and all four direct/indexed/indirect draw forms.

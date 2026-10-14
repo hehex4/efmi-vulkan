@@ -31,8 +31,9 @@ void GpuShaderRuntime::vertex_inputs(const gpu::HlslProgram& vertex,gpu::Graphic
         require(signature!=nullptr,"Vertex input lacks its original native signature");
         const auto found=input_layout_->registers().find(signature->register_index);
         require(found!=input_layout_->registers().end(),"Source layout has no fetched value for this native register");const auto& element=found->second;
-        const auto format=vertex_format(element.format);require(uint32_t(input.format)<185 && gpu::image_formats[format].scalar_type==gpu::image_formats[input.format].scalar_type,
-            "Source vertex format/signature reinterpretation requires typed input lowering");
+        const auto format=vertex_format(element.format);require(uint32_t(input.format)<185,"Source vertex input format requires an adapter");
+        const auto scalar=gpu::image_formats[format].scalar_type;const bool alpha=element.format==DXGI_FORMAT_B8G8R8X8_UNORM;
+        if(alpha || scalar!=gpu::image_formats[input.format].scalar_type)config.input_conversions.push_back({input.location,scalar,alpha});
         const auto source=resources_.binding(L'\0',ResourceCopyTargetType::VERTEX_BUFFER,element.slot);
         require(bool(source.buffer),"Source null vertex buffer needs null-fetch lowering");
         const bool instanced=element.classification==D3D11_INPUT_PER_INSTANCE_DATA;const auto& host=commands_.host();

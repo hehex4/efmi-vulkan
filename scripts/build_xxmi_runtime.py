@@ -54,7 +54,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/core/palette_bank.cpp"]
     sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in
-                ("resource_commands", "resource_images", "hlsl_compiler", "graphics_link", "shader_reflection", "shader_usage", "shader_commands", "graphics_commands")]
+                ("resource_commands", "resource_images", "hlsl_compiler", "graphics_link", "vertex_inputs", "shader_reflection", "shader_usage", "shader_commands", "graphics_commands")]
     sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in ("DDSTextureLoader", "WICTextureLoader")]
     sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
     flags = runtime_flags(out)

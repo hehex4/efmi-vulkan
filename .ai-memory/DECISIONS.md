@@ -567,3 +567,17 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   hidden CPU waits/readbacks. Physical support alone is not logical enablement.
 - Retain direct zero-stride fallback, and keep application device feature import
   separate from owned sandbox evidence. Native pixels verify all four draw forms.
+
+
+## D-058: Preserve fetched vertex bits before shader interpretation
+
+- Date:2026-10-14, candidate1.2.8. The input assembler format determines numeric
+  conversion and absent-component defaults. Retype Vulkan inputs to that class,
+  then bitcast loads to the original shader type. Do not use numeric casts.
+- BGRX supplies float alpha1 before any reinterpretation. Include fixups in the
+  cache key even when BGRA/BGRX share the same Vulkan format. Preserve source
+  signatures and validate unmodified/lowered modules independently.
+- Optional packed16 BGR remains explicit: local DX11 hardware refuses it and
+  WARP's successful creation yields only defaults. Creation success alone is
+  not evidence for the intended decoded vertex values. Continue other offline
+  integration without claiming these formats or application input import.

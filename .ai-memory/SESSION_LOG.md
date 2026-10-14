@@ -1597,3 +1597,29 @@ Independent native diagnostic input-layout-reinterpret.cpp/.txt confirms raw
 input bit reinterpretation, format-based absent-component defaults and BGRX alpha1
 for float/int/uint signatures. Continue1.2.8 with explicit SPIR-V input lowering;
 packed16 BGR and null/OOB remain separate fetch work. No game input needed.
+
+
+## 2026-10-14: Native vertex input reinterpretation, candidate1.2.8
+
+Added bounded SPIR-V input type/load lowering, alpha1 BGRX fixup, source-format
+component defaults and cache identity. Preserve original DXBC/signatures/source
+modules. Validate both original and transformed executable before Vulkan calls.
+Native WARP exact integer pixels pass66 source INI cases across float/int/uint
+and widths1..4, with extra scalar pointer/alias forms and indirect/cache cases.
+Development fixture fixes split differently typed auto declarations and supplied
+explicit image layer/mip/sample dimensions; no production fallback was added.
+
+Full frozen-source rebuilt suite:build/next/run_all-1.2.8.out exit0/all steps;
+resources8962, compiler172/58, corpus37/37, core/sync clean, hashes92/9/12 match;
+installed inputs unchanged. Text333 clean after documentation. No deployment,
+game or system action; dist1.0.2 and the separate launcher DX11 state unchanged.
+
+Packed16 diagnostics reveal optional native hardware support: RTX5060 refuses
+formats85/86/115; WARP accepts but returns only defaults across65536 words. Both
+R16_UNORM controls are exact. Retain unsupported execution instead of cloning
+those WARP defaults. docs/input-layout-audit.md records scope/evidence.
+
+Independent matched-order.cpp/.txt reproduces BUG-024: direct hash entry1324,
+equivalent pre/post texture checking1234. Source audit confirms all pre lists
+precede post lists, with shared phase abort and independent root transient state.
+Continue1.2.9 immediately with that correction; no game input needed.

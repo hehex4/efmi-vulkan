@@ -1,5 +1,6 @@
 #pragma once
 #include "shader_commands.h"
+#include "vertex_inputs.h"
 
 namespace efmi::gpu {
 // Owned graphics state. This API takes Vulkan descriptions after source-state
@@ -18,6 +19,7 @@ struct GraphicsDescription {
     std::vector<VkVertexInputBindingDescription> streams;
     std::vector<VkVertexInputBindingDivisorDescription> divisors;
     std::vector<VkVertexInputAttributeDescription> attributes;
+    std::vector<VertexInputConversion> input_conversions;
     GraphicsDescription(){raster.polygonMode=VK_POLYGON_MODE_FILL;raster.frontFace=VK_FRONT_FACE_CLOCKWISE;raster.lineWidth=1;}
 };
 class GraphicsPipeline {

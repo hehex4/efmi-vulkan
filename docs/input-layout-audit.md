@@ -114,3 +114,33 @@ for those cases is the next increment; this diagnostic is only native evidence.
 
 - [Vulkan vertex fetch](https://docs.vulkan.org/spec/latest/chapters/fxvertex.html)
 - [Divisor properties](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceVertexAttributeDivisorProperties.html)
+
+
+## Typed input checkpoint1.2.8
+
+Explicit SPIR-V input lowering now preserves fetched bits and original shader
+interpretation for float/int/uint widths1..4. Source component defaults and BGRX
+alpha1 occur before reinterpretation. Alias/scalar access chains are covered;
+other complex pointer/aggregate forms refuse. Conversion flags enter pipeline
+keys, including BGRA/BGRX with identical Vulkan formats. Both modules validate.
+Native WARP exact integer pixels pass66 original INI combinations plus alias and
+indirect cases. Full suite:build/next/run_all-1.2.8.out, resources8962, core/sync
+clean. This does not import application layouts or prove game rendering.
+
+## Optional packed16 BGR audit
+
+The feature-level11.0 format table lists IA support for85/86/115 as optional.
+Read-only diagnostics input-layout-packed16-controls.cpp/.txt render all65536
+input words in an owned256x256 WARP target. WARP accepts layout creation and
+advertises IA support, yet these three formats return constant(0,0,0,1).
+R16_UNORM control fetches every word correctly, bit-exact to nearest normalization.
+The same control on NVIDIA GeForce RTX5060 Laptop GPU passes; that hardware's
+IA flags are0 and CreateInputLayout returns E_INVALIDARG for85/86/115. Evidence:
+input-layout-packed16-hardware.cpp/.txt. All diagnostic files are under
+build/source-state-probe/, no application/game data or installed-file changes.
+
+Do not implement a constant-default decoder from this WARP anomaly or claim
+universal source creation support. Retain the execution boundary; a future
+portable decoder needs a specified normalization policy and independent reference.
+
+- [D3D11.0 format support](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/format-support-for-direct3d-11-0-feature-level-hardware)
