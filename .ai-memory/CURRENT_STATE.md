@@ -1,6 +1,27 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, source-defined INI compatibility. Source/candidate 1.0.4 passes the full rebuilt regression. Dist remains 1.0.2. Original source defines the target, not the installed Mod sample. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, source-defined INI compatibility. Source/candidate 1.0.5 passes the full rebuilt regression. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+
+## Original pool reset and reference semantics (verified candidate 1.0.5)
+
+Continued source audit found that a scalar assignment discarded every resource
+reference in the same pool, including unrelated slots. The adapter now mirrors
+the original resource null state for assignment and observes it for references;
+the original pool engine controls element switching and mixed-variable/resource
+resets. CPU pool copy_desc, whole-pool proxy/index reset, independent resource
+and variable resets, and reset_per_frame_limits execute through original methods.
+No resource byte-copy or GPU clear/dispatch support is implied.
+
+Twelve new adapter checks pass, bringing pool coverage to 23 checks. Eleven of
+these first failed against 1.0.4, preserved in
+build/ini-language/pool-before-1.0.5.json. Three additional production runtime
+fixtures check owned file plans, per-generation isolation and null bindings.
+The complete rebuild/regression passes in build/next/run_all-1.0.5.out: pool
+adapter 23, production runtime 68 plus Yvonne inspection, source parser 726,
+independent evaluation 65, character package/GPU 79/357, live INI GPU 28,
+Vulkan validation 76 and every other step. ABI remains 16b90a85431f86b4.
+Direct resource pools remain nonexpiring ring/static references; broader GPU
+resource lifetime and full directory graphics execution remain open.
 
 ## Source-defined language and production CPU generations (1.0.4)
 
@@ -39,8 +60,8 @@ build/xxmi-runtime/runtime.txt and build/next/run_all-1.0.4-final.out. Final ful
 rebuild/regression passes after the native-abort correction: source parser 726,
 evaluation 65, runtime 65 plus Yvonne inspection, native callbacks 15, character
 package/GPU 79/357, live INI GPU 28, modes 40, validation 76 and every other step.
-Shared ABI remains 16b90a85431f86b4. Next source-defined adapter work is pool
-reset/description semantics, followed by the still-open graphics families.
+Shared ABI remains 16b90a85431f86b4. Pool reset/description follow-up is recorded
+in 1.0.5 above; the general graphics families below remain open.
 
 Non-native CustomShader, ShaderOverride and ShaderRegex sections still refuse
 in the production character runtime. General copies/clear/store/readback,

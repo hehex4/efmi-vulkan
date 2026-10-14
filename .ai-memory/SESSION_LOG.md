@@ -987,3 +987,29 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
 - Dist remains 1.0.2. No deployment, module swap, capture, game input, process
   start/stop or original-installation writes. Continue offline source-defined pool
   reset/description adapters and general graphics families; PNG integration paused.
+
+## 2026-10-14: Original pool reset, metadata and mixed references (1.0.5)
+
+- Continued the requested source-defined runtime work after committing 1.0.4 as
+  073a2a5. PoolCopyOperation already implements metadata copy, proxy/index reset
+  and independent element resets without a graphics API; the adapter now executes
+  those original methods instead of accepting only whole-pool reference.
+- Found BUG-014: any scalar write discarded all cached resource aliases in that
+  pool. Reference assignment now mirrors the original is_null field; resolution
+  observes element-specific reset state. Unrelated slots and both independent
+  halves of mixed elements retain the original semantics. Added original
+  reset_per_frame_limits execution for the selected counters.
+- Eleven new pool cases first fail against 1.0.4 (preserved in
+  build/ini-language/pool-before-1.0.5.json). They then pass with the fix; an
+  additional counter test brings the pool suite to 23. Three production-runtime
+  cases prove file-plan binding, immutable previous plans after reset and separate
+  generations, bringing runtime checks to 68 plus the Yvonne main-INI inspection.
+- Full rebuild and sandbox/run_all.py pass in build/next/run_all-1.0.5.out:
+  source syntax 726, original expression results 65, character package/GPU 79/357,
+  live INI GPU 28, modes 40, Vulkan validation 76 and every remaining step. Shared
+  ABI remains 16b90a85431f86b4. Reviewed diff and text checks for local commit.
+- Scope remains CPU pool semantics and owned file plans. General resource byte
+  copies/clears/readback, expiring/keyed resource ownership, CustomShader, dispatch,
+  ShaderRegex and full directory rendering remain open. PNG integration stays
+  paused. Dist remains 1.0.2; no game actions, original-installation writes,
+  deployment or module exchange occurred.

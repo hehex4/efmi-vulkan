@@ -94,6 +94,22 @@ the original Core graph also exposed the dangling-pointer defect before the fix.
 Failed generation preparation preserves the existing generation. Error messages
 include the load phase and bounded original parser diagnostics.
 
+## Pool execution changes in 1.0.5
+
+Pool-to-pool `copy_desc`, whole-pool `null`, `$Pool[*] = null` and
+`Pool[*] = null` now run the original metadata, proxy/index, variable and resource
+reset methods. A scalar write no longer invalidates every resource reference
+in the pool. The adapter mirrors original resource null state and retains
+unaffected slots and mixed elements. `reset_per_frame_limits` executes the
+original selected resource/shader counters; it does not itself supply the
+missing general copy or CustomShader execution engine.
+
+The pool fixture checks metadata copies preserving existing values, copied
+defaults, proxy detach, retained values after index reset, independent slots,
+same-slot type switches, both halves of mixed elements, alias reset and scoped
+counter reset. Resource references remain limited to nonexpiring direct-index
+pools, pending a broader GPU lifetime adapter.
+
 ## Execution remains separate from parsing
 
 | Original operation family | Current execution boundary |
@@ -101,7 +117,7 @@ include the load phase and bounded original parser diagnostics.
 | Expressions, variables, branches, named calls, callback references | Original evaluator/command graph, bounded CPU execution |
 | IniParams, time, call counters, presets, keys, persist, F10 | CPU runtime; shader upload and full rendering context still needed |
 | Indexed draws, VB/IB and pixel-resource references, layout edits | Existing scoped character Vulkan backend; not every draw/resource form |
-| Scalar pools, native merged-skeleton/identity contracts | Original CPU logic plus explicit native Core boundaries; mutable resource pools are partial |
+| Scalar pools, metadata/reset, native merged-skeleton/identity contracts | Original CPU logic plus explicit native Core boundaries; GPU resource pools are partial |
 | General custom-resource copy/description/clear/store/readback and slot ranges | Parse support; general Vulkan execution remains open |
 | Non-indexed/automatic/indirect draws and compute dispatch | Parse support; general Vulkan execution remains open |
 | CustomShader render state and HLSL | Original metadata parsing; original panel HLSL compiles separately, general pipeline execution remains open |
@@ -122,6 +138,14 @@ expression results, 65 production CPU runtime checks, 15 native-callback checks,
 the second-character main-INI inspection, existing character/live-INI GPU tests
 and all 76 Vulkan validation checks. Shared ABI remains `16b90a85431f86b4`.
 Dist remains 1.0.2. These numbers are test counts, not a percentage of compatibility.
+
+The following 1.0.5 full rebuild/regression passes in
+`build/next/run_all-1.0.5.out`: pool adapter 23 checks, production runtime 68,
+source parser 726, expression results 65 and the unchanged graphics/validation
+suites. Eleven new pool cases first fail against 1.0.4, retained in
+`build/ini-language/pool-before-1.0.5.json`. Production fixtures separately verify
+that a reset emits null without changing an earlier owned file plan or another
+generation. No deployment; ABI is unchanged.
 
 No game load, deployment, module swap, new capture or new character acceptance is
 implied by these source, CPU or sandbox checks.

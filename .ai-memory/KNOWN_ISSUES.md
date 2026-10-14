@@ -336,3 +336,16 @@ is four seconds, so timeout expiration is not established. No failure cause or
 game implication is inferred. The unmodified standalone modes test and the next
 complete suite both passed all 40 checks. Keep the original failure record in
 build/next/run_all-1.0.4.out; no blind retry or production IPC change was added.
+
+## BUG-014: A scalar pool write discarded unrelated resource aliases (fixed in candidate 1.0.5)
+
+The adapter conservatively erased every cached reference in a pool when any
+variable in that pool was assigned. This lost live bindings in other slots and
+the resource half of mixed elements. Respect the original per-resource is_null
+state instead: reference assignment sets it, the original pool engine changes it
+only for affected elements, and subsequent binding resolution observes it.
+Source-driven cases fail before the fix and pass afterward, including variable
+and resource reset, mixed values, independent slots and proxy behavior. The
+separate production-runtime fixtures check owned plans and generation isolation.
+No historical game symptom has been attributed to this offline-found defect.
+The full rebuilt regression passes in build/next/run_all-1.0.5.out; not deployed.

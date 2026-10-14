@@ -340,6 +340,53 @@ $post_seen = 2
         input.keys[VK_F1] = true; present(language); input.keys.fill(false); present(language_second);
         check(language_value("result") == 14 && language_second->status().variables.at("$\\language_runtime\\result") == 5,
               "INI parameter storage and preset activation remain isolated between generations");
+        write(ini, R"ini(namespace = pool_runtime
+[Constants]
+global $cleared = 0
+[PoolBindings]
+pool_size = 2
+[ResourceBuffer]
+type = Buffer
+stride = 16
+filename = pool.buf
+[KeyReset]
+key = no_modifiers VK_F3
+type = toggle
+$cleared = 1
+[TextureOverrideMesh]
+hash = 12345678
+match_index_count = 30
+handling = skip
+if $cleared
+PoolBindings[*] = null
+else
+PoolBindings[0] = ref ResourceBuffer
+$PoolBindings[1] = 9
+endif
+vb0 = ref PoolBindings[0]
+drawindexed = 3,0,0
+)ini");
+        {
+            const float data[8]{};
+            std::ofstream bytes(folder / "pool.buf", std::ios::binary);
+            bytes.write(reinterpret_cast<const char*>(data), sizeof(data));
+            if (!bytes) throw std::runtime_error("Cannot write pool buffer fixture");
+        }
+        RuntimeConfig pool_config{folder, {ini}, settings, "pool"};
+        auto pool_first = IniRuntime::load(pool_config, {}, reason);
+        auto pool_second = IniRuntime::load(pool_config, {}, reason);
+        if (!pool_first || !pool_second) throw std::runtime_error("Pool runtime: " + reason);
+        render(pool_first);
+        check(plan.items.size() == 2 && plan.items[0].resource && plan.items[0].resource->path.filename() == L"pool.buf",
+              "Production file plans retain a pooled file binding across an unrelated scalar write");
+        const auto retained_pool_plan = plan;
+        input = {}; input.foreground = true; input.keys[VK_F3] = true; present(pool_first);
+        render(pool_first);
+        check(plan.items.size() == 2 && !plan.items[0].resource && retained_pool_plan.items[0].resource,
+              "Pool reset emits a null binding while the previous owned file plan remains intact");
+        render(pool_second);
+        check(plan.items.size() == 2 && plan.items[0].resource,
+              "Pool resource reset in one generation does not change another generation");
         write(ini, fixture);
         // Read-only acceptance of the actual main INI. The panel is a separate
         // input with a CustomShader and remains explicitly outside this fixture.

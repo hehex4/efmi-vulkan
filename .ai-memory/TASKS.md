@@ -7,10 +7,12 @@ Milestones and gates refer to `docs/plan.md`.
 ## Current state
 
 Current work is T-030's source-defined language/runtime implementation. Source
-and candidate are 1.0.4, with a passing full rebuilt regression; dist remains 1.0.2.
+and candidate are now 1.0.5 with a passing full rebuilt regression;
+dist remains 1.0.2. Pool copy_desc/reset and mixed-element references now pass
+23 adapter checks. The latest passing full report is build/next/run_all-1.0.5.out.
 726 original-parser checks and 65 expression checks pass. Production CPU directory
 generations now resolve Includes, namespaces and callback-only dependencies;
-65 runtime checks cover existing profiles and the added language behavior.
+68 runtime checks cover existing profiles and the added language behavior.
 General graphics operations and shader sections still need Vulkan adapters.
 PNG integration is paused under the latest user steering. The user has deferred
 new game collection; continue offline and do not require capture per character.
@@ -67,6 +69,11 @@ all dormant explicit lists in that mode. Key/preset run targets are compiled,
 IniParams/presets/abort execute on the CPU, and stable-root adaptation repairs
 optimizer branch lifetime. Source-derived parser/evaluator fixtures are now in
 run_all.py; docs/ini-language-coverage.md records the remaining families.
+1.0.5 follows with original pool metadata/proxy/index/element resets, independent
+mixed-element resource state and original per-frame counter reset. The old broad
+reference invalidation fails the added fixtures; 23 pool adapter checks and three
+new production file-plan/isolation checks now pass. GPU resource copy/clear and
+expiring/keyed resource pools remain separate work.
 Acceptance still needs a complete graphics directory generation, native
 registration/routing of multiple objects, common mesh/image ownership and shader
 contracts, general CustomShader/copy/dispatch and ShaderRegex adapters, then actual

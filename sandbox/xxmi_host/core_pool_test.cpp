@@ -21,9 +21,17 @@ global $index = 1
 global $result = 0
 [PoolValues]
 pool_size = 3
+pool_variable_default_value = 5
 [PoolAlias]
 [PoolResources]
 pool_size = 3
+[PoolMetadata]
+pool_size = 2
+pool_variable_default_value = 11
+[PoolMixed]
+pool_size = 2
+pool_element_type_switch_reset = false
+pool_variable_default_value = 3
 [PoolExpiring]
 pool_size = 2
 pool_index_type = fifo
@@ -78,6 +86,53 @@ CommandListCallback = ref CommandListBody
 CommandListBody = ref CommandListCallback
 [CommandListBadExpiring]
 PoolExpiring[$index] = ref ResourceOne
+[CommandListCopyMetadata]
+$PoolMetadata[0] = 8
+PoolMetadata = copy_desc PoolValues
+$result = PoolMetadata->size + $PoolMetadata[0]
+[CommandListResetVariables]
+$PoolMetadata[*] = null
+$result = $PoolMetadata[0] + $PoolMetadata[-1]
+[CommandListDetachPool]
+PoolMetadata = ref PoolValues
+PoolMetadata = null
+$PoolMetadata[0] = 12
+$result = $PoolValues[$index]
+[CommandListResetIndex]
+PoolValues = null
+$result = $PoolValues[$index]
+[CommandListIndependentSlots]
+PoolResources[0] = ref ResourceOne
+PoolResources[1] = ref ResourceTwo
+$PoolResources[2] = 4
+vb0 = ref PoolResources[0]
+vb1 = ref PoolResources[1]
+[CommandListSwitchSlot]
+PoolResources[0] = ref ResourceOne
+$PoolResources[0] = 2
+vb0 = ref PoolResources[0]
+[CommandListMixed]
+PoolMixed[0] = ref ResourceOne
+$PoolMixed[0] = 4
+vb0 = ref PoolMixed[0]
+$result = $PoolMixed[0]
+[CommandListResetMixedVariables]
+$PoolMixed[*] = null
+vb0 = ref PoolMixed[0]
+$result = $PoolMixed[0]
+[CommandListResetMixedResources]
+PoolMixed[*] = null
+vb0 = ref PoolMixed[0]
+$result = $PoolMixed[0]
+[CommandListResetResources]
+PoolResources[*] = null
+vb0 = ref PoolResources[1]
+[CommandListResetAlias]
+PoolAlias = ref PoolValues
+$PoolAlias[*] = null
+$result = $PoolValues[$index]
+[CommandListResetLimit]
+reset_per_frame_limits = ResourceOne
 )",L"core-pools-test.ini");
     HostEnumerateLists();HostParseConstants();HostParseResources();
     const std::wstring prefix=L"commandlist\\core_pools\\";
@@ -107,5 +162,38 @@ PoolExpiring[$index] = ref ResourceOne
         check(!run(name,plan,reason) && !reason.empty() && plan.items.size()==1 && plan.items[0].index_count==7,
               "unsupported pool/resource/callback operations preserve the previous output");
     }
+    auto result=[&]{return command_list_globals.at(L"$\\core_pools\\result").fval;};
+    check(run(L"copymetadata",plan,reason) && result()==11,
+          "copy_desc changes pool size and defaults while preserving existing elements");
+    check(run(L"resetvariables",plan,reason) && result()==10,
+          "full variable reset uses the copied original pool default");
+    check(run(L"detachpool",plan,reason) && result()==9 &&
+          customResourcePools.at(L"pool\\core_pools\\metadata").GetVariable(0,false,true,false)->fval==12,
+          "pool null detaches a proxy and restores its own elements without changing the source");
+    check(run(L"resetindex",plan,reason) && result()==9,
+          "whole pool null resets indexing without clearing retained element values");
+    check(run(L"independentslots",plan,reason) && plan.items.size()==2 &&
+          plan.items[0].resource==&customResources.at(L"resource\\core_pools\\one") &&
+          plan.items[1].resource==&customResources.at(L"resource\\core_pools\\two"),
+          "scalar writes preserve resource references in unrelated slots of the same pool");
+    check(run(L"switchslot",plan,reason) && plan.items.size()==1 && !plan.items[0].resource,
+          "switching one resource element to a variable invalidates only that resource");
+    check(run(L"mixed",plan,reason) && result()==4 && plan.items.size()==1 &&
+          plan.items[0].resource==&customResources.at(L"resource\\core_pools\\one"),
+          "mixed pool elements retain independent resource and variable values");
+    check(run(L"resetmixedvariables",plan,reason) && result()==3 && plan.items.size()==1 &&
+          plan.items[0].resource==&customResources.at(L"resource\\core_pools\\one"),
+          "resetting mixed variables preserves the bound resource");
+    check(run(L"resetmixedresources",plan,reason) && result()==3 && plan.items.size()==1 && !plan.items[0].resource,
+          "resetting mixed resources preserves the variable and removes the binding");
+    check(run(L"resetresources",plan,reason) && plan.items.size()==1 && !plan.items[0].resource,
+          "full resource reset invalidates the adapter's retained reference");
+    check(run(L"resetalias",plan,reason) && result()==5,
+          "element reset through a pool alias reaches the original source pool");
+    auto& limited=customResources.at(L"resource\\core_pools\\one");
+    auto& other=customResources.at(L"resource\\core_pools\\two");
+    limited.copies_this_frame=9;other.copies_this_frame=7;
+    check(run(L"resetlimit",plan,reason) && limited.copies_this_frame==0 && other.copies_this_frame==7,
+          "reset_per_frame_limits resets only the selected original resource counter");
     printf("XXMI Core pools: %d checks passed, %d failed\n",passed,failed);return failed;
 }

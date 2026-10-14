@@ -117,5 +117,11 @@ dependencies, IniParams CPU execution and optimizer-owned branch lifetimes.
 This does not remove the non-native shader-section refusal or turn the deployed
 single-character profile into a complete-directory GPU renderer.
 
+1.0.5 follows the source-defined pool operations: metadata copies, proxy/index
+reset and separate element resets. References now observe the original resource
+null state, so a scalar write leaves resources in other slots intact and mixed
+elements keep independent values. These are CPU operations and file-plan state;
+general GPU copies, clears and expiring resource ownership remain open.
+
 No deployment, running-game module exchange, new game capture or new-character
 visual acceptance is implied by any result in this document.

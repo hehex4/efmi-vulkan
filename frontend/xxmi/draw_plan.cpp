@@ -279,7 +279,10 @@ struct DrawPlanAdapter::Runtime {
     CustomResource* referenced(CustomResource* resource) const
     {
         const auto found=references.find(resource);
-        if (found != references.end()) return found->second;
+        // The original pool engine marks only the affected resource null when
+        // a slot changes type or a resource reset runs. Preserve references in
+        // other slots and the independent resource half of a mixed element.
+        if (found != references.end()) return resource->is_null ? nullptr : found->second;
         // An empty original Resource declaration has no object until assigned.
         // Preserve typed/generated resources for their own adapters.
         if (resource && resource->filename.empty() && resource->override_type == CustomResourceType::INVALID &&
@@ -361,7 +364,9 @@ struct DrawPlanAdapter::Runtime {
                          (binding->options!=ResourceCopyOptions::REFERENCE && binding->options!=ResourceCopyOptions::COPY))
                     refuse(L"Unsupported declaration reference: "+original->ini_line);
                 if(references.size()>=max_steps && !references.count(destination))refuse(L"Declaration reference budget exceeded");
-                references[destination]=source;return;
+                references[destination]=source;
+                destination->is_null=source==nullptr;
+                return;
             }else if (dst.type == ResourceCopyTargetType::VERTEX_BUFFER)
                 item.operation = PlanOperation::BindVertex;
             else if (dst.type == ResourceCopyTargetType::INDEX_BUFFER)
@@ -430,31 +435,24 @@ struct DrawPlanAdapter::Runtime {
                 refuse(L"INI parameter assignment exceeds generation storage");
             original->run(state); return;
         }
-        if(auto* variable=dynamic_cast<PoolVariableOperation*>(original.get())){
-            // A variable write may reset a pool's resource element type. Until
-            // mixed resource/scalar pools have an exact lifetime adapter, drop
-            // declaration references conservatively instead of retaining stale aliases.
-            if(auto* pool=variable->dst.custom_resource_pool){
-                pool=pool->ResolvePool();
-                for(auto it=references.begin();it!=references.end();){
-                    if(it->first->pool && it->first->pool->ResolvePool()==pool)it=references.erase(it);else ++it;
-                }
-            }
-            original->run(state);return;
-        }
         if (dynamic_cast<IfCommand*>(original.get()) || typeid(*original) == typeid(VariableAssignment) ||
-            dynamic_cast<AbortCommand*>(original.get()) || dynamic_cast<PresetCommand*>(original.get())) {
+            dynamic_cast<PoolVariableOperation*>(original.get()) || dynamic_cast<AbortCommand*>(original.get()) ||
+            dynamic_cast<PresetCommand*>(original.get()) || dynamic_cast<ResetPerFrameLimitsCommand*>(original.get())) {
             original->run(state);
             return;
         }
         if(auto* pool=dynamic_cast<PoolCopyOperation*>(original.get())){
-            if(pool->dst.type!=ResourceCopyTargetType::POOL || pool->src.type!=ResourceCopyTargetType::POOL ||
-               pool->options!=ResourceCopyOptions::REFERENCE || !pool->dst.custom_resource_pool || !pool->src.custom_resource_pool ||
+            if(pool->dst.type!=ResourceCopyTargetType::POOL || !pool->dst.custom_resource_pool ||
+               (pool->src.type!=ResourceCopyTargetType::POOL && pool->src.type!=ResourceCopyTargetType::EMPTY) ||
+               (pool->src.type==ResourceCopyTargetType::POOL && !pool->src.custom_resource_pool) ||
                !cpu_target(pool->dst) || !cpu_target(pool->src))refuse(L"Unsupported pool operation: "+original->ini_line);
             auto* destination=pool->dst.custom_resource_pool;auto* source=pool->src.custom_resource_pool;
-            if(destination==source->ResolvePool())refuse(L"Cyclic pool reference");
+            const bool reference=source && !(pool->options & ResourceCopyOptions::COPY_MASK);
+            if(reference && destination==source->ResolvePool())refuse(L"Cyclic pool reference");
+            // Original operations own metadata copies, proxy detach and the
+            // independent resource/variable/full resets. They do no GPU work.
             original->run(state);
-            if(destination->ResolvePool()!=source->ResolvePool())refuse(L"Pool reference did not resolve");
+            if(reference && destination->ResolvePool()!=source->ResolvePool())refuse(L"Pool reference did not resolve");
             return;
         }
         if(auto* copy=dynamic_cast<CopyCommandListCommand*>(original.get())){
