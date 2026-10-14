@@ -16,10 +16,10 @@ from check_panel_hlsl import DXC, SPIRV
 def main() -> int:
     out = ROOT / "build/shader-compiler"
     out.mkdir(parents=True, exist_ok=True)
-    report = {"scope": "original HLSL reference, Vulkan compilation/reflection; no CustomShader execution or game", "passed": False}
+    report = {"scope": "original HLSL signatures, Vulkan compilation and graphics linking; no INI graphics or game", "passed": False}
     try:
         objects = build_runtime(ROOT / "build/xxmi-runtime")
-        objects = [p for p in objects if p.endswith(".lib") or Path(p).stem in ("hlsl_compiler", "shader_reflection")]
+        objects = [p for p in objects if p.endswith(".lib") or Path(p).stem in ("hlsl_compiler", "graphics_link", "shader_reflection")]
         executable = out / "shader_compile.exe"
         log = io.StringIO()
         try:
@@ -36,7 +36,7 @@ def main() -> int:
         output = result.stdout + result.stderr
         write_ascii(out / "runtime.txt", output)
         report.update(returncode=result.returncode, fixtures=str(fixtures))
-        match = re.search(r"shader_compile: (\d+) checks passed; (\d+) modules compiled", output)
+        match = re.search(r"shader_compile: (\d+) checks passed; (\d+) modules emitted", output)
         if result.returncode or not match:
             raise RuntimeError(output[-6000:])
         modules = sorted(fixtures.glob("*.spv"))
@@ -52,6 +52,7 @@ def main() -> int:
             if validation.returncode:
                 raise RuntimeError("SPIR-V validation failed: " + validation.stderr)
         inputs = [ROOT / "frontend/gpu/hlsl_compiler.cpp", ROOT / "frontend/gpu/hlsl_compiler.h", ROOT / "frontend/gpu/shader_reflection.cpp",
+                  ROOT / "frontend/gpu/graphics_link.cpp", ROOT / "frontend/gpu/graphics_link.h", ROOT / "sandbox/shader_link_cases.h",
                   ROOT / "sandbox/shader_compile.cpp", ROOT / "scripts/build_xxmi_runtime.py", Path(__file__)]
         report["source_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
         dependencies = [DXC.parent / "dxcompiler.dll", DEPS / "dxc-1.9.2609/inc/dxcapi.h",

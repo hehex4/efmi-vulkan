@@ -173,3 +173,41 @@ No application binding import or graphics drawing is implied. No game action.
 Native contracts and observed source behavior are checked alongside
 [OM target binding](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetrendertargets)
 and [OM UAV binding](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-omsetrendertargetsandunorderedaccessviews).
+
+## Original graphics linker, candidate1.2.0
+
+The compiler now retains original DXBC input/output/patch register signatures
+and executable SPIR-V IDs. link_graphics validates the source register/component
+contract, canonicalizes stage order and relocates consumer locations by source
+semantic/index. Names are case-insensitive with optional zero indices. Built-ins
+remain untouched; patch and per-vertex arrays are distinguished. Native modules
+and dependencies remain available and input program objects are not mutated.
+
+The linker bounds stage, ID, module, signature, dependency and aggregate payload
+sizes before copying. It rejects missing/ambiguous producers, stale metadata,
+packed components, user interface blocks and specialized/unknown array shapes.
+Wider output vectors are allowed only with actual enabled maintenance4 and its
+vector rules; other shapes must agree. This does not yet specialize unsupported
+interfaces or execute original INI graphics commands.
+
+Native signatures are shared register layouts, not semantic name lookup at draw
+time. An initial reference omitted the vertex position member in its pixel input
+and therefore read native registers incorrectly. The fixture was corrected and
+native register checks added; development failure evidence is retained under
+build/graphics-link-native-invalid/. Current valid fixtures retain original
+register layout while DXC's case-sensitive alphabetic IO order differs.
+
+The headless GPU reference renders16 RGBA32F pixels. Raw Vulkan produces
+(207,311,2,3); linked Vulkan and original DX11 WARP both produce(702,1103,7,11),
+byte for byte. Graphics/tessellation/geometry interface fixtures also validate
+independently. Complete rebuilt suite:build/next/run_all-1.2.0.out, all pass;
+resources4065, compiler172/58 valid modules, core/sync clean, source hashes match.
+This host uses private test submissions; it is not production INI draw placement.
+
+Next: source fixed-function state, production graphics/descriptor execution,
+coordinate/position-w/ID behavior and matching/directory integration. No game
+input needed. No deployment or game action.
+
+Sources: [native signatures](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-signatures),
+[Vulkan interfaces](https://docs.vulkan.org/spec/latest/chapters/interfaces.html),
+and [DXC SPIR-V conventions](https://github.com/microsoft/DirectXShaderCompiler/blob/main/docs/SPIR-V.rst).

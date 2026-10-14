@@ -6,6 +6,19 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.0 adds bounded original-signature validation and Vulkan graphics IO linking.
+Native DX11 and linked Vulkan pixel output agree byte for byte; raw DXC locations
+reproduce incorrect output. Complete rebuilt regression passes in
+build/next/run_all-1.2.0.out: resources4065, compiler172/58 valid modules, clean
+core/sync; all74 resource and9 compiler hashes match. Isolated pixel/link evidence
+is not original INI graphics execution. Continue immediately with source graphics
+state/draws, coordinate/ID comparisons, then matching and enabled-directory
+integration. No game input needed. Next1.2.1, dist1.0.2 unchanged, PNG paused,
+LOD0/LOD1 only. No game/deployment action.
+
+Earlier verified checkpoint:
+
+
 1.1.9 fixes BUG-022 with native source binding hazards, atomic slot ranges,
 attachment compatibility, complete pixel UAV replacement and OM restore effects.
 Full rebuilt regression: build/next/run_all-1.1.9.out, all steps pass; resources

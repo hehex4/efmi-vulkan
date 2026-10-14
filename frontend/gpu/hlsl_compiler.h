@@ -29,6 +29,13 @@ struct ShaderInterface {
     std::string name,semantic;
     uint32_t location=UINT32_MAX,builtin=UINT32_MAX;
     VkFormat format=VK_FORMAT_UNDEFINED;
+    // Stable executable identity, retained before reflection annotations vanish.
+    uint32_t spirv_id=0;
+};
+struct ShaderSignature {
+    std::string semantic;
+    uint32_t index=0,register_index=0,component_type=0,system_value=0,stream=0;
+    uint32_t mask=0,read_write_mask=0;
 };
 struct HlslProgram {
     VkShaderStageFlagBits stage=VK_SHADER_STAGE_COMPUTE_BIT;
@@ -39,6 +46,8 @@ struct HlslProgram {
     std::vector<uint8_t> dxbc;
     std::vector<ShaderBinding> bindings;
     std::vector<ShaderInterface> inputs,outputs;
+    // Native SM5 register/component contracts, including tessellation patch IO.
+    std::vector<ShaderSignature> input_signature,output_signature,patch_signature;
     std::vector<ShaderDependency> dependencies;
     uint32_t threads[3]={0,0,0};
     std::string diagnostics;

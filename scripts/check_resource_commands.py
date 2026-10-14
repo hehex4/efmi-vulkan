@@ -18,7 +18,7 @@ from generate_image_formats import verify as verify_image_formats
 def main() -> int:
     out = ROOT / "build/resource-commands"
     out.mkdir(parents=True, exist_ok=True)
-    report = {"scope": "original INI resources and owned CustomShader compute, native DX11 references; no game or draw-hook integration", "passed": False}
+    report = {"scope": "owned INI resources/compute and isolated graphics-link pixels, native DX11 references; no INI graphics or game integration", "passed": False}
     try:
         verify_image_formats()
         from check_panel_hlsl import DXC, SPIRV
@@ -52,6 +52,7 @@ def main() -> int:
                             ROOT / "sandbox/resource_parameter_consumer.h", ROOT / "sandbox/resource_shader_cases.h",
                             ROOT / "sandbox/resource_compute_cases.h", ROOT / "sandbox/resource_usage_cases.h",
                             ROOT / "sandbox/resource_binding_cases.h",
+                            ROOT / "sandbox/resource_graphics_link_cases.h",
                             shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))

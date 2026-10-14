@@ -1404,3 +1404,23 @@ then matching and complete enabled-directory integration. Next 1.2.0. Alphabetic
 IO sorting alone is not stage linking; DX11 position-w and vertex/instance offsets
 need native output comparisons. No game input is needed. PNG remains paused;
 LOD0/LOD1 only.
+
+## 2026-10-14: Original graphics signatures and Vulkan linking,1.2.0
+
+Continued offline as requested. Added FXC signature retention and a bounded,
+immutable Vulkan stage linker. Tests cover all graphics stages, arrays/patch IO,
+native register contracts and enabled-maintenance4 width rules. Corrected an
+initial invalid native pixel fixture (omitted position register); saved evidence
+in build/graphics-link-native-invalid/. Added the original register guard instead
+of silently treating semantic matches as permission to change native behavior.
+
+Actual case-sensitive DXC ordering produces wrong Vulkan pixels before linking;
+after linking all16 pixels match original DX11 WARP byte for byte. Full rebuilt
+frozen-source suite passes in build/next/run_all-1.2.0.out: resources4065,
+compiler172/58 valid modules and every other step, zero core/sync diagnostics.
+All74 resource and9 compiler source hashes match. Text310 files clean before this
+memory update. This proves isolated linker pixels, not original INI drawing.
+
+Continue with original graphics state/draws and native coordinates/IDs, then
+matching and enabled-directory integration. Next1.2.1; no game input needed,
+dist1.0.2 unchanged, PNG paused, LOD0/LOD1 only. No deployment/game action.

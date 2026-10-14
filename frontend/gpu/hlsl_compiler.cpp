@@ -75,7 +75,7 @@ char source_type(D3D_SHADER_INPUT_TYPE type){
 }
 void append_interface(std::vector<ShaderInterface>& out,const SpvReflectInterfaceVariable* value){
     if(value->member_count){for(uint32_t i=0;i<value->member_count;++i)append_interface(out,&value->members[i]);return;}
-    out.push_back({value->name?value->name:"",value->semantic?value->semantic:"",value->location,uint32_t(value->built_in),VkFormat(value->format)});
+    out.push_back({value->name?value->name:"",value->semantic?value->semantic:"",value->location,uint32_t(value->built_in),VkFormat(value->format),value->spirv_id});
 }
 D3D11_SHADER_INPUT_BIND_DESC source_binding(const std::map<std::string,D3D11_SHADER_INPUT_BIND_DESC>& resources,
                                           const SpvReflectDescriptorBinding& descriptor){
@@ -100,6 +100,14 @@ D3D11_SHADER_INPUT_BIND_DESC source_binding(const std::map<std::string,D3D11_SHA
 void reflect_program(HlslProgram& out,char stage,ID3DBlob* original){
     ComPtr<ID3D11ShaderReflection> native;checked(D3DReflect(original->GetBufferPointer(),original->GetBufferSize(),IID_PPV_ARGS(&native)),"Reflect original shader");
     D3D11_SHADER_DESC desc{};checked(native->GetDesc(&desc),"Read original shader description");
+    for(unsigned kind=0;kind<3;++kind){const auto count=kind==0?desc.InputParameters:kind==1?desc.OutputParameters:desc.PatchConstantParameters;
+        require(count<=4096,"Original shader signature exceeds the bounded compiler");
+        auto& signature=kind==0?out.input_signature:kind==1?out.output_signature:out.patch_signature;
+        for(UINT i=0;i<count;++i){D3D11_SIGNATURE_PARAMETER_DESC field{};
+            checked(kind==0?native->GetInputParameterDesc(i,&field):kind==1?native->GetOutputParameterDesc(i,&field):native->GetPatchConstantParameterDesc(i,&field),"Read original shader signature");
+            signature.push_back({field.SemanticName?field.SemanticName:"",field.SemanticIndex,field.Register,uint32_t(field.ComponentType),uint32_t(field.SystemValueType),field.Stream,field.Mask,field.ReadWriteMask});
+        }
+    }
     std::map<std::string,D3D11_SHADER_INPUT_BIND_DESC> source;
     for(UINT i=0;i<desc.BoundResources;++i){D3D11_SHADER_INPUT_BIND_DESC entry{};checked(native->GetResourceBindingDesc(i,&entry),"Read original resource slot");source.emplace(entry.Name,entry);}
     struct Reflection {SpvReflectShaderModule module{};bool valid=false;~Reflection(){if(valid)spvReflectDestroyShaderModule(&module);}} reflection;

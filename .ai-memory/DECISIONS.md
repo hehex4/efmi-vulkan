@@ -468,3 +468,16 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   Native queries and owned Vulkan validation are separate from game evidence.
 - Correct historical fixtures that assumed invalid simultaneous bindings, while
   keeping their original data assertions. No game or deployment was needed.
+
+## D-050: Validate native signatures before Vulkan IO relocation
+
+- Date:2026-10-14, graphics linker1.2.0. Preserve original FXC register/component
+  signatures and SPIR-V IDs. Native D3D11 shares adjacent stage registers; semantic
+  identity does not repair an invalid native signature pair. Check that contract
+  before relocating Vulkan input locations using case-insensitive source names.
+- Bound module/metadata/dependency payload before copying. Keep caller programs
+  immutable. Patch/per-vertex dimensions are distinct; wider vectors require the
+  logical device's actual maintenance4 enablement, never mere physical support.
+- Verify actual pixels against original DXBC on system D3D11 WARP. Compiler,
+  independent linker host, original INI draw execution and game rendering are
+  separate evidence. An invalid development fixture was corrected before release.

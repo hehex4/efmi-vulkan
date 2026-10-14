@@ -1,4 +1,5 @@
 #include "../frontend/gpu/hlsl_compiler.h"
+#include "../frontend/gpu/graphics_link.h"
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <cstdio>
@@ -26,6 +27,7 @@ static HlslProgram compile(HlslCompiler& compiler,HlslRequest request,const std:
     std::ofstream file(out/(std::to_string(compiled)+(program.vulkan_version==VK_API_VERSION_1_2?"-vk12.spv":".spv")),std::ios::binary);file.write(reinterpret_cast<const char*>(program.spirv.data()),program.spirv.size()*4);
     check(bool(file),"Export shader for independent SPIR-V validation");return program;
 }
+#include "shader_link_cases.h"
 int wmain(int argc,wchar_t** argv){try{
     check(argc==3,"Shader fixture and compiler locations supplied");const auto root=std::filesystem::absolute(argv[1]);std::filesystem::create_directories(root);
     HlslCompiler compiler(argv[2]);HlslRequest request;request.source=root/"compute.hlsl";request.working_directory=root;
@@ -134,5 +136,6 @@ RWStructuredBuffer<float4> Out : register(u1);
     write(request.source,"RWStructuredBuffer<float> Out; [numthreads(1,1,1)] void main(){float v=float4(1,2,3,4);Out[0]=v;}\n");
     check(!compiler.compile(request,program,why) && why.find("warning")!=std::string::npos && why.find("-Gec is not supported with -spirv")!=std::string::npos,
           "A native warning cannot hide the following SPIR-V error behind a NUL terminator");
-    printf("shader_compile: %u checks passed; %u modules compiled\n",checks,compiled);return 0;
+    original_graphics_link(compiler,root);
+    printf("shader_compile: %u checks passed; %u modules emitted\n",checks,compiled);return 0;
 }catch(const std::exception& e){printf("FAIL after %u checks, %u modules: %s\n",checks,compiled,e.what());return 1;}}

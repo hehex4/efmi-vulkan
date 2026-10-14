@@ -1,6 +1,34 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, source binding fix 1.1.9. Complete rebuilt regression passes, resources 4006 and core/sync clean. BUG-022 fixed. Continue offline with graphics semantics/state/draws; no game input needed. Dist 1.0.2 unchanged.
+> Last updated: 2026-10-14, graphics linker 1.2.0. Complete rebuilt regression passes: resources 4065, compiler 172/58 valid modules, core/sync clean. Continue original graphics state/draws offline. Dist 1.0.2 unchanged.
+
+## Original graphics linking (verified candidate 1.2.0)
+
+HLSL compilation retains original DXBC register/component signatures and stable
+SPIR-V interface identities. The bounded linker validates native adjacent-stage
+contracts, then relocates Vulkan locations by original case-insensitive semantic
+and index. Vertex/hull/domain/geometry/pixel chains, patch/per-vertex IO and fixed
+arrays are covered. Wider output vectors require actual enabled maintenance4;
+unsupported packed/block/specialized interfaces refuse. Inputs remain immutable.
+
+A native DX11 WARP and headless Vulkan pixel reference exposes case-dependent
+DXC location ordering: raw Vulkan returns (207,311,2,3), while linked Vulkan and
+original DX11 both return (702,1103,7,11) for all 16 pixels. An earlier fixture
+omitted a native position register and was itself incompatible. It was corrected
+and the native signature guard added; semantics alone cannot repair invalid DXBC.
+Evidence of that development correction is in build/graphics-link-native-invalid/.
+
+Complete frozen-source rebuild/regression: build/next/run_all-1.2.0.out, all steps
+pass. Resources 4065, compiler 172 checks/58 valid modules, parser 726/evaluator65/
+runtime68, character79/357, liveINI28, validation76/modes40/MCP47/evidence113.
+Core/sync clean through shutdown; all 74 resource and 9 compiler hashes match.
+This is compiler/linker and isolated pixels, not original INI graphics execution.
+
+Continue immediately with original fixed-function state and owned drawing,
+including native coordinate, position-w and vertex/instance offset references;
+then shared shader matching and enabled-directory integration. No game input
+needed. Next1.2.1, dist1.0.2 unchanged, PNG paused, LOD0/LOD1 only. No deployment,
+game, launcher or system action. See docs/custom-shaders.md and D-050.
 
 
 ## Source binding semantics (verified candidate 1.1.9)

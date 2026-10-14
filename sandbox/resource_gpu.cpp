@@ -1,6 +1,7 @@
 // Original production INI -> owned Vulkan commands -> GPU readback. Headless.
 #include "../frontend/xxmi/gpu_resources.h"
 #include "../frontend/gpu/hlsl_compiler.h"
+#include "../frontend/gpu/graphics_link.h"
 #include "../frontend/xxmi/gpu_shaders.h"
 #include <atomic>
 #include <cstdio>
@@ -1337,6 +1338,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_compute_cases.h"
 #include "resource_usage_cases.h"
 #include "resource_binding_cases.h"
+#include "resource_graphics_link_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1362,7 +1364,7 @@ int wmain(int argc,wchar_t** argv){
         original_sampling(device,root/"original-sampling");original_buffer_hazards(device,root/"original-buffer-hazards");
         original_binding_batches(device,root/"binding-batches");original_restore_hazards(device,root/"restore-hazards");
         original_image_binding_ranges(device);original_attachment_bindings(device,root/"attachment-bindings");
-        original_pixel_binding_sets(device,root/"pixel-binding-sets");}
+        original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}
