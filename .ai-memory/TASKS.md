@@ -6,24 +6,25 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
-1.1.3 connects original INI image declarations, DDS, views, reference/copy/cache,
-ranges, whole pools, clears, properties and color MSAA resolve to owned Vulkan
-resources. Original helpers and native WARP view checks define source semantics;
-actual GPU readback checks bytes/pixels, depth planes, arrays/mips, copies and
-lifetime. BUG-018 and overly strict validation of dimension-unused fields are
-reproduced and fixed. Full frozen-source rebuild/regression passes in
-build/next/run_all-1.1.3.out: 1682 resource checks, zero core/sync validation
-messages, and every other step. Dist is unchanged at 1.0.2; no game action.
+1.1.4 adds integer RTV float conversion and single-sample R16/R32 color/depth
+bit copies to the owned original-runtime adapter. Native WARP pixel/copy
+references, actual Vulkan bytes, arrays/mips/partial regions, scratch reuse,
+budget failure and fence-retained lifetime pass 3285 checks with zero core/sync
+validation messages. BUG-019's depth payload range check is fixed. LIMIT-029
+records the deliberate WARP overflow policy and differing hardware observations.
+Full frozen-source rebuild/regression passes in build/next/run_all-1.1.4.out;
+all 52 resource source hashes match. Dist stays 1.0.2; no deployment or game action.
 
-Next: remaining resource format/conversion cases and GPU IniParams, then
-CustomShader, shared shader matching and complete directory graphics. Integer
-RTV float clears, unmapped DXGI formats, color/depth family copies, other misc/
-sample options and remaining buffer hash/properties are still explicit gaps.
-Slots and viewport currently hold logical state, not emitted shader/attachment
-bindings. IniParams must preserve original zero initialization, float dirty
-comparison and draw/list-boundary publication; see docs/gpu-resource-commands.md.
+Next: GPU IniParams, then CustomShader, shared shader matching and complete
+directory graphics. Parameters must preserve original zero initialization,
+float dirty comparison and draw/list-boundary publication; see
+docs/gpu-resource-commands.md. Unmapped image formats, multisampled color/depth
+copies, other misc/sample options and buffer hash/properties remain resource
+follow-ups. Opaque color-to-D32 copies need actual enabled unrestricted depth;
+application resource import and inline command placement remain separate work.
+Slots/viewport still hold logical state, not emitted shader/attachment bindings.
 PNG remains paused, LOD0/LOD1 only, no game input needed. The active goal remains
-incomplete. Next version is 1.1.4.
+incomplete. Next version is 1.1.5.
 
 Earlier verified checkpoint:
 

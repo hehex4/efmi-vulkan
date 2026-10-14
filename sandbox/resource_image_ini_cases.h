@@ -271,6 +271,11 @@ static std::vector<std::vector<uint8_t>> write_image_dds(const std::filesystem::
         const auto w=std::max(1u,c.width>>mip),h=std::max(1u,c.height>>mip),z=std::max(1u,c.depth>>mip);
         std::vector<uint8_t> bytes(size_t((w+c.block-1)/c.block)*((h+c.block-1)/c.block)*z*c.bytes);
         for(size_t i=0;i<bytes.size();++i)bytes[i]=uint8_t(19+layer*31+mip*17+i*3);
+        // The ordinary device has no unrestricted-depth extension. Packed D32
+        // fixtures therefore contain valid depth; stencil/padding stay distinct.
+        if(c.format==DXGI_FORMAT_R32G8X24_TYPELESS)for(size_t i=0;i<bytes.size();i+=8){
+            const float depth=float((i/8+layer+mip)%5)*0.25f;memcpy(bytes.data()+i,&depth,4);
+        }
         file.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());levels.push_back(std::move(bytes));
     }
     check(bool(file),"Write isolated DDS subresources");return levels;

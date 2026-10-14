@@ -132,14 +132,61 @@ destination dimensions, including zero height for 1D resources. SRV/UAV/RTV/DSV
 slots and that viewport are logical state for the next shader adapter; they do
 not yet emit application descriptors, render targets or viewport commands.
 
-Remaining image cases include integer RTV float conversion, unmapped DXGI
-formats (including alpha-only, BGRX and video formats), color/depth copies across
-the R16/R32 typeless family, nonzero MSAA quality/sample patterns, other source
+Remaining image cases include unmapped DXGI formats (including alpha-only,
+BGRX and video formats), multisampled color/depth family copies, nonzero MSAA
+quality/sample patterns, other source
 misc flags, application imports and render-pass placement. Generate-mips flags
 do not imply mip generation. Source-API invalid descriptions/views are explicit
 execution refusals rather than reproductions of the original driver's log-and-
 continue behavior. Valid shader use and volume-slice attachments need the later
 shader/render-target adapter. This is not complete Vulkan language execution.
+
+### Integer RTV and color/depth conversions (1.1.4)
+
+Integer RTV clears now convert the original floating-point clear values before
+packing their channel bits. Fractions truncate toward zero, NaN becomes zero,
+and out-of-range values saturate to the destination channel's signed/unsigned
+range. The calculation bounds a double before integer conversion, avoiding
+undefined casts at infinity and the UINT32 endpoint. Original `int`/hex options
+do not change RTV behavior; they still affect UAVs as before. Typeless aliases
+clear using their selected view format and a compatible owned scratch image.
+
+This is an observed native-API compatibility policy, not a claim that every
+driver follows one overflow rule. Headless WARP and hardware both truncate the
+tested fractions, despite the archived D3D11 DDI specification's general
+nearest-even conversion wording. WARP saturates finite values outside the
+32-bit range; this machine's hardware can instead wrap a UINT result or yield
+the negative SINT endpoint. The adapter deliberately follows WARP saturation.
+The repeatable test compares actual WARP pixels against all 19 supported integer
+RTV formats plus two differently typed allocation/view cases over nine input
+sets. It covers fractions, signs, channel saturation, large integers, infinity,
+NaN, signed zero, denormals and original clear flags. Initial hardware/WARP
+observations are under build/resource-commands/dx11-clear-{hardware,observation}.txt;
+the production adapter never creates a D3D11 device.
+
+Single-sample R16/R32 color/depth family copies now use a resident GPU buffer
+between the two image aspects. Original whole-image copies iterate every mip
+and array layer. The lower-level command also handles selected rectangles and
+layers with independent source/destination offsets. A shared-budget scratch
+buffer grows when necessary and is reused; submission tickets retain it with
+the images. This records transfers without CPU mapping, staging allocations,
+implicit submission or waiting. It is still an owned outside-render-pass path.
+
+Opaque color bits entering D32 require the host to report that the logical
+device actually enabled VK_EXT_depth_range_unrestricted. Physical support alone
+does not suffice. Without the extension, that copy refuses and poisons the INI
+scope, while `copy_desc`, D32-to-color copies and both R16 directions remain
+available. The headless fixture creates a separate device with the extension
+enabled and checks arbitrary float bit patterns, including NaN payloads. Ordinary
+low-level buffer-to-depth calls still require the caller to ensure valid source
+depth values when the extension is disabled.
+
+Source review also found BUG-019: float depth uploads previously accepted values
+outside Vulkan's permitted range without the extension. Host uploads now check
+the copied D32 texels before recording, respecting pitch and ignoring padding.
+The ordinary packed-depth DDS fixture now contains valid depths; the unrestricted
+fixture separately verifies unusual float bits. Clean core/sync validation alone
+cannot prove the validity of the bytes copied into a depth image.
 
 ## Buffer commands
 
@@ -283,6 +330,10 @@ clear pixels, independent copy-cache bytes, depth/stencil planes, MSAA resolve,
 native view-format acceptance and image/view lifetime. Negative descriptions,
 incompatible DXGI families, truncated DDS and paused PNG loading refuse without
 submitting partial work. Source hashes include both direct and INI image fixtures.
+Conversion fixtures add native integer-clear comparisons, native color/depth bit
+copies, mip/array/partial-region round trips, enabled/disabled extension paths,
+pitched depth upload rejection, explicit submission counts, scratch reuse/budgets
+and retirement after the last fence ticket releases its owners.
 
 ## Remaining execution work
 
@@ -317,6 +368,11 @@ which can lag the CPU vector before a flush. Test Constants, pre/post, nested
 commands, signed-zero bits, reload lifetime and actual GPU consumption. The
 current owned executor still requires an explicit serialized queue scope;
 application binding and render-pass placement remain separate integration work.
+The current RuntimeExtension::prepare runs after Constants, so it is too late
+for zero publication before those commands. Add an explicit initialization
+boundary rather than silently moving existing native Core preparation. The
+current DrawPlanAdapter also finishes root pre/post lists without an extension
+flush callback; cover root completion and each injected draw/dispatch separately.
 
 ## References
 
@@ -351,3 +407,10 @@ Pinned original `DirectX11/CommandList.cpp` and `CommandList.h` at
   requires an in-range depth field even for a stencil-only operation.
 - [Vulkan color clear value](https://docs.vulkan.org/refpages/latest/refpages/source/VkClearColorValue.html)
   defines allocation-format conversion; a source view format cannot be ignored.
+- [D3D11 render-target clear](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-clearrendertargetview)
+  uses float inputs and does not promise arbitrary integer bit-pattern clears.
+- [D3D11 resource copy](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-copyresource)
+  permits compatible formats in one typeless family without scaling/conversion.
+- [Archived D3D11 specification](https://microsoft.github.io/DirectX-Specs/d3d/archive/D3D11_3_FunctionalSpec.htm)
+  sections 3.2 and 5.2.3 describe conversion/clearing; the native reference results
+  above document the observed integer RTV rounding/overflow differences.

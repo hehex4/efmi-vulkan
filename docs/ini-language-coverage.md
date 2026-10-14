@@ -5,12 +5,13 @@ seen in a few installed character Mods. The original C++ engine remains the
 parser and evaluator. A successful parse does not establish that an executed
 graphics command has a working Vulkan implementation.
 
-Latest owned-execution checkpoint: 1.1.3 adds original image resource commands
-to the existing buffer adapter. The 1682-check resource fixture and complete
-rebuilt regression pass in `build/next/run_all-1.1.3.out`. This covers bounded DDS,
-views, copy/cache/pool operations, clear pixels, properties and color resolves;
-remaining formats/conversions, GPU parameters, CustomShader, general shader
-matching and complete directory graphics remain open. Dist stays 1.0.2.
+Latest owned-execution checkpoint: 1.1.4 adds native-reference integer RTV clears
+and single-sample R16/R32 color/depth bit copies, with explicit extension/range
+checks. The 3285-check resource fixture and complete rebuilt regression pass in
+`build/next/run_all-1.1.4.out`. This extends the existing DDS, views, copy/cache/
+pool, clear, property and color-resolve paths. Remaining formats/conversions,
+GPU parameters, CustomShader, general shader matching and complete directory
+graphics remain open. Dist stays 1.0.2; these resource tests are not game evidence.
 
 ## Source authority and coverage checks
 
@@ -129,7 +130,7 @@ pools, pending a broader GPU lifetime adapter.
 | Buffer slot ranges and broadcasts | Owned GPU adapter, plain reference and compatible copy paths; original null/view/counter behavior; fresh typed/raw views remain open |
 | Buffer identity/size/stride/source-stride/format/flags/offset and extent metadata | Owned GPU adapter with original sentinels, override precedence and actual draw-context offsets; declaration-only Constants queries allocate nothing |
 | FIFO/spatial/expiring buffer pools and whole-pool assignments | Original pool rules and owned-buffer GPU execution; frame duration supplied by the host |
-| Image declarations, DDS, references/copies/pools, clears, properties and color MSAA resolve | Opt-in original-runtime owned-image adapter; original description/view helpers and native view-format reference; remaining formats/conversions and shader use stay open |
+| Image declarations, DDS, references/copies/pools, clears, properties and color MSAA resolve | Opt-in original-runtime owned-image adapter; original helpers and native view/clear/copy reference; integer RTV and single-sample R16/R32 color/depth conversions included, remaining formats/options and shader use stay open |
 | Remaining conversions/options and region/spatial hashes | Parse support; general Vulkan execution remains open |
 | Non-indexed/automatic/indirect draws and compute dispatch | Parse support; general Vulkan execution remains open |
 | CustomShader render state and HLSL | Original metadata parsing; original panel HLSL compiles separately, general pipeline execution remains open |

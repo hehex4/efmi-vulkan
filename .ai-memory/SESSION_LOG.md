@@ -1248,3 +1248,40 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   as the next adapter audit. No deployment, module swap, game/launcher action,
   original-installation write or system registration. PNG paused, LOD0/LOD1 only.
   The active goal remains incomplete and the next work needs no user input.
+
+## 2026-10-14 - Integer RTV and color/depth image conversions (1.1.4)
+
+- Resumed from the project memory and answered the user's next-step question;
+  continued the active offline resource/runtime goal. No game input was needed.
+- Added original integer RTV float conversion. Headless WARP comparisons cover
+  19 integer formats and two typeless view cases over nine input sets. Both
+  WARP and hardware truncate tested fractions; finite overflow can differ.
+  The implementation deliberately follows WARP's saturation and records that
+  boundary as LIMIT-029, without undefined float-to-integer casts. Initial native
+  observations are saved in build/resource-commands/dx11-clear-*.txt.
+- Connected single-sample R16/R32 color/depth family copies through a reusable
+  resident buffer. Tests check native copy semantics, every mip/layer, partial
+  rectangles and offsets for all eight compatible color formats, untouched
+  texels, repeated copies, allocation budgets and fence-retained retirement.
+  Instrumented execution records zero CPU maps and implicit submissions for
+  repeated transfers; only the explicit finish submits their batch.
+- Enforced actual enabled unrestricted-depth extension for opaque color-to-D32
+  transfers. copy_desc, reverse D32 copies and both R16 directions work without
+  it. A separate headless device enables the extension for arbitrary float-bit
+  round trips. Source review found BUG-019: host float-depth data lacked a range
+  check. Added copied-texel validation with pitch padding ignored and corrected
+  the ordinary packed DDS fixture to contain valid depth. This was offline
+  validation work, not a deployed-game observation.
+- Targeted and final frozen-source full rebuild/regression pass in
+  build/next/run_all-1.1.4.out: resource 3285, parser 726, evaluation 65, CPU runtime
+  68, character package/GPU 79/357, live INI GPU 28, validation 76, modes 40,
+  MCP 47, evidence 113 and all remaining steps. Resource core/sync validation
+  has zero messages through shutdown; all 52 recorded source hashes match.
+  ABI stays 16b90a85431f86b4. Text check covers 284 project files.
+- Candidate/source is 1.1.4, dist stays 1.0.2. No deployment, module exchange,
+  game/launcher action, original-installation write or system registration.
+  Next is GPU IniParams publication; the audit records that the existing prepare
+  callback runs after Constants, so zero initialization needs a separate earlier
+  boundary. Further resource formats/options, CustomShader, shared shader
+  matching and complete directory graphics stay open. PNG paused, LOD0/LOD1 only.
+  The active goal is incomplete; next version 1.1.5 needs no game input.

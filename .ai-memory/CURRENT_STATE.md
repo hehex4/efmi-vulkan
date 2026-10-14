@@ -1,8 +1,51 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, original INI image command execution. Source/candidate 1.1.3 passes the full rebuilt regression, including 1682 resource checks with clean core/sync validation. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, original image format conversion. Source/candidate 1.1.4 passes the full rebuilt regression, including 3285 resource checks with clean core/sync validation. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
 
 Material matching clarification (2026-10-14): deployed 1.0.2 executes the original main INI to choose logical pixel bindings. Exact fragment bytes select the verified source-slot/Vulkan-binding profile. Unprofiled fragments derive a profile from the same override section and pass kind, matching shared image ids first and otherwise unique view-type/format/extent signatures. Every sibling image must be represented, at most two target images may be extra, and equal-best candidates with different rules refuse derivation. Unknown correspondence keeps game images on the mod mesh and retries later; it does not by itself revert geometry. image_hash remains 0; original source-image hash override execution is not enabled in this character registry. This explanation inspected commits/code only, with no new game observation. Candidate image-command work does not replace the deployed character material policy.
+
+## Integer RTV and color/depth conversion (verified candidate 1.1.4)
+
+Integer RTV clears now convert original floats with measured native WARP
+truncation, NaN-to-zero and channel saturation. Tests compare actual pixels for
+19 integer formats plus two typeless allocation/view cases across nine input
+sets. Original int/hex options keep their distinct RTV/UAV semantics. Hardware
+observations agree on fractions but differ for finite values outside the 32-bit
+range; deterministic WARP saturation is the selected policy (LIMIT-029), not a
+claim of cross-vendor identical overflow. Details: docs/gpu-resource-commands.md.
+
+Single-sample R16/R32 color/depth family copies use a reusable shared-budget
+resident buffer without CPU mapping, staging, implicit submission or waits.
+Original INI copies preserve every mip/layer; lower-level tests also check
+selected rectangles, independent offsets and untouched regions across all eight
+compatible color formats. Native WARP copies provide a source-API reference.
+Copy cache reuse, extension refusal, scope poisoning, budget exhaustion and
+fence-retained image/scratch lifetime are covered.
+
+Opaque color-to-D32 copies require actual enabled VK_EXT_depth_range_unrestricted.
+Without it, copy_desc, D32-to-color and both R16 directions still work. A separate
+headless device enables the extension for arbitrary float-bit round trips.
+BUG-019 is fixed: host float-depth uploads validate copied values in [0,1] when
+the extension is absent, ignoring pitch padding. The earlier packed DDS fixture
+now contains valid depths; clean core/sync messages alone never proved that data
+constraint. The low-level device-buffer-to-depth primitive retains an explicit
+caller range obligation.
+
+The final frozen-source rebuild/regression passes in build/next/run_all-1.1.4.out:
+resource suite 3285, parser 726, evaluation 65, CPU runtime 68, character package/
+GPU 79/357, live INI GPU 28, validation 76, modes 40, MCP 47, evidence 113 and every
+remaining step. Resource tests have zero core/sync warnings/errors through device
+shutdown; all 52 recorded source hashes match. ABI remains 16b90a85431f86b4.
+Candidate stays in build/next; the current diff and memory form this checkpoint.
+
+Next: GPU IniParams publication, preserving original zero initialization, dirty
+float comparison and draw/list-boundary flushing; then CustomShader, shared shader
+matching and complete enabled-directory graphics. Remaining format mappings
+(alpha-only/BGRX/video), multisampled color/depth copies, source misc/sample
+options and buffer hash/properties remain tracked resource follow-ups. Logical
+bindings/viewport still do not emit shader or attachment commands. PNG stays
+paused, no game input is needed, and the active goal remains incomplete.
+Next version is 1.1.5. Dist remains 1.0.2.
 
 ## Original INI image commands (verified candidate 1.1.3)
 

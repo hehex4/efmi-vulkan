@@ -24,6 +24,12 @@ connects original declarations, DDS decoding, views, copies, clears, properties
 and color resolves. It reuses original CPU description/view helpers, preserves
 DXGI family rules and adapts view-specific clear formats using owned scratch
 images. Native WARP view checks and Vulkan pixel readback stay in the sandbox.
+The 1.1.4 conversion paths add native-reference integer RTV conversion and
+single-sample R16/R32 color/depth bit transfers through reusable resident buffers.
+Scratch owners share budgets and submission lifetime. Opaque bits entering D32
+require actual logical-device unrestricted-depth enablement; CPU float-depth
+uploads otherwise validate copied texels before recording. These checks do not
+change the application's device features or introduce an implicit GPU wait.
 This requires an explicit outside-render-pass scope on a host-serialized queue.
 It does not replace the character hook's file-plan renderer, import application
 resources, or emit shader descriptors/draws. Remaining image formats/conversions, shader adapters and complete

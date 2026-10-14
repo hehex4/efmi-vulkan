@@ -29,7 +29,7 @@ struct Device {
     PFN_vkDeviceWaitIdle wait_idle=nullptr;PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     ~Device(){if(resource.device){wait_idle(resource.device);destroy_device(resource.device,nullptr);}
         if(messenger)destroy_debug(instance,messenger,nullptr);if(instance)destroy_instance(instance,nullptr);}
-    void init(){
+    void init(bool unrestricted_depth=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -48,6 +48,7 @@ struct Device {
         GET(EnumeratePhysicalDevices);GET(GetPhysicalDeviceQueueFamilyProperties);GET(GetPhysicalDeviceMemoryProperties);
         GET(CreateDevice);GET(GetDeviceProcAddr);GET(GetPhysicalDeviceFeatures);GET(GetPhysicalDeviceProperties);
         GET(GetPhysicalDeviceImageFormatProperties);GET(GetPhysicalDeviceFormatProperties);
+        GET(EnumerateDeviceExtensionProperties);
 #undef GET
         uint32_t count=0;vkcheck(EnumeratePhysicalDevices(instance,&count,nullptr),"Enumerate test devices");
         std::vector<VkPhysicalDevice> physical(count);vkcheck(EnumeratePhysicalDevices(instance,&count,physical.data()),"Read test devices");
@@ -69,6 +70,15 @@ struct Device {
         float priority=1;VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=resource.queue_family;q.queueCount=1;q.pQueuePriorities=&priority;
         VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};dc.queueCreateInfoCount=1;dc.pQueueCreateInfos=&q;
         dc.pEnabledFeatures=&resource.enabled_features;
+        const char* depth_extension=VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME;
+        if(unrestricted_depth){
+            uint32_t available=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&available,nullptr),"Enumerate device extensions");
+            std::vector<VkExtensionProperties> extensions(available);
+            vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&available,extensions.data()),"Read device extensions");
+            for(const auto& extension:extensions)if(!strcmp(extension.extensionName,depth_extension))resource.enabled_depth_range_unrestricted=true;
+            check(resource.enabled_depth_range_unrestricted,"Requested unrestricted-depth test extension available");
+            dc.enabledExtensionCount=1;dc.ppEnabledExtensionNames=&depth_extension;
+        }
         vkcheck(CreateDevice(selected,&dc,nullptr,&resource.device),"Create test device");
 #define GET(name) auto name=reinterpret_cast<PFN_vk##name>(GetDeviceProcAddr(resource.device,"vk" #name));check(name!=nullptr,"vk" #name);
         GET(DestroyDevice);destroy_device=DestroyDevice;GET(DeviceWaitIdle);wait_idle=DeviceWaitIdle;GET(GetDeviceQueue);GetDeviceQueue(resource.device,resource.queue_family,0,&queue);
@@ -1300,6 +1310,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
     }
 }
 #include "resource_image_ini_cases.h"
+#include "resource_image_conversion_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1310,7 +1321,9 @@ int wmain(int argc,wchar_t** argv){
         image_ini_clears(device,root/"image-clears");image_ini_depth_resolve(device,root/"image-depth");
         image_ini_dds(device,root/"image-dds");image_ini_file_cache(device,root/"image-file-cache");
         image_ini_depth_dds(device,root/"image-depth-dds");image_ini_failures(device,root/"image-failures");
-        image_ini_pool_lifetime(device,root/"image-pool-lifetime");}
+        image_ini_pool_lifetime(device,root/"image-pool-lifetime");
+        image_ini_integer_rtv(device,root/"image-integer-rtv");
+        image_depth_conversion(device,root/"image-depth-conversion");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

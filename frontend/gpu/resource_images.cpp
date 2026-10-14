@@ -244,6 +244,28 @@ void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const 
     barrier();transition(image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     device_.dispatch.CmdClearColorImage(command(),image->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&value,1,&r);
 }
+void ResourceCommands::copy_color_depth(const Image& source,const Image& destination,const VkImageCopy& r) {
+    region(source,r.srcSubresource,r.srcOffset,r.extent);region(destination,r.dstSubresource,r.dstOffset,r.extent);
+    const auto& a=source->description_;const auto& b=destination->description_;
+    const bool to_depth=r.dstSubresource.aspectMask==VK_IMAGE_ASPECT_DEPTH_BIT;
+    const auto depth=to_depth?b.format:a.format,color=to_depth?a.format:b.format;
+    const bool compatible=depth==VK_FORMAT_D16_UNORM?
+        (color==VK_FORMAT_R16_UNORM || color==VK_FORMAT_R16_SNORM || color==VK_FORMAT_R16_UINT || color==VK_FORMAT_R16_SINT || color==VK_FORMAT_R16_SFLOAT):
+        (depth==VK_FORMAT_D32_SFLOAT && (color==VK_FORMAT_R32_SFLOAT || color==VK_FORMAT_R32_UINT || color==VK_FORMAT_R32_SINT));
+    if(!compatible || a.type!=b.type || a.samples!=VK_SAMPLE_COUNT_1_BIT || b.samples!=VK_SAMPLE_COUNT_1_BIT ||
+       r.srcSubresource.layerCount!=r.dstSubresource.layerCount ||
+       r.srcSubresource.aspectMask!=(to_depth?VK_IMAGE_ASPECT_COLOR_BIT:VK_IMAGE_ASPECT_DEPTH_BIT) ||
+       r.dstSubresource.aspectMask!=(to_depth?VK_IMAGE_ASPECT_DEPTH_BIT:VK_IMAGE_ASPECT_COLOR_BIT))
+        throw std::runtime_error("Color/depth bit copies require matching single-sample R16 or R32 images");
+    if(to_depth && depth==VK_FORMAT_D32_SFLOAT && !device_.enabled_depth_range_unrestricted)
+        throw std::runtime_error("Opaque color-to-D32 copy requires enabled VK_EXT_depth_range_unrestricted");
+    VkBufferImageCopy from{},to{};from.imageSubresource=r.srcSubresource;from.imageOffset=r.srcOffset;from.imageExtent=r.extent;
+    to.imageSubresource=r.dstSubresource;to.imageOffset=r.dstOffset;to.imageExtent=r.extent;
+    const auto bytes=transfer_size(source,from);
+    if(bytes!=transfer_size(destination,to))throw std::runtime_error("Color/depth copy footprints differ");
+    if(!image_copy_scratch_ || image_copy_scratch_->size()<bytes)image_copy_scratch_=create(bytes,0);
+    copy(source,image_copy_scratch_,from);copy(image_copy_scratch_,destination,to);
+}
 void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const VkClearDepthStencilValue& value) {
     r=range(image,r);if(r.aspectMask&VK_IMAGE_ASPECT_COLOR_BIT)throw std::runtime_error("Depth/stencil clear requires a depth/stencil image");
     if((r.aspectMask&VK_IMAGE_ASPECT_DEPTH_BIT) && (!std::isfinite(value.depth) || value.depth<0 || value.depth>1))
@@ -270,6 +292,18 @@ void ResourceCommands::write(const Image& image,VkBufferImageCopy r,const void* 
     if(r.bufferOffset)throw std::runtime_error("Host image upload requires zero buffer offset");
     const auto required=transfer_size(image,r);
     if(!bytes || size!=required)throw std::runtime_error("Image upload byte count does not match region and pitch");
+    if(!device_.enabled_depth_range_unrestricted && r.imageSubresource.aspectMask==VK_IMAGE_ASPECT_DEPTH_BIT &&
+       (image->description_.format==VK_FORMAT_D32_SFLOAT || image->description_.format==VK_FORMAT_D32_SFLOAT_S8_UINT)){
+        // Validate only copied texels; padding is not depth data. Device-side
+        // buffer copies have no CPU contents and require the caller's range proof.
+        const auto row=VkDeviceSize(r.bufferRowLength?r.bufferRowLength:r.imageExtent.width);
+        const auto rows=VkDeviceSize(r.bufferImageHeight?r.bufferImageHeight:r.imageExtent.height);
+        const auto slices=VkDeviceSize(r.imageExtent.depth)*r.imageSubresource.layerCount;
+        for(VkDeviceSize z=0;z<slices;++z)for(uint32_t y=0;y<r.imageExtent.height;++y)for(uint32_t x=0;x<r.imageExtent.width;++x){
+            float value;memcpy(&value,static_cast<const uint8_t*>(bytes)+((z*rows+y)*row+x)*4,4);
+            if(!(value>=0 && value<=1))throw std::runtime_error("Float depth upload outside [0,1] requires enabled VK_EXT_depth_range_unrestricted");
+        }
+    }
     auto stage=allocate(required,VK_BUFFER_USAGE_TRANSFER_SRC_BIT,true);write_stage(stage,bytes,size);copy(stage,image,r);
 }
 std::vector<uint8_t> ResourceCommands::readback(VkQueue queue,const Image& image,VkBufferImageCopy r) {

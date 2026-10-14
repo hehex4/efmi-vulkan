@@ -394,3 +394,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   through floats. Logical RTV/DSV/viewport state does not authorize application
   render-target binding. Integer RTV conversion and other format gaps stay
   explicit. Native D3D11 reference devices exist only in the headless test.
+- Conversion follow-up (1.1.4): integer RTV clear conversion follows measured
+  native WARP truncation and saturation, with hardware overflow differences
+  recorded in LIMIT-029. R16/R32 color/depth bit copies use reusable resident GPU
+  scratch without readback. Opaque color-to-D32 transfers require actual enabled
+  VK_EXT_depth_range_unrestricted, not support alone. Host float-depth uploads
+  validate copied values when that extension is absent (BUG-019). This does not
+  authorize changes to an application's enabled extensions or its render passes.

@@ -17,6 +17,17 @@ namespace {
 using Target=ResourceCopyTargetType;
 using View=GpuResourceBinding::View;
 void require(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
+UINT rtv_integer(float value,UINT bits,bool sign){
+    if(!bits || std::isnan(value))return 0;
+    // Native WARP and hardware RTV clears truncate fractions, unlike the
+    // historical DDI spec's general nearest-even wording. Saturation follows
+    // WARP at overflow; native drivers can differ outside the 32-bit range.
+    // Clamp as double before casting so NaN/infinity and UINT32_MAX are safe.
+    const auto limit=uint64_t(1)<<(sign?bits-1:bits);
+    const double low=sign?-double(limit):0.0,high=double(limit-1);
+    const auto bounded=std::clamp(double(value),low,high);
+    return sign?UINT(int64_t(bounded)):UINT(bounded);
+}
 UINT image_bind_flag(View kind){
     switch(kind){case View::ShaderResource:return D3D11_BIND_SHADER_RESOURCE;case View::UnorderedAccess:return D3D11_BIND_UNORDERED_ACCESS;
     case View::RenderTarget:return D3D11_BIND_RENDER_TARGET;case View::DepthStencil:return D3D11_BIND_DEPTH_STENCIL;default:return 0;}
@@ -236,7 +247,9 @@ void GpuResourceRuntime::image_copy(ResourceCopyOperation& op,ResourceCopyTarget
             require(a.type==b.type && a.extent.width==b.extent.width && a.extent.height==b.extent.height && a.extent.depth==b.extent.depth &&
                 a.mips==b.mips && a.layers==b.layers && a.samples==b.samples,"Original whole-image copy descriptions differ");
             for(UINT mip=0;mip<a.mips;++mip){VkImageCopy r{};r.srcSubresource={source.image->full_range().aspectMask,mip,0,a.layers};
-                r.dstSubresource={out.image->full_range().aspectMask,mip,0,b.layers};r.extent=source.image->extent(mip);commands_.copy(source.image,out.image,r);}
+                r.dstSubresource={out.image->full_range().aspectMask,mip,0,b.layers};r.extent=source.image->extent(mip);
+                if(r.srcSubresource.aspectMask==r.dstSubresource.aspectMask)commands_.copy(source.image,out.image,r);
+                else commands_.copy_color_depth(source.image,out.image,r);}
         }
     }
     out.visible_size=0;out.region=false;
@@ -266,21 +279,23 @@ void GpuResourceRuntime::image_clear(GpuResourceBinding b,ClearViewCommand& op) 
     }
     require(b.view==View::UnorderedAccess || b.view==View::RenderTarget,"Image clear view type is unavailable");
     const auto format=source_image_format(b.view_format);VkClearColorValue value{};VkFormat clear_format=format.format;
-    const bool integer=b.view==View::UnorderedAccess && (op.clear_uav_uint || !original_float_clear(b.view_format));
-    if(integer){
+    const bool integer_uav=b.view==View::UnorderedAccess && (op.clear_uav_uint || !original_float_clear(b.view_format));
+    const bool integer_rtv=b.view==View::RenderTarget && !original_float_clear(b.view_format);
+    if(integer_uav || integer_rtv){
         // D3D integer UAV clear writes the low N bits per channel without any
         // format conversion. Clear a size-compatible UINT image with packed bits,
         // then bit-copy its selected subresources into the original allocation.
         UINT bits=0;for(UINT i=0;i<4;++i)bits=std::max(bits,format.offsets[i]+format.bits[i]);
         require(bits && bits<=128 && bits%8==0,"Image integer clear format has no packed-color adapter");
-        for(UINT i=0;i<4;++i)for(UINT n=0;n<format.bits[i];++n)if(op.uval[i]&(1u<<n)){
+        for(UINT i=0;i<4;++i){const auto channel=integer_uav?op.uval[i]:rtv_integer(op.fval[i],format.bits[i],format.signed_integer);
+            for(UINT n=0;n<format.bits[i];++n)if(channel&(1u<<n)){
             const UINT bit=format.offsets[i]+n;value.uint32[bit/32]|=1u<<(bit%32);}
+        }
         switch(bits){case 8:clear_format=VK_FORMAT_R8_UINT;break;case 16:clear_format=VK_FORMAT_R16_UINT;break;
         case 32:clear_format=VK_FORMAT_R32_UINT;break;case 64:clear_format=VK_FORMAT_R32G32_UINT;break;
         case 96:clear_format=VK_FORMAT_R32G32B32_UINT;break;case 128:clear_format=VK_FORMAT_R32G32B32A32_UINT;break;
         default:throw std::runtime_error("Image integer clear width needs a packed-color adapter");}
     }else{
-        require(original_float_clear(b.view_format),"Integer render-target float conversion needs source-API verification");
         memcpy(value.float32,op.fval,sizeof(value.float32));
     }
     if(clear_format==b.image->description().format){commands_.clear(b.image,range,value);return;}

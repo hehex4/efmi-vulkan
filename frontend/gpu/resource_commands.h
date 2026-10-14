@@ -32,6 +32,8 @@ struct ResourceDevice {
     // queue. Enabled features are the logical device's, not merely supported ones.
     VkPhysicalDevice physical=VK_NULL_HANDLE;
     VkPhysicalDeviceFeatures enabled_features{};
+    // Actual logical-device extension enablement, never physical support alone.
+    bool enabled_depth_range_unrestricted=false;
     VkQueueFlags queue_flags=0;
     uint32_t api_version=0;
     PFN_vkGetPhysicalDeviceImageFormatProperties GetImageFormatProperties=nullptr;
@@ -162,6 +164,10 @@ public:
     // Layout changes inside a pending batch are private and discarded with it.
     ImageView view(const Image&,VkImageViewType,VkFormat,VkImageSubresourceRange,VkImageUsageFlags usage=0);
     void copy(const Image& source,const Image& destination,const VkImageCopy&);
+    // Bit-preserving single-sample R16/R32 color/depth transfers use a resident
+    // buffer, without CPU mapping, submission or waiting. Unknown float bits
+    // entering D32 require VK_EXT_depth_range_unrestricted to be enabled.
+    void copy_color_depth(const Image& source,const Image& destination,const VkImageCopy&);
     void copy(const Buffer& source,const Image& destination,const VkBufferImageCopy&);
     void copy(const Image& source,const Buffer& destination,const VkBufferImageCopy&);
     void clear(const Image&,VkImageSubresourceRange,const VkClearColorValue&);
@@ -193,6 +199,7 @@ private:
     ResourceBudgets budgets_;
     std::shared_ptr<const uint8_t> domain_=std::make_shared<const uint8_t>(0);
     std::shared_ptr<ResourceSubmission> pending_;
+    Buffer image_copy_scratch_;
     VkQueue queue_=VK_NULL_HANDLE;
 };
 }

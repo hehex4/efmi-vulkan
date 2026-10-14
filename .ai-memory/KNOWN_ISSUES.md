@@ -417,3 +417,31 @@ adapter separately applies D3D11's depth clamping when it is used. Actual depth
 and stencil readbacks, ignored nonfinite depth and the original explicit-flag
 priority pass in the 1682-check targeted suite with zero validation messages.
 The final full-suite checkpoint is recorded in CURRENT_STATE.md.
+
+## BUG-019: Float depth uploads lacked the required range/extension check (fixed in candidate 1.1.4)
+
+The owned host-image uploader accepted arbitrary D32 and D32/S8 depth-plane
+bytes on devices without VK_EXT_depth_range_unrestricted. Vulkan requires
+copied depth in [0,1] in that case, so accepting the upload did not establish
+defined results. An older packed D32/S8 DDS fixture also generated random depth
+bits; zero core/sync validation messages did not verify that payload constraint.
+
+Host uploads now inspect only copied texels, ignoring row/image padding, and
+reject out-of-range or NaN values before recording. The ordinary DDS fixture
+uses valid depths; a separately enabled test device covers arbitrary float
+bits. The new color-to-D32 bridge requires actual logical-device extension
+enablement because it cannot inspect device-only bytes without a readback.
+Depth-to-color and the R16 family do not require that extension. The explicit
+low-level buffer-to-depth primitive still relies on the caller's range proof.
+This is offline resource work, not a defect observed in the deployed game.
+
+## LIMIT-029: Native integer RTV overflow differs between reference and hardware
+
+Candidate 1.1.4 follows native WARP truncation, NaN-to-zero and channel saturation.
+The observed hardware agrees for fractions/ordinary values but can differ for
+finite inputs outside the 32-bit range. The adapter chooses WARP's deterministic
+saturation rather than an undefined C++ float-to-integer cast or a vendor rule.
+Tests compare 19 integer formats and two typeless-view cases against WARP. The
+archived DDI specification's rounding wording also differs from both measured
+native devices; no cross-vendor bit-identical overflow behavior is claimed.
+See docs/gpu-resource-commands.md and build/resource-commands/dx11-clear-*.txt.
