@@ -492,3 +492,15 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   through the pinned helper. Compare semantic fields rather than struct padding.
 - CPU state descriptions, isolated native/Vulkan pixels and production original
   INI drawing remain separate evidence. Continue connecting the owned executor.
+
+
+## D-052: Graphics shares retained owned resource execution
+
+- Date: 2026-10-14, candidate 1.2.2. Compute and graphics share immutable descriptor
+  validation and fence-owned objects. The host explicitly owns the queue domain;
+  private passes do not imply permission to interrupt application rendering.
+- Validate actual enabled features, formats, state and buffer ranges before
+  recording. GPU-produced indices/counts remain an explicit valid-range contract;
+  do not introduce hidden waits or CPU readbacks for draw validation.
+- Native DX11 pixel references validate graphics API behavior. Original INI stage/
+  state conversion and application integration require their own evidence.

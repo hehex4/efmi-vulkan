@@ -241,3 +241,30 @@ comparison-filter samplers with ordinary SampleLevel return normal sampled
 values. Shader instruction usage must choose comparison behavior; the source
 filter comparison bit alone is insufficient. Integrate this diagnostic into the
 production sampler/draw tests next.
+
+
+## Owned graphics execution (verified candidate 1.2.2)
+
+Production ShaderCommands now records owned VS/PS graphics work with shared
+immutable descriptors, private render passes and submission-retained pipeline,
+framebuffer, vertex/index/argument and target owners. Direct, indexed, instanced
+and indirect draws share the resource domain and actual enabled feature checks.
+State/attachment/layout/range validation occurs before recording. No hidden CPU
+readback or queue wait is added; GPU indices/counts remain a caller-valid contract.
+
+Native DX11 WARP and Vulkan pixel references agree for distinct stage bindings,
+textures, vertex input, blend constants, depth tests, signed indexed bases and
+nonzero draw offsets. Tests cover discarded/submitted lifetime and quota rollback.
+Complete frozen-source rebuild/regression: build/next/run_all-1.2.2.out, all steps
+pass; resources 4749, compiler 172/58 valid modules, zero core/sync messages through
+shutdown. All 80 resource and 9 compiler source hashes match; text 316 files clean
+before this memory update. This is owned graphics API execution, not original INI
+graphics calls, application pass placement or game rendering. Dist 1.0.2 unchanged.
+
+Next 1.2.3: connect original CustomShader stages/state and Draw commands, including
+inherited layouts, automatic counts, source samplers and state restoration. Then
+finish remaining shader semantics, matching and enabled-directory integration.
+Current owned graphics supports VS/PS and triangle/line topologies; geometry,
+tessellation, dual-source output lowering and additional attachment/interface
+cases remain explicit work. No game input needed; continue without stopping.
+PNG paused; LOD0/LOD1 only. No deployment, game or system action by this work.

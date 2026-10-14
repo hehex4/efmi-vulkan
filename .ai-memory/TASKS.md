@@ -6,6 +6,18 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.2 completes owned graphics pipelines/draws, immutable descriptors and fence
+retention, with native DX11 pixels and clean full regression. Evidence:
+build/next/run_all-1.2.2.out; resources 4749, compiler 172/58 valid, source hashes
+80/9 match. Original INI graphics calls still need integration. Next 1.2.3:
+source stages/state/layouts/draws and sampler rules, then remaining capabilities,
+shader matching and enabled-directory integration. No game input needed; continue.
+Dist 1.0.2 unchanged; PNG paused, LOD0/LOD1 only. Keep the separate launcher DX11
+state recorded below; no launcher or game action was part of this increment.
+
+Earlier verified checkpoint:
+
+
 1.2.1 fixes native pixel-w and draw-ID conventions (BUG-023) and exposes original
 fixed-function description merging. Native DX11/Vulkan output agrees for direct/
 indexed offsets, negative bases, multiple instances and culling. Full rebuilt

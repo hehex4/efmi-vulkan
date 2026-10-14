@@ -1458,3 +1458,22 @@ PNG paused, LOD0/LOD1 only.
 - Active configuration: D:/XXMI-Launcher-Portable-v2.1.6/XXMI-Launcher-Portable-v2.1.6/XXMI Launcher Config.json. Changed only Importers.EFMI.Importer.d3d11_mode_cmd_args from empty to -force-d3d11 and xxmi_dll_inject_mode from SKIP to DIRECT. JSON comparison and exact readback prove every other value unchanged; value-span replacement preserves all other bytes and signed settings.
 - Exact original copy and manifest: build/backups/launcher-dx11-20261014-201131/. Before SHA-256 632b40e4d380331e50da2ec6c5dc3d692091b67a746dd37cb2b5177ae70c31a6; after e0914e439bd70c2b6392fedaef4ae1c33836d8e7a01d0cc5d01467bc3e1e7dc6.
 - No game/launcher start or stop, layer/package deployment, original Mod/Core edit or system setting change. The user may start DX11; no capture or game verification is implied. Existing unrelated graphics implementation edits remain untouched. Text/diff checks apply to this memory-only source change.
+
+
+## 2026-10-14: Owned graphics executor, candidate 1.2.2
+
+Continued offline. Shared compute descriptor ownership now also backs VS/PS
+pipelines and private graphics passes. Direct/indexed/indirect, vertex inputs,
+blend/depth and signed offsets match system DX11 WARP references. Owners survive
+submission until fence completion; discard and failure release all budgets.
+Initial new fixtures used the wrong original stage macro and color aspect for
+depth readback; corrected to VERTEX_SHADER and explicit depth aspect. No production
+behavior was inferred from those fixture failures.
+
+Complete frozen-source rebuilt suite: build/next/run_all-1.2.2.out, all steps pass;
+resources 4749, compiler 172/58 valid, zero core/sync errors/warnings through
+shutdown, all 80/9 source hashes match, text 316 clean before memory update.
+Owned API evidence is separate from original INI execution and game evidence.
+No deployment/game/system action; dist 1.0.2 unchanged. External launcher-state
+commit c9000a7 is preserved independently. Next 1.2.3 connects source INI graphics
+stages/state/draws and continues offline; no game input is needed.

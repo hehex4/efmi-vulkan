@@ -1,8 +1,34 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, source coordinates/state foundation1.2.1. Complete rebuilt regression passes: resources4559, compiler172/58 valid modules, core/sync clean. Continue owned INI graphics execution immediately. Dist1.0.2 unchanged.
+> Last updated: 2026-10-14, owned graphics 1.2.2 verified. Full rebuilt suite passes; resources 4749, compiler 172/58 valid. Continue original INI graphics execution immediately. Dist 1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
+
+## Owned graphics execution (verified candidate 1.2.2)
+
+Production ShaderCommands now records owned VS/PS graphics work with shared
+immutable descriptors, private render passes and submission-retained pipeline,
+framebuffer, vertex/index/argument and target owners. Direct, indexed, instanced
+and indirect draws share the resource domain and actual enabled feature checks.
+State/attachment/layout/range validation occurs before recording. No hidden CPU
+readback or queue wait is added; GPU indices/counts remain a caller-valid contract.
+
+Native DX11 WARP and Vulkan pixel references agree for distinct stage bindings,
+textures, vertex input, blend constants, depth tests, signed indexed bases and
+nonzero draw offsets. Tests cover discarded/submitted lifetime and quota rollback.
+Complete frozen-source rebuild/regression: build/next/run_all-1.2.2.out, all steps
+pass; resources 4749, compiler 172/58 valid modules, zero core/sync messages through
+shutdown. All 80 resource and 9 compiler source hashes match; text 316 files clean
+before this memory update. This is owned graphics API execution, not original INI
+graphics calls, application pass placement or game rendering. Dist 1.0.2 unchanged.
+
+Next 1.2.3: connect original CustomShader stages/state and Draw commands, including
+inherited layouts, automatic counts, source samplers and state restoration. Then
+finish remaining shader semantics, matching and enabled-directory integration.
+Current owned graphics supports VS/PS and triangle/line topologies; geometry,
+tessellation, dual-source output lowering and additional attachment/interface
+cases remain explicit work. No game input needed; continue without stopping.
+PNG paused; LOD0/LOD1 only. No deployment, game or system action by this work.
 
 ## Source coordinates and state descriptions (verified candidate1.2.1)
 

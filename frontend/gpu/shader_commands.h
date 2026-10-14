@@ -4,6 +4,12 @@
 #include <array>
 
 namespace efmi::gpu {
+struct ShaderPipelineState;
+struct ShaderInvocation;
+struct GraphicsDescription;
+struct GraphicsDraw;
+class GraphicsPipeline;
+using Graphics=std::shared_ptr<GraphicsPipeline>;
 struct ShaderHost {
     PFN_vkGetDeviceProcAddr get_device_proc=nullptr;
     // Actual properties of the ResourceCommands physical device.
@@ -12,7 +18,7 @@ struct ShaderHost {
     // Actual logical-device feature enablement, including required extension
     // enablement on API versions where these features are not core.
     bool scalar_block_layout=false,uniform_buffer_standard_layout=false;
-    bool shader_draw_parameters=false;
+    bool shader_draw_parameters=false,maintenance4=false;
     std::shared_ptr<assets::AllocationBudget> objects=std::make_shared<assets::AllocationBudget>(8192);
     // Share across all owned shader generations on this device, within the
     // sampler capacity reserved by the host. Other application samplers count
@@ -21,13 +27,12 @@ struct ShaderHost {
 };
 class ComputePipeline {
 public:
-    struct Impl;
-    explicit ComputePipeline(std::shared_ptr<Impl>);
+    explicit ComputePipeline(std::shared_ptr<ShaderPipelineState>);
     ~ComputePipeline();
     const HlslProgram& program() const;
 private:
     friend class ShaderCommands;
-    std::shared_ptr<Impl> impl_;
+    std::shared_ptr<ShaderPipelineState> impl_;
 };
 using Compute=std::shared_ptr<ComputePipeline>;
 class ShaderSampler {
@@ -48,20 +53,24 @@ struct ShaderDescriptor {
     ImageView image;
     Sampler sampler;
 };
-// Owned, outside-render-pass compute execution in exactly the resource queue
-// domain. Each recorded dispatch owns immutable descriptors through its fence.
-// There is no implicit submit/wait, game import or source-slot inference here.
+// Owned compute and graphics execution in exactly the resource queue domain.
+// Graphics uses private render passes. Recorded invocations retain immutable
+// descriptors through their fences, with no implicit submit/wait or game import.
 class ShaderCommands {
 public:
     ShaderCommands(ResourceCommands&,ShaderHost);
     ~ShaderCommands();
     Compute compile(const HlslProgram&);
+    Graphics compile_graphics(const std::vector<HlslProgram>&,const GraphicsDescription&);
+    void draw(const Graphics&,const std::vector<ShaderDescriptor>&,const GraphicsDraw&);
     Sampler sampler(const VkSamplerCreateInfo&);
     void dispatch(const Compute&,const std::vector<ShaderDescriptor>&,std::array<uint32_t,3> groups);
     // The GPU-produced counts must satisfy maxComputeWorkGroupCount, as for
     // Vulkan itself. There is no implicit CPU readback or count modification.
     void dispatch_indirect(const Compute&,const std::vector<ShaderDescriptor>&,const Buffer&,VkDeviceSize offset);
 private:
+    void layout(ShaderPipelineState&);
+    std::shared_ptr<ShaderInvocation> descriptors(const std::shared_ptr<ShaderPipelineState>&,const std::vector<ShaderDescriptor>&);
     void record(const Compute&,const std::vector<ShaderDescriptor>&,std::array<uint32_t,3>,const Buffer&,VkDeviceSize);
     struct Impl;
     std::unique_ptr<Impl> impl_;

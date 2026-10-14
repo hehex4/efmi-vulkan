@@ -99,7 +99,8 @@ struct LinkedGraphicsConsumer {
     }
 #undef LINK_GRAPHICS_FUNCS
 };
-static std::vector<uint8_t> native_linked_graphics(const gpu::HlslProgram& vertex,const gpu::HlslProgram& pixel,GraphicsReferenceOptions options={}){
+static std::vector<uint8_t> native_linked_graphics(const gpu::HlslProgram& vertex,const gpu::HlslProgram& pixel,GraphicsReferenceOptions options={},
+    const std::function<void(ID3D11Device*,ID3D11DeviceContext*)>& setup={}){
     ImageNativeReference native;auto* d=native.device.Get();auto* c=native.context.Get();
     ImageNativeReference::Ptr<ID3D11VertexShader> vs;ImageNativeReference::Ptr<ID3D11PixelShader> ps;
     check(SUCCEEDED(d->CreateVertexShader(vertex.dxbc.data(),vertex.dxbc.size(),nullptr,&vs)) &&
@@ -115,6 +116,7 @@ static std::vector<uint8_t> native_linked_graphics(const gpu::HlslProgram& verte
     auto* target=rtv.Get();const float zero[4]={};c->ClearRenderTargetView(target,zero);c->OMSetRenderTargets(1,&target,nullptr);
     c->RSSetState(raster.Get());D3D11_VIEWPORT viewport{0,0,4,4,0,1};c->RSSetViewports(1,&viewport);
     c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);c->VSSetShader(vs.Get(),nullptr,0);c->PSSetShader(ps.Get(),nullptr,0);
+    if(setup)setup(d,c);
     ImageNativeReference::Ptr<ID3D11Buffer> indices;
     if(!options.indices.empty()){D3D11_BUFFER_DESC buffer{};buffer.ByteWidth=UINT(options.indices.size()*4);buffer.BindFlags=D3D11_BIND_INDEX_BUFFER;
         D3D11_SUBRESOURCE_DATA initial{options.indices.data(),0,0};check(SUCCEEDED(d->CreateBuffer(&buffer,&initial,&indices)),"Native reference index buffer");

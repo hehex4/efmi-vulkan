@@ -2,6 +2,7 @@
 #include "../frontend/xxmi/gpu_resources.h"
 #include "../frontend/gpu/hlsl_compiler.h"
 #include "../frontend/gpu/graphics_link.h"
+#include "../frontend/gpu/graphics_commands.h"
 #include "../frontend/xxmi/gpu_shaders.h"
 #include "../frontend/xxmi/graphics_state.h"
 #include <atomic>
@@ -96,6 +97,7 @@ struct Device {
         VkPhysicalDeviceShaderDrawParametersFeatures draw={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
         if(shader_draw_parameters){VkPhysicalDeviceFeatures2 available={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};available.pNext=&draw;
             GetPhysicalDeviceFeatures2(selected,&available);check(draw.shaderDrawParameters,"Requested shader draw parameters feature available");
+            check(features.drawIndirectFirstInstance,"Requested indirect first-instance feature available");resource.enabled_features.drawIndirectFirstInstance=VK_TRUE;
             draw.pNext=const_cast<void*>(dc.pNext);dc.pNext=&draw;draw_parameters=true;}
         dc.enabledExtensionCount=uint32_t(enabled_extensions.size());dc.ppEnabledExtensionNames=enabled_extensions.data();
         vkcheck(CreateDevice(selected,&dc,nullptr,&resource.device),"Create test device");
@@ -1345,6 +1347,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_binding_cases.h"
 #include "resource_graphics_link_cases.h"
 #include "resource_graphics_state_cases.h"
+#include "resource_graphics_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1371,7 +1374,7 @@ int wmain(int argc,wchar_t** argv){
         original_binding_batches(device,root/"binding-batches");original_restore_hazards(device,root/"restore-hazards");
         original_image_binding_ranges(device);original_attachment_bindings(device,root/"attachment-bindings");
         original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");
-        graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();}
+        graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();owned_graphics(device,root/"owned-graphics");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}
