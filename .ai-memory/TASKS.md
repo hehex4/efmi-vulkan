@@ -6,6 +6,19 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.6 adds owned input layouts with original creation-register mapping, source
+edit helper/timing, nested persistence, intercepted-draw restore and instance
+steps0/1. Native WARP creation/pixel references pass. Full rebuilt suite:
+build/next/run_all-1.2.6.out, resources6093, compiler172/58, corpus37/37, core/sync
+clean; source hashes88/9/12 match. Dist1.0.2 and installed inputs unchanged.
+Continue1.2.7 with remaining vertex fetch/type/divisor cases, then source shader
+matching, directory scheduling and application placement. Existing boundaries:
+null/OOB fetch, native format reinterpretation, packed16 BGR, divisors>1 and
+indirect step0. Do not confuse owned execution with application layout import.
+No game input needed; keep going. PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
 1.2.5 executes owned original VS/GS/PS geometry and unchanged Core TextPrinter
 HLSL/font. Native DX11 chunk fields match exactly; float positions/pixels differ
 by at most5.96e-08. Full rebuilt suite passes in build/next/run_all-1.2.5.out:

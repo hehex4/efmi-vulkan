@@ -19,6 +19,9 @@ public:
     virtual bool prepare(DrawPlanAdapter&, CommandListState&, std::wstring&) { return true; }
     virtual bool validate_overrides(std::wstring&) { return true; }
     virtual bool before_draw(const RuntimeDraw&, CommandListState&, std::wstring&) { return true; }
+    // After all matched pre/post lists, on either success or failure. Present
+    // and key roots do not have the original HackerContext::AfterDraw lifetime.
+    virtual void after_draw() noexcept {}
     // A CPU command or expression can fail after an extension recorded GPU
     // work. Notify it even when the failure did not occur inside its callback.
     virtual void execution_failed() noexcept {}

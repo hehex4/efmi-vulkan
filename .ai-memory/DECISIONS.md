@@ -543,3 +543,16 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   exact integer chunk fields and nonempty foreground/background checks.
 - Original HLSL execution in controlled owned fixtures is distinct from complete
   Core INI/window/backbuffer integration and real-game rendering. Continue offline.
+
+
+## D-056: Preserve source layout identity, edit timing and outer draw lifetime
+
+- Date:2026-10-14, candidate1.2.6. Retain the original input creation signature;
+  native registers, not current semantic names alone, determine fetched values.
+  Use the pinned element-edit helper and its actual behavior without repairs.
+- Native invalid creation preserves the current layout. Unsupported Vulkan fetch
+  or device limits refuse explicitly; do not disguise them as source no-ops.
+- Apply edits before parameter flush/argument evaluation, including zero draws
+  and dispatches. Keep changes through nested CustomShader/Present calls; restore
+  at intercepted draw completion, including failure. Shader and GPU resource
+  lifetimes remain independent from the immutable CPU layout description.

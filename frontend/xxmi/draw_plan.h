@@ -78,6 +78,10 @@ public:
     // Root pre/post completion and every injected draw/dispatch publish dirty
     // parameters. Transitions can force publication outside a command root.
     void parameter_flush(ParameterFlush);
+    using DrawPrepare=std::function<bool(CommandListState&,std::wstring&)>;
+    // Original layout edits occur before parameter publication and argument
+    // evaluation, including zero draws and compute dispatch. Hunting skips it.
+    void draw_prepare(DrawPrepare);
     bool flush_parameters(CommandListState&,bool force,std::wstring&);
     using ShaderCommand=std::function<bool(RunCustomShaderCommand&,CommandListState&,std::wstring&)>;
     void shader_commands(ShaderCommand);

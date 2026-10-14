@@ -1,6 +1,7 @@
 #pragma once
 #include "gpu_resources.h"
 #include "graphics_state.h"
+#include "input_layout.h"
 #include "../gpu/graphics_commands.h"
 
 namespace efmi::frontend {
@@ -22,6 +23,11 @@ public:
     const SourceGraphicsState& graphics_state() const {return graphics_;}
     void set_graphics_state(const SourceGraphicsState&);
     void set_scissor(const D3D11_RECT& value){scissor_=value;}
+    // A logical source layout retains its creation signature across VS changes.
+    // Only the intercepted outer draw boundary restores original layout edits.
+    void set_input_layout(InputLayout);
+    const InputLayout& input_layout() const {return input_layout_;}
+    void after_draw() noexcept override;
     // Explicit host-owned logical source state. Null restores the original
     // D3D11 default sampler; this is not an INI command or game-state import.
     void set_sampler(wchar_t stage,unsigned slot,const VkSamplerCreateInfo*);
@@ -38,6 +44,8 @@ private:
     std::vector<gpu::ShaderDescriptor> descriptors(const std::vector<const gpu::HlslProgram*>&);
     gpu::Sampler sampler(wchar_t,unsigned);
     gpu::Sampler source_sampler(const D3D11_SAMPLER_DESC&);
+    void apply_input_layout(CommandListState&);
+    void vertex_inputs(const gpu::HlslProgram&,gpu::GraphicsDescription&,gpu::GraphicsDraw&);
     GpuResourceRuntime resources_;
     gpu::HlslCompiler compiler_;
     gpu::ShaderCommands commands_;
@@ -49,6 +57,7 @@ private:
     std::array<std::shared_ptr<gpu::HlslProgram>,5> stages_;
     SourceGraphicsState graphics_=source_graphics_defaults();
     D3D11_RECT scissor_{};
+    InputLayout input_layout_,original_layout_;
     std::map<std::vector<uint64_t>,gpu::Graphics> graphics_pipelines_;
     std::map<std::vector<uint64_t>,gpu::Sampler> source_samplers_;
     std::map<std::pair<wchar_t,unsigned>,gpu::Sampler> samplers_;

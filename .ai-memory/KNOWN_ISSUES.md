@@ -565,3 +565,13 @@ INI, application backbuffer/window queries and real placement are not proven.
 Input layouts/edits remain next; docs/input-layout-audit.md records native
 creation-register matching and lifetime behavior. Do not restore edited layouts
 at each CustomShader or reinterpret valid large native offsets as creation failure.
+
+
+LIMIT-032 follow-up1.2.6: measured original input-layout execution now covers
+creation signatures, offset/format edits, step0/1, APPEND and proper intercepted
+AfterDraw lifetime. Remaining native reinterpretation, null/OOB vertex fetch,
+packed16 BGR and arbitrary/indirect divisors need explicit lowering/features.
+Both local GPUs expose KHR divisors, but packed16 BGR vertex-format support is
+absent. Do not map those formats blindly or classify valid native offsets above
+Vulkan limits as failed native creation. Source helper realignment uses an enum-
+based boundary; intentionally preserved (docs/input-layout-audit.md).

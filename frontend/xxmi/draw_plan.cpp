@@ -261,6 +261,7 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::PaletteSource palette_source;
     DrawPlanAdapter::ResourceCommand resource_command;
     DrawPlanAdapter::ParameterFlush parameter_flush;
+    DrawPlanAdapter::DrawPrepare draw_prepare;
     DrawPlanAdapter::ShaderCommand shader_command;
     bool nested_failed=false;
     size_t active_depth=0;
@@ -393,6 +394,7 @@ struct DrawPlanAdapter::Runtime {
         }
         if(dynamic_cast<DrawCommand*>(original.get())){
             if(state->call_info && state->call_info->hunting_skip)return;
+            if(draw_prepare){std::wstring why;if(!draw_prepare(*state,why))refuse(why.empty()?L"Source draw preparation refused":why);}
             // Original DrawCommand flushes even for a zero-count draw, before
             // evaluating arguments or entering the draw/dispatch implementation.
             flush(*state);
@@ -659,6 +661,10 @@ void DrawPlanAdapter::parameter_flush(ParameterFlush callback)
 {
     if(runtime_->active || !runtime_->adapted.empty() || !callback)refuse(L"Install parameter publication before adaptation");
     runtime_->parameter_flush=std::move(callback);
+}
+void DrawPlanAdapter::draw_prepare(DrawPrepare callback){
+    if(runtime_->active || !runtime_->adapted.empty())refuse(L"Draw preparation must be installed before adaptation");
+    runtime_->draw_prepare=std::move(callback);
 }
 void DrawPlanAdapter::shader_commands(ShaderCommand callback){
     if(runtime_->active || !runtime_->adapted.empty() || !callback)refuse(L"Install shader execution before adaptation");

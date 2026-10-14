@@ -1,8 +1,8 @@
 # Original input-layout execution audit
 
-This is a read-only source audit and independent native DX11 WARP evidence for
-the next owned INI adapter. It is not implemented Vulkan input-layout execution
-or a game result. The original source is the pinned XXMI DirectX11 checkout.
+The audit below is read-only source and independent native DX11 WARP evidence.
+Candidate1.2.6 now implements the measured owned layout paths; its validation
+and remaining boundaries are recorded at the end. None of this is a game result. The original source is the pinned XXMI DirectX11 checkout.
 All diagnostic files and binaries are under build/source-state-probe/.
 
 ## Register correspondence
@@ -70,3 +70,28 @@ Primary references:
 
 - [ID3D11Device::CreateInputLayout](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-createinputlayout)
 - [D3D11_INPUT_ELEMENT_DESC](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/ns-d3d11-d3d11_input_element_desc)
+
+## Owned execution checkpoint1.2.6
+
+The source creation-register model and original offset/format edit helper now
+back owned INI vertex draws. Native references in resource_layout_cases.h verify
+creation rules across formats0..115, current/creation VS permutations, instance
+steps0/1, nonzero starts, packed R8/R16 APPEND fetch, missing component defaults,
+zero draw/dispatch consumption, nested/Present persistence, intercepted-draw
+restore and failed-root discard. Native large offsets remain valid descriptions
+until actual Vulkan execution checks its limits. Source creation failure retains
+the current layout; an unsupported adapter case refuses explicitly.
+
+Additional diagnostic input-layout-instance.cpp/.txt proves that step0 still
+uses StartInstanceLocation. The direct fallback offsets the source buffer by
+that base before binding with stride0. Indirect step0 and divisors above1 require
+an enabled divisor path. vertex-features.cpp/.txt finds KHR divisors, zero divisor
+and nonzero first-instance support on both local GPUs. Packed16 BGR VkFormats
+lack vertex-buffer support on both devices; retain an explicit lowering boundary.
+
+The unchanged original RealignInputLayoutOffsets uses original_format plus its
+byte size as a boundary, rather than original_offset. Tests deliberately preserve
+that behavior: shrinking R32G32B32A32_FLOAT to R32G32_FLOAT leaves another explicit
+attribute at offset16. This is compatibility with the pinned helper, not a claim
+that its algorithm is ideal. Complete regression:build/next/run_all-1.2.6.out,
+resources6093/core+sync clean, all steps pass. No application layout import/game.

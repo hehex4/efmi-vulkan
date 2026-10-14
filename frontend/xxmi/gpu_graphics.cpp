@@ -73,7 +73,9 @@ std::vector<uint64_t> pipeline_key(const std::array<std::shared_ptr<gpu::HlslPro
         r.polygonMode,r.cullMode,r.frontFace,r.depthClampEnable,z.depthTestEnable,z.depthWriteEnable,z.depthCompareOp,z.stencilTestEnable});
     for(const auto& f:{z.front,z.back})add({f.failOp,f.passOp,f.depthFailOp,f.compareOp,f.compareMask,f.writeMask,f.reference});
     for(const auto& b:s.blend)add({b.blendEnable,b.srcColorBlendFactor,b.dstColorBlendFactor,b.colorBlendOp,b.srcAlphaBlendFactor,b.dstAlphaBlendFactor,b.alphaBlendOp,b.colorWriteMask});
-    for(auto v:s.blend_constants)key.push_back(bits(v));return key;
+    for(auto v:s.blend_constants)key.push_back(bits(v));
+    key.push_back(s.streams.size());for(const auto& b:s.streams)add({b.binding,b.stride,b.inputRate});
+    key.push_back(s.attributes.size());for(const auto& a:s.attributes)add({a.location,a.binding,a.format,a.offset});return key;
 }
 }
 SourceGraphicsState source_graphics_normalize(SourceGraphicsState s){
@@ -112,7 +114,6 @@ gpu::Sampler GpuShaderRuntime::source_sampler(const D3D11_SAMPLER_DESC& source){
     auto sampler=commands_.sampler(info);source_samplers_.emplace(std::move(key),sampler);return sampler;
 }
 bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& state){
-    require(state.input_layout_overrides.empty(),"Source input-layout edits require a current layout adapter");
     gpu::GraphicsDraw draw;
     auto arg=[&](unsigned i){const float value=command.args[i].evaluate(&state);require(std::isfinite(value) && double(value)>=INT_MIN && double(value)<=INT_MAX,"Draw expression exceeds original signed argument range");return int32_t(value);};
     auto positive=[&](unsigned i){const auto value=arg(i);require(value>=0,"Draw count or start exceeds supported unsigned range");return uint32_t(value);};
@@ -140,7 +141,6 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
     default:throw std::runtime_error("Source DrawAuto requires a stream-output count adapter");}
     if(!stages_[0] || (!draw.arguments && (!draw.count || !draw.instances)) || graphics_.topology==D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED)return true;
     require(!stages_[1] && !stages_[2],"Source tessellation execution needs another graphics adapter");
-    for(const auto& input:stages_[0]->inputs)require(input.builtin!=UINT32_MAX,"Source vertex inputs require a current input-layout adapter");
     const auto& viewport=resources_.viewport();if(viewport.Width==0 || viewport.Height==0)return true;
     require(viewport.Width>0 && viewport.Height>0,"Source viewport dimensions are invalid");
     draw.viewport={viewport.TopLeftX,viewport.TopLeftY+viewport.Height,viewport.Width,-viewport.Height,viewport.MinDepth,viewport.MaxDepth};
@@ -157,7 +157,7 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
     if(draw.indexed){const auto index=resources_.binding(L'\0',Target::INDEX_BUFFER,0);require(bool(index.buffer),"Source null index buffer needs null-fetch emulation");
         require(index.format==DXGI_FORMAT_R16_UINT || index.format==DXGI_FORMAT_R32_UINT,"Source index format is invalid");draw.indices=index.buffer;draw.index_offset=index.offset;
         draw.index_type=index.format==DXGI_FORMAT_R16_UINT?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;}
-    auto config=description(graphics_,draw,bool(stages_[4]),bool(stages_[3]));auto key=pipeline_key(stages_,config);
+    auto config=description(graphics_,draw,bool(stages_[4]),bool(stages_[3]));vertex_inputs(*stages_[0],config,draw);auto key=pipeline_key(stages_,config);
     auto found=graphics_pipelines_.find(key);gpu::Graphics pipeline;
     if(found!=graphics_pipelines_.end())pipeline=found->second;
     else{require(graphics_pipelines_.size()<512,"Source graphics pipeline cache budget exceeded");std::vector<gpu::HlslProgram> programs;

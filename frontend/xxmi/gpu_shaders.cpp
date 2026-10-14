@@ -19,6 +19,7 @@ std::vector<std::wstring> GpuShaderRuntime::install(DrawPlanAdapter& adapter){
     require(!adapter_,"GPU shader runtime cannot belong to two generations");adapter_=&adapter;
     resources_.draw_commands([this](auto& c,auto& s,auto& why){return draw(c,s,why);});
     auto boundaries=resources_.install(adapter);
+    adapter.draw_prepare([this](auto& s,auto& why){try{apply_input_layout(s);return true;}catch(const std::exception& e){why=widen(e.what());return false;}});
     adapter.shader_commands([this](auto& c,auto& s,auto& why){return run(c,s,why);});
     RuntimeParseCustomShaders([this](const auto& declaration){compile(declaration);});return boundaries;
 }

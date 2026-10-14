@@ -1,8 +1,40 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, geometry/Core-text1.2.5 verified. Full suite passes; continue owned input layouts1.2.6. Dist1.0.2 unchanged.
+> Last updated: 2026-10-14, input-layout1.2.6 verified. Full suite passes; continue remaining fetch semantics and matching/integration. Dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
+
+## Owned input layouts and original edits (verified candidate1.2.6)
+
+SourceInputLayout retains immutable element descriptions and the native creation
+signature, including required-but-unused semantics. Vulkan input locations follow
+the current VS's native registers and the layout's original register mapping.
+Creation validity/APPEND alignment, slot rates and source formats are compared to
+system DX11 WARP. Native-valid large offsets remain distinct from Vulkan limits.
+
+Original element-offset/format edits run before parameter flush and argument
+execution, including zero draws and dispatches. The pinned helper is unchanged,
+including its enum-based realignment boundary. Failed native creation keeps the
+old layout; unsupported execution refuses instead of faking creation failure.
+Edits survive nested CustomShader and Present calls. Intercepted draw completion
+restores the original layout on success/failure. Effective layout attributes and
+stream rates participate in the pipeline key. Zero instance step adds the native
+StartInstanceLocation byte base before using a zero Vulkan binding stride.
+
+Native pixel tests cover switched VS/creation signatures, instance steps0/1 with
+nonzero bases, packed R8/R16 APPEND input, component defaults, nested edits,
+invalid-creation fallback, original draw restore and failed-root GPU discard.
+Full frozen-source rebuilt regression:build/next/run_all-1.2.6.out exit0, all
+steps pass; resources6093, compiler172/58, corpus37/37, clean core/sync validation,
+source hashes88/9/12 match. Installed inputs unchanged. No game/deployment action;
+dist1.0.2 remains unchanged. This is owned execution, not application layout import.
+
+Continue offline with remaining input fetch/divisor/type cases and original
+shader matching/directory integration. Native and physical probes show both GPUs
+support KHR instance divisors, but neither exposes packed16 BGR vertex formats;
+those require lowering, not a blind VkFormat substitution. Type reinterpretation,
+null/OOB inputs, divisors above1 and indirect zero-divisor reads remain explicit
+boundaries. No game input needed. PNG paused, LOD0/LOD1 only.
 
 ## Owned geometry and original Core text (verified candidate1.2.5)
 

@@ -293,6 +293,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
 
 bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason)
 {
+    struct Completion {RuntimeExtension* extension;~Completion(){if(extension)extension->after_draw();}} completion{impl_->extension.get()};
     try {
         if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
         auto& p = *impl_; Scope scope(p.state);

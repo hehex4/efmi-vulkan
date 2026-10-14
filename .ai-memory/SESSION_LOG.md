@@ -1554,3 +1554,26 @@ shows layout edits survive nested CustomShader calls and restore at intercepted
 AfterDraw, not Present/key roots. Evidence:docs/input-layout-audit.md and
 build/source-state-probe/input-layout*.cpp/.txt. Continue immediately with owned
 input-layout execution1.2.6; no game input needed. PNG paused, LOD0/LOD1 only.
+
+
+## 2026-10-14: Original owned input layouts, candidate1.2.6
+
+Implemented immutable source creation signatures and element descriptions,
+register-based correspondence to the current VS, original offset/format edits,
+native creation failure fallback and intercepted AfterDraw restore. The original
+edit helper runs before draw/dispatch parameter flush, including count zero;
+CustomShader and Present completion do not restore it. Pipeline keys include
+attributes/streams. Native WARP tests validate formats0..115, signature switches,
+APPEND integer fetch, component defaults and instance steps0/1 with nonzero bases.
+The step0 diagnostic exposed the need to preserve StartInstanceLocation even
+when the Vulkan stride is0; fixed before regression. The pinned enum-based
+realignment quirk is deliberately preserved and tested.
+
+Full frozen-source rebuild/regression:build/next/run_all-1.2.6.out exit0, all
+steps pass. Resources6093, compiler172/58, corpus37/37, core/sync clean through
+shutdown; source hashes88/9/12 match. Installed sources unchanged, no game or
+deployment, dist1.0.2 unchanged. This is owned execution, not application import.
+Native and physical capability probes remain in build/source-state-probe/.
+Both GPUs support KHR divisor/zero/nonzero-base features; neither supports packed
+16-bit BGR vertex formats. Continue offline with remaining fetch/type/divisor
+semantics and matching/directory/application integration. No game input needed.
