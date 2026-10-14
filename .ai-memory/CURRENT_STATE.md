@@ -2,6 +2,8 @@
 
 > Last updated: 2026-10-14, source coordinates/state foundation1.2.1. Complete rebuilt regression passes: resources4559, compiler172/58 valid modules, core/sync clean. Continue owned INI graphics execution immediately. Dist1.0.2 unchanged.
 
+Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
+
 ## Source coordinates and state descriptions (verified candidate1.2.1)
 
 BUG-023 is fixed: the compiler uses DXC's DX-position-w and nonzero base vertex/

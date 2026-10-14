@@ -1451,3 +1451,10 @@ probe/samplers.cpp, samplers.txt. This is diagnostic, not integrated regression.
 Next1.2.2: common graphics descriptor/pipeline ownership, original state/stages
 and drawing, then matching/directory integration. No game input needed; continue.
 PNG paused, LOD0/LOD1 only.
+
+## 2026-10-14, 20:11: Restored the launcher to DX11 at the user's request
+
+- Read current state/tasks and checked the full relevant process list. Neither Endfield nor the XXMI launcher was running; the helper repeated this check before backup and immediately before the write.
+- Active configuration: D:/XXMI-Launcher-Portable-v2.1.6/XXMI-Launcher-Portable-v2.1.6/XXMI Launcher Config.json. Changed only Importers.EFMI.Importer.d3d11_mode_cmd_args from empty to -force-d3d11 and xxmi_dll_inject_mode from SKIP to DIRECT. JSON comparison and exact readback prove every other value unchanged; value-span replacement preserves all other bytes and signed settings.
+- Exact original copy and manifest: build/backups/launcher-dx11-20261014-201131/. Before SHA-256 632b40e4d380331e50da2ec6c5dc3d692091b67a746dd37cb2b5177ae70c31a6; after e0914e439bd70c2b6392fedaef4ae1c33836d8e7a01d0cc5d01467bc3e1e7dc6.
+- No game/launcher start or stop, layer/package deployment, original Mod/Core edit or system setting change. The user may start DX11; no capture or game verification is implied. Existing unrelated graphics implementation edits remain untouched. Text/diff checks apply to this memory-only source change.

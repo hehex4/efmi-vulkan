@@ -17,6 +17,8 @@ and enabled-directory integration. Gate actual shaderDrawParameters; adapt sourc
 comparison samplers according to executable sample operations. No game input
 needed. Dist1.0.2 unchanged, PNG paused, LOD0/LOD1 only; continue immediately.
 
+Launcher configuration restored to DX11 at the user's request on 2026-10-14 20:11. The two authorized values are -force-d3d11 and DIRECT; backup and exact-change proof are in build/backups/launcher-dx11-20261014-201131/. No layer/package change or new game result. Offline candidate work stays separate from the user-started DX11 session; do not assume the launcher still selects Vulkan.
+
 Earlier verified checkpoint:
 
 
