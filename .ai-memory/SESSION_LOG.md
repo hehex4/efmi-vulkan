@@ -1623,3 +1623,26 @@ Independent matched-order.cpp/.txt reproduces BUG-024: direct hash entry1324,
 equivalent pre/post texture checking1234. Source audit confirms all pre lists
 precede post lists, with shared phase abort and independent root transient state.
 Continue1.2.9 immediately with that correction; no game input needed.
+
+
+## 2026-10-14: Matched command phase correction, candidate1.2.9
+
+Corrected BUG-024 with one shared pre/post transaction, source match ordering,
+phase abort and fresh post-root state. CPU tests cover priority/filtering, source
+checktextureoverride equivalence, nested combined abort, queries, no matches and
+cross-match budgets. GPU/native pixel tests cover pending versus applied layout
+lifetime, restoration and later-match failure without partial submission.
+Fixture correction: unprefixed handling=abort defaults to both phases in the
+original parser. Pre-only tests now say pre handling; both forms are verified.
+
+Full frozen-source rebuilt suite:build/next/run_all-1.2.9.out exit0/all steps;
+runtime118, resources9020, compiler172/58, corpus37/37, core/sync clean; hashes
+93/9/12 match and installed inputs unchanged. Text336 clean after documentation.
+No game, deployment or system action. Dist1.0.2 and the separately authorized
+launcher DX11 configuration are unchanged.
+
+Read-only source audit records stage-root ordering, original call placement,
+legacy depth-filter semantics and tracked shader queries through CustomShader.
+Also records unsafe/unimplemented original cb_mask/srv_mask evaluation. Continue
+1.3.0 immediately with owned source shader hooks/queries, then remaining directory
+and application integration. No game input is required at this boundary.

@@ -1,10 +1,22 @@
 # EFMI Vulkan - Tasks
 
-> Last updated: 2026-10-14.
+> Last updated: 2026-10-15.
 
 Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
+
+1.2.9 fixes matched pre/post order, phase state and shared budgets (BUG-024).
+Full rebuilt suite passes:build/next/run_all-1.2.9.out, runtime118/resources9020,
+compiler172/58, corpus37/37, clean core/sync; source hashes93/9/12 match.
+Installed inputs/dist1.0.2 unchanged; no game/deployment/system action.
+Continue1.3.0 with original ShaderOverride stage scheduling and tracked shader
+queries. Preserve source root, skip, duplicate and identity semantics; owned
+pre/original/post execution precedes application integration. Source audit in
+docs/shader-matching-audit.md. No game input needed; continue without stopping.
+PNG paused, LOD0/LOD1 only. Separate launcher DX11 setting remains unchanged.
+
+Earlier verified checkpoint:
 
 1.2.8 implements original vertex input bit reinterpretation and BGRX alpha1,
 including aliased/scalar loads, source defaults and cache identity. Native exact

@@ -33,10 +33,19 @@ operation budgets and planner bindings per matching section, and discards
 unconsumed pending layout edits before later matches. Treat this as BUG-024,
 not as permission to preserve the shortcut's historical order.
 
-Next: execute each matched phase as one bounded transaction, preserve matched
-ordering and within-phase state, and create fresh transient state for the
-independent post root. Verify abort, priority/filtering, failed-root output and
-GPU layout/parameter behavior before connecting shader matching.
+## Correction verified in candidate1.2.9
+
+Each matched phase now executes as one bounded transaction, preserving ordering,
+within-phase abort/query/layout state and shared budgets. The independent post
+root receives fresh transient state; applied GPU layout/bindings persist.
+CPU tests cover priority/filtering, both abort prefix forms, combined nested
+phases, cached queries, no matches and output-preserving budget refusal. Native
+GPU pixel tests distinguish pending/applied layout lifetime and verify that a
+later matched failure cannot submit previously recorded drawing.
+
+Full rebuilt suite:build/next/run_all-1.2.9.out exit0/all steps; runtime118,
+resources9020, core/sync clean, source hashes93/9/12 match. Continue source
+shader matching; see docs/shader-matching-audit.md.
 
 This audit does not claim original ShaderOverride/ShaderRegex matching or
 application/game execution. No game input is needed for the correction.

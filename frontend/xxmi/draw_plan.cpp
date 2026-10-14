@@ -744,17 +744,22 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
 bool DrawPlanAdapter::execute(CommandList& root, CommandListState& state,
                               DrawPlan& output, std::wstring& reason)
 {
-    return execute_impl(root,nullptr,state,output,reason);
+    return execute_impl({&root},nullptr,state,output,reason);
 }
 bool DrawPlanAdapter::execute_pair(CommandList& pre,CommandList& post,CommandListState& state,DrawPlan& output,std::wstring& reason)
 {
+    return execute_matches({&pre},{&post},state,output,reason);
+}
+bool DrawPlanAdapter::execute_matches(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,CommandListState& state,DrawPlan& output,std::wstring& reason)
+{
     return execute_impl(pre,&post,state,output,reason);
 }
-bool DrawPlanAdapter::execute_impl(CommandList& root,CommandList* post,CommandListState& state,DrawPlan& output,std::wstring& reason)
+bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const std::vector<CommandList*>* post,CommandListState& state,DrawPlan& output,std::wstring& reason)
 {
     reason.clear();
-    auto* resolved = root.ResolveCommandList();
-    if (runtime_->active || !runtime_->adapted.count(resolved) || !state.mHackerContext ||
+    auto valid=[&](const auto& lists){if(lists.size()>max_items)return false;for(auto* list:lists)
+        if(!list || !runtime_->adapted.count(list->ResolveCommandList()))return false;return true;};
+    if (runtime_->active || !valid(pre) || (post && !valid(*post)) || !state.mHackerContext ||
         state.aborted || state.recursion) {
         reason = L"Planner requires an adapted root and a fresh serial execution state";
         return false;
@@ -764,25 +769,28 @@ bool DrawPlanAdapter::execute_impl(CommandList& root,CommandList* post,CommandLi
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     runtime_->pixel_bindings={};
     try {
+        auto run=[&](const auto& lists,CommandListState& phase){for(auto* root:lists){
+            if(phase.aborted)break;
+            auto* resolved=root->ResolveCommandList();
+            // An earlier source command can change a later list's alias.
+            if(!runtime_->adapted.count(resolved))refuse(L"Matched root callback target was not adapted");
+            for(auto& command:resolved->commands){if(phase.aborted)break;command->run(&phase);}
+            if(runtime_->nested_failed)refuse(L"Nested native callback failed");
+        }};
         if(post)state.post=false;
-        for (auto& command : resolved->commands) {
-            if (state.aborted) break;
-            command->run(&state);
-        }
+        run(pre,state);
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         runtime_->flush(state);
         if(post){
-            resolved=post->ResolveCommandList();
-            if(!runtime_->adapted.count(resolved))refuse(L"Root post callback target was not adapted");
-            // Source root pre/post lists use separate RunCommandListComplete
-            // states. Abort stops its phase, not the later post invocation.
-            state.post=true;state.aborted=false;
-            for (auto& command : resolved->commands) {
-                if (state.aborted) break;
-                command->run(&state);
-            }
+            // RunCommandListComplete creates a fresh state for the independent
+            // post root. Applied resource/layout state persists in the backend;
+            // pending edits, abort and cached queries do not cross this boundary.
+            CommandListState after;after.mHackerDevice=state.mHackerDevice;after.mHackerContext=state.mHackerContext;
+            after.mOrigDevice1=state.mOrigDevice1;after.mOrigContext1=state.mOrigContext1;after.call_info=state.call_info;
+            after.this_target=state.this_target;after.resource=state.resource;after.view=state.view;after.post=true;
+            run(*post,after);
             if(runtime_->nested_failed)refuse(L"Nested native callback failed");
-            runtime_->flush(state);
+            runtime_->flush(after);
         }
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         output = std::move(candidate);

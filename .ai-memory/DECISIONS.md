@@ -581,3 +581,15 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   WARP's successful creation yields only defaults. Creation success alone is
   not evidence for the intended decoded vertex values. Continue other offline
   integration without claiming these formats or application input import.
+
+
+## D-059: Match phases share one transaction; stage roots retain source boundaries
+
+- Date:2026-10-14, candidate1.2.9. Preserve all-pre then all-post match ordering.
+  Abort and transient state are shared within a matched phase, while independent
+  root invocations reset transient state. Keep applied GPU state and transaction
+  budgets across the complete call. Do not publish a partial failed plan.
+- Source ShaderOverride stage scheduling needs independent roots and explicit
+  original-call placement. Tracked shader identity differs from temporary custom
+  executables. Import proven source facts; do not equate SPIR-V and DXBC hashes.
+- Continue the owned implementation offline before application integration.

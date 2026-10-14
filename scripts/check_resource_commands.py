@@ -69,6 +69,7 @@ def main() -> int:
                             ROOT / "sandbox/resource_layout_cases.h",
                             ROOT / "sandbox/resource_divisor_cases.h",
                             ROOT / "sandbox/resource_vertex_input_cases.h",
+                            ROOT / "sandbox/resource_match_cases.h",
                             shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))

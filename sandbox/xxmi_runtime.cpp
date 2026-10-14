@@ -24,6 +24,7 @@ static void write(const std::filesystem::path& path, const char* text)
     std::ofstream out(path, std::ios::binary); out << text;
     if (!out) throw std::runtime_error("Cannot write fixture");
 }
+#include "runtime_match_cases.h"
 static const char* fixture = R"ini(namespace = runtime_test
 [Constants]
 global persist $dress = 0
@@ -154,6 +155,7 @@ int wmain(int argc, wchar_t** argv)
         check(argc == 2, "Fixture directory argument");
         const std::filesystem::path folder = std::filesystem::path(argv[1]) / "fixture";
         std::filesystem::create_directories(folder);
+        runtime_match_cases(folder);
         const auto ini = folder / "mod.ini"; write(ini, fixture);
         const auto settings = folder / "settings";
         std::filesystem::remove(settings / "runtime.ini");

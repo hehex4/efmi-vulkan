@@ -60,6 +60,9 @@ public:
     bool execute(CommandList& root, CommandListState& state, DrawPlan& output,
                  std::wstring& reason);
     bool execute_pair(CommandList& pre,CommandList& post,CommandListState&,DrawPlan&,std::wstring& reason);
+    // Matches of one resource share a phase. Keep every pre list ahead of every
+    // post list; abort and budgets belong to the phase/transaction, not a match.
+    bool execute_matches(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,CommandListState&,DrawPlan&,std::wstring&);
     // CPU declaration references are snapshots, not D3D resources. The frontend
     // generation must outlive these pointers. Pool resources are supported only
     // for nonexpiring direct-index pools until runtime identity is connected.
@@ -103,7 +106,7 @@ public:
     // including both branches. Unused INI declarations need not exist on disk.
     std::vector<CustomResource*> referenced_files() const;
 private:
-    bool execute_impl(CommandList& pre,CommandList* post,CommandListState&,DrawPlan&,std::wstring&);
+    bool execute_impl(const std::vector<CommandList*>& pre,const std::vector<CommandList*>* post,CommandListState&,DrawPlan&,std::wstring&);
     void adapt_tree(CommandList& root, size_t depth);
     std::shared_ptr<Runtime> runtime_;
 };

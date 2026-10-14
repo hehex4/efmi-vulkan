@@ -1,10 +1,32 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, input-bit1.2.8 verified. Continue matched-phase BUG-024 and shader/directory integration offline; dist1.0.2 unchanged.
+> Last updated: 2026-10-15, matched-phase1.2.9 verified. Continue source shader hooks offline; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Matched command phases (verified candidate1.2.9)
+
+BUG-024 is fixed: direct hash matches execute all pre lists before all post
+lists in one bounded transaction. Abort and cached queries are shared within a
+phase; the independent post root receives fresh transient state. Applied GPU
+bindings/layout survive; unconsumed layout edits do not. Failure preserves the
+caller plan and prevents submission of earlier recorded GPU work.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.2.9.out exit0/all steps;
+runtime118, resources9020, compiler172/58, corpus37/37, core/sync clean through
+shutdown. Source hashes93/9/12 match; installed inputs unchanged. No game,
+deployment or system action; dist1.0.2 and the separate launcher DX11 state stay
+unchanged. Text336 clean after the new shader audit document.
+
+Continue1.3.0 offline with original ShaderOverride parsing, bounded stage roots,
+source shader queries and pre/original/post placement on owned resources.
+Source audit:docs/shader-matching-audit.md. Temporary CustomShader executables
+do not change the original tracked shader queried by vs/ps/cs. Proven source
+hashes and declaration metadata are required; do not substitute SPIR-V hashes.
+Legacy substitutions, ShaderRegex patching and actual application placement
+remain separate. No game input needed; keep going. PNG paused, LOD0/LOD1 only.
 
 ## Native vertex input bits (verified candidate1.2.8)
 

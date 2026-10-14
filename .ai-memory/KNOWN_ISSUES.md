@@ -592,9 +592,9 @@ Packed16 BGR is optional native IA support: the local NVIDIA hardware rejects
 it, while WARP accepts but produces defaults rather than decoded data. Do not
 promote its creation-only evidence to pixel compatibility. See input layout audit.
 
-## BUG-024: Direct multi-match entry interleaves pre and post phases
+## BUG-024: Direct multi-match entry interleaves pre and post phases (fixed1.2.9)
 
-Status: reproduced; correction next in1.2.9. IniRuntime::draw executes each
+Original defect: IniRuntime::draw executed each
 matched TextureOverride pre/post pair separately. Original texture checking runs
 all matches of the current phase before the later root post invocation. A trace
 fixture yields1324 instead of1234. Per-match resets also split shared planner
@@ -602,3 +602,8 @@ bindings, pending layout edits and execution budgets. Root post must receive
 fresh transient state while keeping already-applied device bindings/layout.
 Evidence:docs/matched-command-order.md; build/source-state-probe/matched-order
 .cpp/.txt. No game evidence is required to reproduce or correct this ordering.
+
+Correction1.2.9 groups both matched phases into one transaction, keeps shared
+budgets/bindings and uses a fresh independent post root. CPU118 and resource9020
+checks pass, including native pixel comparisons and partial-submit refusal.
+Full rebuilt regression passes in build/next/run_all-1.2.9.out; no game result.

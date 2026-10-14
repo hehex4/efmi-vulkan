@@ -306,12 +306,12 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
         index_target.type = ResourceCopyTargetType::INDEX_BUFFER;
         s.this_target = &index_target;
         if (p.extension && !p.extension->before_draw(input, s, why)) throw std::runtime_error(utf8(why));
-        for (auto* match : matches) {
-            DrawPlan plan; assets::FilePlan owned;
-            if (!p.adapter.execute_pair(match->command_list, match->post_command_list, s, plan, why) || !p.files->compile(plan, owned, why))
+        if(!matches.empty()){
+            std::vector<CommandList*> pre,post;pre.reserve(matches.size());post.reserve(matches.size());
+            for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
+            DrawPlan plan;
+            if (!p.adapter.execute_matches(pre,post,s,plan,why) || !p.files->compile(plan,result,why))
                 throw std::runtime_error("Original draw command refused: " + utf8(why));
-            result.skip_original |= owned.skip_original;
-            result.items.insert(result.items.end(), owned.items.begin(), owned.items.end());
         }
         ++p.stats.draws; output = std::move(result); return true;
     } catch (const std::exception& e) {
