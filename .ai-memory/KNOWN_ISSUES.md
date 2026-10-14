@@ -493,3 +493,25 @@ declared format agreement. Sampler validation conservatively checks every image
 against every sampler; exact usage analysis is next. Actual enabled features and
 serialized queue scope are explicit host inputs. General directory rendering,
 application import/render-pass integration are not enabled. See custom-shaders.md.
+
+
+## BUG-022: Source binding hazards and batch publication are missing (open after1.1.8)
+
+Native WARP proves UAV binding clears conflicting SRV/VB/IB and output slots;
+input binding against an output yields null. Buffer view ranges still conflict.
+Texture mips/layers can be independent. Original RTV/DSV assignment calls
+OMSetRenderTargets with eight slots, clearing pixel UAVs even for null RTVs.
+Current logical slots only overwrite entries; ranges publish individually despite
+source SetSlotRange's batch behavior. OM restore must clear conflicting inputs
+and compute UAVs. The old scope fixture's UAV+SRV coexistence assertion is wrong.
+Probe source/results:build/source-state-probe/hazards.cpp and hazards.txt.
+Invalid duplicate-UAV batches preserve prior bindings, but can contaminate later
+native hazard observations even after ClearState. Isolate invalid cases or run
+last. New1.1.8 distinct-resource compute/native output comparisons remain valid.
+This is an offline semantic gap, not a game regression. Fix next1.1.9.
+
+LIMIT-031 follow-up1.1.8: ordinary fixed shared storage, constructor/array sample
+pairs, indirect dispatch and owned sampler defaults/host snapshots now work.
+Special layouts/provenance, graphics/null/alignment cases and application import
+remain. Original owned INI UAV creation lacks append/counter flags; do not invent
+those semantics from low-level counter support.

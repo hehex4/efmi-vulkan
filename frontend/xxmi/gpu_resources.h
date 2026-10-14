@@ -47,6 +47,8 @@ public:
     // assignments and already-submitted store feedback are not rolled back.
     void discard();
     GpuResourceBinding binding(wchar_t stage,ResourceCopyTargetType,unsigned slot) const;
+    // Source-semantic target resolution for an adapted draw in an active scope.
+    GpuResourceBinding resolve(ResourceCopyTarget&,CommandListState&);
     const D3D11_VIEWPORT& viewport() const {return viewport_;}
     const GpuResourceBinding& ini_parameters() const {return parameters_;}
     // Recorded uploads, not completed GPU execution or application binding.

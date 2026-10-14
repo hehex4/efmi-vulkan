@@ -131,7 +131,7 @@ struct ShaderFixture {
     void present(unsigned frame_value=0){backend->resources().begin(device.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
         if(!ini->present({},frame_value?frame_value:++frame,0,why))throw std::runtime_error("Shader Present: "+why);++checks;finish();}
     float variable(const char* name){return ini->status().variables.at(std::string("$\\compute\\")+name);}
-    void release(){ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used() && !host.objects->used(),"Original shader generation retires resource and object budgets");}
+    void release(){ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used() && !host.objects->used() && !host.sampler_objects->used(),"Original shader generation retires resource and object budgets");}
 };
 static void original_compute(Device& d,const std::filesystem::path& root){
     std::filesystem::create_directories(root/"Mods/sub");

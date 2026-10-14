@@ -1,5 +1,11 @@
 # EFMI Vulkan - Architecture
 
+Compute follow-up1.1.8 adds bounded executable workgroup/provenance analysis,
+indirect argument-buffer retention/ordering and original source sampler slots.
+Null samplers use native defaults; explicit snapshots and shared sampler quotas
+are host inputs. No implicit CPU count feedback or application import. Native
+audit found BUG-022 binding/batch/OM side effects; fix before graphics integration.
+
 GpuShaderRuntime (1.1.7) composes original CustomShader parsing/command objects,
 GpuResourceRuntime, HlslCompiler and ShaderCommands. It explicitly opts into
 general declarations; the deployed character extension does not. All sources

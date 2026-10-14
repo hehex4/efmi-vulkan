@@ -13,6 +13,10 @@ struct ShaderHost {
     // enablement on API versions where these features are not core.
     bool scalar_block_layout=false,uniform_buffer_standard_layout=false;
     std::shared_ptr<assets::AllocationBudget> objects=std::make_shared<assets::AllocationBudget>(8192);
+    // Share across all owned shader generations on this device, within the
+    // sampler capacity reserved by the host. Other application samplers count
+    // against the device limit too; physical support is not free headroom.
+    std::shared_ptr<assets::AllocationBudget> sampler_objects=std::make_shared<assets::AllocationBudget>(1024);
 };
 class ComputePipeline {
 public:
@@ -53,7 +57,11 @@ public:
     Compute compile(const HlslProgram&);
     Sampler sampler(const VkSamplerCreateInfo&);
     void dispatch(const Compute&,const std::vector<ShaderDescriptor>&,std::array<uint32_t,3> groups);
+    // The GPU-produced counts must satisfy maxComputeWorkGroupCount, as for
+    // Vulkan itself. There is no implicit CPU readback or count modification.
+    void dispatch_indirect(const Compute&,const std::vector<ShaderDescriptor>&,const Buffer&,VkDeviceSize offset);
 private:
+    void record(const Compute&,const std::vector<ShaderDescriptor>&,std::array<uint32_t,3>,const Buffer&,VkDeviceSize);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

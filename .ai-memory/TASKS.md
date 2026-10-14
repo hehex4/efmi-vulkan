@@ -6,6 +6,17 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.8 adds shared memory, exact constant sample pairs, GPU indirect compute and
+owned source sampler defaults/quotas. Complete rebuilt regression passes:
+build/next/run_all-1.1.8.out, resources3720 and all other steps, core/sync clean.
+Immediate next1.1.9: BUG-022 source binding conflicts, batched slot publication
+and OM restore effects, with native WARP references. Correct the older logical
+coexistence test; isolate invalid native calls. Then graphics/matching/directory
+integration. Continue immediately; no game input needed. Dist1.0.2, PNG paused,
+LOD0/LOD1 only. Details:CURRENT_STATE.md and docs/custom-shaders.md.
+
+Earlier verified checkpoint:
+
 1.1.7 executes original CustomShader direct compute with owned Vulkan pipelines,
 immutable descriptors and fence-retained owners. Original counters/nested phases,
 null stages and state restoration pass. Production validation uses enabled layout

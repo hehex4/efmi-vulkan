@@ -439,3 +439,18 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Validate SPIR-V using actual scalar/uniform layout enablement and a pinned
   validator DLL at an explicit path. Successful DXC compilation alone does not
   prove device compatibility. Unsupported execution cases refuse explicitly.
+
+
+## D-048: Compute uses executable facts and native source defaults
+
+- Date:2026-10-14, compute follow-up1.1.8. Bound executable storage/provenance
+  analysis; refuse unknown layouts/origins. Validate actual sampler/image pairs,
+  including array elements; unrelated fetches do not inherit filter restrictions.
+- Indirect counts stay GPU-resident and must obey device limits. No hidden CPU
+  feedback/wait or semantic-changing count rewrite; fences retain arguments.
+- Empty owned source sampler slots use native D3D11 defaults, verified with WARP.
+  Explicit host snapshots are separate from INI syntax/application import.
+  Sampler quotas are shared within actual host-reserved physical headroom.
+- Original owned INI UAV creation does not support append/counter flags. Importing
+  application counter views remains separate. Source binding hazards and batch/OM
+  effects are required; BUG-022 must be fixed before graphics integration.

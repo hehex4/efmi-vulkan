@@ -1,6 +1,39 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, original CustomShader owned compute. Candidate1.1.7 passes the full rebuilt regression: resources3633, compiler117/33 valid modules, clean core/sync validation. Dist1.0.2 unchanged. Continue offline; LOD0/LOD1 only.
+> Last updated:2026-10-14, compute follow-up1.1.8. Full rebuilt regression passes: resources3720, compiler117/33 valid modules, core/sync clean. Native audit found BUG-022 binding hazards; fix next, then graphics. Dist1.0.2 unchanged. Continue offline, LOD0/LOD1 only.
+
+
+## Compute follow-up (verified candidate1.1.8)
+
+Bounded executable analysis measures fixed workgroup storage and resolves
+sampled image/sampler pairs, including constant array elements. Actual shared
+structures/barriers/atomics match DX11. Unrelated integer fetches coexist with
+linear sampling. Unknown provenance and special shared layouts remain explicit.
+Indirect compute reads GPU-produced arguments with barriers and fence ownership,
+without CPU feedback. Original byte offsets, null sources and resource queries
+are tested. GPU counts must obey device limits. Default source samplers match
+native D3D11 interpolation/clamp/signed LOD; explicit host snapshots and shared
+reserved sampler quotas work. Do not invent source append/counter views: original
+owned INI creation lacks those flags. Application counter imports remain open.
+
+Full frozen-source rebuild/regression:build/next/run_all-1.1.8.out, all steps pass.
+Resources3720, compiler117/33 modules, parser726/evaluator65/runtime68,
+character79/357, liveINI28, validation76/modes40/MCP47/evidence113. Core/sync clean
+through shutdown;69 resource and6 compiler hashes match; ABI unchanged.
+
+Independent native WARP probes confirmed BUG-022: owned slots omit source
+read/write conflicts. Buffer ranges still conflict; texture mips/layers can be
+independent. Source slot ranges publish as one batch, and OM restoration has
+binding side effects. An older logical-only scope fixture incorrectly expects
+UAV+SRV coexistence. Evidence:build/source-state-probe/hazards.cpp and hazards.txt.
+Invalid duplicate-UAV batches can affect later native hazard observations even
+after ClearState; isolate invalid cases or run them last. Existing distinct-
+resource compute/native output comparisons remain valid, but full-suite success
+is not proof of source binding equivalence. Fix immediately in1.1.9.
+
+Then continue graphics stages/state/draws, shader matching and directory
+integration. No game input needed; dist1.0.2 unchanged, no deployment/game action.
+PNG paused, LOD0/LOD1 only. See docs/custom-shaders.md and D-048.
 
 ## Original CustomShader compute (verified candidate1.1.7)
 

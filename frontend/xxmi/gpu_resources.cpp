@@ -34,6 +34,7 @@ VkBufferUsageFlags usage(const D3D11_BUFFER_DESC& d) {
     if(d.BindFlags&D3D11_BIND_CONSTANT_BUFFER)result|=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     if(d.BindFlags&D3D11_BIND_SHADER_RESOURCE)result|=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
     if(d.BindFlags&D3D11_BIND_UNORDERED_ACCESS)result|=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
+    if(d.MiscFlags&D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS)result|=VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     require(!(d.BindFlags&~(D3D11_BIND_VERTEX_BUFFER|D3D11_BIND_INDEX_BUFFER|D3D11_BIND_CONSTANT_BUFFER|D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS)),"GPU buffer bind flags need another adapter");
     return result;
 }
@@ -190,6 +191,7 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r) {
     b.buffer=commands_.create(b.description.ByteWidth,usage(b.description),bytes.empty()?nullptr:bytes.data(),std::min<size_t>(bytes.size(),b.description.ByteWidth),true);
     r.is_null=false;r.stride=b.stride;r.format=b.format;r.buf_size=b.visible_size;resources_[&r]=b;return b;
 }
+GpuResourceBinding GpuResourceRuntime::resolve(ResourceCopyTarget& input,CommandListState& state){active();return get(input,state);}
 GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListState& state) {
     auto& t=effective(input,state);GpuResourceBinding b;
     require(!t.IsRange(),"GPU range command requires the slot-range adapter");

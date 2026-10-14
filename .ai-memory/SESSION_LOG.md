@@ -1355,3 +1355,25 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
 - Source/candidate1.1.7; dist1.0.2. No deployment/game/launcher/system action.
   Continue immediately with compute gaps, then graphics/matching/directory
   integration. No game input needed; next1.1.8, PNG paused, LOD0/LOD1 only.
+
+
+## 2026-10-14: Shared memory, sampling and indirect compute,1.1.8
+
+- Added bounded workgroup size/provenance analysis, precise constant-array sample
+  pairs, indirect GPU execution/original INI adaptation, native null samplers,
+  explicit host slots and shared sampler quotas. Native DX11 comparisons cover
+  shared aggregates/barriers/atomics and interpolation/clamp/negative LOD.
+- Corrected test-only Windows small macro collision and region spelling. Original
+  indirect first-comma parsing requires a resource alias for multi-argument
+  regions. Original owned UAV flags explicitly lack append/counter support.
+- Full frozen-source rebuilt regression:build/next/run_all-1.1.8.out, all pass.
+  Resources3720, compiler117/33 modules, parser726/evaluator65/runtime68,
+  character79/357/liveINI28, validation76/modes40/MCP47/evidence113. Core/sync
+  clean;69 resource and6 compiler source hashes match; ABI16b90a85431f86b4.
+- Independent native audit during the suite found BUG-022 binding hazards,
+  batch publication and OM restore gaps. Source/evidence:build/source-state-probe/.
+  Invalid duplicate-UAV calls affect later native observations; isolate them or
+  run last. An older coexistence assertion is wrong; passing the suite is not
+  full source equivalence. Fix immediately in1.1.9, then graphics/integration.
+- Source1.1.8; dist1.0.2 unchanged. No game/deployment/launcher/system action.
+  Continue offline without stopping; no game input needed, PNG paused, LOD0/LOD1.

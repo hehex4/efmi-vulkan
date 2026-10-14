@@ -1,5 +1,10 @@
 # Original INI language compatibility
 
+Candidate1.1.8 adds original indirect compute, owned sampler defaults and bounded
+shared-storage/sample-use checks. Full regression passes in
+build/next/run_all-1.1.8.out, resources3720 with clean validation. Native audit found
+BUG-022 binding conflicts/batch/OM effects; fix before graphics integration.
+
 Candidate1.1.7 executes opt-in original CustomShader direct compute against owned
 Vulkan resources. Original lists/expressions/counters/state restoration are
 preserved; unsupported graphics/device cases refuse. This is separate from

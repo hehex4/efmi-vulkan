@@ -1328,6 +1328,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_parameter_cases.h"
 #include "resource_shader_cases.h"
 #include "resource_compute_cases.h"
+#include "resource_usage_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1347,7 +1348,10 @@ int wmain(int argc,wchar_t** argv){
         shader_compiler_gpu(device,root/"shader-compiler");
         compute_descriptors(device,root/"compute-descriptors");original_compute(device,root/"original-compute");
         compute_scalar_layout(device,root/"compute-scalar-layout");
-        original_shader_scopes(device,root/"original-shader-scopes");}
+        original_shader_scopes(device,root/"original-shader-scopes");
+        compute_shared_memory(device,root/"compute-shared-memory");compute_sample_pairs(device,root/"compute-sample-pairs");
+        compute_indirect(device,root/"compute-indirect");original_indirect(device,root/"original-indirect");
+        original_sampling(device,root/"original-sampling");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

@@ -4,7 +4,7 @@
 
 namespace efmi::frontend {
 // Original CustomShader lists with owned Vulkan resources. The first execution
-// adapter handles direct compute; unimplemented graphics/device cases refuse.
+// adapter handles direct/indirect compute; unimplemented graphics/device cases refuse.
 class GpuShaderRuntime final : public RuntimeExtension {
 public:
     GpuShaderRuntime(gpu::ResourceDevice,gpu::ShaderHost,const std::filesystem::path& compiler,gpu::ResourceBudgets={},
@@ -16,6 +16,9 @@ public:
     GpuResourceRuntime& resources(){return resources_;}
     uint64_t dispatches() const {return dispatches_;}
     uint64_t shader_calls() const {return shader_calls_;}
+    // Explicit host-owned logical source state. Null restores the original
+    // D3D11 default sampler; this is not an INI command or game-state import.
+    void set_sampler(wchar_t stage,unsigned slot,const VkSamplerCreateInfo*);
 private:
     struct Entry {
         std::array<bool,6> overrides{};
@@ -25,6 +28,7 @@ private:
     void compile(const RuntimeShaderDeclaration&);
     bool run(RunCustomShaderCommand&,CommandListState&,std::wstring&);
     bool draw(DrawCommand&,CommandListState&,std::wstring&);
+    gpu::Sampler sampler(wchar_t,unsigned);
     GpuResourceRuntime resources_;
     gpu::HlslCompiler compiler_;
     gpu::ShaderCommands commands_;
@@ -33,6 +37,8 @@ private:
     DrawPlanAdapter* adapter_=nullptr;
     std::map<CustomShader*,Entry> shaders_;
     gpu::Compute compute_;
+    std::map<std::pair<wchar_t,unsigned>,gpu::Sampler> samplers_;
+    gpu::Sampler default_sampler_;
     uint64_t dispatches_=0,shader_calls_=0;
 };
 }

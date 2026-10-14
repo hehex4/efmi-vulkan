@@ -2,6 +2,7 @@
 #include "image_formats.h"
 #include "globals.h"
 #include <cmath>
+#include <cfloat>
 #include <stdexcept>
 
 namespace efmi::frontend {
@@ -58,21 +59,44 @@ bool GpuShaderRuntime::run(RunCustomShaderCommand& command,CommandListState& sta
         ++shader_calls_;return adapter_->invoke_shader(shader,state,why);
     }catch(const std::exception& e){why=widen(e.what());return false;}
 }
+void GpuShaderRuntime::set_sampler(wchar_t stage,unsigned slot,const VkSamplerCreateInfo* info){
+    require(stage && wcschr(L"vhdgpc",stage) && slot<16,"Source sampler stage/slot is invalid");
+    if(info)samplers_[{stage,slot}]=commands_.sampler(*info);else samplers_.erase({stage,slot});
+}
+gpu::Sampler GpuShaderRuntime::sampler(wchar_t stage,unsigned slot){
+    const auto found=samplers_.find({stage,slot});if(found!=samplers_.end())return found->second;
+    if(!default_sampler_){
+        // D3D11 null sampler: linear min/mag/mip, clamp, zero bias, no
+        // comparison. Preserve the source LOD range, including its negative end.
+        VkSamplerCreateInfo info={VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};info.magFilter=info.minFilter=VK_FILTER_LINEAR;
+        info.mipmapMode=VK_SAMPLER_MIPMAP_MODE_LINEAR;info.addressModeU=info.addressModeV=info.addressModeW=VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        info.maxAnisotropy=1;info.compareOp=VK_COMPARE_OP_NEVER;info.minLod=-FLT_MAX;info.maxLod=FLT_MAX;info.borderColor=VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+        default_sampler_=commands_.sampler(info);
+    }
+    return default_sampler_;
+}
 bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::wstring& why){
     try{
-        require(command.type==DrawCommandType::DISPATCH,"Custom draw/indirect dispatch needs another shader execution adapter");
-        std::array<uint32_t,3> groups{};for(unsigned i=0;i<3;++i){const float value=command.args[i].evaluate(&state);
+        const bool indirect=command.type==DrawCommandType::DISPATCH_INDIRECT;
+        require(indirect || command.type==DrawCommandType::DISPATCH,"Custom draw needs another shader execution adapter");
+        gpu::Buffer arguments;uint32_t offset=0;std::array<uint32_t,3> groups{};
+        if(indirect){const float value=command.args[0].evaluate(&state);
+            require(std::isfinite(value) && double(value)>=0 && double(value)<=UINT32_MAX,"Indirect dispatch offset exceeds original unsigned range");offset=uint32_t(value);
+            const auto source=resources_.resolve(command.indirect_buffer,state);if(!source)return true;
+            require(bool(source.buffer),"Indirect dispatch source is not a buffer");arguments=source.buffer;
+        }else for(unsigned i=0;i<3;++i){const float value=command.args[i].evaluate(&state);
             require(std::isfinite(value) && double(value)>=0 && double(value)<=INT_MAX,"Dispatch expression exceeds original signed argument range");groups[i]=uint32_t(int(value));}
         // D3D dispatch with no compute shader, or any zero dimension, has no work.
-        if(!compute_ || !groups[0] || !groups[1] || !groups[2])return true;
+        if(!compute_ || (!indirect && (!groups[0] || !groups[1] || !groups[2])))return true;
         std::vector<gpu::ShaderDescriptor> descriptors;
         for(const auto& binding:compute_->program().bindings)for(uint32_t element=0;element<binding.count;++element){
-            require(!binding.counter && binding.source_type!='s',"CustomShader UAV counters/samplers need their source-state adapter");
+            require(!binding.counter,"CustomShader counter access needs an imported source counter view; original owned INI views have no counters");
+            gpu::ShaderDescriptor value;value.binding=binding.binding;value.element=element;
+            if(binding.source_type=='s'){value.sampler=sampler(L'c',binding.slot+element);descriptors.push_back(std::move(value));continue;}
             const auto target=binding.source_type=='b'?ResourceCopyTargetType::CONSTANT_BUFFER:
                 binding.source_type=='t'?ResourceCopyTargetType::SHADER_RESOURCE:ResourceCopyTargetType::UNORDERED_ACCESS_VIEW;
             const auto source=resources_.binding(L'c',target,binding.slot+element);
             require(bool(source),"CustomShader accesses a null source slot; null-resource execution requires an adapter");
-            gpu::ShaderDescriptor value;value.binding=binding.binding;value.element=element;
             if(source.image)value.image=source.image_view;
             else{
                 value.buffer=source.buffer;
@@ -86,7 +110,9 @@ bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::ws
             }
             descriptors.push_back(std::move(value));
         }
-        commands_.dispatch(compute_,descriptors,groups);++dispatches_;return true;
+        if(indirect)commands_.dispatch_indirect(compute_,descriptors,arguments,offset);
+        else commands_.dispatch(compute_,descriptors,groups);
+        ++dispatches_;return true;
     }catch(const std::exception& e){why=widen(e.what());return false;}
 }
 }
