@@ -47,7 +47,8 @@ public:
     PoolIndexGuard(std::shared_ptr<CommandListEvaluatable> value,CustomResourcePool* owner):source(std::move(value)),pool(owner){}
     float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
         auto* resolved=pool->ResolvePool();
-        if(!resolved->GetPoolSize() || resolved->GetPoolSize()>max_steps)refuse(L"Pool size outside planner budget");
+        try{validate_pool_runtime(*resolved);}
+        catch(const std::exception& e){const std::string text=e.what();refuse(std::wstring(text.begin(),text.end()));}
         const float value=source->evaluate(state,device);
         if((resolved->index_type==PoolIndexType::RING || resolved->index_type==PoolIndexType::STATIC) &&
            (!std::isfinite(value) || double(value)<INT_MIN || double(value)>INT_MAX))refuse(L"Direct pool index outside signed integer range");
@@ -108,7 +109,7 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
         case ParamOverrideType::VERTEX_COUNT: case ParamOverrideType::INDEX_COUNT:
         case ParamOverrideType::INSTANCE_COUNT: case ParamOverrideType::FIRST_VERTEX:
         case ParamOverrideType::FIRST_INDEX: case ParamOverrideType::FIRST_INSTANCE:
-        case ParamOverrideType::DRAW_TYPE: case ParamOverrideType::FRAME_NUMBER:
+        case ParamOverrideType::DRAW_TYPE: case ParamOverrideType::FRAME_NUMBER: case ParamOverrideType::FRAME_TIME:
         case ParamOverrideType::DRAW_NUMBER: case ParamOverrideType::DISPATCH_NUMBER:
         case ParamOverrideType::TIME:
         case ParamOverrideType::THREAD_GROUP_COUNT_X: case ParamOverrideType::THREAD_GROUP_COUNT_Y:
@@ -217,6 +218,21 @@ unsigned positive(CommandListExpression& expression, CommandListState* state)
     if (value < 0) refuse(L"Negative unsigned draw argument");
     return static_cast<unsigned>(value);
 }
+}
+
+void validate_pool_runtime(CustomResourcePool& input)
+{
+    auto* pool=input.ResolvePool();
+    if(!pool->GetPoolSize() || pool->GetPoolSize()>max_steps)throw std::runtime_error("Pool size outside planner budget");
+    if(pool->index_type!=PoolIndexType::RING && pool->index_type!=PoolIndexType::STATIC &&
+       pool->index_type!=PoolIndexType::FIFO && pool->index_type!=PoolIndexType::SPATIAL)
+        throw std::runtime_error("Original pool index type is invalid");
+    if(pool->index_type==PoolIndexType::SPATIAL){
+        if(!G || !std::isfinite(G->gFrameTime) || G->gFrameTime<0)throw std::runtime_error("Spatial pool frame duration is invalid");
+        const float scaled=std::ceil(pool->spatial_radius*(G->gFrameTime*120.0f));
+        if(!std::isfinite(scaled) || scaled<0 || double(scaled)>UINT32_MAX)
+            throw std::runtime_error("Spatial pool radius outside unsigned integer range");
+    }
 }
 
 struct DrawPlanAdapter::Runtime {

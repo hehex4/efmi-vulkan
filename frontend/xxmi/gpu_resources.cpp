@@ -116,10 +116,9 @@ GpuResourceRuntime::Slot GpuResourceRuntime::slot(ResourceCopyTarget& t,CommandL
     const auto index=t.ResolveSlot(&state);require(index<limit,"GPU binding slot out of range");return {stage?t.shader_type:L'\0',t.type,index};
 }
 CustomResource* GpuResourceRuntime::declaration(ResourceCopyTarget& t,CommandListState& state,bool writing) {
+    if(t.custom_resource_pool)validate_pool_runtime(*t.custom_resource_pool);
     auto* r=t.GetCustomResource(&state,writing);
-    if(r && r->pool){const auto* p=r->pool->ResolvePool();
-        require((p->index_type==PoolIndexType::STATIC || p->index_type==PoolIndexType::RING) && p->expiration_timeout_frames==UINT32_MAX,
-                "GPU resource pool expiration/key ownership is not adapted");}
+    if(r && r->pool)validate_pool_runtime(*r->pool);
     return r;
 }
 GpuBufferBinding GpuResourceRuntime::load(CustomResource& r) {
@@ -207,9 +206,7 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
     if(dst.type!=Target::POOL){copy_to(op,dst,state,std::move(source));return;}
     require(dst.custom_resource_pool && (dst.evaluation_mode==Mode::RESOURCE || dst.evaluation_mode==Mode::POOL_FULL_RANGE_RESOURCE),
             "GPU whole-pool assignment needs a resource pool target");
-    auto* pool=dst.custom_resource_pool;const auto* actual=pool->ResolvePool();
-    require((actual->index_type==PoolIndexType::RING || actual->index_type==PoolIndexType::STATIC) &&
-            actual->expiration_timeout_frames==UINT32_MAX,"GPU whole-pool expiration/key ownership is not adapted");
+    auto* pool=dst.custom_resource_pool;validate_pool_runtime(*pool);
     const auto count=pool->GetPoolSize();require(count<=65536,"GPU whole-pool assignment budget exceeded");
     // Retain the resolved source resource/view once, before changing any pool
     // element. A local target avoids mutating the original command on failure.
@@ -353,9 +350,7 @@ void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& sta
     require(slots.ResolveRange(&state,&first,&count) && count && count<=128,"GPU slot range is invalid");
     auto* pool=other.type==Target::POOL?other.custom_resource_pool:nullptr;
     if(pool){
-        const auto* actual=pool->ResolvePool();
-        require((actual->index_type==PoolIndexType::RING || actual->index_type==PoolIndexType::STATIC) &&
-                actual->expiration_timeout_frames==UINT32_MAX,"GPU range pool expiration/key ownership is not adapted");
+        validate_pool_runtime(*pool);
         require(other.range_start && other.range_end && other.ResolveRange(&state,&pool_first,&pool_count) && pool_count==count,
                 "GPU slot and pool ranges differ");
     }else require(bind && (other.type==Target::CUSTOM_RESOURCE || other.type==Target::EMPTY),"GPU range requires a pool or broadcast resource");

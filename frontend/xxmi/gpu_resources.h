@@ -25,6 +25,7 @@ public:
     enum class ExecutionSite { OutsideRenderPass, InsideRenderPass };
     GpuResourceRuntime(gpu::ResourceDevice,gpu::ResourceBudgets={});
     std::vector<std::wstring> install(DrawPlanAdapter&) override;
+    void execution_failed() noexcept override {if(active_)failed_=true;}
     // The host owns this queue's synchronization for the complete scope. Store
     // may submit and wait for GPU feedback inside it. A draw hook cannot opt in
     // by silently treating an active render pass as OutsideRenderPass.

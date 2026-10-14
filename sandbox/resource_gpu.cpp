@@ -6,6 +6,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <type_traits>
+#include <limits>
 using namespace efmi;
 static_assert(!std::is_copy_constructible_v<gpu::BufferResource> && !std::is_copy_assignable_v<gpu::ResourceSubmission>,"GPU handles have unique owners");
 static unsigned checks=0;
@@ -564,9 +565,10 @@ pool_size = 2
 bind_flags = shader_resource unordered_access
 [PoolNull]
 pool_size = 2
-[PoolUnsupported]
+[PoolInvalid]
 pool_size = 2
-pool_index_type = fifo
+byte_width = 8
+bind_flags = shader_resource unordered_access
 [CommandListRepeat]
 PoolAgain[*] = copy ResourceSource
 [Present]
@@ -664,11 +666,11 @@ $phase = $phase + 1
     for(unsigned i=30;i<33;++i)check(first(i)==1,"Whole-pool copy counters reset independently on the next frame");
     auto held=binding(3).buffer;ini.reset();backend.reset();check(budgets.resident->used()>0,"A slot owner survives whole-pool generation retirement");
     held.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Whole-pool aliases and cached descriptions release all allocations");
-    const auto rejected=source.substr(0,source.find("[CommandListRepeat]"))+"[Present]\nPoolUnsupported = copy ResourceSource\n";
+    const auto rejected=source.substr(0,source.find("[CommandListRepeat]"))+"[Present]\nPoolInvalid = copy ResourceSource\n";
     write(root/"Mods/pools.ini",rejected.c_str());backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
     ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error(why);
     backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
-    check(!ini->present({},3,0,why) && why.find("whole-pool expiration/key")!=std::string::npos,"Unadapted keyed whole-pool ownership refuses explicitly");
+    check(!ini->present({},3,0,why) && why.find("incompatible allocation sizes")!=std::string::npos,"Invalid whole-pool copy description refuses explicitly");
     refuses([&]{backend->finish();},"Failed whole-pool scope cannot publish partial work");backend->discard();ini.reset();backend.reset();
     check(!budgets.resident->used() && !budgets.staging->used(),"Rejected whole-pool generation releases its source and staging");
 }
@@ -747,6 +749,256 @@ store = $range, cs-u4, 1
         auto b=backend->binding(L'c',T::UNORDERED_ACCESS_VIEW,e.first);check(bool(b.buffer),"Option-bearing commands bind real owned buffers");
         check(value(backend->commands().readback(d.queue,b.buffer,0,4))==e.second,"Scalar and range options preserve source-defined byte effects");}
     ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Buffer option caches retire with their generation");
+}
+static void keyed_pools_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    std::filesystem::create_directories(root/"Mods");write(root/"Mods/keyed.ini",R"ini(namespace = keyed
+[Constants]
+global $phase = 0
+global $missing = 0
+global $evicted = 0
+global $allocated = 0
+global $mixed = 0
+global $default = 0
+global $default_index = 0
+global $frame = 0
+[ResourceSource]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 1 2 3 4
+bind_flags = shader_resource unordered_access
+[ResourceOther]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 9 10 11 12
+bind_flags = shader_resource unordered_access
+[PoolKeyed]
+pool_size = 2
+pool_index_type = fifo
+bind_flags = shader_resource unordered_access
+[PoolAlloc]
+pool_size = 2
+pool_index_type = fifo
+pool_allocate_slot_on_missing = true
+[PoolMixed]
+pool_size = 2
+pool_index_type = fifo
+pool_element_type_switch_reset = false
+[PoolDefault]
+pool_size = 2
+pool_index_type = fifo
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 41 42 43 44
+bind_flags = shader_resource unordered_access
+[PoolExpire]
+pool_size = 2
+pool_expiration_timeout_frames = 1
+[PoolRefresh]
+pool_size = 2
+pool_expiration_timeout_frames = 1
+pool_expiration_refresh_on_read = true
+[PoolKeep]
+pool_size = 2
+pool_expiration_timeout_frames = 1
+pool_expiration_reset_elements = false
+[PoolExpireKey]
+pool_size = 2
+pool_index_type = fifo
+pool_expiration_timeout_frames = 1
+[PoolFromSlots]
+pool_size = 2
+pool_index_type = fifo
+bind_flags = shader_resource unordered_access
+[Present]
+$frame = frame_time
+if $phase == 0
+ PoolKeyed[11] = copy ResourceSource
+ ps-t0 = ref PoolKeyed[11]
+ PoolKeyed[22] = ref ResourceOther
+ ps-t1 = ref PoolKeyed[22]
+ $missing = #PoolKeyed[99]
+ ps-t2 = ref PoolKeyed[99]
+ PoolKeyed[33] = copy ResourceOther
+ $evicted = #PoolKeyed[11]
+ ps-t3 = ref PoolKeyed[33]
+ PoolAlloc[11] = ref ResourceSource
+ PoolAlloc[22] = ref ResourceOther
+ $allocated = #PoolAlloc[33]
+ ps-t4 = ref PoolAlloc[33]
+ PoolMixed[11] = ref ResourceSource
+ $PoolMixed[11] = 7
+ PoolMixed[22] = ref ResourceOther
+ PoolMixed[33] = ref ResourceOther
+ $mixed = $PoolMixed[33]
+ store = $default, PoolDefault[44], 0
+ $default_index = #PoolDefault[44]
+ PoolExpire[0] = ref ResourceSource
+ PoolRefresh[0] = ref ResourceOther
+ PoolKeep[0] = ref ResourceSource
+ PoolExpireKey[11] = ref ResourceSource
+ ps-t10 = ref PoolExpire[0]
+ ps-t11 = ref PoolRefresh[0]
+ ps-t12 = ref PoolKeep[0]
+ ps-t13 = ref PoolExpireKey[11]
+ cs-t50 = ref ResourceSource
+ cs-t51 = ref ResourceOther
+ PoolFromSlots[0:1] = ref cs-t[50:51]
+ ps-t[52:53] = ref PoolFromSlots[0:1]
+ PoolFromSlots[*] = copy ResourceSource
+ ps-t[54:55] = ref PoolFromSlots[0:1]
+else if $phase == 1
+ ps-t20 = ref PoolExpire[0]
+ ps-t21 = ref PoolRefresh[0]
+ ps-t22 = ref PoolKeep[0]
+else if $phase == 2
+ ps-t30 = ref PoolExpire[0]
+ ps-t31 = ref PoolRefresh[0]
+ ps-t32 = ref PoolKeep[0]
+ ps-t33 = ref PoolExpireKey[11]
+ PoolExpireKey[22] = ref ResourceOther
+ ps-t34 = ref PoolExpireKey[22]
+else
+ ps-t41 = ref PoolRefresh[0]
+endif
+$phase = $phase + 1
+)ini");
+    RuntimeConfig config{root,{},root/"settings","keyed",root/"Mods"};gpu::ResourceBudgets budgets;std::string why;
+    auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);auto ini=IniRuntime::load(config,backend,why);
+    if(!ini)throw std::runtime_error(why);++checks;RuntimeInput input;input.frame_seconds=1.0f/120;
+    auto present=[&](unsigned frame){backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        if(!ini->present(input,frame,float(frame)/120,why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();++checks;};
+    auto binding=[&](unsigned slot){return backend->binding(L'p',T::SHADER_RESOURCE,slot);};
+    auto first=[&](unsigned slot){auto b=binding(slot);check(bool(b.buffer),"Keyed pool retains a readable binding");return value(backend->commands().readback(d.queue,b.buffer,0,4));};
+    present(1);const auto vars=ini->status().variables;
+    const std::pair<const char*,float> expected[]={{"missing",-1},{"evicted",-1},{"allocated",0},{"mixed",7},{"default",41},{"default_index",-1},{"frame",input.frame_seconds}};
+    for(const auto& e:expected){const auto actual=vars.at("$\\keyed\\"+std::string(e.first));
+        if(actual!=e.second)throw std::runtime_error(std::string(e.first)+" expected "+std::to_string(e.second)+", actual "+std::to_string(actual));++checks;}
+    check(!binding(2).buffer,"Missing keyed lookup does not allocate or bind an unrelated slot");
+    check(binding(0).buffer==binding(3).buffer && first(0)==9,"FIFO replacement reuses owned mutable copy storage retained by old bindings");
+    check(first(4)==1,"Read allocation preserves the original slot's resource instead of clearing it");
+    check(first(52)==1 && first(53)==9 && first(54)==1 && first(55)==1,"Ranges and whole-pool writes address physical slots of a keyed pool");
+    check(binding(52).buffer!=binding(54).buffer && binding(54).buffer!=binding(55).buffer,"Keyed pool references and per-slot copy owners stay distinct");
+    present(2);check(first(20)==1 && first(21)==9 && first(22)==1,"Expiry threshold is strictly greater than the configured frame timeout");
+    present(3);check(!binding(30).buffer && !binding(33).buffer,"Expired direct resources clear and expired FIFO keys detach");
+    check(first(31)==9 && first(32)==1 && first(34)==9,"Read refresh, no-reset expiry and reassignment retain their independent semantics");
+    check(first(10)==1 && first(13)==1,"Expired pool entries do not destroy resources still bound elsewhere");
+    present(5);check(!binding(41).buffer && first(11)==9,"Read-refreshed pool expires after a gap without invalidating earlier bindings");
+    auto held=binding(0).buffer;ini.reset();backend.reset();check(budgets.resident->used()>0,"Retained keyed copy survives generation retirement");
+    held.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Keyed and expired resource caches release all GPU budgets");
+}
+static void spatial_pools_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    std::filesystem::create_directories(root/"Mods");
+    // Source packing is [X:12][Y:8][Z:12]. A GPU store feeds these exact float
+    // bit patterns to the original spatial index, independently of its helper.
+    const uint32_t keys[]={0x0640a064,0x0650a064,0x0670a064,0x0690a064,0x12c0a064,0x2580a064};
+    {std::ofstream out(root/"Mods/keys.buf",std::ios::binary);out.write(reinterpret_cast<const char*>(keys),sizeof(keys));}
+    const std::string source=R"ini(namespace = spatialgpu
+[Constants]
+global $phase = 0
+global $base = 0
+global $near = 0
+global $two = 0
+global $four = 0
+global $far = 0
+global $next = 0
+global $frame = 0
+global $draw_frame = 0
+[ResourceKeys]
+type = Buffer
+format = R32_FLOAT
+filename = keys.buf
+[ResourceSource]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 1 2 3 4
+bind_flags = shader_resource unordered_access
+[ResourceOther]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 9 10 11 12
+bind_flags = shader_resource unordered_access
+[PoolSpace]
+pool_size = 2
+pool_index_type = spatial
+pool_spatial_radius = 1
+pool_expiration_timeout_frames = 10
+pool_expiration_refresh_on_read = true
+[TextureOverrideProbe]
+hash = 12345678
+ps-t3 = ref PoolSpace[$four]
+$draw_frame = frame_time
+[Present]
+$frame = frame_time
+if $phase == 0
+ store = $base, ResourceKeys, 0
+ store = $near, ResourceKeys, 1
+ store = $two, ResourceKeys, 2
+ store = $four, ResourceKeys, 3
+ store = $far, ResourceKeys, 4
+ store = $next, ResourceKeys, 5
+ PoolSpace[$base] = ref ResourceSource
+ ps-t0 = ref PoolSpace[$near]
+ PoolSpace[$far] = ref ResourceOther
+else if $phase == 1
+ ps-t1 = ref PoolSpace[$two]
+else if $phase == 2
+ ps-t2 = ref PoolSpace[$four]
+else
+ PoolSpace[$next] = ref ResourceSource
+ ps-t4 = ref PoolSpace[$next]
+ ps-t5 = ref PoolSpace[$base]
+endif
+$phase = $phase + 1
+)ini";
+    write(root/"Mods/spatial.ini",source.c_str());RuntimeConfig config{root,{},root/"settings","spatial",root/"Mods"};
+    gpu::ResourceBudgets budgets;std::string why;auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
+    auto ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error(why);++checks;
+    auto present=[&](unsigned frame,float duration){RuntimeInput input;input.frame_seconds=duration;
+        backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        if(!ini->present(input,frame,float(frame),why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();++checks;};
+    auto binding=[&](unsigned slot){return backend->binding(L'p',T::SHADER_RESOURCE,slot);};
+    present(1,1.0f/120);check(bool(binding(0).buffer),"Spatial neighbor within the original radius retains its resource");
+    check(value(backend->commands().readback(d.queue,binding(0).buffer,0,4))==1,"Spatial lookup refers to the actual original source bytes");
+    present(2,1.0f/60);check(binding(1).buffer==binding(0).buffer,"Host frame duration expands original spatial radius at lower frame rates");
+    present(3,1.0f/240);check(!binding(2).buffer,"Higher frame rate preserves original ceil radius and refuses an out-of-radius lookup");
+    RuntimeDraw draw;draw.hash=0x12345678;draw.count=3;draw.frame=4;draw.frame_seconds=1.0f/60;assets::FilePlan plan;
+    backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    if(!ini->draw(draw,plan,why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();ticket.reset();
+    check(binding(3).buffer==binding(0).buffer && ini->status().variables.at("$\\spatialgpu\\draw_frame")==draw.frame_seconds,
+          "Draw context supplies the same original frame_time used by spatial resource lookup");
+    present(5,1.0f/120);check(binding(4).buffer==binding(0).buffer && !binding(5).buffer,"Full spatial pool reuses a physical slot and detaches its distant old key");
+    const auto phase=ini->status().variables.at("$\\spatialgpu\\phase");RuntimeInput invalid;invalid.frame_seconds=-1;
+    check(!ini->present(invalid,6,6,why) && why.find("frame duration")!=std::string::npos,"Invalid host frame duration refuses before original commands");
+    draw.frame_seconds=std::numeric_limits<float>::infinity();
+    check(!ini->draw(draw,plan,why) && why.find("frame duration")!=std::string::npos,"Nonfinite draw duration cannot reach original numeric casts");
+    check(ini->status().variables.at("$\\spatialgpu\\phase")==phase,"Rejected clocks leave original variables unchanged");
+    ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Spatial pools and repeated clock contexts release all GPU owners");
+    const auto rejected=source.substr(0,source.find("[TextureOverrideProbe]"))+"[Present]\nPoolSpace[0] = ref ResourceSource\n";
+    write(root/"Mods/spatial.ini",rejected.c_str());backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
+    ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error(why);invalid.frame_seconds=std::numeric_limits<float>::max();
+    backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    check(!ini->present(invalid,6,6,why) && why.find("radius outside")!=std::string::npos,"Overflowing spatial radius refuses before original unsigned conversion");
+    refuses([&]{backend->finish();},"Spatial execution failure poisons the pending GPU scope");backend->discard();ini.reset();backend.reset();
+    check(!budgets.resident->used() && !budgets.staging->used(),"Rejected spatial command releases source and staging owners");
+    const auto cpu_failure=source.substr(0,source.find("[TextureOverrideProbe]"))+
+        "[Present]\nps-t0 = ref ResourceSource\n$phase = #PoolSpace[0]\n"
+        "[TextureOverrideProbe]\nhash = 12345678\nps-t0 = ref ResourceSource\n$phase = #PoolSpace[0]\n";
+    write(root/"Mods/spatial.ini",cpu_failure.c_str());backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
+    ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error(why);
+    backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    check(!ini->present(invalid,6,6,why) && why.find("radius outside")!=std::string::npos,"Original CPU query fails after earlier GPU commands were recorded");
+    refuses([&]{backend->finish();},"CPU command failure also prevents partial GPU scope submission");
+    backend->discard();ini.reset();backend.reset();
+    check(!budgets.resident->used() && !budgets.staging->used(),"CPU-failed generation discards all pending GPU owners");
+    backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);ini=IniRuntime::load(config,backend,why);
+    if(!ini)throw std::runtime_error(why);draw.frame_seconds=invalid.frame_seconds;
+    backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    check(!ini->draw(draw,plan,why) && why.find("radius outside")!=std::string::npos,"Draw CPU failure propagates its original pool context");
+    refuses([&]{backend->finish();},"Failed draw cannot publish earlier GPU commands from its scope");
+    backend->discard();ini.reset();backend.reset();
+    check(!budgets.resident->used() && !budgets.staging->used(),"Failed draw releases pending allocations after discard");
 }
 static void regions_gpu(Device& d,const std::filesystem::path& root){
     using namespace frontend;using T=ResourceCopyTargetType;
@@ -1038,7 +1290,8 @@ int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
         view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");
-        whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");}
+        whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");
+        keyed_pools_gpu(device,root/"keyed");spatial_pools_gpu(device,root/"spatial");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

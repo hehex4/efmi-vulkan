@@ -865,6 +865,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
                 request.hash = section->hash; request.count = r.count; request.first = r.first;
                 request.base = r.vertex_offset; request.instances = r.instances; request.first_instance = r.first_instance;
                 request.frame = present; request.seconds = ini_seconds();
+                request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
                 bool skip = false, added = false; std::string reason;
                 if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI hide: " + reason);
                 if (!skip) return false;
@@ -963,6 +964,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             request.hash = section->hash; request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
             request.seconds = ini_seconds();
+            request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
             bool skip = false, added = false; std::string reason;
             if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI plan: " + reason);
             if (!skip) return false;
@@ -1202,7 +1204,8 @@ void generation_frame(CharacterGeneration& backend, bool had_draws)
     backend.last_frame_us = now;
     backend.frame.fetch_add(1, std::memory_order_relaxed);
     if (backend.program) {
-        const auto input = sample_ini_input();
+        auto input = sample_ini_input();
+        input.frame_seconds = backend.frame_seconds.load(std::memory_order_relaxed);
         std::lock_guard<std::mutex> lock(backend.mod_mx);
         std::string reason;
         if (!backend.program->present(input, backend.frame.load(), ini_seconds(), reason)) backend.note("INI Present: " + reason);

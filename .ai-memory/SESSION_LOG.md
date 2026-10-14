@@ -1142,3 +1142,33 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   does not supply gFrameTime. Images, GPU parameters and shader/directory work
   remain open. Dist stays 1.0.2; PNG stays paused. No game input, deployment,
   module exchange or original-installation write. The active goal continues.
+
+## 2026-10-14: Keyed/expiring GPU pools and CPU failure propagation (1.1.1)
+
+- Continued offline after 8109fe5. Original FIFO/spatial pools now address owned
+  buffers, including missing-key templates, optional read allocation, mixed
+  elements, physical ranges, whole-pool writes, expiry and read refresh. Tests
+  distinguish null pool entries from earlier retained bindings and mutable copy
+  allocation reuse from retained historical contents.
+- Present and draw accept a host frame duration and expose original frame_time.
+  The existing character backend forwards its measured duration bounded to
+  1-250 ms. Spatial radius uses original ceil scaling; invalid clocks and
+  overflowing conversion refuse. The source engine still owns lookup/mapping.
+- The added CPU-failure test fails before the fix: IniRuntime returns failure
+  after prior GPU recording, but finish still submits that work. Saved
+  build/resource-commands/cpu-scope-before-fix.{json,txt}. BUG-017 is fixed by
+  notifying runtime extensions on failed Present/draw calls; active GPU scopes
+  become failed even when a CPU expression caused the error. Both entry paths
+  and allocation cleanup are covered. Already-submitted store work is not undone.
+- Targeted and full-suite GPU checks: 485 passing with zero core/sync validation
+  messages through shutdown. Frozen-source full rebuild/regression passes in
+  build/next/run_all-1.1.1.out: parser 726, evaluation 65, CPU runtime 68,
+  character package/GPU 79/357, live INI GPU 28, validation 76, modes 40,
+  MCP 47, evidence 113 and all other steps. ABI remains 16b90a85431f86b4.
+- Next is general mutable images/resource commands, GPU IniParams and the shared
+  shader/directory stages. Remaining buffer properties/conversions are still
+  explicit gaps. Source hash helpers have target-specific offsets and original
+  cached-data behavior; audit them before adding GPU queries. Existing immutable
+  2D DDS upload is not array/volume/mutable-image execution. PNG remains paused.
+  No deployment, game action, module swap or original-installation write; dist
+  remains 1.0.2. The active goal continues and next work needs no user input.

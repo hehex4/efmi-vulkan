@@ -1,6 +1,42 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, whole-pool GPU assignments and buffer copy modifiers. Source/candidate 1.1.0 passes the full rebuilt regression, including 402 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, keyed/expiring GPU pools and failed-scope propagation. Source/candidate 1.1.1 passes the full rebuilt regression, including 485 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+
+## Original keyed/expiring GPU pools (verified candidate 1.1.1)
+
+Owned buffer pools now use original FIFO/spatial lookup, slot reassignment,
+expiry and optional read refresh/reset. Reassigning a key does not automatically
+clear the slot's resource. Expiry can null a pool entry while earlier bindings
+retain its allocation. Reusing a mutable copy-cache allocation changes the bytes
+seen by earlier bindings, matching the source; retained ownership is not a
+historical-content snapshot. Physical ranges/whole-pool operations also work.
+
+The host supplies original frame_time through Present and draw inputs. Spatial
+radius follows the source's ceil scaling with that duration. The character host
+forwards its existing measured duration (bounded to 1-250 ms); frontend default
+zero remains the original startup value. Invalid duration/radius refuses before
+numeric casts. No game clock or behavior has been verified in this round.
+
+A new test exposed BUG-017: a CPU expression could fail after GPU recording yet
+leave the pending scope submittable. Saved cpu-scope-before-fix.{json,txt} in
+build/resource-commands. IniRuntime now notifies its extension on failed
+Present/draw execution, including failures outside GPU callbacks. Failed active
+scopes cannot submit and discard releases pending owners; prior CPU changes and
+already-submitted store feedback are still not transactional.
+
+Targeted suite: 485 checks, zero core/sync validation messages through shutdown.
+Full frozen-source rebuild/regression passes in build/next/run_all-1.1.1.out:
+parser 726, evaluation 65, CPU runtime 68, character package/GPU 79/357,
+live INI GPU 28, validation 76 and all remaining steps. ABI stays 16b90a85431f86b4.
+
+Next: general mutable images and their resource commands, then GPU IniParams,
+CustomShader, shared shader matching and complete directory graphics. Remaining
+buffer hash/properties/conversions and source-API invalid-description cases stay
+open alongside image work. Existing DdsImage/ImageUpload only support immutable
+2D single-layer assets; do not mistake them for a mutable array/volume backend.
+Continue the explicit owned outside-render-pass domain before application import
+or inline command placement. PNG is paused; no game input is needed. The active
+goal remains incomplete; next version is 1.1.2. Dist is unchanged at 1.0.2.
 
 ## Original whole-pool GPU assignments (verified candidate 1.1.0)
 

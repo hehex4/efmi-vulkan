@@ -189,3 +189,12 @@ are preserved. In particular buffer resolve_msaa does not copy bytes. The 402
 GPU resource checks and full rebuilt suite pass in `build/next/run_all-1.1.0.out`.
 Keyed/expiring pools, remaining properties, image execution and shader/directory
 graphics remain separate offline work; deployment stays 1.0.2.
+
+Candidate 1.1.1 enables original keyed/spatial/expiring pools for owned buffers
+and supplies original frame_time in Present/draw contexts. It also fixes a
+reproduced partial-submission bug: a CPU failure now notifies the GPU extension
+and invalidates its pending scope. The 485 GPU resource checks and full rebuilt
+suite pass in `build/next/run_all-1.1.1.out`. Pool resource ownership and expiry
+are separate from a shader descriptor bind or a rendered character. General
+mutable images, remaining resource queries/conversions and shader/directory
+execution stay open; no game acceptance or deployment is implied.

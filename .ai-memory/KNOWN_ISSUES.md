@@ -377,3 +377,19 @@ Format/stride-only unassigned aliases do not create zero-sized buffers. The
 303-check GPU suite passes with clean validation; the complete rebuilt regression
 passes in build/next/run_all-1.0.9.out.
 No deployed/game result is implied.
+
+## BUG-017: A CPU command failure left recorded GPU work submittable (fixed in candidate 1.1.1)
+
+The GPU extension marked its scope failed only when its own command/query
+callback failed. An original CPU pool expression could fail after earlier GPU
+commands had been recorded, return failure from IniRuntime, and still allow
+GpuResourceRuntime::finish to submit that partial work. The new fixture fails
+before the fix in build/resource-commands/cpu-scope-before-fix.{json,txt}.
+
+IniRuntime now notifies its extension on any failed Present/draw execution,
+including failures outside GPU callbacks. An active GPU scope is poisoned and
+cannot submit; discard releases its pending owners. The targeted suite passes
+485 checks with clean core/sync validation, including CPU failures in both
+Present and draw, retained bindings and rejected frame duration. Full rebuilt
+regression passes in build/next/run_all-1.1.1.out. No deployment or game result
+is implied.

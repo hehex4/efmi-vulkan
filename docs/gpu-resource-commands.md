@@ -42,8 +42,11 @@ remain distinct. Resources are instantiated on first use, within shared budgets.
   structured-range calculator and output-variable writer: indices count four-
   byte values, out-of-bounds reads become zero, null leaves the old variable, and
   a result can control the next branch in the same command list.
-- Nonexpiring direct-index pools retain independent scalar/resource state.
-  Original reset and per-frame copy counters stay active.
+- Direct, FIFO and spatial pools retain independent scalar/resource state.
+  Original key lookup, slot reuse, expiry, optional read refresh/reset and
+  per-frame copy counters stay active. Replacing a key does not by itself clear
+  an existing resource. Expiry invalidates the pool entry when configured, while
+  earlier stage bindings and submissions retain their resource owners.
 - Original slot ranges bind/fetch pools and broadcast resources, including
   dynamic bounds, explicit null, unless_null and per-slot copies. Plain fetch
   bypasses single-copy counters and custom overrides, as upstream does.
@@ -90,6 +93,13 @@ Fresh typed/raw plain-range views without a compatible source view still refuse
 explicitly. Their original view descriptor is not silently replaced with a
 guessed format or full-buffer range. Image copy options remain separate work.
 
+The host supplies frame duration to both original Present and draw contexts.
+The frame_time operand and spatial pool radius use this same value; the original
+ceil scaling is preserved. The existing character backend forwards its existing
+measured duration, bounded to 1-250 ms. A frontend caller that supplies none keeps
+the original startup zero rather than an inferred rate. Nonfinite/negative duration and overflowing
+spatial radius refuse before the source engine's unsigned conversion.
+
 ## Resource properties
 
 Original resource identity, stride/source_stride, size, format, bind flags,
@@ -126,7 +136,10 @@ domain, invalid/overlapping ranges and budget failures refuse before recording
 the offending command. This is a conservative synchronization implementation;
 no performance or multi-queue acceptance is claimed.
 
-A failed GPU scope cannot be submitted. Discarding it makes the generation
+A failed GPU scope cannot be submitted. Original-runtime Present/draw failures
+notify the GPU extension even when a CPU expression fails outside its callbacks.
+This prevents submitting earlier GPU commands from a partially executed INI list.
+Discarding it makes the generation
 unusable, because earlier original CPU assignments or store submissions cannot
 generally be rolled back. A prepared prior generation remains independent.
 
@@ -149,7 +162,7 @@ Final counts and the full regression checkpoint belong in CURRENT_STATE.md.
 
 Image commands and format conversions; region/spatial hash and texture properties;
 fresh typed/raw plain-range views; invalid source-API
-description combinations; expiring/keyed GPU pools; GPU
+description combinations; GPU
 IniParams; application resource import and command placement; shared shader
 contracts; CustomShader draw/dispatch/state; ShaderOverride/ShaderRegex; complete
 directory routing and graphical reload. PNG integration remains paused. No

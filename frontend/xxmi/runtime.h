@@ -18,6 +18,9 @@ struct RuntimeConfig {
 struct RuntimeInput {
     bool foreground = false;
     std::array<bool, 256> keys{};
+    // Original frame_time and spatial-pool radius scale, supplied by the host.
+    // Zero preserves the original startup value; do not infer a frame rate.
+    float frame_seconds = 0;
 };
 struct RuntimeDraw {
     uint32_t hash = 0, count = 0, first = 0, instances = 1, first_instance = 0;
@@ -32,6 +35,7 @@ struct RuntimeDraw {
     // binding number alone does not establish the original DX11 constant slot.
     bool rolling_bone_source = false;
     int32_t source_vs_config_slot = -1;
+    float frame_seconds = 0;
 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0;

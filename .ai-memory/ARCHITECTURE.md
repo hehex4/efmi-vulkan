@@ -9,6 +9,11 @@ own per-description allocations independently of aliases; fence tickets retain
 resources through submission. Whole-pool assignments retain the source resource
 before changing destinations, while using original per-element metadata/counters
 and copy pools. Details: docs/gpu-resource-commands.md and D-045.
+Original FIFO/spatial/expiry rules own pool mapping and null state; bindings and
+fence tickets retain GPU allocations separately. Runtime inputs supply original
+frame_time, and the source spatial radius is guarded before its integer cast.
+Present/draw failure notifies extensions even for CPU-side errors, so pending
+GPU work from a failed list cannot be submitted.
 This requires an explicit outside-render-pass scope on a host-serialized queue.
 It does not replace the character hook's file-plan renderer, import application
 resources, or emit shader descriptors/draws. Image/shader adapters and complete

@@ -6,6 +6,22 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.1 executes owned FIFO/spatial/expiring buffer pools, preserves original
+slot reuse and expiry behavior, and supplies frame_time to original Present/draw
+contexts. BUG-017 is reproduced and fixed: CPU-side command failure now also
+poisons a pending GPU scope. Targeted suite: 485 passing checks, clean validation.
+Full rebuild/regression passes in build/next/run_all-1.1.1.out. Dist stays 1.0.2;
+the active complete-directory goal remains incomplete and needs no game input.
+
+Next: general mutable image resources/commands, GPU IniParams, CustomShader,
+shared shader matching, then complete directory graphics. Keep remaining buffer
+hash/properties/conversions and source-API description/view cases tracked; the
+existing immutable 2D DDS uploader is not a general mutable image executor.
+Application import/inline placement remain separate architecture work. PNG is
+paused. Next version is 1.1.2.
+
+Earlier verified checkpoint:
+
 1.1.0 implements bare/wildcard whole-pool resource assignments and the remaining
 named buffer copy modifiers. Sources are retained across pool writes, with
 original per-element counters, metadata reads, proxies and caches. Buffer

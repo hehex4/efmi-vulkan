@@ -15,6 +15,9 @@ public:
     virtual bool prepare(DrawPlanAdapter&, CommandListState&, std::wstring&) { return true; }
     virtual bool validate_overrides(std::wstring&) { return true; }
     virtual bool before_draw(const RuntimeDraw&, CommandListState&, std::wstring&) { return true; }
+    // A CPU command or expression can fail after an extension recorded GPU
+    // work. Notify it even when the failure did not occur inside its callback.
+    virtual void execution_failed() noexcept {}
 };
 void RuntimeRunInputList(CommandList*, bool post);
 }

@@ -279,8 +279,9 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
 bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason)
 {
     try {
+        if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
         auto& p = *impl_; Scope scope(p.state);
-        G->frame_no = unsigned(input.frame); G->gTime = input.seconds;
+        G->frame_no = unsigned(input.frame); G->gTime = input.seconds; G->gFrameTime = input.frame_seconds;
         DrawCallInfo call(DrawCall::DrawIndexedInstanced, 0, input.count, input.instances, uint32_t(input.base), input.first, input.first_instance, nullptr, 0);
         TextureOverrideMatches matches; find_texture_override_for_hash(input.hash, &matches, &call);
         assets::FilePlan result;
@@ -297,7 +298,10 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
             result.items.insert(result.items.end(), owned.items.begin(), owned.items.end());
         }
         ++p.stats.draws; output = std::move(result); return true;
-    } catch (const std::exception& e) { reason = e.what(); return false; }
+    } catch (const std::exception& e) {
+        if(impl_->extension)impl_->extension->execution_failed();
+        reason = e.what(); return false;
+    }
 }
 
 void RuntimeRunInputList(CommandList* list, bool post)
@@ -312,7 +316,8 @@ void RuntimeRunInputList(CommandList* list, bool post)
 bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float seconds, std::string& reason)
 {
     try {
-        auto& p = *impl_; Scope scope(p.state); G->frame_no = unsigned(frame); G->gTime = seconds;
+        if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
+        auto& p = *impl_; Scope scope(p.state); G->frame_no = unsigned(frame); G->gTime = seconds; G->gFrameTime = input.frame_seconds;
         p.last_input = input;
         auto sampled = input;
         for (size_t i = 0; i < sampled.keys.size(); ++i) {
@@ -326,7 +331,10 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why) || !ignored.items.empty())
             throw std::runtime_error("Present requires unavailable render context: " + utf8(why));
         ++p.stats.presents; return true;
-    } catch (const std::exception& e) { reason = e.what(); return false; }
+    } catch (const std::exception& e) {
+        if(impl_->extension)impl_->extension->execution_failed();
+        reason = e.what(); return false;
+    }
 }
 
 bool IniRuntime::save(std::string& reason)

@@ -5,6 +5,10 @@ namespace efmi::core {struct PaletteSnapshot;}
 
 namespace efmi::frontend {
 
+// Guard original pool indexing before its numeric casts or lookup. Call with
+// the owning generation's globals installed; the original engine owns mapping.
+void validate_pool_runtime(CustomResourcePool&);
+
 enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External };
 
 // Resource pointers borrow declarations from a retained frontend generation.
