@@ -6,6 +6,18 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.7 executes original instance divisors with actual enabled KHR/core features,
+zero/max/nonzero-base properties and pipeline/buffer validation. Native DX11
+pixels agree for steps0/2/3/max and all four direct/indexed/indirect draw forms.
+Full rebuilt suite passes:build/next/run_all-1.2.7.out, resources6653, compiler172/
+58, corpus37/37, clean core/sync, hashes89/9/12 match; installed inputs unchanged.
+Next1.2.8: source vertex bit reinterpretation/BGRX alpha, then remaining fetch
+cases and source matching/directory/application integration. No game input
+needed; keep going. Dist1.0.2 unchanged; PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
+
 1.2.6 adds owned input layouts with original creation-register mapping, source
 edit helper/timing, nested persistence, intercepted-draw restore and instance
 steps0/1. Native WARP creation/pixel references pass. Full rebuilt suite:

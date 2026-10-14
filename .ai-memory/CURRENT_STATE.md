@@ -1,8 +1,32 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, input-layout1.2.6 verified. Full suite passes; continue remaining fetch semantics and matching/integration. Dist1.0.2 unchanged.
+> Last updated: 2026-10-14, divisor1.2.7 verified. Continue vertex type reinterpretation and matching/integration offline; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
+
+
+## Owned instance divisors (verified candidate1.2.7)
+
+Original instance steps0/2/3 and the physical maximum now use the actually enabled
+KHR/core divisor path. Native DX11 WARP pixel comparisons cover direct, indexed,
+indirect and indexed-indirect draws with nonzero first instances. The source base
+is added after division, including divisor0. Pipeline identity includes divisors;
+direct instance bounds are checked even for indexed draws. Feature/zero/max/base
+properties refuse before Vulkan calls. Indirect bases require property support
+without hidden CPU readbacks. The direct zero-stride fallback remains available.
+
+Full frozen-source rebuilt regression:build/next/run_all-1.2.7.out exit0, all
+steps pass; resources6653, compiler172/58, corpus37/37, core/sync clean through
+shutdown. Source hashes89/9/12 match; installed inputs unchanged; text329 clean.
+No game, deployment or system action; dist1.0.2 unchanged. This is owned sandbox
+execution, not application feature enablement or game rendering.
+
+Continue1.2.8 with typed vertex input lowering and BGRX alpha semantics. Native
+read-only WARP diagnostic input-layout-reinterpret.cpp/.txt confirms raw bits,
+format-based missing-component defaults and BGRX alpha1 across float/int/uint
+signatures. That diagnostic is not yet a Vulkan execution result. Packed16 BGR,
+null/OOB fetch, source matching and directory/application integration remain.
+No game input needed; continue. PNG paused, LOD0/LOD1 only.
 
 ## Owned input layouts and original edits (verified candidate1.2.6)
 

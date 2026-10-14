@@ -35,16 +35,19 @@ void GpuShaderRuntime::vertex_inputs(const gpu::HlslProgram& vertex,gpu::Graphic
             "Source vertex format/signature reinterpretation requires typed input lowering");
         const auto source=resources_.binding(L'\0',ResourceCopyTargetType::VERTEX_BUFFER,element.slot);
         require(bool(source.buffer),"Source null vertex buffer needs null-fetch lowering");
-        require(element.classification==D3D11_INPUT_PER_VERTEX_DATA || element.step<=1,"Source instance divisors above one need an enabled divisor adapter");
-        const uint32_t stride=element.classification==D3D11_INPUT_PER_INSTANCE_DATA && !element.step?0:source.stride;
+        const bool instanced=element.classification==D3D11_INPUT_PER_INSTANCE_DATA;const auto& host=commands_.host();
+        const bool divisor=instanced && element.step!=1 && host.vertex_divisor && (element.step || host.vertex_zero_divisor);
+        require(!instanced || element.step<=1 || divisor,"Source instance divisor feature was not enabled");
+        const uint32_t stride=instanced && !element.step && !divisor?0:source.stride;
         uint64_t offset=source.offset;
-        if(element.classification==D3D11_INPUT_PER_INSTANCE_DATA && !element.step){
+        if(instanced && !element.step && !divisor){
             require(!draw.arguments,"Indirect zero-divisor instance fetch requires GPU argument lowering");
             // Native StartInstanceLocation is added after division, including
             // step0. A zero Vulkan binding stride alone would lose that base.
             offset+=uint64_t(draw.first_instance)*source.stride;
         }
-        streams.emplace(element.slot,VkVertexInputBindingDescription{element.slot,stride,element.classification==D3D11_INPUT_PER_VERTEX_DATA?VK_VERTEX_INPUT_RATE_VERTEX:VK_VERTEX_INPUT_RATE_INSTANCE});
+        if(streams.emplace(element.slot,VkVertexInputBindingDescription{element.slot,stride,instanced?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX}).second && divisor)
+            config.divisors.push_back({element.slot,element.step});
         buffers.emplace(element.slot,gpu::GraphicsVertexBuffer{element.slot,source.buffer,offset});config.attributes.push_back({input.location,element.slot,format,element.offset});
     }
     for(const auto& pair:streams)config.streams.push_back(pair.second);for(const auto& pair:buffers)draw.vertices.push_back(pair.second);

@@ -19,6 +19,9 @@ struct ShaderHost {
     // enablement on API versions where these features are not core.
     bool scalar_block_layout=false,uniform_buffer_standard_layout=false;
     bool shader_draw_parameters=false,maintenance4=false;
+    // KHR/core vertex divisor enablement and actual physical properties.
+    bool vertex_divisor=false,vertex_zero_divisor=false,divisor_first_instance=false;
+    uint32_t max_vertex_divisor=1;
     std::shared_ptr<assets::AllocationBudget> objects=std::make_shared<assets::AllocationBudget>(8192);
     // Share across all owned shader generations on this device, within the
     // sampler capacity reserved by the host. Other application samplers count
@@ -59,6 +62,7 @@ struct ShaderDescriptor {
 class ShaderCommands {
 public:
     ShaderCommands(ResourceCommands&,ShaderHost);
+    const ShaderHost& host() const;
     ~ShaderCommands();
     Compute compile(const HlslProgram&);
     Graphics compile_graphics(const std::vector<HlslProgram>&,const GraphicsDescription&);

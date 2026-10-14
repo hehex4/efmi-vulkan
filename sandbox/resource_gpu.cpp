@@ -32,12 +32,13 @@ struct Device {
     VkInstance instance=VK_NULL_HANDLE;gpu::ResourceDevice resource;VkQueue queue=VK_NULL_HANDLE;
     VkPhysicalDeviceProperties properties{};
     bool scalar_layout=false,draw_parameters=false;
+    bool vertex_divisor=false,vertex_zero_divisor=false,divisor_first_instance=false;uint32_t max_vertex_divisor=1;
     VkDebugUtilsMessengerEXT messenger=VK_NULL_HANDLE;
     PFN_vkDestroyInstance destroy_instance=nullptr;PFN_vkDestroyDevice destroy_device=nullptr;
     PFN_vkDeviceWaitIdle wait_idle=nullptr;PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     ~Device(){if(resource.device){wait_idle(resource.device);destroy_device(resource.device,nullptr);}
         if(messenger)destroy_debug(instance,messenger,nullptr);if(instance)destroy_instance(instance,nullptr);}
-    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false){
+    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false,bool divisors=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -56,6 +57,7 @@ struct Device {
         GET(EnumeratePhysicalDevices);GET(GetPhysicalDeviceQueueFamilyProperties);GET(GetPhysicalDeviceMemoryProperties);
         GET(CreateDevice);GET(GetDeviceProcAddr);GET(GetPhysicalDeviceFeatures);GET(GetPhysicalDeviceProperties);
         GET(GetPhysicalDeviceFeatures2);
+        GET(GetPhysicalDeviceProperties2);
         get_device_proc=GetDeviceProcAddr;
         GET(GetPhysicalDeviceImageFormatProperties);GET(GetPhysicalDeviceFormatProperties);
         GET(EnumerateDeviceExtensionProperties);
@@ -101,6 +103,18 @@ struct Device {
             GetPhysicalDeviceFeatures2(selected,&available);check(draw.shaderDrawParameters,"Requested shader draw parameters feature available");
             check(features.drawIndirectFirstInstance,"Requested indirect first-instance feature available");resource.enabled_features.drawIndirectFirstInstance=VK_TRUE;
             draw.pNext=const_cast<void*>(dc.pNext);dc.pNext=&draw;draw_parameters=true;}
+        VkPhysicalDeviceVertexAttributeDivisorFeatures divisor={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES};
+        if(divisors){uint32_t n=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,nullptr),"Count divisor extensions");std::vector<VkExtensionProperties> extensions(n);
+            vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,extensions.data()),"Read divisor extensions");
+            check(std::any_of(extensions.begin(),extensions.end(),[](const auto& e){return !strcmp(e.extensionName,VK_KHR_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME);}),"Requested KHR vertex divisor extension available");
+            VkPhysicalDeviceFeatures2 f={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};f.pNext=&divisor;GetPhysicalDeviceFeatures2(selected,&f);
+            check(divisor.vertexAttributeInstanceRateDivisor && divisor.vertexAttributeInstanceRateZeroDivisor,"Requested instance divisor features available");
+            VkPhysicalDeviceVertexAttributeDivisorProperties p={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_PROPERTIES};
+            VkPhysicalDeviceProperties2 properties2={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};properties2.pNext=&p;GetPhysicalDeviceProperties2(selected,&properties2);
+            vertex_divisor=divisor.vertexAttributeInstanceRateDivisor;vertex_zero_divisor=divisor.vertexAttributeInstanceRateZeroDivisor;
+            divisor_first_instance=p.supportsNonZeroFirstInstance;max_vertex_divisor=p.maxVertexAttribDivisor;
+            check(divisor_first_instance,"Requested divisor nonzero first-instance support available");
+            enabled_extensions.push_back(VK_KHR_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME);divisor.pNext=const_cast<void*>(dc.pNext);dc.pNext=&divisor;}
         dc.enabledExtensionCount=uint32_t(enabled_extensions.size());dc.ppEnabledExtensionNames=enabled_extensions.data();
         vkcheck(CreateDevice(selected,&dc,nullptr,&resource.device),"Create test device");
 #define GET(name) auto name=reinterpret_cast<PFN_vk##name>(GetDeviceProcAddr(resource.device,"vk" #name));check(name!=nullptr,"vk" #name);
@@ -1354,6 +1368,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_geometry_cases.h"
 #include "resource_text_cases.h"
 #include "resource_layout_cases.h"
+#include "resource_divisor_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1386,7 +1401,7 @@ int wmain(int argc,wchar_t** argv){
         original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");
         original_ini_geometry(device,root/"ini-geometry");original_core_text(root/"core-text");
         source_layout_creation(root/"source-layouts");original_layout_pixels(device,root/"ini-layout-pixels");original_layout_edits(device,root/"ini-layout-edits");
-        original_layout_append(device,root/"ini-layout-append");}
+        original_layout_append(device,root/"ini-layout-append");original_layout_divisors(device,root/"ini-layout-divisors");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

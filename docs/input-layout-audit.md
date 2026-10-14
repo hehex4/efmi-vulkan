@@ -95,3 +95,22 @@ that behavior: shrinking R32G32B32A32_FLOAT to R32G32_FLOAT leaves another expli
 attribute at offset16. This is compatibility with the pinned helper, not a claim
 that its algorithm is ideal. Complete regression:build/next/run_all-1.2.6.out,
 resources6093/core+sync clean, all steps pass. No application layout import/game.
+
+
+## Enabled divisor checkpoint1.2.7
+
+Owned KHR/core vertex divisors preserve firstInstance + floor(instance/divisor),
+with divisor0 fetching firstInstance. Native pixel comparisons cover0/2/3/max
+for direct/indexed/indirect/indexed-indirect commands. Actual enablement, zero
+support, device maximum and supportsNonZeroFirstInstance are explicit host facts.
+Indirect bases require the latter property without a CPU readback; direct zero
+fallback still offsets the buffer before stride0. Divisors enter pipeline keys.
+Complete regression:build/next/run_all-1.2.7.out, resources6653/core+sync clean.
+
+Native diagnostic input-layout-reinterpret.cpp/.txt additionally confirms that
+float/int/uint signature reinterpretation preserves fetched bits, absent W uses
+the format's scalar class, and BGRX always supplies float alpha1. Vulkan lowering
+for those cases is the next increment; this diagnostic is only native evidence.
+
+- [Vulkan vertex fetch](https://docs.vulkan.org/spec/latest/chapters/fxvertex.html)
+- [Divisor properties](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceVertexAttributeDivisorProperties.html)

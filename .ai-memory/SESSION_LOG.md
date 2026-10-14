@@ -1577,3 +1577,23 @@ Native and physical capability probes remain in build/source-state-probe/.
 Both GPUs support KHR divisor/zero/nonzero-base features; neither supports packed
 16-bit BGR vertex formats. Continue offline with remaining fetch/type/divisor
 semantics and matching/directory/application integration. No game input needed.
+
+
+## 2026-10-14: Enabled owned instance divisors, candidate1.2.7
+
+Implemented actual KHR/core divisor features and property gates, including zero,
+physical maximum and nonzero first instances. Pipeline keys include divisors;
+instance fetch bounds are checked for indexed direct draws too. Native WARP
+matches original INI direct/indexed/indirect/indexed-indirect draws for0/2/3/max.
+Missing enablement, zero support, maxima and unknown indirect bases refuse before
+GPU recording; no hidden readback. The direct step0 fallback remains intact.
+
+Full frozen-source rebuilt suite:build/next/run_all-1.2.7.out exit0/all steps;
+resources6653, compiler172/58, corpus37/37, core/sync clean, source hashes89/9/12
+match, installed inputs unchanged, text329 clean. No game/deployment/system action,
+dist1.0.2 unchanged. Preserve separately recorded launcher DX11 state.
+
+Independent native diagnostic input-layout-reinterpret.cpp/.txt confirms raw
+input bit reinterpretation, format-based absent-component defaults and BGRX alpha1
+for float/int/uint signatures. Continue1.2.8 with explicit SPIR-V input lowering;
+packed16 BGR and null/OOB remain separate fetch work. No game input needed.

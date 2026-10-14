@@ -575,3 +575,10 @@ Both local GPUs expose KHR divisors, but packed16 BGR vertex-format support is
 absent. Do not map those formats blindly or classify valid native offsets above
 Vulkan limits as failed native creation. Source helper realignment uses an enum-
 based boundary; intentionally preserved (docs/input-layout-audit.md).
+
+
+LIMIT-032 follow-up1.2.7: enabled KHR/core instance divisors now cover source
+steps0/2/3/max for direct/indexed/indirect draws with native pixels. Unknown
+indirect bases require actual nonzero-base property support; unavailable features
+still refuse. Type reinterpretation/BGRX, packed16 BGR and null/OOB fetch remain
+next, independently from application feature enablement and directory execution.

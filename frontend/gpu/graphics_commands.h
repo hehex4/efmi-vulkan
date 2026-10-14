@@ -16,6 +16,7 @@ struct GraphicsDescription {
     std::vector<VkPipelineColorBlendAttachmentState> blend;
     std::array<float,4> blend_constants{};
     std::vector<VkVertexInputBindingDescription> streams;
+    std::vector<VkVertexInputBindingDivisorDescription> divisors;
     std::vector<VkVertexInputAttributeDescription> attributes;
     GraphicsDescription(){raster.polygonMode=VK_POLYGON_MODE_FILL;raster.frontFace=VK_FRONT_FACE_CLOCKWISE;raster.lineWidth=1;}
 };

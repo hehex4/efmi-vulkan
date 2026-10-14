@@ -60,6 +60,11 @@ void state_valid(const GraphicsDescription& s,const ShaderDevice& d){
     std::set<uint32_t> slots,locations;
     for(const auto& stream:s.streams)require(stream.binding<l.maxVertexInputBindings && stream.stride<=l.maxVertexInputBindingStride &&
         (stream.inputRate==VK_VERTEX_INPUT_RATE_VERTEX || stream.inputRate==VK_VERTEX_INPUT_RATE_INSTANCE) && slots.insert(stream.binding).second,"Invalid vertex stream");
+    require(s.divisors.size()<=s.streams.size(),"Vertex divisor count exceeds stream count");std::set<uint32_t> divisor_slots;
+    for(const auto& divisor:s.divisors){const auto stream=std::find_if(s.streams.begin(),s.streams.end(),[&](const auto& b){return b.binding==divisor.binding;});
+        require(stream!=s.streams.end() && stream->inputRate==VK_VERTEX_INPUT_RATE_INSTANCE && divisor_slots.insert(divisor.binding).second,"Invalid or duplicate instance divisor binding");
+        require(d.host.vertex_divisor && (divisor.divisor || d.host.vertex_zero_divisor) && divisor.divisor<=d.host.max_vertex_divisor,
+            "Vertex divisor feature was not enabled or exceeds the device limit");}
     for(const auto& a:s.attributes){require(a.location<l.maxVertexInputAttributes && locations.insert(a.location).second &&
         slots.count(a.binding) && a.offset<=l.maxVertexInputAttributeOffset,"Invalid vertex attribute location/offset");
         const auto& info=format(a.format);require(info.aspects==VK_IMAGE_ASPECT_COLOR_BIT && !info.compression,"Invalid vertex attribute format");
@@ -133,6 +138,8 @@ Graphics ShaderCommands::compile_graphics(const std::vector<HlslProgram>& progra
         VkPipelineShaderStageCreateInfo stage={VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};stage.stage=program.stage;stage.module=handle;stage.pName="main";stages.push_back(stage);}
     VkPipelineVertexInputStateCreateInfo inputs={VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};inputs.vertexBindingDescriptionCount=uint32_t(state.streams.size());inputs.pVertexBindingDescriptions=state.streams.data();
     inputs.vertexAttributeDescriptionCount=uint32_t(state.attributes.size());inputs.pVertexAttributeDescriptions=state.attributes.data();
+    VkPipelineVertexInputDivisorStateCreateInfo divisors={VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO};
+    if(!state.divisors.empty()){divisors.vertexBindingDivisorCount=uint32_t(state.divisors.size());divisors.pVertexBindingDivisors=state.divisors.data();inputs.pNext=&divisors;}
     VkPipelineInputAssemblyStateCreateInfo assembly={VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};assembly.topology=state.topology;assembly.primitiveRestartEnable=state.primitive_restart;
     VkPipelineViewportStateCreateInfo viewport={VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};viewport.viewportCount=viewport.scissorCount=1;
     VkPipelineMultisampleStateCreateInfo samples={VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};samples.rasterizationSamples=state.samples;samples.alphaToCoverageEnable=state.alpha_to_coverage;
@@ -175,13 +182,17 @@ void ShaderCommands::draw(const Graphics& pipeline,const std::vector<ShaderDescr
     for(const auto& buffer:draw.vertices){require(vertices.emplace(buffer.slot,&buffer).second,"Duplicate graphics vertex buffer");commands.validate(buffer.buffer,buffer.offset,1);
         require(buffer.buffer->usage()&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,"Graphics stream lacks vertex buffer usage");}
     require(vertices.size()==state.streams.size(),"Graphics vertex stream count differs from pipeline");
+    for(const auto& divisor:state.divisors)if(divisor.divisor!=1 && (draw.arguments || draw.first_instance))
+        require(d->host.divisor_first_instance,"Nonzero or GPU-produced instance base requires divisor device support");
     for(const auto& stream:state.streams){const auto found=vertices.find(stream.binding);require(found!=vertices.end(),"Missing graphics vertex stream");
         const auto& buffer=*found->second;
         for(const auto& attribute:state.attributes)if(attribute.binding==stream.binding){const uint64_t first=uint64_t(buffer.offset)+attribute.offset;
             require(first<buffer.buffer->size() && format(attribute.format).bytes<=buffer.buffer->size()-first,"Vertex attribute begins outside its buffer");}
         // Indexed and indirect GPU indices remain the caller's domain contract.
-        if(!draw.arguments && !draw.indexed && stream.stride){const uint64_t index=stream.inputRate==VK_VERTEX_INPUT_RATE_VERTEX?
-            uint64_t(draw.first)+draw.count-1:uint64_t(draw.first_instance)+draw.instances-1;
+        if(!draw.arguments && (!draw.indexed || stream.inputRate==VK_VERTEX_INPUT_RATE_INSTANCE) && stream.stride){
+            uint32_t divisor=1;for(const auto& value:state.divisors)if(value.binding==stream.binding)divisor=value.divisor;
+            const uint64_t index=stream.inputRate==VK_VERTEX_INPUT_RATE_VERTEX?uint64_t(draw.first)+draw.count-1:
+                uint64_t(draw.first_instance)+(divisor?(draw.instances-1)/divisor:0);
             for(const auto& attribute:state.attributes)if(attribute.binding==stream.binding)require(index<=(UINT64_MAX-buffer.offset-attribute.offset)/stream.stride &&
                 uint64_t(buffer.offset)+index*stream.stride+attribute.offset<=buffer.buffer->size()-format(attribute.format).bytes,"Direct vertex fetch exceeds source allocation");}}
     if(draw.indexed){require(draw.index_type==VK_INDEX_TYPE_UINT16 || draw.index_type==VK_INDEX_TYPE_UINT32,"Graphics index type unsupported");const uint32_t size=draw.index_type==VK_INDEX_TYPE_UINT16?2:4;

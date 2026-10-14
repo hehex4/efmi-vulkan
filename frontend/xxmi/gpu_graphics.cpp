@@ -75,6 +75,7 @@ std::vector<uint64_t> pipeline_key(const std::array<std::shared_ptr<gpu::HlslPro
     for(const auto& b:s.blend)add({b.blendEnable,b.srcColorBlendFactor,b.dstColorBlendFactor,b.colorBlendOp,b.srcAlphaBlendFactor,b.dstAlphaBlendFactor,b.alphaBlendOp,b.colorWriteMask});
     for(auto v:s.blend_constants)key.push_back(bits(v));
     key.push_back(s.streams.size());for(const auto& b:s.streams)add({b.binding,b.stride,b.inputRate});
+    key.push_back(s.divisors.size());for(const auto& b:s.divisors)add({b.binding,b.divisor});
     key.push_back(s.attributes.size());for(const auto& a:s.attributes)add({a.location,a.binding,a.format,a.offset});return key;
 }
 }

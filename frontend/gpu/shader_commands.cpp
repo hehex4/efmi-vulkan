@@ -73,6 +73,7 @@ ShaderCommands::ShaderCommands(ResourceCommands& commands,ShaderHost host):impl_
 #undef X
 }
 ShaderCommands::~ShaderCommands()=default;
+const ShaderHost& ShaderCommands::host() const {return impl_->device->host;}
 Compute ShaderCommands::compile(const HlslProgram& program){
     auto d=impl_->device;const auto& limits=d->host.properties.limits;
     require(program.stage==VK_SHADER_STAGE_COMPUTE_BIT && program.vulkan_version<=d->resource.api_version &&

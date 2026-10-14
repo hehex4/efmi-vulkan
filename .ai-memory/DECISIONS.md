@@ -556,3 +556,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   and dispatches. Keep changes through nested CustomShader/Present calls; restore
   at intercepted draw completion, including failure. Shader and GPU resource
   lifetimes remain independent from the immutable CPU layout description.
+
+
+## D-057: Instance divisors require enabled features and actual base properties
+
+- Date:2026-10-14, candidate1.2.7. Represent instance rate in the graphics
+  pipeline and cache identity; query/enable KHR/core features in the owned host.
+- Preserve source first-instance addition after division, including divisor0.
+  Unknown GPU indirect bases require supportsNonZeroFirstInstance. Do not add
+  hidden CPU waits/readbacks. Physical support alone is not logical enablement.
+- Retain direct zero-stride fallback, and keep application device feature import
+  separate from owned sandbox evidence. Native pixels verify all four draw forms.
