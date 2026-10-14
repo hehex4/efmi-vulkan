@@ -46,6 +46,7 @@ private:
     GpuBufferBinding load(CustomResource&);
     void set(ResourceCopyTarget&,CommandListState&,const GpuBufferBinding&);
     void copy(ResourceCopyOperation&,CommandListState&);
+    void copy_to(ResourceCopyOperation&,ResourceCopyTarget&,CommandListState&,GpuBufferBinding);
     void ranges(SlotRangeCopyOperation&,CommandListState&);
     void clear(ClearViewCommand&,CommandListState&);
     void store(StoreCommand&,CommandListState&);

@@ -319,7 +319,7 @@ bind_flags = shader_resource unordered_access
     const Failure bad[]={
         {"cs-t0 = ref ResourceSource->Region(40, 16)\n","region outside"},
         {"clear = ResourceSource 2\ndrawindexed = 3,0,0\n","shader execution"},
-        {"ResourceOut = mono copy ResourceSource\n","copy option"},
+        {"cs-u0 = raw ref ResourceSource\n","raw allocation"},
         {"$result = ResourceSource->hashregion(0,4)\n","source-semantic"},
     };
     for(const auto& item:bad){
@@ -503,6 +503,250 @@ ps-t2 = ref ResourceSaved
     auto source=backend->binding(L'p',T::SHADER_RESOURCE,0),destination=backend->binding(L'p',T::SHADER_RESOURCE,1),saved=backend->binding(L'p',T::SHADER_RESOURCE,2);
     check(destination.buffer!=source.buffer && destination.buffer==saved.buffer,"Copy description pool restores the original owned allocation");
     ini.reset();backend.reset();source={};destination={};saved={};check(!budgets.resident->used() && !budgets.staging->used(),"All copy-pool descriptions release with the generation");
+}
+static void whole_pool_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    std::filesystem::create_directories(root/"Mods");
+    const std::string source=R"ini(namespace = wholepool
+[Constants]
+global $phase = 0
+global $copied = 0
+global $source = 0
+global $limit0 = 0
+global $limit1 = 0
+global $limit2 = 0
+global $mixed = 0
+global $selector = 0
+global $source_stride = 0
+global $unless = 0
+global $null = 77
+[ResourceSource]
+type = Buffer
+format = R32_FLOAT
+data = R32_FLOAT 1 2 3 4
+bind_flags = shader_resource unordered_access
+[ResourceOther]
+type = Buffer
+format = R32_FLOAT
+stride = 8
+data = R32_FLOAT 9 10 11 12
+bind_flags = shader_resource unordered_access
+[ResourceLarge]
+type = Buffer
+format = R32_FLOAT
+data = R32_FLOAT 21 22 23 24 25 26 27 28
+bind_flags = shader_resource unordered_access
+[ResourceNull]
+[PoolCopies]
+pool_size = 3
+bind_flags = shader_resource unordered_access
+[PoolProxy]
+pool_size = 1
+bind_flags = shader_resource unordered_access
+[PoolRefs]
+pool_size = 3
+[PoolLimited]
+pool_size = 3
+max_copies_per_frame = 1
+bind_flags = shader_resource unordered_access
+[PoolMixed]
+pool_size = 3
+pool_element_type_switch_reset = false
+pool_variable_default_value = 5
+bind_flags = shader_resource unordered_access
+[PoolDynamic]
+pool_size = 3
+pool_variable_default_value = 1
+[PoolWindows]
+pool_size = 2
+[PoolAgain]
+pool_size = 2
+bind_flags = shader_resource unordered_access
+[PoolNull]
+pool_size = 2
+[PoolUnsupported]
+pool_size = 2
+pool_index_type = fifo
+[CommandListRepeat]
+PoolAgain[*] = copy ResourceSource
+[Present]
+if $phase == 0
+ PoolCopies = ResourceSource
+ store = $copied, PoolCopies[2], 3
+ clear = PoolCopies[0] 20
+ store = $source, ResourceSource, 0
+ ps-t0 = ref PoolCopies[0]
+ ps-t1 = ref PoolCopies[1]
+ ps-t2 = ref PoolCopies[2]
+ PoolProxy = ref PoolCopies
+ PoolProxy[*] = copy ResourceOther
+ ps-t6 = ref PoolCopies[0]
+ ps-t7 = ref PoolCopies[1]
+ ps-t8 = ref PoolCopies[2]
+ PoolCopies = copy ResourceLarge
+ PoolCopies[*] = copy_desc ResourceSource
+ ps-t3 = ref PoolCopies[0]
+ ps-t4 = ref PoolCopies[1]
+ ps-t5 = ref PoolCopies[2]
+ PoolRefs[*] = ref ResourceSource
+ ps-t10 = ref PoolRefs[0]
+ ps-t11 = ref PoolRefs[1]
+ ps-t12 = ref PoolRefs[2]
+ PoolLimited[1] = ref ResourceOther
+ PoolLimited = copy ResourceSource
+ store = $limit0, PoolLimited[0], 0
+ store = $limit1, PoolLimited[1], 0
+ store = $limit2, PoolLimited[2], 0
+ $PoolMixed[*] = 7
+ PoolMixed[*] = copy ResourceSource
+ $mixed = $PoolMixed[1]
+ ps-t15 = ref PoolMixed[1]
+ $PoolMixed[*] = null
+ ps-t16 = ref PoolMixed[1]
+ PoolMixed[*] = null
+ ps-t17 = ref PoolMixed[1]
+ PoolDynamic[1] = ref ResourceSource
+ PoolDynamic[2] = ref ResourceOther
+ $PoolDynamic[0] = 0
+ PoolDynamic = ref PoolDynamic[$PoolDynamic[0] + 1]
+ $selector = $PoolDynamic[0]
+ $source_stride = PoolDynamic[0]->sourcestride
+ ps-t20 = ref PoolDynamic[0]
+ ps-t21 = ref PoolDynamic[1]
+ ps-t22 = ref PoolDynamic[2]
+ PoolWindows[*] = ref ResourceSource->Region(4, 12)
+ ps-t25 = ref PoolWindows[0]
+ ps-t26 = ref PoolWindows[1]
+ PoolNull = ref ResourceSource
+ PoolNull = unless_null ref ResourceNull
+ store = $unless, PoolNull[1], 0
+ PoolNull[*] = ref ResourceNull
+ store = $null, PoolNull[1], 0
+ ps-t27 = ref PoolNull[0]
+ run = CommandListRepeat
+ clear = PoolAgain[0] 30
+ clear = PoolAgain[1] 40
+else
+ run = CommandListRepeat
+ PoolLimited[*] = copy ResourceSource
+ ps-t30 = ref PoolLimited[0]
+ ps-t31 = ref PoolLimited[1]
+ ps-t32 = ref PoolLimited[2]
+endif
+ps-t28 = ref PoolAgain[0]
+ps-t29 = ref PoolAgain[1]
+$phase = $phase + 1
+)ini";
+    write(root/"Mods/pools.ini",source.c_str());RuntimeConfig config{root,{},root/"settings","pools",root/"Mods"};
+    gpu::ResourceBudgets budgets;std::string why;auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
+    auto ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error(why);++checks;
+    auto present=[&](unsigned frame){backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        if(!ini->present({},frame,0,why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();++checks;};
+    auto binding=[&](unsigned slot){return backend->binding(L'p',T::SHADER_RESOURCE,slot);};
+    auto first=[&](unsigned slot){auto b=binding(slot);check(bool(b.buffer),"Whole-pool slot retains its resource");return value(backend->commands().readback(d.queue,b.buffer,0,4));};
+    present(1);const auto vars=ini->status().variables;
+    const std::pair<const char*,float> expected[]={{"copied",4},{"source",1},{"limit0",1},{"limit1",9},{"limit2",1},
+        {"mixed",7},{"selector",1},{"source_stride",8},{"unless",1},{"null",77}};
+    for(const auto& e:expected){const auto actual=vars.at("$\\wholepool\\"+std::string(e.first));
+        if(actual!=e.second)throw std::runtime_error(std::string(e.first)+" expected "+std::to_string(e.second)+", actual "+std::to_string(actual));++checks;}
+    for(unsigned i=0;i<3;++i){check(binding(i).buffer==binding(i+3).buffer,"Whole-pool copy_desc restores each owned description");
+        check(first(i)==(i?1:20),"Whole-pool description cache restores previously initialized bytes");
+        check(first(i+6)==9 && binding(i+6).buffer!=binding(i).buffer,"Proxy copies use a separate allocation for a different stride description");
+        check(binding(10+i).buffer==binding(10).buffer,"Whole-pool ref shares the same source owner");
+        check(binding(20+i).buffer==binding(10).buffer,"Dynamic source resource is resolved before pool element mutations");
+        if(i)check(binding(i).buffer!=binding(0).buffer,"Whole-pool copies have independent destination owners");}
+    check(binding(15).buffer==binding(16).buffer && !binding(17).buffer,"Mixed scalar reset keeps resources; resource reset retains existing slots only");
+    for(unsigned i:{25u,26u})check(binding(i).buffer==binding(10).buffer && binding(i).view_offset==4 && binding(i).view_size==8,
+                                 "Whole-pool references preserve original view region end boundaries");
+    check(!binding(27).buffer && first(10)==1,"Resolved null unbinds every element and leaves original bytes intact");
+    check(first(28)==30 && first(29)==40,"Separate pooled destinations can be cleared independently");
+    present(2);check(first(28)==1 && first(29)==1,"The same whole-pool instruction works again without a mutated target");
+    for(unsigned i=30;i<33;++i)check(first(i)==1,"Whole-pool copy counters reset independently on the next frame");
+    auto held=binding(3).buffer;ini.reset();backend.reset();check(budgets.resident->used()>0,"A slot owner survives whole-pool generation retirement");
+    held.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Whole-pool aliases and cached descriptions release all allocations");
+    const auto rejected=source.substr(0,source.find("[CommandListRepeat]"))+"[Present]\nPoolUnsupported = copy ResourceSource\n";
+    write(root/"Mods/pools.ini",rejected.c_str());backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
+    ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error(why);
+    backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    check(!ini->present({},3,0,why) && why.find("whole-pool expiration/key")!=std::string::npos,"Unadapted keyed whole-pool ownership refuses explicitly");
+    refuses([&]{backend->finish();},"Failed whole-pool scope cannot publish partial work");backend->discard();ini.reset();backend.reset();
+    check(!budgets.resident->used() && !budgets.staging->used(),"Rejected whole-pool generation releases its source and staging");
+}
+static void buffer_options_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    std::filesystem::create_directories(root/"Mods");write(root/"Mods/options.ini",R"ini(namespace = options
+[Constants]
+global $resolved = 0
+global $copy_resolved = 0
+global $restored = 0
+global $source = 0
+global $mono = 0
+global $pool = 0
+global $range = 0
+[ResourceSource]
+type = Buffer
+format = R32_FLOAT
+data = R32_FLOAT 1 2 3 4
+bind_flags = shader_resource unordered_access
+[ResourceOther]
+type = Buffer
+format = R32_FLOAT
+data = R32_FLOAT 9 10 11 12
+bind_flags = shader_resource unordered_access
+[ResourceLarge]
+type = Buffer
+format = R32_FLOAT
+data = R32_FLOAT 21 22 23 24 25 26 27 28
+bind_flags = shader_resource unordered_access
+[ResourceOut]
+bind_flags = shader_resource unordered_access
+[PoolOptions]
+pool_size = 2
+bind_flags = shader_resource unordered_access
+[CommandListRange]
+cs-u[4:5] = resolve_msaa ResourceOther
+[Present]
+ResourceOut = copy ResourceOther
+ps-t0 = ref ResourceOut
+ResourceOut = resolve_msaa ResourceSource
+store = $resolved, ResourceOut, 0
+ResourceOut = copy resolve_msaa ResourceSource
+store = $copy_resolved, ResourceOut, 3
+ResourceOut = copy_desc resolve_msaa ResourceLarge
+clear = ResourceOut 50
+ResourceOut = resolve_msaa ResourceSource
+store = $restored, ResourceOut, 1
+ps-t1 = ref ResourceOut
+cs-u0 = mono set_viewport ref ResourceSource
+clear = cs-u0 11
+store = $source, ResourceSource, 3
+ResourceOut = mono set_viewport copy ResourceOther
+store = $mono, ResourceOut, 2
+PoolOptions = copy ResourceOther
+PoolOptions[*] = resolve_msaa ResourceSource
+store = $pool, PoolOptions[1], 0
+cs-u[1:2] = mono set_viewport copy ResourceOther
+clear = cs-u1 30
+run = CommandListRange
+clear = cs-u4 60
+clear = cs-u5 70
+run = CommandListRange
+store = $range, cs-u4, 1
+)ini");
+    RuntimeConfig config{root,{},root/"settings","options",root/"Mods"};gpu::ResourceBudgets budgets;std::string why;
+    auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);auto ini=IniRuntime::load(config,backend,why);
+    if(!ini)throw std::runtime_error(why);backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    if(!ini->present({},1,0,why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();ticket.reset();
+    const auto vars=ini->status().variables;
+    const std::pair<const char*,float> expected[]={{"resolved",9},{"copy_resolved",12},{"restored",10},{"source",11},{"mono",11},{"pool",9},{"range",60}};
+    for(const auto& e:expected){const auto actual=vars.at("$\\options\\"+std::string(e.first));
+        if(actual!=e.second)throw std::runtime_error(std::string(e.first)+" expected "+std::to_string(e.second)+", actual "+std::to_string(actual));++checks;}
+    check(backend->binding(L'p',T::SHADER_RESOURCE,0).buffer==backend->binding(L'p',T::SHADER_RESOURCE,1).buffer,
+          "Buffer resolve reuses the owned description without copying source bytes");
+    for(const auto& e:std::vector<std::pair<unsigned,float>>{{0,11},{1,30},{2,9},{4,60},{5,70}}){
+        auto b=backend->binding(L'c',T::UNORDERED_ACCESS_VIEW,e.first);check(bool(b.buffer),"Option-bearing commands bind real owned buffers");
+        check(value(backend->commands().readback(d.queue,b.buffer,0,4))==e.second,"Scalar and range options preserve source-defined byte effects");}
+    ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Buffer option caches retire with their generation");
 }
 static void regions_gpu(Device& d,const std::filesystem::path& root){
     using namespace frontend;using T=ResourceCopyTargetType;
@@ -793,7 +1037,8 @@ vb0 = ref ResourceVertex->Region(12, 48)
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
-        view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");}
+        view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");
+        whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

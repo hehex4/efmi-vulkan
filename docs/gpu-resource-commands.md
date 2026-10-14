@@ -55,6 +55,17 @@ remain distinct. Resources are instantiated on first use, within shared budgets.
 - `raw` creates a raw view only when the allocation permits it; it does not
   change a compatible borrowed source view. `no_view_cache` drops the cached
   view while retaining live slot bindings and copy-pool ownership.
+- Whole-pool assignment (`Pool = Resource` and `Pool[*] = Resource`) retains
+  the source allocation/view before any destination changes. Each element has
+  its own copy limit, metadata overrides and owned description cache; original
+  proxy and mixed-element behavior stays active. A local destination preserves
+  the original command across repeats and failure. As upstream does, source
+  stride metadata is read per destination even though the GPU source is fixed.
+- Buffer `mono` and `set_viewport` preserve the source engine's no-op modifier
+  behavior. Buffer `resolve_msaa` creates/reuses a destination without copying
+  bytes; it takes precedence over `copy` and is still not an image resolve.
+  Existing initialized cache contents survive. These modifiers also execute
+  through per-slot ranges and whole-pool assignments.
 
 Original source views matter independently of allocation bind flags. A resource
 fetched from an SRV slot carries an SRV view; original `clear` does not clear that
@@ -77,7 +88,7 @@ including its surprising negative-index results for non-power-of-two sizes.
 Nonfinite or out-of-int-range bounds refuse before the original integer cast.
 Fresh typed/raw plain-range views without a compatible source view still refuse
 explicitly. Their original view descriptor is not silently replaced with a
-guessed format or full-buffer range. Other copy options remain separate work.
+guessed format or full-buffer range. Image copy options remain separate work.
 
 ## Resource properties
 
@@ -129,14 +140,15 @@ It is part of `sandbox/run_all.py`.
 Tests compare GPU bytes and original variable results, not merely command counts:
 copy/clear order, aliases, same-list readback branches, description copies,
 typed/structured clears, region references, buffer-file padding, optimized slot
-batches/ranges, scalar/resource pool resets, copy limits, generation isolation, retained
+batches/ranges, whole-pool/proxy assignments, fixed source ownership with changing
+indices, scalar/resource pool resets, copy limits, generation isolation, retained
 owners, negative execution paths and allocation release through shutdown.
 Final counts and the full regression checkpoint belong in CURRENT_STATE.md.
 
 ## Remaining execution work
 
 Image commands and format conversions; region/spatial hash and texture properties;
-fresh typed/raw plain-range views; remaining copy options and invalid source-API
+fresh typed/raw plain-range views; invalid source-API
 description combinations; expiring/keyed GPU pools; GPU
 IniParams; application resource import and command placement; shared shader
 contracts; CustomShader draw/dispatch/state; ShaderOverride/ShaderRegex; complete

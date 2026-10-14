@@ -198,11 +198,29 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
     require(typeid(op)==typeid(ResourceCopyOperation),"GPU staging command requires staging adaptation");
     require(op.src.evaluation_mode==Mode::RESOURCE || op.src.evaluation_mode==Mode::RESOURCE_REGION,"GPU copy source is not a resource");
     constexpr auto allowed=uint32_t(ResourceCopyOptions::COPY)|uint32_t(ResourceCopyOptions::COPY_DESC)|uint32_t(ResourceCopyOptions::REFERENCE)|
-        uint32_t(ResourceCopyOptions::UNLESS_NULL)|uint32_t(ResourceCopyOptions::NO_VIEW_CACHE)|uint32_t(ResourceCopyOptions::RAW_VIEW);
+        uint32_t(ResourceCopyOptions::UNLESS_NULL)|uint32_t(ResourceCopyOptions::NO_VIEW_CACHE)|uint32_t(ResourceCopyOptions::RAW_VIEW)|
+        uint32_t(ResourceCopyOptions::MONO)|uint32_t(ResourceCopyOptions::SET_VIEWPORT)|uint32_t(ResourceCopyOptions::RESOLVE_MSAA);
     require(!(uint32_t(op.options)&~allowed),"GPU copy option requires an additional adapter");
     auto& dst=effective(op.dst,state);
     if(op.src.type==Target::EMPTY){set(dst,state,{});return;} // Explicit null ignores unless_null upstream.
     auto source=get(op.src,state);
+    if(dst.type!=Target::POOL){copy_to(op,dst,state,std::move(source));return;}
+    require(dst.custom_resource_pool && (dst.evaluation_mode==Mode::RESOURCE || dst.evaluation_mode==Mode::POOL_FULL_RANGE_RESOURCE),
+            "GPU whole-pool assignment needs a resource pool target");
+    auto* pool=dst.custom_resource_pool;const auto* actual=pool->ResolvePool();
+    require((actual->index_type==PoolIndexType::RING || actual->index_type==PoolIndexType::STATIC) &&
+            actual->expiration_timeout_frames==UINT32_MAX,"GPU whole-pool expiration/key ownership is not adapted");
+    const auto count=pool->GetPoolSize();require(count<=65536,"GPU whole-pool assignment budget exceeded");
+    // Retain the resolved source resource/view once, before changing any pool
+    // element. A local target avoids mutating the original command on failure.
+    ResourceCopyTarget target;target.type=Target::CUSTOM_RESOURCE;
+    for(size_t i=0;i<count;++i){
+        auto* destination=pool->GetResource(float(i),false,true,true);
+        require(destination!=nullptr,"GPU whole-pool destination missing");target.SetCustomResource(destination);
+        copy_to(op,target,state,source);
+    }
+}
+void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& dst,CommandListState& state,GpuBufferBinding source) {
     if(!source.buffer){if(!(op.options&ResourceCopyOptions::UNLESS_NULL))set(dst,state,{});return;}
     auto* custom=dst.type==Target::CUSTOM_RESOURCE?declaration(dst,state,true):nullptr;
     const bool explicit_region=op.src.evaluation_mode==Mode::RESOURCE_REGION;
@@ -213,7 +231,13 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
     }
     if(custom)custom->OverrideOutOfBandInfo(&source.format,&source.stride);
     source.source_stride=op.src.type==Target::CUSTOM_RESOURCE && source.source_stride?source.source_stride:source.stride;
-    if(custom)custom->source_stride=source.source_stride;
+    if(custom){
+        // Original CopyResourceToResource reads source_stride from the current
+        // declaration per destination; the retained GPU source itself is fixed.
+        if(op.src.type==Target::CUSTOM_RESOURCE){auto* origin=declaration(op.src,state);
+            source.source_stride=origin && origin->source_stride?origin->source_stride:source.stride;}
+        custom->source_stride=source.source_stride;
+    }
     fill_info(source,op.src.type);
     require(!custom || resources_.size()<65536 || resources_.count(custom),"GPU resource declaration budget exceeded");
     auto& cache=custom?resources_[custom]:copies_[&op];
@@ -268,7 +292,10 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
     if(found!=pool.end())out.buffer=found->second;
     else{out.buffer=commands_.create(out.description.ByteWidth,usage(out.description));pool.emplace(key,out.buffer);}
     reuse_view(out);
-    if(!(op.options&ResourceCopyOptions::COPY_DESC)){
+    // The original resolve helper returns for buffers. It still creates/reuses
+    // the destination, but must not replace existing bytes with a normal copy.
+    // MONO has no implementation upstream; buffer SET_VIEWPORT returns as well.
+    if(!(op.options&ResourceCopyOptions::COPY_DESC) && !(op.options&ResourceCopyOptions::RESOLVE_MSAA)){
         if(destination_size){
             // SpecialCopyBufferRegion treats source size as an end boundary.
             const uint64_t end=std::min<uint64_t>(source_end,uint64_t(source.offset)+destination_size);

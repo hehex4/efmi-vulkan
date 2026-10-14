@@ -1116,3 +1116,29 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   range loop, so do not invent one from keyword similarity. Next version 1.1.0.
   Dist stays 1.0.2, PNG integration paused, no game action or deployment. The
   requested complete directory/GPU-language goal remains active and incomplete.
+
+## 2026-10-14: Whole-pool resource assignments and buffer modifiers (1.1.0)
+
+- Restored memory after fc230c3, answered the user's next-step question and
+  continued the active offline resource -> shader -> directory goal. Implemented
+  original bare/wildcard whole-pool assignments using a retained source and a
+  local destination target. Repeated commands, proxy roots, per-element counters,
+  source-stride metadata reads, mixed resets and resolved null remain distinct.
+- mono and set_viewport do no additional buffer work upstream. resolve_msaa
+  still creates/reuses a destination but does not copy buffer bytes, even with
+  copy also specified. Tests read actual scalar/range/whole-pool GPU results and
+  initialized cache contents; no assertion depends on uninitialized allocations.
+- The first cache expectation incorrectly treated equal byte widths as equal
+  descriptions; the different source stride correctly selects another owned
+  cache. Corrected the fixture to verify both retained allocations and their
+  independent byte contents. No upstream or installed mod source was changed.
+- Targeted suite passes 402 checks, zero core/sync validation messages through
+  shutdown. Full frozen-source rebuild/regression passes in
+  build/next/run_all-1.1.0.out, including original parser 726, evaluation 65,
+  CPU runtime 68, character package/GPU 79/357, live INI GPU 28, validation 76,
+  modes 40, MCP 47 and every remaining step. ABI is unchanged.
+- Next offline audit: keyed/expiring pool ownership, retained resources after
+  reassignment/expiry and original spatial frame duration. IniRuntime currently
+  does not supply gFrameTime. Images, GPU parameters and shader/directory work
+  remain open. Dist stays 1.0.2; PNG stays paused. No game input, deployment,
+  module exchange or original-installation write. The active goal continues.

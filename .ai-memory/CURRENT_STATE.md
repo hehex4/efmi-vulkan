@@ -1,6 +1,35 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, owned GPU resource properties and metadata. Source/candidate 1.0.9 passes the full rebuilt regression, including 303 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, whole-pool GPU assignments and buffer copy modifiers. Source/candidate 1.1.0 passes the full rebuilt regression, including 402 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+
+## Original whole-pool GPU assignments (verified candidate 1.1.0)
+
+Bare and wildcard whole-pool resource assignments now execute through the owned
+buffer backend. The source allocation/view is retained before any destination
+element changes. Each destination keeps its own copy limit, metadata overrides
+and per-description allocation pool. Original proxy, mixed-element reset and
+resolved-null behavior remain active; the original command is not mutated.
+Source stride metadata is still queried per destination, as upstream does, even
+when a type switch changes its dynamic index. The GPU source remains fixed.
+
+All named copy modifiers now have their original buffer behavior, including
+mono and set_viewport doing no additional buffer work, and resolve_msaa creating
+or reusing a destination without copying bytes. These also pass through ranges
+and whole-pool assignments. This does not implement image resolves or viewports.
+
+Targeted GPU suite: 402 passing checks and zero core/sync validation messages
+through shutdown. The frozen-source full rebuild/regression passes in
+build/next/run_all-1.1.0.out: parser 726, evaluation 65, CPU runtime 68, character
+package/GPU 79/357, live INI GPU 28, validation 76 and every remaining step.
+ABI remains 16b90a85431f86b4. No deployment or original-installation writes.
+
+Next offline work: keyed/expiring buffer pool lifetime, remaining resource
+properties/conversions, mutable images, GPU IniParams, then CustomShader,
+shared shader matching and complete directory graphics. Spatial pools need an
+explicit original frame duration: IniRuntime currently leaves gFrameTime at its
+zero default. Audit original slot reuse/reset semantics before removing the
+pool restrictions. PNG remains paused; no game input is needed now. The active
+goal remains incomplete. Next version is 1.1.1.
 
 ## Original buffer properties and target metadata (verified candidate 1.0.9)
 

@@ -6,7 +6,9 @@ objects. The optional GpuResourceRuntime extension connects those original
 commands to ResourceCommands, an owned Vulkan execution domain for mutable
 buffers, transfers, clears, store feedback and logical source slots. Copy pools
 own per-description allocations independently of aliases; fence tickets retain
-resources through submission. Details: docs/gpu-resource-commands.md and D-045.
+resources through submission. Whole-pool assignments retain the source resource
+before changing destinations, while using original per-element metadata/counters
+and copy pools. Details: docs/gpu-resource-commands.md and D-045.
 This requires an explicit outside-render-pass scope on a host-serialized queue.
 It does not replace the character hook's file-plan renderer, import application
 resources, or emit shader descriptors/draws. Image/shader adapters and complete

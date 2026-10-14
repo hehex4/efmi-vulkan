@@ -6,6 +6,23 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.0 implements bare/wildcard whole-pool resource assignments and the remaining
+named buffer copy modifiers. Sources are retained across pool writes, with
+original per-element counters, metadata reads, proxies and caches. Buffer
+resolve_msaa creates/reuses the destination without copying bytes. Targeted GPU
+suite: 402 passing checks, clean validation. Full rebuild/regression passes in
+build/next/run_all-1.1.0.out. Deployment remains 1.0.2; the active goal is not
+complete and this checkpoint needs no game input.
+
+Next: keyed/expiring pool ownership and remaining resource properties/conversions,
+then mutable images, GPU IniParams, CustomShader, shader matching and directory
+graphics. Original slot reassignment does not automatically clear the old
+resource; expiry/reset and reference lifetime must be tested independently.
+Spatial pools also need original frame duration supplied by the host runtime.
+PNG stays paused. Next version is 1.1.1.
+
+Earlier verified checkpoint:
+
 1.0.9 adds owned buffer property queries and original target-specific metadata,
 null view caching and source_stride retention. Targeted GPU suite: 303 passing
 checks, clean validation. Full rebuild/regression passes in

@@ -181,3 +181,11 @@ and full rebuilt suite pass in `build/next/run_all-1.0.9.out`. Pure declaration
 queries allocate nothing in Constants; VB/IB offsets require an actual draw
 context. Hash properties, image execution and shader/directory drawing remain
 explicit development work.
+
+Candidate 1.1.0 executes original whole-pool buffer assignments and every named
+copy modifier under its buffer semantics. Source allocations/views survive
+destination changes; original per-element limits, metadata and cache ownership
+are preserved. In particular buffer resolve_msaa does not copy bytes. The 402
+GPU resource checks and full rebuilt suite pass in `build/next/run_all-1.1.0.out`.
+Keyed/expiring pools, remaining properties, image execution and shader/directory
+graphics remain separate offline work; deployment stays 1.0.2.
