@@ -481,3 +481,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Verify actual pixels against original DXBC on system D3D11 WARP. Compiler,
   independent linker host, original INI draw execution and game rendering are
   separate evidence. An invalid development fixture was corrected before release.
+
+## D-051: Source graphics conventions are measured before draw integration
+
+- Date:2026-10-14, candidate1.2.1. Native SM5 pixel w and vertex/instance IDs differ
+  from raw Vulkan built-ins. Use the pinned DXC conversions and actual enabled
+  draw-parameter capabilities; do not assume zero offsets or unit clip w.
+- Negative Vulkan viewport height preserves source pixel centers, culling and
+  front-face input in native pixel references. Original state masks are evaluated
+  through the pinned helper. Compare semantic fields rather than struct padding.
+- CPU state descriptions, isolated native/Vulkan pixels and production original
+  INI drawing remain separate evidence. Continue connecting the owned executor.

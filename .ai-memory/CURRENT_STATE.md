@@ -1,6 +1,39 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, graphics linker 1.2.0. Complete rebuilt regression passes: resources 4065, compiler 172/58 valid modules, core/sync clean. Continue original graphics state/draws offline. Dist 1.0.2 unchanged.
+> Last updated: 2026-10-14, source coordinates/state foundation1.2.1. Complete rebuilt regression passes: resources4559, compiler172/58 valid modules, core/sync clean. Continue owned INI graphics execution immediately. Dist1.0.2 unchanged.
+
+## Source coordinates and state descriptions (verified candidate1.2.1)
+
+BUG-023 is fixed: the compiler uses DXC's DX-position-w and nonzero base vertex/
+instance options. Before-fix native comparisons expose pixel w=2 versus Vulkan
+0.5, and source IDs excluding offsets while Vulkan included them. Native DX11
+WARP and Vulkan now agree byte for byte for pixel centers/depth/w, all cull/front
+face combinations, direct start offsets, indexed signed base vertices and multiple
+instances. Draw-parameter shader capabilities require actual device enablement;
+the headless reference explicitly enables shaderDrawParameters. Production
+graphics pipeline creation must enforce that feature before using these modules.
+
+SourceGraphicsState exposes original default/replace/bitmask-merge descriptions,
+using the pinned masked-copy helper. Native original merge methods create actual
+WARP states and agree on effective fields, blend factors, sample masks and stencil
+references. PS sampler override touches slot0 only. This is a CPU description
+bridge, not yet production INI graphics execution. Tests compare semantic fields,
+not unspecified D3D structure padding.
+
+Full frozen-source rebuild/regression:build/next/run_all-1.2.1.out, all pass;
+resources4559, compiler172/58 valid modules, all existing suites. Core/sync clean
+through shutdown;76 resource and9 compiler hashes match; text312 files clean.
+No deployment/game/launcher/system action. Dist1.0.2 remains unchanged.
+
+Next1.2.2: reuse owned descriptor lifetimes for graphics pipelines/draws, connect
+original stages and fixed-function state, then matching/directory integration.
+Independent native sampler probe build/source-state-probe/samplers.cpp/.txt shows
+comparison filters used by ordinary SampleLevel return ordinary texture values:
+point (4,1,4), linear (2.5,1,4). The sampler adapter must use actual comparison
+instructions, not the filter comparison bit alone. Probe is diagnostic, not yet
+integrated regression. No game input needed; continue without checkpoint stops.
+PNG paused, LOD0/LOD1 only. See docs/custom-shaders.md and D-051.
+
 
 ## Original graphics linking (verified candidate 1.2.0)
 

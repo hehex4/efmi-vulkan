@@ -2,6 +2,7 @@
 // exposes its CPU input-layout evaluator to the backend declaration adapter.
 #include "CommandList.cpp"
 #include "image_rules.h"
+#include "graphics_state.h"
 #include <stdexcept>
 
 bool FrontendApplyInputLayoutOverrides(std::vector<D3D11_INPUT_ELEMENT_DESC>& elements,CommandListState& state)
@@ -24,6 +25,35 @@ void FrontendBufferViewElements(UINT stride,UINT offset,DXGI_FORMAT format,UINT 
 }
 
 namespace efmi::frontend {
+SourceGraphicsState source_graphics_defaults(){
+    SourceGraphicsState state;
+    state.blend=CD3D11_BLEND_DESC(D3D11_DEFAULT);
+    state.depth=CD3D11_DEPTH_STENCIL_DESC(D3D11_DEFAULT);
+    state.raster=CD3D11_RASTERIZER_DESC(D3D11_DEFAULT);
+    return state;
+}
+SourceGraphicsState source_graphics_override(const CustomShader& shader,const SourceGraphicsState& previous){
+    auto state=previous;
+    auto merge=[](auto& dest,const auto& value,const auto& mask,const auto& inherited,int mode){
+        if(mode<0 || mode>2)throw std::runtime_error("Invalid original graphics state override mode");
+        if(!mode)return;
+        dest=value;
+        if(mode==2){auto source=inherited,copy_mask=mask;memcpy_masked_merge(&dest,&source,&copy_mask,sizeof(dest));}
+    };
+    merge(state.blend,shader.blend_desc,shader.blend_mask,previous.blend,shader.blend_override);
+    if(shader.blend_override){
+        for(unsigned i=0;i<4;++i)state.blend_factor[i]=shader.blend_override==2 && shader.blend_factor_merge_mask[i]?previous.blend_factor[i]:shader.blend_factor[i];
+        state.sample_mask=shader.blend_sample_mask;
+        if(shader.blend_override==2)state.sample_mask=(state.sample_mask&~shader.blend_sample_mask_merge_mask)|(previous.sample_mask&shader.blend_sample_mask_merge_mask);
+    }
+    merge(state.depth,shader.depth_stencil_desc,shader.depth_stencil_mask,previous.depth,shader.depth_stencil_override);
+    if(shader.depth_stencil_override){state.stencil_ref=shader.stencil_ref;
+        if(shader.depth_stencil_override==2)state.stencil_ref=(state.stencil_ref&~shader.stencil_ref_mask)|(previous.stencil_ref&shader.stencil_ref_mask);}
+    merge(state.raster,shader.rs_desc,shader.rs_mask,previous.raster,shader.rs_override);
+    if(shader.topology!=D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED)state.topology=shader.topology;
+    if(shader.sampler_override)state.pixel_samplers[0]=shader.sampler_desc;
+    return state;
+}
 namespace {
 D3D11_TEXTURE1D_DESC texture1d(const ImageSourceDescription& source) {
     const auto& d=source.texture;return {d.Width,d.MipLevels,d.ArraySize,d.Format,d.Usage,d.BindFlags,d.CPUAccessFlags,d.MiscFlags};

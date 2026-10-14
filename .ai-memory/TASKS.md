@@ -6,6 +6,20 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.1 fixes native pixel-w and draw-ID conventions (BUG-023) and exposes original
+fixed-function description merging. Native DX11/Vulkan output agrees for direct/
+indexed offsets, negative bases, multiple instances and culling. Full rebuilt
+suite passes in build/next/run_all-1.2.1.out: resources4559, compiler172/58 valid
+modules, core/sync clean, all76 resource and9 compiler hashes match. State bridge
+is CPU-only; INI graphics drawing still needs integration. Next1.2.2: common
+retained graphics descriptors/pipelines, original state/stages/draws, then matching
+and enabled-directory integration. Gate actual shaderDrawParameters; adapt source
+comparison samplers according to executable sample operations. No game input
+needed. Dist1.0.2 unchanged, PNG paused, LOD0/LOD1 only; continue immediately.
+
+Earlier verified checkpoint:
+
+
 1.2.0 adds bounded original-signature validation and Vulkan graphics IO linking.
 Native DX11 and linked Vulkan pixel output agree byte for byte; raw DXC locations
 reproduce incorrect output. Complete rebuilt regression passes in

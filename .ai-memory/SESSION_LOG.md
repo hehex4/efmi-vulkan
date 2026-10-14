@@ -1424,3 +1424,30 @@ memory update. This proves isolated linker pixels, not original INI drawing.
 Continue with original graphics state/draws and native coordinates/IDs, then
 matching and enabled-directory integration. Next1.2.1; no game input needed,
 dist1.0.2 unchanged, PNG paused, LOD0/LOD1 only. No deployment/game action.
+
+## 2026-10-14: Source graphics coordinates and state foundation,1.2.1
+
+Continued after1.2.0 without game input. Native references reproduced three
+compiler convention failures: pixel-w reciprocal, base vertex and base instance.
+Saved each before-fix failure under build/graphics-coordinate-before-fix/ and
+fixed DXC options (BUG-023). Direct/indexed pixel output now agrees, including
+negative vertex bases, nonzero first index, multiple instances and every tested
+cull/front-face combination. Test devices explicitly enable shaderDrawParameters;
+the upcoming production graphics executor must enforce actual feature enablement.
+
+Added SourceGraphicsState and original bitmask-merge bridge. Unmodified original
+merge methods run against actual WARP state creation and agree on effective
+fields/factors/masks. Corrected a test that compared undefined structure padding;
+no runtime field discrepancy remained. The bridge is not yet graphics execution.
+
+Complete frozen-source rebuild/regression:build/next/run_all-1.2.1.out, all pass.
+Resources4559, compiler172/58 valid modules; all existing steps and clean core/sync
+through shutdown.76 resource and9 compiler hashes match, text312 files clean.
+Source1.2.1, dist1.0.2 unchanged. No game/deployment/launcher/system action.
+
+Independent ignored native sampler probe confirms comparison-filter state used by
+ordinary SampleLevel still returns texture values. Evidence:build/source-state-
+probe/samplers.cpp, samplers.txt. This is diagnostic, not integrated regression.
+Next1.2.2: common graphics descriptor/pipeline ownership, original state/stages
+and drawing, then matching/directory integration. No game input needed; continue.
+PNG paused, LOD0/LOD1 only.

@@ -211,3 +211,33 @@ input needed. No deployment or game action.
 Sources: [native signatures](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx-graphics-hlsl-signatures),
 [Vulkan interfaces](https://docs.vulkan.org/spec/latest/chapters/interfaces.html),
 and [DXC SPIR-V conventions](https://github.com/microsoft/DirectXShaderCompiler/blob/main/docs/SPIR-V.rst).
+
+## Source coordinate and state foundation, candidate1.2.1
+
+Native DX11/Vulkan pixel references exposed BUG-023: pixel SV_Position.w and
+vertex/instance IDs were raw Vulkan values. The compiler now uses DXC conversion
+options for reciprocal pixel w and nonzero base vertex/instance. Tests cover
+non-unit clip w, top-left pixel centers, depth, culling/front face, direct start
+offsets, signed indexed vertex bases, first indices and multiple instances.
+Negative viewport height and source winding conventions produce matching pixels.
+DrawParameters requires actual shaderDrawParameters enablement; the independent
+headless host enables it explicitly. Production graphics must check it or lower
+these built-ins without silently requiring an unsupported feature.
+
+SourceGraphicsState supplies defaults, replace and bitmask-merge descriptions
+using the unchanged source helper. Native merge methods create real WARP states
+and agree on effective fields, blend constants, sample masks and stencil refs.
+Source pixel-sampler override changes slot0 only. Struct padding is unspecified
+and excluded from state comparisons. The bridge does not yet convert or emit these
+states in an original INI graphics pipeline. Original native invalid-state
+creation/fallback and imported application states are separate executor work.
+
+Full rebuilt regression:build/next/run_all-1.2.1.out, all pass; resources4559,
+compiler172/58 modules valid, zero core/sync messages,76 resource/9 compiler hashes
+match. No deployment/game action. Continue owned original graphics execution.
+
+Independent native probe build/source-state-probe/samplers.cpp confirms original
+comparison-filter samplers with ordinary SampleLevel return normal sampled
+values. Shader instruction usage must choose comparison behavior; the source
+filter comparison bit alone is insufficient. Integrate this diagnostic into the
+production sampler/draw tests next.

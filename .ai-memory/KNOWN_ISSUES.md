@@ -525,3 +525,17 @@ pairs, indirect dispatch and owned sampler defaults/host snapshots now work.
 Special layouts/provenance, graphics/null/alignment cases and application import
 remain. Original owned INI UAV creation lacks append/counter flags; do not invent
 those semantics from low-level counter support.
+
+## BUG-023: Raw Vulkan graphics built-ins differ from SM5 (fixed1.2.1)
+
+Native DX11 WARP pixel references expose missing compiler conversions. For clip
+w=2, source SV_Position.w is2 while raw Vulkan returned0.5. Nonzero start vertex/
+instance offsets similarly leaked into SV_VertexID/SV_InstanceID. Evidence for
+all three independent failures is under build/graphics-coordinate-before-fix/.
+DXC options -fvk-use-dx-position-w, -fvk-support-nonzero-base-vertex and
+-fvk-support-nonzero-base-instance correct these. Native/Vulkan direct and indexed
+pixel comparisons, signed base vertices, multiple instances and winding pass.
+The generated DrawParameters capability needs actual shaderDrawParameters enabled;
+production graphics must gate it or implement an explicit lowering fallback.
+Full rebuilt1.2.1 suite passes, resource4559/core+sync clean. This is an offline
+compiler defect discovered before original graphics integration, not a game claim.

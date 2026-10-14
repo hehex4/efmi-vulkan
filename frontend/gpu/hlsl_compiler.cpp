@@ -188,7 +188,11 @@ bool HlslCompiler::compile(const HlslRequest& request,HlslProgram& output,std::s
         next.diagnostics+=blob_text(errors.Get());if(FAILED(hr))throw std::runtime_error("Original shader-model-5 compilation failed: "+next.diagnostics);
         const auto* native=static_cast<const uint8_t*>(dxbc->GetBufferPointer());next.dxbc.assign(native,native+dxbc->GetBufferSize());
         std::vector<std::wstring> args={request.source.wstring(),L"-spirv",request.vulkan_version==VK_API_VERSION_1_2?L"-fspv-target-env=vulkan1.2":L"-fspv-target-env=vulkan1.1",L"-fspv-reflect",L"-fvk-use-dx-layout",
-            L"-fvk-stage-io-order=alpha",L"-flegacy-resource-reservation",L"-HV",L"2016",L"-E",L"main",L"-T",std::wstring(1,wchar_t(request.stage))+L"s_6_0"};
+            L"-fvk-stage-io-order=alpha",L"-fvk-use-dx-position-w",L"-fvk-support-nonzero-base-instance",L"-fvk-support-nonzero-base-vertex",
+            L"-flegacy-resource-reservation",L"-HV",L"2016",L"-E",L"main",L"-T",std::wstring(1,wchar_t(request.stage))+L"s_6_0"};
+        // Native SM5 pixel w and vertex/instance IDs differ from Vulkan's raw
+        // built-ins. The offset options may require actual shaderDrawParameters
+        // enablement; the executor must gate capabilities before pipeline creation.
         const auto flags=request.flags;
         if(flags&D3DCOMPILE_DEBUG)args.push_back(L"-Zi");
         if(flags&D3DCOMPILE_SKIP_OPTIMIZATION)args.push_back(L"-Od");

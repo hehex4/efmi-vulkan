@@ -79,3 +79,15 @@ source. Compiler behavior is documented by the official
 [DXC SPIR-V guide](https://github.com/microsoft/DirectXShaderCompiler/blob/main/docs/SPIR-V.rst)
 and reflection data by
 [SPIRV-Reflect](https://github.com/KhronosGroup/SPIRV-Reflect).
+
+## Native graphics convention correction in1.2.1
+
+The compiler now requests -fvk-use-dx-position-w,
+-fvk-support-nonzero-base-vertex and -fvk-support-nonzero-base-instance. The first
+option preserves source pixel position w; the others remove Vulkan draw offsets
+from source vertex/instance IDs. Actual original DXBC/WARP and Vulkan output
+comparisons expose each missing conversion and pass after correction. The pinned
+DXC executable documents all three options in its local help. Shader modules may
+now require DrawParameters; execution must use actual shaderDrawParameters
+logical-device enablement or a separate lowering fallback. Compilation alone is
+not an execution capability promise. See BUG-023 and docs/custom-shaders.md.

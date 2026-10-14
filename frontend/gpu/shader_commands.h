@@ -12,6 +12,7 @@ struct ShaderHost {
     // Actual logical-device feature enablement, including required extension
     // enablement on API versions where these features are not core.
     bool scalar_block_layout=false,uniform_buffer_standard_layout=false;
+    bool shader_draw_parameters=false;
     std::shared_ptr<assets::AllocationBudget> objects=std::make_shared<assets::AllocationBudget>(8192);
     // Share across all owned shader generations on this device, within the
     // sampler capacity reserved by the host. Other application samplers count

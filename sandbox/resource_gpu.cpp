@@ -3,6 +3,7 @@
 #include "../frontend/gpu/hlsl_compiler.h"
 #include "../frontend/gpu/graphics_link.h"
 #include "../frontend/xxmi/gpu_shaders.h"
+#include "../frontend/xxmi/graphics_state.h"
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -29,13 +30,13 @@ struct Device {
     PFN_vkGetDeviceProcAddr get_device_proc=nullptr;
     VkInstance instance=VK_NULL_HANDLE;gpu::ResourceDevice resource;VkQueue queue=VK_NULL_HANDLE;
     VkPhysicalDeviceProperties properties{};
-    bool scalar_layout=false;
+    bool scalar_layout=false,draw_parameters=false;
     VkDebugUtilsMessengerEXT messenger=VK_NULL_HANDLE;
     PFN_vkDestroyInstance destroy_instance=nullptr;PFN_vkDestroyDevice destroy_device=nullptr;
     PFN_vkDeviceWaitIdle wait_idle=nullptr;PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     ~Device(){if(resource.device){wait_idle(resource.device);destroy_device(resource.device,nullptr);}
         if(messenger)destroy_debug(instance,messenger,nullptr);if(instance)destroy_instance(instance,nullptr);}
-    void init(bool unrestricted_depth=false,bool scalar_block_layout=false){
+    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -92,6 +93,10 @@ struct Device {
         if(scalar_block_layout){VkPhysicalDeviceFeatures2 available={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};available.pNext=&scalar;
             GetPhysicalDeviceFeatures2(selected,&available);check(scalar.scalarBlockLayout,"Requested scalar block layout feature available");
             enabled_extensions.push_back(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);dc.pNext=&scalar;scalar_layout=true;}
+        VkPhysicalDeviceShaderDrawParametersFeatures draw={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
+        if(shader_draw_parameters){VkPhysicalDeviceFeatures2 available={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};available.pNext=&draw;
+            GetPhysicalDeviceFeatures2(selected,&available);check(draw.shaderDrawParameters,"Requested shader draw parameters feature available");
+            draw.pNext=const_cast<void*>(dc.pNext);dc.pNext=&draw;draw_parameters=true;}
         dc.enabledExtensionCount=uint32_t(enabled_extensions.size());dc.ppEnabledExtensionNames=enabled_extensions.data();
         vkcheck(CreateDevice(selected,&dc,nullptr,&resource.device),"Create test device");
 #define GET(name) auto name=reinterpret_cast<PFN_vk##name>(GetDeviceProcAddr(resource.device,"vk" #name));check(name!=nullptr,"vk" #name);
@@ -1339,8 +1344,9 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_usage_cases.h"
 #include "resource_binding_cases.h"
 #include "resource_graphics_link_cases.h"
+#include "resource_graphics_state_cases.h"
 int wmain(int argc,wchar_t** argv){
-    try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
+    try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
         view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");
         whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");
@@ -1364,7 +1370,8 @@ int wmain(int argc,wchar_t** argv){
         original_sampling(device,root/"original-sampling");original_buffer_hazards(device,root/"original-buffer-hazards");
         original_binding_batches(device,root/"binding-batches");original_restore_hazards(device,root/"restore-hazards");
         original_image_binding_ranges(device);original_attachment_bindings(device,root/"attachment-bindings");
-        original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");}
+        original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");
+        graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}
