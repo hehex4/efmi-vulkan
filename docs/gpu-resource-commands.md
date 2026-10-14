@@ -41,6 +41,9 @@ remain distinct. Resources are instantiated on first use, within shared budgets.
   a result can control the next branch in the same command list.
 - Nonexpiring direct-index pools retain independent scalar/resource state.
   Original reset and per-frame copy counters stay active.
+- Original slot ranges bind/fetch pools and broadcast resources, including
+  dynamic bounds, explicit null, unless_null and per-slot copies. Plain fetch
+  bypasses single-copy counters and custom overrides, as upstream does.
 - Reference regions preserve allocation ownership and view ranges. General
   copy regions, size-changing conversions and all source properties remain work.
 
@@ -55,6 +58,17 @@ whereas a constant-buffer region uses a byte count. These source behaviors must
 not be normalized into one assumed offset/length interpretation. A referenced
 existing view also keeps its own format/range despite changes to out-of-band
 resource metadata. A raw-capable allocation can still have a typed float view.
+
+Plain ranges have their own source behavior. Fresh structured SRV/UAV range
+views expose one element because the original helper receives zero metadata;
+a compatible view fetched earlier from a slot keeps its full range. A plain
+constant-buffer range binds the whole buffer, but unless_null preserves an
+existing region. Pool indices use the pinned engine's unsigned size_t remainder,
+including its surprising negative-index results for non-power-of-two sizes.
+Nonfinite or out-of-int-range bounds refuse before the original integer cast.
+Fresh typed/raw plain-range views without a compatible source view still refuse
+explicitly. Their original view descriptor is not silently replaced with a
+guessed format or full-buffer range. Other copy options remain separate work.
 
 ## Synchronization and lifetime
 
@@ -86,14 +100,14 @@ It is part of `sandbox/run_all.py`.
 Tests compare GPU bytes and original variable results, not merely command counts:
 copy/clear order, aliases, same-list readback branches, description copies,
 typed/structured clears, region references, buffer-file padding, optimized slot
-batches, scalar/resource pool resets, copy limits, generation isolation, retained
+batches/ranges, scalar/resource pool resets, copy limits, generation isolation, retained
 owners, negative execution paths and allocation release through shutdown.
 Final counts and the full regression checkpoint belong in CURRENT_STATE.md.
 
 ## Remaining execution work
 
 Image commands and format conversions; general source-resource/view properties;
-slot ranges; region copies and copy options; expiring/keyed GPU pools; GPU
+fresh typed/raw plain-range views; region copies and copy options; expiring/keyed GPU pools; GPU
 IniParams; application resource import and command placement; shared shader
 contracts; CustomShader draw/dispatch/state; ShaderOverride/ShaderRegex; complete
 directory routing and graphical reload. PNG integration remains paused. No

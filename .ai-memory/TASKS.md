@@ -6,6 +6,15 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.0.7 adds original buffer slot-range bind/fetch/broadcast/copy execution. The
+155-check headless GPU fixture passes with clean validation; the complete rebuilt
+suite passes in build/next/run_all-1.0.7.out. Source-specific null, view,
+constant-buffer region, counter and negative ring-index behavior are covered.
+Next offline work remains buffer regions/options/properties, images, then the
+shader and directory stages below. No game input or deployment is needed now.
+
+Earlier verified checkpoint:
+
 1.0.6 now connects original INI commands to an opt-in owned-buffer Vulkan backend.
 The 120-check targeted GPU test passes with clean core/sync validation, including
 real store feedback, aliases/copies, source view semantics, file padding, pool

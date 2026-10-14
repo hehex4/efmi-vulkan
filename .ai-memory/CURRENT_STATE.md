@@ -1,6 +1,32 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, original INI GPU resource commands. Source/candidate 1.0.6 passes the frozen-source full rebuild/regression, including 120 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, original INI GPU slot ranges. Source/candidate 1.0.7 passes the full rebuilt regression, including 155 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+
+## Original INI GPU slot ranges (verified candidate 1.0.7)
+
+The original SlotRangeCopyOperation now executes buffer pool ranges, broadcasts,
+dynamic bounds, null/unless_null and per-slot compatible copies through the owned
+GPU extension. Plain range fetch retains its original direct assignment behavior:
+no single-copy counter or destination override. Compatible source views survive;
+fresh structured plain-range views expose one element, matching the source helper.
+Constant-buffer broadcasts bind whole resources; unless_null retains an existing
+region. Bounds are checked before original float-to-int casts.
+
+The targeted headless GPU fixture passes 155 checks with zero core/sync validation
+errors or warnings. It also covers byte results, range/slot count errors, invalid
+numeric bounds, poisoned-scope refusal and generation/cache cleanup. The negative
+index test initially followed an upstream comment, which differs from the code:
+size_t arithmetic selects element zero for -1 in a three-element pool on this
+64-bit build. The fixture now preserves the actual original result. Full rebuilt
+regression passes in build/next/run_all-1.0.7.out: GPU resources 155, source syntax
+726, evaluation 65, CPU runtime 68, character package/GPU 79/357, live INI GPU 28,
+Vulkan validation 76 and all remaining steps. ABI remains 16b90a85431f86b4.
+
+Fresh typed/raw plain-range views without an existing compatible view remain an
+explicit refusal. General buffer copy regions/options/properties, images, GPU
+IniParams, shaders and directory graphics remain offline work. The active goal
+continues in the resource -> CustomShader -> matching -> directory order. No game
+input, deployment, module exchange or original-installation writes; PNG paused.
 
 ## Original INI owned GPU buffers (verified candidate 1.0.6)
 

@@ -261,6 +261,84 @@ void GpuResourceRuntime::clear(ClearViewCommand& op,CommandListState& state) {
     if(repeated)commands_.fill(b.buffer,b.offset,count,words[0]);
     else {std::vector<uint32_t> data(count/4);for(size_t i=0;i<data.size();++i)data[i]=words[i%channels];commands_.write(b.buffer,b.offset,data.data(),count);}
 }
+void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& state) {
+    const bool bind=op.dst.evaluation_mode==Mode::SLOT_RANGE;
+    auto& slots=bind?op.dst:op.src;auto& other=bind?op.src:op.dst;
+    require(slots.evaluation_mode==Mode::SLOT_RANGE && slots.range_start && slots.range_end,"GPU slot range bounds missing");
+    int first=0,pool_first=0;unsigned count=0,pool_count=0;
+    require(slots.ResolveRange(&state,&first,&count) && count && count<=128,"GPU slot range is invalid");
+    auto* pool=other.type==Target::POOL?other.custom_resource_pool:nullptr;
+    if(pool){
+        const auto* actual=pool->ResolvePool();
+        require((actual->index_type==PoolIndexType::RING || actual->index_type==PoolIndexType::STATIC) &&
+                actual->expiration_timeout_frames==UINT32_MAX,"GPU range pool expiration/key ownership is not adapted");
+        require(other.range_start && other.range_end && other.ResolveRange(&state,&pool_first,&pool_count) && pool_count==count,
+                "GPU slot and pool ranges differ");
+    }else require(bind && (other.type==Target::CUSTOM_RESOURCE || other.type==Target::EMPTY),"GPU range requires a pool or broadcast resource");
+    const int plain_options=int(ResourceCopyOptions::REFERENCE)|int(ResourceCopyOptions::UNLESS_NULL)|int(ResourceCopyOptions::NO_VIEW_CACHE);
+    const bool per_slot=(int(op.options)&~plain_options) && op.src.type!=Target::EMPTY;
+    require(range_operations_.size()<4096 || range_operations_.count(&op),"GPU range command budget exceeded");
+    auto& operations=range_operations_[&op];auto& views=range_views_[&op];
+    if(operations.size()<count)operations.resize(count);if(views.size()<count)views.resize(count);
+    auto operation=[&](unsigned i)->ResourceCopyOperation&{
+        if(!operations[i])operations[i]=std::make_unique<ResourceCopyOperation>();
+        auto& one=*operations[i];one.ini_line=op.ini_line;one.options=op.options;
+        auto& target=bind?one.dst:one.src;target.type=slots.type;target.shader_type=slots.shader_type;
+        target.slot=unsigned(first)+i;target.max_slot=slots.max_slot;
+        auto& resource=bind?one.src:one.dst;resource.type=Target::CUSTOM_RESOURCE;return one;
+    };
+    // Fetch the entire source range before writes to a pool. This also retains
+    // owners independently of aliases and element switches during assignment.
+    std::vector<GpuBufferBinding> fetched;
+    if(!bind)for(unsigned i=0;i<count;++i){auto& one=operation(i);fetched.push_back(get(one.src,state));}
+    CustomResource* broadcast=bind && other.type==Target::CUSTOM_RESOURCE?declaration(other,state):nullptr;
+    for(unsigned i=0;i<count;++i){auto& one=operation(i);
+        if(bind){
+            auto* source=pool?pool->GetResource(float(int64_t(pool_first)+i),false,true,false):broadcast;
+            one.src.SetCustomResource(source);
+            if(per_slot){copy(one,state);continue;}
+            auto value=source?load(*source):GpuBufferBinding{};
+            // Unlike scalar `null`, range null with unless_null preserves slots.
+            if(!value.buffer && (op.options&ResourceCopyOptions::UNLESS_NULL))continue;
+            if(value.buffer){
+                require(value.description.BindFlags&bind_flag(slots.type),"Range reference lacks destination bind flags");
+                const auto kind=view_kind(slots.type);
+                if(kind==GpuBufferBinding::View::None)value.view=kind;
+                else if(value.view!=kind){
+                    if(views[i].buffer==value.buffer && views[i].view==kind){value.view=kind;value.view_format=views[i].view_format;
+                        value.view_offset=views[i].view_offset;value.view_size=views[i].view_size;}
+                    else {
+                        // Original plain range ViewForSlot calls its view helper
+                        // with zero stride/offset/size and UNKNOWN format. That
+                        // creates one structured element, not an invented full
+                        // view. Typed/raw fresh-view failures remain explicit.
+                        require(value.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED,
+                                "Original plain buffer range needs an existing compatible view or a structured resource");
+                        UINT start=0,n=0;FrontendBufferViewElements(0,0,DXGI_FORMAT_UNKNOWN,0,start,n);
+                        value.view=kind;value.view_format=DXGI_FORMAT_UNKNOWN;
+                        value.view_offset=start*value.description.StructureByteStride;value.view_size=n*value.description.StructureByteStride;
+                        views[i]=value;
+                    }
+                }
+                // Plain CB ranges bind the complete buffer; no resource-region
+                // metadata is forwarded by the original fast path.
+                value.stride=0;value.offset=0;value.visible_size=0;value.format=DXGI_FORMAT_UNKNOWN;value.region=false;
+            }
+            slots_[slot(one.dst,state)]=std::move(value);
+        }else{
+            const auto& source=fetched[i];
+            if(!source.buffer && (op.options&ResourceCopyOptions::UNLESS_NULL))continue;
+            auto* destination=pool->GetResource(float(int64_t(pool_first)+i),false,true,true);
+            require(destination!=nullptr,"GPU range pool destination missing");one.dst.SetCustomResource(destination);
+            if(per_slot){copy(one,state);continue;}
+            // Plain range fetch is SetResource directly: no per-frame copy
+            // counter and no destination stride/format override is applied.
+            auto value=source;value.stride=0;value.format=DXGI_FORMAT_UNKNOWN;value.source_stride=0;
+            set(one.dst,state,value);
+        }
+    }
+    if(op.options&ResourceCopyOptions::NO_VIEW_CACHE)for(auto& cached:views)cached={};
+}
 void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
     auto source=get(op.src,state);if(!source.buffer)return; // Original null keeps the previous variable value.
     require(op.offset_expression!=nullptr,"GPU store offset missing");
@@ -277,6 +355,7 @@ void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
 bool GpuResourceRuntime::run(CommandListCommand& command,CommandListState& state,std::wstring& reason) {
     try{active();
         if(auto* c=dynamic_cast<ResourceCopyOperation*>(&command))copy(*c,state);
+        else if(auto* c=dynamic_cast<SlotRangeCopyOperation*>(&command))ranges(*c,state);
         else if(auto* c=dynamic_cast<ClearViewCommand*>(&command))clear(*c,state);
         else if(auto* c=dynamic_cast<StoreCommand*>(&command))store(*c,state);
         else throw std::runtime_error("GPU draw/dispatch needs a shader execution adapter");

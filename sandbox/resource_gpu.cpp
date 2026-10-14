@@ -336,9 +336,126 @@ bind_flags = shader_resource unordered_access
     output=backend->commands().readback(d.queue,held.buffer,0,32);
     check(!memcmp(output.data(),bytes,sizeof(bytes)),"Rejected generations leave old GPU resource contents intact");
 }
+static void range_gpu(Device& d,const std::filesystem::path& root){
+    using namespace frontend;using T=ResourceCopyTargetType;
+    std::filesystem::create_directories(root/"Mods");
+    const std::string source=R"ini(namespace = ranges
+[Constants]
+global $first = 2
+global $last = 4
+global $cleared = 0
+global $tail = 0
+global $copied = 0
+global $counter = 0
+global $unless = 0
+[ResourceSource]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 1 2 3 4 5 6 7 8
+bind_flags = shader_resource unordered_access
+[ResourceOther]
+type = StructuredBuffer
+stride = 8
+data = R32_FLOAT 9 10 11 12
+bind_flags = shader_resource unordered_access
+[ResourceCB]
+type = Buffer
+data = R32_FLOAT 1 2 3 4 5 6 7 8
+bind_flags = constant_buffer
+[PoolCB]
+pool_size = 4
+bind_flags = constant_buffer
+[PoolRows]
+pool_size = 3
+[PoolViews]
+pool_size = 3
+[PoolOut]
+pool_size = 3
+max_copies_per_frame = 1
+[PoolCopies]
+pool_size = 3
+bind_flags = shader_resource unordered_access
+[Present]
+PoolRows[0] = ref ResourceSource
+PoolRows[1] = ref ResourceOther
+PoolRows[2] = null
+cs-t[$first:$last] = ref PoolRows[0:2]
+cs-u[$first:$last] = ref PoolRows[0:2]
+clear = cs-u2 0x40000000
+store = $cleared, ResourceSource, 0
+store = $tail, ResourceSource, 2
+ps-t6 = ref ResourceSource
+PoolViews[0] = ref ps-t6
+ps-t[10:11] = ref PoolViews[0]
+PoolOut[0:1] = ref ps-t[10:11]
+PoolOut[0] = ref ResourceOther
+store = $counter, PoolOut[0], 0
+PoolOut[2] = ref ResourceOther
+ps-t11 = null
+PoolOut[1:2] = unless_null ref ps-t[10:11]
+store = $unless, PoolOut[2], 0
+ps-t[10:11] = unless_null null
+ps-t[20:21] = no_view_cache ref PoolViews[0]
+cs-t[30:31] = ref PoolRows[-1:0]
+cs-u[40:41] = copy PoolRows[0:1]
+clear = cs-u40 0x40400000
+PoolCopies[0:1] = copy cs-u[40:41]
+store = $copied, PoolCopies[0], 7
+vs-cb0 = ref ResourceCB->Region(16, 16)
+vs-cb[0:1] = unless_null null
+PoolCB[0:0] = ref vs-cb[0:0]
+vs-cb[2:3] = ref PoolCB[0]
+PoolCB[1:2] = ref vs-cb[0:1]
+vs-cb4 = ref PoolCB[1]->Region(16, 16)
+)ini";
+    write(root/"Mods/ranges.ini",source.c_str());RuntimeConfig config{root,{},root/"settings","ranges",root/"Mods"};
+    gpu::ResourceBudgets budgets;auto backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);std::string why;
+    auto ini=IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error(why);++checks;
+    backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    if(!ini->present({},1,0,why))throw std::runtime_error(why);auto ticket=backend->finish();if(ticket)ticket->wait();ticket.reset();
+    auto vars=ini->status().variables;
+    for(const auto& expected:std::vector<std::pair<std::string,float>>{{"cleared",2},{"tail",3},{"copied",3},{"counter",9},{"unless",9}})
+        check(vars.at("$\\ranges\\"+expected.first)==expected.second,"Original range execution variable result");
+    auto a=backend->binding(L'c',T::SHADER_RESOURCE,2),b=backend->binding(L'c',T::SHADER_RESOURCE,3),null=backend->binding(L'c',T::SHADER_RESOURCE,4);
+    check(a.buffer && b.buffer && a.buffer!=b.buffer && !null.buffer,"Dynamic range maps pool slots and explicit null");
+    check(a.view_size==8 && b.view_size==8,"Original plain range fresh structured views expose one element");
+    auto full=backend->binding(L'p',T::SHADER_RESOURCE,10),other=backend->binding(L'p',T::SHADER_RESOURCE,11);
+    check(full.buffer==a.buffer && full.view_size==32 && !other.buffer,"Range broadcast preserves existing source view and unless-null slots");
+    check(backend->binding(L'p',T::SHADER_RESOURCE,20).view_size==32,"No-view-cache retains borrowed source view");
+    // The pinned engine computes the remainder with size_t pool_size. For a
+    // three-element pool, -1 converts to SIZE_MAX and selects element zero.
+    check(backend->binding(L'c',T::SHADER_RESOURCE,30).buffer==a.buffer && backend->binding(L'c',T::SHADER_RESOURCE,31).buffer==a.buffer,
+          "Negative non-power-of-two range preserves original unsigned remainder");
+    auto copy=backend->binding(L'c',T::UNORDERED_ACCESS_VIEW,40);
+    auto bytes=backend->commands().readback(d.queue,a.buffer,0,32);check(value(bytes)==2 && value(bytes,28)==8,"Range copy clear leaves source bytes intact");
+    check(copy.buffer!=a.buffer && copy.view_size==32,"Range copy uses full original single-slot copy semantics");
+    auto cb0=backend->binding(L'v',T::CONSTANT_BUFFER,0),cb2=backend->binding(L'v',T::CONSTANT_BUFFER,2),cb4=backend->binding(L'v',T::CONSTANT_BUFFER,4);
+    check(cb0.buffer && cb0.offset==16 && cb0.visible_size==16 && cb0.region && !backend->binding(L'v',T::CONSTANT_BUFFER,1).buffer,
+          "Unless-null range preserves the complete constant-buffer region binding");
+    check(cb2.buffer==cb0.buffer && cb2.offset==0 && !cb2.visible_size && !cb2.region,
+          "Plain constant-buffer range broadcast binds the whole resource");
+    check(cb4.buffer==cb0.buffer && cb4.offset==16 && cb4.visible_size==16 && cb4.region,
+          "Constant-buffer range fetch preserves allocation and region metadata");
+    ini.reset();backend.reset();a={};b={};null={};full={};other={};copy={};cb0={};cb2={};cb4={};
+    check(budgets.resident->used()==0 && budgets.staging->used()==0,"Range caches release with their generation");
+    const std::vector<std::pair<std::string,std::string>> bad={
+        {"cs-t[0:1] = ref PoolRows[0:2]\n","ranges differ"},
+        {"cs-t[127:129] = ref ResourceSource\n","range is invalid"},
+        {"$first = 1 / 0\ncs-t[$first:$first] = ref ResourceSource\n","outside signed integer"},
+    };
+    const auto declarations=source.substr(0,source.find("[Present]"))+"[Present]\n";
+    for(const auto& failure:bad){write(root/"Mods/ranges.ini",(declarations+failure.first).c_str());
+        backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);ini=IniRuntime::load(config,backend,why);
+        if(!ini)throw std::runtime_error("Range fixture must parse: "+why);backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        check(!ini->present({},2,0,why),"Invalid range refuses before GPU emission");
+        if(why.find(failure.second)==std::string::npos)throw std::runtime_error("Unexpected range refusal: "+why);++checks;
+        refuses([&]{backend->finish();},"Invalid range poisons the scope before submission");
+        backend->discard();ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Invalid range leaves no allocations");
+    }
+}
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);const auto root=std::filesystem::absolute(argv[1]);
-        ini_gpu(device,root/"inline");file_and_failures(device,root/"files");}
+        ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

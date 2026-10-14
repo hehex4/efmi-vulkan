@@ -46,6 +46,7 @@ private:
     GpuBufferBinding load(CustomResource&);
     void set(ResourceCopyTarget&,CommandListState&,const GpuBufferBinding&);
     void copy(ResourceCopyOperation&,CommandListState&);
+    void ranges(SlotRangeCopyOperation&,CommandListState&);
     void clear(ClearViewCommand&,CommandListState&);
     void store(StoreCommand&,CommandListState&);
     void active() const;
@@ -54,6 +55,8 @@ private:
     std::map<Slot,GpuBufferBinding> slots_;
     // Copies to a stage slot cache per instruction, as in the original engine.
     std::map<ResourceCopyOperation*,GpuBufferBinding> copies_;
+    std::map<SlotRangeCopyOperation*,std::vector<std::unique_ptr<ResourceCopyOperation>>> range_operations_;
+    std::map<SlotRangeCopyOperation*,std::vector<GpuBufferBinding>> range_views_;
     VkQueue queue_=VK_NULL_HANDLE;
     bool active_=false,installed_=false,failed_=false;
 };

@@ -56,6 +56,18 @@ public:
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
     bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
 };
+class RangeIndexGuard final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListEvaluatable> source;
+    explicit RangeIndexGuard(std::shared_ptr<CommandListEvaluatable> value):source(std::move(value)){}
+    float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
+        const auto value=source->evaluate(state,device);
+        if(!std::isfinite(value) || double(value)<INT_MIN || double(value)>INT_MAX)throw std::runtime_error("Resource range bound outside signed integer range");
+        return value;
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
 bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>&,size_t);
 bool cpu_target(const ResourceCopyTarget& target,size_t depth=0)
 {
@@ -75,6 +87,7 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
     if (!node || depth > 256) return false;
     if(const auto* query=dynamic_cast<NativeResourceQuery*>(node.get()))return cpu_target(query->source->texture_filter_target,depth+1);
     if(const auto* guard=dynamic_cast<PoolIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
+    if(const auto* guard=dynamic_cast<RangeIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if (const auto* operand = dynamic_cast<CommandListOperand*>(node.get())) {
         switch (operand->type) {
         case ParamOverrideType::VALUE: return true;
@@ -120,8 +133,10 @@ void guard_target(ResourceCopyTarget& target,const std::shared_ptr<QueryService>
             expression=std::make_shared<PoolIndexGuard>(expression,target.custom_resource_pool);
     }
     if(target.slot_expression)guard_expression(target.slot_expression->evaluatable,queries,depth+1);
-    if(target.range_start)guard_expression(target.range_start->evaluatable,queries,depth+1);
-    if(target.range_end)guard_expression(target.range_end->evaluatable,queries,depth+1);
+    for(auto* bound:{target.range_start.get(),target.range_end.get()})if(bound){
+        guard_expression(bound->evaluatable,queries,depth+1);
+        if(!dynamic_cast<RangeIndexGuard*>(bound->evaluatable.get()))bound->evaluatable=std::make_shared<RangeIndexGuard>(bound->evaluatable);
+    }
     for(auto& arg:target.member_args)if(arg.expression)guard_expression(arg.expression->evaluatable,queries,depth+1);
 }
 void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::shared_ptr<QueryService>& queries,size_t depth)
@@ -146,6 +161,7 @@ void guard_arguments(CommandListCommand& command,const std::shared_ptr<QueryServ
         guard_expression(assignment->expression.evaluatable,queries);
         if(auto* pool=dynamic_cast<PoolVariableOperation*>(assignment))guard_target(pool->dst,queries);
     }else if(auto* binding=dynamic_cast<ResourceCopyOperation*>(&command)){guard_target(binding->src,queries);guard_target(binding->dst,queries);}
+    else if(auto* range=dynamic_cast<SlotRangeCopyOperation*>(&command)){guard_target(range->src,queries);guard_target(range->dst,queries);}
     else if(auto* layout=dynamic_cast<LayoutElementOperation*>(&command)){
         if(layout->dst.member_args[1].expression)guard_expression(layout->dst.member_args[1].expression->evaluatable,queries);
     }else if(auto* clear=dynamic_cast<ClearViewCommand*>(&command))guard_target(clear->target,queries);
@@ -171,6 +187,8 @@ bool cpu_arguments(CommandListCommand& command)
         return cpu_expression(assignment->expression.evaluatable) && (!pool || cpu_target(pool->dst));
     } else if (auto* binding = dynamic_cast<ResourceCopyOperation*>(&command)) {
         return cpu_target(binding->src) && cpu_target(binding->dst);
+    } else if(auto* range=dynamic_cast<SlotRangeCopyOperation*>(&command)) {
+        return cpu_target(range->src) && cpu_target(range->dst);
     } else if(auto* clear=dynamic_cast<ClearViewCommand*>(&command)) {
         return cpu_target(clear->target);
     } else if(auto* store=dynamic_cast<StoreCommand*>(&command)) {
@@ -331,7 +349,7 @@ struct DrawPlanAdapter::Runtime {
         }
         if(resource_command && (dynamic_cast<ResourceCopyOperation*>(original.get()) ||
            dynamic_cast<ClearViewCommand*>(original.get()) || dynamic_cast<StoreCommand*>(original.get()) ||
-           dynamic_cast<DrawCommand*>(original.get()))) {
+           dynamic_cast<DrawCommand*>(original.get()) || dynamic_cast<SlotRangeCopyOperation*>(original.get()))) {
             std::wstring why;
             if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
             return;

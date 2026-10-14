@@ -1045,3 +1045,25 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   emission, draw-hook waits, deployment or game operations. Dist stays 1.0.2.
   Next offline work: slot ranges and general buffer regions/properties/options,
   then images and the remaining common shader/directory adapters. PNG stays paused.
+
+## 2026-10-14: Original buffer slot-range GPU execution (1.0.7)
+
+- Continued the active offline goal after be9617f. Original slot-range commands
+  now bind/fetch pools, broadcast resources and run per-slot compatible copies.
+  Original range expressions resolve once with guarded numeric conversions.
+  Plain ref fetch bypasses scalar copy counters/overrides; existing source views,
+  fresh structured one-element views and constant-buffer region rules remain
+  distinct. Invalid ranges poison the scope and cannot submit.
+- Targeted GPU tests pass 155 checks with no core/sync validation messages.
+  The initial negative-index expectation followed a misleading source comment:
+  unsigned size_t modulo maps -1 to element zero for a three-element pool on
+  this build. The test now checks the original result. The added CB fixture
+  obtains its source through slots to satisfy original parse-time flag inference.
+- Frozen-source full rebuild/regression passes in build/next/run_all-1.0.7.out:
+  GPU resources 155, source syntax 726, evaluation 65, CPU runtime 68, character
+  package/GPU 79/357, live INI GPU 28, validation 76 and every remaining step.
+  ABI stays 16b90a85431f86b4. Reviewed diff and text before local commit.
+- Dist remains 1.0.2; no game actions, original source/installation writes,
+  deployment or module exchange. Next: buffer regions/options/properties, then
+  images and the shared shader/directory stages. PNG integration stays paused;
+  the active goal is not complete and further offline work needs no user input.
