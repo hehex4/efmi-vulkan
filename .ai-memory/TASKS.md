@@ -58,6 +58,8 @@ its Vulkan adapter, not sample-driven acceptance. Audit upstream parser dispatch
 section metadata, expressions and resource directives; expand tests from that
 inventory and connect directory dependencies to production generations. Pause
 PNG integration until this language/runtime work is addressed.
+The standalone PNG decoder is verified in 28 CPU cases and committed separately;
+it is not linked into the runtime and does not close the PNG rendering gap.
 Acceptance still needs a complete directory generation, cross-file command
 execution, registration/routing, common mesh/image ownership and shader contracts,
 then actual supported Mods in Vulkan. Parsing alone is not rendering acceptance.

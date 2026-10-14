@@ -58,6 +58,13 @@ source, not inferred from the installed Mod sample. Prioritize a source-defined
 grammar/command inventory, complete shared parsing, runtime dependency loading
 and execution adapters. PNG integration is paused while this work proceeds.
 
+Before that steering, a standalone WIC PNG decoder was completed and checked:
+build/png/report.json has 28 passing cases (12 synthetic/error/budget cases and
+16 installed images compared byte-for-byte to Pillow). It preserves typed gray,
+16-bit RGBA, alpha and default sRGB metadata, with shared source reservations.
+It is not linked into ImageUpload, ResourceCache or the layer. No GPU upload or
+panel rendering is claimed; keep its integration paused.
+
 ## 1.0.2: main INI, outfit keys, persistence and F10 (first game check)
 
 User requests original INI runtime conditions, outfit keys, settings save and F10.
