@@ -6,6 +6,18 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.4 audits all original enabled Mods/Core HLSL declarations.34 INI inputs,
+30 shader sections,37 distinct programs all compile/validate; four use the
+conditional scalar/standard-layout validation profile. Sources unchanged; this
+is compiler evidence, not directory rendering. Full rebuilt suite passes in
+build/next/run_all-1.2.4.out: resources5342, compiler172/58, source hashes82/9/12
+match and core/sync clean. Next1.2.5: owned geometry execution and the actual Core
+text shader, then remaining vertex layouts, state/resources and matching/directory
+integration. Continue without game input. Dist1.0.2, PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
+
 1.2.3 executes original owned VS/PS INI graphics, source state/sampler overrides,
 direct/indirect/automatic/from-caller draws and nested restore. Native DX11 pixel
 references and failed-root discard pass. Full rebuilt suite:

@@ -5,12 +5,15 @@
 #include <map>
 #include <stdexcept>
 #include <typeinfo>
+#include <functional>
+#include <array>
 
 void HostParseExcerpt(const wchar_t*, const wchar_t*);
 void HostParseIncludes();
 void HostInsertBuiltins();
 void HostResourceRoot(const std::wstring&);
 void HostInspectAllSections();
+void HostVisitShaderSources(const std::function<void(const std::wstring&,const std::wstring&,UINT,int,const std::array<std::wstring,6>&)>&);
 size_t HostDiagnosticCount();
 size_t HostNoticeCount();
 size_t HostInputCount();
@@ -60,6 +63,12 @@ int HostParseFolder(const wchar_t* root_name, const wchar_t* core_name, const wc
                 int(r.override_type), int(r.override_format), r.override_stride, r.initial_data_size,
                 r.override_width, r.override_height);
         }
+        printf("],\"shader_declarations\":["); comma=false;
+        HostVisitShaderSources([&](const auto& name,const auto& path,UINT flags,int recursive,const auto& sources){
+            if(comma)putchar(',');comma=true;printf("{\"name\":");json(name);printf(",\"namespace_path\":");json(path);
+            printf(",\"flags\":%u,\"recursive_include\":%d,\"sources\":[",flags,recursive);
+            for(unsigned i=0;i<6;++i){if(i)putchar(',');json(sources[i]);}printf("]}");
+        });
         printf("],\"command_types\":{"); comma = false;
         std::map<std::string, size_t> commands;
         for (auto* list : registered_command_lists) if (list)

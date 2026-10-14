@@ -91,3 +91,37 @@ DXC executable documents all three options in its local help. Shader modules may
 now require DrawParameters; execution must use actual shaderDrawParameters
 logical-device enablement or a separate lowering fallback. Compilation alone is
 not an execution capability promise. See BUG-023 and docs/custom-shaders.md.
+
+
+## Full enabled-directory HLSL audit (verified candidate1.2.4)
+
+The original parser now exports CustomShader stage declarations, namespace paths,
+compile flags and effective recursive-include policy. The inspector compiles every
+nonempty/non-null source stage with the production HlslCompiler, retaining DXBC,
+SPIR-V, exact dependency snapshots and diagnostics under build/hlsl-folder/.
+Namespace-first/module-fallback resolution is tested. Original built-in shader
+sections remain in the inventory; source boolean expression normalization maps
+recursive_include=-1 to1 in this pinned revision, and the test preserves that.
+
+Current read-only corpus:34 INI inputs,30 shader sections,38 active declarations,
+37 distinct programs,47 explicit null stages and95 inherited stages. All37 pass
+native SM5 checking, Vulkan1.2 compilation and independent SPIR-V validation.
+Four modules require the scalar/standard-layout validation profile: TextPrinter
+geometry/pixel/compute and chest_deform40 compute. These profiles are conditional
+requirements, not proof those features are enabled in an application device.
+All INI sources and successful HLSL dependencies remain byte-identical. No GPU
+execution, complete-directory scheduling, PNG support or game result is implied.
+
+Full frozen-source rebuild/regression:build/next/run_all-1.2.4.out exit0, all steps
+pass, including the new corpus/metadata/evidence tests. Resources5342, compiler
+172/58 valid modules, directory language9/evidence2; zero core/sync messages.
+All82 resource,9 compiler and12 corpus source hashes match; text321 files clean.
+Dist1.0.2 unchanged. No game/deployment/launcher/system action.
+
+Next1.2.5: owned geometry-stage execution and the actual Core text shader path,
+then remaining vertex layouts, state/resource cases and source shader/directory
+integration. No game input needed; continue. PNG paused, LOD0/LOD1 only.
+An isolated diagnostic at build/source-state-probe/clip-coordinates.cpp/.txt
+confirms native DepthClipEnable=false and Vulkan depth clamping both deliver
+fragment z/w=(2,1) before depth testing. This is a diagnostic pixel case, not
+TextPrinter verification. Its original shader packs texture coordinates into Z/W.

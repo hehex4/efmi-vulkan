@@ -1,4 +1,6 @@
 // Expose the original parser's CPU-only entry points for both hosts and the DLL.
+#include <array>
+#include <functional>
 #include "IniHandler.cpp"
 
 void HostParseExcerpt(const wchar_t* text,const wchar_t* ns)
@@ -67,6 +69,18 @@ void HostInspectAllSections()
            ini_sections.size(), command_list_globals.size(), persistent_variables.size(), customResources.size(),
            customResourcePools.size(), explicitCommandListSections.size(), commands, overrides, customShaders.size(),
            shader_regex_groups.size(), patterns);
+}
+
+// Declaration inventory from the same source getters used by CustomShader.
+// This never compiles, executes a command list or writes beside installed files.
+void HostVisitShaderSources(const std::function<void(const std::wstring&,const std::wstring&,UINT,int,const std::array<std::wstring,6>&)>& visit)
+{
+    const auto recursive=GetIniBoolOrInt(L"Rendering",L"recursive_include",false,nullptr);
+    for(const auto& entry:customShaders){std::wstring path;get_namespaced_section_path(entry.first.c_str(),&path);
+        std::array<std::wstring,6> sources;const wchar_t* keys[]={L"vs",L"hs",L"ds",L"gs",L"ps",L"cs"};
+        for(unsigned i=0;i<6;++i){wchar_t text[MAX_PATH];if(GetIniString(entry.first.c_str(),keys[i],nullptr,text,MAX_PATH))sources[i]=text;}
+        visit(entry.first,path,UINT(entry.second.compile_flags),recursive,sources);
+    }
 }
 void HostParseTextureOverrides() { ParseTextureOverrideSections(); }
 void HostCompileNamedList(const wchar_t* name)

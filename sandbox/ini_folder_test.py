@@ -61,6 +61,24 @@ class FolderLanguage(unittest.TestCase):
         self.assertIn("resource\\mods\\two\\1.ini\\data", names)
         self.assertIn("resource\\mods\\three\\1.ini\\data", names)
         self.assertTrue(any("Dispatch" in k or "Draw" in k for k in report["command_types"]))
+        shaders = [s for s in report["shader_declarations"] if s["name"].startswith("customshader\\")]
+        self.assertEqual(len(shaders), 1)
+        self.assertEqual(shaders[0]["sources"], ["", "", "", "", "", "arbitrary.hlsl"])
+        self.assertEqual(shaders[0]["flags"], 1 << 15)
+        self.assertEqual(shaders[0]["namespace_path"].lower(), "mods\\one\\")
+
+    def test_original_shader_flags_namespace_and_null_stages(self):
+        self.write("Core/main.ini", "[Rendering]\nrecursive_include = -1\n")
+        self.write("Mods/test/graphics.ini", "namespace = example\n[CustomShaderDraw]\n"
+                   "vs = Shared.hlsl\nps = Shared.hlsl\ngs = null\nflags = skip_optimization ieee_strictness\n")
+        shader = next(s for s in self.parse()["shader_declarations"] if s["name"] == "customshader\\example\\draw")
+        self.assertEqual(shader["name"], "customshader\\example\\draw")
+        self.assertEqual(shader["namespace_path"].lower(), "mods\\test\\")
+        self.assertEqual(shader["flags"], (1 << 2) | (1 << 13))
+        # The pinned boolean getter evaluates the nonzero expression first;
+        # GetIniBoolOrInt consequently returns true here, not the literal -1.
+        self.assertEqual(shader["recursive_include"], 1)
+        self.assertEqual(shader["sources"], ["Shared.hlsl", "", "", "null", "Shared.hlsl", ""])
 
     def test_disabled_and_static_include_condition(self):
         invalid = "[CommandListBad]\nunsupported_operation = 1\n"

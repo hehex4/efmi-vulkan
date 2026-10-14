@@ -1501,3 +1501,29 @@ Continue immediately with all installed enabled HLSL declarations/compilation,
 then input-layout and remaining execution cases. No game input is needed. Source
 comparison instructions, other graphics stages/raster paths, null resources and
 unmeasured native state validity remain explicit work (LIMIT-032). PNG paused.
+
+
+## 2026-10-14: Complete enabled source HLSL audit, candidate1.2.4
+
+Added original-parser shader metadata and a standalone inspector using the
+production FXC/DXC path. Every enabled installed source is included, with bounded
+per-program compilation and exact dependency snapshots in build/. Original module
+fallback and include behavior are preserved. Corrected development fixture
+assumptions about built-in shader sections and numeric boolean normalization;
+no parser behavior was changed. Added directory/evidence checks to run_all.
+
+Corpus:34 INIs,30 shader sections,38 stage references/37 distinct programs,
+47 null and95 inherited stages.37/37 compile and validate. TextPrinter g/p/c and
+chest_deform40 c need the relaxed scalar/standard-layout profile. All installed
+INI and HLSL dependency bytes unchanged. These are conditional compiler results,
+not actual device execution. Full frozen-source rebuild/regression:
+build/next/run_all-1.2.4.out exit0, all pass; resources5342, compiler172/58 valid,
+directory language9/evidence2, core/sync clean.82/9/12 source hashes match;
+text321 files clean. Source1.2.4, dist1.0.2 unchanged; no game/deployment action.
+
+While testing, inspected the actual TextPrinter geometry stage: point input,
+triangle-strip output,256 maximum vertices,1 invocation; source t114 stride72.
+A separate native/Vulkan diagnostic confirms unclipped fragment z/w=(2,1) for
+both APIs (build/source-state-probe/clip-coordinates.cpp/.txt). No text rendering
+claim yet. Continue immediately with geometry/Core text execution, then remaining
+layouts/state/resources and application/directory integration. No game input.

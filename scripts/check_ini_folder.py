@@ -50,9 +50,10 @@ def check(mods: Path, core: Path, out: Path) -> dict:
                   executable_sha256=hashlib.sha256(host.read_bytes()).hexdigest(),
                   inputs=len(inventory["files"]), parsed=parsed, inventory=str(out / "inventory.json"),
                   diagnostics=str(out / "diagnostics.txt"),
-                  renderer_gaps=["ShaderRegex assembly patches", "General CustomShader draw/dispatch",
-                                 "Panel and Core GUI rendering", "Mutable resource copy and GPU readback",
-                                 "Multi-Mod runtime scheduling and complete folder execution"])
+                  renderer_gaps=["ShaderOverride/ShaderRegex matching and assembly patch translation",
+                                 "Remaining CustomShader stages/layouts and device/format cases",
+                                 "Panel/Core GUI execution and application backbuffer placement; PNG paused",
+                                 "Application resource import, multi-Mod scheduling and complete folder execution"])
     (out / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
     return report
 
@@ -66,7 +67,7 @@ def main():
     report = check(args.mods, args.core, args.out)
     concise = dict(report)
     if concise["parsed"]:
-        concise["parsed"] = {k: v for k, v in concise["parsed"].items() if k not in ("resource_declarations", "command_types")}
+        concise["parsed"] = {k: v for k, v in concise["parsed"].items() if k not in ("resource_declarations", "shader_declarations", "command_types")}
     print(json.dumps(concise, indent=2, ensure_ascii=True))
     return 0 if report["passed"] else 1
 

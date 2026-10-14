@@ -30,6 +30,8 @@ STEPS = [
     ("source-defined INI evaluation", [os.path.join(ROOT, "scripts", "check_ini_evaluation.py")]),
     ("original INI GPU resources", [os.path.join(ROOT, "scripts", "check_resource_commands.py")]),
     ("original HLSL Vulkan compiler", [os.path.join(ROOT, "scripts", "check_shader_compiler.py")]),
+    ("installed Mods and Core HLSL", [os.path.join(ROOT, "scripts", "check_hlsl_folder.py")]),
+    ("directory HLSL evidence", [os.path.join(HERE, "hlsl_folder_test.py")]),
     ("original panel HLSL compilation", [os.path.join(ROOT, "scripts", "check_panel_hlsl.py")]),
     ("native tracker tests", [os.path.join(HERE, "native_test.py")]),
     ("CPU skeleton import", [os.path.join(HERE, "bone_test.py")]),

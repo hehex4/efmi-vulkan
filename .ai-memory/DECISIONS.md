@@ -517,3 +517,15 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Null PS preserves color while depth/stencil can still execute. Native pixel
   references and failed-root discard establish owned behavior; application import
   and complete-directory execution require separate proof.
+
+
+## D-054: Validate the complete enabled source corpus with original metadata
+
+- Date:2026-10-14, candidate1.2.4. The pinned parser supplies shader declarations,
+  flags, namespace paths and include policy. Do not introduce another INI parser
+  or reduce the inventory to selected characters. Preserve built-ins/null/inherit.
+- Compile read-only installed sources through the production compiler, retain
+  exact include snapshots and independently validate SPIR-V. Record required
+  layout options rather than treating relaxed validation as device enablement.
+- Full-directory compilation, owned shader execution and application/game
+  rendering remain separate milestones. Continue execution work after the audit.
