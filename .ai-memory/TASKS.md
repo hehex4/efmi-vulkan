@@ -1,10 +1,19 @@
 # EFMI Vulkan - Tasks
 
-> Last updated: 2026-10-13.
+> Last updated: 2026-10-14.
 
 Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
+
+Current work is T-030's directory-wide language/resource implementation. Source
+1.0.3 passes the full candidate regression, not deployed. The original parser
+accepts all 36 installed INIs with no diagnostics; all nine exported skeleton
+initializers and six isolated callback fixtures pass. DDS/buffer auditing covers
+every declared file; PNG/custom operations and whole-directory runtime execution
+remain work. See CURRENT_STATE.md and docs/mod-folder-runtime.md. The user has
+deferred new game collection; continue offline and do not require capture per
+character. The following 1.0.2 deployment evidence remains valid historically.
 
 1.0.2 is deployed and links the original main-INI runtime into the character backend:
 conditions, thirteen original listeners, alternate stocking DDS, atomic project
@@ -28,7 +37,32 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 ## Tasks and follow-ups
 
-### T-030: From one mod to all mods (question of the user, 2026-10-13; ideas only, nothing decided)
+### T-030: Generic directory runtime and assets (active; user-directed architecture)
+
+User decisions on 2026-10-13/14 supersede the preliminary ideas below: the input
+is the enabled Mods directory and its original Core/library/companion dependencies.
+INI syntax, models, skeletons and textures use shared implementations. No per-Mod
+syntax whitelist, independent component code or mandatory paired character
+capture. Use the pinned original language engine in production (already linked
+for the scoped 1.0.2 runtime), not a second miniature expression interpreter.
+Yvonne is an additional regression fixture; the user deferred game collection.
+
+First offline checkpoint: all installed INIs parse; eight language fixtures pass;
+all nine bone initializers succeed; declared DDS/buffer assets are audited. Six
+isolated callback fixtures pass, with remaining dependency/renderer boundaries
+explicitly recorded. 1.0.3 candidate build and full regression pass in
+build/next/run_all-1.0.3-verified.out. The second original main INI runs with
+synthetic native Core inputs; no second-character shader mapping or GPU claim.
+The latest user correction prioritizes every source-defined INI construct and
+its Vulkan adapter, not sample-driven acceptance. Audit upstream parser dispatch,
+section metadata, expressions and resource directives; expand tests from that
+inventory and connect directory dependencies to production generations. Pause
+PNG integration until this language/runtime work is addressed.
+Acceptance still needs a complete directory generation, cross-file command
+execution, registration/routing, common mesh/image ownership and shader contracts,
+then actual supported Mods in Vulkan. Parsing alone is not rendering acceptance.
+
+Historical survey and preliminary ideas (not the current implementation plan):
 
 Survey of the nine character mods installed on this machine (pattern counts over the INI files, read-only, approximate): all nine use the merged skeleton, LOD1 sections and the same one vertex-layout edit; each has 12 to 22 key sections and 27 to 40 variables. Textures: fixed `ps-t` slots only in two (arcane, ardelia); overrides by texture hash (`this =`) in six (liino, tangtang, xaihi, yvonne, laevatain, perlica), four of them with fixed slots as well; six reference RabbitFX (liino, tangtang, typhoeus, yvonne, laevatain, perlica; LIMIT-004), which patches DX11 shader assembly by regular expressions per shader family.
 

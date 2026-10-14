@@ -22,6 +22,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STEPS = [
     ("text check", [os.path.join(ROOT, "scripts", "check_text.py")]),
     ("unit tests", [os.path.join(HERE, "unit_test.py")]),
+    ("original frontend host", [os.path.join(ROOT, "scripts", "probe_xxmi_host.py"), "--reuse"]),
+    ("directory INI language", [os.path.join(HERE, "ini_folder_test.py")]),
+    ("installed Mods and Core syntax", [os.path.join(ROOT, "scripts", "check_ini_folder.py")]),
     ("original INI runtime", [os.path.join(ROOT, "scripts", "build_xxmi_runtime.py")]),
     ("original panel HLSL compilation", [os.path.join(ROOT, "scripts", "check_panel_hlsl.py")]),
     ("native tracker tests", [os.path.join(HERE, "native_test.py")]),

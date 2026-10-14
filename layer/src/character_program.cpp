@@ -86,6 +86,8 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         if (!validate_refreshed(package, reason)) return false;
         efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
                                              manifest.parent_path() / "settings", config.get("settings", "mod")};
+        if (!config.get("rabbit_textures").empty())
+            throw std::runtime_error("RabbitFX texture-role inspection is not a complete runtime shader contract");
         runtime_ = efmi::frontend::IniRuntime::load(options, efmi::frontend::character_core(config.get("namespace"), package), reason);
         if (!runtime_) return false;
         for (uint32_t i = 0; i < package.images.size(); ++i) images_.emplace(key(std::filesystem::u8path(package.images[i])), i);
@@ -141,7 +143,12 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     pixels[item.slot] = found->second;
                 } else pixels[item.slot] = kCharacterNone;
             } else if (item.operation == Op::BindIndex || item.operation == Op::BindVertex) {
-                if (!item.resource) throw std::runtime_error("Explicit null mesh stream is not supported");
+                if (!item.resource) {
+                    if (item.operation == Op::BindIndex) bound.index_stream = kCharacterNone;
+                    else if (item.slot < 4) bound.vb[item.slot] = kCharacterNone;
+                    else throw std::runtime_error("Runtime vertex slot outside profile");
+                    continue;
+                }
                 const auto found = streams_.find(key(item.resource->path));
                 if (found == streams_.end()) throw std::runtime_error("INI mesh not in prepared stream profile");
                 const auto& stream = package.streams[found->second];

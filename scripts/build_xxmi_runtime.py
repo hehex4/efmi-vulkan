@@ -100,4 +100,13 @@ if __name__ == "__main__":
     print(result.stdout)
     if result.returncode:
         print(result.stderr[-6000:])
+    if result.returncode == 0:
+        second = ROOT / "build/characters/yvonne/mesh.bin"
+        source = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/Yvonne Ensnared Heart 1.6/yvonne.ini")
+        if second.is_file() and source.is_file():
+            result = subprocess.run([str(args.out.resolve() / "runtime_test.exe"), "--inspect-character",
+                str(second), str(source), str(source.parents[2] / "Core/EFMI"), "yvonne", "texture-roles"],
+                capture_output=True, text=True, timeout=40)
+            write_ascii(second.parent / "runtime-inspection.out", result.stdout + result.stderr)
+            print(result.stdout if not result.returncode else result.stderr[-6000:])
     raise SystemExit(result.returncode)

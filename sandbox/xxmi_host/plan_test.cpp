@@ -23,7 +23,7 @@ int HostPlanTests()
     HostParseExcerpt(L"namespace = planner\n[Constants]\nglobal $choice = 0\n"
                      L"[ResourceIndex]\ntype = Buffer\nformat = R32_UINT\ndata = 0 1 2 2 3 0\n"
                      L"[ResourceVertices]\ntype = Buffer\nstride = 16\n"
-                     L"[ResourceImage]\n[CommandListNative]\n"
+                     L"[ResourceImage]\nfilename = fixture.dds\n[ResourceUnset]\n[CommandListNative]\n"
                      L"[CommandListDraw]\nhandling = skip\nrun = CommandListNative\n"
                      L"ib = ResourceIndex\nvb5 = ResourceVertices\n"
                      L"ps-t15 = ResourceImage\nps-t16 = null\n"
@@ -32,6 +32,7 @@ int HostPlanTests()
                      L"else\ndrawindexedinstanced = 6, 2, 3, -1, 4\nendif\n"
                      L"[CommandListFail]\ndrawindexed = 3, 0, 0\ndispatch = 1, 1, 1\n"
                      L"[CommandListEmpty]\nhandling = skip\n"
+                     L"[CommandListUnset]\nps-t70 = ref ResourceUnset\n"
                      L"[CommandListNegative]\ndrawindexed = -3, 0, 0\n"
                      L"[CommandListNonFinite]\ndrawindexed = 1 / 0, 0, 0\n"
                      L"[CommandListGPUQuery]\ndrawindexed = rt_width, 0, 0\n"
@@ -45,7 +46,7 @@ int HostPlanTests()
     HostEnumerateLists();HostParseConstants();HostParseResources();
     DrawPlanAdapter adapter;
     adapter.external(explicitCommandListSections.at(L"commandlist\\planner\\native"),L"test/native");
-    const wchar_t* names[]={L"draw",L"fail",L"empty",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget"};
+    const wchar_t* names[]={L"draw",L"fail",L"empty",L"unset",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget"};
     for(auto* name:names)HostCompileNamedList((L"commandlist\\planner\\"+std::wstring(name)).c_str());
     optimise_command_lists(nullptr);
     for(auto* name:names)adapter.adapt(explicitCommandListSections.at(L"commandlist\\planner\\"+std::wstring(name)).command_list);
@@ -83,6 +84,8 @@ int HostPlanTests()
               "late unsupported/invalid/recursive command rejects the complete output");
     }
     check(run(L"empty",plan,reason) && plan.skip_original && plan.items.empty(),"empty hidden component is a deliberate skip");
+    check(run(L"unset",plan,reason) && plan.items.size()==1 && !plan.items[0].resource,
+          "unassigned empty resource declaration resolves to null without a file adapter");
     CommandList alias;
     alias.SetSourceCommandList(&explicitCommandListSections.at(L"commandlist\\planner\\empty").command_list);
     HackerContext context;CommandListState state;state.mHackerContext=&context;

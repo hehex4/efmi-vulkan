@@ -58,9 +58,76 @@ else
  drawindexed = 9,9,0
 endif
 )ini";
+static int inspect_character(int argc, wchar_t** argv)
+{
+    check(argc == 7, "Character inspection expects package, INI, Core, namespace and library mode");
+    const auto profile = std::filesystem::absolute(argv[2]);
+    const auto ini = std::filesystem::absolute(argv[3]);
+    const auto core = std::filesystem::absolute(argv[4]);
+    const std::wstring wide_name = argv[5];
+    if (wide_name.find_first_not_of(L"abcdefghijklmnopqrstuvwxyz0123456789_") != std::wstring::npos)
+        throw std::runtime_error("Invalid fixture namespace");
+    const std::string name(wide_name.begin(), wide_name.end());
+    const bool rabbit = !wcscmp(argv[6], L"texture-roles");
+    if (!rabbit && wcscmp(argv[6], L"none")) throw std::runtime_error("Unknown fixture library mode");
+    std::string reason; efvk::CharacterPackage package;
+    if (!package.load(profile.u8string(), reason)) throw std::runtime_error(reason);
+    RuntimeConfig config{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini",
+        core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
+        profile.parent_path() / "inspection-settings", "isolated"};
+    auto runtime = IniRuntime::load(config, character_core(name, package, rabbit), reason);
+    if (!runtime) throw std::runtime_error("Original character runtime: " + reason);
+    RuntimeInput input; efmi::assets::FilePlan plan;
+    uint32_t lod = 0; size_t draws = 0, hides = 0;
+    for (unsigned round = 0; round < 2; ++round) {
+        for (const auto& section : package.sections) {
+            if (section.lod != efvk::kCharacterNone) lod = section.lod;
+            RuntimeDraw request; request.hash = section.hash; request.count = section.match_count;
+            request.first = section.match_first == efvk::kCharacterNone ? 0 : section.match_first;
+            request.component = section.component; request.lod = lod; request.frame = round + 1;
+            if (section.component != efvk::kCharacterNone) {
+                request.identity = 1;
+                // Synthetic source-API facts, not measurements of this character.
+                request.rolling_bone_source = true; request.source_vs_config_slot = 2;
+            }
+            if (!runtime->draw(request, plan, reason)) throw std::runtime_error("Original character entry: " + reason);
+            if (round) {
+                size_t geometry = 0;
+                for (const auto& item : plan.items)
+                    geometry += item.operation == efmi::assets::FileOperation::DrawIndexed;
+                draws += geometry; hides += plan.skip_original && !geometry;
+                if (section.component == efvk::kCharacterNone)
+                    check(plan.skip_original && !geometry, "Independent original hide is executed without an identity");
+            }
+        }
+        if (!runtime->present(input, round + 1, float(round), reason)) throw std::runtime_error(reason);
+    }
+    const auto state = runtime->status();
+    for (const auto& section : package.sections) if (section.component != efvk::kCharacterNone) {
+        RuntimeDraw probe; probe.hash = section.hash; probe.count = section.match_count;
+        probe.first = section.match_first == efvk::kCharacterNone ? 0 : section.match_first;
+        probe.component = section.component; probe.lod = section.lod == efvk::kCharacterNone ? lod : section.lod;
+        probe.identity = 1; probe.source_vs_config_slot = 7;
+        check(!runtime->draw(probe, plan, reason), "Invalid source-API slot is refused before execution");
+        probe.source_vs_config_slot = -1;
+        check(runtime->draw(probe, plan, reason), "Unknown bone-source facts retain original fallback behavior");
+        const auto unknown = runtime->status().variables;
+        check(unknown.at("$\\efmiv1\\instance_config_vs_cb_slot") == -1 &&
+              unknown.at("$\\efmiv1\\bones_data_source") == 0,
+              "Absent source-API facts do not become an invented slot or bone source");
+        probe.source_vs_config_slot = 2; probe.rolling_bone_source = true;
+        check(runtime->draw(probe, plan, reason), "Resolved input recovers after unknown and invalid contracts");
+        break;
+    }
+    printf("{\"scope\":\"Original main INI plans with synthetic native Core inputs; no GPU/shader-profile/game result\","
+           "\"sections\":%zu,\"bones\":%u,\"components\":%zu,\"keys_with_f10\":%zu,\"draws\":%zu,\"hidden\":%zu,\"library_texture_roles\":%s}\n",
+           package.sections.size(), package.bones, package.components.size(), state.bindings, draws, hides, rabbit ? "true" : "false");
+    return 0;
+}
 int wmain(int argc, wchar_t** argv)
 {
     try {
+        if (argc > 1 && !wcscmp(argv[1], L"--inspect-character")) return inspect_character(argc, argv);
         check(argc == 2, "Fixture directory argument");
         const std::filesystem::path folder = std::filesystem::path(argv[1]) / "fixture";
         std::filesystem::create_directories(folder);
@@ -117,6 +184,16 @@ int wmain(int argc, wchar_t** argv)
         render(first); check(plan.items.back().index_count == 9, "Failed parse leaves live generation usable");
         first.reset(); render(second);
         check(plan.items.back().index_count == 9, "Retiring one generation preserves another");
+        write(ini, "namespace = hide_fixture\n[TextureOverrideHide]\nhash = 12345678\nmatch_index_count = 30\nhandling = skip\nthis = null\n");
+        auto hide_config = config; hide_config.settings_name = "hide_fixture";
+        auto hidden = IniRuntime::load(hide_config, {}, reason);
+        if (!hidden) throw std::runtime_error("Independent IB suppression INI: " + reason);
+        check(bool(hidden), "Independent IB suppression INI loads without a character skeleton");
+        render(hidden);
+        check(plan.skip_original && plan.items.size() == 1 && !plan.items[0].resource &&
+              plan.items[0].operation == efmi::assets::FileOperation::BindIndex,
+              "IB override this=null uses the actual triggering index binding");
+        render(second); check(plan.items.back().index_count == 9, "Pure hide does not change another generation's draw");
         write(ini, fixture);
         // Read-only acceptance of the actual main INI. The panel is a separate
         // input with a CustomShader and remains explicitly outside this fixture.

@@ -89,6 +89,7 @@ $order = 999
     // A generation-owned declaration; parsing its filename is unrelated to
     // identity mediation and is already covered by resource-plan tests.
     auto& own=customResources[L"resource\\texture_bridge\\own"];own.name=L"resource\\texture_bridge\\own";
+    own.filename=L"identity-fixture.dds";
     HostEnumerateLists();HostParseConstants();HostParseTextureOverrides();
     const std::wstring ns=L"commandlist\\texture_bridge\\";
     const wchar_t* names[]={L"both",L"single",L"unknown",L"null",L"replacement",L"dynamic",L"range",L"nested",L"cycle",L"unadapted",L"badthis"};

@@ -2,6 +2,7 @@
 #include "runtime_host.h"
 #include "skeleton_plan.h"
 #include "palette_files.h"
+#include "rabbit_textures.h"
 #include "globals.h"
 #include <cmath>
 
@@ -24,18 +25,21 @@ class CharacterCore : public RuntimeExtension {
     DrawPlanAdapter* adapter = nullptr;
     RuntimeDraw current;
     bool prepared = false, attached = false;
+    bool rabbit_textures = false;
+    std::vector<uint32_t> original_components;
     CustomResource* skeleton = nullptr;
     std::vector<std::wstring> boundaries;
     bool fail(std::wstring& reason, const wchar_t* message) { reason = message; return false; }
     bool contract(std::wstring& reason)
     {
         return (current.identity && current.instances == 1 && !current.first_instance && current.component < expected.components.size() && current.lod < 2 &&
-            integer(var(L"component_id").fval) == current.component && integer(var(L"lod_level").fval) == current.lod &&
+            original_components.size() == expected.components.size() &&
+            integer(var(L"component_id").fval) == original_components[current.component] && integer(var(L"lod_level").fval) == current.lod &&
             integer(var(L"bones_count").fval) == expected.bones && var(L"gpu_posed").fval == 1 && var(L"custom_mesh_scale").fval == 1) ||
             fail(reason, L"Original Core request differs from the resolved native identity, bone or LOD contract");
     }
 public:
-    CharacterCore(const std::string& name, const efvk::CharacterPackage& package) : expected(package)
+    CharacterCore(const std::string& name, const efvk::CharacterPackage& package, bool rabbit) : expected(package), rabbit_textures(rabbit)
     {
         if (name.empty() || name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
             throw std::runtime_error("Mod namespace must be a normalized ASCII identifier");
@@ -57,6 +61,10 @@ global $mod_id = -1
 [ResourceModLogo]
 [CommandListRegisterMod]
 )ini";
+    }
+    std::vector<std::wstring> declaration_units() override
+    {
+        return rabbit_textures ? std::vector<std::wstring>{rabbit_texture_declarations()} : std::vector<std::wstring>{};
     }
     std::vector<std::wstring> native_shaders() override
     {
@@ -84,7 +92,21 @@ global $mod_id = -1
             if (!target || (prepared && target != skeleton)) return fail(why, L"Unprepared native skeleton output");
             skeleton = target; return true;
         });
-        native(L"component_readconfig", [this](CommandListState&, unsigned phases, std::wstring& why) { return !(phases & 1) || contract(why); });
+        native(L"component_readconfig", [this](CommandListState&, unsigned phases, std::wstring& why) {
+            if (!(phases & 1)) return true;
+            if (!contract(why)) return false;
+            var(L"instance_config_vs_cb_slot").fval = float(current.source_vs_config_slot);
+            return true;
+        });
+        native(L"mergedskeleton_detectbonedatasource", [this](CommandListState&, unsigned phases, std::wstring& why) {
+            if (!(phases & 1)) return true;
+            if (!prepared || !contract(why)) return false;
+            // Never invent a source slot from Vulkan descriptor coordinates.
+            // Unknown input preserves the original Core's no-replacement path.
+            var(L"bones_data_source").fval = current.rolling_bone_source && current.source_vs_config_slot != -1
+                ? var(L"enum_bones_source_vs_t0").fval : 0;
+            return true;
+        });
         native(L"spatialidentity_identifycomponentinstances", [this](CommandListState&, unsigned phases, std::wstring& why) {
             // Identity resolution is the renderer's existing recording-clock
             // implementation, already supplied before this original callback.
@@ -118,17 +140,29 @@ global $mod_id = -1
     bool validate_overrides(std::wstring& why) override
     {
         if (!G->mFuzzyTextureOverrides.empty()) return fail(why, L"Fuzzy/image overrides require a source-image identity provider");
-        size_t count = 0;
+        std::vector<bool> seen(expected.sections.size(), false);
+        auto matches = [](const FuzzyMatch& f, uint32_t value, bool optional) {
+            if (optional && value == efvk::kCharacterNone) return f.op == FuzzyMatchOp::ALWAYS;
+            return f.op == FuzzyMatchOp::EQUAL && f.rhs_type1 == FuzzyMatchOperandType::VALUE &&
+                f.rhs_type2 == FuzzyMatchOperandType::VALUE && f.val == value && f.mask == UINT32_MAX &&
+                f.numerator == 1 && f.denominator == 1;
+        };
         for (const auto& hashed : G->mTextureOverrideMap) {
             for (const auto& entry : hashed.second) {
-                const std::wstring prefix = L"textureoverride" + mod + L"_entrypoint_";
+                const std::wstring prefix = L"textureoverride" + mod;
+                size_t index = 0;
+                for (; index < expected.sections.size(); ++index) {
+                    const auto& s = expected.sections[index];
+                    if (s.hash == hashed.first && matches(entry.match_index_count, s.match_count, false) &&
+                        matches(entry.match_first_index, s.match_first, true)) break;
+                }
                 if (_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size()) != 0 ||
-                    std::none_of(expected.sections.begin(), expected.sections.end(), [&](const auto& s) { return s.hash == hashed.first; }))
+                    index == expected.sections.size() || seen[index])
                     return fail(why, L"Generation contains an unprofiled override; source-image identity is unavailable");
-                ++count;
+                seen[index] = true;
             }
         }
-        return count == expected.sections.size() || fail(why, L"Original mesh override registry differs from its profile");
+        return std::all_of(seen.begin(), seen.end(), [](bool v) { return v; }) || fail(why, L"Original mesh override registry differs from its profile");
     }
     bool prepare(DrawPlanAdapter& a, CommandListState& state, std::wstring& why) override
     {
@@ -146,23 +180,36 @@ global $mod_id = -1
         if (!load_palette_files(metadata, palette, error)) { why.assign(error.begin(), error.end()); return false; }
         if (metadata.bones != expected.bones || metadata.components.size() < expected.components.size())
             return fail(why, L"Original skeleton dimensions changed");
+        original_components.assign(expected.components.size(), UINT32_MAX);
         for (size_t i = 0; i < metadata.components.size(); ++i) {
             const auto& got = metadata.components[i];
-            if (i >= expected.components.size()) { if (got.count) return fail(why, L"Unprofiled active component"); continue; }
-            const auto& want = expected.components[i];
+            if (!got.count) continue;
+            size_t dense = 0;
+            while (dense < expected.components.size() && expected.components[dense].first != got.first) ++dense;
+            if (dense == expected.components.size() || original_components[dense] != UINT32_MAX)
+                return fail(why, L"Unprofiled or overlapping active component");
+            const auto& want = expected.components[dense];
             const auto& maps = palette.components[i].lods;
             if (got.first != want.first || got.count != want.count ||
                 !maps[0].available || !maps[0].indices.empty() || !maps[1].available ||
                 maps[1].indices != want.remap_lod1)
                 return fail(why, L"Original bone ranges or LOD1 remaps differ from the renderer profile");
+            original_components[dense] = uint32_t(i);
         }
+        if (std::find(original_components.begin(), original_components.end(), UINT32_MAX) != original_components.end())
+            return fail(why, L"Profiled component is absent from original skeleton");
         prepared = true; return true;
     }
-    bool before_draw(const RuntimeDraw& draw, CommandListState&, std::wstring&) override { current = draw; return true; }
+    bool before_draw(const RuntimeDraw& draw, CommandListState&, std::wstring& why) override
+    {
+        if (draw.source_vs_config_slot != -1 && (draw.source_vs_config_slot < 1 || draw.source_vs_config_slot > 3))
+            return fail(why, L"Unsupported original Core instance-config constant slot");
+        current = draw; return true;
+    }
 };
 }
-std::shared_ptr<RuntimeExtension> character_core(const std::string& mod_namespace, const efvk::CharacterPackage& package)
+std::shared_ptr<RuntimeExtension> character_core(const std::string& mod_namespace, const efvk::CharacterPackage& package, bool rabbit)
 {
-    return std::make_shared<CharacterCore>(mod_namespace, package);
+    return std::make_shared<CharacterCore>(mod_namespace, package, rabbit);
 }
 }

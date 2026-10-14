@@ -55,8 +55,28 @@ std::vector<ShaderRegexGroup*> shader_regex_group_index;
 unsigned int shader_regex_hash=0;
 ShaderRegexPattern::ShaderRegexPattern():regex(nullptr),do_replace(false) {}
 ShaderRegexPattern::~ShaderRegexPattern() { if(regex)pcre2_code_free(regex); }
-bool ShaderRegexPattern::compile(std::string*) { unsupported("prototype shader regex"); }
-bool ShaderRegexPattern::named_group_overlaps(ShaderRegexTemps&) { unsupported("prototype shader regex groups"); }
+// Same PCRE2 options and capture-name handling as pinned ShaderRegex.cpp. Only
+// parse validation; this host never rewrites or installs a graphics shader.
+bool ShaderRegexPattern::compile(std::string* pattern) {
+    int error; PCRE2_SIZE offset;
+    regex = pcre2_compile(reinterpret_cast<PCRE2_SPTR>(pattern->data()), pattern->size(),
+                          PCRE2_CASELESS | PCRE2_MULTILINE, &error, &offset, nullptr);
+    if (!regex) {
+        ++diagnostic_count;
+        fprintf(stderr, "ShaderRegex PCRE2 error %d at byte %zu\n", error, size_t(offset)); return false;
+    }
+    uint32_t count, size; PCRE2_SPTR table;
+    pcre2_pattern_info(regex, PCRE2_INFO_NAMECOUNT, &count);
+    pcre2_pattern_info(regex, PCRE2_INFO_NAMEENTRYSIZE, &size);
+    pcre2_pattern_info(regex, PCRE2_INFO_NAMETABLE, &table);
+    for (uint32_t i = 0; i < count; ++i)
+        named_capture_groups.insert(reinterpret_cast<const char*>(table + i * size + 2));
+    return true;
+}
+bool ShaderRegexPattern::named_group_overlaps(ShaderRegexTemps& names) {
+    for (const auto& name : named_capture_groups) if (names.count(name)) return true;
+    return false;
+}
 int CursorUpscalingBypass_GetClientRect(HWND h,LPRECT r) { return ::GetClientRect(h,r); }
 int CursorUpscalingBypass_GetCursorInfo(PCURSORINFO info) { return ::GetCursorInfo(info); }
 int CursorUpscalingBypass_ScreenToClient(HWND h,LPPOINT p) { return ::ScreenToClient(h,p); }

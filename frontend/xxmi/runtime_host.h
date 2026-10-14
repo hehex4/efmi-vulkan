@@ -9,6 +9,7 @@ class RuntimeExtension {
 public:
     virtual ~RuntimeExtension() = default;
     virtual std::wstring declarations() { return {}; }
+    virtual std::vector<std::wstring> declaration_units() { return {}; }
     virtual std::vector<std::wstring> native_shaders() { return {}; }
     virtual std::vector<std::wstring> install(DrawPlanAdapter&) = 0;
     virtual bool prepare(DrawPlanAdapter&, CommandListState&, std::wstring&) { return true; }

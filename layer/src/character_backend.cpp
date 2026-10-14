@@ -857,6 +857,21 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
         }
         if (!section) return false;
         ++counters[C_MATCHED];
+        if (section->component == kCharacterNone) {
+            // Exact IB-only override: no fabricated identity or bone import.
+            // Live conditions still run; a changed rule may only emit an empty skip.
+            if (program) {
+                efmi::frontend::RuntimeDraw request;
+                request.hash = section->hash; request.count = r.count; request.first = r.first;
+                request.base = r.vertex_offset; request.instances = r.instances; request.first_instance = r.first_instance;
+                request.frame = present; request.seconds = ini_seconds();
+                bool skip = false, added = false; std::string reason;
+                if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI hide: " + reason);
+                if (!skip) return false;
+                if (runtime_list.count) return refuse(C_STATE, "INI hide override unexpectedly emits geometry");
+            }
+            ++counters[C_HIDDEN]; return true;
+        }
         // The character's frame is this recording of the command buffer (see kExpiryMicroseconds).
         if (!cb->character_frame) cb->character_frame = ++device->character_recordings;
         const uint64_t now = cb->character_frame;

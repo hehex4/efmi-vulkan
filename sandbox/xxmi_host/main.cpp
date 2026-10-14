@@ -29,6 +29,7 @@ int HostModSkeleton(const wchar_t*,const wchar_t*,const wchar_t*);
 int HostCoreSpatial(const wchar_t*);
 int HostCoreComponents(const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*,const wchar_t*);
 int HostModPlan(const wchar_t*,const wchar_t*,const wchar_t*);
+int HostParseFolder(const wchar_t*, const wchar_t*, const wchar_t*);
 int HostDdsTests();
 int HostDdsFile(const wchar_t*);
 class HostListener:public InputListener {
@@ -62,6 +63,7 @@ int wmain(int argc,wchar_t** argv)
     InitializeCriticalSection(&resource_creation_mode_lock);
     G->user_config=L"host-test-user-settings.ini";
     if(argc==3 && !wcscmp(argv[1],L"--dds"))return HostDdsFile(argv[2]);
+    if(argc==5 && !wcscmp(argv[1],L"--parse-folder"))return HostParseFolder(argv[2], argv[3], argv[4]);
     if(argc==3 && !wcscmp(argv[1],L"--texture-core"))return HostTextureQueryTests(argv[2]);
     if(argc==5 && !wcscmp(argv[1],L"--plan-mod"))return HostModPlan(argv[2],argv[3],argv[4]);
     if(argc==5 && !wcscmp(argv[1],L"--skeleton-mod"))return HostModSkeleton(argv[2],argv[3],argv[4]);

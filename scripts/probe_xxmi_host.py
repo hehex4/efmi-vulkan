@@ -53,6 +53,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--xxmi", type=Path, default=DEPS / "XXMI-Libs-Package")
     parser.add_argument("--reference", type=Path, default=DEPS / "wwmi-dx12")
+    parser.add_argument("--reuse", action="store_true", help="reuse a passing executable only when every recorded input still matches")
     args = parser.parse_args()
     out = ROOT / "build/xxmi-host"
     out.mkdir(parents=True, exist_ok=True)
@@ -88,6 +89,7 @@ def main() -> int:
         legacy_sources += [ROOT / "frontend/xxmi/command_module.cpp"]
         sources = [fixture / f"{name}.cpp" for name in ("main", "shim", "ini", "host_input")]
         sources += [fixture / "plan_test.cpp", fixture / "mod_plan.cpp", ROOT / "frontend/xxmi/draw_plan.cpp"]
+        sources += [fixture / "folder_parse.cpp"]
         sources += [fixture / "resource_plan_test.cpp", ROOT / "frontend/xxmi/resource_plan.cpp"]
         sources += [fixture / "dds_test.cpp", ROOT / "frontend/assets/dds.cpp"]
         sources += [fixture / "core_pool_test.cpp"]
@@ -109,6 +111,7 @@ def main() -> int:
         inputs += legacy_sources + sources + list(port.glob("*.h")) + [regex_lib, Path(__file__),
                   ROOT / "frontend/xxmi/draw_plan.h", ROOT / "frontend/assets/dds.h"]
         inputs += [ROOT / "frontend/xxmi/resource_plan.h"] + list((ROOT / "frontend/assets").glob("*.h"))
+        inputs += [ROOT / "frontend/xxmi/ini_module.cpp", ROOT / "frontend/xxmi/rabbit_textures.h"]
         inputs += [ROOT / "frontend/xxmi/skeleton_plan.h"]
         inputs += [ROOT / "frontend/xxmi/buffer_queries.h"]
         inputs += [ROOT / "frontend/xxmi/palette_files.h", ROOT / "frontend/core/palette_bank.h",
@@ -127,6 +130,13 @@ def main() -> int:
         vcvars = find_vcvars()
         report["vcvars"] = vcvars
         exe = out / "host_probe.exe"
+        if args.reuse and exe.is_file() and (out / "report.json").is_file():
+            previous = json.loads((out / "report.json").read_text())
+            if (previous.get("passed") and previous.get("source_sha256") == report["source_sha256"]
+                    and previous.get("executable_sha256") == digest(exe) and previous.get("vcvars") == vcvars):
+                report = previous
+                print("Pinned XXMI host checks passed; verified unchanged inputs and executable")
+                return 0
         flags = ["/nologo", "/std:c++17", "/permissive", "/W0", "/Od", "/MT", "/EHa",
                  "/Gy", "/Gw", "/DUNICODE", "/D_UNICODE", "/D_HAS_STD_BYTE=0",
                  "/DMIGOTO_DX=11", "/DPCRE2_CODE_UNIT_WIDTH=8", "/DPCRE2_STATIC",

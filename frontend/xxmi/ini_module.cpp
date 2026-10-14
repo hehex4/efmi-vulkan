@@ -14,6 +14,55 @@ void HostCompileList(const wchar_t* name,CommandList* pre,CommandList* post)
 void HostParseConstants() { ParseConstantsSection(); }
 void HostEnumerateLists() { EnumerateExplicitCommandListSections(); }
 void HostParseResources() { ParseResourceSections(); }
+void HostParseIncludes() { ParseIncludedIniFiles(); }
+void HostInsertBuiltins() { InsertBuiltInIniSections(); }
+void HostParseResourceFamily(const std::wstring& prefix)
+{
+    for (const auto& section : ini_sections)
+        if (_wcsnicmp(section.first.c_str(), prefix.c_str(), prefix.size()) == 0)
+            ParseResourceSection(section.first.c_str(), nullptr);
+}
+
+// Parse every declaration and command with the original engine. Renderer state
+// is parsed as data; HLSL compilation and executing graphics are separate tests.
+void HostInspectAllSections()
+{
+    EnumerateCustomShaderSections();
+    EnumerateExplicitCommandListSections();
+    EnumeratePresetOverrideSections();
+    ParseConstantsSection();
+    ParseResourceSections();
+    ParseCommandList(L"Constants", &G->constants_command_list, &G->post_constants_command_list, nullptr);
+    RegisterPresetKeyBindings();
+    ParsePresetOverrideSections();
+    for (auto& pair : customShaders) {
+        auto* shader = &pair.second;
+        const auto* name = pair.first.c_str();
+        ParseBlendState(shader, name); ParseDepthStencilState(shader, name);
+        ParseRSState(shader, name); ParseTopology(shader, name); ParseSamplerState(shader, name);
+        shader->max_executions_per_frame = GetIniInt(name, L"max_executions_per_frame", 0, nullptr);
+        ParseCommandList(name, &shader->command_list, &shader->post_command_list, CustomShaderIniKeys);
+    }
+    ParseExplicitCommandListSections();
+    ParseShaderOverrideSections();
+    ParseShaderRegexSections();
+    ParseTextureOverrideSections();
+    ParseCommandList(L"Present", &G->present_command_list, &G->post_present_command_list, nullptr);
+    ParseCommandList(L"ClearRenderTargetView", &G->clear_rtv_command_list, &G->post_clear_rtv_command_list, nullptr);
+    ParseCommandList(L"ClearDepthStencilView", &G->clear_dsv_command_list, &G->post_clear_dsv_command_list, nullptr);
+    ParseCommandList(L"ClearUnorderedAccessViewUint", &G->clear_uav_uint_command_list, &G->post_clear_uav_uint_command_list, nullptr);
+    ParseCommandList(L"ClearUnorderedAccessViewFloat", &G->clear_uav_float_command_list, &G->post_clear_uav_float_command_list, nullptr);
+    size_t overrides = 0, patterns = 0, commands = 0;
+    for (const auto& hashed : G->mTextureOverrideMap) overrides += hashed.second.size();
+    for (const auto& regex : shader_regex_groups) patterns += regex.second.patterns.size();
+    for (auto* list : registered_command_lists) if (list) commands += list->commands.size();
+    printf("\"sections\":%zu,\"variables\":%zu,\"persistent\":%zu,\"resources\":%zu,\"pools\":%zu,"
+           "\"command_lists\":%zu,\"commands\":%zu,\"texture_overrides\":%zu,\"custom_shaders\":%zu,"
+           "\"shader_regex_groups\":%zu,\"shader_regex_patterns\":%zu",
+           ini_sections.size(), command_list_globals.size(), persistent_variables.size(), customResources.size(),
+           customResourcePools.size(), explicitCommandListSections.size(), commands, overrides, customShaders.size(),
+           shader_regex_groups.size(), patterns);
+}
 void HostParseTextureOverrides() { ParseTextureOverrideSections(); }
 void HostCompileNamedList(const wchar_t* name)
 {

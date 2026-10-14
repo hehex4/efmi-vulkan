@@ -357,6 +357,17 @@ int main(int argc, char** argv)
           "sections keep an unspecified first index and an unassigned LOD");
     const auto kept = p.payload;
     const size_t tables = 48, payload = 48 + m.tables.size();
+    {
+        auto hidden = valid;
+        poke(hidden, tables + m.section_table + 12, kCharacterNone);
+        poke(hidden, tables + m.section_table + 16, kCharacterNone);
+        seal(hidden);
+        CharacterPackage independent;
+        check(independent.decode(hidden, why) && independent.sections[0].component == kCharacterNone,
+              "exact IB-only hide does not need a fabricated bone component");
+        poke(hidden, tables + m.section_table + 16, uint32_t(0)); seal(hidden);
+        check(!independent.decode(hidden, why), "IB-only hide cannot change the character LOD");
+    }
     auto reject = [&](std::vector<uint8_t> data, const char* text, bool reseal = true) {
         if (reseal) seal(data);
         std::string reason;

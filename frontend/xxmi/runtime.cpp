@@ -184,6 +184,11 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         if (p.extension) {
             const auto declarations = p.extension->declarations();
             if (!declarations.empty()) HostParseExcerpt(declarations.c_str(), L"efvk-native.ini");
+            size_t unit = 0;
+            for (const auto& text : p.extension->declaration_units()) {
+                const auto name = L"efvk-library-" + std::to_wstring(unit++) + L".ini";
+                HostParseExcerpt(text.c_str(), name.c_str());
+            }
         }
         // Original [Constants] parsing consumes declarations and later executes
         // assignments from the generated settings file after default values.
@@ -237,6 +242,9 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
         TextureOverrideMatches matches; find_texture_override_for_hash(input.hash, &matches, &call);
         assets::FilePlan result;
         auto s = p.command_state(); s.call_info = &call; std::wstring why;
+        ResourceCopyTarget index_target;
+        index_target.type = ResourceCopyTargetType::INDEX_BUFFER;
+        s.this_target = &index_target;
         if (p.extension && !p.extension->before_draw(input, s, why)) throw std::runtime_error(utf8(why));
         for (auto* match : matches) {
             DrawPlan plan; assets::FilePlan owned;

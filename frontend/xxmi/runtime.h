@@ -25,6 +25,10 @@ struct RuntimeDraw {
     // and imported the component's source bones. No original-resource queries.
     uint32_t component = UINT32_MAX, lod = UINT32_MAX;
     uint64_t identity = 0;
+    // Optional source-API facts from a verified shader contract. A Vulkan
+    // binding number alone does not establish the original DX11 constant slot.
+    bool rolling_bone_source = false;
+    int32_t source_vs_config_slot = -1;
 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0;

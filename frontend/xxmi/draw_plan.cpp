@@ -274,7 +274,13 @@ struct DrawPlanAdapter::Runtime {
     CustomResource* referenced(CustomResource* resource) const
     {
         const auto found=references.find(resource);
-        return found==references.end()?resource:found->second;
+        if (found != references.end()) return found->second;
+        // An empty original Resource declaration has no object until assigned.
+        // Preserve typed/generated resources for their own adapters.
+        if (resource && resource->filename.empty() && resource->override_type == CustomResourceType::INVALID &&
+            resource->override_format == DXGI_FORMAT(-1) && resource->override_stride == -1 &&
+            !resource->initial_data && !resource->resource && !resource->pool) return nullptr;
+        return resource;
     }
     void direct_resource(const CustomResource* resource)
     {

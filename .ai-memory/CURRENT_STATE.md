@@ -1,6 +1,62 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-13, 22:58 live check. Source/build/next/dist are 1.0.2. The user confirms outfit keys work; PID 31108 has completed two F10 exchanges with ten images Ready and no reload failures. Project settings match the live choices. Restart persistence and all-key visual coverage remain untested. The user now requests extending support beyond this character; inspect and remove profile/import restrictions next. LOD0/LOD1 only; panel rendering remains T-016.
+> Last updated: 2026-10-14, offline directory work. Source/build/next is 1.0.3 and passes the full regression; dist remains 1.0.2. All 36 installed Mods/Core INIs parse without diagnostics through the original engine. This does not establish coverage of all source-defined INI syntax or an all-Mod renderer. No new game capture or deployment. LOD0/LOD1 only.
+
+## Directory-wide language and asset work (verified offline checkpoint)
+
+The user selected Yvonne Ensnared Heart 1.6 as a second regression input, then
+explicitly deferred game collection and corrected the goal: load the enabled
+Mods folder, support the original language generally, and apply the same generic
+approach to models, bones and textures. Existing Mods are test inputs, not syntax
+whitelists. Mandatory per-character captures and handcrafted component adapters
+are not the intended architecture. D-044 and docs/mod-folder-runtime.md record
+this; the former T-030 ideas-only wording is superseded.
+
+Read-only offline evidence:
+- build/ini-folder/report.json: original Include/namespace/command/resource/key
+  parsing across 36 INIs, 1,330 sections, 655 resources, 77 pools, 175 keys and
+  8,937 commands, no diagnostics. Includes Core, panels, companion files and
+  RabbitFX; graphics execution is not claimed. Eight positive/negative directory
+  fixtures pass and are included in sandbox/run_all.py.
+- build/folder-assets/report.json: 445 file declarations, 443 unique paths;
+  108 DDS files decode, 310 available buffer declarations align. Sixteen PNGs
+  still need a Vulkan image loader; eleven declared files are absent. These
+  findings do not establish reachability or visual defects. All sources unchanged.
+- build/mod-corpus/report.json: all nine original exported skeleton initializers
+  succeed. Six isolated callback fixtures succeed; Ardelia, Liino and Typhoeus
+  need companion command lists/custom operations. Full-folder parsing already
+  resolves their syntax, so isolated failures are not bad source INIs.
+- Yvonne's generic mesh package is built at build/characters/yvonne/mesh.bin:
+  nine components, 462 bones, fourteen IB sections including five independent
+  hides, 72 default-scenario LOD draw records. No material mapping/game claim.
+- The original Yvonne main INI now executes all fourteen entries with synthetic
+  native inputs: 36 draws, six empty skips, 23 listeners including F10. The
+  missing bone-source query boundary is adapted through explicit source-API
+  facts; absent facts remain unknown and invalid slots refuse. The current game
+  renderer has not acquired the extra source-slot facts for this character.
+
+Source changes remove dense original-component numbering assumptions, preserve
+IB-only suppression without a fake skeleton component. Texture-role planning
+is an offline fixture only; production refuses it until the original shader
+gating and fallback semantics are implemented. The deployed runtime is still one main
+INI/profile. Complete directory generation/routing, dependency execution, shared
+shader contracts, general custom shaders/copies/PNG and ShaderRegex remain open.
+The initial host inspection had wrong constant/key ordering and omitted built-ins;
+both were corrected. Empty-resource fixtures now distinguish file declarations
+from unassigned null aliases. No source INI was changed to make tests pass.
+
+The complete build and sandbox/run_all.py pass in
+build/next/run_all-1.0.3-verified.out with EFMI_VK_DIST set to build/next. Original
+runtime has 48 fixture checks plus the second main-INI inspection; package checks
+79, character GPU runner 357, live INI GPU 28, validation 76 and all remaining
+steps pass. The first regression failure was an independent fixture reusing
+settings from another namespace; separate settings fixed it. Shared ABI remains
+16b90a85431f86b4. No original installation/launcher/game writes.
+
+Latest user steering: all original INI syntax must be adapted from upstream
+source, not inferred from the installed Mod sample. Prioritize a source-defined
+grammar/command inventory, complete shared parsing, runtime dependency loading
+and execution adapters. PNG integration is paused while this work proceeds.
 
 ## 1.0.2: main INI, outfit keys, persistence and F10 (first game check)
 

@@ -183,7 +183,9 @@ bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& rea
     }
     for (uint32_t i = 0; i < section_count; ++i, p += 20) {
         CharacterSection s = {at<uint32_t>(p), at<uint32_t>(p + 4), at<uint32_t>(p + 8), at<uint32_t>(p + 12), at<uint32_t>(p + 16)};
-        if (!s.match_count || s.component >= component_count || (s.lod != kCharacterNone && s.lod > 1)) return fail("section out of range");
+        if (!s.match_count || (s.component != kCharacterNone && s.component >= component_count) ||
+            (s.lod != kCharacterNone && s.lod > 1) || (s.component == kCharacterNone && s.lod != kCharacterNone))
+            return fail("section out of range");
         next.sections.push_back(s);
     }
     for (uint32_t i = 0; i < list_count; ++i, p += 8) {

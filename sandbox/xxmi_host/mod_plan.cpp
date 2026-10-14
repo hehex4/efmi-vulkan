@@ -3,6 +3,7 @@
 #include "resource_plan.h"
 #include "globals.h"
 #include "HackerContext.h"
+#include "../../frontend/xxmi/rabbit_textures.h"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -14,6 +15,8 @@ void HostParseConstants();
 void HostEnumerateLists();
 void HostParseFileResources(size_t);
 void HostCompileNamedList(const wchar_t*);
+void HostCompileGraph(const std::wstring&, const std::vector<std::wstring>&);
+void HostParseResourceFamily(const std::wstring&);
 void HostResourceRoot(const std::wstring&);
 size_t HostDiagnosticCount();
 using namespace efmi::frontend;
@@ -50,7 +53,12 @@ int HostModPlan(const wchar_t* filename,const wchar_t* prefix,const wchar_t* nat
         for(size_t i=0;i<input.size();++i)
             if(input[i]!=L'\r' || i+1==input.size() || input[i+1]!=L'\n')text+=input[i];
         HostParseExcerpt(text.c_str(),source.filename().wstring().c_str());
+        auto lower = text;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::towlower);
+        const bool rabbit = lower.find(L"commandlist\\rabbitfx\\settextures") != std::wstring::npos;
+        if (rabbit) HostParseExcerpt(rabbit_texture_declarations().c_str(), L"efvk-rabbit-textures.ini");
         HostEnumerateLists();HostParseConstants();HostParseFileResources(root.size());
+        if (rabbit) HostParseResourceFamily(L"Resource\\rabbitfx\\");
         DrawPlanAdapter adapter;
         adapter.external(explicitCommandListSections[native],native);
         std::vector<std::wstring> names;
@@ -59,7 +67,7 @@ int HostModPlan(const wchar_t* filename,const wchar_t* prefix,const wchar_t* nat
             if(pair.first.compare(0,family.size(),family)==0)names.push_back(pair.first);
         std::sort(names.begin(),names.end());
         if(names.empty())throw std::runtime_error("No command lists match the requested prefix");
-        for(const auto& name:names)HostCompileNamedList(name.c_str());
+        for(const auto& name:names)HostCompileGraph(name, {native});
         optimise_command_lists(nullptr);
         for(const auto& name:names)adapter.adapt(explicitCommandListSections.at(name).command_list);
         if(HostDiagnosticCount())throw std::runtime_error("Original parser reported diagnostics; refusing incomplete plans");
@@ -76,7 +84,7 @@ int HostModPlan(const wchar_t* filename,const wchar_t* prefix,const wchar_t* nat
         auto lod=command_list_globals.find(variable_namespace+L"lod_level");
         if(lod==command_list_globals.end())throw std::runtime_error("LOD test variable is absent");
 
-        printf("{\"scope\":\"CPU callback plans; native Core boundary remains unresolved\",\"resources\":[");
+        printf("{\"scope\":\"CPU callback plans; native Core boundary remains unresolved\",\"rabbit_texture_roles\":%s,\"resources\":[", rabbit ? "true" : "false");
         bool comma=false;
         for(const auto& pair:customResources){
             if(comma)putchar(',');comma=true;

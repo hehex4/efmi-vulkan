@@ -10,6 +10,7 @@ from array import array
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import struct
@@ -26,14 +27,24 @@ def sha(path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mod", type=Path, default=SAMPLE)
-    parser.add_argument("--prefix", default="commandlist\\arcane_fes\\_draw_component")
+    parser.add_argument("--prefix", help="default: infer the merged-skeleton callback namespace")
     parser.add_argument("--native", default="commandlist\\efmiv1\\overridetextures")
+    parser.add_argument("--out", type=Path, default=ROOT / "build/xxmi-host")
     args = parser.parse_args()
-    folder = ROOT / "build/xxmi-host"
+    host_folder = ROOT / "build/xxmi-host"
+    folder = args.out.resolve()
+    if not folder.is_relative_to(ROOT / "build"):
+        raise ValueError("Planning output must stay inside the project build directory")
+    folder.mkdir(parents=True, exist_ok=True)
+    if args.prefix is None:
+        match = re.search(r"^\s*namespace\s*=\s*(\w+)\s*$", args.mod.read_text(encoding="utf-8-sig"), re.M | re.I)
+        if not match:
+            raise ValueError("An explicit namespace is required")
+        args.prefix = "commandlist\\" + match[1].lower() + "\\_draw_component"
     report = {"scope": "CPU callback planning and file bounds only; no GPU/Core execution", "passed": False}
     try:
-        compiled = json.loads((folder / "report.json").read_text())
-        exe = folder / "host_probe.exe"
+        compiled = json.loads((host_folder / "report.json").read_text())
+        exe = host_folder / "host_probe.exe"
         if not compiled.get("passed") or sha(exe) != compiled["executable_sha256"]:
             raise ValueError("First build and pass scripts/probe_xxmi_host.py")
         for filename, expected in compiled["source_sha256"].items():
@@ -51,6 +62,7 @@ def main() -> int:
         if result.returncode:
             raise ValueError(f"Host refused callback plans: {result.returncode}; see mod-plan-errors.txt")
         plans = json.loads(result.stdout)
+        report["rabbit_texture_roles"] = plans.get("rabbit_texture_roles", False)
         (folder / "mod-plans.json").write_text(json.dumps(plans, indent=2, ensure_ascii=True) + "\n", encoding="ascii")
         resources = {r["name"]: r for r in plans["resources"]}
         assets, indices, ranges, draws, empty = {}, {}, {}, 0, 0

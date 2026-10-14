@@ -69,6 +69,16 @@ def entries(text: str, namespace: str) -> list[dict]:
         component = values.get("$\\efmiv1\\component_id")
         callback = values.get("commandlist\\efmiv1\\callback_component_drawcustom")
         if component is None or callback is None or "hash" not in values:
+            # Pure IB suppression needs neither a skeleton nor a fake component.
+            # Do not classify texture or conditional overrides as unconditional hides.
+            allowed = {"hash", "match_index_count", "match_first_index", "handling", "this"}
+            if (values.get("handling", "").lower() == "skip" and "match_index_count" in values
+                    and "hash" in values and set(values) <= allowed
+                    and values.get("this", "null").lower() == "null"):
+                result.append(dict(section=name, hash=int(values["hash"], 16),
+                                   match_count=int(values["match_index_count"]),
+                                   match_first=int(values["match_first_index"]) if "match_first_index" in values else None,
+                                   component=NONE, lod=None, callback=None))
             continue
         target = re.fullmatch(r"ref\s+CommandList(\w+)", callback)
         if not target or "match_index_count" not in values:
@@ -154,6 +164,8 @@ def build(args) -> dict:
     found = entries(text, namespace)
     callbacks = {}
     for entry in found:
+        if entry["component"] == NONE:
+            continue
         callbacks.setdefault(entry["component"], entry["callback"])
         if callbacks[entry["component"]] != entry["callback"]:
             raise ValueError("one component with two callbacks")
@@ -239,13 +251,13 @@ def build(args) -> dict:
 
     sections = []
     for entry in found:
-        if entry["component"] not in dense:
+        if entry["component"] != NONE and entry["component"] not in dense:
             raise ValueError(f"{entry['section']} names an inactive component")
         if entry["lod"] not in (None, 0, 1):
             raise ValueError(f"{entry['section']}: only LOD 0 and 1 are supported")
         sections.append({"hash": entry["hash"], "match_count": entry["match_count"],
                          "match_first": NONE if entry["match_first"] is None else entry["match_first"],
-                         "component": dense[entry["component"]], "lod": NONE if entry["lod"] is None else entry["lod"],
+                         "component": NONE if entry["component"] == NONE else dense[entry["component"]], "lod": NONE if entry["lod"] is None else entry["lod"],
                          "name": entry["section"]})
 
     # Checks the layer repeats at load: bounds of every draw and bone indices of every blend stream.
@@ -389,6 +401,10 @@ def check(report: dict, bundles: list[Path]) -> dict:
                 continue
             seen += 1
             section = model["sections"][candidates[0]]
+            if section["component"] == NONE:
+                per_bundle["draws"] += 1
+                per_bundle["skips"] += 1
+                continue
             if section["lod"] != NONE:
                 lod = section["lod"]
             component = model["components"][section["component"]]
