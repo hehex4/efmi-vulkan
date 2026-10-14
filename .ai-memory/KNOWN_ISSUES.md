@@ -329,9 +329,11 @@ validated. docs/ini-language-coverage.md is the current operation-family table.
 Through 1.1.1, original owned-buffer commands, whole-pool operations and keyed/
 expiring pool lifetime now have GPU execution tests. The 1.1.2 image foundation
 adds directly tested owned allocation, views, pitched transfers, clears and
-MSAA resolve. The INI image adapter, general shader execution, application
-resource import and inline placement are still open. Do not treat direct image
-tests, 184 registry format records or 726 syntax tests as complete Mod support.
+MSAA resolve. The 1.1.3 adapter connects original INI declarations, DDS, image
+copy pools, view-specific clears and properties. Remaining formats/conversions,
+general shader execution, application import and inline placement stay open.
+Do not treat these owned-domain tests, 184 registry format records or 726 syntax
+tests as complete Mod support. Logical image slots do not emit shader descriptors.
 
 ## ISSUE-010: A mode fixture exited before its first probe request
 
@@ -400,3 +402,18 @@ cannot submit; discard releases its pending owners. The targeted suite passes
 Present and draw, retained bindings and rejected frame duration. Full rebuilt
 regression passes in build/next/run_all-1.1.1.out. No deployment or game result
 is implied.
+
+## BUG-018: Stencil-only clears forwarded an invalid unused depth value (fixed in candidate 1.1.3)
+
+The owned image foundation validated the depth field only when the clear range
+included depth. A legal original `clear = od stencil 11` therefore forwarded
+depth 11 into VkClearDepthStencilValue, whose range requirement applies even
+to stencil-only commands. Validation reported VUID-depth-00022; the preserved
+failure is build/resource-commands/stencil-before-fix.{json,txt}. This was an
+offline test failure, not a game observation.
+
+The low-level executor supplies depth zero when that aspect is unused. The INI
+adapter separately applies D3D11's depth clamping when it is used. Actual depth
+and stencil readbacks, ignored nonfinite depth and the original explicit-flag
+priority pass in the 1682-check targeted suite with zero validation messages.
+The final full-suite checkpoint is recorded in CURRENT_STATE.md.

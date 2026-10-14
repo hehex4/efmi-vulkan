@@ -386,3 +386,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   from submitted owners; only successful submission publishes GENERAL. This
   does not connect original INI texture semantics, expand the DDS loader or
   authorize application image import. PNG integration stays paused.
+- Image-command follow-up (1.1.3): call original texture override/view helpers,
+  preserve source metadata and copy ownership, and reuse pinned DDS format and
+  footprint decoding. DXGI view compatibility remains stricter than Vulkan's
+  compatible-format classes. Clear through the selected view's format, using
+  budgeted scratch images when needed; do not convert integer UAV bit patterns
+  through floats. Logical RTV/DSV/viewport state does not authorize application
+  render-target binding. Integer RTV conversion and other format gaps stay
+  explicit. Native D3D11 reference devices exist only in the headless test.

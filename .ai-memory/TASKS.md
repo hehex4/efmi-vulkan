@@ -6,6 +6,27 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.3 connects original INI image declarations, DDS, views, reference/copy/cache,
+ranges, whole pools, clears, properties and color MSAA resolve to owned Vulkan
+resources. Original helpers and native WARP view checks define source semantics;
+actual GPU readback checks bytes/pixels, depth planes, arrays/mips, copies and
+lifetime. BUG-018 and overly strict validation of dimension-unused fields are
+reproduced and fixed. Full frozen-source rebuild/regression passes in
+build/next/run_all-1.1.3.out: 1682 resource checks, zero core/sync validation
+messages, and every other step. Dist is unchanged at 1.0.2; no game action.
+
+Next: remaining resource format/conversion cases and GPU IniParams, then
+CustomShader, shared shader matching and complete directory graphics. Integer
+RTV float clears, unmapped DXGI formats, color/depth family copies, other misc/
+sample options and remaining buffer hash/properties are still explicit gaps.
+Slots and viewport currently hold logical state, not emitted shader/attachment
+bindings. IniParams must preserve original zero initialization, float dirty
+comparison and draw/list-boundary publication; see docs/gpu-resource-commands.md.
+PNG remains paused, LOD0/LOD1 only, no game input needed. The active goal remains
+incomplete. Next version is 1.1.4.
+
+Earlier verified checkpoint:
+
 1.1.2 supplies owned mutable 1D/2D/3D/array/cube images, views, pitched transfers,
 image copies, color/depth/stencil clears and color MSAA resolve. Capability/feature
 checks, shared budgets and fence-retained owners are explicit. Discard and failed

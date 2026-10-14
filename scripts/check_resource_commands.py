@@ -18,7 +18,7 @@ from generate_image_formats import verify as verify_image_formats
 def main() -> int:
     out = ROOT / "build/resource-commands"
     out.mkdir(parents=True, exist_ok=True)
-    report = {"scope": "original INI buffer commands and owned Vulkan image primitives; no game or draw-hook integration", "passed": False}
+    report = {"scope": "original INI owned buffer/image commands and native image-view reference; no game or draw-hook integration", "passed": False}
     try:
         verify_image_formats()
         objects = build_runtime(ROOT / "build/xxmi-runtime")
@@ -34,7 +34,7 @@ def main() -> int:
             raise
         finally:
             write_ascii(out / "build.txt", log.getvalue())
-        inputs = sources + [ROOT / "sandbox/resource_image_cases.h"]
+        inputs = sources + [ROOT / "sandbox/resource_image_cases.h", ROOT / "sandbox/resource_image_ini_cases.h"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))
         inputs += [Path(__file__), ROOT / "scripts/build_xxmi_runtime.py", ROOT / "scripts/generate_image_formats.py"]

@@ -18,7 +18,7 @@ The existing character renderer still uses its earlier immutable file plans.
 The new backend requires an explicit outside-render-pass scope on one host-
 serialized queue. It does not borrow application resources, split a render pass,
 change application descriptors or insert blocking work into a draw hook.
-Stage slots currently hold logical source-API buffer bindings for the next
+Stage slots currently hold logical source-API buffer/image bindings for the next
 shader adapter; a binding is not proof of a Vulkan descriptor bind or draw.
 
 ## Mutable image foundation (1.1.2)
@@ -56,12 +56,11 @@ Discard and failed submission preserve the previous submitted state. Allocation
 owners remain with fence tickets after executor retirement. View creation alone
 does not initialize pixels, emit descriptors or make an image ready for a shader.
 
-These operations are exercised directly through the owned GPU executor. The
-original INI texture declarations, image view selection, image copy caches and
-clear/store semantics still need to be connected through GpuResourceRuntime.
-The existing immutable 2D DDS uploader and deployed renderer are unchanged.
+These operations were first exercised directly through the owned GPU executor.
+The 1.1.3 adapter below connects original INI commands to this same image domain.
+The existing immutable 2D DDS uploader and deployed renderer remain unchanged.
 
-Source audit for the next INI adapter, against the pinned CommandList.cpp:
+Source rules followed by the INI adapter, from the pinned CommandList.cpp:
 
 - SubstantiateTexture1D/2D/3D starts from a zero description, then applies the
   original OverrideTexDesc. Do not invent default dimensions, array counts or
@@ -81,7 +80,66 @@ Source audit for the next INI adapter, against the pinned CommandList.cpp:
   uses the allocation format. Typeless aliases, integer bit patterns and sRGB
   reinterpretation therefore need explicit adaptation and pixel-result tests.
 
-These are source findings, not completed original-INI image execution.
+## Original image commands (1.1.3)
+
+`frontend/xxmi/gpu_images.cpp` consumes the original command objects. Texture
+declarations call the original OverrideTexDesc helpers; allocation contents stay
+undefined until initialized. Texture inline `data` is not an initializer in the
+pinned source. Because its 3D depth override writes Height, a new empty Texture3D
+declaration cannot establish Depth; the adapter refuses the resulting invalid
+description. Valid volume DDS resources and copies of existing volumes work.
+Validation applies only to fields consumed by that dimension's original
+overload; unused height/depth/sample options on a 1D declaration stay ignored.
+
+The bounded DDS path reuses pinned DirectXTK format decoding and surface sizing.
+Legacy and DX10 files can supply arrays, cubes, volumes, mip chains and supported
+BC formats. Packed D24/S8 and D32/S8 payloads split into Vulkan depth/stencil
+planes. The file determines dimensions/format and cube-ness; declaration width
+and format overrides do not resize/reinterpret that payload. Original sRGB and
+bind/misc options still apply. Declaration property overrides retain their own
+precedence over allocation facts. Non-DDS loading is an explicit gap; PNG stays
+paused. Files are bounded to 128 MiB before allocation and subresource traversal.
+
+Image bindings share the buffer adapter's original reference/null, range,
+whole-pool and per-frame counter rules. Owned copy pools are keyed by complete
+source descriptions and remain independent of aliases. `copy_desc` restores a
+previous allocation without replacing its bytes. Original dimension, mip, array,
+format, identity and metadata queries inspect the actual owner/view where the
+source does; buffer-only properties retain original sentinels. Image `Region`
+metadata is not a texel rectangle. Original `store` requires a buffer source:
+its source implementation casts to ID3D11Buffer and calculates byte ranges.
+
+Fresh views use original FillOutTex helpers. Native headless WARP tests establish
+that UNKNOWN view format inherits a fully typed image's format, but cannot
+choose one for a typeless resource. A typed resource requires that exact view
+format; a typeless resource requires the same DXGI family. This is stricter than
+Vulkan's format compatibility classes. The original allocation MakeTypeless
+switch, including its linear BGRA omission, is preserved separately.
+
+Clears follow the selected source view, not just the allocation format. SRV
+clears do nothing; writable views cover mip zero and every selected array layer
+or volume slice. Integer UAV clears pack low channel bits without float
+conversion, including NaN payloads and small packed formats. A reusable compatible
+UINT image receives those bits before a GPU copy. A differently formatted float
+or sRGB view similarly uses a correctly typed scratch clear and bit copy. Scratch
+owners share the resident budget and are reused by description. These are
+correctness paths; their memory/performance has not been accepted in the game.
+
+Depth clears use the original flag priority and clamp to [0,1]. Stencil-only
+clears never submit an invalid unused depth value (BUG-018). Color MSAA resolves
+operate on complete array subresources. `set_viewport` records the original full
+destination dimensions, including zero height for 1D resources. SRV/UAV/RTV/DSV
+slots and that viewport are logical state for the next shader adapter; they do
+not yet emit application descriptors, render targets or viewport commands.
+
+Remaining image cases include integer RTV float conversion, unmapped DXGI
+formats (including alpha-only, BGRX and video formats), color/depth copies across
+the R16/R32 typeless family, nonzero MSAA quality/sample patterns, other source
+misc flags, application imports and render-pass placement. Generate-mips flags
+do not imply mip generation. Source-API invalid descriptions/views are explicit
+execution refusals rather than reproductions of the original driver's log-and-
+continue behavior. Valid shader use and volume-slice attachments need the later
+shader/render-target adapter. This is not complete Vulkan language execution.
 
 ## Buffer commands
 
@@ -179,8 +237,8 @@ the cached allocation/view, while resetting visible binding metadata; original
 source_stride survives null and direct range fetch. A declaration containing
 only format/stride overrides remains unassigned until something binds it.
 The `this` target retains its requested property/region arguments when resolving
-the underlying resource. Region/spatial hashes and texture-backed queries still
-need additional adapters.
+the underlying resource. Texture properties use the same original precedence
+through 1.1.3; region/spatial hashes still need additional adapters.
 
 ## Synchronization and lifetime
 
@@ -220,15 +278,45 @@ indices, scalar/resource pool resets, copy limits, generation isolation, retaine
 owners, negative execution paths and allocation release through shutdown.
 Final counts and the full regression checkpoint belong in CURRENT_STATE.md.
 
+Image fixtures additionally compare all DDS subresources, real format-specific
+clear pixels, independent copy-cache bytes, depth/stencil planes, MSAA resolve,
+native view-format acceptance and image/view lifetime. Negative descriptions,
+incompatible DXGI families, truncated DDS and paused PNG loading refuse without
+submitting partial work. Source hashes include both direct and INI image fixtures.
+
 ## Remaining execution work
 
-Original INI image commands and format conversions; region/spatial hash and texture properties;
+Remaining image format/conversion cases above; region/spatial hash;
 fresh typed/raw plain-range views; invalid source-API
 description combinations; GPU
 IniParams; application resource import and command placement; shared shader
 contracts; CustomShader draw/dispatch/state; ShaderOverride/ShaderRegex; complete
 directory routing and graphical reload. PNG integration remains paused. No
 deployment, game load, module swap or character acceptance follows from this test.
+
+## Next source audit: GPU IniParams
+
+This is implementation guidance, not a completed parameter/shader adapter.
+The pinned HackerDevice::CreateIniParamResources creates a single-mip, single-
+layer R32G32B32A32_FLOAT Texture1D, with width equal to iniParamsReserved; an
+empty parameter vector creates no image. HackerContext::InitIniParams publishes
+zeros before Constants, then executes the original pre/post initialization.
+
+ParamOverride::run evaluates into the original CPU vector and sets the current
+CommandListState::update_params only when float comparison says the value
+changed. Preserve that rule: changing positive zero to negative zero alone is
+not dirty, whereas NaN compares unequal. The GPU copy contains the complete
+vector when a flush occurs, including other components whose bits changed.
+
+CommandListFlushState uploads before injected DrawCommand execution (including
+dispatch) and at RunCommandListComplete boundaries. Nested calls share their
+command state. Do not substitute one unconditional upload at Present or one
+final vector snapshot for these ordering rules. The read-only `iniparams`
+resource target and configured shader slot refer to the published GPU image,
+which can lag the CPU vector before a flush. Test Constants, pre/post, nested
+commands, signed-zero bits, reload lifetime and actual GPU consumption. The
+current owned executor still requires an explicit serialized queue scope;
+application binding and render-pass placement remain separate integration work.
 
 ## References
 
@@ -257,3 +345,9 @@ Pinned original `DirectX11/CommandList.cpp` and `CommandList.h` at
   defines bit-preserving typed clears and first-word raw/structured clears.
 - [D3D11 float UAV clear](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-clearunorderedaccessviewfloat)
   defines float and normalized view conversion behavior.
+- [D3D11 depth/stencil clear](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-cleardepthstencilview)
+  specifies depth clamping and view-wide clears.
+- [Vulkan depth/stencil clear value](https://docs.vulkan.org/refpages/latest/refpages/source/VkClearDepthStencilValue.html)
+  requires an in-range depth field even for a stencil-only operation.
+- [Vulkan color clear value](https://docs.vulkan.org/refpages/latest/refpages/source/VkClearColorValue.html)
+  defines allocation-format conversion; a source view format cannot be ignored.

@@ -136,6 +136,9 @@ static void image_commands(Device& d) {
         check(okay,"Depth-only clear and combined aspect copy preserve array depth values");
         bytes=c.readback(d.queue,other,image_region(other,0,0,2,VK_IMAGE_ASPECT_STENCIL_BIT));
         check(bytes.size()==24 && std::all_of(bytes.begin(),bytes.end(),[](auto b){return b==0x5a;}),"Depth-only clear preserves independently transferred stencil bytes");
+        c.clear(other,{VK_IMAGE_ASPECT_STENCIL_BIT,0,1,0,2},VkClearDepthStencilValue{std::numeric_limits<float>::quiet_NaN(),0x5b});
+        check(c.readback(d.queue,other,image_region(other,0,0,2,VK_IMAGE_ASPECT_DEPTH_BIT))==
+              c.readback(d.queue,depth,image_region(depth,0,0,2,VK_IMAGE_ASPECT_DEPTH_BIT)),"Stencil-only clear ignores unused nonfinite depth while issuing a valid Vulkan value");
         auto srv=c.view(other,VK_IMAGE_VIEW_TYPE_2D_ARRAY,VK_FORMAT_UNDEFINED,{VK_IMAGE_ASPECT_DEPTH_BIT,0,1,0,2},VK_IMAGE_USAGE_SAMPLED_BIT);
         auto dsv=c.view(other,VK_IMAGE_VIEW_TYPE_2D_ARRAY,VK_FORMAT_UNDEFINED,other->full_range(),VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
         check(srv->range().aspectMask==VK_IMAGE_ASPECT_DEPTH_BIT && dsv->range().aspectMask==6,"Depth sampling and attachment views retain distinct aspects/usages");

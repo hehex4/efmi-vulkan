@@ -4,7 +4,7 @@ Current development: the pinned original parser/evaluator owns enabled-directory
 generations, dependency graphs, CPU variables/keys/presets/pools and command
 objects. The optional GpuResourceRuntime extension connects those original
 commands to ResourceCommands, an owned Vulkan execution domain for mutable
-buffers, transfers, clears, store feedback and logical source slots. Copy pools
+buffers/images, transfers, clears, buffer store feedback and logical source slots. Copy pools
 own per-description allocations independently of aliases; fence tickets retain
 resources through submission. Whole-pool assignments retain the source resource
 before changing destinations, while using original per-element metadata/counters
@@ -19,11 +19,14 @@ primitives (1.1.2). Actual image capabilities and enabled logical-device feature
 are explicit host inputs. Format footprints come from the pinned Vulkan registry.
 Pending image layouts live in the submission, with GENERAL published only after
 successful submit; discard cannot change an owner's last submitted state. Views
-and fence tickets retain image allocations independently. These primitives have
-direct GPU tests; original INI texture command adaptation remains the next step.
+and fence tickets retain image allocations independently. The 1.1.3 image adapter
+connects original declarations, DDS decoding, views, copies, clears, properties
+and color resolves. It reuses original CPU description/view helpers, preserves
+DXGI family rules and adapts view-specific clear formats using owned scratch
+images. Native WARP view checks and Vulkan pixel readback stay in the sandbox.
 This requires an explicit outside-render-pass scope on a host-serialized queue.
 It does not replace the character hook's file-plan renderer, import application
-resources, or emit shader descriptors/draws. INI image/shader adapters and complete
+resources, or emit shader descriptors/draws. Remaining image formats/conversions, shader adapters and complete
 directory graphics remain development work. Use CURRENT_STATE.md for verified
 source, candidate and deployed versions rather than historical paragraphs below.
 

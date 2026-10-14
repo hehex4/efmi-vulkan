@@ -248,8 +248,11 @@ void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const 
     r=range(image,r);if(r.aspectMask&VK_IMAGE_ASPECT_COLOR_BIT)throw std::runtime_error("Depth/stencil clear requires a depth/stencil image");
     if((r.aspectMask&VK_IMAGE_ASPECT_DEPTH_BIT) && (!std::isfinite(value.depth) || value.depth<0 || value.depth>1))
         throw std::runtime_error("Depth clear value is outside the enabled range");
+    // Vulkan validates the depth field even for a stencil-only range. Do not
+    // forward an unused caller value that violates that unconditional rule.
+    auto clear=value;if(!(r.aspectMask&VK_IMAGE_ASPECT_DEPTH_BIT))clear.depth=0;
     barrier();transition(image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    device_.dispatch.CmdClearDepthStencilImage(command(),image->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&value,1,&r);
+    device_.dispatch.CmdClearDepthStencilImage(command(),image->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&clear,1,&r);
 }
 void ResourceCommands::resolve(const Image& source,const Image& destination,const VkImageResolve& r) {
     region(source,r.srcSubresource,r.srcOffset,r.extent);region(destination,r.dstSubresource,r.dstOffset,r.extent);

@@ -1211,3 +1211,40 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
 - Verified exact-byte fragment profiles, per-section/pass sibling lookup, shared image-id precedence, unique shape fallback, complete sibling coverage, two-extra limit, fewest-extra selection and ambiguity rejection. Pass keys include attachment formats/samples, subpass, depth write and compare. Shape records view type/format and allocation extent; it is not a content hash or proof that pixels match.
 - Without a verified/derived correspondence, retain application images on the mod geometry and retry later. Explicit absent/null and device-bound ZeroFile rules remain distinct. Runtime upload hashing is off and original image-hash override sections are not accepted by the deployed character registry. Prepared-contract/resource/pipeline failures can still refuse a draw; the unknown-profile fallback alone does not keep the original mesh.
 - Explanation and memory updates only. No layer/source implementation edit, new build, game access, module exchange, deployment or launcher change. Existing unrelated GPU-image adapter edits remain untouched. Text/diff checks cover this documentation change.
+
+## 2026-10-14: Original INI image execution (1.1.3)
+
+- Restored CURRENT_STATE/TASKS, active offline goal and in-progress image adapter.
+  Preserved the intervening ba636c5 material-matching documentation. The user asked
+  what comes next; explained the remaining image/parameter/shader/directory order
+  and continued the already authorized work without requesting game input.
+- Connected original texture declarations and source CPU view/description helpers
+  to owned Vulkan images. Added bounded legacy/DX10 DDS metadata and subresource
+  loading using pinned DirectXTK format/footprint helpers, including arrays, cubes,
+  volumes, BC formats and packed depth/stencil plane extraction. Kept original
+  file/declaration metadata precedence and the source's empty Texture3D bug.
+- Extended logical slots, references, copies, per-description pools, null/ranges,
+  counters, properties and color resolve to images. Clear operations use selected
+  DXGI view formats; reusable budgeted scratch images preserve integer channel
+  bits and handle sRGB/float aliases. Native headless system D3D11 WARP checks
+  establish UNKNOWN-format and typed/typeless view-family behavior. Production
+  creates no D3D11 device and still requires an explicit owned queue scope.
+- Tests caught BUG-018: stencil-only clear passed an invalid unused depth value
+  to Vulkan. Saved the failing validation output, fixed low-level sanitization,
+  and verified separate source depth clamping and original flag priority. A final
+  source review caught validation of ignored 1D fields; added a failing original
+  INI fixture, saved its report and restricted guards to the consumed overload.
+  The earlier full run was deliberately interrupted for that fix and is recorded
+  as incomplete in build/next/run_all-1.1.3-interrupted-review.out.
+- Final targeted and frozen-source full rebuilt regressions pass in
+  build/next/run_all-1.1.3.out: resource 1682, original parser 726, evaluation 65,
+  CPU runtime 68, character package/GPU 79/357, live INI GPU 28, validation 76,
+  modes 40, MCP 47, evidence 113 and all remaining steps. Resource core/sync
+  validation has zero messages through shutdown; source hashes match the report.
+  ABI remains 16b90a85431f86b4. Text check covers 283 project files.
+- Source/candidate is 1.1.3; dist remains 1.0.2. Remaining image formats/conversions,
+  buffer queries, GPU IniParams, CustomShader, shader matching and full directory
+  graphics remain open. Recorded the original parameter texture/flush/dirty rules
+  as the next adapter audit. No deployment, module swap, game/launcher action,
+  original-installation write or system registration. PNG paused, LOD0/LOD1 only.
+  The active goal remains incomplete and the next work needs no user input.

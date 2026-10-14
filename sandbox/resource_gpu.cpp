@@ -1299,12 +1299,18 @@ vb0 = ref ResourceVertex->Region(12, 48)
         check(!budgets.resident->used() && !budgets.staging->used(),"Rejected property query releases its generation");
     }
 }
+#include "resource_image_ini_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
         view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");
         whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");
-        keyed_pools_gpu(device,root/"keyed");spatial_pools_gpu(device,root/"spatial");}
+        keyed_pools_gpu(device,root/"keyed");spatial_pools_gpu(device,root/"spatial");
+        image_source_reference();image_ini_declarations(device,root/"image-declarations");
+        image_ini_clears(device,root/"image-clears");image_ini_depth_resolve(device,root/"image-depth");
+        image_ini_dds(device,root/"image-dds");image_ini_file_cache(device,root/"image-file-cache");
+        image_ini_depth_dds(device,root/"image-depth-dds");image_ini_failures(device,root/"image-failures");
+        image_ini_pool_lifetime(device,root/"image-pool-lifetime");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

@@ -1,8 +1,55 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, owned mutable image execution foundation. Source/candidate 1.1.2 passes the full rebuilt regression, including 563 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, original INI image command execution. Source/candidate 1.1.3 passes the full rebuilt regression, including 1682 resource checks with clean core/sync validation. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
 
 Material matching clarification (2026-10-14): deployed 1.0.2 executes the original main INI to choose logical pixel bindings. Exact fragment bytes select the verified source-slot/Vulkan-binding profile. Unprofiled fragments derive a profile from the same override section and pass kind, matching shared image ids first and otherwise unique view-type/format/extent signatures. Every sibling image must be represented, at most two target images may be extra, and equal-best candidates with different rules refuse derivation. Unknown correspondence keeps game images on the mod mesh and retries later; it does not by itself revert geometry. image_hash remains 0; original source-image hash override execution is not enabled in this character registry. This explanation inspected commits/code only, with no new game observation. Candidate image-command work does not replace the deployed character material policy.
+
+## Original INI image commands (verified candidate 1.1.3)
+
+GpuResourceRuntime now connects original texture declarations, bounded legacy/
+DX10 DDS loading, SRV/UAV/RTV/DSV views, references, owned copy caches, ranges,
+whole-pool assignments, clears, properties and color MSAA resolve to the owned
+Vulkan executor. It calls original description/view helpers and reuses pinned
+DirectXTK format/footprint decoding. Shader descriptors and draws remain separate.
+
+Tests read actual pixels/bytes across 1D/2D/3D images, arrays, cubes, mip chains,
+BC1/BC7 and separate DDS depth/stencil planes. They distinguish reference from
+copy, restore earlier per-description cache bytes after alias/null changes,
+preserve upper mips and exercise pool counters and retained-view lifetime.
+Integer UAV clears preserve low channel bits and float NaN payloads; sRGB clears
+use the view format through reusable budgeted scratch images. Native headless
+WARP tests verify UNKNOWN-format inheritance and DXGI view-family restrictions.
+
+BUG-018 is reproduced and fixed: stencil-only clears no longer pass an invalid
+unused depth value to Vulkan. Explicit depth clears use D3D11 clamping and the
+original depth/stencil flag priority. Review also found overvalidation of unused
+dimension fields; a 1D fixture fails before the fix and now preserves the source's
+ignored height/depth/sample options. Evidence is under build/resource-commands:
+stencil-before-fix and unused-image-fields-before-fix, each with JSON/text logs.
+
+The final frozen-source rebuild/regression passes in build/next/run_all-1.1.3.out:
+resource suite 1682, parser 726, evaluation 65, CPU runtime 68, character package/
+GPU 79/357, live INI GPU 28, validation 76, modes 40, MCP 47, evidence 113 and every
+remaining step. Resource tests have zero core/sync warnings/errors through
+shutdown, and final source hashes match. ABI remains 16b90a85431f86b4.
+An earlier full run was intentionally interrupted for the unused-field fix;
+run_all-1.1.3-interrupted-review.out is not a completed regression result.
+
+Remaining image work includes integer RTV float conversion, unmapped DXGI
+formats, R16/R32 color/depth family copies and source sample/misc options.
+Logical bindings/viewport do not emit Vulkan shader or attachment state. Original
+store is a buffer operation; no invented image-store semantics are claimed.
+The source's empty Texture3D depth-to-Height bug is preserved/refused; valid volume
+DDS and existing-volume copies work. Invalid source-API descriptions currently
+refuse execution instead of reproducing a driver's log-and-continue behavior.
+
+Next: remaining resource format/conversion cases and GPU IniParams publication,
+then CustomShader, shared shader matching and complete enabled-directory graphics.
+The source audit for IniParams in docs/gpu-resource-commands.md records its float4
+Texture1D representation, zero initialization and draw/list-boundary flush order,
+including signed-zero dirty tracking. Remaining buffer hash/properties stay open.
+PNG is paused; no game input is needed. The active goal remains incomplete.
+Next version is 1.1.4. The candidate is in build/next; dist stays 1.0.2.
 
 ## Owned mutable image foundation (verified candidate 1.1.2)
 
