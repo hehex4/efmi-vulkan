@@ -12,13 +12,15 @@ import sys
 from build import find_vcvars, run_cl
 from build_xxmi_runtime import build_runtime, runtime_flags
 from probe_xxmi_host import ROOT, write_ascii
+from generate_image_formats import verify as verify_image_formats
 
 
 def main() -> int:
     out = ROOT / "build/resource-commands"
     out.mkdir(parents=True, exist_ok=True)
-    report = {"scope": "original INI owned buffer operations on Vulkan; no game or draw-hook integration", "passed": False}
+    report = {"scope": "original INI buffer commands and owned Vulkan image primitives; no game or draw-hook integration", "passed": False}
     try:
+        verify_image_formats()
         objects = build_runtime(ROOT / "build/xxmi-runtime")
         executable = out / "resource_gpu.exe"
         sources = [ROOT / "sandbox/resource_gpu.cpp", ROOT / "layer/src/merged_skeleton.cpp"]
@@ -32,9 +34,10 @@ def main() -> int:
             raise
         finally:
             write_ascii(out / "build.txt", log.getvalue())
-        inputs = sources + list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
-        inputs += [ROOT / "frontend/gpu/resource_commands.cpp", ROOT / "frontend/gpu/resource_commands.h",
-                   Path(__file__), ROOT / "scripts/build_xxmi_runtime.py"]
+        inputs = sources + [ROOT / "sandbox/resource_image_cases.h"]
+        inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
+        inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))
+        inputs += [Path(__file__), ROOT / "scripts/build_xxmi_runtime.py", ROOT / "scripts/generate_image_formats.py"]
         report["source_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
         report["executable_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
         sys.path.insert(0, str(ROOT / "sandbox"))

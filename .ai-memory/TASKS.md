@@ -6,6 +6,23 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.2 supplies owned mutable 1D/2D/3D/array/cube images, views, pitched transfers,
+image copies, color/depth/stencil clears and color MSAA resolve. Capability/feature
+checks, shared budgets and fence-retained owners are explicit. Discard and failed
+submit do not publish pending image layouts. These are direct GPU primitives;
+original INI image semantics are not connected yet. The frozen-source full
+rebuild/regression passes in build/next/run_all-1.1.2.out, with 563 GPU resource
+checks and zero core/sync validation messages. Dist stays 1.0.2.
+
+Next: original INI texture declarations, view selection, image copy/cache and
+clear/property semantics; then GPU IniParams, CustomShader, shared shader matching
+and complete directory graphics. Follow the pinned view helpers and source audit
+in docs/gpu-resource-commands.md, especially typeless/view-format clear behavior.
+Remaining buffer properties/conversions remain open. PNG is paused, LOD0/LOD1
+only, no game input needed. The active goal remains incomplete; next is 1.1.3.
+
+Earlier verified checkpoint:
+
 1.1.1 executes owned FIFO/spatial/expiring buffer pools, preserves original
 slot reuse and expiry behavior, and supplies frame_time to original Present/draw
 contexts. BUG-017 is reproduced and fixed: CPU-side command failure now also

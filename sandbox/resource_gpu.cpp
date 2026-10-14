@@ -46,17 +46,29 @@ struct Device {
         GET(CreateDebugUtilsMessengerEXT);GET(DestroyDebugUtilsMessengerEXT);destroy_debug=DestroyDebugUtilsMessengerEXT;
         vkcheck(CreateDebugUtilsMessengerEXT(instance,&debug,nullptr,&messenger),"Create debug messenger");
         GET(EnumeratePhysicalDevices);GET(GetPhysicalDeviceQueueFamilyProperties);GET(GetPhysicalDeviceMemoryProperties);
-        GET(CreateDevice);GET(GetDeviceProcAddr);
+        GET(CreateDevice);GET(GetDeviceProcAddr);GET(GetPhysicalDeviceFeatures);GET(GetPhysicalDeviceProperties);
+        GET(GetPhysicalDeviceImageFormatProperties);GET(GetPhysicalDeviceFormatProperties);
 #undef GET
         uint32_t count=0;vkcheck(EnumeratePhysicalDevices(instance,&count,nullptr),"Enumerate test devices");
         std::vector<VkPhysicalDevice> physical(count);vkcheck(EnumeratePhysicalDevices(instance,&count,physical.data()),"Read test devices");
         VkPhysicalDevice selected=VK_NULL_HANDLE;
         for(auto p:physical){uint32_t n=0;GetPhysicalDeviceQueueFamilyProperties(p,&n,nullptr);std::vector<VkQueueFamilyProperties> q(n);
-            GetPhysicalDeviceQueueFamilyProperties(p,&n,q.data());for(uint32_t i=0;i<n;++i)if(q[i].queueFlags&VK_QUEUE_GRAPHICS_BIT){selected=p;resource.queue_family=i;break;}
+            GetPhysicalDeviceQueueFamilyProperties(p,&n,q.data());for(uint32_t i=0;i<n;++i)if(q[i].queueFlags&VK_QUEUE_GRAPHICS_BIT){selected=p;resource.queue_family=i;resource.queue_flags=q[i].queueFlags;break;}
             if(selected)break;}
         check(selected!=VK_NULL_HANDLE,"Graphics queue available");GetPhysicalDeviceMemoryProperties(selected,&resource.memory);
+        VkPhysicalDeviceFeatures features{};GetPhysicalDeviceFeatures(selected,&features);
+        VkPhysicalDeviceProperties properties{};GetPhysicalDeviceProperties(selected,&properties);
+        check(properties.apiVersion>=VK_API_VERSION_1_1,"Vulkan 1.1 image execution available");
+        resource.physical=selected;resource.api_version=VK_API_VERSION_1_1;
+        resource.GetImageFormatProperties=GetPhysicalDeviceImageFormatProperties;resource.GetFormatProperties=GetPhysicalDeviceFormatProperties;
+        resource.enabled_features.textureCompressionBC=features.textureCompressionBC;
+        resource.enabled_features.textureCompressionETC2=features.textureCompressionETC2;
+        resource.enabled_features.textureCompressionASTC_LDR=features.textureCompressionASTC_LDR;
+        resource.enabled_features.imageCubeArray=features.imageCubeArray;
+        resource.enabled_features.shaderStorageImageMultisample=features.shaderStorageImageMultisample;
         float priority=1;VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=resource.queue_family;q.queueCount=1;q.pQueuePriorities=&priority;
         VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};dc.queueCreateInfoCount=1;dc.pQueueCreateInfos=&q;
+        dc.pEnabledFeatures=&resource.enabled_features;
         vkcheck(CreateDevice(selected,&dc,nullptr,&resource.device),"Create test device");
 #define GET(name) auto name=reinterpret_cast<PFN_vk##name>(GetDeviceProcAddr(resource.device,"vk" #name));check(name!=nullptr,"vk" #name);
         GET(DestroyDevice);destroy_device=DestroyDevice;GET(DeviceWaitIdle);wait_idle=DeviceWaitIdle;GET(GetDeviceQueue);GetDeviceQueue(resource.device,resource.queue_family,0,&queue);
@@ -68,6 +80,7 @@ struct Device {
 };
 template<class F> static void refuses(F f,const char* why){bool rejected=false;try{f();}catch(const std::exception&){rejected=true;}check(rejected,why);}
 static float value(const std::vector<uint8_t>& bytes,size_t offset=0){float v;check(offset+4<=bytes.size(),"Readback value in bounds");memcpy(&v,bytes.data()+offset,4);return v;}
+#include "resource_image_cases.h"
 static void low_level(Device& d){
     gpu::ResourceBudgets budgets;auto commands=std::make_unique<gpu::ResourceCommands>(d.resource,budgets);
     const uint32_t data[]={0x01020304,0x11223344,0xaabbccdd,0x55667788};
@@ -1287,7 +1300,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
     }
 }
 int wmain(int argc,wchar_t** argv){
-    try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);const auto root=std::filesystem::absolute(argv[1]);
+    try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
         view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");
         whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");

@@ -379,3 +379,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   original CPU assignments and already-submitted feedback are not transactional.
   A working prior generation retains its own state. A logical source binding is
   not a Vulkan descriptor bind, and buffer execution is not shader execution.
+- Image foundation follow-up, 2026-10-14 (1.1.2): require actual physical-device
+  image limits and enabled logical-device features in the owned graphics-queue
+  domain. Use registry-derived core format footprints, explicit subresources,
+  real views and fence-retained allocations. Track pending layouts separately
+  from submitted owners; only successful submission publishes GENERAL. This
+  does not connect original INI texture semantics, expand the DDS loader or
+  authorize application image import. PNG integration stays paused.

@@ -121,7 +121,9 @@ pools, pending a broader GPU lifetime adapter.
 | Custom-resource buffer references, copy/copy_desc, buffer regions, clear/store/readback | Opt-in original-runtime GPU adapter in an explicit private outside-render-pass domain; raw/no_view_cache and owned per-description copies; logical slots, no application descriptor emission |
 | Buffer slot ranges and broadcasts | Owned GPU adapter, plain reference and compatible copy paths; original null/view/counter behavior; fresh typed/raw views remain open |
 | Buffer identity/size/stride/source-stride/format/flags/offset and extent metadata | Owned GPU adapter with original sentinels, override precedence and actual draw-context offsets; declaration-only Constants queries allocate nothing |
-| Image operations, remaining conversions/options, region/spatial hashes and expiring GPU pools | Parse support; general Vulkan execution remains open |
+| FIFO/spatial/expiring buffer pools and whole-pool assignments | Original pool rules and owned-buffer GPU execution; frame duration supplied by the host |
+| Image operations | Owned Vulkan image/view/transfer/clear/resolve primitives pass direct GPU tests; original INI image adapter remains open |
+| Remaining conversions/options and region/spatial hashes | Parse support; general Vulkan execution remains open |
 | Non-indexed/automatic/indirect draws and compute dispatch | Parse support; general Vulkan execution remains open |
 | CustomShader render state and HLSL | Original metadata parsing; original panel HLSL compiles separately, general pipeline execution remains open |
 | ShaderOverride/ShaderRegex | Original metadata/pattern parsing; source-shader identity and DX11 assembly-to-SPIR-V adaptation remain open |

@@ -2,15 +2,20 @@
 #include "../assets/allocation_budget.h"
 #include <vulkan/vulkan.h>
 #include <memory>
+#include <map>
 #include <vector>
 
 namespace efmi::gpu {
 #define EFMI_RESOURCE_COMMAND_FUNCS(X) \
     X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) X(BindBufferMemory) \
+    X(CreateImage) X(DestroyImage) X(GetImageMemoryRequirements2) X(BindImageMemory) \
+    X(CreateImageView) X(DestroyImageView) \
     X(AllocateMemory) X(FreeMemory) X(MapMemory) X(UnmapMemory) \
     X(FlushMappedMemoryRanges) X(InvalidateMappedMemoryRanges) \
     X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) \
     X(BeginCommandBuffer) X(EndCommandBuffer) X(CmdCopyBuffer) X(CmdFillBuffer) X(CmdPipelineBarrier) \
+    X(CmdCopyImage) X(CmdCopyBufferToImage) X(CmdCopyImageToBuffer) \
+    X(CmdClearColorImage) X(CmdClearDepthStencilImage) X(CmdResolveImage) \
     X(CreateFence) X(DestroyFence) X(QueueSubmit) X(GetFenceStatus) X(WaitForFences)
 struct ResourceDispatch {
     VkResult (VKAPI_PTR *SetDeviceLoaderData)(VkDevice, void*) = nullptr;
@@ -23,6 +28,14 @@ struct ResourceDevice {
     VkPhysicalDeviceMemoryProperties memory{};
     uint32_t queue_family=0;
     ResourceDispatch dispatch;
+    // Image execution requires Vulkan 1.1 and an explicitly owned graphics
+    // queue. Enabled features are the logical device's, not merely supported ones.
+    VkPhysicalDevice physical=VK_NULL_HANDLE;
+    VkPhysicalDeviceFeatures enabled_features{};
+    VkQueueFlags queue_flags=0;
+    uint32_t api_version=0;
+    PFN_vkGetPhysicalDeviceImageFormatProperties GetImageFormatProperties=nullptr;
+    PFN_vkGetPhysicalDeviceFormatProperties GetFormatProperties=nullptr;
 };
 struct ResourceBudgets {
     std::shared_ptr<assets::AllocationBudget> resident=std::make_shared<assets::AllocationBudget>(512ull<<20);
@@ -52,6 +65,61 @@ private:
     bool coherent_=false;
 };
 using Buffer=std::shared_ptr<BufferResource>;
+struct ImageDescription {
+    VkImageType type=VK_IMAGE_TYPE_2D;
+    VkFormat format=VK_FORMAT_UNDEFINED;
+    VkExtent3D extent{1,1,1};
+    uint32_t mips=1,layers=1;
+    VkSampleCountFlagBits samples=VK_SAMPLE_COUNT_1_BIT;
+    VkImageUsageFlags usage=0;
+    VkImageCreateFlags flags=0;
+};
+class ImageResource {
+public:
+    ImageResource()=default;
+    ImageResource(const ImageResource&)=delete;
+    ImageResource& operator=(const ImageResource&)=delete;
+    ~ImageResource();
+    VkImage image() const {return image_;}
+    const ImageDescription& description() const {return description_;}
+    VkExtent3D extent(uint32_t mip=0) const;
+    VkImageSubresourceRange full_range() const;
+private:
+    friend class ResourceCommands;
+    friend class ImageViewResource;
+    ResourceDevice device_;
+    std::shared_ptr<const uint8_t> domain_;
+    std::shared_ptr<assets::AllocationBudget> budget_;
+    ImageDescription description_;
+    VkImage image_=VK_NULL_HANDLE;
+    VkDeviceMemory memory_=VK_NULL_HANDLE;
+    VkDeviceSize allocation_=0;
+    // True only after a successful submission. Discard never commits layouts.
+    bool initialized_=false;
+};
+using Image=std::shared_ptr<ImageResource>;
+class ImageViewResource {
+public:
+    ImageViewResource()=default;
+    ImageViewResource(const ImageViewResource&)=delete;
+    ImageViewResource& operator=(const ImageViewResource&)=delete;
+    ~ImageViewResource();
+    VkImageView view() const {return view_;}
+    const Image& owner() const {return image_;}
+    VkFormat format() const {return format_;}
+    VkImageViewType type() const {return type_;}
+    const VkImageSubresourceRange& range() const {return range_;}
+    VkImageUsageFlags usage() const {return usage_;}
+private:
+    friend class ResourceCommands;
+    Image image_;
+    VkImageView view_=VK_NULL_HANDLE;
+    VkFormat format_=VK_FORMAT_UNDEFINED;
+    VkImageViewType type_=VK_IMAGE_VIEW_TYPE_2D;
+    VkImageSubresourceRange range_{};
+    VkImageUsageFlags usage_=0;
+};
+using ImageView=std::shared_ptr<ImageViewResource>;
 class ResourceSubmission {
 public:
     ResourceSubmission()=default;
@@ -68,6 +136,7 @@ private:
     VkFence fence_=VK_NULL_HANDLE;
     bool submitted_=false,complete_=false;
     std::vector<Buffer> retained_;
+    std::map<Image,VkImageLayout,std::owner_less<Image>> image_layouts_;
 };
 
 // An explicit outside-render-pass execution domain. Records private primary
@@ -87,6 +156,22 @@ public:
     void copy(const Buffer& source,VkDeviceSize source_offset,const Buffer& destination,VkDeviceSize destination_offset,VkDeviceSize size);
     void fill(const Buffer&,VkDeviceSize offset,VkDeviceSize size,uint32_t word);
     void write(const Buffer&,VkDeviceSize offset,const void*,size_t);
+    Image create_image(ImageDescription);
+    // View creation does not initialize pixels or emit descriptors. Once a
+    // submission using an image completes, its entire allocation is GENERAL.
+    // Layout changes inside a pending batch are private and discarded with it.
+    ImageView view(const Image&,VkImageViewType,VkFormat,VkImageSubresourceRange,VkImageUsageFlags usage=0);
+    void copy(const Image& source,const Image& destination,const VkImageCopy&);
+    void copy(const Buffer& source,const Image& destination,const VkBufferImageCopy&);
+    void copy(const Image& source,const Buffer& destination,const VkBufferImageCopy&);
+    void clear(const Image&,VkImageSubresourceRange,const VkClearColorValue&);
+    void clear(const Image&,VkImageSubresourceRange,const VkClearDepthStencilValue&);
+    void resolve(const Image& source,const Image& destination,const VkImageResolve&);
+    // Host transfer data uses Vulkan's explicit row/image pitch; offset is zero.
+    // transfer_size excludes bufferOffset and includes necessary row/slice padding.
+    VkDeviceSize transfer_size(const Image&,const VkBufferImageCopy&) const;
+    void write(const Image&,VkBufferImageCopy,const void*,size_t);
+    std::vector<uint8_t> readback(VkQueue,const Image&,VkBufferImageCopy);
     std::shared_ptr<ResourceSubmission> submit(VkQueue);
     // Synchronous feedback required by original store. Only explicit hosts
     // owning queue synchronization may call this; never an implicit draw wait.
@@ -95,6 +180,12 @@ public:
 private:
     Buffer allocate(VkDeviceSize,VkBufferUsageFlags,bool staging);
     void validate(const Buffer&,VkDeviceSize,VkDeviceSize) const;
+    void validate(const Image&) const;
+    VkImageSubresourceRange range(const Image&,VkImageSubresourceRange) const;
+    void region(const Image&,VkImageSubresourceLayers,VkOffset3D,VkExtent3D) const;
+    void transition(const Image&,VkImageLayout);
+    void write_stage(const Buffer&,const void*,size_t);
+    std::vector<uint8_t> read_stage(const Buffer&,VkDeviceSize);
     VkCommandBuffer command();
     void barrier(VkPipelineStageFlags destination=VK_PIPELINE_STAGE_TRANSFER_BIT,
                  VkAccessFlags access=VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_TRANSFER_WRITE_BIT);

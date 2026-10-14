@@ -1172,3 +1172,35 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   2D DDS upload is not array/volume/mutable-image execution. PNG remains paused.
   No deployment, game action, module swap or original-installation write; dist
   remains 1.0.2. The active goal continues and next work needs no user input.
+
+## 2026-10-14: Owned mutable image execution foundation (1.1.2)
+
+- The user asked what comes next. Restored the current memory/clean a09b073
+  checkpoint and continued the existing active offline-development goal. Added
+  general owned 1D/2D/3D images, arrays, cubes, mip chains and actual image views.
+  Descriptions use real device limits and enabled features; allocation honors
+  dedicated requirements and shared resident/staging budgets. Core format facts
+  are generated from the pinned Vulkan registry and freshness-checked.
+- Added pitched buffer-image transfer, compatible image region copy, typed
+  color/depth/stencil clear and color MSAA resolve. Per-batch layout state is
+  separate from committed owners; only successful submit publishes GENERAL.
+  Discard/rejected submission and fence/view lifetime have pixel/byte tests.
+  Extension/multiplanar formats, sparse/imported images, cross-dimensional/block
+  copies, volume slice views and depth/stencil resolve remain explicit gaps.
+- Targeted tests and the full rebuilt suite pass: 563 GPU resource checks with
+  zero core/sync validation messages through shutdown. The full frozen-source
+  report is build/next/run_all-1.1.2.out: parser 726, evaluation 65, runtime 68,
+  character package/GPU 79/357, live INI GPU 28, validation 76, modes 40,
+  MCP 47, evidence 113 and all remaining steps. Final source hashes match the
+  resource report. ABI remains 16b90a85431f86b4.
+- These are direct owned-executor image results. Original INI image declarations,
+  views/copy pools and clear/store/property behavior still need adaptation. The
+  source audit in docs/gpu-resource-commands.md records relevant original helper
+  order and view semantics, including the 3D depth override assigning Height.
+  Typeless aliases require clear conversion by the DXGI view format, not simply
+  by the Vulkan allocation format. Reuse the original CPU helper rules.
+- Next is that INI adapter, then GPU IniParams, CustomShader, shared shader
+  matching and complete directory graphics. No game input needed; the active
+  goal remains incomplete. PNG paused, LOD0/LOD1 only. Candidate build/next is
+  1.1.2; dist stays 1.0.2. No deployment, module exchange, game/launcher action,
+  system registration or original installation/Mod writes.

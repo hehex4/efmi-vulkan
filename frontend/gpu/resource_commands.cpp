@@ -109,25 +109,36 @@ void ResourceCommands::fill(const Buffer& buffer,VkDeviceSize offset,VkDeviceSiz
 }
 void ResourceCommands::write(const Buffer& buffer,VkDeviceSize offset,const void* bytes,size_t size) {
     validate(buffer,offset,size);if(!bytes)throw std::runtime_error("Resource write source missing");
-    auto stage=allocate(size,VK_BUFFER_USAGE_TRANSFER_SRC_BIT,true);void* mapped=nullptr;
+    auto stage=allocate(size,VK_BUFFER_USAGE_TRANSFER_SRC_BIT,true);write_stage(stage,bytes,size);copy(stage,0,buffer,offset,size);
+}
+void ResourceCommands::write_stage(const Buffer& stage,const void* bytes,size_t size) {
+    void* mapped=nullptr;
     check(device_.dispatch.MapMemory(device_.device,stage->memory_,0,VK_WHOLE_SIZE,0,&mapped),"Map resource upload");memcpy(mapped,bytes,size);
     VkMappedMemoryRange range={VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};range.memory=stage->memory_;range.size=VK_WHOLE_SIZE;
     const auto status=stage->coherent_?VK_SUCCESS:device_.dispatch.FlushMappedMemoryRanges(device_.device,1,&range);
-    device_.dispatch.UnmapMemory(device_.device,stage->memory_);check(status,"Flush resource upload");copy(stage,0,buffer,offset,size);
+    device_.dispatch.UnmapMemory(device_.device,stage->memory_);check(status,"Flush resource upload");
 }
 std::shared_ptr<ResourceSubmission> ResourceCommands::submit(VkQueue queue) {
     if(!queue || (queue_ && queue_!=queue))throw std::runtime_error("Resource execution requires one serialized queue");
     if(!pending_)return {};
+    // Publish a common layout only with the submission. Recording then discard
+    // must leave each owner's last submitted layout unchanged.
+    for(const auto& item:pending_->image_layouts_)transition(item.first,VK_IMAGE_LAYOUT_GENERAL);
     barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
     const auto& d=device_.dispatch;auto p=std::move(pending_);
     check(d.EndCommandBuffer(p->command_),"End resource command buffer");
     VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};check(d.CreateFence(device_.device,&fi,nullptr,&p->fence_),"Create resource fence");
     VkSubmitInfo si={VK_STRUCTURE_TYPE_SUBMIT_INFO};si.commandBufferCount=1;si.pCommandBuffers=&p->command_;
-    check(d.QueueSubmit(queue,1,&si,p->fence_),"Submit resource commands");p->submitted_=true;queue_=queue;return p;
+    check(d.QueueSubmit(queue,1,&si,p->fence_),"Submit resource commands");p->submitted_=true;queue_=queue;
+    for(const auto& item:p->image_layouts_)item.first->initialized_=true;
+    return p;
 }
 std::vector<uint8_t> ResourceCommands::readback(VkQueue queue,const Buffer& source,VkDeviceSize offset,VkDeviceSize size) {
     validate(source,offset,size);auto stage=allocate(size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true);copy(source,offset,stage,0,size);
     barrier(VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_READ_BIT);auto ticket=submit(queue);ticket->wait();
+    return read_stage(stage,size);
+}
+std::vector<uint8_t> ResourceCommands::read_stage(const Buffer& stage,VkDeviceSize size) {
     std::vector<uint8_t> result(size_t(size),0);void* mapped=nullptr;
     check(device_.dispatch.MapMemory(device_.device,stage->memory_,0,VK_WHOLE_SIZE,0,&mapped),"Map resource readback");
     VkMappedMemoryRange range={VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};range.memory=stage->memory_;range.size=VK_WHOLE_SIZE;

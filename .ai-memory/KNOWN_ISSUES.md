@@ -326,6 +326,13 @@ non-indexed/indirect draws, dispatch and GPU parameters remain open. Global
 system/driver settings and every argument combination are not exhaustively
 validated. docs/ini-language-coverage.md is the current operation-family table.
 
+Through 1.1.1, original owned-buffer commands, whole-pool operations and keyed/
+expiring pool lifetime now have GPU execution tests. The 1.1.2 image foundation
+adds directly tested owned allocation, views, pitched transfers, clears and
+MSAA resolve. The INI image adapter, general shader execution, application
+resource import and inline placement are still open. Do not treat direct image
+tests, 184 registry format records or 726 syntax tests as complete Mod support.
+
 ## ISSUE-010: A mode fixture exited before its first probe request
 
 During the first 1.0.4 full regression, inject-late sandbox PID 3612 ended

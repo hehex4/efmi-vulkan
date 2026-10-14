@@ -14,9 +14,16 @@ fence tickets retain GPU allocations separately. Runtime inputs supply original
 frame_time, and the source spatial radius is guarded before its integer cast.
 Present/draw failure notifies extensions even for CPU-side errors, so pending
 GPU work from a failed list cannot be submitted.
+The owned executor also supplies image allocation/view/transfer/clear/resolve
+primitives (1.1.2). Actual image capabilities and enabled logical-device features
+are explicit host inputs. Format footprints come from the pinned Vulkan registry.
+Pending image layouts live in the submission, with GENERAL published only after
+successful submit; discard cannot change an owner's last submitted state. Views
+and fence tickets retain image allocations independently. These primitives have
+direct GPU tests; original INI texture command adaptation remains the next step.
 This requires an explicit outside-render-pass scope on a host-serialized queue.
 It does not replace the character hook's file-plan renderer, import application
-resources, or emit shader descriptors/draws. Image/shader adapters and complete
+resources, or emit shader descriptors/draws. INI image/shader adapters and complete
 directory graphics remain development work. Use CURRENT_STATE.md for verified
 source, candidate and deployed versions rather than historical paragraphs below.
 

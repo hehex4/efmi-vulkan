@@ -7,8 +7,8 @@ resource execution backend, followed by CustomShader, shared shader matching
 and complete enabled-directory rendering. This order is the user's instruction
 on 2026-10-14. Continue offline until actual game evidence is necessary.
 
-`frontend/gpu/resource_commands.*` owns mutable Vulkan buffers and private
-command buffers. `frontend/xxmi/gpu_resources.*` is an opt-in production-runtime
+`frontend/gpu/resource_commands.*` and `resource_images.cpp` own mutable Vulkan
+buffers/images and private command buffers. `frontend/xxmi/gpu_resources.*` is an opt-in production-runtime
 extension: the original parser, expressions, branches, command lists, resource
 declarations and pool logic remain authoritative. The draw planner mediates
 resource commands through this extension; it does not translate INI text again.
@@ -20,6 +20,68 @@ serialized queue. It does not borrow application resources, split a render pass,
 change application descriptors or insert blocking work into a draw hook.
 Stage slots currently hold logical source-API buffer bindings for the next
 shader adapter; a binding is not proof of a Vulkan descriptor bind or draw.
+
+## Mutable image foundation (1.1.2)
+
+The low-level executor creates owned optimal-tiling 1D/2D/3D images, arrays,
+cubes and complete mip chains. Image views retain the underlying allocation,
+format, dimension, subresources and usage. Mutable-format views use the Vulkan
+compatibility classes; a matching byte size alone does not authorize a view.
+An actual physical-device capability query checks each description/usage, and
+the logical device's enabled features control compression, cube arrays and
+multisampled storage. Dedicated allocation requirements are honored. Resident
+images and transfer staging share the same budget ledgers as buffers.
+
+Operations include pitched buffer-image upload/download, compatible image
+region copies, color and depth/stencil clears, and color MSAA resolve. Transfers
+cover arrays, volume slices, selected mips and compressed edge blocks. Depth and
+stencil buffer transfers use their distinct aspect footprints. Buffer offsets
+must meet both four-byte and aspect texel-block alignment. Host image transfers
+use zero buffer offset and the exact required span through the last texel;
+row/slice padding in a downloaded staging buffer is unspecified. Explicit
+image-to-buffer copies preserve destination bytes outside the written texels.
+
+Format facts for all 184 non-undefined Vulkan 1.0 core formats are generated
+from the installed pinned Vulkan-Headers registry. The regression verifies the
+generated snapshot against that registry. This is a footprint/compatibility
+inventory, not a claim that a device supports all formats. Extension/multiplanar
+formats, sparse/imported resources, 2D views of volume slices, copies between
+different dimensionalities or block extents and depth/stencil resolve remain
+explicit gaps. Images require Vulkan 1.1 and a serialized graphics queue.
+
+Each batch tracks its private image layouts, uses transfer-optimal layouts
+where possible, and returns touched images to GENERAL before submission ends.
+Only a successful queue submission publishes the resulting layout state.
+Discard and failed submission preserve the previous submitted state. Allocation
+owners remain with fence tickets after executor retirement. View creation alone
+does not initialize pixels, emit descriptors or make an image ready for a shader.
+
+These operations are exercised directly through the owned GPU executor. The
+original INI texture declarations, image view selection, image copy caches and
+clear/store semantics still need to be connected through GpuResourceRuntime.
+The existing immutable 2D DDS uploader and deployed renderer are unchanged.
+
+Source audit for the next INI adapter, against the pinned CommandList.cpp:
+
+- SubstantiateTexture1D/2D/3D starts from a zero description, then applies the
+  original OverrideTexDesc. Do not invent default dimensions, array counts or
+  sample counts. The source 3D depth override assigns Height rather than Depth;
+  preserve/report its actual behavior instead of silently fixing the language.
+- RecreateCompatibleTexture makes the description typeless, changes destination
+  bind flags, resolves the 2D sample count when requested, removes generate-mips,
+  then applies the destination overrides. Copy caches must remain independent
+  of aliases and keyed by the complete source-API description, as with buffers.
+- FillOutTex1D/2D/3DDesc defines fresh views. SRVs span the mip chain; writable
+  views select mip zero. Retained source/cached views may have different ranges.
+  Export the original CPU helpers rather than maintaining a second set of rules.
+- ClearViewCommand prefers an existing view. An SRV does not become writable
+  because its allocation has UAV flags. With no view, explicit depth/stencil or
+  integer clear controls selection, otherwise DSV/UAV/RTV priority applies.
+  Clear values use the selected DXGI view format, whereas vkCmdClearColorImage
+  uses the allocation format. Typeless aliases, integer bit patterns and sRGB
+  reinterpretation therefore need explicit adaptation and pixel-result tests.
+
+These are source findings, not completed original-INI image execution.
 
 ## Buffer commands
 
@@ -160,7 +222,7 @@ Final counts and the full regression checkpoint belong in CURRENT_STATE.md.
 
 ## Remaining execution work
 
-Image commands and format conversions; region/spatial hash and texture properties;
+Original INI image commands and format conversions; region/spatial hash and texture properties;
 fresh typed/raw plain-range views; invalid source-API
 description combinations; GPU
 IniParams; application resource import and command placement; shared shader
@@ -179,6 +241,18 @@ Pinned original `DirectX11/CommandList.cpp` and `CommandList.h` at
   defines alignment and transfer synchronization.
 - [Vulkan synchronization](https://docs.vulkan.org/spec/latest/chapters/synchronization.html)
   defines the memory dependencies and host visibility rules.
+- [Vulkan image creation](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageCreateInfo.html)
+  defines image dimensions, usage and enabled-feature constraints.
+- [Vulkan image views](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageViewCreateInfo.html)
+  defines compatible formats and view subresource ranges.
+- [Vulkan buffer-image transfers](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdCopyBufferToImage.html)
+  defines block alignment and pitched transfer regions.
+- [Vulkan image copies](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdCopyImage.html)
+  defines copy-compatible formats, overlap and sample constraints.
+- [Vulkan color clears](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdClearColorImage.html)
+  defines clearable formats; compressed images are not color-clear targets.
+- [Vulkan image resolves](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdResolveImage.html)
+  defines multisample color resolution and matching formats.
 - [D3D11 integer UAV clear](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-clearunorderedaccessviewuint)
   defines bit-preserving typed clears and first-word raw/structured clears.
 - [D3D11 float UAV clear](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-clearunorderedaccessviewfloat)

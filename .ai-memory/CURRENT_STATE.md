@@ -1,6 +1,41 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, keyed/expiring GPU pools and failed-scope propagation. Source/candidate 1.1.1 passes the full rebuilt regression, including 485 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, owned mutable image execution foundation. Source/candidate 1.1.2 passes the full rebuilt regression, including 563 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
+
+## Owned mutable image foundation (verified candidate 1.1.2)
+
+ResourceCommands now owns optimal-tiling 1D/2D/3D images, arrays, cubes, mip
+chains and real image views. Pitched buffer-image transfers, compatible image
+copies, color/depth/stencil clears and color MSAA resolve execute on an explicit
+owned graphics queue. Actual capabilities and enabled device features gate
+creation; dedicated allocation requirements and shared budgets are honored.
+Core format facts for 184 formats come from the pinned Vulkan registry, checked
+against the generated snapshot. This is not support for every format on a GPU.
+
+Pending layouts stay with the submission. Successful submission publishes
+GENERAL; discard or failed submit leaves the last submitted state intact.
+Views/fence tickets retain image allocations after other owners retire. Tests
+check actual bytes/pixels, pitches, untouched regions, arrays/mips/volume slices,
+compressed edge blocks, depth/stencil independence, MSAA, negative descriptions,
+budget limits, rejected submit and owner cleanup. No shader use of the views is
+claimed. Original INI image execution is still the next adapter step.
+
+Targeted and frozen-source full-suite resource checks: 563 passing, zero core/
+sync validation messages through shutdown. Full rebuild/regression passes in
+build/next/run_all-1.1.2.out: parser 726, evaluation 65, CPU runtime 68,
+character package/GPU 79/357, live INI GPU 28, validation 76, modes 40,
+MCP 47, evidence 113 and all other steps. Source hashes match the final report;
+ABI stays 16b90a85431f86b4. The candidate is in build/next, not deployed.
+
+Next: connect original texture declarations, view selection, image copies/cache,
+clears and properties to GpuResourceRuntime. Source audit notes are in
+docs/gpu-resource-commands.md, including zero-description defaults, the original
+3D depth-to-Height override, typeless copy descriptions and view-specific clear
+semantics. Do not clear a typeless alias using the allocation format when the
+original uses a different DXGI view format. Reuse original CPU view helpers.
+Then GPU IniParams, CustomShader, shared shader matching and directory graphics.
+Remaining buffer hash/properties/conversions remain tracked. PNG is paused;
+no game input is needed. The active goal is incomplete; next version is 1.1.3.
 
 ## Original keyed/expiring GPU pools (verified candidate 1.1.1)
 
