@@ -1348,6 +1348,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_graphics_link_cases.h"
 #include "resource_graphics_state_cases.h"
 #include "resource_graphics_cases.h"
+#include "resource_ini_graphics_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1374,7 +1375,10 @@ int wmain(int argc,wchar_t** argv){
         original_binding_batches(device,root/"binding-batches");original_restore_hazards(device,root/"restore-hazards");
         original_image_binding_ranges(device);original_attachment_bindings(device,root/"attachment-bindings");
         original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");
-        graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();owned_graphics(device,root/"owned-graphics");}
+        graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();owned_graphics(device,root/"owned-graphics");
+        original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
+        original_ini_graphics_sampling(device,root/"ini-graphics-sampling");original_ini_graphics_state_pixels(device,root/"ini-graphics-state");
+        original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

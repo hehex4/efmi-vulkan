@@ -539,3 +539,19 @@ The generated DrawParameters capability needs actual shaderDrawParameters enable
 production graphics must gate it or implement an explicit lowering fallback.
 Full rebuilt1.2.1 suite passes, resource4559/core+sync clean. This is an offline
 compiler defect discovered before original graphics integration, not a game claim.
+
+
+## LIMIT-032: Owned INI graphics is a measured subset of native execution
+
+Candidate1.2.3 executes original VS/PS direct, indexed, instanced, indirect and
+automatic/from-caller graphics on owned targets, with native pixel references.
+Vertex layouts/edits, other graphics stages/topologies, depth bias, multisampling,
+attachment-free passes, source comparison sampling, null fetches and imported
+caller indirect/dispatch/stream-output state still require adapters. Arbitrary
+invalid native blend/raster/sampler state creation and fallback have not been
+reproduced; only measured inactive-state normalization and invalid active stencil
+fallback are implemented. Pipeline/sampler counts are bounded; aggregate shader
+CPU payload and repeated comparison-op scans still need review before broad use.
+Application state import, source shader matching, complete directory scheduling
+and actual game command placement remain separate work. Do not infer all-INI
+compatibility from parser or owned graphics success. PNG remains paused.

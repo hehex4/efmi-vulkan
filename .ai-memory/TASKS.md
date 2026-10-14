@@ -6,6 +6,18 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.2.3 executes original owned VS/PS INI graphics, source state/sampler overrides,
+direct/indirect/automatic/from-caller draws and nested restore. Native DX11 pixel
+references and failed-root discard pass. Full rebuilt suite:
+build/next/run_all-1.2.3.out, resources5342, compiler172/58 valid, clean core/sync,
+source hashes82/9 match. Next1.2.4 audits every enabled Mods/Core HLSL declaration
+through original parser metadata and compiler; then input layouts, remaining
+shader/state cases and matching/directory integration. LIMIT-032 records execution
+boundaries. No game input needed; keep going. Dist1.0.2, PNG paused, LOD0/LOD1.
+
+Earlier verified checkpoint:
+
+
 1.2.2 completes owned graphics pipelines/draws, immutable descriptors and fence
 retention, with native DX11 pixels and clean full regression. Evidence:
 build/next/run_all-1.2.2.out; resources 4749, compiler 172/58 valid, source hashes

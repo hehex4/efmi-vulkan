@@ -1477,3 +1477,27 @@ Owned API evidence is separate from original INI execution and game evidence.
 No deployment/game/system action; dist 1.0.2 unchanged. External launcher-state
 commit c9000a7 is preserved independently. Next 1.2.3 connects source INI graphics
 stages/state/draws and continues offline; no game input is needed.
+
+
+## 2026-10-14: Original owned INI graphics, candidate1.2.3
+
+Connected original shader stage inheritance, source state overrides/merge and
+all direct/indexed/instanced, indirect and automatic owned draw forms. Direct
+from-caller uses original intercepted metadata. Native references verify argument
+mapping, null VS/PS, depth writes, source blending, scissors, sampler slot scope,
+nested restore and GPU discard after a failed root. State keys compare fields;
+ignored native fields canonicalize before later merges. Diagnostic state-defaults
+probe is now represented by regression cases. Development errors were confined
+to unsigned enum-list initialization and fixture clear/depth-view syntax; fixed
+before validation, without loosening production view checks.
+
+Full rebuilt frozen-source suite: build/next/run_all-1.2.3.out exit0, all steps
+pass. Resources5342, compiler172/58 valid modules, all existing checks, zero core/
+sync messages through shutdown.82 resource and9 compiler source hashes match;
+text318 files clean. No game/deployment/launcher/system action; dist1.0.2 unchanged.
+This is original owned INI graphics, not full-folder or application rendering.
+
+Continue immediately with all installed enabled HLSL declarations/compilation,
+then input-layout and remaining execution cases. No game input is needed. Source
+comparison instructions, other graphics stages/raster paths, null resources and
+unmeasured native state validity remain explicit work (LIMIT-032). PNG paused.

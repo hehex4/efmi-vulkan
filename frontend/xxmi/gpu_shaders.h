@@ -1,10 +1,11 @@
 #pragma once
 #include "gpu_resources.h"
-#include "../gpu/shader_commands.h"
+#include "graphics_state.h"
+#include "../gpu/graphics_commands.h"
 
 namespace efmi::frontend {
 // Original CustomShader lists with owned Vulkan resources. The first execution
-// adapter handles direct/indirect compute; unimplemented graphics/device cases refuse.
+// adapter handles compute and owned VS/PS draws; unsupported device cases refuse.
 class GpuShaderRuntime final : public RuntimeExtension {
 public:
     GpuShaderRuntime(gpu::ResourceDevice,gpu::ShaderHost,const std::filesystem::path& compiler,gpu::ResourceBudgets={},
@@ -16,6 +17,11 @@ public:
     GpuResourceRuntime& resources(){return resources_;}
     uint64_t dispatches() const {return dispatches_;}
     uint64_t shader_calls() const {return shader_calls_;}
+    uint64_t draws() const {return draws_;}
+    size_t graphics_pipelines() const {return graphics_pipelines_.size();}
+    const SourceGraphicsState& graphics_state() const {return graphics_;}
+    void set_graphics_state(const SourceGraphicsState&);
+    void set_scissor(const D3D11_RECT& value){scissor_=value;}
     // Explicit host-owned logical source state. Null restores the original
     // D3D11 default sampler; this is not an INI command or game-state import.
     void set_sampler(wchar_t stage,unsigned slot,const VkSamplerCreateInfo*);
@@ -28,7 +34,10 @@ private:
     void compile(const RuntimeShaderDeclaration&);
     bool run(RunCustomShaderCommand&,CommandListState&,std::wstring&);
     bool draw(DrawCommand&,CommandListState&,std::wstring&);
+    bool draw_graphics(DrawCommand&,CommandListState&);
+    std::vector<gpu::ShaderDescriptor> descriptors(const std::vector<const gpu::HlslProgram*>&);
     gpu::Sampler sampler(wchar_t,unsigned);
+    gpu::Sampler source_sampler(const D3D11_SAMPLER_DESC&);
     GpuResourceRuntime resources_;
     gpu::HlslCompiler compiler_;
     gpu::ShaderCommands commands_;
@@ -37,8 +46,13 @@ private:
     DrawPlanAdapter* adapter_=nullptr;
     std::map<CustomShader*,Entry> shaders_;
     gpu::Compute compute_;
+    std::array<std::shared_ptr<gpu::HlslProgram>,5> stages_;
+    SourceGraphicsState graphics_=source_graphics_defaults();
+    D3D11_RECT scissor_{};
+    std::map<std::vector<uint64_t>,gpu::Graphics> graphics_pipelines_;
+    std::map<std::vector<uint64_t>,gpu::Sampler> source_samplers_;
     std::map<std::pair<wchar_t,unsigned>,gpu::Sampler> samplers_;
     gpu::Sampler default_sampler_;
-    uint64_t dispatches_=0,shader_calls_=0;
+    uint64_t dispatches_=0,shader_calls_=0,draws_=0;
 };
 }

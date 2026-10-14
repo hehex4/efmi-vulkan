@@ -504,3 +504,16 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   do not introduce hidden waits or CPU readbacks for draw validation.
 - Native DX11 pixel references validate graphics API behavior. Original INI stage/
   state conversion and application integration require their own evidence.
+
+
+## D-053: Original owned draws use effective source state
+
+- Date:2026-10-14, candidate1.2.3. Keep original lists, counters, arguments and
+  nested phases; translate effective state at the GPU boundary. Normalize native
+  ignored fields before later mask merges, based on actual state creation.
+- Original comparison-filter state does not turn ordinary Sample into a depth
+  comparison. PS sampler overrides touch slot0 only. Actual Dref instructions
+  need their own adapter and refuse until it exists.
+- Null PS preserves color while depth/stencil can still execute. Native pixel
+  references and failed-root discard establish owned behavior; application import
+  and complete-directory execution require separate proof.

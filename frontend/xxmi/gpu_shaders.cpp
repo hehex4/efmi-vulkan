@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cfloat>
 #include <stdexcept>
+#include <include/spirv/unified1/spirv.h>
 
 namespace efmi::frontend {
 namespace {
@@ -46,16 +47,17 @@ bool GpuShaderRuntime::run(RunCustomShaderCommand& command,CommandListState& sta
             else{const auto previous=shader.executions_this_frame;if(previous<INT_MAX)++shader.executions_this_frame;
                 if(previous>=shader.max_executions_per_frame)return true;}
         }
-        for(unsigned i=0;i<5;++i)require(!entry.overrides[i],"CustomShader graphics stages need the graphics execution adapter");
-        require(!shader.blend_override && !shader.depth_stencil_override && !shader.rs_override && !shader.sampler_override &&
-            shader.topology==D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED,"CustomShader fixed-function state needs the graphics execution adapter");
         if(entry.overrides[5] && entry.stages[5] && !entry.compute)entry.compute=commands_.compile(*entry.stages[5]);
         struct Restore {
             GpuResourceRuntime& resources;GpuResourceRuntime::OutputState outputs;
             gpu::Compute& current;gpu::Compute saved;
-            ~Restore(){current=std::move(saved);resources.restore_outputs(std::move(outputs));}
-        } restore{resources_,resources_.save_outputs(),compute_,compute_};
+            decltype(stages_)& stages;decltype(stages_) saved_stages;
+            SourceGraphicsState& state;SourceGraphicsState saved_state;
+            ~Restore(){current=std::move(saved);stages=std::move(saved_stages);state=std::move(saved_state);resources.restore_outputs(std::move(outputs));}
+        } restore{resources_,resources_.save_outputs(),compute_,compute_,stages_,stages_,graphics_,graphics_};
         if(entry.overrides[5])compute_=entry.compute;
+        for(unsigned i=0;i<5;++i)if(entry.overrides[i])stages_[i]=entry.stages[i];
+        graphics_=source_graphics_normalize(source_graphics_override(shader,graphics_));
         ++shader_calls_;return adapter_->invoke_shader(shader,state,why);
     }catch(const std::exception& e){why=widen(e.what());return false;}
 }
@@ -64,6 +66,7 @@ void GpuShaderRuntime::set_sampler(wchar_t stage,unsigned slot,const VkSamplerCr
     if(info)samplers_[{stage,slot}]=commands_.sampler(*info);else samplers_.erase({stage,slot});
 }
 gpu::Sampler GpuShaderRuntime::sampler(wchar_t stage,unsigned slot){
+    if(stage==L'p' && graphics_.pixel_samplers.at(slot))return source_sampler(*graphics_.pixel_samplers[slot]);
     const auto found=samplers_.find({stage,slot});if(found!=samplers_.end())return found->second;
     if(!default_sampler_){
         // D3D11 null sampler: linear min/mag/mip, clamp, zero bias, no
@@ -78,7 +81,7 @@ gpu::Sampler GpuShaderRuntime::sampler(wchar_t stage,unsigned slot){
 bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::wstring& why){
     try{
         const bool indirect=command.type==DrawCommandType::DISPATCH_INDIRECT;
-        require(indirect || command.type==DrawCommandType::DISPATCH,"Custom draw needs another shader execution adapter");
+        if(!indirect && command.type!=DrawCommandType::DISPATCH)return draw_graphics(command,state);
         gpu::Buffer arguments;uint32_t offset=0;std::array<uint32_t,3> groups{};
         if(indirect){const float value=command.args[0].evaluate(&state);
             require(std::isfinite(value) && double(value)>=0 && double(value)<=UINT32_MAX,"Indirect dispatch offset exceeds original unsigned range");offset=uint32_t(value);
@@ -88,14 +91,32 @@ bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::ws
             require(std::isfinite(value) && double(value)>=0 && double(value)<=INT_MAX,"Dispatch expression exceeds original signed argument range");groups[i]=uint32_t(int(value));}
         // D3D dispatch with no compute shader, or any zero dimension, has no work.
         if(!compute_ || (!indirect && (!groups[0] || !groups[1] || !groups[2])))return true;
+        const auto descriptors=this->descriptors({&compute_->program()});
+        if(indirect)commands_.dispatch_indirect(compute_,descriptors,arguments,offset);
+        else commands_.dispatch(compute_,descriptors,groups);
+        ++dispatches_;return true;
+    }catch(const std::exception& e){why=widen(e.what());return false;}
+}
+std::vector<gpu::ShaderDescriptor> GpuShaderRuntime::descriptors(const std::vector<const gpu::HlslProgram*>& programs){
         std::vector<gpu::ShaderDescriptor> descriptors;
-        for(const auto& binding:compute_->program().bindings)for(uint32_t element=0;element<binding.count;++element){
+        for(const auto* program:programs){
+            // Source comparison filters also serve ordinary Sample instructions.
+            // Dref operations need a separate source comparison-view adapter.
+            for(size_t pos=5;pos<program->spirv.size();){const auto word=program->spirv[pos],count=word>>16;const auto op=SpvOp(word&0xffff);
+                require(count && count<=program->spirv.size()-pos,"Truncated source shader instruction");
+                require(op!=SpvOpImageSampleDrefImplicitLod && op!=SpvOpImageSampleDrefExplicitLod &&
+                    op!=SpvOpImageSampleProjDrefImplicitLod && op!=SpvOpImageSampleProjDrefExplicitLod && op!=SpvOpImageDrefGather,
+                    "Source comparison sampling needs an instruction-aware image adapter");pos+=count;}
+            const wchar_t stage=program->stage==VK_SHADER_STAGE_VERTEX_BIT?L'v':program->stage==VK_SHADER_STAGE_FRAGMENT_BIT?L'p':
+                program->stage==VK_SHADER_STAGE_COMPUTE_BIT?L'c':L'\0';
+            require(stage!=L'\0',"Source descriptors need another graphics stage adapter");
+            for(const auto& binding:program->bindings)for(uint32_t element=0;element<binding.count;++element){
             require(!binding.counter,"CustomShader counter access needs an imported source counter view; original owned INI views have no counters");
             gpu::ShaderDescriptor value;value.binding=binding.binding;value.element=element;
-            if(binding.source_type=='s'){value.sampler=sampler(L'c',binding.slot+element);descriptors.push_back(std::move(value));continue;}
+            if(binding.source_type=='s'){value.sampler=sampler(stage,binding.slot+element);descriptors.push_back(std::move(value));continue;}
             const auto target=binding.source_type=='b'?ResourceCopyTargetType::CONSTANT_BUFFER:
                 binding.source_type=='t'?ResourceCopyTargetType::SHADER_RESOURCE:ResourceCopyTargetType::UNORDERED_ACCESS_VIEW;
-            const auto source=resources_.binding(L'c',target,binding.slot+element);
+            const auto source=resources_.binding(stage,target,binding.slot+element);
             require(bool(source),"CustomShader accesses a null source slot; null-resource execution requires an adapter");
             if(source.image)value.image=source.image_view;
             else{
@@ -110,9 +131,8 @@ bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::ws
             }
             descriptors.push_back(std::move(value));
         }
-        if(indirect)commands_.dispatch_indirect(compute_,descriptors,arguments,offset);
-        else commands_.dispatch(compute_,descriptors,groups);
-        ++dispatches_;return true;
-    }catch(const std::exception& e){why=widen(e.what());return false;}
+        }
+        return descriptors;
 }
+
 }

@@ -18,4 +18,7 @@ struct SourceGraphicsState {
 };
 SourceGraphicsState source_graphics_defaults();
 SourceGraphicsState source_graphics_override(const CustomShader&,const SourceGraphicsState&);
+// Effective native descriptions after state creation; ignored fields are
+// canonicalized and an invalid active stencil description binds the null default.
+SourceGraphicsState source_graphics_normalize(SourceGraphicsState);
 }

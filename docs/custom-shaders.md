@@ -268,3 +268,37 @@ Current owned graphics supports VS/PS and triangle/line topologies; geometry,
 tessellation, dual-source output lowering and additional attachment/interface
 cases remain explicit work. No game input needed; continue without stopping.
 PNG paused; LOD0/LOD1 only. No deployment, game or system action by this work.
+
+
+## Original owned INI graphics (verified candidate 1.2.3)
+
+Original CustomShader now overrides/inherits/restores VS/PS and source graphics
+state in the owned executor. Direct, indexed, instanced, indirect, automatic
+counts and direct from-caller commands use original argument and buffer rules.
+Native state creation canonicalization is applied to inactive depth/stencil/blend
+fields; invalid active stencil creation falls back to the native null state.
+Null VS does no work; null PS preserves color while accepted depth still writes.
+Semantic state keys bound pipeline reuse; descriptors and targets remain retained.
+
+Native DX11 WARP pixel references cover all these draw paths, nested restoration,
+constant blending, inherited scissors, depth acceptance, and original point/linear
+sampler overrides on PS slot0 without changing slot3. Ordinary sampling ignores
+the source comparison-filter bit; actual comparison instructions explicitly refuse.
+Root failure restores CPU state and prevents submission of partial graphics work.
+
+Full frozen-source rebuild/regression: build/next/run_all-1.2.3.out, exit0, all
+steps pass. Resources5342, compiler172/58 valid modules, core/sync clean through
+shutdown; all82 resource and9 compiler source hashes match. Text318 files clean.
+This is original INI execution on owned sandbox images, not application resources
+or real characters. Dist1.0.2 unchanged; no deployment/game/launcher/system action.
+Development fixtures were corrected for original clear syntax and typed depth-view
+rules; production constraints were preserved.
+
+Continue1.2.4 with all enabled Mods/Core HLSL declarations from the original parser
+and compiler diagnostics for the complete corpus. Then input layouts, remaining
+shader/state/resource cases, matching and application/directory integration.
+Current frontend still explicitly refuses vertex layouts, geometry/tessellation,
+point/line raster rules, depth bias, multisampling, comparison sampling, null
+resource emulation and attachment-free graphics. Source state validity beyond the
+measured cases remains a compatibility boundary, not a full native fallback proof.
+No game input needed; continue without stopping. PNG paused; LOD0/LOD1 only.
