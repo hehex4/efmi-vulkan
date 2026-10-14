@@ -1204,3 +1204,10 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   goal remains incomplete. PNG paused, LOD0/LOD1 only. Candidate build/next is
   1.1.2; dist stays 1.0.2. No deployment, module exchange, game/launcher action,
   system registration or original installation/Mod writes.
+
+## 2026-10-14: Restored commit context and explained current texture matching
+
+- Read CURRENT_STATE/TASKS first, then recent commits, dist configuration, live INI documentation and production material code. Source/candidate is 1.1.2, deployed host is 1.0.2. Relevant material policy originates in b90f9e9 (guarded sibling rules); abebbaf adds live INI image choices. Later owned image primitives do not imply a deployed material-policy change.
+- Verified exact-byte fragment profiles, per-section/pass sibling lookup, shared image-id precedence, unique shape fallback, complete sibling coverage, two-extra limit, fewest-extra selection and ambiguity rejection. Pass keys include attachment formats/samples, subpass, depth write and compare. Shape records view type/format and allocation extent; it is not a content hash or proof that pixels match.
+- Without a verified/derived correspondence, retain application images on the mod geometry and retry later. Explicit absent/null and device-bound ZeroFile rules remain distinct. Runtime upload hashing is off and original image-hash override sections are not accepted by the deployed character registry. Prepared-contract/resource/pipeline failures can still refuse a draw; the unknown-profile fallback alone does not keep the original mesh.
+- Explanation and memory updates only. No layer/source implementation edit, new build, game access, module exchange, deployment or launcher change. Existing unrelated GPU-image adapter edits remain untouched. Text/diff checks cover this documentation change.

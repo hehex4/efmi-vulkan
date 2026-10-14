@@ -2,6 +2,8 @@
 
 > Last updated: 2026-10-14, owned mutable image execution foundation. Source/candidate 1.1.2 passes the full rebuilt regression, including 563 GPU resource checks. Dist remains 1.0.2. Complete Vulkan execution remains open. No deployment or game action. LOD0/LOD1 only.
 
+Material matching clarification (2026-10-14): deployed 1.0.2 executes the original main INI to choose logical pixel bindings. Exact fragment bytes select the verified source-slot/Vulkan-binding profile. Unprofiled fragments derive a profile from the same override section and pass kind, matching shared image ids first and otherwise unique view-type/format/extent signatures. Every sibling image must be represented, at most two target images may be extra, and equal-best candidates with different rules refuse derivation. Unknown correspondence keeps game images on the mod mesh and retries later; it does not by itself revert geometry. image_hash remains 0; original source-image hash override execution is not enabled in this character registry. This explanation inspected commits/code only, with no new game observation. Candidate image-command work does not replace the deployed character material policy.
+
 ## Owned mutable image foundation (verified candidate 1.1.2)
 
 ResourceCommands now owns optimal-tiling 1D/2D/3D images, arrays, cubes, mip

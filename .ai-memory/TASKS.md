@@ -21,6 +21,8 @@ in docs/gpu-resource-commands.md, especially typeless/view-format clear behavior
 Remaining buffer properties/conversions remain open. PNG is paused, LOD0/LOD1
 only, no game input needed. The active goal remains incomplete; next is 1.1.3.
 
+Material matching boundary reviewed on 2026-10-14: live INI selects DDS/null bindings; verified exact-fragment profiles or guarded sibling derivation determine Vulkan placement. Runtime content hashing and general source-image hash overrides remain outside the deployed character adapter. No new shader-matching implementation, deployment or game test was performed for this explanation.
+
 Earlier verified checkpoint:
 
 1.1.1 executes owned FIFO/spatial/expiring buffer pools, preserves original
