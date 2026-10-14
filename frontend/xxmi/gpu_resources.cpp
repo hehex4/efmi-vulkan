@@ -110,6 +110,19 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
 void GpuResourceRuntime::draw_commands(DrawExecutor executor){
     require(!installed_ && bool(executor),"Install GPU draw executor before generation adaptation");draw_executor_=std::move(executor);
 }
+namespace {
+bool output_slot(const std::tuple<wchar_t,ResourceCopyTargetType,unsigned>& slot){
+    const auto type=std::get<1>(slot);return type==Target::RENDER_TARGET || type==Target::DEPTH_STENCIL_TARGET ||
+        (type==Target::UNORDERED_ACCESS_VIEW && std::get<0>(slot)==L'p');
+}
+}
+GpuResourceRuntime::OutputState GpuResourceRuntime::save_outputs() const {
+    active();OutputState state;state.viewport=viewport_;for(const auto& pair:slots_)if(output_slot(pair.first))state.bindings.insert(pair);return state;
+}
+void GpuResourceRuntime::restore_outputs(OutputState&& state) noexcept {
+    for(auto i=slots_.begin();i!=slots_.end();)if(output_slot(i->first))i=slots_.erase(i);else ++i;
+    slots_.merge(state.bindings);viewport_=state.viewport;
+}
 void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
     require(!failed_,"GPU resource generation failed; prepare a new generation");
     require(!active_ && queue && site==ExecutionSite::OutsideRenderPass,"GPU resource execution requires an explicit outside-render-pass scope");

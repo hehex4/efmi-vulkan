@@ -1,6 +1,36 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-14, original HLSL compiler foundation. Source/candidate 1.1.6 passes the full rebuilt regression: compiler 116, 33 valid modules, resources 3544 with clean core/sync validation. Dist remains 1.0.2. CustomShader execution is next; no deployment or game action. LOD0/LOD1 only.
+> Last updated: 2026-10-14, original CustomShader owned compute. Candidate1.1.7 passes the full rebuilt regression: resources3633, compiler117/33 valid modules, clean core/sync validation. Dist1.0.2 unchanged. Continue offline; LOD0/LOD1 only.
+
+## Original CustomShader compute (verified candidate1.1.7)
+
+GpuShaderRuntime opts into original CustomShader parsing, compiles every declared
+stage and executes direct compute through owned Vulkan pipelines and immutable
+descriptors. Nested pre/post, original frame/reset limits, null/inherited compute,
+abort and viewport/OM restoration are tested; ordinary slots persist. Failed
+candidates preserve a retained old generation. ShaderCommands supports buffers,
+typed views, image arrays, storage images, samplers and separate UAV counters at
+its explicit low-level boundary. Fences retain every dispatch owner.
+
+Production SPIR-V validation uses actual enabled block-layout features. Packed
+float3 storage refuses without scalar layout and runs on an enabled headless
+device. Native DX11 WARP/Vulkan parameter-consumer bytes agree. Native diagnostic
+trailing NULs are removed so warnings cannot hide later DXC errors. BUG-021 fixes
+resource-query argument guards across every original draw/dispatch form.
+
+The final frozen-source rebuilt suite passes: build/next/run_all-1.1.7.out.
+Resources3633, compiler117/33 valid modules, parser726/evaluator65/runtime68,
+character79/357, liveINI28, validation76/modes40/MCP47/evidence113 and all other
+steps pass. Core/sync clean through shutdown;66 resource and6 compiler source
+hashes match. ABI16b90a85431f86b4 unchanged; text301 files clean. An earlier
+interrupted run is not complete verification evidence.
+
+Next: workgroup memory and precise sampler/image usage, source sampler/counter
+state, indirect execution and remaining device cases; then graphics state/draws,
+shader matching and directory integration. Continue immediately without game
+input. This is owned offline compute, not complete Mod graphics or application
+import. See docs/custom-shaders.md, LIMIT-031 and D-047. Next1.1.8;
+dist1.0.2 unchanged, no deployment/game action. PNG paused, LOD0/LOD1 only.
 
 ## Original HLSL compiler (verified candidate 1.1.6)
 

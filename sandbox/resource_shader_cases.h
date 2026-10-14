@@ -42,5 +42,15 @@ RWStructuredBuffer<uint4> Output : register(u3);
     {ParameterConsumer consumer(d);consumer.init(program.spirv,sampled,storage);
         const auto actual=consumer.read(f.backend->commands(),f.backend->ini_parameters().image_view);
         check(actual==expected && actual==input,"Original compiled DX11 and remapped Vulkan HLSL produce identical GPU bytes");}
+    {
+        gpu::ShaderHost host;host.get_device_proc=d.get_device_proc;host.properties=d.properties;
+        host.validator=L"F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/build/source/SPIRV-Tools-shared.dll";
+        auto& commands=f.backend->commands();gpu::ShaderCommands shaders(commands,host);auto pipeline=shaders.compile(program);
+        auto output=commands.create(input.size(),VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,nullptr,0,true);
+        gpu::ShaderDescriptor source;source.binding=sampled;source.image=f.backend->ini_parameters().image_view;
+        gpu::ShaderDescriptor destination;destination.binding=storage;destination.buffer=output;destination.size=output->size();
+        shaders.dispatch(pipeline,{source,destination},{uint32_t((input.size()/16+31)/32),1,1});
+        check(commands.readback(d.queue,output,0,output->size())==expected,"Production descriptor executor matches original DX11 GPU output");
+    }
     f.release();
 }

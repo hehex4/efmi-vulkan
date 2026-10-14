@@ -23,7 +23,10 @@ constexpr Stage stages[]={{'v',"VERTEX_SHADER",VK_SHADER_STAGE_VERTEX_BIT},{'h',
     {'d',"DOMAIN_SHADER",VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT},{'g',"GEOMETRY_SHADER",VK_SHADER_STAGE_GEOMETRY_BIT},
     {'p',"PIXEL_SHADER",VK_SHADER_STAGE_FRAGMENT_BIT},{'c',"COMPUTE_SHADER",VK_SHADER_STAGE_COMPUTE_BIT}};
 unsigned stage_index(char key){for(unsigned i=0;i<std::size(stages);++i)if(stages[i].key==key)return i;throw std::runtime_error("Unknown original shader stage");}
-std::string blob_text(ID3DBlob* blob){return blob?std::string(static_cast<const char*>(blob->GetBufferPointer()),blob->GetBufferSize()):"";}
+std::string blob_text(ID3DBlob* blob){
+    if(!blob)return {};auto size=blob->GetBufferSize();const auto* bytes=static_cast<const char*>(blob->GetBufferPointer());
+    while(size && !bytes[size-1])--size;return {bytes,size};
+}
 class Includes final : public ID3DInclude {
     const HlslRequest& request_;
     std::vector<ShaderDependency>& dependencies_;
@@ -119,6 +122,9 @@ void reflect_program(HlslProgram& out,char stage,ID3DBlob* original){
         require(entry.slot<limit && entry.count<=limit-entry.slot && occupied.insert(entry.binding).second,"Original shader resource slots exceed contract or alias");
         entry.image_dimension=uint32_t(b.image.dim);entry.image_format=uint32_t(b.image.image_format);
         entry.image_array=bool(b.image.arrayed);entry.image_multisample=bool(b.image.ms);entry.image_depth=b.image.depth;
+        if(b.type_description){const auto& t=*b.type_description;entry.scalar_width=t.traits.numeric.scalar.width;
+            if(t.type_flags&SPV_REFLECT_TYPE_FLAG_FLOAT)entry.scalar_type=1;
+            else if(t.type_flags&SPV_REFLECT_TYPE_FLAG_INT)entry.scalar_type=t.traits.numeric.scalar.signedness?3:2;}
         entry.block_size=b.block.padded_size;
         if(b.block.member_count==1){const auto& member=b.block.members[0];entry.stride=member.array.stride;
             if(!entry.stride && member.type_description)entry.stride=member.type_description->traits.array.stride;}

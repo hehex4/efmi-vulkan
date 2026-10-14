@@ -16,6 +16,7 @@ HINSTANCE migoto_handle=nullptr;
 CRITICAL_SECTION resource_creation_mode_lock;
 DWORD tls_idx=TLS_OUT_OF_INDEXES;
 static std::wstring resource_root;
+std::wstring HostResourceDirectory(){return resource_root;}
 static size_t diagnostic_count=0;
 static std::deque<std::pair<size_t, std::string>> diagnostics;
 size_t HostDiagnosticCount() { return diagnostic_count; }

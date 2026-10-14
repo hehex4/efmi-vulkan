@@ -11,6 +11,7 @@ public:
     virtual std::wstring declarations() { return {}; }
     virtual std::vector<std::wstring> declaration_units() { return {}; }
     virtual std::vector<std::wstring> native_shaders() { return {}; }
+    virtual bool custom_shader_execution() const { return false; }
     virtual std::vector<std::wstring> install(DrawPlanAdapter&) = 0;
     // Called with zeroed original parameter storage, before either Constants
     // phase. GPU extensions require their host's explicit queue scope here.
@@ -24,4 +25,13 @@ public:
 };
 void RuntimeRunInputList(CommandList*, bool post);
 void RuntimePublishTransitionParameters();
+struct RuntimeShaderDeclaration {
+    CustomShader* shader=nullptr;
+    std::wstring name,root,namespace_path;
+    std::array<std::wstring,6> sources; // v,h,d,g,p,c; empty is inherited.
+    int recursive_include=0;
+};
+// Uses original section keys, enums, state parsers and command-list parser.
+// The callback replaces only the original source-API shader compiler boundary.
+void RuntimeParseCustomShaders(const std::function<void(const RuntimeShaderDeclaration&)>&);
 }

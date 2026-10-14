@@ -79,6 +79,10 @@ public:
     // parameters. Transitions can force publication outside a command root.
     void parameter_flush(ParameterFlush);
     bool flush_parameters(CommandListState&,bool force,std::wstring&);
+    using ShaderCommand=std::function<bool(RunCustomShaderCommand&,CommandListState&,std::wstring&)>;
+    void shader_commands(ShaderCommand);
+    // Both nested phases share the caller's abort/parameter state; no root flush.
+    bool invoke_shader(CustomShader&,CommandListState&,std::wstring&);
     struct PixelBinding {
         bool application=true;
         CustomResource* resource=nullptr; // Null with application=false means an explicit unbind.

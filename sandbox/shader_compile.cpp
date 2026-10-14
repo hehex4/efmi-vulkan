@@ -130,5 +130,9 @@ RWStructuredBuffer<float4> Out : register(u1);
     request.source=root/"absent.hlsl";check(!compiler.compile(request,program,why),"Missing root shader refuses");
     request.source=root/"compute.hlsl";write(request.source,compute);request.flags=(1u<<3)|(1u<<4);
     check(!compiler.compile(request,program,why),"Original compiler rejects conflicting matrix packing flags");
+    request.flags=1u<<12;
+    write(request.source,"RWStructuredBuffer<float> Out; [numthreads(1,1,1)] void main(){float v=float4(1,2,3,4);Out[0]=v;}\n");
+    check(!compiler.compile(request,program,why) && why.find("warning")!=std::string::npos && why.find("-Gec is not supported with -spirv")!=std::string::npos,
+          "A native warning cannot hide the following SPIR-V error behind a NUL terminator");
     printf("shader_compile: %u checks passed; %u modules compiled\n",checks,compiled);return 0;
 }catch(const std::exception& e){printf("FAIL after %u checks, %u modules: %s\n",checks,compiled,e.what());return 1;}}

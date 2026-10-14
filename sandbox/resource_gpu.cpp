@@ -1,6 +1,7 @@
 // Original production INI -> owned Vulkan commands -> GPU readback. Headless.
 #include "../frontend/xxmi/gpu_resources.h"
 #include "../frontend/gpu/hlsl_compiler.h"
+#include "../frontend/xxmi/gpu_shaders.h"
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -26,12 +27,14 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL diagnostic(VkDebugUtilsMessageSeverityFlag
 struct Device {
     PFN_vkGetDeviceProcAddr get_device_proc=nullptr;
     VkInstance instance=VK_NULL_HANDLE;gpu::ResourceDevice resource;VkQueue queue=VK_NULL_HANDLE;
+    VkPhysicalDeviceProperties properties{};
+    bool scalar_layout=false;
     VkDebugUtilsMessengerEXT messenger=VK_NULL_HANDLE;
     PFN_vkDestroyInstance destroy_instance=nullptr;PFN_vkDestroyDevice destroy_device=nullptr;
     PFN_vkDeviceWaitIdle wait_idle=nullptr;PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     ~Device(){if(resource.device){wait_idle(resource.device);destroy_device(resource.device,nullptr);}
         if(messenger)destroy_debug(instance,messenger,nullptr);if(instance)destroy_instance(instance,nullptr);}
-    void init(bool unrestricted_depth=false){
+    void init(bool unrestricted_depth=false,bool scalar_block_layout=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -49,6 +52,7 @@ struct Device {
         vkcheck(CreateDebugUtilsMessengerEXT(instance,&debug,nullptr,&messenger),"Create debug messenger");
         GET(EnumeratePhysicalDevices);GET(GetPhysicalDeviceQueueFamilyProperties);GET(GetPhysicalDeviceMemoryProperties);
         GET(CreateDevice);GET(GetDeviceProcAddr);GET(GetPhysicalDeviceFeatures);GET(GetPhysicalDeviceProperties);
+        GET(GetPhysicalDeviceFeatures2);
         get_device_proc=GetDeviceProcAddr;
         GET(GetPhysicalDeviceImageFormatProperties);GET(GetPhysicalDeviceFormatProperties);
         GET(EnumerateDeviceExtensionProperties);
@@ -61,7 +65,7 @@ struct Device {
             if(selected)break;}
         check(selected!=VK_NULL_HANDLE,"Graphics queue available");GetPhysicalDeviceMemoryProperties(selected,&resource.memory);
         VkPhysicalDeviceFeatures features{};GetPhysicalDeviceFeatures(selected,&features);
-        VkPhysicalDeviceProperties properties{};GetPhysicalDeviceProperties(selected,&properties);
+        GetPhysicalDeviceProperties(selected,&properties);
         check(properties.apiVersion>=VK_API_VERSION_1_1,"Vulkan 1.1 image execution available");
         resource.physical=selected;resource.api_version=VK_API_VERSION_1_1;
         resource.GetImageFormatProperties=GetPhysicalDeviceImageFormatProperties;resource.GetFormatProperties=GetPhysicalDeviceFormatProperties;
@@ -74,14 +78,20 @@ struct Device {
         VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};dc.queueCreateInfoCount=1;dc.pQueueCreateInfos=&q;
         dc.pEnabledFeatures=&resource.enabled_features;
         const char* depth_extension=VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME;
+        std::vector<const char*> enabled_extensions;
         if(unrestricted_depth){
             uint32_t available=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&available,nullptr),"Enumerate device extensions");
             std::vector<VkExtensionProperties> extensions(available);
             vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&available,extensions.data()),"Read device extensions");
             for(const auto& extension:extensions)if(!strcmp(extension.extensionName,depth_extension))resource.enabled_depth_range_unrestricted=true;
             check(resource.enabled_depth_range_unrestricted,"Requested unrestricted-depth test extension available");
-            dc.enabledExtensionCount=1;dc.ppEnabledExtensionNames=&depth_extension;
+            enabled_extensions.push_back(depth_extension);
         }
+        VkPhysicalDeviceScalarBlockLayoutFeatures scalar={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES};
+        if(scalar_block_layout){VkPhysicalDeviceFeatures2 available={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};available.pNext=&scalar;
+            GetPhysicalDeviceFeatures2(selected,&available);check(scalar.scalarBlockLayout,"Requested scalar block layout feature available");
+            enabled_extensions.push_back(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);dc.pNext=&scalar;scalar_layout=true;}
+        dc.enabledExtensionCount=uint32_t(enabled_extensions.size());dc.ppEnabledExtensionNames=enabled_extensions.data();
         vkcheck(CreateDevice(selected,&dc,nullptr,&resource.device),"Create test device");
 #define GET(name) auto name=reinterpret_cast<PFN_vk##name>(GetDeviceProcAddr(resource.device,"vk" #name));check(name!=nullptr,"vk" #name);
         GET(DestroyDevice);destroy_device=DestroyDevice;GET(DeviceWaitIdle);wait_idle=DeviceWaitIdle;GET(GetDeviceQueue);GetDeviceQueue(resource.device,resource.queue_family,0,&queue);
@@ -1317,6 +1327,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_parameter_consumer.h"
 #include "resource_parameter_cases.h"
 #include "resource_shader_cases.h"
+#include "resource_compute_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init();low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1333,7 +1344,10 @@ int wmain(int argc,wchar_t** argv){
         parameter_boundaries(device,root/"parameter-boundaries");parameter_draws_and_dirty(device,root/"parameter-draws");
         parameter_keys(device,root/"parameter-keys");parameter_registers_and_failures(device,root/"parameter-failures");
         parameter_lifetime(device,root/"parameter-lifetime");parameter_draw_failure(device,root/"parameter-draw-failure");
-        shader_compiler_gpu(device,root/"shader-compiler");}
+        shader_compiler_gpu(device,root/"shader-compiler");
+        compute_descriptors(device,root/"compute-descriptors");original_compute(device,root/"original-compute");
+        compute_scalar_layout(device,root/"compute-scalar-layout");
+        original_shader_scopes(device,root/"original-shader-scopes");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

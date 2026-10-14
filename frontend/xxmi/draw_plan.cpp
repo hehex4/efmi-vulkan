@@ -152,11 +152,25 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
         if(op->lhs)guard_expression(op->lhs,queries,depth+1);if(op->rhs)guard_expression(op->rhs,queries,depth+1);
     }
 }
+int draw_argument_count(DrawCommandType type){
+    switch(type){
+    case DrawCommandType::DRAW:return 2;
+    case DrawCommandType::DRAW_INDEXED:case DrawCommandType::DISPATCH:return 3;
+    case DrawCommandType::DRAW_INSTANCED:return 4;
+    case DrawCommandType::DRAW_INDEXED_INSTANCED:return 5;
+    case DrawCommandType::DRAW_INDEXED_INSTANCED_INDIRECT:case DrawCommandType::DRAW_INSTANCED_INDIRECT:
+    case DrawCommandType::DISPATCH_INDIRECT:return 1;
+    default:return 0;
+    }
+}
+bool indirect_command(DrawCommandType type){return type==DrawCommandType::DRAW_INDEXED_INSTANCED_INDIRECT ||
+    type==DrawCommandType::DRAW_INSTANCED_INDIRECT || type==DrawCommandType::DISPATCH_INDIRECT;}
 void guard_arguments(CommandListCommand& command,const std::shared_ptr<QueryService>& queries)
 {
     if(auto* draw=dynamic_cast<DrawCommand*>(&command)){
-        const int count=draw->type==DrawCommandType::DRAW_INDEXED?3:draw->type==DrawCommandType::DRAW_INDEXED_INSTANCED?5:0;
+        const int count=draw_argument_count(draw->type);
         for(int i=0;i<count;++i)guard_expression(draw->args[i].evaluatable,queries);
+        if(indirect_command(draw->type))guard_target(draw->indirect_buffer,queries);
     }else if(auto* branch=dynamic_cast<IfCommand*>(&command))guard_expression(branch->expression.evaluatable,queries);
     else if(auto* assignment=dynamic_cast<AssignmentCommand*>(&command)){
         guard_expression(assignment->expression.evaluatable,queries);
@@ -178,9 +192,9 @@ void guard_arguments(CommandListCommand& command,const std::shared_ptr<QueryServ
 bool cpu_arguments(CommandListCommand& command)
 {
     if (auto* draw = dynamic_cast<DrawCommand*>(&command)) {
-        const int count = draw->type == DrawCommandType::DRAW_INDEXED ? 3 :
-                          draw->type == DrawCommandType::DRAW_INDEXED_INSTANCED ? 5 : 0;
+        const int count=draw_argument_count(draw->type);
         for (int i = 0; i < count; ++i) if (!cpu_expression(draw->args[i].evaluatable)) return false;
+        if(indirect_command(draw->type) && !cpu_target(draw->indirect_buffer))return false;
     } else if (auto* branch = dynamic_cast<IfCommand*>(&command)) {
         return cpu_expression(branch->expression.evaluatable);
     } else if (auto* assignment = dynamic_cast<AssignmentCommand*>(&command)) {
@@ -247,6 +261,7 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::PaletteSource palette_source;
     DrawPlanAdapter::ResourceCommand resource_command;
     DrawPlanAdapter::ParameterFlush parameter_flush;
+    DrawPlanAdapter::ShaderCommand shader_command;
     bool nested_failed=false;
     size_t active_depth=0;
     DrawPlanAdapter::TextureQuery texture_query;
@@ -369,6 +384,12 @@ struct DrawPlanAdapter::Runtime {
             refuse(L"Plan recursion budget exceeded");
         if(auto* check=dynamic_cast<CheckTextureOverrideCommand*>(original.get())){
             check_texture(*check,*state);return;
+        }
+        if(auto* shader=dynamic_cast<RunCustomShaderCommand*>(original.get())){
+            std::wstring why;
+            if(!shader_command || !shader_command(*shader,*state,why) || nested_failed)
+                refuse(why.empty()?L"CustomShader requires a shader execution adapter":why);
+            return;
         }
         if(dynamic_cast<DrawCommand*>(original.get())){
             if(state->call_info && state->call_info->hunting_skip)return;
@@ -639,6 +660,24 @@ void DrawPlanAdapter::parameter_flush(ParameterFlush callback)
     if(runtime_->active || !runtime_->adapted.empty() || !callback)refuse(L"Install parameter publication before adaptation");
     runtime_->parameter_flush=std::move(callback);
 }
+void DrawPlanAdapter::shader_commands(ShaderCommand callback){
+    if(runtime_->active || !runtime_->adapted.empty() || !callback)refuse(L"Install shader execution before adaptation");
+    runtime_->shader_command=std::move(callback);
+}
+bool DrawPlanAdapter::invoke_shader(CustomShader& shader,CommandListState& state,std::wstring& reason){
+    reason.clear();const auto post=state.post;
+    if(!runtime_->active || state.recursion>=MAX_COMMAND_LIST_RECURSION || state.aborted){
+        runtime_->nested_failed=true;reason=L"CustomShader callback requires a bounded active transaction";return false;
+    }
+    ++state.recursion;
+    try{for(unsigned phase=0;phase<2 && !state.aborted;++phase){
+        auto* list=(phase?shader.post_command_list:shader.command_list).ResolveCommandList();
+        if(!runtime_->adapted.count(list))refuse(L"CustomShader command list was not adapted");state.post=phase!=0;
+        for(auto& command:list->commands){if(state.aborted)break;command->run(&state);}
+    }}catch(const Refused& e){reason=e.reason;}
+      catch(const std::exception&){reason=L"CustomShader callback raised a frontend exception";}
+    --state.recursion;state.post=post;if(!reason.empty())runtime_->nested_failed=true;return reason.empty();
+}
 bool DrawPlanAdapter::flush_parameters(CommandListState& state,bool force,std::wstring& reason)
 {
     reason.clear();
@@ -689,6 +728,8 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
             for(auto* target:{copy->src,copy->dst})if(target && !runtime_->externals.count(target)){
                 adapt_tree(target->command_list,depth+1);adapt_tree(target->post_command_list,depth+1);
             }
+        } else if(auto* call=dynamic_cast<RunCustomShaderCommand*>(command.get())) {
+            if(call->custom_shader){adapt_tree(call->custom_shader->command_list,depth+1);adapt_tree(call->custom_shader->post_command_list,depth+1);}
         }
         command = std::make_shared<BridgeCommand>(command, runtime_);
     }

@@ -1,11 +1,22 @@
 # EFMI Vulkan - Architecture
 
+GpuShaderRuntime (1.1.7) composes original CustomShader parsing/command objects,
+GpuResourceRuntime, HlslCompiler and ShaderCommands. It explicitly opts into
+general declarations; the deployed character extension does not. All sources
+compile before generation acceptance; supported compute pipelines are lazy.
+Nested phases share original state/budgets; RAII restores compute/OM/viewport.
+Each dispatch owns immutable descriptors and retained resources through its
+ResourceSubmission fence. Production SPIR-V validation uses actual block-layout
+enablement. Execution shares the explicit serialized outside-render-pass queue
+domain, without implicit submits/waits. Graphics/application import/placement
+remain open. See docs/custom-shaders.md and D-047.
+
 HlslCompiler (1.1.6) supplies original preprocessing/model-5 validation followed
 by DXC SPIR-V compilation. FXC reflection owns the source register mapping;
 SPIRV-Reflect supplies Vulkan descriptor/IO metadata and counters. Stages and
 register classes occupy separate bindings. Dependencies remain read-only and
 bounded; compilation never changes process CWD or writes caches beside Mods.
-Native GPU reference tests cover a parameter consumer. General CustomShader
+Native GPU reference tests cover a parameter consumer. General graphics shader
 execution, pipeline state and application integration are still separate work.
 Details: docs/hlsl-compiler.md.
 

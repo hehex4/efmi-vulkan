@@ -473,3 +473,23 @@ must check actual logical-device support and float-control properties. Shader
 storage formats, device limits, null resources, graphics conventions/state and
 application placement require execution adapters. See docs/hlsl-compiler.md.
 This is an offline compatibility boundary, not a new game regression.
+
+## BUG-021: Draw argument guards omitted direct compute queries (fixed in candidate1.1.7)
+
+Only indexed arguments were traversed. A valid dispatch using iniparams->width
+reached an unadapted original query and failed the signed argument check. The
+common walker now covers all parsed draw/dispatch forms and indirect targets.
+Before-fix evidence: build/resource-commands/dispatch-query-before-fix/. The
+original INI GPU fixture and final full regression pass after correction. This
+does not enable unimplemented indirect/graphics execution. No game defect claim.
+
+## LIMIT-031: Owned compute is a partial CustomShader execution adapter
+
+Candidate1.1.7 executes direct compute with original lists and owned resources.
+Graphics/state/draws, indirect dispatch, workgroup storage, added capabilities,
+null source resources and alignment adaptation remain. Low-level sampler/counter
+descriptors work; original source-state mapping remains. Storage views require
+declared format agreement. Sampler validation conservatively checks every image
+against every sampler; exact usage analysis is next. Actual enabled features and
+serialized queue scope are explicit host inputs. General directory rendering,
+application import/render-pass integration are not enabled. See custom-shaders.md.

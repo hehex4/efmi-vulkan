@@ -1,5 +1,11 @@
 # Original INI language compatibility
 
+Candidate1.1.7 executes opt-in original CustomShader direct compute against owned
+Vulkan resources. Original lists/expressions/counters/state restoration are
+preserved; unsupported graphics/device cases refuse. This is separate from
+complete Mod rendering. Full rebuilt regression passes in
+build/next/run_all-1.1.7.out. See custom-shaders.md for scope and remaining work.
+
 The compatibility target is the complete pinned XXMI language, not the syntax
 seen in a few installed character Mods. The original C++ engine remains the
 parser and evaluator. A successful parse does not establish that an executed

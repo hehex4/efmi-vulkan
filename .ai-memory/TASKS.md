@@ -6,6 +6,22 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+1.1.7 executes original CustomShader direct compute with owned Vulkan pipelines,
+immutable descriptors and fence-retained owners. Original counters/nested phases,
+null stages and state restoration pass. Production validation uses enabled layout
+features. BUG-021 fixes resource queries in all draw/dispatch argument guards.
+Full rebuilt suite passes: build/next/run_all-1.1.7.out, resources3633,
+compiler117/33 valid modules, all other steps and clean core/sync validation.
+Dist remains1.0.2; no game/deployment action.
+
+Continue offline immediately: workgroup memory and precise sampler/image usage,
+source sampler/counter state, indirect dispatch and remaining compute cases;
+then graphics state/draws, shader matching and directory integration. No game
+input is needed. LIMIT-031 and docs/custom-shaders.md describe the boundaries.
+Next1.1.8; PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
 1.1.6 supplies original HLSL preprocessing/model-5 validation, DXC compilation
 and source-reflected Vulkan descriptor mapping. All six stages and source
 edge cases pass 116 compiler checks; 33 modules validate. Actual Vulkan compute

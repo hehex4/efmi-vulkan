@@ -33,7 +33,7 @@ void RuntimeCompilePresent();
 void RuntimeCompileConstants(CommandList&,CommandList&);
 void RuntimeParseParameterRegister();
 void RuntimeUpdateTransitions(HackerDevice*);
-void RuntimeValidateSections(const std::vector<std::wstring>&);
+void RuntimeValidateSections(const std::vector<std::wstring>&,bool custom_shaders);
 void RuntimeSwapInput(std::vector<InputAction*>&);
 size_t RuntimeInputCount();
 bool RuntimeDispatchInput(HackerDevice*, const efmi::frontend::RuntimeInput&);
@@ -208,7 +208,8 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         // The original loader may declare user_config, but our persistence
         // destination is always the explicit project-owned generation path.
         G->user_config = p.settings.wstring();
-        RuntimeValidateSections(p.extension ? p.extension->native_shaders() : std::vector<std::wstring>{});
+        RuntimeValidateSections(p.extension ? p.extension->native_shaders() : std::vector<std::wstring>{},
+                                p.extension && p.extension->custom_shader_execution());
         if (p.extension) {
             const auto declarations = p.extension->declarations();
             if (!declarations.empty()) HostParseExcerpt(declarations.c_str(), L"efvk-native.ini");

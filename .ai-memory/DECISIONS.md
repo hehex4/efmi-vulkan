@@ -426,3 +426,16 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   separate evidence from INI shader execution. Unsupported legacy flags and
   target/device requirements remain explicit. Do not label syntax coverage or
   successful compilation as complete shader/Mod compatibility.
+
+## D-047: CustomShader uses explicit owned domains and retained descriptors
+
+- Date:2026-10-14, owned compute1.1.7. Reuse original keys/state parsers, command
+  lists, phases and counters; replace compiler/GPU boundaries. Opt-in preserves
+  the character path. All declared sources compile before candidate acceptance;
+  failure rejects the candidate instead of original log-and-remove behavior.
+- Immutable dispatch descriptors retain owners through ResourceSubmission fences.
+  Use the explicit serialized owned resource domain outside render passes and
+  shared budgets. This does not authorize application imports or hook waits.
+- Validate SPIR-V using actual scalar/uniform layout enablement and a pinned
+  validator DLL at an explicit path. Successful DXC compilation alone does not
+  prove device compatibility. Unsupported execution cases refuse explicitly.

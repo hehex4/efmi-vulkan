@@ -18,7 +18,7 @@ from generate_image_formats import verify as verify_image_formats
 def main() -> int:
     out = ROOT / "build/resource-commands"
     out.mkdir(parents=True, exist_ok=True)
-    report = {"scope": "original INI owned buffer/image commands and native image-view reference; no game or draw-hook integration", "passed": False}
+    report = {"scope": "original INI resources and owned CustomShader compute, native DX11 references; no game or draw-hook integration", "passed": False}
     try:
         verify_image_formats()
         from check_panel_hlsl import DXC, SPIRV
@@ -50,12 +50,15 @@ def main() -> int:
         inputs = sources + [ROOT / "sandbox/resource_image_cases.h", ROOT / "sandbox/resource_image_ini_cases.h",
                             ROOT / "sandbox/resource_image_conversion_cases.h", ROOT / "sandbox/resource_parameter_cases.h",
                             ROOT / "sandbox/resource_parameter_consumer.h", ROOT / "sandbox/resource_shader_cases.h",
+                            ROOT / "sandbox/resource_compute_cases.h",
                             shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))
         inputs += [Path(__file__), ROOT / "scripts/build_xxmi_runtime.py", ROOT / "scripts/generate_image_formats.py"]
         report["source_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
         report["executable_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
+        dependencies = [DXC.parent / "dxcompiler.dll", SPIRV.parent / "source/SPIRV-Tools-shared.dll"]
+        report["dependency_sha256"] = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in dependencies}
         sys.path.insert(0, str(ROOT / "sandbox"))
         from harness import inject_env
         env = inject_env(str(out / "unexpected-injection.log"))

@@ -69,8 +69,10 @@ bindings, not full CustomShader or game rendering.
   the original compiler. SPIR-V validation is always retained. No equivalence of
   compiler optimization decisions or all floating-point edge cases is claimed.
 - Storage image format specialization/unknown-format feature gating, null
-  descriptors, device limits, descriptor lifetime, shader execution, graphics
-  pipeline state and application command placement remain executor work.
+  descriptors, graphics state and application placement remain executor work.
+  Candidate1.1.7 adds owned direct compute, device/format checks, retained
+  descriptors and production layout validation; see custom-shaders.md. Compiler
+  checks are now117, including native warning plus DXC error visibility.
 
 The original includes and compile settings are audited against local pinned
 source. Compiler behavior is documented by the official

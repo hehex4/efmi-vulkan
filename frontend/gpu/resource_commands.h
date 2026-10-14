@@ -44,6 +44,7 @@ struct ResourceBudgets {
     std::shared_ptr<assets::AllocationBudget> staging=std::make_shared<assets::AllocationBudget>(128ull<<20);
 };
 class ResourceCommands;
+class ShaderCommands;
 // Device lifetime and host serialization are the caller's responsibility.
 // These are mutable resources; an owner preserves allocation, not old contents.
 class BufferResource {
@@ -132,12 +133,15 @@ public:
     void wait();
 private:
     friend class ResourceCommands;
+    friend class ShaderCommands;
     ResourceDevice device_;
     VkCommandPool pool_=VK_NULL_HANDLE;
     VkCommandBuffer command_=VK_NULL_HANDLE;
     VkFence fence_=VK_NULL_HANDLE;
     bool submitted_=false,complete_=false;
     std::vector<Buffer> retained_;
+    // Descriptor sets, pipelines, views and their owners share fence lifetime.
+    std::vector<std::shared_ptr<void>> shader_owners_;
     std::map<Image,VkImageLayout,std::owner_less<Image>> image_layouts_;
 };
 
@@ -184,6 +188,7 @@ public:
     std::vector<uint8_t> readback(VkQueue,const Buffer&,VkDeviceSize offset,VkDeviceSize size);
     void discard();
 private:
+    friend class ShaderCommands;
     Buffer allocate(VkDeviceSize,VkBufferUsageFlags,bool staging);
     void validate(const Buffer&,VkDeviceSize,VkDeviceSize) const;
     void validate(const Image&) const;

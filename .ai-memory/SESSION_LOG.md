@@ -1334,3 +1334,24 @@ Deployment follow-up, 20:25: the game was closed when checked. Backup build/back
   General INI CustomShader execution is next, not claimed by these tests.
   Remaining flag/device limitations are LIMIT-030; architecture choice D-046.
   Continue offline immediately per user, next1.1.7; PNG paused, LOD0/LOD1 only.
+
+## 2026-10-14: Original CustomShader owned compute,1.1.7
+
+- Added opt-in original CustomShader parsing/execution, direct compute, nested/
+  null stages, original counters and state restoration across abort/failure.
+  Dormant source failure rejects a candidate; retained old generations survive.
+  Native diagnostic NUL normalization preserves later DXC errors.
+- Owned Vulkan pipelines/descriptors/views/samplers cover structured/raw/typed
+  buffers, image arrays/storage and low-level UAV counters. Recorded dispatches
+  retain distinct bindings; fences retain retired owners. Production layout
+  validation gates packed float3 storage. Native WARP/Vulkan bytes agree.
+- Reproduced/fixed dispatch resource-query guards (BUG-021); interrupted an
+  earlier full run for the correction. Final frozen-source rebuilt regression:
+  build/next/run_all-1.1.7.out, all steps pass. Resources3633, compiler117/33 valid
+  modules, parser726/evaluator65/runtime68, character79/357, liveINI28,
+  validation76/modes40/MCP47/evidence113. Core/sync clean through shutdown;
+  66 resource and6 compiler source hashes match. ABI unchanged, text301 clean.
+  D-047/LIMIT-031 record owned execution boundaries.
+- Source/candidate1.1.7; dist1.0.2. No deployment/game/launcher/system action.
+  Continue immediately with compute gaps, then graphics/matching/directory
+  integration. No game input needed; next1.1.8, PNG paused, LOD0/LOD1 only.

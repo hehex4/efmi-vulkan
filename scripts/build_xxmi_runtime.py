@@ -19,6 +19,7 @@ def runtime_flags(out: Path) -> list[str]:
     pristine = DEPS / "efmi-xxmi-host-prototype/pristine"
     includes = [ROOT / "frontend/xxmi", Path(find_vulkan_include()), port, pristine, upstream,
                 DEPS / "dxc-1.9.2609/inc", DEPS / "SPIRV-Reflect-1.4.321.0",
+                DEPS / "Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/include",
                 upstream / "HLSLDecompiler", upstream / "D3D_Shaders", upstream / "DirectXTK/Inc",
                 upstream / "DirectXTK/Src", upstream / "crc32c-hw-1.0.5/include", upstream / "pcre2"]
     flags = ["/nologo", "/std:c++17", "/permissive", "/W0", "/O2", "/MT", "/EHa", "/Gy", "/Gw",
@@ -35,6 +36,8 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     pinned_checkout(reference, PINS["reference"])
     reflection = DEPS / "SPIRV-Reflect-1.4.321.0"
     pinned_checkout(reflection, "e55086b044225f9b511ae44dbf9b079d3625943f")
+    validator = DEPS / "Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools"
+    pinned_checkout(validator, "33e02568181e3312f49a3cf33df470bf96ef293a")
     port = reference / "reshade_addon/migoto"
     pristine = DEPS / "efmi-xxmi-host-prototype/pristine"
     for line in (port / "PRISTINE.txt").read_text().splitlines():
@@ -47,11 +50,11 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     legacy = [pristine / (name + ".cpp") for name in ("ResourceHash", "profiling", "util")]
     legacy += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("command_module", "runtime_override")]
     sources = [ROOT / "frontend/xxmi" / (name + ".cpp") for name in
-               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "gpu_resources", "gpu_images", "gpu_parameters", "image_formats")]
+               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "gpu_resources", "gpu_images", "gpu_parameters", "gpu_shaders", "image_formats")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/core/palette_bank.cpp"]
     sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in
-                ("resource_commands", "resource_images", "hlsl_compiler", "shader_reflection")]
+                ("resource_commands", "resource_images", "hlsl_compiler", "shader_reflection", "shader_commands")]
     sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in ("DDSTextureLoader", "WICTextureLoader")]
     sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
     flags = runtime_flags(out)
@@ -67,7 +70,8 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     common_files += list((ROOT / "frontend").rglob("*.h")) + [ROOT / "frontend/xxmi/ini_module.cpp"]
     common_files += list((ROOT / "layer/src").glob("*.h"))
     common_files += [DEPS / "dxc-1.9.2609/inc/dxcapi.h", reflection / "spirv_reflect.h",
-                     reflection / "spirv_reflect.c", reflection / "include/spirv/unified1/spirv.h"]
+                     reflection / "spirv_reflect.c", reflection / "include/spirv/unified1/spirv.h",
+                     validator / "include/spirv-tools/libspirv.h"]
     common_hash = hashlib.sha256("".join(digest(p) for p in sorted(common_files) if p.is_file()).encode()).hexdigest()
     def compile_sources(units, extra):
         pending, next_stamps = [], {}

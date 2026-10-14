@@ -52,6 +52,12 @@ public:
     // Recorded uploads, not completed GPU execution or application binding.
     uint64_t parameter_uploads() const {return parameter_uploads_;}
     gpu::ResourceCommands& commands(){return commands_;}
+    struct OutputState {
+        D3D11_VIEWPORT viewport{};
+        std::map<std::tuple<wchar_t,ResourceCopyTargetType,unsigned>,GpuResourceBinding> bindings;
+    };
+    OutputState save_outputs() const;
+    void restore_outputs(OutputState&&) noexcept;
 private:
     using Slot=std::tuple<wchar_t,ResourceCopyTargetType,unsigned>;
     bool run(CommandListCommand&,CommandListState&,std::wstring&);
