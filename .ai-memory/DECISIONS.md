@@ -652,3 +652,19 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   parser. Internal data structures are not evidence for numbered INI syntax.
   Invoke original Rendering getters before regex hashing/disassembly, matching
   the initialization normally performed by the full native loader.
+
+
+## D-064: Exact bytecode translation keeps device execution requirements
+
+- Date:2026-10-15, candidate1.3.4. Use unchanged vkd3d-shader2.1 for exact DXBC,
+  distinct from recompiling original HLSL. Scan instruction/signature facts;
+  optional RDEF and application SPIR-V hashes are not authoritative substitutes.
+- Only successful native outputs transfer ownership. A failed native compiler
+  may free partial output without clearing its pointer. Reject external dump/
+  config overrides and retain atomic caller-program publication.
+- Preserve source float32 denormal semantics. Strict modules need actual enabled
+  float controls and matching properties. The local NVIDIA default is measurably
+  different for sign/absolute-value operations, despite matching basic arithmetic.
+  Implement and verify software lowering before using this translation path there.
+- Keep compiled bytecode, owned GPU execution, runtime regex publication and
+  application/game integration distinct. Continue offline without user input.

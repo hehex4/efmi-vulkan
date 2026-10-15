@@ -1,5 +1,20 @@
 # EFMI Vulkan - Architecture
 
+Original ShaderRegex generations now own native groups, models and immutable
+bounded DXBC. Native matching/assembly runs against isolated override-map nodes;
+only fully prepared pattern-only links publish. Original root/local-variable
+storage stays stable. DxbcCompiler (candidate1.3.4) translates exact bytecode
+through pinned vkd3d2.1, derives registers/signatures by scanning instructions and
+reflects the emitted SPIR-V into the existing owned executor. It is separate from
+HlslCompiler, which recompiles CustomShader source with FXC/DXC. Patched regex
+runtime publication remains a later explicit integration boundary.
+
+Translated float32 execution currently declares the source denormal mode and
+requires enabled float controls plus the actual physical property. Candidate
+GPU tests use Intel for this path; ordinary INI tests stay on NVIDIA. Default
+NVIDIA mode experiments are separate and need broader verification before an
+adapter. See docs/bytecode-compiler.md and docs/shader-matching-audit.md.
+
 Compute follow-up1.1.8 adds bounded executable workgroup/provenance analysis,
 indirect argument-buffer retention/ordering and original source sampler slots.
 Null samplers use native defaults; explicit snapshots and shared sampler quotas

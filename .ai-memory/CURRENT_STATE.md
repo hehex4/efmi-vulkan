@@ -1,10 +1,34 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-15, original ShaderRegex assembly1.3.3 verified. Continue bytecode translation offline; dist1.0.2 unchanged.
+> Last updated: 2026-10-15, exact DXBC translation1.3.4 verified. Continue float32 lowering offline; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Exact DXBC translation (verified candidate1.3.4)
+
+Exact original/reassembled DXBC now translates to SPIR-V through unchanged
+vkd3d2.1. Native scanning supplies original register/signature contracts even
+without RDEF. Owned compute and graphics tests compare changed bytecode, shared
+memory/atomics, typed/raw/structured buffers, image reads, counters and nonzero
+vertex/instance IDs with native results. Runtime regex patch publication remains
+separate; current1.3.3 links still refuse bytecode-changing plans.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.3.4.out exit0/all steps;
+runtime475, resources9908, compiler172/58, corpus37/37, clean core/sync through
+shutdown. Source hashes108/9/12 match; installed inputs unchanged; text356 clean.
+Strict DXBC translation tests explicitly use Intel float controls. Existing INI
+resource tests remain on NVIDIA. No game/deployment/system action; dist1.0.2 and
+separate launcher DX11 state stay unchanged.
+
+Continue1.3.5 offline with source-correct float32 lowering for devices without
+explicit denormal control, then regex executable publication and view adaptation.
+The local NVIDIA default mode matches basic arithmetic but differs from native
+WARP for six subnormal sign/absolute-value rows. Intel strict mode matches all.
+Do not silently drop the requested mode. See LIMIT-033 and docs/bytecode-compiler
+.md; build/float-controls contains the isolated probes. Game input is not needed;
+keep going. PNG paused, LOD0/LOD1 only.
 
 ## Original ShaderRegex assembly (verified candidate1.3.3)
 

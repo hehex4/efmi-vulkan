@@ -6,6 +6,30 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+Exact original/reassembled DXBC now translates to SPIR-V through unchanged
+vkd3d2.1. Native scanning supplies original register/signature contracts even
+without RDEF. Owned compute and graphics tests compare changed bytecode, shared
+memory/atomics, typed/raw/structured buffers, image reads, counters and nonzero
+vertex/instance IDs with native results. Runtime regex patch publication remains
+separate; current1.3.3 links still refuse bytecode-changing plans.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.3.4.out exit0/all steps;
+runtime475, resources9908, compiler172/58, corpus37/37, clean core/sync through
+shutdown. Source hashes108/9/12 match; installed inputs unchanged; text356 clean.
+Strict DXBC translation tests explicitly use Intel float controls. Existing INI
+resource tests remain on NVIDIA. No game/deployment/system action; dist1.0.2 and
+separate launcher DX11 state stay unchanged.
+
+Continue1.3.5 offline with source-correct float32 lowering for devices without
+explicit denormal control, then regex executable publication and view adaptation.
+The local NVIDIA default mode matches basic arithmetic but differs from native
+WARP for six subnormal sign/absolute-value rows. Intel strict mode matches all.
+Do not silently drop the requested mode. See LIMIT-033 and docs/bytecode-compiler
+.md; build/float-controls contains the isolated probes. Game input is not needed;
+keep going. PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
 Original ShaderRegex text matching, capture replacement, temporary registers
 and declaration insertion now run through unchanged native disassembly, regex
 and signature-aware assembly. Immutable original DXBC is validated and retained

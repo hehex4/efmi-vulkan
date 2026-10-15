@@ -19,6 +19,9 @@ struct ShaderHost {
     // enablement on API versions where these features are not core.
     bool scalar_block_layout=false,uniform_buffer_standard_layout=false;
     bool shader_draw_parameters=false,maintenance4=false;
+    // Core 1.2 or explicitly enabled KHR float controls, with actual properties.
+    bool float_controls=false;
+    VkPhysicalDeviceFloatControlsProperties float_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES};
     // KHR/core vertex divisor enablement and actual physical properties.
     bool vertex_divisor=false,vertex_zero_divisor=false,divisor_first_instance=false;
     uint32_t max_vertex_divisor=1;

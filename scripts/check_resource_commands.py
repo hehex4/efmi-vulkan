@@ -19,8 +19,10 @@ from generate_image_formats import verify as verify_image_formats
 def main() -> int:
     out = ROOT / "build/resource-commands"
     out.mkdir(parents=True, exist_ok=True)
-    report = {"scope": "owned original INI resources/compute/VS-GS-PS graphics and original Core HLSL with native DX11 references; no application import or game integration", "passed": False}
+    report = {"scope": "owned original INI resources/graphics, Core HLSL and exact DXBC translation with native DX11 references; no application import or game integration", "passed": False}
     try:
+        from build_bytecode_compiler import build_dependency
+        bytecode_library = build_dependency()
         verify_image_formats()
         core = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Core/EFMI")
         original_inputs = {core / "Shaders/TextPrinter.hlsl": "text.hlsl", core / "Fonts/LiberationSans-Bold.dds": "font.dds",
@@ -74,13 +76,14 @@ def main() -> int:
                             ROOT / "sandbox/resource_shader_hook_cases.h",
                             ROOT / "sandbox/resource_identity_cases.h",
                             ROOT / "sandbox/resource_regex_cases.h",
+                            ROOT / "sandbox/resource_bytecode_cases.h",
                             shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))
-        inputs += [Path(__file__), ROOT / "scripts/build_xxmi_runtime.py", ROOT / "scripts/generate_image_formats.py"]
+        inputs += [Path(__file__), ROOT / "scripts/build_xxmi_runtime.py", ROOT / "scripts/generate_image_formats.py", ROOT / "scripts/build_bytecode_compiler.py"]
         report["source_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
         report["executable_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
-        dependencies = [DXC.parent / "dxcompiler.dll", SPIRV.parent / "source/SPIRV-Tools-shared.dll"]
+        dependencies = [DXC.parent / "dxcompiler.dll", SPIRV.parent / "source/SPIRV-Tools-shared.dll", bytecode_library]
         report["dependency_sha256"] = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in dependencies}
         sys.path.insert(0, str(ROOT / "sandbox"))
         from harness import inject_env

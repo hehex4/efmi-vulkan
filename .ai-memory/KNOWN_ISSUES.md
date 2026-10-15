@@ -640,3 +640,27 @@ verified with native WARP execution and bounded isolated preparation. Pattern-
 only matching drives owned Vulkan pixels. Bytecode-changing rules still refuse
 runtime publication until translation is verified. No application/game evidence
 is implied; source shader provenance remains independent from executable hashes.
+
+
+LIMIT-032 follow-up1.3.4: exact original/reassembled DXBC executes in owned
+compute/VS-PS tests with native references, including raw/structured/typed buffers
+and counters. Regex runtime publication and native view stride/type adaptation
+remain next. Packed signature components, extra stages/features and application
+shader correspondence remain explicit boundaries.
+
+## LIMIT-033: Native float32 denormal control differs across local devices
+
+RTX5060 Laptop reports no explicit float32 preserve or flush-to-zero property;
+Intel RaptorLake-S reports both. Strict translated modules therefore execute only
+on the selected Intel test device. GPU capability checks reject unsupported mode
+or missing extension enablement before creating a pipeline.
+
+A separate NVIDIA default-mode experiment agrees with native WARP for16 boundary
+inputs under raw copies/add/multiply/equality, but differs in6 positive/negative
+subnormal rows for negation and absolute value. Native outputs signed zero; the
+NVIDIA default retains denormal bits. Intel strict mode agrees for all16 rows.
+Evidence:build/float-controls/default_mode.cpp/.txt and sign_mode.cpp,
+sign_nvidia.txt, sign_intel.txt; core/sync clean. This is offline evidence only.
+Original vkd3d/state.c uses ANY mode, but that alone does not meet this measured
+source contract. Next implement bounded float32 lowering and broaden native
+arithmetic/comparison tests; do not infer universal default-mode equivalence.
