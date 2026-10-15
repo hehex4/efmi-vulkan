@@ -1411,7 +1411,7 @@ int wmain(int argc,wchar_t** argv){
         original_matched_layouts(device,root/"matched-layouts");
         original_shader_hooks(device,root/"source-shader-hooks");original_compute_hooks(device,root/"source-compute-hooks");
         native_resource_match_reference(device,root/"source-resource-matcher");owned_resource_matching(device,root/"owned-resource-matcher");
-        original_core_regex(device,root/"core-regex");}
+        original_core_regex(device,root/"core-regex");original_core_regex(device,root/"core-regex-pattern",true);}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

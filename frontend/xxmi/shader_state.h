@@ -5,6 +5,7 @@
 
 class HackerContext;
 namespace efmi::frontend {
+class SourceShaderCode;
 // Facts about the original tracked source shader, not a temporary CustomShader
 // executable. Unknown is distinct from a known unbound stage or unknown hash.
 struct SourceShaderBinding {
@@ -12,6 +13,7 @@ struct SourceShaderBinding {
     uint64_t hash=0;
     std::shared_ptr<const ShaderBindings> declarations;
     std::string model; // Proven native model, e.g. vs_5_0; empty means unknown.
+    std::shared_ptr<const SourceShaderCode> code; // Optional immutable original DXBC.
 };
 struct SourceShaderState {
     std::array<SourceShaderBinding,6> stages; // v,h,d,g,p,c

@@ -1,10 +1,35 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-15, original ShaderRegex linkage1.3.2 verified. Continue assembly-dependent shader work offline; dist1.0.2 unchanged.
+> Last updated: 2026-10-15, original ShaderRegex assembly1.3.3 verified. Continue bytecode translation offline; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Original ShaderRegex assembly (verified candidate1.3.3)
+
+Original ShaderRegex text matching, capture replacement, temporary registers
+and declaration insertion now run through unchanged native disassembly, regex
+and signature-aware assembly. Immutable original DXBC is validated and retained
+per generation. Isolated native preparation preserves explicit command roots,
+local storage and filter state; incomplete executable patches cannot publish.
+Pattern-only rules can drive owned Vulkan execution with exact native pixels.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.3.3.out exit0/all steps;
+runtime475, resources9360, compiler172/58, corpus37/37, clean core/sync through
+shutdown. Source hashes104/9/12 match; installed inputs unchanged; text351 clean.
+Native WARP executes round-tripped and original-regex-patched bytecode with
+expected outputs1/7/9. This does not yet execute changed bytecode on Vulkan.
+No game/deployment/system action; dist1.0.2 and separate launcher DX11 state stay
+unchanged.
+
+Continue1.3.4 offline with bounded DXBC-to-SPIR-V translation, exact source
+association and native/GPU comparisons before publishing patched executables.
+The native parser accepts only .Pattern, not numbered/multiple pattern sections;
+the earlier multi-pattern partial-failure inference is withdrawn. Valid sorted
+groups remain tested. Native Rendering getters now initialize the three assembly
+flags before parsing/hashing. No game input needed; continue. PNG paused,
+LOD0/LOD1 only. See docs/shader-matching-audit.md.
 
 ## Original ShaderRegex linkage (verified candidate1.3.2)
 

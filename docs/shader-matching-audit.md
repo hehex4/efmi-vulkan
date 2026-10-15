@@ -133,18 +133,41 @@ disassembler, preserving round-trippable float values and the source's optional
 constant-buffer/custom-data handling. Plain D3DDisassemble output is not an
 equivalent text contract for every pattern.
 
-apply_shader_regex_groups processes sorted groups and patterns. Pattern-only
+apply_shader_regex_groups processes sorted groups. Pattern-only
 groups can link commands without changing an executable; replacement patterns,
 temporary-register substitution and inserted declarations may require rebuilt
-bytecode. Matching a later pattern can depend on earlier text changes. Failed
-groups do not restore partially changed text, so treating every group as an
-independent regex search changes pinned behavior. The source fast path ignores
+bytecode. Matching a later group can depend on earlier text changes; treating
+every group as an independent search changes pinned behavior. The source fast path ignores
 declarations when a group has no patterns; do not invent a patch in that path.
 
 Native patch execution uses AssembleFluganWithSignatureParsing. A proof for
 owned original DXBC can cover disassembly, original matching/substitution and
 reassembly offline. Vulkan execution additionally needs a bounded translator
 and an executable associated with that exact patched source. A stored original
-model or a SPIR-V hash does not establish this association. The current candidate
-refuses a relevant patterned model rather than silently treating it as unmatched.
+model or a SPIR-V hash does not establish this association. Candidate1.3.3
+accepts proven pattern-only matching; bytecode-changing results remain analysis
+only until a verified Vulkan executable is available.
 Continue this path offline before application integration.
+
+Correction during1.3.3: the internal group object has a collection of patterns,
+but this pinned parser accepts only the exact .Pattern section. It explicitly
+defers numbered/multiple patterns. An initial fixture using .Pattern1 was invalid
+and was removed; a negative test now requires its original parser diagnostic
+before generation preparation. The earlier inference about partial failure in
+multi-pattern INI groups is withdrawn. Ordered behavior between valid groups
+remains relevant and is tested independently.
+
+The native Globals constructor leaves assemble_signature_comments,
+disassemble_undecipherable_custom_data and patch_cb_offsets uninitialized. The
+full original Rendering loader normally supplies them before regex parsing.
+The hosted wrapper now calls their original getters with the same false defaults
+in both runtime and inspection hosts, before native regex hashing or disassembly.
+
+
+Verified1.3.3: original named captures, temporary-register allocation, declaration
+insertion, sorted dependent groups and unmatched groups have native WARP outputs
+1/7/9. Source identity conflicts, missing evidence and invalid original syntax
+refuse without altering explicit roots/local storage. Patterned Core execution
+passes exact native pixels. Full rebuilt suite:build/next/run_all-1.3.3.out;
+runtime475/resources9360, source hashes104/9/12 match, core/sync clean. No game or
+deployment. Original patched DXBC still needs executable translation.

@@ -1,4 +1,5 @@
 #include "shader_state.h"
+#include "shader_assembly.h"
 #include "globals.h"
 #include "HackerContext.h"
 #include <stdexcept>
@@ -40,9 +41,11 @@ void SourceShaderContext::install(const SourceShaderState& next,HackerContext& c
     require(G!=nullptr,"Source shader facts require an active generation");
     ShaderMap hashes;std::unordered_map<UINT64,ShaderBindings> declarations;std::unordered_map<UINT64,std::string> models;
     for(size_t i=0;i<6;++i){const auto& s=next.stages[i];
-        require(s.known || (!s.bound && !s.hash_known && !s.hash && !s.declarations && s.model.empty()),"Unknown shader stage contains asserted facts");
-        require(s.bound || (!s.hash_known && !s.hash && !s.declarations && s.model.empty()),"Unbound shader stage contains asserted facts");
-        require(s.hash_known || (!s.hash && !s.declarations && s.model.empty()),"Unknown shader hash contains declaration facts");
+        require(s.known || (!s.bound && !s.hash_known && !s.hash && !s.declarations && s.model.empty() && !s.code),"Unknown shader stage contains asserted facts");
+        require(s.bound || (!s.hash_known && !s.hash && !s.declarations && s.model.empty() && !s.code),"Unbound shader stage contains asserted facts");
+        require(s.hash_known || (!s.hash && !s.declarations && s.model.empty() && !s.code),"Unknown shader hash contains declaration facts");
+        if(s.code)require(s.model==s.code->model() && (!s.declarations || same(*s.declarations,*s.code->declarations())),
+            "Original shader bytecode conflicts with model or declaration facts");
         if(!s.model.empty()){
             const auto separator=s.model.find('_',3);
             require(s.model.size()>=6 && s.model.size()<=32 && s.model[0]=="vhdgpc"[i] && s.model[1]=='s' && s.model[2]=='_' &&

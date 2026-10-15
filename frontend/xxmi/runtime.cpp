@@ -240,6 +240,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         }else if(config.initial_shaders)throw std::runtime_error("Source shader facts require shader hook opt-in");
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
         if(config.shader_hooks){HostParseShaderOverrides();HostParseShaderRegex();
+            if(HostDiagnosticCount()!=diagnostics)throw std::runtime_error("Original INI parser: "+HostDiagnosticsSince(diagnostics));
             for(const auto& entry:G->mShaderOverrideMap)
                 if(entry.second.depth_filter!=DepthBufferFilter::NONE || entry.second.model[0])
                     throw std::runtime_error("Legacy shader depth/model substitution requires a source replacement adapter");
@@ -282,7 +283,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             p.adapter.adapt(entry.command_list); p.adapter.adapt(entry.post_command_list);
         }
         for(auto& entry:G->mShaderOverrideMap){p.adapter.adapt(entry.second.command_list);p.adapter.adapt(entry.second.post_command_list);}
-        if(config.shader_hooks && config.initial_shaders)p.source_regex.apply(*config.initial_shaders,63,p.adapter);
+        if(config.shader_hooks && config.initial_shaders)p.source_regex.apply(p.source_regex.prepare(*config.initial_shaders,63,false),p.adapter);
         phase = "file declaration adaptation";
         p.files = std::make_unique<FilePlanCompiler>(customResources);
         auto initial = p.command_state(); DrawPlan unused; std::wstring why;
@@ -346,7 +347,7 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
 bool IniRuntime::bind_source_shaders(const SourceShaderState& state,std::string& reason){
     reason.clear();try{auto& p=*impl_;Scope scope(p.state);
         if(!p.config.shader_hooks)throw std::runtime_error("Source shader facts require shader hook opt-in");
-        p.source_regex.preflight(state,63,false);p.source_shaders.install(state,p.context);p.source_regex.apply(state,63,p.adapter);return true;
+        auto prepared=p.source_regex.prepare(state,63,false);p.source_shaders.install(state,p.context);p.source_regex.apply(std::move(prepared),p.adapter);return true;
     }catch(const std::exception& e){reason=e.what();return false;}
 }
 bool IniRuntime::intercept(const RuntimeShaderCall& input,std::string& reason){
@@ -359,9 +360,9 @@ bool IniRuntime::intercept(const RuntimeShaderCall& input,std::string& reason){
         if(input.call.type<DrawCall::Draw || input.call.type>DrawCall::DispatchIndirect || !input.original)
             throw std::runtime_error("Original shader call boundary is missing or invalid");
         const unsigned shader_mask=compute?32u:31u;
-        if(!input.call.hunting_skip)p.source_regex.preflight(input.shaders,shader_mask,true);
+        auto prepared=input.call.hunting_skip?SourceShaderRegex::Preparation{}:p.source_regex.prepare(input.shaders,shader_mask,true);
         p.source_shaders.install(input.shaders,p.context);
-        if(!input.call.hunting_skip)p.source_regex.apply(input.shaders,shader_mask,p.adapter);
+        if(prepared)p.source_regex.apply(std::move(prepared),p.adapter);
         G->frame_no=unsigned(input.frame);G->gTime=input.seconds;G->gFrameTime=input.frame_seconds;
         if(compute)++p.context.dispatch_number;else ++p.context.draw_number;
         std::vector<CommandList*> pre,post;

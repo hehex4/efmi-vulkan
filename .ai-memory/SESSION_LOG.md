@@ -1737,3 +1737,44 @@ only into F:/vulkan/vkd3d-2.1. Archive SHA256:
 Source: https://dl.winehq.org/vkd3d/source/vkd3d-2.1.tar.xz .
 It is not built, linked, deployed or executed. Original XXMI assembly helpers
 remain the intended text/patch authority. No change outside project-owned paths.
+
+
+## 2026-10-15: Original ShaderRegex assembly, candidate1.3.3
+
+Original ShaderRegex text matching, capture replacement, temporary registers
+and declaration insertion now run through unchanged native disassembly, regex
+and signature-aware assembly. Immutable original DXBC is validated and retained
+per generation. Isolated native preparation preserves explicit command roots,
+local storage and filter state; incomplete executable patches cannot publish.
+Pattern-only rules can drive owned Vulkan execution with exact native pixels.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.3.3.out exit0/all steps;
+runtime475, resources9360, compiler172/58, corpus37/37, clean core/sync through
+shutdown. Source hashes104/9/12 match; installed inputs unchanged; text351 clean.
+Native WARP executes round-tripped and original-regex-patched bytecode with
+expected outputs1/7/9. This does not yet execute changed bytecode on Vulkan.
+No game/deployment/system action; dist1.0.2 and separate launcher DX11 state stay
+unchanged.
+
+Continue1.3.4 offline with bounded DXBC-to-SPIR-V translation, exact source
+association and native/GPU comparisons before publishing patched executables.
+The native parser accepts only .Pattern, not numbered/multiple pattern sections;
+the earlier multi-pattern partial-failure inference is withdrawn. Valid sorted
+groups remain tested. Native Rendering getters now initialize the three assembly
+flags before parsing/hashing. No game input needed; continue. PNG paused,
+LOD0/LOD1 only. See docs/shader-matching-audit.md.
+
+Initial fixture correction: .Pattern1/.PatternZ are invalid in the pinned
+parser even though the internal group has a pattern map. Reject diagnostics
+before extension preparation; use sorted valid groups to test sequential edits.
+The first exploratory invalid graph produced misleading allocation failures;
+no production workaround was added. Corrected the earlier audit inference.
+
+Built independent vkd3d2.1 compiler in F:/vulkan/vkd3d-2.1-build from unchanged
+release source. Portable GCC/winflexbison/SPIRV-Headers tools are installed only
+under F:/vulkan with source URLs and archive SHA256 records. The build needed
+complete SPIRV-Headers and the upstream debug macros left enabled. Library load
+reports2.1; DLL SHA256976a527eb6f2529e05103c308a69ba74c6625664a4b92ed3e8ff81f6b3c17f49.
+Not linked to this candidate or deployed; next record a reproducible project
+build recipe and verify actual translation. All test/code sources stayed frozen
+through the full1.3.3 regression; dependency work was independent.

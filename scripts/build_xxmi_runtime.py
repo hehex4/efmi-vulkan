@@ -55,9 +55,10 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
             staged.write_bytes(original.read_bytes())
     legacy = [pristine / (name + ".cpp") for name in ("profiling", "util")]
     legacy += [out / "ByteCodeReader.cpp",out / "ShaderRegex.cpp"]
+    legacy += [upstream / "D3D_Shaders" / (name + ".cpp") for name in ("Assembler", "SignatureParser")]
     legacy += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("command_module", "resource_hash_module", "runtime_override")]
     sources = [ROOT / "frontend/xxmi" / (name + ".cpp") for name in
-               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "shader_state", "shader_regex", "gpu_resources", "gpu_bindings", "gpu_images", "gpu_parameters", "gpu_shaders", "gpu_graphics", "input_layout", "gpu_layout", "image_formats")]
+               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "shader_state", "shader_regex", "shader_assembly", "gpu_resources", "gpu_bindings", "gpu_images", "gpu_parameters", "gpu_shaders", "gpu_graphics", "input_layout", "gpu_layout", "image_formats")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/core/palette_bank.cpp"]
     sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in
@@ -75,6 +76,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     stamps = json.loads(stamp_file.read_text()) if stamp_file.exists() else {}
     common_files = list(pristine.glob("*")) + list(port.glob("*.h"))
     common_files += [out / "d3d11TokenizedProgramFormat.hpp"]
+    common_files += [upstream / "D3D_Shaders/stdafx.h", upstream / "D3D_Shaders/targetver.h", upstream / "HLSLDecompiler/shader.h"]
     common_files += list((ROOT / "frontend").rglob("*.h")) + [ROOT / "frontend/xxmi/ini_module.cpp"]
     common_files += list((ROOT / "layer/src").glob("*.h"))
     common_files += [DEPS / "dxc-1.9.2609/inc/dxcapi.h", reflection / "spirv_reflect.h",

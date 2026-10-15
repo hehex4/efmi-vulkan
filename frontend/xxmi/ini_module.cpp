@@ -18,6 +18,12 @@ void HostEnumerateLists() { EnumerateExplicitCommandListSections(); }
 void HostParseResources() { ParseResourceSections(); }
 void HostParseIncludes() { ParseIncludedIniFiles(); }
 void HostInsertBuiltins() { InsertBuiltInIniSections(); }
+void HostParseShaderRegex() {
+    G->assemble_signature_comments=GetIniBool(L"Rendering",L"assemble_signature_comments",false,nullptr);
+    G->disassemble_undecipherable_custom_data=GetIniBool(L"Rendering",L"disassemble_undecipherable_custom_data",false,nullptr);
+    G->patch_cb_offsets=GetIniBool(L"Rendering",L"patch_assembly_cb_offsets",false,nullptr);
+    ParseShaderRegexSections();
+}
 void HostParseResourceFamily(const std::wstring& prefix)
 {
     for (const auto& section : ini_sections)
@@ -50,7 +56,7 @@ void HostInspectAllSections()
     }
     ParseExplicitCommandListSections();
     ParseShaderOverrideSections();
-    ParseShaderRegexSections();
+    HostParseShaderRegex();
     // Inspection validates resizing metadata too, without creating a resource.
     G->allow_buffer_resize = true;
     ParseTextureOverrideSections();
@@ -88,7 +94,6 @@ void HostParseResourceMatching() {
     if(G->track_region_hashes)BuildTextureOverrideDrawMaps();
 }
 void HostParseShaderOverrides() { ParseShaderOverrideSections(); }
-void HostParseShaderRegex() { ParseShaderRegexSections(); }
 void HostCompileNamedList(const wchar_t* name)
 {
     auto& list=explicitCommandListSections.at(name);

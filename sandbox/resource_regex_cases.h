@@ -1,4 +1,5 @@
-static void original_core_regex(Device& d,const std::filesystem::path& root){
+#include "../frontend/xxmi/shader_assembly.h"
+static void original_core_regex(Device& d,const std::filesystem::path& root,bool patterned=false){
     const auto programs=ini_graphics_programs(root);
     std::ifstream file(root.parent_path()/"core-text/source/main.ini",std::ios::binary);
     const std::string original((std::istreambuf_iterator<char>(file)),{});
@@ -9,7 +10,7 @@ static void original_core_regex(Device& d,const std::filesystem::path& root){
     // Real owned source index bytes supply a region identity. Shader hashes are
     // explicit fixture identities, not a claim about application correspondence.
     const uint32_t indices[]={0,1,2};const auto hash=efvk::crc32c(0,indices,sizeof(indices));char hex[16];snprintf(hex,sizeof(hex),"%08x",hash);
-    const std::string text=std::string(ini_graphics_resources)+R"ini(
+    std::string text=std::string(ini_graphics_resources)+R"ini(
 [Rendering]
 track_region_hashes = 1
 [Constants]
@@ -39,6 +40,9 @@ x = 7
 run = CustomShaderReplacement
 post x = 1
 )ini";
+    // The original Core section remains unchanged. A separate synthetic pattern
+    // tests the same command graph through actual native assembly matching.
+    if(patterned)text+="[ShaderRegexEnableTextureOverrides.Pattern]\n\\bdcl_input_sgv[^\\n]*vertex_id\n";
     ShaderFixture f(d,root,text.c_str(),true);f.backend->set_programs({programs.first,programs.second});
     auto state=frontend::source_graphics_defaults();state.topology=D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;state.raster.CullMode=D3D11_CULL_NONE;state.depth.DepthEnable=false;
     f.backend->set_graphics_state(state);
@@ -54,6 +58,7 @@ post x = 1
     call.shaders=owned_shader_facts({programs.first,programs.second});
     call.shaders.stages[0].model=frontend::source_shader_model(programs.first.dxbc.data(),programs.first.dxbc.size());
     call.shaders.stages[4].model=frontend::source_shader_model(programs.second.dxbc.data(),programs.second.dxbc.size());
+    if(patterned)call.shaders.stages[0].code=frontend::SourceShaderCode::create(programs.first.dxbc.data(),programs.first.dxbc.size());
     unsigned originals=0;call.original=[&](CommandListState& current,std::wstring& why){++originals;return f.backend->execute_original(current,why);};
     frontend::RuntimeInput input;input.foreground=true;
     auto present=[&]{f.backend->resources().begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);

@@ -636,3 +636,19 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Relevant patterned groups currently refuse. Next reuse original disassembly,
   matching/substitution and signature-aware assembly before executable translation.
   Core's patternless GPU result does not establish RabbitFX or game compatibility.
+
+
+## D-063: Native assembly matching precedes executable publication
+
+- Date:2026-10-15, candidate1.3.3. Use unchanged Flugan disassembly and
+  signature-aware assembly around the original regex implementation. Keep
+  immutable bounded original DXBC and reject conflicts for a cached identity.
+- Prepare against isolated native map nodes so failed translation cannot leave
+  linked commands or invalidate live local-variable pointers. Pattern-only
+  plans publish; bytecode-changing plans remain analysis-only until a compiler
+  and exact executable association are available. Source query facts remain
+  original metadata, independently of a patched executable.
+- Preserve actual source grammar: only .Pattern is supported by this pinned
+  parser. Internal data structures are not evidence for numbered INI syntax.
+  Invoke original Rendering getters before regex hashing/disassembly, matching
+  the initialization normally performed by the full native loader.

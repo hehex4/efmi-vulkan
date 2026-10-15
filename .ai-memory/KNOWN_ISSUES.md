@@ -633,3 +633,10 @@ pixels. Pattern-bearing model matching still requires original assembly evidence
 patched execution also needs bytecode translation and exact source association.
 General application/window/backbuffer state, directory scheduling and actual
 command placement remain separate. Full rebuilt1.3.2 suite passes; no game result.
+
+
+LIMIT-032 follow-up1.3.3: original text matching and patch/reassembly are now
+verified with native WARP execution and bounded isolated preparation. Pattern-
+only matching drives owned Vulkan pixels. Bytecode-changing rules still refuse
+runtime publication until translation is verified. No application/game evidence
+is implied; source shader provenance remains independent from executable hashes.
