@@ -83,6 +83,7 @@ void HostVisitShaderSources(const std::function<void(const std::wstring&,const s
     }
 }
 void HostParseTextureOverrides() { ParseTextureOverrideSections(); }
+void HostParseShaderOverrides() { ParseShaderOverrideSections(); }
 void HostCompileNamedList(const wchar_t* name)
 {
     auto& list=explicitCommandListSections.at(name);

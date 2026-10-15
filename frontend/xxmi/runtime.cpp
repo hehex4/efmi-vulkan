@@ -22,6 +22,7 @@ void HostParseConstants();
 void HostEnumerateLists();
 void HostParseResources();
 void HostParseTextureOverrides();
+void HostParseShaderOverrides();
 void HostCompileRoots(const std::vector<CommandList*>&, const std::vector<std::wstring>&);
 void HostResourceRoot(const std::wstring&);
 size_t HostDiagnosticCount();
@@ -33,7 +34,7 @@ void RuntimeCompilePresent();
 void RuntimeCompileConstants(CommandList&,CommandList&);
 void RuntimeParseParameterRegister();
 void RuntimeUpdateTransitions(HackerDevice*);
-void RuntimeValidateSections(const std::vector<std::wstring>&,bool custom_shaders);
+void RuntimeValidateSections(const std::vector<std::wstring>&,bool custom_shaders,bool shader_hooks);
 void RuntimeSwapInput(std::vector<InputAction*>&);
 size_t RuntimeInputCount();
 bool RuntimeDispatchInput(HackerDevice*, const efmi::frontend::RuntimeInput&);
@@ -143,6 +144,7 @@ struct IniRuntime::Impl {
     std::filesystem::path settings;
     std::shared_ptr<RuntimeExtension> extension;
     DrawPlanAdapter adapter;
+    SourceShaderContext source_shaders;
     std::unique_ptr<FilePlanCompiler> files;
     HackerDevice device;
     HackerContext context;
@@ -156,10 +158,10 @@ struct IniRuntime::Impl {
     {
         CommandListState s; s.mHackerContext = &context; s.mHackerDevice = &device; return s;
     }
-    bool execute(CommandList& pre, CommandList& post, assets::FilePlan& result, std::wstring& reason)
+    bool execute(CommandList& pre, CommandList& post, assets::FilePlan& result, std::wstring& reason,DrawPlanAdapter::OriginalCall between={})
     {
         auto s = command_state(); DrawPlan plan;
-        return adapter.execute_pair(pre, post, s, plan, reason) && files->compile(plan, result, reason);
+        return adapter.execute_pair(pre, post, s, plan, reason,std::move(between)) && files->compile(plan, result, reason);
     }
 };
 
@@ -209,7 +211,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         // destination is always the explicit project-owned generation path.
         G->user_config = p.settings.wstring();
         RuntimeValidateSections(p.extension ? p.extension->native_shaders() : std::vector<std::wstring>{},
-                                p.extension && p.extension->custom_shader_execution());
+                                p.extension && p.extension->custom_shader_execution(),config.shader_hooks);
         if (p.extension) {
             const auto declarations = p.extension->declarations();
             if (!declarations.empty()) HostParseExcerpt(declarations.c_str(), L"efvk-native.ini");
@@ -224,7 +226,16 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         if (std::filesystem::exists(p.settings)) read_ini(p.settings, L"efvk-user-settings.ini");
         phase = "declaration parsing";
         RuntimeEnumerateCustomShaders(); HostEnumerateLists(); HostParseConstants(); HostParseResources();RuntimeParseParameterRegister();
+        if(config.shader_hooks){
+            if(config.initial_shaders)p.source_shaders.install(*config.initial_shaders,p.context);
+            p.adapter.shader_queries([&p](auto& operand,auto& state,auto& value,auto& why){return p.source_shaders.query(operand,state,value,why);});
+        }else if(config.initial_shaders)throw std::runtime_error("Source shader facts require shader hook opt-in");
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
+        if(config.shader_hooks){HostParseShaderOverrides();
+            for(const auto& entry:G->mShaderOverrideMap)
+                if(entry.second.depth_filter!=DepthBufferFilter::NONE || entry.second.model[0])
+                    throw std::runtime_error("Legacy shader depth/model substitution requires a source replacement adapter");
+        }
         HostParseTextureOverrides(); RuntimeCompilePresent(); RuntimeParseKeys();
         std::wstring validation;
         if (p.extension && !p.extension->validate_overrides(validation)) throw std::runtime_error("Native override registry refused: " + utf8(validation));
@@ -261,6 +272,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         for (auto& hashed : G->mTextureOverrideMap) for (auto& entry : hashed.second) {
             p.adapter.adapt(entry.command_list); p.adapter.adapt(entry.post_command_list);
         }
+        for(auto& entry:G->mShaderOverrideMap){p.adapter.adapt(entry.second.command_list);p.adapter.adapt(entry.second.post_command_list);}
         phase = "file declaration adaptation";
         p.files = std::make_unique<FilePlanCompiler>(customResources);
         auto initial = p.command_state(); DrawPlan unused; std::wstring why;
@@ -295,6 +307,7 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
 {
     struct Completion {RuntimeExtension* extension;~Completion(){if(extension)extension->after_draw();}} completion{impl_->extension.get()};
     try {
+        if(impl_->config.shader_hooks)throw std::runtime_error("Shader hook generation requires the intercepted call entry");
         if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
         auto& p = *impl_; Scope scope(p.state);
         G->frame_no = unsigned(input.frame); G->gTime = input.seconds; G->gFrameTime = input.frame_seconds;
@@ -318,6 +331,40 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
         if(impl_->extension)impl_->extension->execution_failed();
         reason = e.what(); return false;
     }
+}
+
+bool IniRuntime::bind_source_shaders(const SourceShaderState& state,std::string& reason){
+    reason.clear();try{auto& p=*impl_;Scope scope(p.state);
+        if(!p.config.shader_hooks)throw std::runtime_error("Source shader facts require shader hook opt-in");
+        p.source_shaders.install(state,p.context);return true;
+    }catch(const std::exception& e){reason=e.what();return false;}
+}
+bool IniRuntime::intercept(const RuntimeShaderCall& input,std::string& reason){
+    reason.clear();try{auto& p=*impl_;Scope scope(p.state);
+        const bool compute=input.call.type==DrawCall::Dispatch || input.call.type==DrawCall::DispatchIndirect;
+        struct Completion {RuntimeExtension* extension;bool compute;~Completion(){if(extension){if(compute)extension->after_dispatch();else extension->after_draw();}}} completion{p.extension.get(),compute};
+        if(!p.config.shader_hooks)throw std::runtime_error("Intercepted calls require shader hook opt-in");
+        if(!std::isfinite(input.seconds) || !std::isfinite(input.frame_seconds) || input.frame_seconds<0)
+            throw std::runtime_error("Original shader call time is invalid");
+        if(input.call.type<DrawCall::Draw || input.call.type>DrawCall::DispatchIndirect || !input.original)
+            throw std::runtime_error("Original shader call boundary is missing or invalid");
+        p.source_shaders.install(input.shaders,p.context);
+        G->frame_no=unsigned(input.frame);G->gTime=input.seconds;G->gFrameTime=input.frame_seconds;
+        if(compute)++p.context.dispatch_number;else ++p.context.draw_number;
+        std::vector<CommandList*> pre,post;
+        for(unsigned i=compute?5:0;i<(compute?6:5);++i){const auto& shader=p.source_shaders.stage(i);
+            if(input.call.hunting_skip)continue;
+            if(G->mShaderOverrideMap.empty())continue;
+            if(!shader.known || (shader.bound && !shader.hash_known))throw std::runtime_error("Shader matching requires proven original stage hashes");
+            const uint64_t hash=shader.bound?shader.hash:0;
+            if(i>0 && i<4 && !hash)continue;
+            const auto found=lookup_shaderoverride(hash);if(found==G->mShaderOverrideMap.end())continue;
+            pre.push_back(&found->second.command_list);post.push_back(&found->second.post_command_list);
+        }
+        auto call=input.call;auto state=p.command_state();state.call_info=&call;std::wstring why;
+        if(!p.adapter.execute_intercepted(pre,post,state,input.original,why))throw std::runtime_error("Original shader call refused: "+utf8(why));
+        ++p.stats.shader_calls;return true;
+    }catch(const std::exception& e){if(impl_->extension)impl_->extension->execution_failed();reason=e.what();return false;}
 }
 
 void RuntimeRunInputList(CommandList* list, bool post)
@@ -351,7 +398,9 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         if (RuntimeDispatchInput(&p.device, sampled)) ++p.stats.key_events;
         CurrentTransition.UpdatePresets(&p.device);RuntimeUpdateTransitions(&p.device);
         assets::FilePlan ignored; std::wstring why;
-        if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why) || !ignored.items.empty())
+        DrawPlanAdapter::OriginalCall between;
+        if(p.config.shader_hooks)between=[&](CommandListState&,std::wstring&){++G->frame_no;p.context.ResetCallCounters();return true;};
+        if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why,std::move(between)) || !ignored.items.empty())
             throw std::runtime_error("Present requires unavailable render context: " + utf8(why));
         ++p.stats.presents; return true;
     } catch (const std::exception& e) {

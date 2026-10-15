@@ -28,7 +28,7 @@ void RuntimeParseParameterRegister()
     // disable automatic binding; the resource itself is still allocated.
     if(G->IniParamsReg>=D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT)G->IniParamsReg=-1;
 }
-void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,bool custom_shaders)
+void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,bool custom_shaders,bool shader_hooks)
 {
     // These require renderer adapters not supplied by the character runtime.
     // Reject the whole candidate instead of silently dropping active features.
@@ -38,6 +38,7 @@ void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,boo
         for (const auto* prefix : {L"CustomShader", L"ShaderOverride", L"ShaderRegex"})
             if (!_wcsnicmp(section.first.c_str(), prefix, wcslen(prefix)) &&
                 !(custom_shaders && !wcscmp(prefix,L"CustomShader")) &&
+                !(shader_hooks && !wcscmp(prefix,L"ShaderOverride")) &&
                 std::none_of(native_shaders.begin(), native_shaders.end(), [&](const auto& name) { return !_wcsicmp(name.c_str(), section.first.c_str()); }))
                 throw std::runtime_error("INI declares an unsupported shader/overlay section");
     }

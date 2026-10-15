@@ -1,10 +1,12 @@
 #pragma once
 #include "runtime.h"
 #include "draw_plan.h"
+#include "shader_state.h"
 
 namespace efmi::frontend {
 // Extensions mediate named native Core boundaries, never reinterpret INI text.
-// All methods run with the owning generation's original globals installed.
+// Execution methods run with the generation's original globals installed.
+// Cleanup/failure notifications may also run after that scope has unwound.
 class RuntimeExtension {
 public:
     virtual ~RuntimeExtension() = default;
@@ -22,11 +24,23 @@ public:
     // After all matched pre/post lists, on either success or failure. Present
     // and key roots do not have the original HackerContext::AfterDraw lifetime.
     virtual void after_draw() noexcept {}
+    // Native AfterDispatch does not restore an input layout edited by injected
+    // commands; its lifetime continues until the corresponding outer draw end.
+    virtual void after_dispatch() noexcept {}
     // A CPU command or expression can fail after an extension recorded GPU
     // work. Notify it even when the failure did not occur inside its callback.
     virtual void execution_failed() noexcept {}
 };
 void RuntimeRunInputList(CommandList*, bool post);
+struct RuntimeShaderCall {
+    DrawCallInfo call;
+    SourceShaderState shaders;
+    uint64_t frame=0;
+    float seconds=0,frame_seconds=0;
+    // Records the original operation in the host's active resource transaction.
+    // Called only when not skipped. Must not submit or re-enter IniRuntime.
+    DrawPlanAdapter::OriginalCall original;
+};
 void RuntimePublishTransitionParameters();
 struct RuntimeShaderDeclaration {
     CustomShader* shader=nullptr;

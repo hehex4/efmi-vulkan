@@ -1,10 +1,32 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-15, matched-phase1.2.9 verified. Continue source shader hooks offline; dist1.0.2 unchanged.
+> Last updated: 2026-10-15, source shader hooks1.3.0 verified. Continue general resource matching offline; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Original shader hooks (verified candidate1.3.0)
+
+Original ShaderOverride parsing now drives independent VS/HS/DS/GS/PS and CS
+roots around an owned original call. Tracked source shader identity survives
+nested CustomShader execution; original declaration queries use the unchanged
+DXBC reader. Atomic fact updates, native hash0 rules, duplicate/abort/skip rules,
+fresh root state and distinct AfterDraw/AfterDispatch layout lifetimes are tested.
+Present models the owned frame/counter boundary between pre and post roots.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.3.0.out exit0/all steps;
+runtime200, resources9139, compiler172/58, corpus37/37, core/sync clean through
+shutdown. Source hashes96/9/12 match; installed inputs unchanged. Text341 clean
+including the new resource matching audit. No game, deployment or system action;
+dist1.0.2 and the separate launcher DX11 state remain unchanged.
+
+Continue1.3.1 offline with general resource matching/checktextureoverride for
+IB/VB, all source slots, ranges and pools. Reuse original descriptor/draw-info
+predicates and preserve hash-then-fuzzy order, region prefilter/fallback and this
+rebinding. Audit:docs/resource-matching-audit.md. ShaderRegex, legacy substitution,
+application import and placement remain separate. No game input needed; keep
+working. PNG paused, LOD0/LOD1 only.
 
 ## Matched command phases (verified candidate1.2.9)
 

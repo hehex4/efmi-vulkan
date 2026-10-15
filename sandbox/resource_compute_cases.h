@@ -121,9 +121,10 @@ struct ShaderFixture {
     std::shared_ptr<frontend::GpuShaderRuntime> backend;
     std::shared_ptr<frontend::IniRuntime> ini;
     std::string why;unsigned frame=0;
-    ShaderFixture(Device& d,const std::filesystem::path& root,const char* ini_text):device(d),host(shader_host(d)){
+    ShaderFixture(Device& d,const std::filesystem::path& root,const char* ini_text,bool shader_hooks=false):device(d),host(shader_host(d)){
         std::filesystem::create_directories(root/"Mods");write(root/"Mods/mod.ini",ini_text);
         frontend::RuntimeConfig config{root,{},root/"settings","shader",root/"Mods"};
+        config.shader_hooks=shader_hooks;
         backend=std::make_shared<frontend::GpuShaderRuntime>(d.resource,host,L"F:/vulkan/dxc-1.9.2609/bin/x64/dxcompiler.dll",budgets);
         backend->resources().begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
         ini=frontend::IniRuntime::load(config,backend,why);if(!ini)throw std::runtime_error("Load shader fixture: "+why);++checks;finish();

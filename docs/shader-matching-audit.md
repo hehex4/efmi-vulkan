@@ -48,23 +48,41 @@ unsigned cast and array access. Use the pinned reader for DXBC declarations;
 Vulkan reflection alone does not prove original source slots or indexing modes.
 
 The parser recognizes cb_mask/srv_mask, but this pinned evaluator has no cases
-for them and unconditionally accesses member_args[0] on the declaration path.
-These no-argument forms must remain an explicit unsupported source boundary;
-do not invent mask behavior or execute the unchecked native access.
+for them. MemberArg::GetValue returns0 for its absent expression, and the final
+default returns0. Preserve that measured source behavior; do not invent a bit
+mask. Correction during1.3.0: the initial audit incorrectly treated the absent
+argument as unsafe without reading MemberArg::GetValue. The fixed-size argument
+array and its zero default make that conclusion incorrect.
 
-## Identity boundary and next implementation
+## Identity boundary and owned implementation
 
 HackerDevice.cpp hashes original DXBC with the configured FNV, embedded or
 bytecode policy. A SPIR-V hash is not interchangeable. An owned host can supply
 explicit source identities and declaration snapshots; application use requires
 separate provenance. Unknown source facts must not become an unmatched shader.
 
-Next: original ShaderOverride parsing, bounded stage scheduling with a real
-pre/original/post boundary, tracked shader queries and declaration guards. Verify
-stage/root ordering, abort/skip, duplicate policy, failure and nested shader
-identity in the sandbox. Keep legacy shader substitution and ShaderRegex binary
-patching explicit until their corresponding execution adapters exist.
+Candidate1.3.0 keeps original ShaderOverride parsing, schedules independent stage
+roots around an owned original draw/dispatch, and evaluates original shader
+queries with proven source identities and unchanged ByteCodeReader declarations.
+The generation retains those facts across Present/key roots. Updates validate
+the complete snapshot before publication; conflicting declarations refuse.
+
+Targeted CPU200 checks cover original duplicate/abort/skip rules, per-stage root
+state, source hash0 behavior, missing facts, declaration slots and counters.
+Owned GPU9139 checks include order-sensitive native DX11 pixel references,
+pre/original/post compute output123, nested temporary shader identity and failed
+transaction discard. AfterDispatch retains applied input layouts; AfterDraw
+restores them. Present models the source frame/counter boundary on owned work.
+
+Legacy depth/model substitution, ShaderRegex and imported indirect calls remain
+explicit refusals. These results do not establish application shader hashes or
+actual Present/draw interception. General resource matching and the remaining
+directory/application adapters follow without requiring game input.
 
 Directory inclusion, parser coverage, compilation, owned execution and actual
 application command placement are separate results. No game input is required
-for this next owned implementation.
+for the next owned implementation.
+
+Full rebuilt regression1.3.0:build/next/run_all-1.3.0.out exit0/all steps; source
+hashes96/9/12 match, compiler172/58 and installed corpus37/37 pass, core/sync
+validation clean. Installed inputs and dist1.0.2 unchanged; no game action.

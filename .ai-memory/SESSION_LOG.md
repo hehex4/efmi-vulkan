@@ -1646,3 +1646,32 @@ legacy depth-filter semantics and tracked shader queries through CustomShader.
 Also records unsafe/unimplemented original cb_mask/srv_mask evaluation. Continue
 1.3.0 immediately with owned source shader hooks/queries, then remaining directory
 and application integration. No game input is required at this boundary.
+
+
+## 2026-10-15: Original source shader hooks, candidate1.3.0
+
+Implemented opt-in original ShaderOverride parsing, bounded independent stage
+roots around owned graphics/compute, native tracked shader queries and unchanged
+DXBC declarations. Preserve temporary CustomShader identity, original hash0 and
+duplicate rules, skip/abort, fresh root state, Present counters and distinct
+AfterDraw/AfterDispatch layout lifetime. Failed roots cannot submit recorded GPU
+work. Unknown source facts and unsupported legacy substitution explicitly refuse.
+
+Full rebuilt frozen-source regression:build/next/run_all-1.3.0.out exit0/all steps;
+runtime200, resource9139, compiler172/58, corpus37/37, core/sync clean. Exact
+source hashes96/9/12 match and installed sources are unchanged; text341 clean.
+Native order-sensitive pixel references and compute output123 verify actual
+pre/original/post placement on owned resources. No game/deployment/system action;
+dist1.0.2 and the separately authorized launcher DX11 configuration unchanged.
+
+Correction to the preceding audit: cb_mask/srv_mask return0 in this pinned
+source; MemberArg's absent expression returns0 safely. The earlier unsafe-access
+claim was withdrawn after inspecting that implementation. Native query tests
+preserve the actual zero behavior. Initial shader-query fixture also now uses
+an ordinary assignment after literal global initialization, as source grammar
+requires; production parser was not changed to accept the invalid fixture.
+
+Next1.3.1: general resource matching. Source command lookup appends hash then
+fuzzy matches, unlike the separate creation helper. Keep original draw-context
+and region rules, all checked targets and pool semantics. Audit recorded in
+docs/resource-matching-audit.md. Continue without needing game input.

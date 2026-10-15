@@ -19,7 +19,31 @@ struct Refused : std::exception {
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
 constexpr size_t max_active_depth = 64;
-struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;size_t count=0;};
+struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;DrawPlanAdapter::ShaderQuery shader;size_t count=0;};
+class NativeShaderQuery final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListOperand> source;
+    std::shared_ptr<QueryService> service;
+    NativeShaderQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
+    float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
+        float value=0;std::wstring why;
+        if(!state || !service->shader || ++service->count>max_steps)refuse(L"Shader query adapter is unavailable or over budget");
+        if(!service->shader(*source,*state,value,why))refuse(why.empty()?L"Original shader query refused":why);return value;
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
+class ShaderSlotGuard final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListEvaluatable> source;unsigned limit;
+    ShaderSlotGuard(std::shared_ptr<CommandListEvaluatable> value,unsigned maximum):source(std::move(value)),limit(maximum){}
+    float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
+        const float value=source->evaluate(state,device);
+        if(!std::isfinite(value) || value<0 || double(value)>=limit)refuse(L"Shader declaration slot is outside source bounds");return value;
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
 class NativeResourceQuery final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListOperand> source;
@@ -86,6 +110,11 @@ bool cpu_target(const ResourceCopyTarget& target,size_t depth=0)
 bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t depth = 0)
 {
     if (!node || depth > 256) return false;
+    if(const auto* query=dynamic_cast<NativeShaderQuery*>(node.get())){
+        for(const auto& arg:query->source->shader_target.member_args)
+            if(arg.expression && !cpu_expression(arg.expression->evaluatable,depth+1))return false;return true;
+    }
+    if(const auto* guard=dynamic_cast<ShaderSlotGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* query=dynamic_cast<NativeResourceQuery*>(node.get()))return cpu_target(query->source->texture_filter_target,depth+1);
     if(const auto* guard=dynamic_cast<PoolIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* guard=dynamic_cast<RangeIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
@@ -144,6 +173,15 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
 {
     if(depth>256)refuse(L"Pool expression nesting budget exceeded");
     if(auto operand=std::dynamic_pointer_cast<CommandListOperand>(node)){
+        if(operand->type==ParamOverrideType::SHADER && queries->shader){
+            auto& target=operand->shader_target;
+            const auto mode=target.evaluation_mode;
+            const unsigned limit=mode==ShaderTargetEvaluationMode::DCL_CB_TYPE || mode==ShaderTargetEvaluationMode::DCL_CB_SIZE?14u:128u;
+            for(auto& arg:target.member_args)if(arg.expression){guard_expression(arg.expression->evaluatable,queries,depth+1);
+                if(!dynamic_cast<ShaderSlotGuard*>(arg.expression->evaluatable.get()))
+                    arg.expression->evaluatable=std::make_shared<ShaderSlotGuard>(arg.expression->evaluatable,limit);}
+            node=std::make_shared<NativeShaderQuery>(std::move(operand),queries);return;
+        }
         guard_target(operand->texture_filter_target,queries,depth+1);
         if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && (queries->read || queries->texture))
             node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);
@@ -652,6 +690,10 @@ void DrawPlanAdapter::resource_queries(ResourceQuery query)
     if(runtime_->active || !runtime_->adapted.empty())refuse(L"Install resource queries before adapting command lists");
     runtime_->queries->read=std::move(query);
 }
+void DrawPlanAdapter::shader_queries(ShaderQuery query){
+    if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install shader queries before adapting command lists");
+    runtime_->queries->shader=std::move(query);
+}
 void DrawPlanAdapter::resource_commands(ResourceCommand command)
 {
     if(runtime_->active || !runtime_->adapted.empty() || !command)refuse(L"Install resource commands before adaptation");
@@ -746,15 +788,15 @@ bool DrawPlanAdapter::execute(CommandList& root, CommandListState& state,
 {
     return execute_impl({&root},nullptr,state,output,reason);
 }
-bool DrawPlanAdapter::execute_pair(CommandList& pre,CommandList& post,CommandListState& state,DrawPlan& output,std::wstring& reason)
+bool DrawPlanAdapter::execute_pair(CommandList& pre,CommandList& post,CommandListState& state,DrawPlan& output,std::wstring& reason,OriginalCall between)
 {
-    return execute_matches({&pre},{&post},state,output,reason);
+    const std::vector<CommandList*> after={&post};return execute_impl({&pre},&after,state,output,reason,std::move(between));
 }
 bool DrawPlanAdapter::execute_matches(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,CommandListState& state,DrawPlan& output,std::wstring& reason)
 {
     return execute_impl(pre,&post,state,output,reason);
 }
-bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const std::vector<CommandList*>* post,CommandListState& state,DrawPlan& output,std::wstring& reason)
+bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const std::vector<CommandList*>* post,CommandListState& state,DrawPlan& output,std::wstring& reason,OriginalCall between)
 {
     reason.clear();
     auto valid=[&](const auto& lists){if(lists.size()>max_items)return false;for(auto* list:lists)
@@ -781,6 +823,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         run(pre,state);
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         runtime_->flush(state);
+        if(between){std::wstring why;if(!between(state,why))refuse(why.empty()?L"Root phase boundary refused":why);}
         if(post){
             // RunCommandListComplete creates a fresh state for the independent
             // post root. Applied resource/layout state persists in the backend;
@@ -804,6 +847,37 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
     // The state is throwaway, but leave nesting counters usable for diagnostics.
     state.recursion = state.extra_indent = 0;state.aborted=false;
     return reason.empty();
+}
+
+bool DrawPlanAdapter::execute_intercepted(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,
+                                         CommandListState& state,OriginalCall original,std::wstring& reason){
+    reason.clear();
+    auto valid=[&](const auto& lists){if(lists.size()>6)return false;for(auto* list:lists)
+        if(!list || !runtime_->adapted.count(list->ResolveCommandList()))return false;return true;};
+    if(runtime_->active || !state.mHackerContext || !state.call_info || state.aborted || state.recursion || !original || !valid(pre) || !valid(post)){
+        reason=L"Intercepted call requires adapted stage roots and fresh source state";return false;
+    }
+    DrawPlan candidate;candidate.skip_original=state.call_info->skip;
+    runtime_->active=&candidate;runtime_->steps=runtime_->draws=runtime_->queries->count=0;
+    runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};
+    try{
+        auto fresh=[&](CommandListState& root,bool after){root.mHackerDevice=state.mHackerDevice;root.mHackerContext=state.mHackerContext;
+            root.mOrigDevice1=state.mOrigDevice1;root.mOrigContext1=state.mOrigContext1;root.call_info=state.call_info;root.post=after;};
+        auto run=[&](const auto& lists,bool after){for(auto* list:lists){CommandListState root;fresh(root,after);
+            auto* resolved=list->ResolveCommandList();
+            if(!runtime_->adapted.count(resolved))refuse(L"Shader root callback alias was not adapted");
+            for(auto& command:resolved->commands){if(root.aborted)break;command->run(&root);}
+            if(runtime_->nested_failed)refuse(L"Nested shader root callback failed");runtime_->flush(root);
+            if(!candidate.items.empty())refuse(L"Intercepted shader calls require immediate resource/draw execution");
+        }};
+        run(pre,false);
+        if(!candidate.skip_original && !state.call_info->hunting_skip){CommandListState caller;fresh(caller,false);
+            std::wstring why;if(!original(caller,why))refuse(why.empty()?L"Original call callback refused":why);
+            if(runtime_->nested_failed || !candidate.items.empty())refuse(L"Original call callback left failed or deferred work");}
+        run(post,true);
+    }catch(const Refused& e){reason=e.reason;}
+     catch(const std::exception& e){const std::string text=e.what();reason.assign(text.begin(),text.end());}
+    runtime_->active=nullptr;return reason.empty();
 }
 
 } // namespace efmi::frontend

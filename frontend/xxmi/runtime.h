@@ -5,6 +5,8 @@
 
 namespace efmi::frontend {
 class RuntimeExtension;
+struct SourceShaderState;
+struct RuntimeShaderCall;
 struct RuntimeConfig {
     std::filesystem::path resource_root;
     std::vector<std::filesystem::path> inputs;
@@ -14,6 +16,10 @@ struct RuntimeConfig {
     // Optional enabled Mods tree; the original Include implementation owns
     // recursion, ordering, namespaces, conditions and exclusions.
     std::filesystem::path mods_directory;
+    // Opt in only when the host supplies original tracked shader facts and an
+    // executable pre/original/post call boundary. Existing character plans do not.
+    bool shader_hooks=false;
+    std::shared_ptr<const SourceShaderState> initial_shaders;
 };
 struct RuntimeInput {
     bool foreground = false;
@@ -38,7 +44,7 @@ struct RuntimeDraw {
     float frame_seconds = 0;
 };
 struct RuntimeStatus {
-    uint64_t draws = 0, presents = 0, key_events = 0, saves = 0;
+    uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;
     size_t bindings = 0;
     bool dirty = false, reload_requested = false;
     std::map<std::string, float> variables;
@@ -54,6 +60,8 @@ public:
     IniRuntime(const IniRuntime&) = delete;
     IniRuntime& operator=(const IniRuntime&) = delete;
     bool draw(const RuntimeDraw&, assets::FilePlan&, std::string& reason);
+    bool bind_source_shaders(const SourceShaderState&,std::string& reason);
+    bool intercept(const RuntimeShaderCall&,std::string& reason);
     // Input is supplied by the host. Tests never send input to other processes.
     bool present(const RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason);

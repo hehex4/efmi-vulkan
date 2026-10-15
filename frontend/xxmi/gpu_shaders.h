@@ -22,6 +22,10 @@ public:
     size_t graphics_pipelines() const {return graphics_pipelines_.size();}
     const SourceGraphicsState& graphics_state() const {return graphics_;}
     void set_graphics_state(const SourceGraphicsState&);
+    // Copies host-owned source programs; this does not infer application state
+    // or the original tracked identities used by shader filter expressions.
+    void set_programs(const std::vector<gpu::HlslProgram>&);
+    bool execute_original(CommandListState&,std::wstring&);
     void set_scissor(const D3D11_RECT& value){scissor_=value;}
     // A logical source layout retains its creation signature across VS changes.
     // Only the intercepted outer draw boundary restores original layout edits.

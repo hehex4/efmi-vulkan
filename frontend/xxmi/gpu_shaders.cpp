@@ -38,6 +38,26 @@ void GpuShaderRuntime::compile(const RuntimeShaderDeclaration& declaration){
     }
     shaders_.emplace(declaration.shader,std::move(entry));
 }
+void GpuShaderRuntime::set_programs(const std::vector<gpu::HlslProgram>& programs){
+    require(programs.size()<=6,"Too many original source shader stages");
+    std::array<std::shared_ptr<gpu::HlslProgram>,6> next;
+    const VkShaderStageFlagBits flags[]={VK_SHADER_STAGE_VERTEX_BIT,VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+        VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,VK_SHADER_STAGE_GEOMETRY_BIT,VK_SHADER_STAGE_FRAGMENT_BIT,VK_SHADER_STAGE_COMPUTE_BIT};
+    for(const auto& program:programs){unsigned i=0;while(i<6 && flags[i]!=program.stage)++i;
+        require(i<6 && !next[i],"Original source shader stage is invalid or duplicated");next[i]=std::make_shared<gpu::HlslProgram>(program);}
+    auto compute=next[5]?commands_.compile(*next[5]):gpu::Compute{};
+    for(unsigned i=0;i<5;++i)stages_[i]=std::move(next[i]);compute_=std::move(compute);
+}
+bool GpuShaderRuntime::execute_original(CommandListState& state,std::wstring& why){
+    try{require(state.call_info!=nullptr,"Original operation lacks caller data");const auto& call=*state.call_info;
+        if(call.type==DrawCall::Dispatch){
+            if(compute_ && call.ThreadGroupCountX && call.ThreadGroupCountY && call.ThreadGroupCountZ){
+                commands_.dispatch(compute_,descriptors({&compute_->program()}),{call.ThreadGroupCountX,call.ThreadGroupCountY,call.ThreadGroupCountZ});++dispatches_;}
+            return true;
+        }
+        DrawCommand command;command.type=DrawCommandType::FROM_CALLER;return draw_graphics(command,state);
+    }catch(const std::exception& e){why=widen(e.what());return false;}
+}
 bool GpuShaderRuntime::run(RunCustomShaderCommand& command,CommandListState& state,std::wstring& why){
     try{
         const auto found=shaders_.find(command.custom_shader);require(found!=shaders_.end(),"CustomShader was not compiled for this generation");

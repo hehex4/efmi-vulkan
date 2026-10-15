@@ -593,3 +593,18 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   original-call placement. Tracked shader identity differs from temporary custom
   executables. Import proven source facts; do not equate SPIR-V and DXBC hashes.
 - Continue the owned implementation offline before application integration.
+
+
+## D-060: Source shader facts and owned executables have separate lifetimes
+
+- Date:2026-10-15, candidate1.3.0. Preserve the original tracked shader identity
+  across CustomShader stage swaps; native query evaluation consumes proven hash
+  and DXBC declaration facts. Validate complete snapshots before publication.
+- Execute independent stage roots around one explicit original-operation callback
+  in the same bounded transaction. No callback may submit or re-enter the runtime.
+  A failure prevents submission of earlier recorded work. AfterDispatch does not
+  acquire the original AfterDraw input-layout restoration behavior.
+- Keep legacy shader substitution, ShaderRegex and application resource/state
+  import explicit. Source declaration names alone do not imply an implementation:
+  cb_mask/srv_mask return0 in the pinned evaluator, confirmed after correcting
+  the initial audit. Owned pre/original/post pixels do not prove game placement.

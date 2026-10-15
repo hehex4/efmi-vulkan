@@ -607,3 +607,13 @@ Correction1.2.9 groups both matched phases into one transaction, keeps shared
 budgets/bindings and uses a fresh independent post root. CPU118 and resource9020
 checks pass, including native pixel comparisons and partial-submit refusal.
 Full rebuilt regression passes in build/next/run_all-1.2.9.out; no game result.
+
+
+LIMIT-032 follow-up1.3.0: opt-in original ShaderOverride stage roots and tracked
+shader queries execute on owned resources, with native pixel/compute references.
+Legacy depth/model substitution, ShaderRegex assembly patching and original
+indirect/stream-output import still refuse. Original source hash/declaration
+facts must be supplied separately from translated executables. Present's owned
+frame/counter boundary is not application Present integration. General resource
+identity, descriptor/region matching, directory scheduling and application
+placement remain next; docs/resource-matching-audit.md records source semantics.

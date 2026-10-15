@@ -59,10 +59,16 @@ public:
     // effects are not rolled back. Callers use a fresh CommandListState.
     bool execute(CommandList& root, CommandListState& state, DrawPlan& output,
                  std::wstring& reason);
-    bool execute_pair(CommandList& pre,CommandList& post,CommandListState&,DrawPlan&,std::wstring& reason);
+    using OriginalCall=std::function<bool(CommandListState&,std::wstring&)>;
+    bool execute_pair(CommandList& pre,CommandList& post,CommandListState&,DrawPlan&,std::wstring& reason,OriginalCall between={});
     // Matches of one resource share a phase. Keep every pre list ahead of every
     // post list; abort and budgets belong to the phase/transaction, not a match.
     bool execute_matches(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,CommandListState&,DrawPlan&,std::wstring&);
+    // Each shader stage is an independent root. One transaction retains budgets
+    // and GPU state across every pre root, the original call and every post root.
+    // Deferred file plans are refused; the host must actually record their work.
+    bool execute_intercepted(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,
+                             CommandListState&,OriginalCall,std::wstring&);
     // CPU declaration references are snapshots, not D3D resources. The frontend
     // generation must outlive these pointers. Pool resources are supported only
     // for nonexpiring direct-index pools until runtime identity is connected.
@@ -72,6 +78,8 @@ public:
     // Install before adaptation. Every mediated query must explicitly succeed;
     // refusal never falls through to the reference D3D graphics scaffolding.
     void resource_queries(ResourceQuery);
+    using ShaderQuery=std::function<bool(CommandListOperand&,CommandListState&,float&,std::wstring&)>;
+    void shader_queries(ShaderQuery);
     using ResourceCommand=std::function<bool(CommandListCommand&,CommandListState&,std::wstring&)>;
     // An opt-in execution backend owns resource state, GPU synchronization and
     // feedback. Without one, the existing immutable file-plan path is retained.
@@ -106,7 +114,7 @@ public:
     // including both branches. Unused INI declarations need not exist on disk.
     std::vector<CustomResource*> referenced_files() const;
 private:
-    bool execute_impl(const std::vector<CommandList*>& pre,const std::vector<CommandList*>* post,CommandListState&,DrawPlan&,std::wstring&);
+    bool execute_impl(const std::vector<CommandList*>& pre,const std::vector<CommandList*>* post,CommandListState&,DrawPlan&,std::wstring&,OriginalCall between={});
     void adapt_tree(CommandList& root, size_t depth);
     std::shared_ptr<Runtime> runtime_;
 };

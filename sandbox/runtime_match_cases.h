@@ -1,7 +1,7 @@
 // Source CheckTextureOverride order and independent root phase state.
 #include "../frontend/xxmi/runtime_host.h"
 struct MatchReferenceExtension final : efmi::frontend::RuntimeExtension {
-    unsigned completed=0,failed=0;
+    unsigned completed=0,dispatched=0,failed=0;
     std::vector<std::pair<bool,float>> queries;
     std::vector<std::wstring> install(efmi::frontend::DrawPlanAdapter& adapter) override {
         adapter.texture_queries([this](unsigned slot,const auto&,auto& state,auto& identity,std::wstring&){
@@ -10,6 +10,7 @@ struct MatchReferenceExtension final : efmi::frontend::RuntimeExtension {
     }
     bool before_draw(const efmi::frontend::RuntimeDraw&,CommandListState& state,std::wstring&) override {state.rt_width=73;return true;}
     void after_draw() noexcept override {++completed;}
+    void after_dispatch() noexcept override {++dispatched;}
     void execution_failed() noexcept override {++failed;}
 };
 static void runtime_match_cases(const std::filesystem::path& folder){

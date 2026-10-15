@@ -6,6 +6,28 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+Original ShaderOverride parsing now drives independent VS/HS/DS/GS/PS and CS
+roots around an owned original call. Tracked source shader identity survives
+nested CustomShader execution; original declaration queries use the unchanged
+DXBC reader. Atomic fact updates, native hash0 rules, duplicate/abort/skip rules,
+fresh root state and distinct AfterDraw/AfterDispatch layout lifetimes are tested.
+Present models the owned frame/counter boundary between pre and post roots.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.3.0.out exit0/all steps;
+runtime200, resources9139, compiler172/58, corpus37/37, core/sync clean through
+shutdown. Source hashes96/9/12 match; installed inputs unchanged. Text341 clean
+including the new resource matching audit. No game, deployment or system action;
+dist1.0.2 and the separate launcher DX11 state remain unchanged.
+
+Continue1.3.1 offline with general resource matching/checktextureoverride for
+IB/VB, all source slots, ranges and pools. Reuse original descriptor/draw-info
+predicates and preserve hash-then-fuzzy order, region prefilter/fallback and this
+rebinding. Audit:docs/resource-matching-audit.md. ShaderRegex, legacy substitution,
+application import and placement remain separate. No game input needed; keep
+working. PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
 1.2.9 fixes matched pre/post order, phase state and shared budgets (BUG-024).
 Full rebuilt suite passes:build/next/run_all-1.2.9.out, runtime118/resources9020,
 compiler172/58, corpus37/37, clean core/sync; source hashes93/9/12 match.
