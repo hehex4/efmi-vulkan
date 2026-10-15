@@ -40,7 +40,7 @@ struct Device {
     PFN_vkDeviceWaitIdle wait_idle=nullptr;PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     ~Device(){if(resource.device){wait_idle(resource.device);destroy_device(resource.device,nullptr);}
         if(messenger)destroy_debug(instance,messenger,nullptr);if(instance)destroy_instance(instance,nullptr);}
-    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false,bool divisors=false,bool float_modes=false,bool preserve_float=false){
+    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false,bool divisors=false,bool float_modes=false,bool preserve_float=false,bool typed_formats=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -62,6 +62,7 @@ struct Device {
         GET(GetPhysicalDeviceProperties2);
         get_device_proc=GetDeviceProcAddr;
         GET(GetPhysicalDeviceImageFormatProperties);GET(GetPhysicalDeviceFormatProperties);
+        GET(GetPhysicalDeviceFormatProperties2);
         GET(EnumerateDeviceExtensionProperties);
 #undef GET
         uint32_t count=0;vkcheck(EnumeratePhysicalDevices(instance,&count,nullptr),"Enumerate test devices");
@@ -80,11 +81,14 @@ struct Device {
         check(properties.apiVersion>=VK_API_VERSION_1_1,"Vulkan 1.1 image execution available");
         resource.physical=selected;resource.api_version=VK_API_VERSION_1_1;
         resource.GetImageFormatProperties=GetPhysicalDeviceImageFormatProperties;resource.GetFormatProperties=GetPhysicalDeviceFormatProperties;
+        resource.GetFormatProperties2=GetPhysicalDeviceFormatProperties2;
         resource.enabled_features.textureCompressionBC=features.textureCompressionBC;
         resource.enabled_features.textureCompressionETC2=features.textureCompressionETC2;
         resource.enabled_features.textureCompressionASTC_LDR=features.textureCompressionASTC_LDR;
         resource.enabled_features.imageCubeArray=features.imageCubeArray;
         resource.enabled_features.shaderStorageImageMultisample=features.shaderStorageImageMultisample;
+        if(typed_formats){resource.enabled_features.shaderStorageImageReadWithoutFormat=features.shaderStorageImageReadWithoutFormat;
+            resource.enabled_features.shaderStorageImageWriteWithoutFormat=features.shaderStorageImageWriteWithoutFormat;}
         if(geometry){check(features.geometryShader && features.depthClamp,"Requested geometry and depth clamp features available");
             resource.enabled_features.geometryShader=VK_TRUE;resource.enabled_features.depthClamp=VK_TRUE;}
         float priority=1;VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=resource.queue_family;q.queueCount=1;q.pQueuePriorities=&priority;
@@ -92,6 +96,10 @@ struct Device {
         dc.pEnabledFeatures=&resource.enabled_features;
         const char* depth_extension=VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME;
         std::vector<const char*> enabled_extensions;
+        if(typed_formats){uint32_t n=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,nullptr),"Count storage format extensions");
+            std::vector<VkExtensionProperties> extensions(n);vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,extensions.data()),"Read storage format extensions");
+            for(const auto& e:extensions)if(!strcmp(e.extensionName,VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME) && e.specVersion>=2)resource.format_features2=true;
+            check(resource.format_features2,"Requested complete storage format properties available");enabled_extensions.push_back(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);}
         if(float_modes || preserve_float){uint32_t n=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,nullptr),"Count float control extensions");
             std::vector<VkExtensionProperties> extensions(n);vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,extensions.data()),"Read float control extensions");
             for(const auto& e:extensions)if(!strcmp(e.extensionName,VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME))float_controls=true;
@@ -1390,9 +1398,10 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_identity_cases.h"
 #include "resource_regex_cases.h"
 #include "resource_bytecode_cases.h"
+#include "resource_bytecode_views.h"
 int wmain(int argc,wchar_t** argv){
     setvbuf(stdout,nullptr,_IONBF,0);
-    try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
+    try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
         view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");
         whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");
@@ -1433,6 +1442,7 @@ int wmain(int argc,wchar_t** argv){
         bytecode_graphics(device,root/"bytecode-software-graphics",gpu::DxbcFloat32Mode::Software);
         bytecode_resources(device,root/"bytecode-software-resources",gpu::DxbcFloat32Mode::Software);
         bytecode_float32(device,root/"bytecode-float32");
+        bytecode_ini_views(device,root/"bytecode-ini-views");
         {Device bytecode_device;bytecode_device.init(false,false,true,false,false,true);
             printf("Bytecode float-control device: %s\n",bytecode_device.properties.deviceName);
             bytecode_execution(bytecode_device,root/"bytecode-compute");bytecode_graphics(bytecode_device,root/"bytecode-graphics");

@@ -171,3 +171,23 @@ refuse without altering explicit roots/local storage. Patterned Core execution
 passes exact native pixels. Full rebuilt suite:build/next/run_all-1.3.3.out;
 runtime475/resources9360, source hashes104/9/12 match, core/sync clean. No game or
 deployment. Original patched DXBC still needs executable translation.
+
+## Next runtime publication boundary (not implemented yet)
+
+The exact translator and native view contracts allow the next owned integration:
+
+- Opt a generation into source-bytecode execution explicitly. Keep the legacy
+  host-owned set_programs path distinct, so no native hash is inferred from it.
+- Prepare all needed translations and validate their device requirements before
+  publishing any regex command links. Cache against stage, original hash and
+  exact immutable original bytes; a failed candidate must not replace an older
+  executable or enable its command list. Bound aggregate cache ownership.
+- Retain the original query/declaration state while executing the patched
+  program, including nested CustomShader save/restore. The modified program's
+  declarations must never replace source shader query facts.
+- Stage command vectors while preserving the live native map nodes and original
+  static-variable addresses. Finish allocations before the final publication;
+  retain the existing owned resource transaction for later draw failures.
+- Test native regex replacement, repeated/rebound source identity, generation
+  replacement and failed translation on owned compute/graphics output before
+  application shader provenance or game integration.

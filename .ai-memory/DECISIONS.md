@@ -683,3 +683,17 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   Keep exact native WARP comparisons for both local GPUs and retain failing
   evidence separately from the corrected implementation. These tests are owned
   execution, not a real-game validation or whole-language conformance proof.
+
+## D-066: Original buffer views are independent of executable representation
+
+- Date:2026-10-15, candidate1.3.6. Supplement native scanner facts with bounded
+  original SM4.x/5.0 buffer declarations. Retain raw/typed/structured class and
+  source stride even when translated storage is a scalar word array. Cross-check
+  registers/raw flags, and validate the original INI view class/stride at use.
+- Typed buffer UAV programs use texel views for native format conversion. Check
+  actual logical read/write feature enablement, enabled format queries and
+  per-format capabilities using traced binding accesses. Known formats still
+  require exact agreement. Capability failures cannot submit partial GPU work.
+- Keep owned view adaptation separate from application import and UAV counters.
+  A failed resource execution poisons that generation; preserving previous GPU
+  output does not imply recovery within the same failed generation.

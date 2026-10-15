@@ -6,6 +6,22 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+Candidate1.3.6 verifies exact bytecode buffer contracts and typed UAV format
+conversion in owned INI execution. Full rebuilt frozen-source run in
+build/next/run_all-1.3.6.out passes all code/GPU steps: runtime475/resources10784,
+compiler172/58, clean core/sync. Only the two installed corpus checks fail under
+INPUT-001. Native duplicate warnings are recoverable; hosted checks currently
+reject any warning. Normalized project-only copy:55/55 programs from70 source
+declarations, hashes113/9/12 match, all88 installed sources unchanged.
+Dist1.0.2 unchanged; no game/deployment/launcher/system actions.
+
+Next: transactional native ShaderRegex executable publication with exact source
+association, followed by source warning-policy audit and remaining original
+runtime/application integration. Keep working offline; no game input needed.
+PNG paused, LOD0/LOD1 only. See D-066 and docs/shader-matching-audit.md.
+
+Earlier verified checkpoint:
+
 Float32 bytecode lowering now preserves signed denormals in arithmetic while
 leaving data moves intact. Software handling runs on NVIDIA, hardware handling
 on Intel. Both explicitly require NaN/infinity/signed-zero preservation and RTE;

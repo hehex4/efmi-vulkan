@@ -38,6 +38,9 @@ struct ResourceDevice {
     uint32_t api_version=0;
     PFN_vkGetPhysicalDeviceImageFormatProperties GetImageFormatProperties=nullptr;
     PFN_vkGetPhysicalDeviceFormatProperties GetFormatProperties=nullptr;
+    // Core1.3 or enabled KHR_format_feature_flags2 with its physical query.
+    bool format_features2=false;
+    PFN_vkGetPhysicalDeviceFormatProperties2 GetFormatProperties2=nullptr;
 };
 struct ResourceBudgets {
     std::shared_ptr<assets::AllocationBudget> resident=std::make_shared<assets::AllocationBudget>(512ull<<20);

@@ -1851,3 +1851,27 @@ had not declared SignedZeroInfNanPreserve. Adding the required mode (plus RTE)
 fixed exact output, and negative host-property tests reject missing enablement.
 This is not a relaxation of reference comparisons. All implementation/test
 sources stayed frozen through the full run and corpus follow-up.
+
+## 2026-10-15: Exact bytecode buffer views, candidate1.3.6
+
+Added bounded native declaration contracts, original INI stride/class checks,
+typed UAV texel conversion and actual per-binding format capability checks.
+Native WARP compares complete buffer output including untouched padding for
+12/16-byte structures, raw views and RGBA8 read/write with nonzero regions.
+Missing features/queries and incompatible source stride refuse before submission.
+
+Initial targeted tests exposed three adapter assumptions: CBVs also report
+native BUFFER resource type; array stride may live in reflected type metadata;
+native typed views ignore StructureByteStride unless STRUCTURED is set. Fixed
+against native evidence. The rejection test now respects poisoned resource
+generations instead of trying to recover the same failed generation.
+
+Full rebuilt frozen-source suite: build/next/run_all-1.3.6.out, exit1 with exactly
+the two INPUT-001 installed corpus failures. All code/GPU checks pass:
+runtime475/resources10784, compiler172/58; core/sync clean through shutdown.
+Original duplicate sections produce recoverable native warnings; hosted tests
+currently treat those as failures. Follow-up project-only normalized corpus:
+55/55 programs from70 declarations, build/corpus-1.3.6/hlsl/report.json.
+Source hashes113/9/12 match; all88 installed sources remain unchanged. No game,
+deployment, launcher or system actions; dist1.0.2 unchanged. Continue offline
+with transactional ShaderRegex publication and exact original source identity.

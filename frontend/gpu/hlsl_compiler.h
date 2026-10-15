@@ -16,6 +16,7 @@ struct HlslRequest {
     int recursive_include=0;
 };
 struct ShaderDependency {std::filesystem::path path;std::vector<uint8_t> bytes;};
+enum class ShaderBufferKind {Unspecified,Typed,Raw,Structured};
 struct ShaderBinding {
     std::string name;
     char source_type='t';
@@ -24,6 +25,9 @@ struct ShaderBinding {
     uint32_t image_dimension=0,image_format=0,image_depth=0,block_size=0,stride=0;
     uint32_t scalar_type=0,scalar_width=0; // 1 float, 2 unsigned, 3 signed.
     bool image_array=false,image_multisample=false,counter=false;
+    // Exact DXBC declarations, distinct from the executable's scalar stride.
+    ShaderBufferKind source_buffer=ShaderBufferKind::Unspecified;
+    uint32_t source_stride=0;
 };
 struct ShaderInterface {
     std::string name,semantic;

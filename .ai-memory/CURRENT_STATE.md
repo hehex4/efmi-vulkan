@@ -1,10 +1,33 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-15, float32 candidate1.3.5 verified with installed-input exception INPUT-001; dist1.0.2 unchanged.
+> Last updated: 2026-10-15, native buffer-view candidate1.3.6 verified with installed-input exception INPUT-001; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Exact bytecode buffer views (candidate1.3.6)
+
+Native raw/structured/typed declarations now retain their original view contract,
+separate from executable scalar storage stride. Typed UAV programs use texel
+views for format conversion; unknown-format access checks actual enabled device
+features and per-format capabilities. Native WARP and owned Vulkan outputs agree
+for 12/16-byte structures, nonzero regions, raw views and RGBA8 conversions.
+
+Full rebuilt frozen-source run: build/next/run_all-1.3.6.out. All code/GPU steps
+pass (runtime475, resources10784, compiler172/58; core/sync clean). The two
+installed corpus steps still fail under INPUT-001. Original source emits
+recoverable duplicate-section warnings, retaining the first section; the hosted
+check treats warnings as failures. This distinction needs a source-policy audit.
+The unchanged project-only normalized copy compiles/validates55 programs from70
+declarations: build/corpus-1.3.6/hlsl/report.json. Source hashes113/9/12 match;
+all88 installed source hashes remain unchanged. No game, deployment, launcher or
+system action. Dist1.0.2 remains unchanged.
+
+Continue offline with transactional ShaderRegex executable publication, original
+source association and generation lifetimes. Source facts/command links must not
+publish on translation failure. Then continue the original-language/runtime
+integration work; no game input needed. PNG paused, LOD0/LOD1 only. See D-066.
 
 ## Float32 lowering (candidate1.3.5)
 

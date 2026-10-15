@@ -1,5 +1,6 @@
 #include "dxbc_compiler.h"
 #include "dxbc_float32.h"
+#include "dxbc_bindings.h"
 #include <windows.h>
 #include <vkd3d_shader.h>
 #include <spirv_reflect.h>
@@ -92,13 +93,14 @@ bool DxbcCompiler::compile(const std::vector<uint8_t>& bytes,char stage,HlslProg
         auto messages=[&]{if(scan.messages){const auto size=strnlen(scan.messages,(1u<<20)+1);
             require(size<=(1u<<20) && next.diagnostics.size()<=(1u<<20)-size,"Bytecode compiler diagnostics exceed budget");
             next.diagnostics.append(scan.messages,size);impl_->free_messages(scan.messages);scan.messages=nullptr;}};
-        const vkd3d_shader_compile_option options[]={
+        vkd3d_shader_compile_option options[]={
             {VKD3D_SHADER_COMPILE_OPTION_API_VERSION,VKD3D_SHADER_API_VERSION_2_1},
             {VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV,VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_BUFFER},
             {VKD3D_SHADER_COMPILE_OPTION_WRITE_TESS_GEOM_POINT_SIZE,0},
             {VKD3D_SHADER_COMPILE_OPTION_FEATURE,0},
             {VKD3D_SHADER_COMPILE_OPTION_DENORMAL_MODE_F32,unsigned(mode==DxbcFloat32Mode::Software?
-                VKD3D_SHADER_DENORMAL_MODE_ANY:VKD3D_SHADER_DENORMAL_MODE_FLUSH_TO_ZERO)}};
+                VKD3D_SHADER_DENORMAL_MODE_ANY:VKD3D_SHADER_DENORMAL_MODE_FLUSH_TO_ZERO)},
+            {VKD3D_SHADER_COMPILE_OPTION_TYPED_UAV,VKD3D_SHADER_COMPILE_OPTION_TYPED_UAV_READ_FORMAT_UNKNOWN}};
         vkd3d_shader_compile_info info{VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO};
         info.source={bytes.data(),bytes.size()};info.source_type=VKD3D_SHADER_SOURCE_DXBC_TPF;
         info.target_type=VKD3D_SHADER_TARGET_SPIRV_BINARY;info.options=options;info.option_count=unsigned(std::size(options));
@@ -106,6 +108,11 @@ bool DxbcCompiler::compile(const std::vector<uint8_t>& bytes,char stage,HlslProg
         scan.descriptors.next=&scan.signatures;info.next=&scan.descriptors;
         auto result=impl_->scan(&info,&scan.messages);scan.scanned=result>=0;messages();
         if(result<0)throw std::runtime_error("Bytecode scan failed: "+next.diagnostics);
+        const auto buffers=dxbc_buffer_contracts(bytes);
+        // Scalar SSBOs cannot represent arbitrary typed-format conversion. Use
+        // texel views for the complete program when any typed buffer UAV occurs.
+        for(const auto& b:buffers)if(b.first.first=='u' && b.second.kind==ShaderBufferKind::Typed)
+            options[1].value=VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_TEXEL_BUFFER;
         signatures(scan.signatures.input,next.input_signature,false);signatures(scan.signatures.output,next.output_signature,true);
         signatures(scan.signatures.patch_constant,next.patch_signature,true);
         require(scan.descriptors.descriptor_count<=512,"Bytecode descriptors exceed budget");
@@ -151,13 +158,20 @@ bool DxbcCompiler::compile(const std::vector<uint8_t>& bytes,char stage,HlslProg
             const auto& d=*found->second.first;ShaderBinding entry;
             entry.name=b.name?b.name:"";entry.source_type=resource_class(d.type);entry.slot=d.register_index;
             entry.counter=found->second.second;entry.count=b.count;entry.binding=b.binding;entry.type=VkDescriptorType(b.descriptor_type);
+            if(d.resource_type==VKD3D_SHADER_RESOURCE_BUFFER && (entry.source_type=='t' || entry.source_type=='u')){
+                const auto native=buffers.find({entry.source_type,entry.slot});
+                require(native!=buffers.end() && d.count==1,"Scanned buffer lacks an exact declaration contract");
+                entry.source_buffer=native->second.kind;entry.source_stride=native->second.stride;
+                require(bool(d.flags&VKD3D_SHADER_DESCRIPTOR_INFO_FLAG_RAW_BUFFER)==(entry.source_buffer==ShaderBufferKind::Raw),
+                    "Native scanner and buffer declaration disagree");}
             require(b.count==d.count,"Bytecode descriptor count differs from source");
             entry.image_dimension=unsigned(b.image.dim);entry.image_format=unsigned(b.image.image_format);entry.image_depth=b.image.depth;
             entry.image_array=bool(b.image.arrayed);entry.image_multisample=bool(b.image.ms);entry.block_size=b.block.padded_size;
             if(b.type_description){const auto& t=*b.type_description;entry.scalar_width=t.traits.numeric.scalar.width;
                 if(t.type_flags&SPV_REFLECT_TYPE_FLAG_FLOAT)entry.scalar_type=1;
                 else if(t.type_flags&SPV_REFLECT_TYPE_FLAG_INT)entry.scalar_type=t.traits.numeric.scalar.signedness?3:2;}
-            if(b.block.member_count==1)entry.stride=b.block.members[0].array.stride;
+            if(b.block.member_count==1){const auto& member=b.block.members[0];entry.stride=member.array.stride;
+                if(!entry.stride && member.type_description)entry.stride=member.type_description->traits.array.stride;}
             next.bindings.push_back(std::move(entry));
         }
         output=std::move(next);return true;

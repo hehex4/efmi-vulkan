@@ -693,3 +693,18 @@ hashes are in manifest.json. Its original parser succeeds and all55 distinct
 programs from70 declarations compile/validate. All88 installed source hashes
 remain unchanged. This does not change the acceptance result of the original
 installed files or establish runtime/game compatibility.
+
+INPUT-001 source audit1.3.6: original IniHandler.cpp warns and skips duplicate
+sections, retains the first section and continues parsing. It does not abort the
+whole Mod. The hosted folder parser and runtime currently reject any warning;
+thus the two full-suite failures reflect strict host policy, not a native fatal
+syntax error. Keep their evidence; audit severity/recoverability before changing
+policy. Full1.3.6 repeats exactly those two failures; the unchanged project-only
+copy compiles/validates55/55 programs and all88 original input hashes still match.
+
+LIMIT-032 follow-up1.3.6: owned INI buffer views now preserve native declaration
+class/stride independently of scalar storage. Native comparisons cover typed
+conversion, raw/structured sources and destinations, and nonzero regions.
+Per-binding unknown-format feature checks refuse before submission. Source
+ShaderRegex executable publication, unrepresentable view offsets, imported UAV
+counters and application shader correspondence remain separate work.

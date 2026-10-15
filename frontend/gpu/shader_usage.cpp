@@ -116,7 +116,17 @@ public:
     }
     ShaderUsage run(){
         ShaderUsage usage;std::set<std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>> pairs;
+        std::map<std::pair<uint32_t,uint32_t>,StorageImageUse> storage;
         for(const auto& instruction:instructions){step();
+            const bool reads=instruction.op==SpvOpImageRead,writes=instruction.op==SpvOpImageWrite,atomic=instruction.op==SpvOpImageTexelPointer;
+            if(reads || writes || atomic){const auto refs=trace(instruction.at(writes?1:3));
+                for(const auto& ref:refs){const auto binding=bindings.at(ref.binding);
+                    require(def(ref.type).op==SpvOpTypeImage && (binding->type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
+                        binding->type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER),"Storage image operation lost its descriptor provenance");
+                    auto& use=storage[{ref.binding,ref.element}];use.binding=ref.binding;use.element=ref.element;
+                    use.read|=reads || atomic;use.write|=writes || atomic;use.atomic|=atomic;
+                }
+            }
             if(instruction.op==SpvOpVariable && instruction.at(3)==SpvStorageClassWorkgroup){
                 require(instruction.count==4 && decoration(instruction.at(2),SpvDecorationAliased)==UINT32_MAX,"Initialized/aliased workgroup storage requires an enabled adapter");
                 const auto& pointer=def(instruction.at(1));require(pointer.op==SpvOpTypePointer,"Shared storage has no pointer type");
@@ -132,6 +142,7 @@ public:
             }
         }
         for(const auto& pair:pairs)usage.sampled_pairs.push_back({std::get<0>(pair),std::get<1>(pair),std::get<2>(pair),std::get<3>(pair)});
+        for(const auto& entry:storage)usage.storage_images.push_back(entry.second);
         return usage;
     }
 };

@@ -73,9 +73,34 @@ allows implementation-dependent default denormal behavior. Small positive test
 results do not establish every arithmetic operation or a different driver.
 
 Buffer representations can differ from DXC: vkd3d maps raw/structured SRVs to
-R32_UINT texel views and buffer UAVs to scalar SSBO storage. Native structured
-stride must not be confused with the executable's scalar array stride. Owned
-descriptor tests are distinct from adapting imported INI view metadata.
+R32_UINT texel views and buffer UAVs to scalar SSBO storage. Candidate1.3.6 adds
+bounded SM4.x/5.0 buffer declaration contracts using the original token header.
+The native scan API omits structured stride and cannot distinguish typed uint
+buffers from structured ones. The supplementary reader cross-checks scanner
+registers/raw flags; it does not parse INI or modify upstream source.
+
+Original INI views retain their byte offsets and ranges. Structured allocations
+must match the source declaration's stride; raw and typed view classes must also
+match. The executable's runtime-array stride comes from reflection, including
+the type-description fallback, and is distinct from the source structure size.
+Source MiscFlags determines whether StructureByteStride is meaningful: native
+typed buffers can contain a nonzero ignored stride field.
+
+When a program declares a typed buffer UAV, all its buffer UAVs use texel views.
+A scalar SSBO would lose typed-format conversion and component width. Typed UAV
+reads use unknown SPIR-V format; actual per-binding image read/write/atomic
+provenance determines required format support. Logical feature enablement plus
+enabled core1.3/KHR_format_feature_flags2 queries are checked, including the
+per-format read/write bits and atomic support. Unused declarations do not imply
+an access. Known shader formats still require exact view-format agreement.
+
+Owned tests compare the exact reassembled DXBC and unchanged INI view metadata
+with native WARP:12/16-byte structures, raw sources/destinations, typed sources,
+nonzero regions and normalized RGBA8 read/write conversion mixed with structured
+output. Missing features/query support and incompatible structure strides refuse
+before submission, preserving earlier output. This is separate from application
+buffer import. Unrepresentable Vulkan offsets still refuse; original owned INI
+views have no imported UAV counter, so counter access remains an explicit gap.
 
 ## Dependencies
 

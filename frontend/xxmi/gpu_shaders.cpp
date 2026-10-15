@@ -147,8 +147,24 @@ std::vector<gpu::ShaderDescriptor> GpuShaderRuntime::descriptors(const std::vect
                 else{value.offset=source.view_offset;value.size=source.view_size;
                     if(source.view_format!=DXGI_FORMAT_UNKNOWN && source.view_format!=DXGI_FORMAT_R32_TYPELESS)
                         value.format=source_image_format(source.view_format).format;
-                    if(binding.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER && source.description.StructureByteStride)
+                    const auto kind=binding.source_buffer;
+                    if(kind==gpu::ShaderBufferKind::Structured){
+                        require(source.view_format==DXGI_FORMAT_UNKNOWN && (source.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) &&
+                            source.description.StructureByteStride==binding.source_stride,"Native structured buffer view differs from its bytecode declaration");
+                        value.format=VK_FORMAT_R32_UINT;
+                    }else if(kind==gpu::ShaderBufferKind::Raw){
+                        require(source.view_format==DXGI_FORMAT_R32_TYPELESS && (source.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS),
+                            "Native raw buffer declaration requires a raw source view");value.format=VK_FORMAT_R32_UINT;
+                    }else if(kind==gpu::ShaderBufferKind::Typed){
+                        require(source.view_format!=DXGI_FORMAT_UNKNOWN && source.view_format!=DXGI_FORMAT_R32_TYPELESS &&
+                            !(source.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED),"Native typed buffer declaration requires a typed source view");
+                        require(binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || binding.type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,
+                            "Typed bytecode buffers require native format conversion");
+                    }
+                    if(kind==gpu::ShaderBufferKind::Unspecified && binding.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER && source.description.StructureByteStride)
                         require(source.description.StructureByteStride==binding.stride,"Structured source view stride differs from the compiled shader");
+                    if(kind!=gpu::ShaderBufferKind::Unspecified && binding.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+                        require(binding.stride==4,"Translated buffer storage is not a scalar word array");
                 }
             }
             descriptors.push_back(std::move(value));

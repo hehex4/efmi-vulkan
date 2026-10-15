@@ -104,6 +104,7 @@ Graphics ShaderCommands::compile_graphics(const std::vector<HlslProgram>& progra
         shader_capabilities(program,*d);d->validate(program);auto usage=shader_usage(program);
         require(!usage.workgroup_bytes,"Graphics stage declares compute workgroup storage");
         result->usage.sampled_pairs.insert(result->usage.sampled_pairs.end(),usage.sampled_pairs.begin(),usage.sampled_pairs.end());
+        result->usage.storage_images.insert(result->usage.storage_images.end(),usage.storage_images.begin(),usage.storage_images.end());
         for(const auto& b:program.bindings)if(b.source_type=='u')require(program.stage==VK_SHADER_STAGE_FRAGMENT_BIT?
             d->resource.enabled_features.fragmentStoresAndAtomics:d->resource.enabled_features.vertexPipelineStoresAndAtomics,
             "Graphics UAV use requires enabled stage storage features");
