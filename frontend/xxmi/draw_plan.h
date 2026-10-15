@@ -56,6 +56,9 @@ public:
     using PaletteSource=std::function<bool(CommandListState&,std::shared_ptr<const core::PaletteSnapshot>&,std::wstring&)>;
     void palette_source(PaletteSource);
     void adapt(CommandList& root);
+    // Preserve original RunLinkedCommandList pointer identity/type for native
+    // ShaderRegex duplicate suppression and unlinking, while bounding execution.
+    std::shared_ptr<RunLinkedCommandList> linked(CommandList&,const std::wstring& ini_line);
     // Serial execution only. Failure preserves output; frontend variable side
     // effects are not rolled back. Callers use a fresh CommandListState.
     bool execute(CommandList& root, CommandListState& state, DrawPlan& output,

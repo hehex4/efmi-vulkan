@@ -23,7 +23,8 @@ def main() -> int:
     try:
         verify_image_formats()
         core = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Core/EFMI")
-        original_inputs = {core / "Shaders/TextPrinter.hlsl": "text.hlsl", core / "Fonts/LiberationSans-Bold.dds": "font.dds"}
+        original_inputs = {core / "Shaders/TextPrinter.hlsl": "text.hlsl", core / "Fonts/LiberationSans-Bold.dds": "font.dds",
+                           core / "main.ini": "main.ini"}
         report["installed_source_sha256"] = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in original_inputs}
         copied = out / "fixture/core-text/source"
         copied.mkdir(parents=True, exist_ok=True)
@@ -72,6 +73,7 @@ def main() -> int:
                             ROOT / "sandbox/resource_match_cases.h",
                             ROOT / "sandbox/resource_shader_hook_cases.h",
                             ROOT / "sandbox/resource_identity_cases.h",
+                            ROOT / "sandbox/resource_regex_cases.h",
                             shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))

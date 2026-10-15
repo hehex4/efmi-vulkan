@@ -87,7 +87,7 @@ Full rebuilt regression1.3.0:build/next/run_all-1.3.0.out exit0/all steps; sourc
 hashes96/9/12 match, compiler172/58 and installed corpus37/37 pass, core/sync
 validation clean. Installed inputs and dist1.0.2 unchanged; no game action.
 
-## Next: original ShaderRegex command linkage
+## Original ShaderRegex command linkage
 
 The installed Core EFMI/main.ini uses a patternless VS ShaderRegex to call
 CheckTextureOverride=ib for indexed draws. Its source shader_model list must be
@@ -105,3 +105,46 @@ matching model has a pattern-bearing group. A successful patternless link does
 not prove assembly replacement or patched DXBC execution. The next implementation
 must keep that boundary explicit and preserve native cache behavior without
 writing outside the project. Reload can retire and replace a complete generation.
+
+Candidate1.3.2 compiles the unchanged ShaderRegex.cpp and original PCRE2 parser.
+Each linked command retains the native RunLinkedCommandList dynamic type and
+shared pointer identity while entering the bounded adapter. Original duplicate
+suppression and unlink/filter restoration therefore continue to work. Regex
+groups, their index/hash and the per-source-model cache belong to a generation.
+Native models come from the unchanged DXBC reader after container bounds checks;
+a shader's Vulkan stage alone is insufficient. Required unknown/conflicting
+facts refuse before root execution. Native disk shader caches remain disabled.
+
+Targeted verification:runtime407 and owned GPU9301 checks. The unchanged installed
+Core ShaderRegexEnableTextureOverrides section drives an actual replacement draw
+through a proven owned IB region, with source key disable/re-enable and exact
+native DX11 pixels. Repeated bindings remain idempotent; non-indexed calls bypass
+the check. The unprefixed source check matches independently in pre and post;
+the fixture's initial one-match expectation was corrected to two. Full rebuilt
+regression passes:build/next/run_all-1.3.2.out, source hashes102/9/12 match and
+core/sync validation remains clean through shutdown. This is not
+application shader provenance or game command placement.
+
+## Original assembly path audit
+
+HackerContext::DeferredShaderReplacement first attempts patternless linkage. If
+any relevant model has patterns, BinaryToAsmText calls the original Flugan
+disassembler, preserving round-trippable float values and the source's optional
+constant-buffer/custom-data handling. Plain D3DDisassemble output is not an
+equivalent text contract for every pattern.
+
+apply_shader_regex_groups processes sorted groups and patterns. Pattern-only
+groups can link commands without changing an executable; replacement patterns,
+temporary-register substitution and inserted declarations may require rebuilt
+bytecode. Matching a later pattern can depend on earlier text changes. Failed
+groups do not restore partially changed text, so treating every group as an
+independent regex search changes pinned behavior. The source fast path ignores
+declarations when a group has no patterns; do not invent a patch in that path.
+
+Native patch execution uses AssembleFluganWithSignatureParsing. A proof for
+owned original DXBC can cover disassembly, original matching/substitution and
+reassembly offline. Vulkan execution additionally needs a bounded translator
+and an executable associated with that exact patched source. A stored original
+model or a SPIR-V hash does not establish this association. The current candidate
+refuses a relevant patterned model rather than silently treating it as unmatched.
+Continue this path offline before application integration.

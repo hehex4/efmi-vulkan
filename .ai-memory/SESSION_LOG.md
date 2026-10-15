@@ -1701,3 +1701,39 @@ shutdown. Source hashes99/9/12 match; installed inputs unchanged, text345 clean.
 No game/deployment/system action. Dist1.0.2 and separate launcher DX11 state stay
 unchanged. Continue1.3.2 with original ShaderRegex generation ownership, model
 facts and bounded/idempotent command linkage. Game input is not needed yet.
+
+
+## 2026-10-15: Original ShaderRegex links, candidate1.3.2
+
+Original ShaderRegex parsing and patternless command linkage now run through
+unchanged native source. Bounded links retain shared identity and native type,
+so duplicate suppression, unlink/filter restoration and generation isolation
+remain intact. Proven native shader models are required; relevant assembly
+patterns refuse before execution until their source/translation path is ready.
+
+The unchanged installed Core VS regex drives owned indexed replacement, native
+key disable/re-enable and non-indexed bypass. Pixels agree exactly with native
+DX11. Full rebuilt frozen-source suite:build/next/run_all-1.3.2.out exit0/all steps;
+runtime407, resources9301, compiler172/58, corpus37/37, clean core/sync through
+shutdown. Source hashes102/9/12 match; installed inputs unchanged; text349 clean.
+No game/deployment/system action; dist1.0.2 and separate launcher DX11 state stay
+unchanged.
+
+Continue1.3.3 offline with original assembly disassembly, regex matching and
+substitution/reassembly. Preserve original sorted/partial-patch behavior and
+keep executable translation distinct from matching. The original Core link is
+not application shader provenance. Game input is not needed yet; keep going.
+PNG paused, LOD0/LOD1 only. See docs/shader-matching-audit.md.
+
+The first GPU fixture expected one region lookup per draw. Original unprefixed
+CheckTextureOverride executes in both shader phases, each matching independently;
+corrected the expectation to two without changing production behavior. All
+native-pixel and command-count assertions remain. CPU tests additionally call
+native repeated link/unlink directly and alternate retained frontend generations.
+
+For the next offline translation assessment, downloaded official vkd3d2.1 source
+only into F:/vulkan/vkd3d-2.1. Archive SHA256:
+7510146aff2adfb4ae07ab890701a607e5ff7c66e57100cfc9f630ec92eeda6a.
+Source: https://dl.winehq.org/vkd3d/source/vkd3d-2.1.tar.xz .
+It is not built, linked, deployed or executed. Original XXMI assembly helpers
+remain the intended text/patch authority. No change outside project-owned paths.

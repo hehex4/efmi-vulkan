@@ -622,3 +622,17 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Preserve original dynamic target re-evaluation and pool range reads. Bound
   non-finite casts and total execution, but retain finite invalid-range no-ops
   and unbound slot sentinels. No hidden GPU readback to discover missing hashes.
+
+
+## D-062: Native regex links retain identity; assembly needs source evidence
+
+- Date:2026-10-15, candidate1.3.2. Compile unchanged original ShaderRegex.cpp;
+  retain RunLinkedCommandList type and shared identity inside a bounded wrapper.
+  Repeated linking and native unlink/filter restoration must remain valid.
+- Keep regex groups/index/hash and source model cache generation-local. Import
+  proven native model facts with explicit source hashes. A Vulkan stage/model
+  guess cannot justify matching or a silent nonmatch. Native disk caches remain
+  disabled so the frontend cannot write installation-relative files.
+- Relevant patterned groups currently refuse. Next reuse original disassembly,
+  matching/substitution and signature-aware assembly before executable translation.
+  Core's patternless GPU result does not establish RabbitFX or game compatibility.

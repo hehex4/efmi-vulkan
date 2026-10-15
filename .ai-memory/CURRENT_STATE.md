@@ -1,10 +1,32 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-15, general resource matching1.3.1 verified. Continue original ShaderRegex linkage offline; dist1.0.2 unchanged.
+> Last updated: 2026-10-15, original ShaderRegex linkage1.3.2 verified. Continue assembly-dependent shader work offline; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Original ShaderRegex linkage (verified candidate1.3.2)
+
+Original ShaderRegex parsing and patternless command linkage now run through
+unchanged native source. Bounded links retain shared identity and native type,
+so duplicate suppression, unlink/filter restoration and generation isolation
+remain intact. Proven native shader models are required; relevant assembly
+patterns refuse before execution until their source/translation path is ready.
+
+The unchanged installed Core VS regex drives owned indexed replacement, native
+key disable/re-enable and non-indexed bypass. Pixels agree exactly with native
+DX11. Full rebuilt frozen-source suite:build/next/run_all-1.3.2.out exit0/all steps;
+runtime407, resources9301, compiler172/58, corpus37/37, clean core/sync through
+shutdown. Source hashes102/9/12 match; installed inputs unchanged; text349 clean.
+No game/deployment/system action; dist1.0.2 and separate launcher DX11 state stay
+unchanged.
+
+Continue1.3.3 offline with original assembly disassembly, regex matching and
+substitution/reassembly. Preserve original sorted/partial-patch behavior and
+keep executable translation distinct from matching. The original Core link is
+not application shader provenance. Game input is not needed yet; keep going.
+PNG paused, LOD0/LOD1 only. See docs/shader-matching-audit.md.
 
 ## General original resource matching (verified candidate1.3.1)
 

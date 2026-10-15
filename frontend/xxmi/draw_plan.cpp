@@ -596,6 +596,10 @@ struct DrawPlanAdapter::Runtime {
                 refuse(L"INI parameter assignment exceeds generation storage");
             original->run(state); return;
         }
+        if(auto* call=dynamic_cast<RunLinkedCommandList*>(original.get())){
+            if(!call->link || !adapted.count(call->link->ResolveCommandList()))refuse(L"Linked command target was not adapted");
+            original->run(state);return;
+        }
         if (dynamic_cast<IfCommand*>(original.get()) || typeid(*original) == typeid(VariableAssignment) ||
             dynamic_cast<PoolVariableOperation*>(original.get()) || dynamic_cast<AbortCommand*>(original.get()) ||
             dynamic_cast<PresetCommand*>(original.get()) || dynamic_cast<ResetPerFrameLimitsCommand*>(original.get())) {
@@ -649,6 +653,14 @@ public:
         if (!arguments_supported) refuse(L"Unadapted expression query: " + ini_line);
         runtime->run(original, state);
     }
+};
+class BridgeLinkedCommand final : public RunLinkedCommandList {
+public:
+    std::shared_ptr<RunLinkedCommandList> original;
+    std::shared_ptr<DrawPlanAdapter::Runtime> runtime;
+    BridgeLinkedCommand(std::shared_ptr<RunLinkedCommandList> command,std::shared_ptr<DrawPlanAdapter::Runtime> owner)
+        :RunLinkedCommandList(command->link),original(std::move(command)),runtime(std::move(owner)){ini_line=original->ini_line;}
+    void run(CommandListState* state) override {runtime->run(original,state);}
 };
 }
 
@@ -710,6 +722,11 @@ bool DrawPlanAdapter::invoke(ExplicitCommandListSection& section,CommandListStat
 void DrawPlanAdapter::adapt(CommandList& root)
 {
     adapt_tree(root, 0);
+}
+std::shared_ptr<RunLinkedCommandList> DrawPlanAdapter::linked(CommandList& target,const std::wstring& line){
+    if(runtime_->active)refuse(L"Create linked command boundaries outside execution");
+    adapt(target);CommandList holder;auto source=LinkCommandLists(&holder,&target,&line);
+    return std::make_shared<BridgeLinkedCommand>(std::move(source),runtime_);
 }
 CustomResource* DrawPlanAdapter::referenced_resource(CustomResource* resource) const
 {
@@ -806,6 +823,10 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
         refuse(L"Command graph adaptation budget exceeded");
     if (!runtime_->adapted.insert(&root).second) return;
     for (auto& command : root.commands) {
+        if(auto* linked=dynamic_cast<BridgeLinkedCommand*>(command.get())){
+            if(linked->runtime!=runtime_ || !linked->link || !runtime_->adapted.count(linked->link->ResolveCommandList()))
+                refuse(L"Linked command belongs to another planner");continue;
+        }
         if (dynamic_cast<BridgeCommand*>(command.get()))
             refuse(L"A command list already belongs to another planner");
         runtime_->collect_files(*command);
@@ -824,6 +845,8 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
             }
         } else if(auto* call=dynamic_cast<RunCustomShaderCommand*>(command.get())) {
             if(call->custom_shader){adapt_tree(call->custom_shader->command_list,depth+1);adapt_tree(call->custom_shader->post_command_list,depth+1);}
+        } else if(auto* call=dynamic_cast<RunLinkedCommandList*>(command.get())){
+            if(call->link)adapt_tree(*call->link,depth+1);
         }
         command = std::make_shared<BridgeCommand>(command, runtime_);
     }

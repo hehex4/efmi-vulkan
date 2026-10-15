@@ -6,6 +6,28 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+Original ShaderRegex parsing and patternless command linkage now run through
+unchanged native source. Bounded links retain shared identity and native type,
+so duplicate suppression, unlink/filter restoration and generation isolation
+remain intact. Proven native shader models are required; relevant assembly
+patterns refuse before execution until their source/translation path is ready.
+
+The unchanged installed Core VS regex drives owned indexed replacement, native
+key disable/re-enable and non-indexed bypass. Pixels agree exactly with native
+DX11. Full rebuilt frozen-source suite:build/next/run_all-1.3.2.out exit0/all steps;
+runtime407, resources9301, compiler172/58, corpus37/37, clean core/sync through
+shutdown. Source hashes102/9/12 match; installed inputs unchanged; text349 clean.
+No game/deployment/system action; dist1.0.2 and separate launcher DX11 state stay
+unchanged.
+
+Continue1.3.3 offline with original assembly disassembly, regex matching and
+substitution/reassembly. Preserve original sorted/partial-patch behavior and
+keep executable translation distinct from matching. The original Core link is
+not application shader provenance. Game input is not needed yet; keep going.
+PNG paused, LOD0/LOD1 only. See docs/shader-matching-audit.md.
+
+Earlier verified checkpoint:
+
 General CheckTextureOverride and resource filters now use original descriptor,
 draw-info and buffer-region rules for source targets and ranges. Hash matches
 precede fuzzy matches, including exact matches. Weak allocation identities

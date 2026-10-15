@@ -49,15 +49,15 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     out.mkdir(parents=True, exist_ok=True)
     # Stage the unchanged declaration reader next to its token header so its
     # globals include resolves through the existing pinned host include paths.
-    for name in ("ByteCodeReader.cpp", "d3d11TokenizedProgramFormat.hpp"):
+    for name in ("ByteCodeReader.cpp", "ShaderRegex.cpp", "d3d11TokenizedProgramFormat.hpp"):
         original, staged = upstream / "DirectX11" / name, out / name
         if not staged.exists() or digest(original) != digest(staged):
             staged.write_bytes(original.read_bytes())
     legacy = [pristine / (name + ".cpp") for name in ("profiling", "util")]
-    legacy += [out / "ByteCodeReader.cpp"]
+    legacy += [out / "ByteCodeReader.cpp",out / "ShaderRegex.cpp"]
     legacy += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("command_module", "resource_hash_module", "runtime_override")]
     sources = [ROOT / "frontend/xxmi" / (name + ".cpp") for name in
-               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "shader_state", "gpu_resources", "gpu_bindings", "gpu_images", "gpu_parameters", "gpu_shaders", "gpu_graphics", "input_layout", "gpu_layout", "image_formats")]
+               ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "shader_state", "shader_regex", "gpu_resources", "gpu_bindings", "gpu_images", "gpu_parameters", "gpu_shaders", "gpu_graphics", "input_layout", "gpu_layout", "image_formats")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/core/palette_bank.cpp"]
     sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in

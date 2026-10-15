@@ -11,11 +11,13 @@ struct SourceShaderBinding {
     bool known=false,bound=false,hash_known=false;
     uint64_t hash=0;
     std::shared_ptr<const ShaderBindings> declarations;
+    std::string model; // Proven native model, e.g. vs_5_0; empty means unknown.
 };
 struct SourceShaderState {
     std::array<SourceShaderBinding,6> stages; // v,h,d,g,p,c
 };
 std::shared_ptr<const ShaderBindings> source_shader_declarations(const void*,size_t);
+std::string source_shader_model(const void*,size_t);
 
 // Installs bounded generation-local facts for the unchanged source evaluator.
 // Opaque tokens are map keys only; no D3D object is created or dereferenced.

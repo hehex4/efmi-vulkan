@@ -84,13 +84,6 @@ ULONG STDMETHODCALLTYPE HackerInputLayout::Release() { unsupported("prototype in
 MigotoIncludeHandler::MigotoIncludeHandler(const char*) {}
 HRESULT MigotoIncludeHandler::Open(D3D_INCLUDE_TYPE,LPCSTR,LPCVOID,LPCVOID*,UINT*) { unsupported("prototype HLSL include"); }
 HRESULT MigotoIncludeHandler::Close(LPCVOID) { unsupported("prototype HLSL close"); }
-std::map<std::wstring,ShaderRegexGroup> shader_regex_groups;
-std::vector<ShaderRegexGroup*> shader_regex_group_index;
-unsigned int shader_regex_hash=0;
-ShaderRegexPattern::ShaderRegexPattern():regex(nullptr),do_replace(false) {}
-ShaderRegexPattern::~ShaderRegexPattern() { if(regex)pcre2_code_free(regex); }
-bool ShaderRegexPattern::compile(std::string*) { unsupported("prototype shader regex"); }
-bool ShaderRegexPattern::named_group_overlaps(ShaderRegexTemps&) { unsupported("prototype shader regex groups"); }
 int CursorUpscalingBypass_GetClientRect(HWND h,LPRECT r) { return ::GetClientRect(h,r); }
 int CursorUpscalingBypass_GetCursorInfo(PCURSORINFO info) { return ::GetCursorInfo(info); }
 int CursorUpscalingBypass_ScreenToClient(HWND h,LPPOINT p) { return ::ScreenToClient(h,p); }

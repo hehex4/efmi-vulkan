@@ -2,6 +2,7 @@
 #include "globals.h"
 #include "HackerContext.h"
 #include <stdexcept>
+#include <cstring>
 
 bool get_shader_bindings_from_bytecode(const void*,size_t,ShaderBindings*);
 namespace efmi::frontend {
@@ -20,13 +21,36 @@ std::shared_ptr<const ShaderBindings> source_shader_declarations(const void* dat
     auto result=std::make_shared<ShaderBindings>();
     require(get_shader_bindings_from_bytecode(data,size,result.get()),"Original shader declaration reader rejected DXBC");return result;
 }
+std::string source_shader_model(const void* data,size_t size){
+    require(data && size>=32 && size<=(64u<<20),"Original shader model bytecode exceeds budget");
+    const auto* bytes=static_cast<const unsigned char*>(data);
+    auto word=[&](size_t offset){uint32_t value;memcpy(&value,bytes+offset,4);return value;};
+    require(!memcmp(bytes,"DXBC",4),"Original shader model needs a DXBC container");
+    const auto count=word(28);require(count && count<=(size-32)/4,"Original DXBC chunk table is invalid");
+    // The pinned model reader scans backward and uses 32-bit offset addition.
+    // Bound every table entry first, including chunks after a valid shader.
+    for(uint32_t i=0;i<count;++i){const auto offset=word(32+size_t(i)*4);
+        require(offset<=size && size-offset>=8,"Original DXBC chunk offset is invalid");
+        const auto payload=word(size_t(offset)+4);require(payload<=size-offset-8,"Original DXBC chunk payload is invalid");
+        if(!memcmp(bytes+offset,"SHEX",4) || !memcmp(bytes+offset,"SHDR",4))
+            require(payload>=8 && word(size_t(offset)+12)>=2 && word(size_t(offset)+12)<=payload/4,"Original DXBC shader chunk is invalid");}
+    std::string model;require(get_shader_model_from_bytecode(data,size,&model),"Original model reader rejected DXBC");return model;
+}
 void SourceShaderContext::install(const SourceShaderState& next,HackerContext& context){
     require(G!=nullptr,"Source shader facts require an active generation");
-    ShaderMap hashes;std::unordered_map<UINT64,ShaderBindings> declarations;
+    ShaderMap hashes;std::unordered_map<UINT64,ShaderBindings> declarations;std::unordered_map<UINT64,std::string> models;
     for(size_t i=0;i<6;++i){const auto& s=next.stages[i];
-        require(s.known || (!s.bound && !s.hash_known && !s.hash && !s.declarations),"Unknown shader stage contains asserted facts");
-        require(s.bound || (!s.hash_known && !s.hash && !s.declarations),"Unbound shader stage contains asserted facts");
-        require(s.hash_known || (!s.hash && !s.declarations),"Unknown shader hash contains declaration facts");
+        require(s.known || (!s.bound && !s.hash_known && !s.hash && !s.declarations && s.model.empty()),"Unknown shader stage contains asserted facts");
+        require(s.bound || (!s.hash_known && !s.hash && !s.declarations && s.model.empty()),"Unbound shader stage contains asserted facts");
+        require(s.hash_known || (!s.hash && !s.declarations && s.model.empty()),"Unknown shader hash contains declaration facts");
+        if(!s.model.empty()){
+            const auto separator=s.model.find('_',3);
+            require(s.model.size()>=6 && s.model.size()<=32 && s.model[0]=="vhdgpc"[i] && s.model[1]=='s' && s.model[2]=='_' &&
+                separator>3 && separator<s.model.size()-1 && s.model.find_first_not_of("0123456789",3)!=std::string::npos &&
+                s.model.find_first_not_of("0123456789",3)==separator && s.model.find_first_not_of("0123456789",separator+1)==std::string::npos,
+                "Original shader model does not match its stage");
+            const auto entry=models.emplace(s.hash,s.model);require(entry.second || entry.first->second==s.model,"One source shader hash has conflicting models");
+        }
         if(s.hash_known){hashes.emplace(reinterpret_cast<ID3D11DeviceChild*>(&tokens_[i]),s.hash);
             if(s.declarations){const auto entry=declarations.emplace(s.hash,*s.declarations);
                 require(entry.second || same(entry.first->second,*s.declarations),"One source shader hash has conflicting declarations");}}

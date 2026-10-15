@@ -88,6 +88,7 @@ void HostParseResourceMatching() {
     if(G->track_region_hashes)BuildTextureOverrideDrawMaps();
 }
 void HostParseShaderOverrides() { ParseShaderOverrideSections(); }
+void HostParseShaderRegex() { ParseShaderRegexSections(); }
 void HostCompileNamedList(const wchar_t* name)
 {
     auto& list=explicitCommandListSections.at(name);

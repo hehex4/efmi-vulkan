@@ -625,3 +625,11 @@ Owned reference identities and native cached-matcher comparisons pass. This is
 not provenance for application resource hashes or import of stream-output,
 swapchain/indirect state. Dynamic source hash-policy updates remain the host's
 responsibility. Original ShaderRegex linkage and application placement follow.
+
+
+LIMIT-032 follow-up1.3.2: original patternless ShaderRegex links now drive owned
+Core IB replacement, including key enable/disable, repeated binding and native
+pixels. Pattern-bearing model matching still requires original assembly evidence;
+patched execution also needs bytecode translation and exact source association.
+General application/window/backbuffer state, directory scheduling and actual
+command placement remain separate. Full rebuilt1.3.2 suite passes; no game result.

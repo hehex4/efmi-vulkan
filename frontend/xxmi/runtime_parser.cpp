@@ -38,7 +38,7 @@ void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,boo
         for (const auto* prefix : {L"CustomShader", L"ShaderOverride", L"ShaderRegex"})
             if (!_wcsnicmp(section.first.c_str(), prefix, wcslen(prefix)) &&
                 !(custom_shaders && !wcscmp(prefix,L"CustomShader")) &&
-                !(shader_hooks && !wcscmp(prefix,L"ShaderOverride")) &&
+                !(shader_hooks && (!wcscmp(prefix,L"ShaderOverride") || !wcscmp(prefix,L"ShaderRegex"))) &&
                 std::none_of(native_shaders.begin(), native_shaders.end(), [&](const auto& name) { return !_wcsicmp(name.c_str(), section.first.c_str()); }))
                 throw std::runtime_error("INI declares an unsupported shader/overlay section");
     }

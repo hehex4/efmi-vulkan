@@ -1,5 +1,13 @@
 # Original INI language compatibility
 
+Latest owned checkpoint1.3.2: original shader hooks, general source resource
+matching and patternless ShaderRegex/Core IB replacement execute in the bounded
+Vulkan host. Full rebuilt regression passes (runtime407, resources9301,
+compiler172/58, installed programs37/37, clean validation). The complete source
+parser corpus remains726/726. Assembly-dependent shader patterns and application
+import/placement remain separate; see shader-matching-audit.md. Historical
+checkpoints below do not expand the deployed character runtime's scope.
+
 Candidate1.1.8 adds original indirect compute, owned sampler defaults and bounded
 shared-storage/sample-use checks. Full regression passes in
 build/next/run_all-1.1.8.out, resources3720 with clean validation. Native audit found

@@ -1,5 +1,6 @@
 #include "runtime_host.h"
 #include "resource_plan.h"
+#include "shader_regex.h"
 #include "globals.h"
 #include "HackerContext.h"
 #include "Override.h"
@@ -24,6 +25,7 @@ void HostParseResources();
 void HostParseTextureOverrides();
 void HostParseResourceMatching();
 void HostParseShaderOverrides();
+void HostParseShaderRegex();
 void HostCompileRoots(const std::vector<CommandList*>&, const std::vector<std::wstring>&);
 void HostResourceRoot(const std::wstring&);
 size_t HostDiagnosticCount();
@@ -85,6 +87,9 @@ struct EngineState {
     CustomResources resources;
     CustomResourcePools pools;
     CustomShaders shaders;
+    ShaderRegexGroups regex;
+    std::vector<ShaderRegexGroup*> regex_index;
+    uint32_t regex_hash=0;
     ExplicitCommandListSections lists;
     CommandListVariables variables;
     std::vector<CommandListVariable*> persistent;
@@ -106,6 +111,7 @@ struct EngineState {
     void swap()
     {
         customResources.swap(resources); customResourcePools.swap(pools); customShaders.swap(shaders);
+        shader_regex_groups.swap(regex);shader_regex_group_index.swap(regex_index);std::swap(shader_regex_hash,regex_hash);
         explicitCommandListSections.swap(lists); command_list_globals.swap(variables);
         persistent_variables.swap(persistent); unknown_variables.swap(unknown);
         registered_command_lists.swap(registered); pending_post_command_lists.swap(post);
@@ -146,6 +152,7 @@ struct IniRuntime::Impl {
     std::shared_ptr<RuntimeExtension> extension;
     DrawPlanAdapter adapter;
     SourceShaderContext source_shaders;
+    SourceShaderRegex source_regex;
     std::unique_ptr<FilePlanCompiler> files;
     HackerDevice device;
     HackerContext context;
@@ -232,7 +239,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             p.adapter.shader_queries([&p](auto& operand,auto& state,auto& value,auto& why){return p.source_shaders.query(operand,state,value,why);});
         }else if(config.initial_shaders)throw std::runtime_error("Source shader facts require shader hook opt-in");
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
-        if(config.shader_hooks){HostParseShaderOverrides();
+        if(config.shader_hooks){HostParseShaderOverrides();HostParseShaderRegex();
             for(const auto& entry:G->mShaderOverrideMap)
                 if(entry.second.depth_filter!=DepthBufferFilter::NONE || entry.second.model[0])
                     throw std::runtime_error("Legacy shader depth/model substitution requires a source replacement adapter");
@@ -264,6 +271,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         G->iniParams.assign(G->iniParamsReserved, DirectX::XMFLOAT4(0, 0, 0, 0));
         phase = "original command optimization";
         optimise_command_lists(nullptr);
+        if(config.shader_hooks)p.source_regex.initialize(p.adapter);
         // Includes key-owned activation/post lists as well as Present and the
         // original hash matcher lists; do not adapt only named callbacks.
         phase = "Vulkan command adaptation";
@@ -274,6 +282,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             p.adapter.adapt(entry.command_list); p.adapter.adapt(entry.post_command_list);
         }
         for(auto& entry:G->mShaderOverrideMap){p.adapter.adapt(entry.second.command_list);p.adapter.adapt(entry.second.post_command_list);}
+        if(config.shader_hooks && config.initial_shaders)p.source_regex.apply(*config.initial_shaders,63,p.adapter);
         phase = "file declaration adaptation";
         p.files = std::make_unique<FilePlanCompiler>(customResources);
         auto initial = p.command_state(); DrawPlan unused; std::wstring why;
@@ -337,7 +346,7 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
 bool IniRuntime::bind_source_shaders(const SourceShaderState& state,std::string& reason){
     reason.clear();try{auto& p=*impl_;Scope scope(p.state);
         if(!p.config.shader_hooks)throw std::runtime_error("Source shader facts require shader hook opt-in");
-        p.source_shaders.install(state,p.context);return true;
+        p.source_regex.preflight(state,63,false);p.source_shaders.install(state,p.context);p.source_regex.apply(state,63,p.adapter);return true;
     }catch(const std::exception& e){reason=e.what();return false;}
 }
 bool IniRuntime::intercept(const RuntimeShaderCall& input,std::string& reason){
@@ -349,7 +358,10 @@ bool IniRuntime::intercept(const RuntimeShaderCall& input,std::string& reason){
             throw std::runtime_error("Original shader call time is invalid");
         if(input.call.type<DrawCall::Draw || input.call.type>DrawCall::DispatchIndirect || !input.original)
             throw std::runtime_error("Original shader call boundary is missing or invalid");
+        const unsigned shader_mask=compute?32u:31u;
+        if(!input.call.hunting_skip)p.source_regex.preflight(input.shaders,shader_mask,true);
         p.source_shaders.install(input.shaders,p.context);
+        if(!input.call.hunting_skip)p.source_regex.apply(input.shaders,shader_mask,p.adapter);
         G->frame_no=unsigned(input.frame);G->gTime=input.seconds;G->gFrameTime=input.frame_seconds;
         if(compute)++p.context.dispatch_number;else ++p.context.draw_number;
         std::vector<CommandList*> pre,post;
