@@ -1,4 +1,5 @@
 #include "draw_plan.h"
+#include "resource_match.h"
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -19,7 +20,7 @@ struct Refused : std::exception {
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
 constexpr size_t max_active_depth = 64;
-struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;DrawPlanAdapter::ShaderQuery shader;size_t count=0;};
+struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;DrawPlanAdapter::ShaderQuery shader;size_t count=0;bool general_matches=false;};
 class NativeShaderQuery final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListOperand> source;
@@ -55,7 +56,7 @@ public:
         auto& target=source->texture_filter_target;
         const bool pixel=target.type==ResourceCopyTargetType::THIS_RESOURCE ||
             (target.type==ResourceCopyTargetType::SHADER_RESOURCE && target.shader_type==L'p');
-        const auto& read=pixel && target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE && service->texture?service->texture:service->read;
+        const auto& read=(pixel || service->general_matches) && target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE && service->texture?service->texture:service->read;
         if(!read)refuse(L"Resource query adapter is unavailable");
         if(!read(target,*state,result,reason))
             refuse(reason.empty()?L"Native resource query refused":reason);
@@ -93,6 +94,17 @@ public:
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
     bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
 };
+class SlotIndexGuard final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListEvaluatable> source;
+    explicit SlotIndexGuard(std::shared_ptr<CommandListEvaluatable> value):source(std::move(value)){}
+    float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
+        const auto value=source->evaluate(state,device);
+        if(!std::isfinite(value))refuse(L"Resource slot index is not finite");return value;
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
 bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>&,size_t);
 bool cpu_target(const ResourceCopyTarget& target,size_t depth=0)
 {
@@ -118,6 +130,7 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
     if(const auto* query=dynamic_cast<NativeResourceQuery*>(node.get()))return cpu_target(query->source->texture_filter_target,depth+1);
     if(const auto* guard=dynamic_cast<PoolIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* guard=dynamic_cast<RangeIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
+    if(const auto* guard=dynamic_cast<SlotIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if (const auto* operand = dynamic_cast<CommandListOperand*>(node.get())) {
         switch (operand->type) {
         case ParamOverrideType::VALUE: return true;
@@ -162,7 +175,8 @@ void guard_target(ResourceCopyTarget& target,const std::shared_ptr<QueryService>
         if(target.custom_resource_pool && !dynamic_cast<PoolIndexGuard*>(expression.get()))
             expression=std::make_shared<PoolIndexGuard>(expression,target.custom_resource_pool);
     }
-    if(target.slot_expression)guard_expression(target.slot_expression->evaluatable,queries,depth+1);
+    if(target.slot_expression){auto& expression=target.slot_expression->evaluatable;guard_expression(expression,queries,depth+1);
+        if(!dynamic_cast<SlotIndexGuard*>(expression.get()))expression=std::make_shared<SlotIndexGuard>(expression);}
     for(auto* bound:{target.range_start.get(),target.range_end.get()})if(bound){
         guard_expression(bound->evaluatable,queries,depth+1);
         if(!dynamic_cast<RangeIndexGuard*>(bound->evaluatable.get()))bound->evaluatable=std::make_shared<RangeIndexGuard>(bound->evaluatable);
@@ -304,6 +318,7 @@ struct DrawPlanAdapter::Runtime {
     bool nested_failed=false;
     size_t active_depth=0;
     DrawPlanAdapter::TextureQuery texture_query;
+    DrawPlanAdapter::ResourceMatchQuery resource_match;
     std::array<DrawPlanAdapter::PixelBinding,128> pixel_bindings;
     std::unordered_set<CustomResource*> files;
 
@@ -335,21 +350,30 @@ struct DrawPlanAdapter::Runtime {
     void texture_matches(ResourceCopyTarget& target,CommandListState& state,bool& bound,TextureOverrideMatches& matches)
     {
         auto& resolved=effective_target(target,state);
-        if(!texture_query || resolved.type!=ResourceCopyTargetType::SHADER_RESOURCE || resolved.shader_type!=L'p' ||
-           resolved.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE || resolved.IsRange())
-            refuse(L"Texture query requires an adapted single pixel slot");
-        const auto slot=resolved.ResolveSlot(&state);
-        if(slot>=pixel_bindings.size())refuse(L"Texture query slot outside supported range");
-        DrawPlanAdapter::TextureIdentity identity;
-        const auto& binding=pixel_bindings[slot];
-        if(binding.application || binding.resource){
+        if(resolved.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE || resolved.IsRange())
+            refuse(L"Resource matching requires an adapted single resource target");
+        matches.clear();bound=false;
+        if(resource_match){
+            SourceResourceMatch source;std::wstring why;
+            if(!resource_match(resolved,state,source,why))refuse(why.empty()?L"Original resource identity is unknown":why);
+            // Native THIS delegates resource resolution but keeps its own type
+            // when deciding whether to apply IA region hashing.
+            bound=source.bound;source_resource_matches(source,target.type,state,matches);
+        }else{
+            if(!texture_query || resolved.type!=ResourceCopyTargetType::SHADER_RESOURCE || resolved.shader_type!=L'p')
+                refuse(L"Texture query requires an adapted single pixel slot");
+            const auto slot=resolved.ResolveSlot(&state);
+            if(slot>=pixel_bindings.size())refuse(L"Texture query slot outside supported range");
+            DrawPlanAdapter::TextureIdentity identity;
+            const auto& binding=pixel_bindings[slot];
+            if(binding.application || binding.resource){
             std::wstring why;
             if(!texture_query(slot,binding,state,identity,why))refuse(why.empty()?L"Texture source identity is unknown":why);
+            }
+            bound=identity.bound;if(!bound)return;
+            if(!G->mFuzzyTextureOverrides.empty())refuse(L"Texture descriptor fuzzy matching has no adapter");
+            find_texture_override_for_hash(identity.hash,&matches,state.call_info);
         }
-        bound=identity.bound;matches.clear();
-        if(!bound)return;
-        if(!G->mFuzzyTextureOverrides.empty())refuse(L"Texture descriptor fuzzy matching has no adapter");
-        find_texture_override_for_hash(identity.hash,&matches,state.call_info);
         if(matches.size()>max_items)refuse(L"Texture match count exceeds planner budget");
         for(auto* match:matches)if(!match || !adapted.count(match->command_list.ResolveCommandList()) ||
                                    !adapted.count(match->post_command_list.ResolveCommandList()))
@@ -358,19 +382,29 @@ struct DrawPlanAdapter::Runtime {
     void check_texture(CheckTextureOverrideCommand& check,CommandListState& state)
     {
         auto& target=effective_target(check.target,state);
-        if(target.type!=ResourceCopyTargetType::SHADER_RESOURCE || target.shader_type!=L'p' ||
+        if(!resource_match && (target.type!=ResourceCopyTargetType::SHADER_RESOURCE || target.shader_type!=L'p' ||
            (target.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE &&
-            target.evaluation_mode!=ResourceCopyTargetEvaluationMode::SLOT_RANGE))
+            target.evaluation_mode!=ResourceCopyTargetEvaluationMode::SLOT_RANGE)))
             refuse(L"Texture override only supports pixel resource slots");
         int first=0;unsigned count=1;
         if(target.IsRange()){
-            if(!target.ResolveRange(&state,&first,&count))refuse(L"Texture slot range cannot resolve");
-        }else first=static_cast<int>(target.ResolveSlot(&state));
-        if(first<0 || first>=128 || count>128-unsigned(first))refuse(L"Texture slot range outside supported bounds");
+            if(target.custom_resource_pool)validate_pool_runtime(*target.custom_resource_pool);
+            if(!target.ResolveRange(&state,&first,&count))return; // Native finite invalid range is a no-op.
+            if(count>max_items)refuse(L"Checked resource range exceeds transaction budget");
+        }
         auto* saved_this=state.this_target;const auto saved_post=state.post;
         struct Restore {CommandListState& state;ResourceCopyTarget* target;bool post;~Restore(){state.this_target=target;state.post=post;}} restore{state,saved_this,saved_post};
         for(unsigned i=0;i<count;++i){
-            ResourceCopyTarget checked;checked.type=ResourceCopyTargetType::SHADER_RESOURCE;checked.shader_type=L'p';checked.slot=unsigned(first)+i;
+            if(++steps>max_steps)refuse(L"Checked resource range exceeds execution budget");
+            ResourceCopyTarget local;ResourceCopyTarget& checked=target.IsRange()?local:target;
+            if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::POOL_RANGE){
+                const int64_t index=int64_t(first)+i;
+                if(!target.custom_resource_pool || index<INT_MIN || index>INT_MAX)refuse(L"Checked pool index exceeds signed bounds");
+                local.type=ResourceCopyTargetType::CUSTOM_RESOURCE;
+                local.SetCustomResource(target.custom_resource_pool->GetResource(float(index),false,true,false));
+            }else if(target.IsRange()){
+                local.type=target.type;local.shader_type=target.shader_type;local.slot=unsigned(first)+i;local.max_slot=target.max_slot;
+            }
             state.this_target=&checked;bool bound=false;TextureOverrideMatches matches;texture_matches(checked,state,bound,matches);
             auto run=[&](bool post){state.post=post;for(auto* match:matches){
                 auto& list=post?match->post_command_list:match->command_list;
@@ -737,7 +771,7 @@ bool DrawPlanAdapter::flush_parameters(CommandListState& state,bool force,std::w
 
 void DrawPlanAdapter::texture_queries(TextureQuery query)
 {
-    if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install texture queries before adapting command lists");
+    if(runtime_->active || !runtime_->adapted.empty() || !query || runtime_->resource_match)refuse(L"Install one texture matcher before adapting command lists");
     runtime_->texture_query=std::move(query);std::weak_ptr<Runtime> weak=runtime_;
     runtime_->queries->texture=[weak](ResourceCopyTarget& target,CommandListState& state,float& result,std::wstring& reason){
         auto owner=weak.lock();if(!owner || !owner->active){reason=L"Texture query outside an active plan";return false;}
@@ -748,7 +782,19 @@ void DrawPlanAdapter::texture_queries(TextureQuery query)
         return true;
     };
 }
-bool DrawPlanAdapter::has_texture_queries() const {return bool(runtime_->texture_query);}
+bool DrawPlanAdapter::has_texture_queries() const {return bool(runtime_->texture_query) || bool(runtime_->resource_match);}
+void DrawPlanAdapter::resource_matches(ResourceMatchQuery query){
+    if(runtime_->active || !runtime_->adapted.empty() || !query || runtime_->texture_query || runtime_->resource_match)
+        refuse(L"Install one source resource matcher before adapting command lists");
+    runtime_->resource_match=std::move(query);runtime_->queries->general_matches=true;std::weak_ptr<Runtime> weak=runtime_;
+    runtime_->queries->texture=[weak](ResourceCopyTarget& target,CommandListState& state,float& result,std::wstring& reason){
+        auto owner=weak.lock();if(!owner || !owner->active){reason=L"Resource matching outside an active transaction";return false;}
+        bool bound=false;TextureOverrideMatches matches;owner->texture_matches(target,state,bound,matches);
+        if(!bound){result=-0.f;return true;}result=matches.empty()?0.f:1.f;
+        for(auto it=matches.rbegin();it!=matches.rend();++it)if((*it)->filter_index!=FLT_MAX){result=(*it)->filter_index;break;}
+        return true;
+    };
+}
 std::vector<CustomResource*> DrawPlanAdapter::referenced_files() const
 {
     return {runtime_->files.begin(), runtime_->files.end()};

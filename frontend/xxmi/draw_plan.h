@@ -4,6 +4,7 @@
 namespace efmi::core {struct PaletteSnapshot;}
 
 namespace efmi::frontend {
+struct SourceResourceMatch;
 
 // Guard original pool indexing before its numeric casts or lookup. Call with
 // the owning generation's globals installed; the original engine owns mapping.
@@ -110,6 +111,10 @@ public:
     // fuzzy matching is unsupported and refuses. Install before adaptation.
     void texture_queries(TextureQuery);
     bool has_texture_queries() const;
+    using ResourceMatchQuery=std::function<bool(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&)>;
+    // General source targets, including IB/VB, stage slots, resources and pools.
+    // Mutually exclusive with the legacy pixel-only file-plan provider.
+    void resource_matches(ResourceMatchQuery);
     // File declarations referenced anywhere in the adapted command graph,
     // including both branches. Unused INI declarations need not exist on disk.
     std::vector<CustomResource*> referenced_files() const;

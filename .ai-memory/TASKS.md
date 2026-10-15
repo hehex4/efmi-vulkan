@@ -6,6 +6,28 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current state
 
+General CheckTextureOverride and resource filters now use original descriptor,
+draw-info and buffer-region rules for source targets and ranges. Hash matches
+precede fuzzy matches, including exact matches. Weak allocation identities
+preserve references without assigning a copied allocation its source's hash.
+Unknown facts refuse when required; no implicit readback is introduced. Dynamic
+this, pool wrap/read semantics and finite/non-finite slot handling are tested.
+
+Full rebuilt frozen-source regression:build/next/run_all-1.3.1.out exit0/all steps;
+runtime311, resources9242, compiler172/58, corpus37/37, core/sync clean. Source
+hashes99/9/12 match; installed inputs unchanged; text345 clean. Native WARP
+reference comparisons cover80 resource/identity/draw combinations. No game,
+deployment or system action; dist1.0.2 and separate launcher DX11 state unchanged.
+
+Continue1.3.2 offline with original ShaderRegex parsing and patternless command
+linkage, including Core's VS entry to CheckTextureOverride=ib. Preserve proven
+shader_model identity, explicit-filter precedence, repeated-bind idempotence and
+generation ownership. Assembly-changing patterns, legacy substitutions and
+application placement remain separate. See both matching audit documents.
+No game input needed; continue. PNG paused, LOD0/LOD1 only.
+
+Earlier verified checkpoint:
+
 Original ShaderOverride parsing now drives independent VS/HS/DS/GS/PS and CS
 roots around an owned original call. Tracked source shader identity survives
 nested CustomShader execution; original declaration queries use the unchanged

@@ -26,6 +26,7 @@ static void write(const std::filesystem::path& path, const char* text)
 }
 #include "runtime_match_cases.h"
 #include "runtime_shader_cases.h"
+#include "runtime_resource_match_cases.h"
 static const char* fixture = R"ini(namespace = runtime_test
 [Constants]
 global persist $dress = 0
@@ -158,6 +159,7 @@ int wmain(int argc, wchar_t** argv)
         std::filesystem::create_directories(folder);
         runtime_match_cases(folder);
         runtime_shader_cases(folder);
+        runtime_resource_match_cases(folder);
         const auto ini = folder / "mod.ini"; write(ini, fixture);
         const auto settings = folder / "settings";
         std::filesystem::remove(settings / "runtime.ini");

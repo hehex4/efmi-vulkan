@@ -22,6 +22,7 @@ void HostParseConstants();
 void HostEnumerateLists();
 void HostParseResources();
 void HostParseTextureOverrides();
+void HostParseResourceMatching();
 void HostParseShaderOverrides();
 void HostCompileRoots(const std::vector<CommandList*>&, const std::vector<std::wstring>&);
 void HostResourceRoot(const std::wstring&);
@@ -236,7 +237,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 if(entry.second.depth_filter!=DepthBufferFilter::NONE || entry.second.model[0])
                     throw std::runtime_error("Legacy shader depth/model substitution requires a source replacement adapter");
         }
-        HostParseTextureOverrides(); RuntimeCompilePresent(); RuntimeParseKeys();
+        HostParseTextureOverrides();HostParseResourceMatching(); RuntimeCompilePresent(); RuntimeParseKeys();
         std::wstring validation;
         if (p.extension && !p.extension->validate_overrides(validation)) throw std::runtime_error("Native override registry refused: " + utf8(validation));
         RegisterKeyBinding(L"reload_config", L"no_modifiers VK_F10", std::make_shared<InputCallbacks>(f10, nullptr, nullptr), 0, 0, 0, InputDisableScope::ALL);

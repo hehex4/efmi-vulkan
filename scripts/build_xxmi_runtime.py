@@ -53,9 +53,9 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
         original, staged = upstream / "DirectX11" / name, out / name
         if not staged.exists() or digest(original) != digest(staged):
             staged.write_bytes(original.read_bytes())
-    legacy = [pristine / (name + ".cpp") for name in ("ResourceHash", "profiling", "util")]
+    legacy = [pristine / (name + ".cpp") for name in ("profiling", "util")]
     legacy += [out / "ByteCodeReader.cpp"]
-    legacy += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("command_module", "runtime_override")]
+    legacy += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("command_module", "resource_hash_module", "runtime_override")]
     sources = [ROOT / "frontend/xxmi" / (name + ".cpp") for name in
                ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "shader_state", "gpu_resources", "gpu_bindings", "gpu_images", "gpu_parameters", "gpu_shaders", "gpu_graphics", "input_layout", "gpu_layout", "image_formats")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]

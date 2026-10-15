@@ -617,3 +617,11 @@ facts must be supplied separately from translated executables. Present's owned
 frame/counter boundary is not application Present integration. General resource
 identity, descriptor/region matching, directory scheduling and application
 placement remain next; docs/resource-matching-audit.md records source semantics.
+
+
+LIMIT-032 follow-up1.3.1: general resource matching now reuses original hash,
+descriptor and region/draw predicates with source target/range/pool semantics.
+Owned reference identities and native cached-matcher comparisons pass. This is
+not provenance for application resource hashes or import of stream-output,
+swapchain/indirect state. Dynamic source hash-policy updates remain the host's
+responsibility. Original ShaderRegex linkage and application placement follow.

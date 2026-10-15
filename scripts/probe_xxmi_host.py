@@ -85,8 +85,8 @@ def main() -> int:
             "#define VERSION_REVISION 2\n#define VERSION_BUILD 0\n", encoding="ascii")
         fixture = ROOT / "sandbox/xxmi_host"
         legacy_sources = [pristine / f"{name}.cpp" for name in
-                          ("ResourceHash", "profiling", "util", "Override")]
-        legacy_sources += [ROOT / "frontend/xxmi/command_module.cpp"]
+                          ("profiling", "util", "Override")]
+        legacy_sources += [ROOT / "frontend/xxmi/command_module.cpp", ROOT / "frontend/xxmi/resource_hash_module.cpp"]
         sources = [fixture / f"{name}.cpp" for name in ("main", "shim", "ini", "host_input")]
         sources += [fixture / "plan_test.cpp", fixture / "mod_plan.cpp", ROOT / "frontend/xxmi/draw_plan.cpp"]
         sources += [fixture / "folder_parse.cpp"]
@@ -110,7 +110,7 @@ def main() -> int:
         regex_lib = upstream / "pcre2/pcre2-8-64.lib"
         inputs += legacy_sources + sources + list(port.glob("*.h")) + [regex_lib, Path(__file__),
                   ROOT / "frontend/xxmi/draw_plan.h", ROOT / "frontend/assets/dds.h"]
-        inputs += [ROOT / "frontend/xxmi/resource_plan.h"] + list((ROOT / "frontend/assets").glob("*.h"))
+        inputs += [ROOT / "frontend/xxmi/resource_plan.h", ROOT / "frontend/xxmi/resource_match.h"] + list((ROOT / "frontend/assets").glob("*.h"))
         inputs += [ROOT / "frontend/xxmi/ini_module.cpp", ROOT / "frontend/xxmi/rabbit_textures.h"]
         inputs += [ROOT / "frontend/xxmi/skeleton_plan.h"]
         inputs += [ROOT / "frontend/xxmi/buffer_queries.h"]

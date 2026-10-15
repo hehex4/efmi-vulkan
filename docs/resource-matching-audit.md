@@ -41,12 +41,43 @@ The original range loop snapshots its bounds and restores the caller's this/post
 state. A single dynamic target retains its expression, which the original resolver
 evaluates when needed. Pool elements are read, not updated, by a check.
 
+An expression querying this delegates GetResource to the current checked target,
+but FindTextureOverrides still sees target type THIS. It consequently uses the
+whole-resource path even when that checked target is IB/VB. Preserve this source
+detail rather than normalizing the query type along with its bound resource.
+Explicit pre/post prefixes select a combined target pre/post invocation; they do
+not mean that only the selected target phase runs. An unprefixed check participates
+in the caller's ordinary pre/post scheduling.
+
 Each match executes the current phase, or all pre lists followed by all post lists
 for the combined command form. Existing transaction, recursion, command and query
 budgets must cover nested checks too. Non-finite dynamic indices must be guarded
 before native integer conversions, without replacing finite source evaluation.
 
-Next: supply proven resource snapshots to the original descriptor and draw-info
-matching code, generalize checked targets and preserve owned resource identity
-through references. Verify actual native candidate order, regions, pools and
-rebinding before enabling directory/application placement. No game input needed.
+## Owned implementation, candidate1.3.1
+
+resource_hash_module.cpp compiles the unchanged source matcher and exposes its
+private descriptor matcher to proven CPU snapshots. No fake COM objects or new
+predicate parser is needed. Original draw maps and Rendering.track_region_hashes
+are parsed with the existing source getters. Unknown facts refuse when required;
+unused region data is not requested. Source bytes are never read back implicitly.
+
+General CheckTextureOverride supports resolved resources, stage/IA/output slots,
+slot ranges and wrapped pool element ranges. Owned allocations receive explicit
+source facts through weak allocation identities; references share them while new
+allocations do not acquire their source's hash by copying bytes. The importing
+host is responsible for updating facts under its source hash policy. Standalone
+custom allocations without native tracking records correctly match nothing.
+
+CPU311 checks include region prefilter/fallback, unknown identities, dynamic this
+and non-finite guards. GPU9242 checks include80 exact native cached-matcher
+comparisons over real WARP buffers/1D/2D/3D resources, identity0/no-record cases,
+source draw predicates/order, all shader SRVs, IA/UAV slots, wrapped pools,
+reference/copy identity and live this rebinding. Core/sync validation is clean.
+
+Full rebuilt regression passes:build/next/run_all-1.3.1.out exit0/all steps;
+source hashes99/9/12 match, compiler172/58 and corpus37/37 pass, text345 clean.
+Installed inputs and dist1.0.2 unchanged; no game or system action. These are
+owned execution results, not application resource/hash provenance. Stream output,
+swapchain/indirect resources and imported draw placement need separate adapters.
+Next is original ShaderRegex linkage; no game input is required at this boundary.

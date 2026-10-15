@@ -1675,3 +1675,29 @@ Next1.3.1: general resource matching. Source command lookup appends hash then
 fuzzy matches, unlike the separate creation helper. Keep original draw-context
 and region rules, all checked targets and pool semantics. Audit recorded in
 docs/resource-matching-audit.md. Continue without needing game input.
+
+
+## 2026-10-15: General original resource matching, candidate1.3.1
+
+Reused unchanged ResourceHash.cpp descriptor/draw predicates through a small
+module boundary. Parsed original region policy and draw maps; preserved region
+prefiltering, known-zero fallback, native hash/fuzzy order and signed filter zero.
+General checks now handle resource targets, stage/IA/UAV slots, dynamic/range
+targets and wrapped pool elements. Owned source identities are weak allocation
+records: references share them and fresh byte copies remain untracked.
+
+Native WARP comparisons agree for80 buffer/1D/2D/3D identity/draw combinations.
+CPU tests cover buffer regions, unknown required facts, this and index guards.
+GPU cases exercise stage slots, IA/UAV, pools, alias/copy identity and this writes.
+Source nuance found during review: this resolves its checked buffer but still
+uses whole-resource matching, not IA region matching. Both are now covered.
+Fixture correction: explicit pre/post checktextureoverride each combines both
+target phases, so the ordinary phase test now uses one unprefixed command.
+The native matcher fixture also received its required explicit Draw call type.
+
+Full rebuilt frozen-source suite:build/next/run_all-1.3.1.out exit0/all steps;
+runtime311, resources9242, compiler172/58, corpus37/37, clean core/sync through
+shutdown. Source hashes99/9/12 match; installed inputs unchanged, text345 clean.
+No game/deployment/system action. Dist1.0.2 and separate launcher DX11 state stay
+unchanged. Continue1.3.2 with original ShaderRegex generation ownership, model
+facts and bounded/idempotent command linkage. Game input is not needed yet.

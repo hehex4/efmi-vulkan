@@ -1,10 +1,32 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-15, source shader hooks1.3.0 verified. Continue general resource matching offline; dist1.0.2 unchanged.
+> Last updated: 2026-10-15, general resource matching1.3.1 verified. Continue original ShaderRegex linkage offline; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## General original resource matching (verified candidate1.3.1)
+
+General CheckTextureOverride and resource filters now use original descriptor,
+draw-info and buffer-region rules for source targets and ranges. Hash matches
+precede fuzzy matches, including exact matches. Weak allocation identities
+preserve references without assigning a copied allocation its source's hash.
+Unknown facts refuse when required; no implicit readback is introduced. Dynamic
+this, pool wrap/read semantics and finite/non-finite slot handling are tested.
+
+Full rebuilt frozen-source regression:build/next/run_all-1.3.1.out exit0/all steps;
+runtime311, resources9242, compiler172/58, corpus37/37, core/sync clean. Source
+hashes99/9/12 match; installed inputs unchanged; text345 clean. Native WARP
+reference comparisons cover80 resource/identity/draw combinations. No game,
+deployment or system action; dist1.0.2 and separate launcher DX11 state unchanged.
+
+Continue1.3.2 offline with original ShaderRegex parsing and patternless command
+linkage, including Core's VS entry to CheckTextureOverride=ib. Preserve proven
+shader_model identity, explicit-filter precedence, repeated-bind idempotence and
+generation ownership. Assembly-changing patterns, legacy substitutions and
+application placement remain separate. See both matching audit documents.
+No game input needed; continue. PNG paused, LOD0/LOD1 only.
 
 ## Original shader hooks (verified candidate1.3.0)
 

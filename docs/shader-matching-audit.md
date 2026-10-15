@@ -86,3 +86,22 @@ for the next owned implementation.
 Full rebuilt regression1.3.0:build/next/run_all-1.3.0.out exit0/all steps; source
 hashes96/9/12 match, compiler172/58 and installed corpus37/37 pass, core/sync
 validation clean. Installed inputs and dist1.0.2 unchanged; no game action.
+
+## Next: original ShaderRegex command linkage
+
+The installed Core EFMI/main.ini uses a patternless VS ShaderRegex to call
+CheckTextureOverride=ib for indexed draws. Its source shader_model list must be
+compared to proven native shader metadata, not guessed from a Vulkan stage.
+
+The original linker creates shared RunLinkedCommandList commands, appends them
+after explicit ShaderOverride commands, and supplies filter_index only when the
+explicit entry has none. It suppresses duplicate links by pointer identity.
+Adapters must preserve that outcome across repeated shader bindings and keep
+the linked target within the same bounded command transaction. Regex groups,
+indices and hashes must be isolated between frontend generations.
+
+link_shader_regex_groups_without_patterns defers all matching groups whenever a
+matching model has a pattern-bearing group. A successful patternless link does
+not prove assembly replacement or patched DXBC execution. The next implementation
+must keep that boundary explicit and preserve native cache behavior without
+writing outside the project. Reload can retire and replace a complete generation.

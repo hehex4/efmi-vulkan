@@ -105,6 +105,7 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     require(!installed_,"GPU resource runtime cannot belong to two INI generations");installed_=true;
     adapter.resource_commands([this](auto& command,auto& state,auto& why){return run(command,state,why);});
     adapter.resource_queries([this](auto& target,auto& state,float& value,auto& why){return query(target,state,value,why);});
+    adapter.resource_matches([this](auto& target,auto& state,auto& value,auto& why){return match_source(target,state,value,why);});
     adapter.parameter_flush([this](auto& state,bool force,auto& why){return flush_parameters(state,force,why);});
     return {};
 }
@@ -179,6 +180,46 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r) {
     r.is_null=false;r.stride=b.stride;r.format=b.format;r.buf_size=b.visible_size;resources_[&r]=b;return b;
 }
 GpuResourceBinding GpuResourceRuntime::resolve(ResourceCopyTarget& input,CommandListState& state){active();return get(input,state);}
+namespace {
+std::shared_ptr<void> resource_owner(const GpuResourceBinding& binding){
+    return binding.image?std::static_pointer_cast<void>(binding.image):std::static_pointer_cast<void>(binding.buffer);
+}
+}
+void GpuResourceRuntime::identify_resource(const GpuResourceBinding& binding,SourceResourceIdentity identity){
+    require(bool(binding) && !failed_,"Resource identity requires a live owned allocation");
+    require(identity.hash_known || !identity.hash,"Unknown original resource hash has an asserted value");
+    require(identity.tracking==SourceResourceIdentity::Tracking::Tracked || (!identity.hash_known && !identity.region_hash),
+            "Untracked resource has asserted source hash facts");
+    const std::weak_ptr<void> key=resource_owner(binding);
+    if(identity.tracking==SourceResourceIdentity::Tracking::Untracked){source_identities_.erase(key);return;}
+    if(!source_identities_.count(key) && source_identities_.size()>=65536){
+        for(auto it=source_identities_.begin();it!=source_identities_.end();)if(it->first.expired())it=source_identities_.erase(it);else ++it;
+        require(source_identities_.size()<65536,"Original resource identity budget exceeded");
+    }
+    source_identities_[key]=std::move(identity);
+}
+bool GpuResourceRuntime::match_source(ResourceCopyTarget& target,CommandListState& state,SourceResourceMatch& result,std::wstring& reason){
+    try{active();require(!failed_,"GPU resource generation failed");
+        result={};ResourceCopyTarget single;ResourceCopyTarget* resolved=&target;
+        if(target.slot_expression){const auto slot=target.ResolveSlot(&state);if(slot==UINT_MAX)return true;
+            single.type=target.type;single.shader_type=target.shader_type;single.slot=slot;single.max_slot=target.max_slot;resolved=&single;}
+        auto binding=get(*resolved,state);result.bound=bool(binding);if(!binding)return true;
+        const auto found=source_identities_.find(std::weak_ptr<void>(resource_owner(binding)));
+        if(found==source_identities_.end())result.identity.tracking=SourceResourceIdentity::Tracking::Untracked;
+        else result.identity=found->second;
+        result.stride=binding.stride;result.offset=binding.offset;result.format=binding.format;
+        if(!binding.image)result.description=binding.description;
+        else{const auto& s=binding.image_description;const auto& d=s.texture;
+            if(s.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE1D)
+                result.description=D3D11_TEXTURE1D_DESC{d.Width,d.MipLevels,d.ArraySize,d.Format,d.Usage,d.BindFlags,d.CPUAccessFlags,d.MiscFlags};
+            else if(s.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE2D)result.description=d;
+            else if(s.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE3D)
+                result.description=D3D11_TEXTURE3D_DESC{d.Width,d.Height,s.depth,d.MipLevels,d.Format,d.Usage,d.BindFlags,d.CPUAccessFlags,d.MiscFlags};
+            else throw std::runtime_error("Original image dimension is unknown");
+        }
+        return true;
+    }catch(const std::exception& e){if(active_)failed_=true;reason=widen(e.what());return false;}
+}
 GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListState& state) {
     auto& t=effective(input,state);GpuResourceBinding b;
     require(!t.IsRange(),"GPU range command requires the slot-range adapter");

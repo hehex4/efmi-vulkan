@@ -1,6 +1,7 @@
 #pragma once
 #include "runtime_host.h"
 #include "image_rules.h"
+#include "resource_match.h"
 #include "../gpu/resource_commands.h"
 #include <map>
 #include <tuple>
@@ -51,6 +52,11 @@ public:
     GpuResourceBinding binding(wchar_t stage,ResourceCopyTargetType,unsigned slot) const;
     // Source-semantic target resolution for an adapted draw in an active scope.
     GpuResourceBinding resolve(ResourceCopyTarget&,CommandListState&);
+    // Attach proven native tracking facts to an owned allocation. Reference
+    // aliases share them; newly allocated byte copies remain untracked. The
+    // host updates the snapshot whenever its source hash policy changes it.
+    // This neither imports application resources nor computes a DX11 hash.
+    void identify_resource(const GpuResourceBinding&,SourceResourceIdentity);
     const D3D11_VIEWPORT& viewport() const {return viewport_;}
     const GpuResourceBinding& ini_parameters() const {return parameters_;}
     // Recorded uploads, not completed GPU execution or application binding.
@@ -66,6 +72,7 @@ private:
     using Slot=std::tuple<wchar_t,ResourceCopyTargetType,unsigned>;
     bool run(CommandListCommand&,CommandListState&,std::wstring&);
     bool query(ResourceCopyTarget&,CommandListState&,float&,std::wstring&);
+    bool match_source(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&);
     ResourceCopyTarget& effective(ResourceCopyTarget&,CommandListState&);
     Slot slot(ResourceCopyTarget&,CommandListState&);
     CustomResource* declaration(ResourceCopyTarget&,CommandListState&,bool writing=false);
@@ -96,6 +103,7 @@ private:
     uint64_t parameter_uploads_=0;
     bool parameters_initialized_=false;
     std::map<CustomResource*,GpuResourceBinding> resources_;
+    std::map<std::weak_ptr<void>,SourceResourceIdentity,std::owner_less<std::weak_ptr<void>>> source_identities_;
     std::map<Slot,GpuResourceBinding> slots_;
     // A source slot-range command materializes every view before one API bind.
     Bindings* deferred_bindings_=nullptr;

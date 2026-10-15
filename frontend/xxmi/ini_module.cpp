@@ -83,6 +83,10 @@ void HostVisitShaderSources(const std::function<void(const std::wstring&,const s
     }
 }
 void HostParseTextureOverrides() { ParseTextureOverrideSections(); }
+void HostParseResourceMatching() {
+    G->track_region_hashes=GetIniBool(L"Rendering",L"track_region_hashes",false,nullptr);
+    if(G->track_region_hashes)BuildTextureOverrideDrawMaps();
+}
 void HostParseShaderOverrides() { ParseShaderOverrideSections(); }
 void HostCompileNamedList(const wchar_t* name)
 {

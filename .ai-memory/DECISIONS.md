@@ -608,3 +608,17 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   import explicit. Source declaration names alone do not imply an implementation:
   cb_mask/srv_mask return0 in the pinned evaluator, confirmed after correcting
   the initial audit. Owned pre/original/post pixels do not prove game placement.
+
+
+## D-061: Resource filters use source command matching and explicit identity
+
+- Date:2026-10-15, candidate1.3.1. Reuse original descriptor/draw predicates and
+  region helpers. Command matching appends hash then fuzzy results; the source
+  creation helper's early return is not equivalent. Keep this query's original
+  target type when selecting region versus whole-resource matching.
+- Import proven tracking/hash facts separately from GPU objects. Keep weak
+  allocation identity through aliases; do not infer original hashes from Vulkan
+  handles or newly copied bytes. The source policy owner updates those facts.
+- Preserve original dynamic target re-evaluation and pool range reads. Bound
+  non-finite casts and total execution, but retain finite invalid-range no-ops
+  and unbound slot sentinels. No hidden GPU readback to discover missing hashes.

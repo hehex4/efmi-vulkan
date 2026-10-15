@@ -1372,6 +1372,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_vertex_input_cases.h"
 #include "resource_match_cases.h"
 #include "resource_shader_hook_cases.h"
+#include "resource_identity_cases.h"
 int wmain(int argc,wchar_t** argv){
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
@@ -1407,7 +1408,8 @@ int wmain(int argc,wchar_t** argv){
         original_layout_append(device,root/"ini-layout-append");original_layout_divisors(device,root/"ini-layout-divisors");
         original_vertex_input_types(device,root/"ini-input-types");vertex_input_lowering_guards(device,root/"input-lowering");
         original_matched_layouts(device,root/"matched-layouts");
-        original_shader_hooks(device,root/"source-shader-hooks");original_compute_hooks(device,root/"source-compute-hooks");}
+        original_shader_hooks(device,root/"source-shader-hooks");original_compute_hooks(device,root/"source-compute-hooks");
+        native_resource_match_reference(device,root/"source-resource-matcher");owned_resource_matching(device,root/"owned-resource-matcher");}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}
