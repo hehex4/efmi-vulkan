@@ -668,3 +668,18 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
   Implement and verify software lowering before using this translation path there.
 - Keep compiled bytecode, owned GPU execution, runtime regex publication and
   application/game integration distinct. Continue offline without user input.
+
+
+## D-065: Float32 compatibility separates denormals from other device modes
+
+- Date:2026-10-15, candidate1.3.5. Use bounded scalar/vector integer-bit flushing
+  when explicit float32 denormal control is unavailable. Preserve data moves,
+  result identity and arithmetic NoContraction decorations. Unsupported shapes
+  refuse atomically; never silently drop the source's mode.
+- Both paths require enabled SignedZeroInfNanPreserve32 and RoundingModeRTE32.
+  An Intel reference test exposed NaN self-comparison optimization when only
+  denormal control was declared. Software denormals do not replace these modes.
+- Bound GLSL Fract results to the native range below1 without suppressing NaNs.
+  Keep exact native WARP comparisons for both local GPUs and retain failing
+  evidence separately from the corrected implementation. These tests are owned
+  execution, not a real-game validation or whole-language conformance proof.

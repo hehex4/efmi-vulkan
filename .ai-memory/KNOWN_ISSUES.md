@@ -664,3 +664,32 @@ sign_nvidia.txt, sign_intel.txt; core/sync clean. This is offline evidence only.
 Original vkd3d/state.c uses ANY mode, but that alone does not meet this measured
 source contract. Next implement bounded float32 lowering and broaden native
 arithmetic/comparison tests; do not infer universal default-mode equivalence.
+
+LIMIT-033 follow-up1.3.5: bounded software denormal handling now matches native
+WARP on NVIDIA; strict handling also matches on Intel. Fract's upper boundary
+needed an ordered clamp, and both modes need SignedZeroInfNanPreserve32 and
+RoundingModeRTE32. Without the former Intel optimized a NaN self-comparison.
+Targeted GPU10650 passes with core/sync clean. Pure moves retain their bits.
+The supported scalar/vector matrix is measured, not full arithmetic conformance;
+other shapes/widths refuse. Actual application logical enablement remains open.
+
+## INPUT-001: Installed Fangyi INI has duplicate resource sections
+
+2026-10-15 full1.3.5 regression found duplicate DiffuseMap1 and DiffuseMap2
+resource sections in Mods/zhuangfangyi lilith vice1.9/fangyi ul.ini. Actual
+directory name has a space between vice and1.9. Original parser reports four
+diagnostics: two duplicate sections and their now-outside-section filename
+lines. The two repeated bodies are identical. Source inspection is unchanged;
+installed files are read-only. The original full-folder syntax test fails and
+its dependent HLSL corpus step cannot run. This is not a new Vulkan language
+gap. A separately labelled project-local source copy can remove only the two
+duplicate blocks to continue compiler testing, while retaining the original
+failure and original/normalized file hashes.
+
+INPUT-001 verification: full1.3.5 has exactly the two dependent corpus failures;
+all other steps pass. The project-local source copy under build/corpus-1.3.5
+removes only two byte-identical duplicate blocks (188 bytes). Original/normalized
+hashes are in manifest.json. Its original parser succeeds and all55 distinct
+programs from70 declarations compile/validate. All88 installed source hashes
+remain unchanged. This does not change the acceptance result of the original
+installed files or establish runtime/game compatibility.

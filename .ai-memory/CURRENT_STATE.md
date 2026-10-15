@@ -1,10 +1,33 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-15, exact DXBC translation1.3.4 verified. Continue float32 lowering offline; dist1.0.2 unchanged.
+> Last updated: 2026-10-15, float32 candidate1.3.5 verified with installed-input exception INPUT-001; dist1.0.2 unchanged.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Float32 lowering (candidate1.3.5)
+
+Float32 bytecode lowering now preserves signed denormals in arithmetic while
+leaving data moves intact. Software handling runs on NVIDIA, hardware handling
+on Intel. Both explicitly require NaN/infinity/signed-zero preservation and RTE;
+Fract retains the native result below1. Native WARP comparisons cover eight
+boundary/vector cases plus compute, graphics and descriptor execution.
+
+Full rebuilt frozen-source run:build/next/run_all-1.3.5.out. All code/GPU steps
+pass (runtime475, resources10650, compiler172/58; core/sync clean). Two installed
+corpus steps fail because fangyi ul.ini contains identical duplicate resource
+sections (INPUT-001); do not label the full run green. A source-only project
+copy removes those two blocks:70 declarations,55 distinct HLSL programs all
+compile/validate. Evidence:build/corpus-1.3.5/manifest.json and hlsl/report.json.
+Source hashes110/9/12 match; all88 copied installed inputs remain unchanged.
+Text358 clean. No game, deployment, launcher or system action; dist1.0.2 unchanged.
+
+Continue offline with exact native buffer-view contracts and regex executable
+publication. Do not equate scalar SPIR-V storage stride with the original
+structured stride. Source identity, command publication and executable lifetime
+must stay associated atomically. No game input needed; keep going. PNG paused,
+LOD0/LOD1 only. See D-065, LIMIT-033 and docs/bytecode-compiler.md.
 
 ## Exact DXBC translation (verified candidate1.3.4)
 

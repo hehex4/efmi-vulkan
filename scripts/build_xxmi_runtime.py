@@ -19,6 +19,7 @@ def runtime_flags(out: Path) -> list[str]:
     pristine = DEPS / "efmi-xxmi-host-prototype/pristine"
     includes = [ROOT / "frontend/xxmi", Path(find_vulkan_include()), port, pristine, upstream,
                 DEPS / "dxc-1.9.2609/inc", DEPS / "SPIRV-Reflect-1.4.321.0", DEPS / "vkd3d-2.1/include",
+                DEPS / "SPIRV-Headers-1.4.321.0/include",
                 DEPS / "Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/include",
                 upstream / "HLSLDecompiler", upstream / "D3D_Shaders", upstream / "DirectXTK/Inc",
                 upstream / "DirectXTK/Src", upstream / "crc32c-hw-1.0.5/include", upstream / "pcre2"]
@@ -62,7 +63,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/core/palette_bank.cpp"]
     sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in
-                ("resource_commands", "resource_images", "hlsl_compiler", "dxbc_compiler", "graphics_link", "vertex_inputs", "shader_reflection", "shader_usage", "shader_commands", "graphics_commands")]
+                ("resource_commands", "resource_images", "hlsl_compiler", "dxbc_compiler", "dxbc_float32", "graphics_link", "vertex_inputs", "shader_reflection", "shader_usage", "shader_commands", "graphics_commands")]
     sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in ("DDSTextureLoader", "WICTextureLoader")]
     sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
     flags = runtime_flags(out)
@@ -77,6 +78,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     common_files = list(pristine.glob("*")) + list(port.glob("*.h"))
     common_files += [out / "d3d11TokenizedProgramFormat.hpp"]
     common_files += [DEPS / "vkd3d-2.1/include/vkd3d_shader.h", DEPS / "vkd3d-2.1/include/vkd3d_types.h"]
+    common_files += [DEPS / "SPIRV-Headers-1.4.321.0/include/spirv/unified1/GLSL.std.450.h"]
     common_files += [upstream / "D3D_Shaders/stdafx.h", upstream / "D3D_Shaders/targetver.h", upstream / "HLSLDecompiler/shader.h"]
     common_files += list((ROOT / "frontend").rglob("*.h")) + [ROOT / "frontend/xxmi/ini_module.cpp"]
     common_files += list((ROOT / "layer/src").glob("*.h"))

@@ -40,7 +40,7 @@ struct Device {
     PFN_vkDeviceWaitIdle wait_idle=nullptr;PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     ~Device(){if(resource.device){wait_idle(resource.device);destroy_device(resource.device,nullptr);}
         if(messenger)destroy_debug(instance,messenger,nullptr);if(instance)destroy_instance(instance,nullptr);}
-    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false,bool divisors=false,bool float_modes=false){
+    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false,bool divisors=false,bool float_modes=false,bool preserve_float=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -92,12 +92,15 @@ struct Device {
         dc.pEnabledFeatures=&resource.enabled_features;
         const char* depth_extension=VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME;
         std::vector<const char*> enabled_extensions;
-        if(float_modes){uint32_t n=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,nullptr),"Count float control extensions");
+        if(float_modes || preserve_float){uint32_t n=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,nullptr),"Count float control extensions");
             std::vector<VkExtensionProperties> extensions(n);vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,extensions.data()),"Read float control extensions");
             for(const auto& e:extensions)if(!strcmp(e.extensionName,VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME))float_controls=true;
             check(float_controls,"Requested float control extension available");enabled_extensions.push_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
             VkPhysicalDeviceProperties2 properties2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};properties2.pNext=&float_properties;
-            GetPhysicalDeviceProperties2(selected,&properties2);check(float_properties.shaderDenormFlushToZeroFloat32,"Native DXBC float32 flush mode supported");}
+            GetPhysicalDeviceProperties2(selected,&properties2);
+            if(float_modes)check(float_properties.shaderDenormFlushToZeroFloat32,"Native DXBC float32 flush mode supported");
+            check(float_properties.shaderSignedZeroInfNanPreserveFloat32 && float_properties.shaderRoundingModeRTEFloat32,
+                "Native DXBC float32 NaN, infinity, signed zero and nearest rounding supported");}
         if(unrestricted_depth){
             uint32_t available=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&available,nullptr),"Enumerate device extensions");
             std::vector<VkExtensionProperties> extensions(available);
@@ -1389,7 +1392,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_bytecode_cases.h"
 int wmain(int argc,wchar_t** argv){
     setvbuf(stdout,nullptr,_IONBF,0);
-    try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
+    try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
         view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");
         whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");
@@ -1426,10 +1429,15 @@ int wmain(int argc,wchar_t** argv){
         original_shader_hooks(device,root/"source-shader-hooks");original_compute_hooks(device,root/"source-compute-hooks");
         native_resource_match_reference(device,root/"source-resource-matcher");owned_resource_matching(device,root/"owned-resource-matcher");
         original_core_regex(device,root/"core-regex");original_core_regex(device,root/"core-regex-pattern",true);
+        bytecode_execution(device,root/"bytecode-software",gpu::DxbcFloat32Mode::Software);
+        bytecode_graphics(device,root/"bytecode-software-graphics",gpu::DxbcFloat32Mode::Software);
+        bytecode_resources(device,root/"bytecode-software-resources",gpu::DxbcFloat32Mode::Software);
+        bytecode_float32(device,root/"bytecode-float32");
         {Device bytecode_device;bytecode_device.init(false,false,true,false,false,true);
             printf("Bytecode float-control device: %s\n",bytecode_device.properties.deviceName);
             bytecode_execution(bytecode_device,root/"bytecode-compute");bytecode_graphics(bytecode_device,root/"bytecode-graphics");
-            bytecode_resources(bytecode_device,root/"bytecode-resources");}}
+            bytecode_resources(bytecode_device,root/"bytecode-resources");
+            bytecode_float32(bytecode_device,root/"bytecode-float32-hardware",gpu::DxbcFloat32Mode::Hardware);}}
         check(errors==0 && warnings==0,"Clean validation including device shutdown");
         printf("resource_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;
     }catch(const std::exception& e){printf("FAIL after %u checks: %s\n",checks,e.what());return 1;}

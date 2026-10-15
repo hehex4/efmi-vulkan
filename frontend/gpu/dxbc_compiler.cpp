@@ -1,4 +1,5 @@
 #include "dxbc_compiler.h"
+#include "dxbc_float32.h"
 #include <windows.h>
 #include <vkd3d_shader.h>
 #include <spirv_reflect.h>
@@ -74,9 +75,10 @@ DxbcCompiler::DxbcCompiler(const std::filesystem::path& path):impl_(std::make_un
     require(major==2 && minor==1,"Bytecode compiler differs from the verified release");
 }
 DxbcCompiler::~DxbcCompiler()=default;
-bool DxbcCompiler::compile(const std::vector<uint8_t>& bytes,char stage,HlslProgram& output,std::string& reason){
+bool DxbcCompiler::compile(const std::vector<uint8_t>& bytes,char stage,HlslProgram& output,std::string& reason,DxbcFloat32Mode mode){
     reason.clear();try{
         require(bytes.size()>=32 && bytes.size()<=(4u<<20) && !memcmp(bytes.data(),"DXBC",4),"Bytecode input is not a bounded DXBC container");
+        require(mode==DxbcFloat32Mode::Hardware || mode==DxbcFloat32Mode::Software,"Unknown bytecode float32 policy");
         HlslProgram next;next.stage=stage_flag(stage);next.dxbc=bytes;next.vulkan_version=VK_API_VERSION_1_1;
         // Full source instructions and signatures, not optional RDEF/debug chunks,
         // define descriptors after signature-aware original assembly.
@@ -94,7 +96,9 @@ bool DxbcCompiler::compile(const std::vector<uint8_t>& bytes,char stage,HlslProg
             {VKD3D_SHADER_COMPILE_OPTION_API_VERSION,VKD3D_SHADER_API_VERSION_2_1},
             {VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV,VKD3D_SHADER_COMPILE_OPTION_BUFFER_UAV_STORAGE_BUFFER},
             {VKD3D_SHADER_COMPILE_OPTION_WRITE_TESS_GEOM_POINT_SIZE,0},
-            {VKD3D_SHADER_COMPILE_OPTION_FEATURE,0}};
+            {VKD3D_SHADER_COMPILE_OPTION_FEATURE,0},
+            {VKD3D_SHADER_COMPILE_OPTION_DENORMAL_MODE_F32,unsigned(mode==DxbcFloat32Mode::Software?
+                VKD3D_SHADER_DENORMAL_MODE_ANY:VKD3D_SHADER_DENORMAL_MODE_FLUSH_TO_ZERO)}};
         vkd3d_shader_compile_info info{VKD3D_SHADER_STRUCTURE_TYPE_COMPILE_INFO};
         info.source={bytes.data(),bytes.size()};info.source_type=VKD3D_SHADER_SOURCE_DXBC_TPF;
         info.target_type=VKD3D_SHADER_TARGET_SPIRV_BINARY;info.options=options;info.option_count=unsigned(std::size(options));
@@ -125,7 +129,7 @@ bool DxbcCompiler::compile(const std::vector<uint8_t>& bytes,char stage,HlslProg
         vkd3d_shader_spirv_target_info target{VKD3D_SHADER_STRUCTURE_TYPE_SPIRV_TARGET_INFO};
         target.environment=VKD3D_SHADER_SPIRV_ENVIRONMENT_VULKAN_1_1;
         const vkd3d_shader_spirv_extension float_controls=VKD3D_SHADER_SPIRV_EXTENSION_KHR_FLOAT_CONTROLS;
-        target.extensions=&float_controls;target.extension_count=1;
+        if(mode==DxbcFloat32Mode::Hardware){target.extensions=&float_controls;target.extension_count=1;}
         vkd3d_shader_interface_info interface_info{VKD3D_SHADER_STRUCTURE_TYPE_INTERFACE_INFO};interface_info.next=&target;
         interface_info.bindings=mapping.data();interface_info.binding_count=unsigned(mapping.size());
         interface_info.uav_counters=counters.data();interface_info.uav_counter_count=unsigned(counters.size());info.next=&interface_info;
@@ -133,8 +137,9 @@ bool DxbcCompiler::compile(const std::vector<uint8_t>& bytes,char stage,HlslProg
         if(result<0)throw std::runtime_error("Bytecode translation failed: "+next.diagnostics);
         require(scan.code.code && scan.code.size>=20 && scan.code.size<=(32u<<20) && !(scan.code.size%4),"Translated bytecode module exceeds budget");
         next.spirv.resize(scan.code.size/4);memcpy(next.spirv.data(),scan.code.code,scan.code.size);
+        lower_dxbc_float32(next.spirv,mode==DxbcFloat32Mode::Software);
         Reflection reflection;
-        require(spvReflectCreateShaderModule(scan.code.size,scan.code.code,&reflection.module)==SPV_REFLECT_RESULT_SUCCESS,"Bytecode SPIR-V reflection failed");reflection.valid=true;
+        require(spvReflectCreateShaderModule(next.spirv.size()*4,next.spirv.data(),&reflection.module)==SPV_REFLECT_RESULT_SUCCESS,"Bytecode SPIR-V reflection failed");reflection.valid=true;
         auto& m=reflection.module;require(m.entry_point_count==1 && m.shader_stage==unsigned(next.stage),"Bytecode stage differs from its requested execution stage");
         for(unsigned i=0;i<m.capability_count;++i)next.capabilities.push_back(unsigned(m.capabilities[i].value));
         next.threads[0]=m.entry_points[0].local_size.x;next.threads[1]=m.entry_points[0].local_size.y;next.threads[2]=m.entry_points[0].local_size.z;

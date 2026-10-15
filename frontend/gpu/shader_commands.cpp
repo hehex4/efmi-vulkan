@@ -32,7 +32,8 @@ void shader_capabilities(const HlslProgram& program,const ShaderDevice& device){
         case SpvCapabilitySampledBuffer:case SpvCapabilityImageBuffer:case SpvCapabilityImageQuery:
         case SpvCapabilityImageMSArray:case SpvCapabilityAtomicStorage:supported=true;break;
         case SpvCapabilityDrawParameters:supported=device.host.shader_draw_parameters;break;
-        case SpvCapabilityDenormPreserve:case SpvCapabilityDenormFlushToZero:supported=device.host.float_controls;break;
+        case SpvCapabilityDenormPreserve:case SpvCapabilityDenormFlushToZero:
+        case SpvCapabilitySignedZeroInfNanPreserve:case SpvCapabilityRoundingModeRTE:supported=device.host.float_controls;break;
         case SpvCapabilityGeometry:supported=f.geometryShader;break;
         case SpvCapabilityFloat64:supported=f.shaderFloat64;break;
         case SpvCapabilityInt64:supported=f.shaderInt64;break;
@@ -54,11 +55,15 @@ void shader_capabilities(const HlslProgram& program,const ShaderDevice& device){
     for(size_t at=5;at<program.spirv.size();){const auto word=program.spirv[at],count=word>>16,op=word&65535;
         require(count && count<=program.spirv.size()-at,"Invalid float-control instruction boundary");
         if(op==SpvOpExecutionMode && count>=3){const auto mode=program.spirv[at+2];
-            if(mode==SpvExecutionModeDenormPreserve || mode==SpvExecutionModeDenormFlushToZero){
+            if(mode==SpvExecutionModeDenormPreserve || mode==SpvExecutionModeDenormFlushToZero ||
+               mode==SpvExecutionModeSignedZeroInfNanPreserve || mode==SpvExecutionModeRoundingModeRTE){
                 require(count==4 && program.spirv[at+3]==32 && device.host.float_controls,
-                    "Shader denormal mode requires enabled 32-bit float controls");
-                require(mode==SpvExecutionModeDenormPreserve?device.host.float_properties.shaderDenormPreserveFloat32:
-                    device.host.float_properties.shaderDenormFlushToZeroFloat32,"Shader denormal mode is unsupported by this device");}}
+                    "Shader arithmetic mode requires enabled 32-bit float controls");
+                const auto& p=device.host.float_properties;
+                require(mode==SpvExecutionModeDenormPreserve?p.shaderDenormPreserveFloat32:
+                    mode==SpvExecutionModeDenormFlushToZero?p.shaderDenormFlushToZeroFloat32:
+                    mode==SpvExecutionModeSignedZeroInfNanPreserve?p.shaderSignedZeroInfNanPreserveFloat32:
+                    p.shaderRoundingModeRTEFloat32,"Shader arithmetic mode is unsupported by this device");}}
         at+=count;
     }
 }

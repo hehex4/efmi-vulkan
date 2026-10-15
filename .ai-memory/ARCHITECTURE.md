@@ -9,11 +9,13 @@ reflects the emitted SPIR-V into the existing owned executor. It is separate fro
 HlslCompiler, which recompiles CustomShader source with FXC/DXC. Patched regex
 runtime publication remains a later explicit integration boundary.
 
-Translated float32 execution currently declares the source denormal mode and
-requires enabled float controls plus the actual physical property. Candidate
-GPU tests use Intel for this path; ordinary INI tests stay on NVIDIA. Default
-NVIDIA mode experiments are separate and need broader verification before an
-adapter. See docs/bytecode-compiler.md and docs/shader-matching-audit.md.
+Translated float32 execution selects hardware denormal control or bounded
+integer-bit lowering of arithmetic operands/results, preserving pure data moves.
+Both require explicit signed-zero/infinity/NaN preservation and nearest-even
+rounding with actual device enablement/properties. Fractional results retain the
+native range below1. Candidate1.3.5 tests software denormals on NVIDIA and hardware
+denormals on Intel; neither implies game enablement or application provenance.
+See docs/bytecode-compiler.md and docs/shader-matching-audit.md.
 
 Compute follow-up1.1.8 adds bounded executable workgroup/provenance analysis,
 indirect argument-buffer retention/ordering and original source sampler slots.
