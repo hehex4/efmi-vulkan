@@ -1875,3 +1875,9 @@ currently treat those as failures. Follow-up project-only normalized corpus:
 Source hashes113/9/12 match; all88 installed sources remain unchanged. No game,
 deployment, launcher or system actions; dist1.0.2 unchanged. Continue offline
 with transactional ShaderRegex publication and exact original source identity.
+
+## 2026-10-17: Review of Codex's work since 1.0.2 for the question of supporting all mods (Claude)
+
+- The user asked how to extend support from one mod to all mods, then told Claude to read Codex's commits before concluding: the first answer (T-030 note of 2026-10-13, 23:34) contradicted 1.0.2's live keys and D-044. Read CURRENT_STATE, TASKS, D-043 to D-066, docs/live-ini.md, docs/mod-folder-runtime.md, docs/shader-matching-audit.md, docs/compatibility-inventory.md and commits up to ab958a3 (candidate 1.3.6).
+- Added a review note to T-030: the shader catalogue with application provenance is the unbuilt keystone; the game's assets are in an encrypted VFS and not a route; proposed an offline structural-matching experiment on the arcane DXBC/SPIR-V pairs already on disk. No code, build, deployment, launcher or game action. Codex's uncommitted working-tree changes of 2026-10-15 were left untouched; a remote origin exists and nothing was pushed.
+

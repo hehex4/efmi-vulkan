@@ -551,6 +551,25 @@ registration/routing of multiple objects, common mesh/image ownership and shader
 contracts, general CustomShader/copy/dispatch and ShaderRegex adapters, then actual
 supported Mods in Vulkan. Parsing alone is not rendering acceptance.
 
+Review note (Claude, 2026-10-17, after reading 1.0.2 to candidate 1.3.6): the
+architecture above is sound and the live runtime is proven in the game. Its
+unbuilt keystone is the shared shader catalogue with application shader
+provenance (D-044): fixed ps-tN slots, texture-hash overrides, ShaderOverride
+by game shader hash and ShaderRegex/RabbitFX all act on the game's shaders, so
+each needs, per Vulkan pipeline of a matched draw, the DX11 shader identity and
+bytes, its register-to-descriptor map and a constant-buffer layout check. The
+owned DX11 execution cannot be connected to game draws without it. Constraints
+set by the user: no per-character paired captures, game collection deferred.
+The game's assets sit in an encrypted custom VFS (StreamingAssets/VFS, 63 GB);
+breaking that is not a route for this project. Proposed offline experiment with
+data already on disk: DXBC of arcane's shaders (captures/dx11-lod1-20261013/
+*.dxbc), their SPIR-V (Vulkan captures) and the 20 known pairings as ground
+truth. If structure alone (vkd3d translation of the DXBC compared with the
+game's SPIR-V: interface signature, sampled-image use order, constant buffer
+sizes) recovers the pairings and register maps, the catalogue can later be
+filled from two ordinary sessions (one DX11 shader dump, one Vulkan module
+collection) without paired captures. Not started; a proposal.
+
 Historical survey and preliminary ideas (not the current implementation plan):
 
 Survey of the nine character mods installed on this machine (pattern counts over the INI files, read-only, approximate): all nine use the merged skeleton, LOD1 sections and the same one vertex-layout edit; each has 12 to 22 key sections and 27 to 40 variables. Textures: fixed `ps-t` slots only in two (arcane, ardelia); overrides by texture hash (`this =`) in six (liino, tangtang, xaihi, yvonne, laevatain, perlica), four of them with fixed slots as well; six reference RabbitFX (liino, tangtang, typhoeus, yvonne, laevatain, perlica; LIMIT-004), which patches DX11 shader assembly by regular expressions per shader family.
