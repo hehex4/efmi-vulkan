@@ -50,6 +50,10 @@ public:
     // assignments and already-submitted store feedback are not rolled back.
     void discard();
     GpuResourceBinding binding(wchar_t stage,ResourceCopyTargetType,unsigned slot) const;
+    // The host's current back buffer, which bb, r_bb and f_bb return: without upscaling the
+    // original hands out the swap chain's current buffer for all three. The host sets it before
+    // each Present it executes; without one they read as null, as with no swap chain.
+    void backbuffer(gpu::Image,DXGI_FORMAT,UINT bind_flags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE);
     // Source-semantic target resolution for an adapted draw in an active scope.
     GpuResourceBinding resolve(ResourceCopyTarget&,CommandListState&);
     // Attach proven native tracking facts to an owned allocation. Reference
@@ -70,6 +74,7 @@ public:
     void restore_outputs(OutputState&&) noexcept;
 private:
     using Slot=std::tuple<wchar_t,ResourceCopyTargetType,unsigned>;
+    GpuResourceBinding backbuffer_;
     bool run(CommandListCommand&,CommandListState&,std::wstring&);
     bool query(ResourceCopyTarget&,CommandListState&,float&,std::wstring&);
     bool match_source(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&);

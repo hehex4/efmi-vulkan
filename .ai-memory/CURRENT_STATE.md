@@ -1,10 +1,18 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-18, branch claude/ini: candidate 1.4.1 loads PNG files as owned images with the original WIC loader semantics (image panel step 2); 1.4.0 answered the window, resolution and cursor operands (step 1). main follows claude/ini at checkpoints; Codex's uncommitted 2026-10-15 work stays restored, uncommitted, in the main tree (snapshots codex/wip-2026-10-15, codex/wip-on-main). dist 1.0.2 unchanged. Launcher on DX11.
+> Last updated: 2026-10-18, branch claude/ini: candidate 1.4.2 draws original CustomShaders into a host back buffer behind bb, r_bb and f_bb (image panel step 3a); 1.4.1 PNG file images, 1.4.0 window operands. main follows claude/ini at checkpoints; Codex's uncommitted 2026-10-15 work stays restored in the main tree (snapshots codex/wip-2026-10-15, codex/wip-on-main). dist 1.0.2 unchanged. Launcher on DX11; the user is playing under DX11 (Endfield.exe running at 19:57).
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Image panel, step 3a: host back buffer (candidate 1.4.2, 2026-10-18)
+
+GpuResourceRuntime::backbuffer(image, format, bind flags) is the host's current back buffer, which bb, r_bb and f_bb return (without upscaling the original hands out the swap chain's current buffer for all three; GetBuffer returns the resource alone, so no view and no out-of-band format). They are source-only targets in the original parser: an assignment to them is a parse warning and never executes, so no write path exists. sandbox/resource_backbuffer_cases.h draws a blended triangle-strip CustomShader into `o0 = set_viewport bb` on an R32G32B32A32 back buffer with initial contents and matches native DX11 bytes; queries, the restored empty render target, a missing back buffer (null sentinel -2) and the two parse warnings are checked. A native-reference mistake was corrected by the source: IniHandler's `blend =` sets the color factors only, alpha keeps ONE, ZERO, ADD.
+
+Found for step 3b: all 19 enabled Mods with a panel ship `Draw_2D.vs_5_0.8000.bin` and `.ps_` caches with the HLSL's modification time (one disabled Mod has none), and the original CustomShader::compile loads such a cache instead of compiling (exact FILETIME equality; it writes caches only with cache_shaders). The panel that runs in DX11 is therefore the shipped DXBC. Planned D-070: owned CustomShader compilation uses that cache through the exact DXBC translation, never writing a cache. Codex's uncommitted work adds a separate bytecode compiler opt-in for source shaders in the same class.
+
+Evidence: full rebuilt suite (build/next/run_all-1.4.2.out): 28 of 29 steps pass, GPU resources 11056 checks with no validation message; the installed HLSL step failed only because two installed INIs changed during the run and passes when rerun with the installed syntax step.
 
 ## Image panel, step 2: PNG file images (candidate 1.4.1, 2026-10-18)
 

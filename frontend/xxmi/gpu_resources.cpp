@@ -1,4 +1,5 @@
 #include "gpu_resources.h"
+#include "image_formats.h"
 #include "globals.h"
 #include "util.h"
 #include "ResourceHash.h"
@@ -18,6 +19,7 @@ using Mode=ResourceCopyTargetEvaluationMode;
 constexpr uint64_t max_bytes=128ull<<20;
 void require(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
 std::wstring widen(const char* text){std::string s(text);return {s.begin(),s.end()};}
+bool swap_chain(Target t){return t==Target::SWAP_CHAIN || t==Target::REAL_SWAP_CHAIN || t==Target::FAKE_SWAP_CHAIN;}
 uint32_t uint_value(float v){require(std::isfinite(v) && double(v)>=0 && double(v)<=UINT32_MAX,"GPU resource index outside unsigned range");return uint32_t(v);}
 void validate_desc(const D3D11_BUFFER_DESC& d) {
     require(d.ByteWidth && d.ByteWidth<=max_bytes,"GPU buffer description exceeds size budget");
@@ -101,6 +103,19 @@ void GpuResourceRuntime::select_view(GpuResourceBinding& b,GpuResourceBinding::V
     select_buffer_view(b,kind,raw,complete_info);
 }
 GpuResourceRuntime::GpuResourceRuntime(gpu::ResourceDevice d,gpu::ResourceBudgets budgets):commands_(d,std::move(budgets)){}
+void GpuResourceRuntime::backbuffer(gpu::Image image,DXGI_FORMAT format,UINT bind_flags){
+    if(!image){backbuffer_={};return;}
+    const auto& vk=image->description();
+    require(vk.type==VK_IMAGE_TYPE_2D && vk.mips==1 && vk.layers==1 && vk.samples==VK_SAMPLE_COUNT_1_BIT && vk.extent.depth==1,
+            "Host back buffer must be one single-sample 2D image");
+    require(source_image_format(format).format==vk.format,"Host back buffer format does not match its image");
+    require((bind_flags&D3D11_BIND_RENDER_TARGET) && !(bind_flags&~(D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS)),
+            "Host back buffer bind flags are invalid");
+    GpuResourceBinding b;b.image=std::move(image);auto& s=b.image_description;s.dimension=D3D11_RESOURCE_DIMENSION_TEXTURE2D;s.depth=1;
+    auto& d=s.texture;d.Width=vk.extent.width;d.Height=vk.extent.height;d.MipLevels=1;d.ArraySize=1;d.Format=format;
+    d.SampleDesc.Count=1;d.Usage=D3D11_USAGE_DEFAULT;d.BindFlags=bind_flags;
+    backbuffer_=std::move(b);
+}
 std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) {
     require(!installed_,"GPU resource runtime cannot belong to two INI generations");installed_=true;
     adapter.resource_commands([this](auto& command,auto& state,auto& why){return run(command,state,why);});
@@ -230,6 +245,10 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         // any out-of-band format or buffer metadata. Reading never flushes it.
         b.format=DXGI_FORMAT_UNKNOWN;b.stride=b.source_stride=b.offset=b.visible_size=0;
     }else if(t.type==Target::CUSTOM_RESOURCE){if(auto* r=declaration(t,state))b=load(*r);}
+    else if(swap_chain(t.type)){
+        // GetBuffer(0) returns the resource alone: no view and no out-of-band format or size.
+        b=backbuffer_;b.drop_view();b.format=DXGI_FORMAT_UNKNOWN;b.stride=b.source_stride=b.offset=b.visible_size=0;
+    }
     else {const auto key=slot(t,state);const auto found=slots_.find(key);if(found!=slots_.end())b=found->second;
         // XXGetShaderResources/UnorderedAccessViews return resource and view,
         // not the custom declaration's out-of-band stride/offset/size/format.

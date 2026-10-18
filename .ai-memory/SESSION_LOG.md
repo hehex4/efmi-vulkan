@@ -1915,3 +1915,12 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - frontend/assets/png.h and png.cpp (loader flags), frontend/xxmi/gpu_images.cpp (WIC path), scripts/build_xxmi_runtime.py (decoder in the runtime objects), sandbox/resource_png_cases.h and resource_gpu.cpp (13 native comparisons, BMP refusal), resource_image_ini_cases.h (a missing PNG now refuses as unreadable), scripts/check_resource_commands.py (copies the installed panel PNGs and checks them unchanged), docs/gpu-resource-commands.md. Version 1.4.1.
 - Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.1.out): GPU resources 11027 checks with no validation message (13 PNG native comparisons), PNG decoder check 12/12, runtime 471. Sandbox only.
 - Not done: steps 3 and 4 of the panel; no deployment, game, launcher or system action.
+
+## 2026-10-18: image panel step 3a, host back buffer (candidate 1.4.2, branch claude/ini)
+
+- frontend/xxmi/gpu_resources.h and .cpp (backbuffer(), swap chain targets in get()), sandbox/resource_backbuffer_cases.h, resource_gpu.cpp, scripts/check_resource_commands.py. Version 1.4.2.
+- Read the original target table: bb, r_bb, f_bb are source_only; a defensive copy guard written first was unreachable and removed.
+- Read CustomShader::compile and load_cached_shader: a `<name>.<model>.<flags>.bin` with the HLSL's exact FILETIME replaces compilation. All 19 enabled panel Mods ship such caches with matching times; one disabled Mod has none.
+- Results: full rebuilt suite (build/next/run_all-1.4.2.out): 28 of 29 steps pass, GPU resources 11056 checks with no validation message; the installed HLSL step failed only because two installed INIs changed during the run and passes when rerun with the installed syntax step.
+- Environment during the run: Endfield.exe was running under DX11, and `Mods/Si Lunabelle 1.3/si.ini` and `Si_BossGuard.ini` were rewritten at 19:57:03 while the suite ran; the installed HLSL step then reported its inputs changed. Rerunning the installed syntax step and the HLSL step afterwards passes. No game, launcher or installed file was touched by this work.
+- Not done: 3b and step 4; no deployment, game, launcher or system action.
