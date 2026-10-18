@@ -1,5 +1,37 @@
 # Original INI language compatibility
 
+## Warnings follow the original loader (D-067, 2026-10-18)
+
+The original loader reports configuration problems through its overlay and keeps
+going: a duplicate section keeps the first copy, an unrecognized line or a broken
+expression is skipped, a duplicate ShaderOverride hash is merged with a possible
+conflict warning, a regex group with a numbered Pattern section is disabled.
+Until 2026-10-18 the hosted runtime and the folder inspection rejected the whole
+configuration for any such warning, which kept an installed Mod with two
+identical duplicate resource sections (INPUT-001) and any configuration with a
+harmless warning from loading at all.
+
+Now a generation loads like the original. The warnings of its parse are counted
+and the latest 64 texts kept (`RuntimeStatus.diagnostics`,
+`diagnostic_messages`); the layer writes them to its log at load ("INI warning:")
+and reports them as `status.replacement.ini.diagnostics` and
+`diagnostic_messages`. The folder inspection completes, lists every warning with
+its level and fails only on dire messages (the original's internal BUG reports and
+failed operations). Language fixtures still require that an invalid construct
+leaves a reported warning, so nothing is accepted silently.
+
+Unchanged: a section or operation this host has no adapter for still refuses the
+candidate (for example ShaderOverride in a generation without shader hooks), and
+F10 keeps the active generation for such refusals and for failed resource
+preparation. The offline package builders keep refusing on warnings, because they
+produce verified fixed artefacts.
+
+Installed folder on 2026-10-18 (58 INI inputs, about 22 enabled Mods): the parse
+completes with 11 original warnings and no dire message, among them INPUT-001's
+duplicates in `zhuangfangyi lilith vice 2.0` and a duplicate section, five
+entries outside a section and an unresolved RabbitFX resource reference in
+`gilberta eva 2.3` (`build/ini-folder/report.json`).
+
 Latest owned checkpoint1.3.2: original shader hooks, general source resource
 matching and patternless ShaderRegex/Core IB replacement execute in the bounded
 Vulkan host. Full rebuilt regression passes (runtime407, resources9301,
@@ -92,8 +124,8 @@ the runtime's actual float bits. These are CPU results, not rendered pixels.
 `RuntimeConfig.mods_directory` selects an enabled directory generation. The
 original Include implementation handles recursion, order, namespaces, static
 conditions, dependencies and exclusions. All explicit command lists in that
-directory are parsed, even dormant lists; a typo in an unused list rejects the
-candidate. Original `user_config` cannot redirect writes away from the explicit
+directory are parsed, even dormant lists; until D-067 a typo in an unused list
+rejected the candidate, now it is reported and skipped as by the original loader. Original `user_config` cannot redirect writes away from the explicit
 project-owned settings path. Settings reload through original Constants parsing.
 
 Legacy explicit-input character profiles still import a scoped reachable Core

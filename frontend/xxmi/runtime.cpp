@@ -30,6 +30,7 @@ void HostCompileRoots(const std::vector<CommandList*>&, const std::vector<std::w
 void HostResourceRoot(const std::wstring&);
 size_t HostDiagnosticCount();
 std::string HostDiagnosticsSince(size_t);
+std::vector<std::string> HostDiagnosticListSince(size_t);
 void RuntimeResetParser();
 void RuntimeParseKeys();
 void RuntimeEnumerateCustomShaders();
@@ -240,7 +241,6 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         }else if(config.initial_shaders)throw std::runtime_error("Source shader facts require shader hook opt-in");
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
         if(config.shader_hooks){HostParseShaderOverrides();HostParseShaderRegex();
-            if(HostDiagnosticCount()!=diagnostics)throw std::runtime_error("Original INI parser: "+HostDiagnosticsSince(diagnostics));
             for(const auto& entry:G->mShaderOverrideMap)
                 if(entry.second.depth_filter!=DepthBufferFilter::NONE || entry.second.model[0])
                     throw std::runtime_error("Legacy shader depth/model substitution requires a source replacement adapter");
@@ -299,7 +299,12 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             throw std::runtime_error("Post-Constants execution refused: "+utf8(why));
         if (p.extension && !p.extension->prepare(p.adapter, initial, why))
             throw std::runtime_error("Native generation preparation refused: " + utf8(why));
-        if (HostDiagnosticCount() != diagnostics) throw std::runtime_error("Original INI parser: " + HostDiagnosticsSince(diagnostics));
+        // Original warnings (a duplicate section, an unrecognized line, a disabled regex group) do
+        // not stop the original loader: it keeps what it could parse and reports the rest. The
+        // generation does the same and keeps the texts for the status (D-067). What this host
+        // cannot execute is refused by the adapters, independently of these warnings.
+        p.stats.diagnostics = HostDiagnosticCount() - diagnostics;
+        p.stats.diagnostic_messages = HostDiagnosticListSince(diagnostics);
         // Collect every branch's reachable files, not dormant declarations.
         // Original resource copy/alias commands are included by the adapter.
         for (auto* resource : p.adapter.referenced_files()) {

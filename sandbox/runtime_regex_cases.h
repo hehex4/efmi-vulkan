@@ -221,7 +221,9 @@ $b = $b + 1
             runtime->status().variables.at("$\\regex_assembly\\a")==0,"Runtime refuses a required shader patch before any command or original operation");
         if(mode==0){const auto label=ini.find("[ShaderRegexA.Pattern]");ini.replace(label,strlen("[ShaderRegexA.Pattern]"),"[ShaderRegexA.Pattern1]");
             write(path,ini.c_str());unsigned preparations=0;auto invalid=std::make_shared<RegexReferenceExtension>();invalid->prepared=[&]{++preparations;};
-            check(!IniRuntime::load(config,invalid,why) && !preparations && why.find("Disabling entire shader regex group")!=std::string::npos,
-                "Pinned source rejects numbered Pattern sections before generation preparation");}
+            // The pinned source disables the whole group with a warning and loads the rest.
+            auto disabled=IniRuntime::load(config,invalid,why);bool reported=false;
+            if(disabled)for(const auto& line:disabled->status().diagnostic_messages)reported|=line.find("Disabling entire shader regex group")!=std::string::npos;
+            check(disabled && reported,"Pinned source disables a group with a numbered Pattern section and reports it");}
     }
 }

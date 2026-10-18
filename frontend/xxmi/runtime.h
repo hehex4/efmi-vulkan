@@ -46,6 +46,10 @@ struct RuntimeDraw {
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;
     size_t bindings = 0;
+    // Original warnings while this generation was parsed. The original engine reports them and
+    // continues with what it could parse; so does this runtime. At most the latest 64 texts.
+    size_t diagnostics = 0;
+    std::vector<std::string> diagnostic_messages;
     bool dirty = false, reload_requested = false;
     std::map<std::string, float> variables;
 };

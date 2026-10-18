@@ -460,12 +460,16 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         original_text.erase(std::remove(original_text.begin(), original_text.end(), '\r'), original_text.end());
         source.close();
         write_text("mod.ini", original_text + "\n[Present]\n$tint = (\n");
-        const auto old_generation = number(status(), "ini_generation");
+        const auto first_generation = number(status(), "ini_generation");
         press("1 121\n"); frame(false); press("1\n");
-        bool refused = false;
-        for (uint32_t i = 0; i < 400 && !refused; ++i) { frame(false); refused = number(status(), "ini_reload_rejected") == 1; if (!refused) Sleep(5); }
-        check(refused && number(status(), "ini_generation") == old_generation && shade_at(-.6f,.3f) == 8,
-              "malformed F10 reload is refused and the live green character continues drawing");
+        bool warned = false;
+        for (uint32_t i = 0; i < 400 && !warned; ++i) { frame(false); warned = number(status(), "ini_generation") == first_generation + 1; if (!warned) Sleep(5); }
+        // As the original loader does, the reload goes through: the broken line is reported and
+        // skipped, everything else is the same, so the character stays green.
+        const auto warned_status = status();
+        check(warned && number(warned_status, "ini_reload_rejected") == 0 && number(warned_status, "diagnostics") >= 1 && shade_at(-.6f,.3f) == 8,
+              "F10 with a broken line loads like the original: the line is reported and skipped, the character stays green");
+        const auto old_generation = first_generation + 1;
         write_text("mod.ini", original_text);
         std::ifstream texture("green.dds", std::ios::binary);
         const std::string texture_bytes((std::istreambuf_iterator<char>(texture)), std::istreambuf_iterator<char>());
@@ -473,7 +477,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         write_text("green.dds", "broken DDS candidate");
         press("1 121\n"); frame(false); press("1\n");
         bool bad_image = false;
-        for (uint32_t i = 0; i < 400 && !bad_image; ++i) { frame(false); bad_image = number(status(), "ini_reload_rejected") == 2; if (!bad_image) Sleep(5); }
+        for (uint32_t i = 0; i < 400 && !bad_image; ++i) { frame(false); bad_image = number(status(), "ini_reload_rejected") == 1; if (!bad_image) Sleep(5); }
         check(bad_image && number(status(), "ini_generation") == old_generation && shade_at(-.6f,.3f) == 8,
               "failed candidate DDS upload retains old Ready images and the live drawing generation");
         write_text("green.dds", texture_bytes);

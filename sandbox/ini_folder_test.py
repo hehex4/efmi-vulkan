@@ -28,12 +28,17 @@ class FolderLanguage(unittest.TestCase):
         path.write_text(text, encoding="ascii")
 
     def parse(self, success=True):
+        """`success`: no original warning expected. The original loader completes either way and
+        keeps what it could parse; a refused construct must still be reported, never dropped
+        silently."""
         result = subprocess.run([str(HOST), "--parse-folder", str(self.root),
                                  str(self.root / "Core"), str(self.root / "Mods")],
                                 cwd=self.root, capture_output=True, text=True, errors="replace", timeout=15)
-        self.assertEqual(result.returncode == 0, success, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         parsed = json.loads(result.stdout)
         self.assertEqual(parsed["diagnostics"] == 0, success, result.stderr)
+        self.assertEqual(len(parsed["diagnostic_messages"]), min(parsed["diagnostics"], 256))
+        self.assertEqual(parsed["dire"], 0)
         return parsed
 
     def test_full_language_and_cross_file_references(self):

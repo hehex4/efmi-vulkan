@@ -88,9 +88,12 @@ def main():
             details = json.loads(run.stdout)
         except ValueError:
             details = {}
-        # A crash or failed host setup is not evidence of a rejected syntax.
-        passed = (run.returncode == (0 if valid else 1) and bool(details) and
-                  (details.get("diagnostics", 0) == 0) == valid)
+        # A crash or failed host setup is not evidence of a rejected syntax. Like the original
+        # loader, the inspection completes after warnings (D-067); an invalid construct must
+        # leave a reported warning, never pass silently.
+        passed = (run.returncode == 0 and bool(details) and
+                  (details.get("diagnostics", 0) == 0) == valid and
+                  (valid or bool(details.get("diagnostic_messages"))))
         row = dict(case=name, passed=passed, expected_valid=valid)
         if details.get("notices"):
             row["upstream_notices"] = details["notices"]

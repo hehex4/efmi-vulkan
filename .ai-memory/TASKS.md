@@ -513,6 +513,19 @@ T-001 to T-008, T-012, T-014, T-015, T-017, T-020 and T-023 are complete within 
 
 ## Tasks and follow-ups
 
+### T-031: INI language and runtime (Claude from 2026-10-18; branch claude/ini)
+
+Handed to Claude by the user on 2026-10-18. Working in `.worktrees/ini` (branch `claude/ini`) until the branch can be merged with the main tree, where Codex's uncommitted 2026-10-15 work sits.
+
+Done: D-067, original warnings are recoverable; INPUT-001 resolved (candidate 1.3.8).
+
+Backlog, proposed order:
+1. An execution matrix per original command class and operation family (owned GPU, CPU only, refused), generated from the source inventory and the adapter, with a check that fails when a class has no stated decision. Replaces the hand-kept table in docs/ini-language-coverage.md as the authority.
+2. Families that are still parse-only: remaining copy conversions and options, region and spatial hash properties, fuzzy texture matcher metadata (refused today), system and driver settings.
+3. PNG/WIC resources: paused by the user on 2026-10-14; the image panel shipped in about ten installed Mods needs them. Resume only on the user's word.
+4. A directory generation in the production renderer (several Mods, routing of matched objects, on-demand residency), together with the shared shader catalogue of T-030.
+5. Merge claude/ini into main.
+
 ### T-030: Generic directory runtime and assets (active; user-directed architecture)
 
 User decisions on 2026-10-13/14 supersede the preliminary ideas below: the input

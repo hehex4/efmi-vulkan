@@ -18,12 +18,21 @@ DWORD tls_idx=TLS_OUT_OF_INDEXES;
 static std::wstring resource_root;
 std::wstring HostResourceDirectory(){return resource_root;}
 static size_t diagnostic_count=0;
+// The latest original warnings, for the generation that produced them. The original engine
+// shows them on its overlay and carries on; so does the runtime (D-067).
 static std::deque<std::pair<size_t, std::string>> diagnostics;
 size_t HostDiagnosticCount() { return diagnostic_count; }
 static void diagnostic(std::string text)
 {
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
     diagnostics.emplace_back(++diagnostic_count, std::move(text));
-    if (diagnostics.size() > 8) diagnostics.pop_front();
+    if (diagnostics.size() > 64) diagnostics.pop_front();
+}
+std::vector<std::string> HostDiagnosticListSince(size_t count)
+{
+    std::vector<std::string> result;
+    for (const auto& entry : diagnostics) if (entry.first > count) result.push_back(entry.second);
+    return result;
 }
 std::string HostDiagnosticsSince(size_t count)
 {
@@ -57,7 +66,7 @@ void LogOverlay(LogLevel level, char* format, ...)
     if (level > LOG_WARNING_MONOSPACE) return;
     char text[2048]{}; va_list args; va_start(args, format);
     _vsnprintf_s(text, sizeof(text), _TRUNCATE, format, args); va_end(args);
-    diagnostic(text);
+    diagnostic(level == LOG_DIRE ? std::string("dire: ") + text : std::string(text));
 }
 void LogOverlayW(LogLevel level, wchar_t* format, ...)
 {
@@ -68,7 +77,7 @@ void LogOverlayW(LogLevel level, wchar_t* format, ...)
     const auto size = WideCharToMultiByte(CP_UTF8, 0, text, length, nullptr, 0, nullptr, nullptr);
     std::string utf8(size, '\0');
     if (size) WideCharToMultiByte(CP_UTF8, 0, text, length, utf8.data(), size, nullptr, nullptr);
-    diagnostic(std::move(utf8));
+    diagnostic(level == LOG_DIRE ? "dire: " + utf8 : std::move(utf8));
 }
 void ClearNotices() {}
 void ParseHuntingSection() { unsupported("prototype hunting settings"); }

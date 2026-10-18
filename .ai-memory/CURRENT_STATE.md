@@ -1,10 +1,20 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-15, native buffer-view candidate1.3.6 verified with installed-input exception INPUT-001; dist1.0.2 unchanged.
+> Last updated: 2026-10-18, branch claude/ini (worktree .worktrees/ini): candidate 1.3.8 makes original INI warnings recoverable (D-067), INPUT-001 resolved. Main tree: 1.3.6 plus Codex's uncommitted 2026-10-15 ShaderRegex work (named 1.3.7, untouched). dist 1.0.2 unchanged; the installed Mods folder changed and the deployed live package names a removed Mod. Launcher on DX11.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## INI ownership and recoverable warnings (candidate 1.3.8, branch claude/ini, 2026-10-18)
+
+The user handed the INI part to Claude ("ini this part is handed to you, continue to perfect it"). Codex's uncommitted changes of 2026-10-15 in the main tree (ShaderRegex executable publication, gpu_source_shaders, resource_regex_execution; layer version 1.3.7) overlap the runtime files, so Claude works in a git worktree, `.worktrees/ini` on branch `claude/ini` from 66213ba, and leaves the main tree untouched. The branch is not merged; merging needs Codex's pending work committed or set aside (the user's call). The version 1.3.7 is left to that pending work; the branch uses 1.3.8.
+
+D-067: original warnings never reject a generation. The original loader reports duplicate sections, unrecognized lines, broken expressions, duplicate ShaderOverride hashes and numbered Pattern sections through its overlay and continues with what it could parse; the hosted runtime and folder inspection used to reject the whole configuration for any of them. Now a generation loads like the original, keeps the count and latest 64 texts (`RuntimeStatus.diagnostics`), logs them at load and reports them as `status.replacement.ini.diagnostics` and `diagnostic_messages`. The inspection completes and fails only on dire messages. Adapter refusals (constructs without a Vulkan implementation, compile failures of D-047) still refuse a candidate, and F10 keeps the active generation for them. Seven tests that encoded the old rule now assert the original behaviour and keep a refused-candidate case each.
+
+Installed inputs changed since 2026-10-15 (read-only observation): about 22 enabled Mods, 58 INI inputs; `arcane fes 1.2` is gone (now `arcane xoxo 1.3` and archives), Yvonne is 1.8, fangyi `zhuangfangyi lilith vice 2.0`. The installed folder parses with 11 original warnings and no dire message (INPUT-001's duplicates, gilberta's duplicate section, entries outside a section and an unresolved RabbitFX resource reference). The panel check now takes the first enabled installed `k/draw_2d.hlsl` instead of the removed path. The deployed 1.0.2 live package (build/character/arcane-live.bin sidecar) names the removed arcane fes 1.2 main INI; a Vulkan session would not load that character's INI. Not verified in a game; the launcher has been on DX11 since 2026-10-14.
+
+Evidence: full rebuilt suite in the worktree passes every step (build/next/run_all-1.3.8.out): source language 726/726, directory fixtures, installed folder syntax and HLSL corpus on the original installed files, runtime 458, GPU resources 10786, character 357, live INI 32/32, Vulkan validation 76; the worktree baseline before the change failed four steps (run_all-baseline.out)
 
 ## Exact bytecode buffer views (candidate1.3.6)
 

@@ -126,8 +126,11 @@ $srv_mask = vs->srv_mask
             if(allowed)text+="allow_duplicate_hash = true\n";
             text+="$pre = $pre * 10 + "+std::to_string(i)+"\npost $post = $post * 10 + "+std::to_string(i+2)+"\n";}
         write(duplicates,text.c_str());config.inputs={duplicates};auto candidate=IniRuntime::load(config,nullptr,why);
-        if(!allowed){check(!candidate && why.find("Duplicate ShaderOverride")!=std::string::npos,"Original duplicate hash diagnostics reject accidental conflicts");continue;}
-        if(!candidate)throw std::runtime_error(why);RuntimeShaderCall call;call.call.type=DrawCall::Draw;call.shaders=facts;unsigned originals=0;
+        if(!candidate)throw std::runtime_error(why);
+        // The original warns about a possible mod conflict and merges the sections all the same.
+        bool conflict_reported=false;
+        for(const auto& line:candidate->status().diagnostic_messages)conflict_reported|=line.find("Duplicate ShaderOverride")!=std::string::npos;
+        check(conflict_reported!=allowed,allowed?"Allowed duplicate hashes load without a warning":"Accidental duplicate hashes are reported as the original conflict warning");RuntimeShaderCall call;call.call.type=DrawCall::Draw;call.shaders=facts;unsigned originals=0;
         call.original=[&](CommandListState&,std::wstring&){++originals;check(command_list_globals.at(L"$\\duplicate_shaders\\pre").fval==12,"Allowed duplicate hashes merge original pre commands");return true;};
         check(candidate->intercept(call,why) && originals==1 && candidate->status().variables.at("$\\duplicate_shaders\\post")==34,
             "Allowed duplicate hashes merge post commands after one original operation");

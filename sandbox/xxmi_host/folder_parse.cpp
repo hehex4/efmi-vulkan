@@ -16,6 +16,8 @@ void HostInspectAllSections();
 void HostVisitShaderSources(const std::function<void(const std::wstring&,const std::wstring&,UINT,int,const std::array<std::wstring,6>&)>&);
 size_t HostDiagnosticCount();
 size_t HostNoticeCount();
+size_t HostDireCount();
+const std::vector<std::pair<bool,std::string>>& HostDiagnosticTexts();
 size_t HostInputCount();
 
 static void json(const std::wstring& value)
@@ -77,7 +79,21 @@ int HostParseFolder(const wchar_t* root_name, const wchar_t* core_name, const wc
             if (comma) putchar(','); comma = true;
             json(std::wstring(pair.first.begin(), pair.first.end())); printf(":%zu", pair.second);
         }
-        printf("},\"diagnostics\":%zu,\"notices\":%zu}\n", HostDiagnosticCount(), HostNoticeCount());
-        return HostDiagnosticCount() ? 1 : 0;
+        printf("},\"diagnostics\":%zu,\"dire\":%zu,\"notices\":%zu,\"diagnostic_messages\":[",
+               HostDiagnosticCount(), HostDireCount(), HostNoticeCount());
+        comma = false;
+        for (const auto& entry : HostDiagnosticTexts()) {
+            if (comma) putchar(','); comma = true;
+            printf("{\"level\":\"%s\",\"text\":", entry.first ? "dire" : "warning");
+            // The texts are UTF-8 (mod paths need not be ASCII); json() escapes the decoded text.
+            std::wstring wide(entry.second.size(), L'\0');
+            const int chars = MultiByteToWideChar(CP_UTF8, 0, entry.second.data(), int(entry.second.size()), wide.data(), int(wide.size()));
+            wide.resize(chars > 0 ? size_t(chars) : 0);
+            json(wide); putchar('}');
+        }
+        printf("]}\n");
+        // The original loader continues after warnings; the inspection completes like it. Dire
+        // messages (the original's internal BUG reports and failed operations) still fail it.
+        return HostDireCount() ? 1 : 0;
     } catch (const std::exception& e) { fprintf(stderr, "Full INI inspection failed: %s\n", e.what()); return 2; }
 }

@@ -39,7 +39,8 @@ def main():
                 continue
             status = json.loads(report.read_text())["result"]["replacement"]
             checks.equal((status["ini_generation"], status["ini_reloads"], status["ini_reload_rejected"], status["ini_reload_pending"], status["ini_reload_error"]),
-                         (1, 1, 2, False, ""), label + " one accepted and two refused reloads")
+                         (2, 2, 1, False, ""), label + " two accepted reloads, one with an original warning, and one refused")
+            checks.equal(status["ini"]["diagnostics"], 0, label + " the last generation has no warning left")
             checks.equal(status["ini"]["variables"]["$\\runtime_fixture\\tint"], 1, label + " persistent variable survives F10")
             saved = folder / "settings/fixture.ini"
             checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(), label + " settings atomically saved outside mod source")

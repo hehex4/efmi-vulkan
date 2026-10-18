@@ -673,7 +673,9 @@ Targeted GPU10650 passes with core/sync clean. Pure moves retain their bits.
 The supported scalar/vector matrix is measured, not full arithmetic conformance;
 other shapes/widths refuse. Actual application logical enablement remains open.
 
-## INPUT-001: Installed Fangyi INI has duplicate resource sections
+## INPUT-001: Installed Fangyi INI has duplicate resource sections (resolved by D-067 on 2026-10-18)
+
+Resolution: generations and the folder inspection now follow the original loader, which warns, keeps the first section and continues. The installed folder (now `zhuangfangyi lilith vice 2.0`, still with the same duplicates) parses with the warnings listed; the two corpus steps pass on the original installed files. The text below is the history.
 
 2026-10-15 full1.3.5 regression found duplicate DiffuseMap1 and DiffuseMap2
 resource sections in Mods/zhuangfangyi lilith vice1.9/fangyi ul.ini. Actual

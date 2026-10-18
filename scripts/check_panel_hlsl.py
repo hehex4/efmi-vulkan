@@ -11,11 +11,25 @@ DXC = Path("F:/vulkan/dxc-1.9.2609/bin/x64/dxc.exe")
 SPIRV = Path("F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/build/tools")
 
 
+MODS = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods")
+
+
+def installed_panel() -> Path:
+    """The first enabled installed copy of the panel shader. The Mods folder is the user's and
+    changes; the panel ships with many character Mods under k/ and is the same program."""
+    found = sorted((p for p in MODS.glob("*/k/*") if p.name.lower() == "draw_2d.hlsl"
+                    and not p.parts[-3].lower().startswith("disabled")), key=lambda p: str(p).lower())
+    if not found:
+        raise SystemExit("No enabled installed Mod carries k/Draw_2D.hlsl; pass --source")
+    return found[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/arcane fes 1.2/k/Draw_2D.hlsl"))
+    parser.add_argument("--source", type=Path, help="panel HLSL (default: the first enabled installed copy)")
     parser.add_argument("--out", type=Path, default=ROOT / "build/panel-hlsl")
     args = parser.parse_args()
+    args.source = args.source or installed_panel()
     args.out.mkdir(parents=True, exist_ok=True)
     result = dict(scope="Original panel HLSL compiles and validates for Vulkan 1.1; no pipeline, backbuffer, INI parameter upload or pixels tested",
                   compiler=str(DXC), source=str(args.source), source_sha256=hashlib.sha256(args.source.read_bytes()).hexdigest(), stages=[])

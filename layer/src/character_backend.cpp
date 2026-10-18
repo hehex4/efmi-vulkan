@@ -286,6 +286,12 @@ public:
         if (CharacterProgram::configured(g_cfg.m2_package)) {
             program = std::make_unique<CharacterProgram>();
             if (!program->init(g_cfg.m2_package, package, last_reason)) return false;
+            {
+                // What the original overlay would show after a load; the generation carries on (D-067).
+                const auto loaded = program->status();
+                if (loaded.diagnostics) logf("INI loaded with %zu original warning(s)", loaded.diagnostics);
+                for (const auto& text : loaded.diagnostic_messages) logf("INI warning: %s", text.c_str());
+            }
         }
 #define X(n) draw.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n));
         EFVK_VARIANT_FUNCS(X)
@@ -1368,6 +1374,10 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kn("draws", status.draws); w.kn("presents", status.presents); w.kn("key_events", status.key_events);
         w.kn("bindings", status.bindings); w.kn("saves", status.saves); w.kb("dirty", status.dirty);
         w.kb("reload_requested", status.reload_requested);
+        w.kn("diagnostics", status.diagnostics);
+        w.key("diagnostic_messages"); w.begin_array();
+        for (const auto& text : status.diagnostic_messages) w.str(text.c_str());
+        w.end_array();
         w.key("variables"); w.begin_object();
         for (const auto& value : status.variables) { w.key(value.first.c_str()); if (std::isfinite(value.second)) w.raw(std::to_string(value.second)); else w.null(); }
         w.end_object(); w.end_object();

@@ -697,3 +697,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Keep owned view adaptation separate from application import and UAV counters.
   A failed resource execution poisons that generation; preserving previous GPU
   output does not imply recovery within the same failed generation.
+
+## D-067: Original INI warnings are recoverable; they never reject a generation
+
+- Date: 2026-10-18. Claude takes over the INI language and runtime work at the user's request ("ini this part is handed to you").
+- Basis: the pinned IniHandler, CommandList and ShaderRegex code report problems through LogOverlay and keep what they could parse: duplicate sections keep the first copy, unrecognized lines and broken expressions are skipped, duplicate ShaderOverride hashes are merged with a conflict warning, a numbered Pattern section disables its group. No warning or dire message stops the original loader or an F10 reload. D-044 makes the original language the authority.
+- The hosted runtime and the folder inspection rejected any warning. That kept INPUT-001's installed Mod and, in a directory generation, every Mod beside it from loading at all; tests had encoded the deviation (malformed F10 refused, duplicate hash refused, numbered pattern refused, dormant typo refused).
+- Now: a generation loads with the original's recovery; warnings are counted, the latest 64 texts kept, logged at load and reported in the status. The inspection completes, lists them and fails only on dire messages. Fixtures still require a reported warning for every invalid construct, so the rule against silent acceptance holds.
+- Unchanged: explicit adapter refusals (constructs or operations without a Vulkan implementation, including D-047's compile failures) still refuse the candidate and F10 keeps the active generation for them. Offline package builders stay strict.

@@ -211,8 +211,17 @@ int wmain(int argc, wchar_t** argv)
         first->suspend_persistence();
         check(first->save(reason) && first->status().dirty, "Retired writer cannot clear or overwrite pending values");
         write(ini, "namespace = runtime_test\n[Constants]\nglobal $x = 0\n[Present]\n$x = (\n");
+        {
+            // The original loader reports the broken expression and keeps the rest (D-067).
+            auto warned = IniRuntime::load(config, {}, reason);
+            const auto loaded = warned ? warned->status() : RuntimeStatus{};
+            check(warned && loaded.diagnostics >= 1 && !loaded.diagnostic_messages.empty(),
+                  "A broken expression is reported and skipped; the rest of the candidate loads");
+        }
+        // A candidate this host cannot execute is refused instead, and the live one stays.
+        write(ini, "namespace = runtime_test\n[ShaderOverrideUnadapted]\nhash = 1234\n");
         auto failed = IniRuntime::load(config, {}, reason);
-        check(!failed, "Malformed reload candidate refused");
+        check(!failed, "A candidate with an unadapted section is refused");
         render(first); check(plan.items.back().index_count == 9, "Failed parse leaves live generation usable");
         first.reset(); render(second);
         check(plan.items.back().index_count == 9, "Retiring one generation preserves another");
@@ -250,7 +259,17 @@ int wmain(int argc, wchar_t** argv)
         check(plan.items.back().index_count == 6 && directory->status().variables.at("$\\second\\hits") == 22,
               "Original directory matcher routes a second namespace independently");
         write(tree / "Mods/second/dormant.ini", "[CommandListUnused]\ninvalid_operation = 1\n");
-        check(!IniRuntime::load(folder_config, {}, reason), "Invalid dormant command is rejected by original parsing");
+        {
+            // The original loader warns about the line and keeps the rest of the configuration.
+            auto warned = IniRuntime::load(folder_config, {}, reason);
+            const auto loaded = warned ? warned->status() : RuntimeStatus{};
+            bool named = false;
+            for (const auto& text : loaded.diagnostic_messages) named |= text.find("invalid_operation") != std::string::npos;
+            check(warned && loaded.diagnostics >= 1 && named, "An invalid dormant command is reported and skipped, as by the original loader");
+        }
+        // What this generation cannot execute refuses the whole candidate instead.
+        write(tree / "Mods/second/dormant.ini", "[ShaderOverrideUnsupported]\nhash = 1234\n");
+        check(!IniRuntime::load(folder_config, {}, reason), "A section without an adapter refuses the candidate");
         render(directory);
         check(plan.items.back().index_count == 6 && directory->status().variables.at("$\\second\\hits") == 24,
               "Failed directory reload leaves the previous generation usable");

@@ -36,8 +36,25 @@ Dx12Context* Context() { unsupported("prototype graphics context adapter"); }
 Dx12Device* Device() { unsupported("prototype graphics device adapter"); }
 ID3D11Texture2D* BackBufferAsD3D11() { unsupported("prototype backbuffer adapter"); }
 }
-void LogOverlay(LogLevel level,char* format,...) { if(level<=LOG_WARNING_MONOSPACE)++diagnostic_count;else ++notice_count;va_list args;va_start(args,format);vfprintf(stderr,format,args);va_end(args); }
-void LogOverlayW(LogLevel level,wchar_t* format,...) { if(level<=LOG_WARNING_MONOSPACE)++diagnostic_count;else ++notice_count;va_list args;va_start(args,format);vfwprintf(stderr,format,args);va_end(args); }
+// Inspection keeps the texts and the dire ones apart; the original engine continues after all of them.
+static std::vector<std::pair<bool,std::string>> diagnostic_texts;
+static size_t dire_count=0;
+size_t HostDireCount() { return dire_count; }
+const std::vector<std::pair<bool,std::string>>& HostDiagnosticTexts() { return diagnostic_texts; }
+static void keep_diagnostic(LogLevel level,std::string text)
+{
+    while(!text.empty() && (text.back()=='\n' || text.back()=='\r'))text.pop_back();
+    if(level==LOG_DIRE)++dire_count;
+    if(diagnostic_texts.size()<256)diagnostic_texts.emplace_back(level==LOG_DIRE,std::move(text));
+}
+void LogOverlay(LogLevel level,char* format,...) {
+    if(level<=LOG_WARNING_MONOSPACE){++diagnostic_count;char text[2048]{};va_list copy;va_start(copy,format);_vsnprintf_s(text,sizeof(text),_TRUNCATE,format,copy);va_end(copy);keep_diagnostic(level,text);}
+    else ++notice_count;va_list args;va_start(args,format);vfprintf(stderr,format,args);va_end(args); }
+void LogOverlayW(LogLevel level,wchar_t* format,...) {
+    if(level<=LOG_WARNING_MONOSPACE){++diagnostic_count;wchar_t text[2048]{};va_list copy;va_start(copy,format);_vsnwprintf_s(text,_countof(text),_TRUNCATE,format,copy);va_end(copy);
+        const int length=int(wcslen(text));const int size=WideCharToMultiByte(CP_UTF8,0,text,length,nullptr,0,nullptr,nullptr);
+        std::string utf8(size,'\0');if(size)WideCharToMultiByte(CP_UTF8,0,text,length,utf8.data(),size,nullptr,nullptr);keep_diagnostic(level,utf8);}
+    else ++notice_count;va_list args;va_start(args,format);vfwprintf(stderr,format,args);va_end(args); }
 void ClearNotices() {}
 void ParseHuntingSection() { unsupported("prototype hunting settings"); }
 void CleanupShaderMaps(ID3D11DeviceChild*) { unsupported("prototype shader lifetime"); }
@@ -65,7 +82,8 @@ bool ShaderRegexPattern::compile(std::string* pattern) {
                           PCRE2_CASELESS | PCRE2_MULTILINE, &error, &offset, nullptr);
     if (!regex) {
         ++diagnostic_count;
-        fprintf(stderr, "ShaderRegex PCRE2 error %d at byte %zu\n", error, size_t(offset)); return false;
+        char text[128];snprintf(text,sizeof(text),"ShaderRegex PCRE2 error %d at byte %zu",error,size_t(offset));
+        keep_diagnostic(LOG_WARNING,text);fprintf(stderr,"%s\n",text);return false;
     }
     uint32_t count, size; PCRE2_SPTR table;
     pcre2_pattern_info(regex, PCRE2_INFO_NAMECOUNT, &count);

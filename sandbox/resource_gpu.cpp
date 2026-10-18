@@ -362,8 +362,14 @@ static void ini_gpu(Device& d,const std::filesystem::path& root){
     if(!next->present({},2,0,why))throw std::runtime_error(why);auto next_ticket=next_backend->finish();if(next_ticket)next_ticket->wait();next_ticket.reset();
     check(next_backend->binding(L'p',T::SHADER_RESOURCE,0).buffer!=saved.buffer,"Reload isolates mutable GPU resources");
     write(root/"Mods/resource.ini","[Present]\nthis_is_not_an_original_command = 1\n");
+    {
+        // The original loader reports the unknown line and loads the rest (D-067).
+        auto warned=IniRuntime::load(config,std::make_shared<GpuResourceRuntime>(d.resource,budgets),why);
+        check(warned && warned->status().diagnostics>=1,"An unknown command line is reported and skipped, as by the original loader");
+    }
+    write(root/"Mods/resource.ini","[ShaderOverrideUnadapted]\nhash = 1234\n");
     auto failed=IniRuntime::load(config,std::make_shared<GpuResourceRuntime>(d.resource,budgets),why);
-    check(!failed,"Bad candidate INI refuses without replacing a working generation");
+    check(!failed,"A candidate without an adapter refuses without replacing a working generation");
     backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);check(ini->present({},3,0,why),"Working generation survives bad candidate");
     ticket=backend->finish();if(ticket)ticket->wait();ticket.reset();
     next.reset();next_backend.reset();ini.reset();backend.reset();check(saved.buffer->buffer()!=VK_NULL_HANDLE,"Retained binding survives both runtime retirements");

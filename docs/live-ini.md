@@ -78,8 +78,11 @@ F10 schedules a candidate generation on a worker. It rereads the INI, profiled
 BUF files and referenced DDS files, parses and validates, then creates a new
 mesh, texture cache and variant cache. The active generation keeps drawing while
 that work and queue publication finish. A candidate is adopted only when Ready.
-Syntax/contract failures, failed image preparation and upload timeout retain the
-active generation and expose a reason. Unexercised dynamic expressions can still
+Original syntax warnings do not stop it (D-067): as after F10 under DX11, the
+broken line is skipped, the rest takes effect and the warnings are in the log and
+in `ini.diagnostics`. Contract failures (a construct without an adapter), failed
+image preparation and upload timeout retain the active generation and expose a
+reason. Unexercised dynamic expressions can still
 refuse an individual draw later; this is not proof of all possible mod branches.
 
 At exchange, the latest persistent values replace any stale parse-time snapshot,
