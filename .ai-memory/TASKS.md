@@ -519,8 +519,11 @@ Handed to Claude by the user on 2026-10-18. Working in `.worktrees/ini` (branch 
 
 Done: D-067, original warnings are recoverable; INPUT-001 resolved (candidate 1.3.8).
 
+Done 2026-10-18: installed operation census (scripts/ini_operation_census.py, suite step; docs/ini-language-coverage.md). Installed Mods use 16 of the 32 original command classes in 57 variants; the character content runs in the production renderer; the image panel `k/1.ini` shipped in about 20 Mods is the construct that cannot run in the game; three Mods use CustomShader compute; no Mod replaces a texture by its hash.
+
 Backlog, proposed order:
-1. An execution matrix per original command class and operation family (owned GPU, CPU only, refused), generated from the source inventory and the adapter, with a check that fails when a class has no stated decision. Replaces the hand-kept table in docs/ini-language-coverage.md as the authority.
+1. The image panel in the game (backbuffer placement at Present, CustomShader graphics on the swapchain, PNG, cursor and IniParams): visible in almost every installed Mod. PNG was paused by the user on 2026-10-14; ask before resuming.
+1b. An execution matrix per original command class and operation family (owned GPU, CPU only, refused) with a check that fails when a class has no stated decision; the census is its data source.
 2. Families that are still parse-only: remaining copy conversions and options, region and spatial hash properties, fuzzy texture matcher metadata (refused today), system and driver settings.
 3. PNG/WIC resources: paused by the user on 2026-10-14; the image panel shipped in about ten installed Mods needs them. Resume only on the user's word.
 4. A directory generation in the production renderer (several Mods, routing of matched objects, on-demand residency), together with the shared shader catalogue of T-030.

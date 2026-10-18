@@ -72,6 +72,39 @@ Remaining formats/conversions, CustomShader, general shader matching, applicatio
 integration and complete directory graphics remain open. Dist stays 1.0.2;
 owned resource/shader-consumer tests are not game evidence.
 
+## What the installed Mods use (census, 2026-10-18)
+
+`scripts/ini_operation_census.py` (suite step "installed INI operation census")
+counts every command the original parser built for the enabled Mods and Core, by
+class and by what decides its adapter: target kinds and stages, copy options,
+draw form. It walks registered lists, override and shader lists and the branch
+lists of if blocks, and attributes sections to their Mod through file paths and
+namespaces. It executes nothing; `build/ini-operations/report.json`.
+
+On 2026-10-18: 58 INI inputs, 16,423 commands in 57 variants, 21 owners (19
+character Mods, RabbitFX and Core). Only 16 of the 32 original command classes occur. The support
+columns are a reading of `DrawPlanAdapter` and the owned GPU adapters, not a
+measurement; "production" is the character renderer that runs in the game,
+"owned" the sandbox domain with owned resources.
+
+| Use | Commands (owners) | Production | Owned |
+| --- | ---: | --- | --- |
+| Branches, variables, calls, callback copies, IniParams, pools, skip, layout edits | about 13,600 (21) | CPU, original code | CPU, original code |
+| `vb`/`ib`/`ps-t` = resource or null | 1,247 (20) | plan bindings | yes |
+| resource = resource or null | 658 (20) | declaration references | yes |
+| `drawindexed`, `drawindexedinstanced` | 476 (19) | yes | yes |
+| `this = null` with `handling = skip` (index-buffer hides) | 73 (14) | hide | not needed |
+| `CheckTextureOverride = ps-t` (Core OverrideTextures) | 74 (3) | native Core boundary, no image identities | explicit identities only |
+| image panel `k/1.ini`: `o0 = bb`, clears, `draw`, CustomShader graphics | about 20 each (20) | refused | graphics yes; backbuffer placement and PNG no |
+| CustomShader compute: `cs-t`/`cs-u`/`cs-cb`, `dispatch` | about 70 (3) | refused | yes |
+| constant buffer windows (`vs-cb`, `ps-cb` copies) | about 25 (2) | refused | yes |
+| `store`, `draw = from_caller` | 6 (3) | refused | store yes; caller state partial |
+
+Findings: no installed Mod replaces a texture by its hash (`this = Resource...`
+does not occur; every `this` is an index-buffer hide), so textures come through
+fixed `ps-t` slots and RabbitFX roles. The construct present in almost every Mod
+that cannot run in the game today is the image panel shipped as `k/1.ini`.
+
 ## Source authority and coverage checks
 
 The source authority is XXMI-Libs-Package commit

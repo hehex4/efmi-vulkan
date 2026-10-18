@@ -26,6 +26,7 @@ STEPS = [
     ("directory INI language", [os.path.join(HERE, "ini_folder_test.py")]),
     ("source-defined INI language", [os.path.join(ROOT, "scripts", "check_ini_language.py")]),
     ("installed Mods and Core syntax", [os.path.join(ROOT, "scripts", "check_ini_folder.py")]),
+    ("installed INI operation census", [os.path.join(ROOT, "scripts", "ini_operation_census.py")]),
     ("original INI runtime", [os.path.join(ROOT, "scripts", "build_xxmi_runtime.py")]),
     ("source-defined INI evaluation", [os.path.join(ROOT, "scripts", "check_ini_evaluation.py")]),
     ("original INI GPU resources", [os.path.join(ROOT, "scripts", "check_resource_commands.py")]),
