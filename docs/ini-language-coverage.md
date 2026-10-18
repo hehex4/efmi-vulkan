@@ -83,9 +83,10 @@ namespaces. It executes nothing; `build/ini-operations/report.json`.
 
 On 2026-10-18: 58 INI inputs, 16,423 commands in 57 variants, 21 owners (19
 character Mods, RabbitFX and Core). Only 16 of the 32 original command classes occur. The support
-columns are a reading of `DrawPlanAdapter` and the owned GPU adapters, not a
-measurement; "production" is the character renderer that runs in the game,
-"owned" the sandbox domain with owned resources.
+columns follow the execution matrix (below, "Execution remains separate from parsing"), whose
+CPU decisions are probed; "production" is the character renderer that runs in the game,
+"owned" the sandbox domain with owned resources. The matrix check prints the installed count
+beside each class.
 
 | Use | Commands (owners) | Production | Owned |
 | --- | ---: | --- | --- |
@@ -212,22 +213,37 @@ pools, pending a broader GPU lifetime adapter.
 
 ## Execution remains separate from parsing
 
-| Original operation family | Current execution boundary |
-| --- | --- |
-| Expressions, variables, branches, named calls, callback references | Original evaluator/command graph, bounded CPU execution |
-| IniParams, time, call counters, presets, keys, persist, F10 | CPU runtime; shader upload and full rendering context still needed |
-| Indexed draws, VB/IB and pixel-resource references, layout edits | Existing scoped character Vulkan backend; not every draw/resource form |
-| Scalar pools, metadata/reset, native merged-skeleton/identity contracts | Original CPU logic plus explicit native Core boundaries; GPU resource pools are partial |
-| Custom-resource buffer references, copy/copy_desc, buffer regions, clear/store/readback | Opt-in original-runtime GPU adapter in an explicit private outside-render-pass domain; raw/no_view_cache and owned per-description copies; logical slots, no application descriptor emission |
-| Buffer slot ranges and broadcasts | Owned GPU adapter, plain reference and compatible copy paths; original null/view/counter behavior; fresh typed/raw views remain open |
-| Buffer identity/size/stride/source-stride/format/flags/offset and extent metadata | Owned GPU adapter with original sentinels, override precedence and actual draw-context offsets; declaration-only Constants queries allocate nothing |
-| FIFO/spatial/expiring buffer pools and whole-pool assignments | Original pool rules and owned-buffer GPU execution; frame duration supplied by the host |
-| Image declarations, DDS, references/copies/pools, clears, properties and color MSAA resolve | Opt-in original-runtime owned-image adapter; original helpers and native view/clear/copy reference; integer RTV and single-sample R16/R32 color/depth conversions included, remaining formats/options and shader use stay open |
-| Remaining conversions/options and region/spatial hashes | Parse support; general Vulkan execution remains open |
-| Non-indexed/automatic/indirect draws and compute dispatch | Parse support; general Vulkan execution remains open |
-| CustomShader render state and HLSL | Original metadata parsing; original panel HLSL compiles separately, general pipeline execution remains open |
-| ShaderOverride/ShaderRegex | Original metadata/pattern parsing; source-shader identity and DX11 assembly-to-SPIR-V adaptation remain open |
-| Clear hooks, frame analysis, overlay, upscaling and system/driver options | Inventoried; host/settings and graphics adapters remain open |
+Execution support per original command class is stated in
+`docs/ini-execution-matrix.json` and checked by `scripts/check_ini_execution_matrix.py`
+(suite step "INI execution matrix", from candidate 1.3.9). For each of the 32 classes the
+inventory takes from the pinned `CommandList.h`, the matrix gives its origin (parser,
+optimiser, ShaderRegex link, base class, never constructed) and, per use, a decision in two
+domains: a CPU generation, which is how the character renderer in the game hosts Mod
+commands, and the owned GPU domain of the sandbox. Decisions are `original` (original
+`run()` on the generation's state), `plan` (draw plan binding, indexed draw, layout edit or
+skip), `gpu` (owned Vulkan adapter), `noop`, `removed` (by the original optimiser),
+`refused` and `not-created`. The check fails when a source class has no entry, when the
+stated origin disagrees with the source, when a CPU decision disagrees with its probe (one
+INI fixture per use through `runtime_test.exe --probe-command`: load, present, one matching
+draw, present) or when an owned `gpu` decision cites a sandbox check that no longer exists.
+
+State on 2026-10-18 (1.3.9): 41 probed uses. In a CPU generation, branches, variables,
+calls, callback copies, IniParams, pools, presets, per-frame resets and the upscaling flip run
+as original code; indexed draws, file-backed `vb`/`ib`/`ps-t` bindings, declaration
+references, index-buffer hides, bind batches, layout edits and skip become plan operations;
+frame analysis commands and else markers are removed by the original optimiser. Refused there
+and executed in the owned domain: clears, stores, slot ranges, copies and fetches, other
+binding destinations, non-indexed, automatic, caller, indirect draws and dispatch,
+`checktextureoverride` and CustomShader (a CPU generation refuses a CustomShader declaration
+at load). `drawauto` is refused in both (no stream-output count adapter). ShaderRegex links
+exist only with shader hooks, which a CPU generation does not have.
+
+`special = draw_3dmigoto_overlay` is a no-op in both domains because the original draws the
+3DMigoto overlay only when the swap chain has one and a hosted generation has none; it is not
+a rendering feature left out. Families finer than a class (copy options, region and spatial
+hashes, resource properties, image formats and conversions) are not yet rows of the matrix;
+the owned adapters' own checks cover them. The hand-kept table that stood here until 1.3.8
+had fallen behind the owned adapters and is replaced by the matrix.
 
 The production character runtime still refuses non-native CustomShader,
 ShaderOverride and ShaderRegex sections. The full-directory inspector accepts

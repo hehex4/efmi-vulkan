@@ -1,10 +1,18 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-18, branch claude/ini (worktree .worktrees/ini): candidate 1.3.8 makes original INI warnings recoverable (D-067), INPUT-001 resolved. Main tree: 1.3.6 plus Codex's uncommitted 2026-10-15 ShaderRegex work (named 1.3.7, untouched). dist 1.0.2 unchanged; the installed Mods folder changed and the deployed live package names a removed Mod. Launcher on DX11.
+> Last updated: 2026-10-18, branch claude/ini (worktree .worktrees/ini): candidate 1.3.9 adds the checked INI execution matrix and fixes a teardown crash (BUG-025); 1.3.8 made original INI warnings recoverable (D-067). Main tree: 1.3.6 plus Codex's uncommitted 2026-10-15 ShaderRegex work (named 1.3.7, untouched). dist 1.0.2 unchanged; the installed Mods folder changed and the deployed live package names a removed Mod. Launcher on DX11.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## INI execution matrix (candidate 1.3.9, branch claude/ini, 2026-10-18)
+
+`docs/ini-execution-matrix.json` states for each of the 32 original command classes its origin and, per use, how it executes in a CPU generation (how the character renderer in the game hosts Mod commands) and in the owned GPU domain of the sandbox. `scripts/check_ini_execution_matrix.py` (suite step "INI execution matrix") fails when a source class has no entry, when the origin disagrees with the pinned source, when a CPU decision disagrees with its probe or when cited owned evidence is gone. Probes are INI fixtures run through the new `runtime_test.exe --probe-command` (load, present, one matching draw, present). 41 probed uses agree; a deliberately broken copy of the matrix fails on all four injected faults. docs/ini-language-coverage.md now points at the matrix; its stale hand-kept table is gone.
+
+Found by the probes: `special = upscaling_switch_bb` crashed the host when a generation was retired (BUG-025: the original destructor writes through G, which is null outside a scope). Fixed in IniRuntime's destructor; the same fixture segfaults on a build without the fix and completes with it. No installed Mod uses the command. D-068: the upscaling flip now runs as original code and `special = draw_3dmigoto_overlay` is a no-op (no 3DMigoto overlay exists in a hosted generation); both refused a draw before.
+
+Evidence: full rebuilt suite in the worktree passes all 29 steps (build/next/run_all-1.3.9.out): INI execution matrix 32 classes and 41 probes, source language 726/726, evaluation 65/65, runtime 458, GPU resources 10786 with no validation message, character 357, live INI 32/32. Sandbox only; no game, deployment or launcher action.
 
 ## INI ownership and recoverable warnings (candidate 1.3.8, branch claude/ini, 2026-10-18)
 

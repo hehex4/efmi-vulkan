@@ -602,10 +602,15 @@ struct DrawPlanAdapter::Runtime {
         }
         if (dynamic_cast<IfCommand*>(original.get()) || typeid(*original) == typeid(VariableAssignment) ||
             dynamic_cast<PoolVariableOperation*>(original.get()) || dynamic_cast<AbortCommand*>(original.get()) ||
-            dynamic_cast<PresetCommand*>(original.get()) || dynamic_cast<ResetPerFrameLimitsCommand*>(original.get())) {
+            dynamic_cast<PresetCommand*>(original.get()) || dynamic_cast<ResetPerFrameLimitsCommand*>(original.get()) ||
+            dynamic_cast<UpscalingFlipBBCommand*>(original.get())) {
+            // The upscaling flip only clears this generation's bb_is_upscaling_bb flag.
             original->run(state);
             return;
         }
+        // The original draws the 3DMigoto overlay only when the swap chain has one, and a
+        // hosted generation has none; it must not reach the reference swap chain scaffolding.
+        if (dynamic_cast<Draw3DMigotoOverlayCommand*>(original.get())) return;
         if(auto* pool=dynamic_cast<PoolCopyOperation*>(original.get())){
             if(pool->dst.type!=ResourceCopyTargetType::POOL || !pool->dst.custom_resource_pool ||
                (pool->src.type!=ResourceCopyTargetType::POOL && pool->src.type!=ResourceCopyTargetType::EMPTY) ||

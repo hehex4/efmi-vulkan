@@ -180,7 +180,11 @@ IniRuntime::~IniRuntime()
     // Original command/resource destructors share frontend infrastructure too.
     // Do not let teardown race a candidate parsing or the active draw evaluator.
     std::lock_guard<std::mutex> lock(engine_mutex);
+    // Original destructors may write through G (~UpscalingFlipBBCommand clears a flag), so
+    // they address this generation's globals, which outlive every other member of the state.
+    G = impl_->state.globals.get();
     impl_.reset();
+    G = nullptr;
 }
 
 std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::shared_ptr<RuntimeExtension> extension, std::string& reason)

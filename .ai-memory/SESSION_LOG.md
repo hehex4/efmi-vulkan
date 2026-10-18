@@ -1891,3 +1891,10 @@ with transactional ShaderRegex publication and exact original source identity.
 
 Follow-up, same day: installed operation census. The inspection host prints an `operation_census` (class plus target kinds, stages, copy options and draw form, per section); scripts/ini_operation_census.py attributes it to Mods and writes build/ini-operations/report.json; new suite step. 58 inputs, 16,423 commands, 57 variants, 21 owners. Reading of the adapters: the character content runs in the production renderer; the image panel (`o0 = bb`, clears, non-indexed draw, CustomShader graphics, PNG, cursor) in about 20 Mods is refused in the game; CustomShader compute in three Mods runs only in the owned domain; no texture-hash replacement occurs. Proposed next: the panel, pending the user's word on PNG.
 
+## 2026-10-18: INI execution matrix (candidate 1.3.9, branch claude/ini)
+
+- `runtime_test.exe --probe-command <ini>` runs one fixture through a CPU generation and prints stage, reason, plan items, skip, warnings and variables.
+- `docs/ini-execution-matrix.json` and `scripts/check_ini_execution_matrix.py` (new suite step after INI evaluation): 32 classes, 41 probed uses, cited owned evidence verified, installed census counts printed beside. A broken copy fails on a missing class, a wrong probe expectation, stale evidence and a decision that contradicts its probe.
+- Found and fixed BUG-025 (teardown crash with the upscaling flip, frontend/xxmi/runtime.cpp). D-068: upscaling flip original, 3DMigoto overlay no-op (frontend/xxmi/draw_plan.cpp). docs/ini-language-coverage.md points at the matrix. Version 1.3.9.
+- Results: full rebuilt suite in the worktree passes all 29 steps (build/next/run_all-1.3.9.out): INI execution matrix 32 classes and 41 probes, source language 726/726, evaluation 65/65, runtime 458, GPU resources 10786 with no validation message, character 357, live INI 32/32. Sandbox only; no game, deployment or launcher action.
+- Not done: merge into main; no deployment, game, launcher or system action.

@@ -705,3 +705,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - The hosted runtime and the folder inspection rejected any warning. That kept INPUT-001's installed Mod and, in a directory generation, every Mod beside it from loading at all; tests had encoded the deviation (malformed F10 refused, duplicate hash refused, numbered pattern refused, dormant typo refused).
 - Now: a generation loads with the original's recovery; warnings are counted, the latest 64 texts kept, logged at load and reported in the status. The inspection completes, lists them and fails only on dire messages. Fixtures still require a reported warning for every invalid construct, so the rule against silent acceptance holds.
 - Unchanged: explicit adapter refusals (constructs or operations without a Vulkan implementation, including D-047's compile failures) still refuse the candidate and F10 keeps the active generation for them. Offline package builders stay strict.
+
+## D-068: The execution matrix is the authority for INI execution; overlay and upscaling flip accepted
+
+- Date: 2026-10-18 (candidate 1.3.9, branch claude/ini).
+- `docs/ini-execution-matrix.json` replaces the hand-kept execution table of docs/ini-language-coverage.md. Every original command class has an entry; CPU decisions are probed and owned GPU decisions cite sandbox checks, both enforced by a suite step. New classes in a future pinned source fail the suite until decided.
+- `special = upscaling_switch_bb` runs as original code: it only clears the generation's bb_is_upscaling_bb flag, whose one original reader is the DX11 `bb` lookup that a hosted generation never runs. If owned backbuffer placement is built, it must honour the flag.
+- `special = draw_3dmigoto_overlay` is a no-op: the original draws the 3DMigoto overlay only when the swap chain has one, and a hosted generation has none. This is the original behaviour in that situation, not a rendering feature left out; the rule that missing rendering features refuse stands.

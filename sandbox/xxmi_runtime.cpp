@@ -129,10 +129,70 @@ static int inspect_character(int argc, wchar_t** argv)
            package.sections.size(), package.bones, package.components.size(), state.bindings, draws, hides, rabbit ? "true" : "false");
     return 0;
 }
+static void json_text(const std::string& text)
+{
+    putchar('"');
+    for (unsigned char c : text) {
+        if (c == '"' || c == '\\') printf("\\%c", c);
+        else if (c < 0x20 || c > 0x7e) printf("\\u%04x", c);
+        else putchar(c);
+    }
+    putchar('"');
+}
+// One original INI fixture through a CPU generation: no owned GPU adapters, no shader hooks,
+// no native extension, which is how the character renderer in the game hosts the original
+// command classes. Load, one present, one draw matching hash 12345678 with 30 indices, a
+// second present. Reports the stage that stopped it and what the plan and variables became.
+static int probe_command(const std::filesystem::path& file)
+{
+    const auto path = std::filesystem::absolute(file);
+    RuntimeConfig config{path.parent_path(), {path}, path.parent_path() / "settings", "probe"};
+    std::string reason, stage = "load";
+    auto runtime = IniRuntime::load(config, {}, reason);
+    efmi::assets::FilePlan plan;
+    if (runtime) {
+        RuntimeInput input; input.foreground = true;
+        stage = "present";
+        if (runtime->present(input, 24, 2.5f, reason)) {
+            RuntimeDraw draw; draw.hash = 0x12345678; draw.count = 30; draw.frame = 24; draw.seconds = 2.5f;
+            stage = "draw";
+            if (runtime->draw(draw, plan, reason)) {
+                stage = "post-present";
+                if (runtime->present(input, 25, 2.6f, reason)) { stage = "complete"; reason.clear(); }
+            }
+        }
+    }
+    static const char* operations[] = {"bind_vertex", "bind_index", "bind_pixel_resource", "draw_indexed", "external"};
+    printf("{\"stage\":"); json_text(stage); printf(",\"reason\":"); json_text(reason);
+    printf(",\"skip_original\":%s,\"items\":[", plan.skip_original ? "true" : "false");
+    for (size_t i = 0; i < plan.items.size(); ++i) {
+        const auto& item = plan.items[i];
+        printf("%s{\"operation\":\"%s\",\"slot\":%u,\"resource\":%s,\"index_count\":%u,\"first_index\":%u,\"instance_count\":%u,\"layout_edits\":%zu}",
+               i ? "," : "", operations[size_t(item.operation)], item.slot, item.resource ? "true" : "false",
+               item.index_count, item.first_index, item.instance_count, item.layout.size());
+    }
+    printf("]");
+    if (runtime) {
+        const auto state = runtime->status();
+        printf(",\"diagnostics\":%zu,\"diagnostic_messages\":[", state.diagnostics);
+        for (size_t i = 0; i < state.diagnostic_messages.size(); ++i) { if (i) putchar(','); json_text(state.diagnostic_messages[i]); }
+        printf("],\"variables\":{");
+        bool comma = false;
+        for (const auto& [name, value] : state.variables) {
+            if (name.rfind("$\\probe\\", 0)) continue;
+            if (comma) putchar(','); comma = true;
+            json_text(name.substr(8)); printf(":%.9g", value);
+        }
+        putchar('}');
+    }
+    printf("}\n");
+    return 0;
+}
 int wmain(int argc, wchar_t** argv)
 {
     try {
         if (argc > 1 && !wcscmp(argv[1], L"--inspect-character")) return inspect_character(argc, argv);
+        if (argc == 3 && !wcscmp(argv[1], L"--probe-command")) return probe_command(argv[2]);
         if (argc == 4 && !wcscmp(argv[1], L"--evaluate-language")) {
             const auto path = std::filesystem::absolute(argv[2]);
             const auto count = std::stoi(argv[3]);

@@ -710,3 +710,9 @@ conversion, raw/structured sources and destinations, and nonzero regions.
 Per-binding unknown-format feature checks refuse before submission. Source
 ShaderRegex executable publication, unrepresentable view offsets, imported UAV
 counters and application shader correspondence remain separate work.
+
+## BUG-025: Retiring a generation with `special = upscaling_switch_bb` crashed the host (fixed in candidate 1.3.9)
+
+Original defect: `~UpscalingFlipBBCommand` in the pinned CommandList.cpp writes `G->upscaling_command_list_using_explicit_bb_flip`. IniRuntime's destructor destroyed the generation with `G` null (only a Scope sets it), so any generation holding the command crashed the process when it was retired: F10, a module exchange or exit. The bridge also refused the command at run time, so the crash came at teardown. Found by the execution matrix probe; it is the only original destructor that touches `G`. No installed Mod uses the command; no game observation.
+
+Correction 1.3.9: the destructor points `G` at the generation's own globals, which outlive every other member, for the teardown. The same fixture segfaults (exit 139) on a build without the fix and completes with it; the matrix probe keeps it covered.
