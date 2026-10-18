@@ -1898,3 +1898,13 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Found and fixed BUG-025 (teardown crash with the upscaling flip, frontend/xxmi/runtime.cpp). D-068: upscaling flip original, 3DMigoto overlay no-op (frontend/xxmi/draw_plan.cpp). docs/ini-language-coverage.md points at the matrix. Version 1.3.9.
 - Results: full rebuilt suite in the worktree passes all 29 steps (build/next/run_all-1.3.9.out): INI execution matrix 32 classes and 41 probes, source language 726/726, evaluation 65/65, runtime 458, GPU resources 10786 with no validation message, character 357, live INI 32/32. Sandbox only; no game, deployment or launcher action.
 - Not done: merge into main; no deployment, game, launcher or system action.
+
+## 2026-10-18: merge into main; image panel step 1 (candidate 1.4.0, branch claude/ini)
+
+- The user: "resume, and merge into main" (resume PNG and the image panel; merge claude/ini).
+- Merge: Codex's uncommitted main-tree work (19 modified and 2 new files, untouched since 2026-10-15 14:23) was stored verbatim as commit a188300 on branch codex/wip-2026-10-15 (checked file by file), backed up as a patch in the session scratchpad, the main tree cleaned, main fast-forwarded to claude/ini (447b3aa), and the work reapplied uncommitted. Only the version line conflicted; main's 1.3.9 was kept, so Codex's work needs the next free version when it is committed. Codex's added and removed lines in the five overlapping files are unchanged.
+- Panel inspection: `k/1.ini` (read-only) needs character marks, Ctrl+K and LBUTTON, window/resolution/cursor operands, persistent variables, writes to the main INI namespace, two PNGs and a CustomShader with alpha blending drawing four vertices into `o0 = set_viewport bb`. The layer intercepts only vkQueuePresentKHR among the presentation calls.
+- Step 1 (D-069): frontend/xxmi/runtime.h, runtime.cpp, runtime_shim.cpp, draw_plan.cpp; sandbox/runtime_window_cases.h; docs/live-ini.md. Version 1.4.0.
+- Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.0.out): runtime 471 checks including 13 window-operand checks, execution matrix 32 classes and 41 probes, GPU resources 10786, character 357, live INI 32/32. Sandbox only.
+- PNG reading so far: the pinned DirectXTK WIC loader agrees with frontend/assets/png.cpp on PNG formats and on sRGB detection (sRGB chunk only); the decoder lacks the declaration's color_space flags (FORCE_SRGB, IGNORE_SRGB), and gpu_images.cpp still refuses non-DDS files. force_detect_color_space is not set in the user's d3dx.ini.
+- Not done: steps 2 to 4; no deployment, game, launcher or system action.

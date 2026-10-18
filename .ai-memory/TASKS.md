@@ -524,12 +524,12 @@ Done 2026-10-18: installed operation census (scripts/ini_operation_census.py, su
 Done 2026-10-18 (candidate 1.3.9): execution matrix per original command class (docs/ini-execution-matrix.json, scripts/check_ini_execution_matrix.py, suite step), BUG-025 teardown crash fixed, D-068 upscaling flip and overlay accepted.
 
 Backlog, proposed order:
-1. The image panel in the game (backbuffer placement at Present, CustomShader graphics on the swapchain, PNG, cursor and IniParams): visible in almost every installed Mod. PNG was paused by the user on 2026-10-14; ask before resuming.
+1. The image panel in the game, resumed with PNG by the user on 2026-10-18. Steps: (1) window, resolution and cursor operands - done in 1.4.0; (2) PNG files as owned images with the pinned WIC loader semantics (color_space flags; installed panel PNGs compared with native DirectXTK on WARP); (3) owned `o0 = set_viewport bb` at Present with the installed panel, compared with native DX11 pixels; (4) layer: swap chain and surface interception, window sample, panel INI in the character generation, drawing on the swap chain image before present. Deployment and loading in the game only on the user's word.
 1b. Extend the execution matrix below class level: copy options, target kinds per destination, resource properties, image formats, so that each census variant maps to a row.
 2. Families that are still parse-only: remaining copy conversions and options, region and spatial hash properties, fuzzy texture matcher metadata (refused today), system and driver settings.
-3. PNG/WIC resources: paused by the user on 2026-10-14; the image panel shipped in about ten installed Mods needs them. Resume only on the user's word.
+3. PNG/WIC resources: resumed by the user on 2026-10-18 as part of item 1.
 4. A directory generation in the production renderer (several Mods, routing of matched objects, on-demand residency), together with the shared shader catalogue of T-030.
-5. Merge claude/ini into main.
+5. Merge claude/ini into main at checkpoints (first merge 2026-10-18 at 447b3aa). Each merge sets Codex's uncommitted main-tree work aside and restores it (branch codex/wip-2026-10-15 holds it).
 
 ### T-030: Generic directory runtime and assets (active; user-directed architecture)
 

@@ -712,3 +712,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - `docs/ini-execution-matrix.json` replaces the hand-kept execution table of docs/ini-language-coverage.md. Every original command class has an entry; CPU decisions are probed and owned GPU decisions cite sandbox checks, both enforced by a suite step. New classes in a future pinned source fail the suite until decided.
 - `special = upscaling_switch_bb` runs as original code: it only clears the generation's bb_is_upscaling_bb flag, whose one original reader is the DX11 `bb` lookup that a hosted generation never runs. If owned backbuffer placement is built, it must honour the flag.
 - `special = draw_3dmigoto_overlay` is a no-op: the original draws the 3DMigoto overlay only when the swap chain has one, and a hosted generation has none. This is the original behaviour in that situation, not a rendering feature left out; the rule that missing rendering features refuse stands.
+
+## D-069: Original window and cursor queries read a host sample
+
+- Date: 2026-10-18 (candidate 1.4.0, branch claude/ini), first step of the image panel.
+- The original reads window size, cursor position and visibility through GetClientRect, GetCursorInfo and ScreenToClient on G->hWnd and keeps the swap chain size in mResolutionInfo. A hosted generation must not query a real window from inside the game or a test, and its results must be reproducible, so the host supplies one sample per present (RuntimeInput window, cursor, resolution) and the original functions answer from it. G->hWnd is a token that only these functions recognise; nothing passes it to Win32.
+- Original fallbacks are kept: no window means no hWnd (window positions are screen positions, window_width falls back to the resolution and then the fallback screen size); a resolution of zero keeps the earlier value, starting from the original's unset -1.
+- The window heuristic's render-target step would query the reference D3D context, which a hosted generation does not have. It continues as the original does with no render target bound; RT_WIDTH itself stays refused.
+- The fallback screen size is IniHandler's default 1920x1080 because a generation reads no d3dx.ini. The user's d3dx.ini sets 2560x1600; the difference is reached only when neither a window nor a swap chain size is known.

@@ -27,6 +27,22 @@ struct RuntimeInput {
     // Original frame_time and spatial-pool radius scale, supplied by the host.
     // Zero preserves the original startup value; do not infer a frame rate.
     float frame_seconds = 0;
+    // The presentation window and cursor, sampled with the keys. The original reads them with
+    // GetClientRect, GetCursorInfo and ScreenToClient on its hWnd; a generation answers those
+    // calls from this sample. Without a window the original has no hWnd: window_width falls
+    // back to the resolution and then to 1920x1080, and cursor_window_* are screen positions.
+    struct Window {
+        bool present = false;
+        int32_t client_left = 0, client_top = 0; // Client origin in screen coordinates.
+        int32_t client_width = 0, client_height = 0;
+    } window;
+    struct Cursor {
+        bool showing = false;
+        int32_t screen_x = 0, screen_y = 0;
+    } cursor;
+    // The swap chain size, which the original keeps in mResolutionInfo (res_width/res_height).
+    // Zero keeps the previous value; a generation starts with the original's unset -1.
+    uint32_t resolution_width = 0, resolution_height = 0;
 };
 struct RuntimeDraw {
     uint32_t hash = 0, count = 0, first = 0, instances = 1, first_instance = 0;

@@ -113,9 +113,33 @@ only in `F:/vulkan/dxc-1.9.2609`, upstream release `v1.9.2609`, archive SHA-256
 
 This is compilation evidence, not panel rendering. `k/1.ini` is not among the
 runtime inputs. Its CustomShader still needs shader/pipeline creation, image and
-IniParams upload, cursor/window queries, alpha blend state, viewport and safe
-backbuffer drawing/synchronization. It is T-016, not an already supported part
-of this runtime. Passing it as an input currently refuses explicitly.
+IniParams upload, alpha blend state, viewport and safe backbuffer
+drawing/synchronization. It is T-016, not an already supported part of this
+runtime. Passing it as an input currently refuses explicitly.
+
+### Window, resolution and cursor operands (1.4.0)
+
+The panel's [Present] list reads `window_width`, `window_height`, `res_width`,
+`res_height` and `cursor_window_x`/`_y`. The original reads them with
+GetClientRect, GetCursorInfo and ScreenToClient on its hWnd, and keeps the swap
+chain size in `mResolutionInfo`. The host now supplies one sample per present
+in `RuntimeInput` (client rectangle and its screen origin, cursor screen position
+and visibility, swap chain size); the original functions read that sample, and
+a generation's hWnd is only a token that never reaches a real window API. Draws
+between presents read the latest sample. The bridge accepts `res_*`,
+`window_*`, `cursor_showing`, `cursor_screen_*`, `cursor_window_*` and
+`cursor_x`/`_y`; `rt_width`, cursor hotspots, cursor images and effective DPI
+stay refused.
+
+Original fallbacks are kept: without a window, `window_width` takes the
+resolution and then the fallback screen size, and window positions equal screen
+positions. A hosted generation has no reference render target, so the
+heuristic continues as the original does with none bound. The fallback size is
+IniHandler's default 1920x1080, because a generation reads no d3dx.ini; the
+user's d3dx.ini sets 2560x1600 in [System], a difference that is reached only
+when neither a window nor a swap chain size is known. The layer does not
+supply the sample yet: that comes with the swap chain integration of the panel.
+`sandbox/runtime_window_cases.h` covers the semantics (13 checks).
 
 ## Verification
 

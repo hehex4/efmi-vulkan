@@ -1,10 +1,18 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-18, branch claude/ini (worktree .worktrees/ini): candidate 1.3.9 adds the checked INI execution matrix and fixes a teardown crash (BUG-025); 1.3.8 made original INI warnings recoverable (D-067). Main tree: 1.3.6 plus Codex's uncommitted 2026-10-15 ShaderRegex work (named 1.3.7, untouched). dist 1.0.2 unchanged; the installed Mods folder changed and the deployed live package names a removed Mod. Launcher on DX11.
+> Last updated: 2026-10-18, branch claude/ini: candidate 1.4.0 answers the original window, resolution and cursor operands from a host sample (first step of the image panel, user: resume PNG and bring the panel in). main was fast-forwarded to claude/ini at 447b3aa (1.3.9) on the user's word; Codex's uncommitted 2026-10-15 work is kept on branch codex/wip-2026-10-15 (a188300) and restored unchanged, uncommitted, in the main tree on top of the new main. dist 1.0.2 unchanged. Launcher on DX11.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Image panel, step 1: window, resolution and cursor operands (candidate 1.4.0, 2026-10-18)
+
+The user resumed PNG and asked for the image panel in the game ("resume, and merge into main"). The panel (`k/1.ini`, about 20 installed Mods) needs, in order: (1) the original window, resolution and cursor operands; (2) PNG files as owned images with the original WIC loader semantics; (3) owned drawing into the backbuffer (`o0 = set_viewport bb`) at Present, compared with native DX11 pixels; (4) the layer drawing it on the game's swap chain, with the window sample, the swap chain size and the panel's INI in the character generation. Loading in the game stays the user's call.
+
+Step 1 is done: `RuntimeInput` carries a window sample (client rectangle and screen origin, cursor screen position and visibility, swap chain size) per present; the original GetClientRect, GetCursorInfo and ScreenToClient calls read it through a token hWnd that never reaches a real window API; the bridge accepts `res_*`, `window_*`, `cursor_showing`, `cursor_screen_*`, `cursor_window_*`, `cursor_x`/`_y`, and keeps the render-target fallback of the window heuristic away from the reference context (D-069). The layer does not supply the sample yet (step 4). docs/live-ini.md describes it.
+
+Evidence: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.0.out): runtime 471 checks including 13 window-operand checks, execution matrix 32 classes and 41 probes, GPU resources 10786, character 357, live INI 32/32. Sandbox only.
 
 ## INI execution matrix (candidate 1.3.9, branch claude/ini, 2026-10-18)
 

@@ -94,6 +94,25 @@ public:
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
     bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
 };
+// window_width, window_height and the relative cursor fall back to the bound render target
+// when neither the window nor the resolution reaches 640. A hosted generation has no reference
+// render target, so the heuristic continues as the original does with none bound; the cached
+// size is set to a value below that bound, so the reference context is never queried.
+class HostWindowQuery final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListEvaluatable> source;
+    explicit HostWindowQuery(std::shared_ptr<CommandListEvaluatable> value):source(std::move(value)){}
+    float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
+        if(state && state->rt_width==-1)state->rt_width=state->rt_height=-2;
+        return source->evaluate(state,device);
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
+bool window_heuristic(ParamOverrideType type){
+    return type==ParamOverrideType::WINDOW_WIDTH || type==ParamOverrideType::WINDOW_HEIGHT ||
+           type==ParamOverrideType::CURSOR_X || type==ParamOverrideType::CURSOR_Y;
+}
 class SlotIndexGuard final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListEvaluatable> source;
@@ -131,6 +150,7 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
     if(const auto* guard=dynamic_cast<PoolIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* guard=dynamic_cast<RangeIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* guard=dynamic_cast<SlotIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
+    if(const auto* query=dynamic_cast<HostWindowQuery*>(node.get()))return dynamic_cast<CommandListOperand*>(query->source.get())!=nullptr;
     if (const auto* operand = dynamic_cast<CommandListOperand*>(node.get())) {
         switch (operand->type) {
         case ParamOverrideType::VALUE: return true;
@@ -156,6 +176,10 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
         case ParamOverrideType::TIME:
         case ParamOverrideType::THREAD_GROUP_COUNT_X: case ParamOverrideType::THREAD_GROUP_COUNT_Y:
         case ParamOverrideType::THREAD_GROUP_COUNT_Z: case ParamOverrideType::INDIRECT_OFFSET:
+        // The host's window, cursor and swap chain sample answers these (RuntimeInput).
+        case ParamOverrideType::RES_WIDTH: case ParamOverrideType::RES_HEIGHT:
+        case ParamOverrideType::CURSOR_VISIBLE: case ParamOverrideType::CURSOR_SCREEN_X: case ParamOverrideType::CURSOR_SCREEN_Y:
+        case ParamOverrideType::CURSOR_WINDOW_X: case ParamOverrideType::CURSOR_WINDOW_Y:
             return true;
         default: return false;
         }
@@ -196,6 +220,7 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
                     arg.expression->evaluatable=std::make_shared<ShaderSlotGuard>(arg.expression->evaluatable,limit);}
             node=std::make_shared<NativeShaderQuery>(std::move(operand),queries);return;
         }
+        if(window_heuristic(operand->type)){node=std::make_shared<HostWindowQuery>(std::move(operand));return;}
         guard_target(operand->texture_filter_target,queries,depth+1);
         if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && (queries->read || queries->texture))
             node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);

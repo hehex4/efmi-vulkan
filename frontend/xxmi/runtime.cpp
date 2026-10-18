@@ -42,6 +42,8 @@ void RuntimeValidateSections(const std::vector<std::wstring>&,bool custom_shader
 void RuntimeSwapInput(std::vector<InputAction*>&);
 size_t RuntimeInputCount();
 bool RuntimeDispatchInput(HackerDevice*, const efmi::frontend::RuntimeInput&);
+void RuntimeWindowSample(const efmi::frontend::RuntimeInput*);
+HWND RuntimeWindowHandle();
 extern std::vector<CommandList*> pending_post_command_lists;
 extern std::vector<std::shared_ptr<CommandList>> dynamically_allocated_command_lists;
 
@@ -101,8 +103,13 @@ struct EngineState {
     OverrideTransition transition;
     OverrideGlobalSave saved;
     std::vector<InputAction*> input;
+    // The latest host window and cursor sample; the original's window queries read it.
+    efmi::frontend::RuntimeInput sample;
     EngineState() : globals(std::make_unique<Globals>())
     {
+        // IniHandler's values when [System] screen_width and screen_height are absent; a
+        // generation reads no d3dx.ini. window_width falls back to them last.
+        globals->gFallbackScreenWidth = 1920; globals->gFallbackScreenHeight = 1080;
         InitializeCriticalSection(&globals->mCriticalSection);
         InitializeCriticalSection(&globals->mShaderBindingsLock);
         InitializeCriticalSection(&globals->mResourcesLock);
@@ -135,11 +142,11 @@ struct Scope {
     Scope(EngineState& s) : lock(engine_mutex), state(s)
     {
         if (G) throw std::runtime_error("Nested frontend generation activation");
-        G = state.globals.get(); state.swap();
+        G = state.globals.get(); state.swap(); RuntimeWindowSample(&state.sample);
     }
     ~Scope()
     {
-        input_adapter = nullptr; input_context = nullptr;
+        input_adapter = nullptr; input_context = nullptr; RuntimeWindowSample(nullptr);
         clear_command_list_profiling(); state.swap(); G = nullptr;
     }
 };
@@ -410,8 +417,14 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
 {
     try {
         if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
+        const auto& w = input.window;
+        if (w.client_width < 0 || w.client_height < 0 || w.client_width > 65536 || w.client_height > 65536 ||
+            input.resolution_width > 65536 || input.resolution_height > 65536 || !input.resolution_width != !input.resolution_height)
+            throw std::runtime_error("Host window sample is invalid");
         auto& p = *impl_; Scope scope(p.state); G->frame_no = unsigned(frame); G->gTime = seconds; G->gFrameTime = input.frame_seconds;
-        p.last_input = input;
+        p.last_input = input; p.state.sample = input;
+        G->hWnd = w.present ? RuntimeWindowHandle() : nullptr;
+        if (input.resolution_width) { G->mResolutionInfo.width = int(input.resolution_width); G->mResolutionInfo.height = int(input.resolution_height); }
         auto sampled = input;
         for (size_t i = 0; i < sampled.keys.size(); ++i) {
             if (!input.foreground || !input.keys[i]) p.blocked_keys[i] = false;

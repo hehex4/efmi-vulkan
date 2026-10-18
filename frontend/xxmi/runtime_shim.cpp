@@ -6,6 +6,7 @@
 #include "ShaderRegex.h"
 #include "Hunting.h"
 #include "Overlay.h"
+#include "runtime.h"
 #include <cstdarg>
 #include <cstdio>
 #include <stdexcept>
@@ -93,9 +94,34 @@ ULONG STDMETHODCALLTYPE HackerInputLayout::Release() { unsupported("prototype in
 MigotoIncludeHandler::MigotoIncludeHandler(const char*) {}
 HRESULT MigotoIncludeHandler::Open(D3D_INCLUDE_TYPE,LPCSTR,LPCVOID,LPCVOID*,UINT*) { unsupported("prototype HLSL include"); }
 HRESULT MigotoIncludeHandler::Close(LPCVOID) { unsupported("prototype HLSL close"); }
-int CursorUpscalingBypass_GetClientRect(HWND h,LPRECT r) { return ::GetClientRect(h,r); }
-int CursorUpscalingBypass_GetCursorInfo(PCURSORINFO info) { return ::GetCursorInfo(info); }
-int CursorUpscalingBypass_ScreenToClient(HWND h,LPPOINT p) { return ::ScreenToClient(h,p); }
+// The original calls these on G->hWnd. A generation answers them from the host's window and
+// cursor sample (RuntimeInput) and never touches a real window; its hWnd is only a token.
+static const efmi::frontend::RuntimeInput* window_sample = nullptr;
+void RuntimeWindowSample(const efmi::frontend::RuntimeInput* sample) { window_sample = sample; }
+HWND RuntimeWindowHandle() { return reinterpret_cast<HWND>(uintptr_t(0x45464d49)); }
+int CursorUpscalingBypass_GetClientRect(HWND h,LPRECT r)
+{
+    if (!r) return FALSE;
+    *r = {};
+    if (!window_sample || !window_sample->window.present || h != RuntimeWindowHandle()) return FALSE;
+    r->right = window_sample->window.client_width; r->bottom = window_sample->window.client_height;
+    return TRUE;
+}
+int CursorUpscalingBypass_GetCursorInfo(PCURSORINFO info)
+{
+    if (!info || info->cbSize != sizeof(CURSORINFO)) return FALSE;
+    info->flags = 0; info->hCursor = nullptr; info->ptScreenPos = {};
+    if (!window_sample) return FALSE;
+    info->flags = window_sample->cursor.showing ? CURSOR_SHOWING : 0;
+    info->ptScreenPos = {window_sample->cursor.screen_x, window_sample->cursor.screen_y};
+    return TRUE;
+}
+int CursorUpscalingBypass_ScreenToClient(HWND h,LPPOINT p)
+{
+    if (!p || !window_sample || !window_sample->window.present || h != RuntimeWindowHandle()) return FALSE;
+    p->x -= window_sample->window.client_left; p->y -= window_sample->window.client_top;
+    return TRUE;
+}
 void InstallMouseHooks(bool) { unsupported("prototype mouse hooks are disabled"); }
 void enable_lock_dependency_checks() { unsupported("prototype lock hooks are disabled"); }
 void _EnterCriticalSectionPretty(CRITICAL_SECTION* lock,char*,int) { ::EnterCriticalSection(lock); }
