@@ -176,8 +176,9 @@
    {"syntax": "run = CustomShaderX", "cpu": "refused", "owned": "gpu",
     "probe": {"lines": ["run = CustomShaderWork"], "extra": ["[CustomShaderWork]", "cs = probe.hlsl"], "expect": {"stage": "load", "reason": "unsupported shader/overlay section"}},
     "evidence": [{"file": "sandbox/resource_compute_cases.h", "text": "Original CustomShader runs direct compute, root fallback, inherited descriptors and nested shader restoration"},
-                 {"file": "sandbox/resource_graphics_cases.h", "text": "Production graphics samples all pixels with source w and stage-separated constants"}],
-    "note": "A CPU generation refuses at load, because of the CustomShader declaration itself."}]},
+                 {"file": "sandbox/resource_graphics_cases.h", "text": "Production graphics samples all pixels with source w and stage-separated constants"},
+                 {"file": "sandbox/resource_panel_cases.h", "text": "The installed panel in the owned domain matches native DX11 on the same adapter"}],
+    "note": "A CPU generation refuses at load, because of the CustomShader declaration itself. Owned CustomShaders use a valid original cache .bin through the exact DXBC translation (D-070) and null views as null descriptors (D-071)."}]},
   "RunExplicitCommandList": {"origin": "parser", "uses": [
    {"syntax": "run = CommandListX", "cpu": "original", "owned": "original",
     "probe": {"lines": ["run = CommandListWork"], "expect": {"stage": "complete", "variables": {"value": 1}}},

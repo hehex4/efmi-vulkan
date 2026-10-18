@@ -25,6 +25,9 @@ struct ShaderHost {
     // KHR/core vertex divisor enablement and actual physical properties.
     bool vertex_divisor=false,vertex_zero_divisor=false,divisor_first_instance=false;
     uint32_t max_vertex_divisor=1;
+    // VK_EXT_robustness2 nullDescriptor enabled on the logical device: a D3D11 null view reads
+    // zero and reports zero dimensions, which a null Vulkan descriptor provides.
+    bool null_descriptors=false;
     std::shared_ptr<assets::AllocationBudget> objects=std::make_shared<assets::AllocationBudget>(8192);
     // Share across all owned shader generations on this device, within the
     // sampler capacity reserved by the host. Other application samplers count
@@ -58,6 +61,8 @@ struct ShaderDescriptor {
     VkFormat format=VK_FORMAT_UNDEFINED; // Typed buffer view format.
     ImageView image;
     Sampler sampler;
+    // An original null resource: written as a null descriptor, only with null_descriptors.
+    bool null=false;
 };
 // Owned compute and graphics execution in exactly the resource queue domain.
 // Graphics uses private render passes. Recorded invocations retain immutable

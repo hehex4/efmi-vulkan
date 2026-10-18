@@ -370,3 +370,45 @@ support KHR instance divisors, but neither exposes packed16 BGR vertex formats;
 those require lowering, not a blind VkFormat substitution. Type reinterpretation,
 null/OOB inputs, divisors above1 and indirect zero-divisor reads remain explicit
 boundaries. No game input needed. PNG paused, LOD0/LOD1 only.
+
+## The installed image panel in the owned domain (candidate 1.4.3)
+
+Three source rules were missing for the image panel that about twenty installed
+Mods ship as `k/1.ini`:
+
+- **Cached bytecode.** `CustomShader::compile` builds the cache name from the
+  HLSL path without its extension, the shader model and the compile flags in
+  lowercase hexadecimal (`Draw_2D.vs_5_0.8000.bin`) and loads that file instead
+  of compiling when its last-write time equals the HLSL's exactly
+  (`load_cached_shader`). It writes caches only with `cache_shaders`. All 19
+  enabled Mods with a panel ship both caches with matching times, so the panel
+  that runs under DX11 is the shipped DXBC. `GpuShaderRuntime` now follows the
+  rule: with `enable_cached_bytecode` such a cache runs through the exact DXBC
+  translation of `docs/bytecode-compiler.md`; without the opt-in a valid cache
+  refuses instead of running a recompile. Nothing is ever written beside a Mod.
+- **Null views.** D3D11 reads a null view as zero, reports zero dimensions and
+  drops writes. The panel declares `t101` and leaves it null unless minimised.
+  An unbound slot now becomes a null descriptor when the device enables
+  VK_EXT_robustness2 `nullDescriptor` (`ShaderHost::null_descriptors`); without
+  it the call still refuses. Robust buffer and image access stay disabled.
+- **Back buffer and window.** The draw targets `o0 = set_viewport bb` and its
+  Present list reads the window, resolution and cursor (1.4.0 to 1.4.2).
+
+`sandbox/resource_panel_cases.h` loads the installed panel of the first enabled
+Mod that ships it (copied with its modification times, with a stub declaring the
+main INI variables it reads), draws its character mark, presses Ctrl+K and lets
+it fade in over 24 frames into a host back buffer. Both CustomShader stages come
+from the shipped caches. The reference replays the final draw on native D3D11
+with the shipped DXBC, the PNGs through the pinned WIC loader and the owned
+run's final IniParams, once on WARP and once on the hardware adapter.
+
+Result on the NVIDIA GeForce RTX 5060 Laptop GPU, which both APIs use: the
+owned Vulkan panel differs from native hardware D3D11 in 2 of 360,000 pixels
+(largest channel difference 5). WARP differs from that hardware driver itself in
+30,979 pixels (largest 2), because the shader is dominated by sin, exp, pow and
+atan2 whose precision both APIs leave to the implementation; WARP is therefore
+not an exact reference here. The check requires the same adapter for both APIs
+and at most 0.01% differing pixels, each within 16 levels.
+
+This is the owned sandbox domain with a test-owned back buffer. The game's swap
+chain, the layer and the character generation are step 4 of the panel plan.

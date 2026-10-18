@@ -3,6 +3,7 @@
 #include "globals.h"
 #include <cmath>
 #include <cfloat>
+#include <fstream>
 #include <stdexcept>
 #include <include/spirv/unified1/spirv.h>
 
@@ -23,6 +24,10 @@ std::vector<std::wstring> GpuShaderRuntime::install(DrawPlanAdapter& adapter){
     adapter.shader_commands([this](auto& c,auto& s,auto& why){return run(c,s,why);});
     RuntimeParseCustomShaders([this](const auto& declaration){compile(declaration);});return boundaries;
 }
+void GpuShaderRuntime::enable_cached_bytecode(const std::filesystem::path& library,gpu::DxbcFloat32Mode mode){
+    require(!adapter_ && !cached_compiler_,"Cached bytecode translation is enabled once, before installation");
+    cached_compiler_=std::make_unique<gpu::DxbcCompiler>(library);cached_mode_=mode;
+}
 void GpuShaderRuntime::compile(const RuntimeShaderDeclaration& declaration){
     require(shaders_.size()<4096,"CustomShader declaration budget exceeded");Entry entry;
     for(unsigned i=0;i<6;++i){const auto& file=declaration.sources[i];if(file.empty())continue;entry.overrides[i]=true;
@@ -33,6 +38,24 @@ void GpuShaderRuntime::compile(const RuntimeShaderDeclaration& declaration){
         request.flags=uint32_t(declaration.shader->compile_flags);request.stage="vhdgpc"[i];
         request.vulkan_version=api_version_>=VK_API_VERSION_1_2?VK_API_VERSION_1_2:VK_API_VERSION_1_1;
         auto program=std::make_shared<gpu::HlslProgram>();std::string why;
+        // The original cache name: the HLSL path without its extension, shader model and the
+        // compile flags in lowercase hexadecimal. It writes caches only with cache_shaders, which a
+        // generation never does beside installed files.
+        wchar_t suffix[40];swprintf(suffix,40,L".%cs_5_0.%x.bin",request.stage,request.flags);
+        auto cache=request.source;cache.replace_extension(suffix);
+        std::error_code source_error,cache_error;
+        const auto source_time=std::filesystem::last_write_time(request.source,source_error);
+        const auto cache_time=std::filesystem::last_write_time(cache,cache_error);
+        if(!source_error && !cache_error && std::filesystem::is_regular_file(cache) && source_time==cache_time){
+            require(cached_compiler_!=nullptr,"CustomShader has an original cached bytecode, which needs the bytecode translation");
+            const auto size=std::filesystem::file_size(cache);
+            require(size>0 && size<=(4u<<20),"Original cached shader bytecode is outside its budget");
+            std::vector<uint8_t> bytes(static_cast<size_t>(size));std::ifstream in(cache,std::ios::binary);
+            in.read(reinterpret_cast<char*>(bytes.data()),std::streamsize(bytes.size()));require(bool(in),"Original cached shader bytecode read failed");
+            if(!cached_compiler_->compile(bytes,request.stage,*program,why,cached_mode_))
+                throw std::runtime_error("CustomShader cached bytecode translation failed: "+why);
+            ++cached_programs_;entry.stages[i]=std::move(program);continue;
+        }
         if(!compiler_.compile(request,*program,why))throw std::runtime_error("CustomShader source compilation failed: "+why);
         entry.stages[i]=std::move(program);
     }
@@ -139,7 +162,8 @@ std::vector<gpu::ShaderDescriptor> GpuShaderRuntime::descriptors(const std::vect
             const auto target=binding.source_type=='b'?ResourceCopyTargetType::CONSTANT_BUFFER:
                 binding.source_type=='t'?ResourceCopyTargetType::SHADER_RESOURCE:ResourceCopyTargetType::UNORDERED_ACCESS_VIEW;
             const auto source=resources_.binding(stage,target,binding.slot+element);
-            require(bool(source),"CustomShader accesses a null source slot; null-resource execution requires an adapter");
+            // D3D11 reads a null view as zero with zero dimensions and drops writes to it.
+            if(!source){value.null=true;descriptors.push_back(std::move(value));continue;}
             if(source.image)value.image=source.image_view;
             else{
                 value.buffer=source.buffer;

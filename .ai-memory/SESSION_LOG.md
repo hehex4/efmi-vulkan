@@ -1924,3 +1924,10 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Results: full rebuilt suite (build/next/run_all-1.4.2.out): 28 of 29 steps pass, GPU resources 11056 checks with no validation message; the installed HLSL step failed only because two installed INIs changed during the run and passes when rerun with the installed syntax step.
 - Environment during the run: Endfield.exe was running under DX11, and `Mods/Si Lunabelle 1.3/si.ini` and `Si_BossGuard.ini` were rewritten at 19:57:03 while the suite ran; the installed HLSL step then reported its inputs changed. Rerunning the installed syntax step and the HLSL step afterwards passes. No game, launcher or installed file was touched by this work.
 - Not done: 3b and step 4; no deployment, game, launcher or system action.
+
+## 2026-10-18: image panel step 3b, the installed panel in the owned domain (candidate 1.4.3, branch claude/ini)
+
+- D-070 frontend/xxmi/gpu_shaders.h/.cpp (cache rule, enable_cached_bytecode). D-071 frontend/gpu/shader_commands.h/.cpp and gpu_shaders.cpp (null descriptors). sandbox/resource_gpu.cpp (device option for robustness2 nullDescriptor), resource_compute_cases.h (host flag), resource_panel_cases.h (end-to-end panel), scripts/check_resource_commands.py (copies the installed panel with times, stub INI, mark hash; checks originals unchanged). docs/custom-shaders.md. Version 1.4.3.
+- Findings on the way: the first panel mark section has no match_first_index; hardware float32 mode needs denormal flushing the sandbox device lacks (Software used); the null t101 slot needed D-071; the hardware D3D11 adapter and the owned Vulkan device are both the NVIDIA RTX 5060 Laptop GPU (checked by name).
+- Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.3.out): GPU resources 11137 checks with no validation message, including the installed panel (2 of 360,000 pixels differ from native hardware D3D11 on the same NVIDIA GPU), execution matrix 32 classes and 41 probes. Sandbox only.
+- Not done: step 4 (layer, swap chain, character generation); no deployment, game, launcher or system action.

@@ -198,6 +198,16 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
                     bool(properties.optimalTilingFeatures&VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT),"Storage view format lacks atomic support");}
         };
         VkWriteDescriptorSet write={VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};write.dstBinding=binding.binding;write.dstArrayElement=element;write.descriptorCount=1;write.descriptorType=binding.type;
+        if(value.null){
+            require(binding.type!=VK_DESCRIPTOR_TYPE_SAMPLER && !value.buffer && !value.image && !value.sampler,"Null shader descriptor carries a resource");
+            require(d->host.null_descriptors,"A null source resource needs nullDescriptor enabled on the device");
+            if(binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || binding.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER){
+                buffers.push_back({VK_NULL_HANDLE,0,VK_WHOLE_SIZE});write.pBufferInfo=&buffers.back();
+            }else if(binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || binding.type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER){
+                invocation->views.push_back(VK_NULL_HANDLE);write.pTexelBufferView=&invocation->views.back();
+            }else{images.push_back({VK_NULL_HANDLE,VK_NULL_HANDLE,VK_IMAGE_LAYOUT_GENERAL});write.pImageInfo=&images.back();}
+            writes.push_back(write);continue;
+        }
         if(binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || binding.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ||
            binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER || binding.type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER){
             require(value.buffer && !value.image && !value.sampler,"Shader buffer descriptor requires exactly one owned buffer");commands.validate(value.buffer,value.offset,value.size);
@@ -239,6 +249,7 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
     // views and unrelated arrays must not inherit another image's filter rules.
     for(const auto& pair:pipeline->usage.sampled_pairs){
         const auto& image=provided.at({pair.image_binding,pair.image_element})->image;
+        if(!image)continue; // A null descriptor samples zero; no filter support applies.
         const auto& info=provided.at({pair.sampler_binding,pair.sampler_element})->sampler->impl_->info;
         if(!info.compareEnable && (info.magFilter==VK_FILTER_LINEAR || info.minFilter==VK_FILTER_LINEAR || info.mipmapMode==VK_SAMPLER_MIPMAP_MODE_LINEAR)){
             VkFormatProperties properties{};d->resource.GetFormatProperties(d->resource.physical,image->format(),&properties);

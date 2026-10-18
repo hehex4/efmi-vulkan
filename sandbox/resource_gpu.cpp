@@ -33,6 +33,7 @@ struct Device {
     VkPhysicalDeviceProperties properties{};
     bool scalar_layout=false,draw_parameters=false;
     bool float_controls=false;
+    bool null_descriptors=false;
     VkPhysicalDeviceFloatControlsProperties float_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES};
     bool vertex_divisor=false,vertex_zero_divisor=false,divisor_first_instance=false;uint32_t max_vertex_divisor=1;
     VkDebugUtilsMessengerEXT messenger=VK_NULL_HANDLE;
@@ -40,7 +41,7 @@ struct Device {
     PFN_vkDeviceWaitIdle wait_idle=nullptr;PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     ~Device(){if(resource.device){wait_idle(resource.device);destroy_device(resource.device,nullptr);}
         if(messenger)destroy_debug(instance,messenger,nullptr);if(instance)destroy_instance(instance,nullptr);}
-    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false,bool divisors=false,bool float_modes=false,bool preserve_float=false,bool typed_formats=false){
+    void init(bool unrestricted_depth=false,bool scalar_block_layout=false,bool shader_draw_parameters=false,bool geometry=false,bool divisors=false,bool float_modes=false,bool preserve_float=false,bool typed_formats=false,bool null_descriptor=false){
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -138,6 +139,14 @@ struct Device {
             divisor_first_instance=p.supportsNonZeroFirstInstance;max_vertex_divisor=p.maxVertexAttribDivisor;
             check(divisor_first_instance,"Requested divisor nonzero first-instance support available");
             enabled_extensions.push_back(VK_KHR_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME);divisor.pNext=const_cast<void*>(dc.pNext);dc.pNext=&divisor;}
+        // Only nullDescriptor: D3D11 null views. Robust buffer and image access stay disabled.
+        VkPhysicalDeviceRobustness2FeaturesEXT robust={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+        if(null_descriptor){uint32_t n=0;vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,nullptr),"Count robustness extensions");std::vector<VkExtensionProperties> extensions(n);
+            vkcheck(EnumerateDeviceExtensionProperties(selected,nullptr,&n,extensions.data()),"Read robustness extensions");
+            check(std::any_of(extensions.begin(),extensions.end(),[](const auto& e){return !strcmp(e.extensionName,VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);}),"Requested robustness2 extension available");
+            VkPhysicalDeviceFeatures2 f={VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};f.pNext=&robust;GetPhysicalDeviceFeatures2(selected,&f);
+            check(robust.nullDescriptor,"Requested null descriptor feature available");robust.robustBufferAccess2=robust.robustImageAccess2=VK_FALSE;
+            enabled_extensions.push_back(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);robust.pNext=const_cast<void*>(dc.pNext);dc.pNext=&robust;null_descriptors=true;}
         dc.enabledExtensionCount=uint32_t(enabled_extensions.size());dc.ppEnabledExtensionNames=enabled_extensions.data();
         vkcheck(CreateDevice(selected,&dc,nullptr,&resource.device),"Create test device");
 #define GET(name) auto name=reinterpret_cast<PFN_vk##name>(GetDeviceProcAddr(resource.device,"vk" #name));check(name!=nullptr,"vk" #name);
@@ -1407,9 +1416,10 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_bytecode_cases.h"
 #include "resource_bytecode_views.h"
 #include "resource_backbuffer_cases.h"
+#include "resource_panel_cases.h"
 int wmain(int argc,wchar_t** argv){
     setvbuf(stdout,nullptr,_IONBF,0);
-    try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
+    try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true,true,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
         view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");
         whole_pool_gpu(device,root/"whole-pool");buffer_options_gpu(device,root/"options");
@@ -1435,7 +1445,7 @@ int wmain(int argc,wchar_t** argv){
         original_image_binding_ranges(device);original_attachment_bindings(device,root/"attachment-bindings");
         original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");
         graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();owned_graphics(device,root/"owned-graphics");
-        original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_backbuffer(device,root/"backbuffer");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
+        original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_backbuffer(device,root/"backbuffer");original_image_panel(device,root/"panel");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
         original_ini_graphics_sampling(device,root/"ini-graphics-sampling");original_ini_graphics_state_pixels(device,root/"ini-graphics-state");
         original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");
         original_ini_geometry(device,root/"ini-geometry");original_core_text(root/"core-text");

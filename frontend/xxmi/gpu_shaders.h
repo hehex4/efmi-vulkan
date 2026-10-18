@@ -3,6 +3,7 @@
 #include "graphics_state.h"
 #include "input_layout.h"
 #include "../gpu/graphics_commands.h"
+#include "../gpu/dxbc_compiler.h"
 
 namespace efmi::frontend {
 // Original CustomShader lists with owned Vulkan resources. The first execution
@@ -25,6 +26,12 @@ public:
     // Copies host-owned source programs; this does not infer application state
     // or the original tracked identities used by shader filter expressions.
     void set_programs(const std::vector<gpu::HlslProgram>&);
+    // Opt in before installation. The original CustomShader::compile loads a cache
+    // <file>.<model>.<flags>.bin in place of compiling when its last-write time equals the
+    // HLSL's exactly; such a cache runs through the exact bytecode translation. Without this
+    // opt-in a CustomShader with a valid cache refuses rather than running different code.
+    void enable_cached_bytecode(const std::filesystem::path& library,gpu::DxbcFloat32Mode);
+    size_t cached_programs() const {return cached_programs_;}
     bool execute_original(CommandListState&,std::wstring&);
     void set_scissor(const D3D11_RECT& value){scissor_=value;}
     // A logical source layout retains its creation signature across VS changes.
@@ -53,6 +60,9 @@ private:
     GpuResourceRuntime resources_;
     gpu::HlslCompiler compiler_;
     gpu::ShaderCommands commands_;
+    std::unique_ptr<gpu::DxbcCompiler> cached_compiler_;
+    gpu::DxbcFloat32Mode cached_mode_=gpu::DxbcFloat32Mode::Software;
+    size_t cached_programs_=0;
     uint32_t api_version_;
     std::filesystem::path working_directory_;
     DrawPlanAdapter* adapter_=nullptr;

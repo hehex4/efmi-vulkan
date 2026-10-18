@@ -43,6 +43,38 @@ def main() -> int:
             for name in ("k.png", "panel_icon.png"):
                 report["installed_source_sha256"][str(panel / name)] = hashlib.sha256((panel / name).read_bytes()).hexdigest()
                 shutil.copyfile(panel / name, panel_copy / name)
+        # The whole panel of the first enabled Mod that ships it with the original shader caches,
+        # copied with modification times (the cache rule compares them), plus a stub declaring the
+        # main INI variables it reads and the hash of the character mark that activates it.
+        needed = ("1.ini", "draw_2d.hlsl", "Draw_2D.vs_5_0.8000.bin", "Draw_2D.ps_5_0.8000.bin", "k.png", "panel_icon.png")
+        panel_mod = next((m for m in sorted(mods.iterdir()) if m.is_dir() and not m.name.upper().startswith("DISABLED")
+                          and all((m / "k" / n).is_file() for n in needed)), None)
+        panel_root = out / "fixture/panel"
+        shutil.rmtree(panel_root, ignore_errors=True)
+        if panel_mod:
+            target = panel_root / "Mods/panel/k"
+            target.mkdir(parents=True)
+            for item in sorted((panel_mod / "k").iterdir()):
+                if item.is_file():
+                    report["installed_source_sha256"][str(item)] = hashlib.sha256(item.read_bytes()).hexdigest()
+                    shutil.copy2(item, target / item.name)
+            text = (panel_mod / "k/1.ini").read_text(encoding="utf-8", errors="replace")
+            names = {}
+            for ns, var in re.findall(r"\$\\([A-Za-z0-9_.]+)\\([A-Za-z0-9_]+)", text):
+                names.setdefault(ns, set()).add(var)
+            for ns, variables in sorted(names.items()):
+                (panel_root / f"Mods/panel/main-{ns}.ini").write_text(
+                    f"namespace = {ns}\n[Constants]\n" + "".join(f"global ${v} = 0\n" for v in sorted(variables)), encoding="ascii")
+            mark = None
+            for header, body in re.findall(r"^\[(TextureOverride[^\]]*)\]\s*\n(.*?)(?=^\[|\Z)", text, re.M | re.S):
+                keys = dict((k.strip().lower(), v.strip()) for k, v in re.findall(r"^([^=;\n]+)=(.*)$", body, re.M))
+                if keys.get("$active") == "1" and "hash" in keys:
+                    mark = (int(keys["hash"], 16), int(keys.get("match_first_index", "0")), int(keys.get("match_index_count", "3")))
+                    break
+            if not mark:
+                raise RuntimeError("Installed panel has no recognisable character mark")
+            (panel_root / "mark.txt").write_text("%d %d %d\n" % mark, encoding="ascii")
+            report["panel_mod"] = panel_mod.name
         from check_panel_hlsl import DXC, SPIRV
         shader = ROOT / "sandbox/shaders/parameters.hlsl"
         spirv = out / "parameters.spv"
@@ -70,7 +102,7 @@ def main() -> int:
         finally:
             write_ascii(out / "build.txt", log.getvalue())
         inputs = sources + [ROOT / "sandbox/resource_image_cases.h", ROOT / "sandbox/resource_image_ini_cases.h",
-                            ROOT / "sandbox/resource_image_conversion_cases.h", ROOT / "sandbox/resource_png_cases.h", ROOT / "sandbox/resource_backbuffer_cases.h",
+                            ROOT / "sandbox/resource_image_conversion_cases.h", ROOT / "sandbox/resource_png_cases.h", ROOT / "sandbox/resource_backbuffer_cases.h", ROOT / "sandbox/resource_panel_cases.h",
                             ROOT / "sandbox/resource_parameter_cases.h",
                             ROOT / "sandbox/resource_parameter_consumer.h", ROOT / "sandbox/resource_shader_cases.h",
                             ROOT / "sandbox/resource_compute_cases.h", ROOT / "sandbox/resource_usage_cases.h",

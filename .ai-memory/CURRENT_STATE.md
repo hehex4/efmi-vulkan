@@ -1,10 +1,20 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-18, branch claude/ini: candidate 1.4.2 draws original CustomShaders into a host back buffer behind bb, r_bb and f_bb (image panel step 3a); 1.4.1 PNG file images, 1.4.0 window operands. main follows claude/ini at checkpoints; Codex's uncommitted 2026-10-15 work stays restored in the main tree (snapshots codex/wip-2026-10-15, codex/wip-on-main). dist 1.0.2 unchanged. Launcher on DX11; the user is playing under DX11 (Endfield.exe running at 19:57).
+> Last updated: 2026-10-18, branch claude/ini: candidate 1.4.3 runs the installed image panel end to end in the owned sandbox domain and matches native DX11 on the same GPU (step 3 done); next is step 4, the layer on the game's swap chain. main follows claude/ini at checkpoints; Codex's uncommitted 2026-10-15 work stays restored in the main tree (snapshots codex/wip-2026-10-15, codex/wip-on-main). dist 1.0.2 unchanged. Launcher on DX11.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Image panel, step 3b: the installed panel in the owned domain (candidate 1.4.3, 2026-10-18)
+
+D-070: owned CustomShader compilation follows the original cache rule. A `<file>.<model>.<flags hex>.bin` whose last-write time equals the HLSL's exactly replaces compilation (CustomShader::compile, load_cached_shader); with GpuShaderRuntime::enable_cached_bytecode it runs through the exact DXBC translation, without it such a cache refuses. All 19 enabled panel Mods ship both caches with matching times. D-071: an unbound CustomShader slot becomes a null descriptor when the device enables VK_EXT_robustness2 nullDescriptor (ShaderHost::null_descriptors), giving D3D11's zero reads, zero dimensions and dropped writes; otherwise it still refuses. The sandbox device enables nullDescriptor only.
+
+sandbox/resource_panel_cases.h runs the installed panel of the first enabled Mod that ships it (akekuri sol paraiso 1.6 today; files copied with their times, a stub for the main INI variables it reads): character mark, Ctrl+K, 24 frames of fade-in, window sample, both PNGs, the shipped DXBC, into a host back buffer. The reference replays the final draw on native D3D11 with the same DXBC, WIC-loaded PNGs and the owned final IniParams. On the NVIDIA GeForce RTX 5060 Laptop GPU used by both APIs the owned result differs from native hardware D3D11 in 2 of 360,000 pixels (largest 5); WARP itself differs from that driver in 30,979 pixels (largest 2), so WARP is not an exact reference for this transcendental-heavy shader. The check requires the same adapter and at most 0.01% differing pixels within 16 levels. The Software float32 mode is used because the sandbox device lacks 32-bit denormal flushing. docs/custom-shaders.md.
+
+Step 4 (the layer): intercept vkCreateSwapchainKHR/vkGetSwapchainImagesKHR and the surface's window, supply the window sample and swap chain size, import the swap chain image as the back buffer (PRESENT_SRC in and out, contents kept, possibly a UNORM view of an sRGB image), host an owned GPU generation for the panel next to the character generation (same variables), draw before vkQueuePresentKHR with semaphores, and decide the bytecode library path and nullDescriptor on the game's device. Deployment and any load into the game are the user's call.
+
+Evidence: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.3.out): GPU resources 11137 checks with no validation message, including the installed panel (2 of 360,000 pixels differ from native hardware D3D11 on the same NVIDIA GPU), execution matrix 32 classes and 41 probes. Sandbox only.
 
 ## Image panel, step 3a: host back buffer (candidate 1.4.2, 2026-10-18)
 

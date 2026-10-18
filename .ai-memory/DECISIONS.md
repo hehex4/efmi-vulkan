@@ -720,3 +720,17 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Original fallbacks are kept: no window means no hWnd (window positions are screen positions, window_width falls back to the resolution and then the fallback screen size); a resolution of zero keeps the earlier value, starting from the original's unset -1.
 - The window heuristic's render-target step would query the reference D3D context, which a hosted generation does not have. It continues as the original does with no render target bound; RT_WIDTH itself stays refused.
 - The fallback screen size is IniHandler's default 1920x1080 because a generation reads no d3dx.ini. The user's d3dx.ini sets 2560x1600; the difference is reached only when neither a window nor a swap chain size is known.
+
+## D-070: Owned CustomShaders use the original shader cache
+
+- Date: 2026-10-18 (candidate 1.4.3, branch claude/ini).
+- The pinned CustomShader::compile loads `<file without extension>.<model>.<flags in lowercase hex>.bin` instead of compiling when its last-write time equals the HLSL's exactly, and writes such caches only with cache_shaders. All 19 enabled Mods with an image panel ship `Draw_2D.vs_5_0.8000.bin` and `.ps_` with matching times, so the panel that runs under DX11 is that DXBC, not a recompile of the HLSL beside it.
+- GpuShaderRuntime applies the same rule. With enable_cached_bytecode the cache runs through the exact DXBC translation (vkd3d-shader, docs/bytecode-compiler.md); without the opt-in a valid cache refuses, rather than silently running different code from the HLSL. No cache is ever written beside an installed Mod.
+- Codex's uncommitted work adds a separate bytecode opt-in for source shaders (ShaderRegex) to the same class; the two can be unified when that work is committed.
+
+## D-071: D3D11 null views become Vulkan null descriptors
+
+- Date: 2026-10-18 (candidate 1.4.3, branch claude/ini).
+- D3D11 reads a null shader resource, constant buffer or UAV as zero, reports zero dimensions and drops writes. The image panel relies on it (t101 is null unless minimised). VK_EXT_robustness2 nullDescriptor gives the same behaviour for a descriptor written with a null handle.
+- An unbound CustomShader slot is written as a null descriptor when the host reports nullDescriptor enabled on the device (ShaderHost::null_descriptors); otherwise it refuses as before. Only that feature is used; robust buffer and image access stay disabled, so in-bounds behaviour is unchanged.
+- In the game this needs the feature on the application's device (step 4): enabling it at device creation or refusing the panel are the options.
