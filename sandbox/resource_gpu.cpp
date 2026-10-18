@@ -1384,6 +1384,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 }
 #include "resource_image_ini_cases.h"
 #include "resource_image_conversion_cases.h"
+#include "resource_png_cases.h"
 #include "resource_parameter_consumer.h"
 #include "resource_parameter_cases.h"
 #include "resource_shader_cases.h"
@@ -1414,7 +1415,7 @@ int wmain(int argc,wchar_t** argv){
         keyed_pools_gpu(device,root/"keyed");spatial_pools_gpu(device,root/"spatial");
         image_source_reference();image_ini_declarations(device,root/"image-declarations");
         image_ini_clears(device,root/"image-clears");image_ini_depth_resolve(device,root/"image-depth");
-        image_ini_dds(device,root/"image-dds");image_ini_file_cache(device,root/"image-file-cache");
+        image_ini_dds(device,root/"image-dds");image_ini_png(device,root/"image-png",root/"png-panel");image_ini_file_cache(device,root/"image-file-cache");
         image_ini_depth_dds(device,root/"image-depth-dds");image_ini_failures(device,root/"image-failures");
         image_ini_pool_lifetime(device,root/"image-pool-lifetime");
         image_ini_integer_rtv(device,root/"image-integer-rtv");

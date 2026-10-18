@@ -32,6 +32,17 @@ def main() -> int:
         copied.mkdir(parents=True, exist_ok=True)
         for original, name in original_inputs.items():
             shutil.copyfile(original, copied / name)
+        # The image panel's pictures from the first enabled installed Mod that ships them.
+        mods = core.parents[1] / "Mods"
+        panel = next((m / "k" for m in sorted(mods.iterdir()) if m.is_dir() and not m.name.upper().startswith("DISABLED")
+                      and (m / "k/k.png").is_file() and (m / "k/panel_icon.png").is_file()), None)
+        panel_copy = out / "fixture/png-panel"
+        shutil.rmtree(panel_copy, ignore_errors=True)
+        panel_copy.mkdir(parents=True)
+        if panel:
+            for name in ("k.png", "panel_icon.png"):
+                report["installed_source_sha256"][str(panel / name)] = hashlib.sha256((panel / name).read_bytes()).hexdigest()
+                shutil.copyfile(panel / name, panel_copy / name)
         from check_panel_hlsl import DXC, SPIRV
         shader = ROOT / "sandbox/shaders/parameters.hlsl"
         spirv = out / "parameters.spv"
@@ -59,7 +70,8 @@ def main() -> int:
         finally:
             write_ascii(out / "build.txt", log.getvalue())
         inputs = sources + [ROOT / "sandbox/resource_image_cases.h", ROOT / "sandbox/resource_image_ini_cases.h",
-                            ROOT / "sandbox/resource_image_conversion_cases.h", ROOT / "sandbox/resource_parameter_cases.h",
+                            ROOT / "sandbox/resource_image_conversion_cases.h", ROOT / "sandbox/resource_png_cases.h",
+                            ROOT / "sandbox/resource_parameter_cases.h",
                             ROOT / "sandbox/resource_parameter_consumer.h", ROOT / "sandbox/resource_shader_cases.h",
                             ROOT / "sandbox/resource_compute_cases.h", ROOT / "sandbox/resource_usage_cases.h",
                             ROOT / "sandbox/resource_binding_cases.h",
@@ -81,6 +93,7 @@ def main() -> int:
                             shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))
+        inputs += [ROOT / "frontend/assets/png.cpp", ROOT / "frontend/assets/png.h"]
         inputs += [Path(__file__), ROOT / "scripts/build_xxmi_runtime.py", ROOT / "scripts/generate_image_formats.py", ROOT / "scripts/build_bytecode_compiler.py"]
         report["source_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
         report["executable_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()

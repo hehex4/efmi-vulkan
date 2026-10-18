@@ -67,10 +67,11 @@ uint32_t png_pixel_bytes(VkFormat format)
     }
 }
 bool decode_png(const uint8_t* data, size_t size, PngPixels& output, std::string& reason,
-                std::shared_ptr<AllocationBudget> budget)
+                std::shared_ptr<AllocationBudget> budget, uint32_t flags)
 {
     reason.clear();
     try {
+        if (flags & ~(png_force_srgb | png_ignore_srgb)) throw std::runtime_error("PNG loader flags need another adapter");
         static const uint8_t magic[] = {137, 80, 78, 71, 13, 10, 26, 10};
         if (!data || size < 33 || size > (128ull << 20) || std::memcmp(data, magic, sizeof(magic)))
             throw std::runtime_error("PNG signature or encoded size is invalid");
@@ -91,14 +92,17 @@ bool decode_png(const uint8_t* data, size_t size, PngPixels& output, std::string
         if (!width || !height || width > 16384 || height > 16384) throw std::runtime_error("PNG dimensions exceed image budget");
         GUID original{}; require(frame->GetPixelFormat(&original), "Read PNG pixel format");
         auto format = target_format(original);
+        // The loader's order: FORCE_SRGB, else unless IGNORE_SRGB the PNG sRGB chunk. Only the
+        // 8-bit color formats have sRGB variants (LoaderHelpers::MakeSRGB).
+        bool srgb = (flags & png_force_srgb) != 0;
         ComPtr<IWICMetadataQueryReader> metadata;
-        if (SUCCEEDED(frame->GetMetadataQueryReader(&metadata))) {
+        if (!srgb && !(flags & png_ignore_srgb) && SUCCEEDED(frame->GetMetadataQueryReader(&metadata))) {
             PROPVARIANT value{};
-            const bool srgb = SUCCEEDED(metadata->GetMetadataByName(L"/sRGB/RenderingIntent", &value)) && value.vt == VT_UI1;
+            srgb = SUCCEEDED(metadata->GetMetadataByName(L"/sRGB/RenderingIntent", &value)) && value.vt == VT_UI1;
             PropVariantClear(&value);
-            if (srgb && format.vk == VK_FORMAT_R8G8B8A8_UNORM) format.vk = VK_FORMAT_R8G8B8A8_SRGB;
-            if (srgb && format.vk == VK_FORMAT_B8G8R8A8_UNORM) format.vk = VK_FORMAT_B8G8R8A8_SRGB;
         }
+        if (srgb && format.vk == VK_FORMAT_R8G8B8A8_UNORM) format.vk = VK_FORMAT_R8G8B8A8_SRGB;
+        if (srgb && format.vk == VK_FORMAT_B8G8R8A8_UNORM) format.vk = VK_FORMAT_B8G8R8A8_SRGB;
         const uint64_t pitch = uint64_t(width) * png_pixel_bytes(format.vk), bytes = pitch * height;
         if (!bytes || bytes > (128ull << 20)) throw std::runtime_error("Decoded PNG exceeds image budget");
         PngPixels next;

@@ -20,10 +20,13 @@ struct PngPixels {
     PngPixels(const PngPixels&) = delete;
     PngPixels& operator=(const PngPixels&) = delete;
 };
-// WIC's PNG decoding and default sRGB interpretation, without a graphics API.
-// No resize, premultiplication, orientation transform or generated mip chain.
+// The pinned DirectXTK WIC_LOADER_FLAGS this decoder honours; the original passes a
+// declaration's color_space (CustomColorSpace) as these values.
+constexpr uint32_t png_force_srgb = 0x1, png_ignore_srgb = 0x2;
+// WIC's PNG decoding and the pinned DirectXTK loader's sRGB interpretation, without a
+// graphics API. No resize, premultiplication, orientation transform or generated mip chain.
 // The caller retains encoded bytes until return. Output stays unchanged on error.
 bool decode_png(const uint8_t*, size_t, PngPixels&, std::string& reason,
-                std::shared_ptr<AllocationBudget> source_budget = {});
+                std::shared_ptr<AllocationBudget> source_budget = {}, uint32_t loader_flags = 0);
 uint32_t png_pixel_bytes(VkFormat);
 }

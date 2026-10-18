@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 #include <wincodec.h>
 #include "LoaderHelpers.h"
+#include "../assets/png.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -78,7 +79,7 @@ struct DdsSource {ImageSourceDescription description;std::vector<uint8_t> bytes;
 DdsSource read_dds(const CustomResource& resource) {
     using namespace DirectX;using namespace DirectX::LoaderHelpers;
     const auto path=std::filesystem::path(resource.filename);
-    require(!_wcsicmp(path.extension().c_str(),L".dds"),"Non-DDS image loading remains a separate adapter; PNG integration is paused");
+    require(!_wcsicmp(path.extension().c_str(),L".dds"),"DDS loader received another file type");
     std::ifstream stream(path,std::ios::binary|std::ios::ate);
     require(bool(stream) && stream.tellg()>=128 && uint64_t(stream.tellg())<=(128ull<<20),"DDS source is unreadable or outside its file budget");
     DdsSource out;out.bytes.resize(size_t(stream.tellg()));stream.seekg(0);stream.read(reinterpret_cast<char*>(out.bytes.data()),out.bytes.size());
@@ -124,6 +125,44 @@ DdsSource read_dds(const CustomResource& resource) {
     }
     return out;
 }
+// Every other extension takes the original's WIC path: CreateWICTextureFromFileEx with
+// maxsize 0, no context (one mip, no generated chain), the declaration's bind and misc flags
+// and GetWICFlags. PNG has an owned decoder with the pinned loader's format table and sRGB
+// rule (assets/png.cpp); other WIC containers refuse.
+struct WicSource {ImageSourceDescription description;assets::PngPixels pixels;};
+DXGI_FORMAT wic_format(VkFormat format){
+    switch(format){
+    case VK_FORMAT_R8_UNORM:return DXGI_FORMAT_R8_UNORM;
+    case VK_FORMAT_R16_UNORM:return DXGI_FORMAT_R16_UNORM;
+    case VK_FORMAT_R8G8B8A8_UNORM:return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case VK_FORMAT_R8G8B8A8_SRGB:return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    case VK_FORMAT_B8G8R8A8_UNORM:return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case VK_FORMAT_B8G8R8A8_SRGB:return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    case VK_FORMAT_R16G16B16A16_UNORM:return DXGI_FORMAT_R16G16B16A16_UNORM;
+    default:throw std::runtime_error("Decoded PNG format has no original DXGI format");
+    }
+}
+WicSource read_wic(const CustomResource& resource) {
+    std::ifstream stream(std::filesystem::path(resource.filename),std::ios::binary|std::ios::ate);
+    require(bool(stream) && stream.tellg()>0 && uint64_t(stream.tellg())<=(128ull<<20),"WIC image source is unreadable or outside its file budget");
+    std::vector<uint8_t> bytes(size_t(stream.tellg()));stream.seekg(0);stream.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
+    require(bool(stream),"WIC image source read failed");
+    static const uint8_t png[]={137,80,78,71,13,10,26,10};
+    require(bytes.size()>=sizeof(png) && !memcmp(bytes.data(),png,sizeof(png)),"WIC image containers other than PNG need their own decoder");
+    // GetWICFlags passes LINEAR and SRGB as their loader flags. Its force_detect_color_space
+    // branch is a d3dx.ini setting a generation does not read; for PNG it repeats the
+    // loader's own sRGB-chunk detection.
+    const uint32_t flags=resource.override_color_space==CustomColorSpace::SRGB?assets::png_force_srgb:
+        resource.override_color_space==CustomColorSpace::LINEAR?assets::png_ignore_srgb:0;
+    WicSource out;std::string why;
+    if(!assets::decode_png(bytes.data(),bytes.size(),out.pixels,why,{},flags))throw std::runtime_error("PNG source: "+why);
+    auto& source=out.description;auto& d=source.texture;source.dimension=D3D11_RESOURCE_DIMENSION_TEXTURE2D;source.depth=1;
+    d.Width=out.pixels.metadata.width;d.Height=out.pixels.metadata.height;d.MipLevels=1;d.ArraySize=1;
+    d.Format=wic_format(out.pixels.metadata.format);d.SampleDesc.Count=1;d.Usage=D3D11_USAGE_DEFAULT;
+    d.BindFlags=resource.override_bind_flags==CustomResourceBindFlags::INVALID?resource.bind_flags:UINT(resource.override_bind_flags);
+    d.MiscFlags=resource.override_misc_flags==ResourceMiscFlags::INVALID?resource.misc_flags:UINT(resource.override_misc_flags);
+    return out;
+}
 }
 
 gpu::Image GpuResourceRuntime::allocate_image(ImageSourceDescription& source) {
@@ -163,6 +202,10 @@ GpuResourceBinding GpuResourceRuntime::load_image(CustomResource& resource) {
         if(source.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE3D)source.depth=0;
         d.BindFlags=resource.bind_flags;d.MiscFlags=resource.misc_flags;d.Usage=D3D11_USAGE_DEFAULT;
         apply_overrides(resource,source);out.image=allocate_image(source);
+    }else if(_wcsicmp(std::filesystem::path(resource.filename).extension().c_str(),L".dds")){
+        auto file=read_wic(resource);source=file.description;out.image=allocate_image(source);
+        VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent=out.image->extent(0);
+        commands_.write(out.image,copy,file.pixels.bytes.data(),file.pixels.bytes.size());
     }else{
         auto file=read_dds(resource);source=file.description;out.image=allocate_image(source);
         const auto& vk=out.image->description();const auto aspects=gpu::image_formats[unsigned(vk.format)].aspects;

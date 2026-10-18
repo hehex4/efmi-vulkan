@@ -1,10 +1,16 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-18, branch claude/ini: candidate 1.4.0 answers the original window, resolution and cursor operands from a host sample (first step of the image panel, user: resume PNG and bring the panel in). main was fast-forwarded to claude/ini at 447b3aa (1.3.9) on the user's word; Codex's uncommitted 2026-10-15 work is kept on branch codex/wip-2026-10-15 (a188300) and restored unchanged, uncommitted, in the main tree on top of the new main. dist 1.0.2 unchanged. Launcher on DX11.
+> Last updated: 2026-10-18, branch claude/ini: candidate 1.4.1 loads PNG files as owned images with the original WIC loader semantics (image panel step 2); 1.4.0 answered the window, resolution and cursor operands (step 1). main follows claude/ini at checkpoints; Codex's uncommitted 2026-10-15 work stays restored, uncommitted, in the main tree (snapshots codex/wip-2026-10-15, codex/wip-on-main). dist 1.0.2 unchanged. Launcher on DX11.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Image panel, step 2: PNG file images (candidate 1.4.1, 2026-10-18)
+
+The owned image adapter takes the original's WIC path for every non-DDS file: CreateWICTextureFromFileEx semantics (one mip, no generated chain, declaration bind and misc flags, GetWICFlags from `color_space`), with frontend/assets/png.cpp as the PNG decoder; it gained the FORCE_SRGB and IGNORE_SRGB loader flags. Other WIC containers and unreadable files refuse with a reason. sandbox/resource_png_cases.h loads 13 PNGs both through the pinned DirectXTK loader on WARP and through an original INI into an owned Vulkan image; format, size, mips, misc flags and all bytes agree, including the panel's installed `k.png` and `panel_icon.png` (copied by check_resource_commands.py, originals checked unchanged). An earlier assumption was corrected by the native result: WIC's PNG decoder yields 32bppBGRA for 8-bit RGBA, so the original texture is B8G8R8A8. The character renderer in the game still refuses PNG bindings; that changes with step 4. docs/gpu-resource-commands.md.
+
+Evidence: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.1.out): GPU resources 11027 checks with no validation message (13 PNG native comparisons), PNG decoder check 12/12, runtime 471. Sandbox only.
 
 ## Image panel, step 1: window, resolution and cursor operands (candidate 1.4.0, 2026-10-18)
 

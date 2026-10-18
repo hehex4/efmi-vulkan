@@ -1908,3 +1908,10 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.0.out): runtime 471 checks including 13 window-operand checks, execution matrix 32 classes and 41 probes, GPU resources 10786, character 357, live INI 32/32. Sandbox only.
 - PNG reading so far: the pinned DirectXTK WIC loader agrees with frontend/assets/png.cpp on PNG formats and on sRGB detection (sRGB chunk only); the decoder lacks the declaration's color_space flags (FORCE_SRGB, IGNORE_SRGB), and gpu_images.cpp still refuses non-DDS files. force_detect_color_space is not set in the user's d3dx.ini.
 - Not done: steps 2 to 4; no deployment, game, launcher or system action.
+
+## 2026-10-18: image panel step 2, PNG file images (candidate 1.4.1, branch claude/ini)
+
+- Read the pinned CustomResource::LoadFromFile, GetWICFlags and DirectXTK WICTextureLoader.cpp: non-DDS files take the WIC loader with maxsize 0 and no context; PNG sRGB comes from the sRGB chunk only; FORCE_SRGB and IGNORE_SRGB come from `color_space`.
+- frontend/assets/png.h and png.cpp (loader flags), frontend/xxmi/gpu_images.cpp (WIC path), scripts/build_xxmi_runtime.py (decoder in the runtime objects), sandbox/resource_png_cases.h and resource_gpu.cpp (13 native comparisons, BMP refusal), resource_image_ini_cases.h (a missing PNG now refuses as unreadable), scripts/check_resource_commands.py (copies the installed panel PNGs and checks them unchanged), docs/gpu-resource-commands.md. Version 1.4.1.
+- Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.1.out): GPU resources 11027 checks with no validation message (13 PNG native comparisons), PNG decoder check 12/12, runtime 471. Sandbox only.
+- Not done: steps 3 and 4 of the panel; no deployment, game, launcher or system action.

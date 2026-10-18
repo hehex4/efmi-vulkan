@@ -61,13 +61,13 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     sources = [ROOT / "frontend/xxmi" / (name + ".cpp") for name in
                ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "shader_state", "shader_regex", "shader_assembly", "gpu_resources", "gpu_bindings", "gpu_images", "gpu_parameters", "gpu_shaders", "gpu_graphics", "input_layout", "gpu_layout", "image_formats")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "skeleton_plan", "palette_files")]
-    sources += [ROOT / "frontend/core/palette_bank.cpp"]
+    sources += [ROOT / "frontend/core/palette_bank.cpp", ROOT / "frontend/assets/png.cpp"]
     sources += [ROOT / "frontend/gpu" / (name + ".cpp") for name in
                 ("resource_commands", "resource_images", "hlsl_compiler", "dxbc_compiler", "dxbc_float32", "dxbc_bindings", "graphics_link", "vertex_inputs", "shader_reflection", "shader_usage", "shader_commands", "graphics_commands")]
     sources += [upstream / f"DirectXTK/Src/{name}.cpp" for name in ("DDSTextureLoader", "WICTextureLoader")]
     sources += [upstream / "crc32c-hw-1.0.5/src/crc32c.cpp"]
     flags = runtime_flags(out)
-    libraries = ["user32.lib", "gdi32.lib", "advapi32.lib", "d3dcompiler.lib", "dxguid.lib", "ole32.lib",
+    libraries = ["user32.lib", "gdi32.lib", "advapi32.lib", "d3dcompiler.lib", "dxguid.lib", "ole32.lib", "windowscodecs.lib",
                  "xinput.lib", "dbghelp.lib", str(upstream / "pcre2/pcre2-8-64.lib")]
     objects = [str(out / (path.stem + ".obj")) for path in legacy + sources]
     os.environ["VSLANG"] = "1033"

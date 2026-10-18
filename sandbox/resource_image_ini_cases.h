@@ -422,7 +422,7 @@ static void image_ini_failures(Device& d,const std::filesystem::path& root){
         {typeless+"[ResourceAlias]\nformat = R32_FLOAT\n[Present]\nResourceAlias = ref ResourceSource\nps-t0 = ref ResourceAlias\n","DXGI resource family"},
         {typeless+"[PoolImages]\npool_size = 1\n[Present]\nPoolImages[0] = ref ResourceSource\nps-t[0:0] = ref PoolImages[0:0]\n","cannot infer a typeless"},
         {typed+"[ResourceCopy]\nformat = R32_FLOAT\nbind_flags = shader_resource\n[Present]\nResourceCopy = copy ResourceSource\n","different DXGI families"},
-        {"[ResourceSource]\nfilename = not-loaded.png\n[Present]\nps-t0 = ref ResourceSource\n","PNG integration is paused"},
+        {"[ResourceSource]\nfilename = not-loaded.png\n[Present]\nps-t0 = ref ResourceSource\n","WIC image source is unreadable"},
         {typed+"[Constants]\nglobal $out = 0\n[Present]\nstore = $out, ResourceSource, 0\n","store requires a buffer"},
         {"[ResourceSource]\nfilename = truncated.dds\n[Present]\nps-t0 = ref ResourceSource\n","payload is truncated"},
     };

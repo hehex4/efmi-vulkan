@@ -399,6 +399,39 @@ host callback, draw/dispatch still refuse. Upload counts mean recorded uploads,
 not GPU completion. The resource suite passes 3509 checks with clean core/sync
 validation; the full regression is build/next/run_all-1.1.5.out.
 
+## PNG file images (candidate 1.4.1)
+
+PNG integration was resumed by the user on 2026-10-18 for the image panel. The
+original `CustomResource::LoadFromFile` loads `.dds` with DirectXTK's DDS loader
+and every other extension with `CreateWICTextureFromFileEx`: maximum size from
+the device (16384), no context and therefore one mip and no generated chain, the
+declaration's bind and misc flags, and `GetWICFlags` (a declaration's
+`color_space = sRGB` or `Linear` becomes FORCE_SRGB or IGNORE_SRGB; the default
+detects the PNG sRGB chunk). The owned image adapter now takes that path for
+PNG with `frontend/assets/png.cpp`, whose format table and sRGB rule follow the
+pinned `WICTextureLoader.cpp`: WIC's PNG decoder yields 32bppBGRA for 8-bit RGBA
+and gray-alpha (kept as B8G8R8A8), RGB and palettes expand to R8G8B8A8, gray
+stays R8 or R16, 16-bit color becomes R16G16B16A16; only the 8-bit color
+formats take an sRGB variant. Other WIC containers (BMP, JPEG, TIFF) refuse
+with a reason, as do unreadable files, matching the DDS policy rather than the
+original's warning and null resource.
+
+`sandbox/resource_png_cases.h` loads 13 PNGs both ways in one process: through
+the pinned DirectXTK loader on a WARP device with the flags the original
+passes, and through an original INI into an owned Vulkan image. Format, size,
+mip count, misc flags and every byte agree for eleven synthetic files (RGBA and
+RGB with and without the sRGB chunk, forced and ignored color space, 8- and
+16-bit gray, gray-alpha, 16-bit RGBA and RGB, palette with transparency) and
+for the image panel's `k.png` and `panel_icon.png`, which
+`scripts/check_resource_commands.py` copies from the first enabled installed Mod
+and checks unchanged. The `force_detect_color_space` branch of `GetWICFlags` is
+a d3dx.ini setting a generation does not read; for PNG it repeats the loader's
+own sRGB-chunk check, and the user's d3dx.ini does not set it.
+
+This is the owned sandbox domain. The character renderer in the game still
+refuses PNG bindings (its file plan takes unmodified DDS only) until the panel
+is drawn by the owned runtime in the layer.
+
 ## Next source audit: CustomShader
 
 Pinned ParseCustomShaderSections parses six stages, flags, fixed-function state,
