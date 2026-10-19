@@ -1960,3 +1960,9 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Results: full rebuilt suite passes all 30 steps (build/next/run_all-1.4.7.out): original INI runtime 483 (host values 12 new), GPU resources 11189 with clean validation (owned operand and hash property cases new), live INI 32/32, owned Present 20/20, character 357/357. Sandbox only.
 - P2 not started: its installed users read game resources. Reported to the user, who chose game data collection for the catalogue; the collection plan is proposed (TASKS T-031).
 - Not done: loading into the game (the user's decision), P2, phases 2 and 4.
+
+## 2026-10-19: shader catalogue builder and collection protocol (branch claude/ini)
+
+- The user answered the P2 question with "collect game data". scripts/shader_catalogue.py (new) merges dx11_baseline.py summaries into the catalogue; sandbox/unit_test.py covers merging, XXMI exclusion, ambiguity, conflicts and the check against a verified table (12 checks). docs/shader-catalogue.md: method, trial result, collection protocol, open points.
+- Trial on existing captures (outputs in the main tree's build/catalogue-trial, not committed): 76 programs from 710 draw pairs, consistent with docs/arcane-texture-slots.json, one constant buffer conflict by size.
+- Checked read-only: the launcher's EFMI profile is DX11 with the EFMI MCP probe as its injected library; the game and launcher were not running. No setting changed, nothing deployed.

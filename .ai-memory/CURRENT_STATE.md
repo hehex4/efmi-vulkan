@@ -6,6 +6,10 @@ Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the a
 
 
 
+## Shader catalogue: builder and collection protocol (2026-10-19, after 1.4.7)
+
+The user chose game data collection for the shared shader catalogue. scripts/shader_catalogue.py merges scene summaries of dx11_baseline.py summarize (run without --mod, it pairs every object both frames draw) into a catalogue keyed by Vulkan program, with every DX11 slot of every stage, where it was found, how often and by which evidence; conflicts are reported, --check compares with docs/arcane-texture-slots.json. Trial on data already on disk (arcane display and the two LOD1 frames): 3 scenes, 710 draw pairs, 76 programs, consistent with the verified table; textures mostly by look where content hashes were missing, constant buffers only by size (one conflict). docs/shader-catalogue.md has the collection protocol: session A under DX11 with the current launcher configuration, session B under Vulkan with layer 1.0.2 as deployed (dist/efmi_vk.cfg: replacement off, image hashing on; the user replaces the injected library in the launcher UI and asks for the two Vulkan values). Waiting for the user: account, characters, times. Unit tests 100/100 (12 new for the catalogue). No game session yet.
+
 ## Phase 3: remaining operands and buffer hashes (candidate 1.4.7, 2026-10-19)
 
 A probe of every named operand in a draw and in [Present] showed hunting, frame_analysis, sli and stereo_* already constant 0 (the original optimiser, hunting disabled). Added (D-074):

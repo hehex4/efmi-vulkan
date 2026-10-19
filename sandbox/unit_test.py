@@ -340,6 +340,60 @@ def test_dx11_pair(c: Checks) -> None:
     c.check(dx11_pair.declared(None, stages, "ps-t16"), "without declarations nothing is left out")
 
 
+def test_shader_catalogue(c: Checks) -> None:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+    import shader_catalogue
+
+    def pair(vk_fs, where, how="content", cb=(0, 1), extra=None):
+        return {"vk_vs": "v1", "vk_fs": vk_fs, "vk_pipeline": 7, "dx_vs": "dv", "dx_ps": "dp-" + vk_fs,
+                "textures": {"pairs": [{"dx": "ps-t10", "vk": list(where), "dx_origin": "game", "how": how}] + (extra or []),
+                             "ambiguous": [{"dx": ["ps-t3", "ps-t4"], "vk": [[0, 5], [0, 6]], "what": "x"}],
+                             "dx_only": [{"dx": "ps-t20", "origin": "game"}], "vk_only": [{"vk": [1, 9]}]},
+                "constant_buffers": {"pairs": [{"dx": ["vs-cb0", "ps-cb0"], "vk": list(cb), "dx_origin": "game", "how": "look"}],
+                                     "ambiguous": [], "dx_only": [], "vk_only": []},
+                "buffers": {"pairs": [], "ambiguous": [], "dx_only": [], "vk_only": []}}
+
+    def summary(frame, pairs):
+        return {"dx11": {"frame": frame}, "vulkan": {"frame": frame + 1},
+                "objects": [{"kind": "game", "pairs": pairs}, {"kind": "game", "pairs": []},
+                            {"kind": "mod", "pairs": [pair("modded", (9, 9))]}]}
+
+    folder = test_dir("catalogue")
+    paths = []
+    xxmi = {"dx": "ps-t11", "vk": [1, 4], "dx_origin": "xxmi", "how": "content"}
+    for n, pairs in enumerate([[pair("f1", (1, 2)), pair("f1", (1, 2), "look", extra=[xxmi])], [pair("f1", (1, 2)), pair("f2", (1, 3), cb=(2, 0))]]):
+        path = os.path.join(folder, "scene%d.summary.json" % n)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(summary(100 * n, pairs), f)
+        paths.append(path)
+    from pathlib import Path
+    programs, sources = shader_catalogue.collect([Path(p) for p in paths])
+    cat = shader_catalogue.render(programs, sources)
+    c.equal(sorted(cat["programs"]), ["v1/f1", "v1/f2"], "programs are keyed by Vulkan vertex and fragment shader")
+    f1 = cat["programs"]["v1/f1"]
+    c.equal((f1["draws"], f1["sources"]), (3, [0, 1]), "draws of one program are merged across scenes")
+    c.equal(f1["textures"]["ps-t10"], {"where": [{"set": 1, "binding": 2, "seen": 3}], "evidence": {"content": 2, "look": 1}},
+            "a slot lists where it was found, how often and by which evidence")
+    c.check("ps-t11" not in f1["textures"], "a slot bound by XXMI is not the game's correspondence")
+    c.equal(sorted(f1["constant_buffers"]), ["ps-cb0", "vs-cb0"], "one constant buffer window stands for every DX11 slot bound to it")
+    c.equal(f1["ambiguous"]["textures"], {"ps-t3": 3, "ps-t4": 3}, "groups that only look alike are counted, not placed")
+    c.equal((f1["dx_only"]["textures"], f1["vk_only"]["textures"]), ({"ps-t20": 3}, {"1.9": 3}), "unmatched slots on both sides")
+    c.equal(cat["conflicts"], [], "no slot is found in two places in the same program")
+    c.equal(cat["shaders"]["fragment"], {"f1": ["dp-f1"], "f2": ["dp-f2"]}, "fragment shaders map to their DX11 pixel shaders")
+    c.equal([(s["draw_pairs"], s["objects_paired"], s["objects_unpaired"]) for s in sources], [(2, 1, 1), (2, 1, 1)],
+            "mod objects are not counted, unpaired game objects are")
+    programs["v1/f1"]["slots"]["textures"]["ps-t10"][(0, 7)] += 1
+    clash = shader_catalogue.render(programs, sources)["conflicts"]
+    c.equal(clash, [{"program": "v1/f1", "kind": "textures", "slot": "ps-t10", "where": [(0, 7), (1, 2)]}],
+            "a slot found in two places is a reported conflict")
+    known = os.path.join(folder, "known.json")
+    with open(known, "w", encoding="utf-8") as f:
+        json.dump({"slots": {"f1": {"ps-t10": {"set": 1, "binding": 2}}, "f2": {"ps-t10": {"set": 1, "binding": 4}},
+                             "absent": {"ps-t1": {"set": 0, "binding": 0}}}}, f)
+    c.equal(shader_catalogue.check_known(cat, Path(known)), ["f2 ps-t10: catalogue [(1, 3)], known 1.4"],
+            "an earlier verified table is checked where both have the shader")
+
+
 def main() -> int:
     c = Checks("unit_test")
     test_hashes(c)
@@ -347,6 +401,7 @@ def main() -> int:
     test_mcp(c)
     test_spirv(c)
     test_dx11_pair(c)
+    test_shader_catalogue(c)
     return c.finish()
 
 
