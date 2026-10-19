@@ -132,8 +132,8 @@ void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
     require(!active_ && queue && site==ExecutionSite::OutsideRenderPass,"GPU resource execution requires an explicit outside-render-pass scope");
     require(!queue_ || queue_==queue,"GPU resource scope cannot change queues");queue_=queue;active_=true;
 }
-std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish() {
-    active();require(!failed_,"Cannot submit a failed GPU resource scope");auto result=commands_.submit(queue_);active_=false;return result;
+std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::ResourceCommands::SubmitSync& sync) {
+    active();require(!failed_,"Cannot submit a failed GPU resource scope");auto result=commands_.submit(queue_,sync);active_=false;return result;
 }
 void GpuResourceRuntime::discard(){commands_.discard();active_=false;failed_=true;}
 void GpuResourceRuntime::active() const {require(active_,"GPU resource operation has no outside-render-pass execution scope");}

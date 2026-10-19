@@ -109,3 +109,74 @@ r_bb = ref ResourceOther
         source_only.present();source_only.release();
     }
 }
+// A caller-owned image, as a swap chain image is: created, cleared and left in its own layout by
+// raw Vulkan, imported as the back buffer, drawn into, handed back and waited on by a semaphore.
+static void imported_backbuffer(Device& d,const std::filesystem::path& root){
+    std::filesystem::create_directories(root/"Mods");write(root/"Mods/backbuffer.hlsl",backbuffer_hlsl);
+    ShaderFixture f(d,root,R"ini(namespace = compute
+[CustomShaderPanel]
+vs = backbuffer.hlsl
+ps = backbuffer.hlsl
+blend = ADD SRC_ALPHA INV_SRC_ALPHA
+cull = none
+topology = triangle_strip
+o0 = set_viewport bb
+draw = 4, 0
+[Present]
+run = CustomShaderPanel
+)ini");
+    const auto& v=d.resource.dispatch;const auto device=d.resource.device;
+    const auto create_semaphore=reinterpret_cast<PFN_vkCreateSemaphore>(d.get_device_proc(device,"vkCreateSemaphore"));
+    const auto destroy_semaphore=reinterpret_cast<PFN_vkDestroySemaphore>(d.get_device_proc(device,"vkDestroySemaphore"));
+    const auto free_buffers=reinterpret_cast<PFN_vkFreeCommandBuffers>(d.get_device_proc(device,"vkFreeCommandBuffers"));
+    check(create_semaphore && destroy_semaphore && free_buffers,"Semaphore and command buffer entry points");
+    VkImageCreateInfo ci={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=VK_IMAGE_TYPE_2D;ci.format=VK_FORMAT_R32G32B32A32_SFLOAT;ci.extent={8,4,1};
+    ci.mipLevels=ci.arrayLayers=1;ci.samples=VK_SAMPLE_COUNT_1_BIT;ci.tiling=VK_IMAGE_TILING_OPTIMAL;ci.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+    ci.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    VkImage raw=VK_NULL_HANDLE;check(v.CreateImage(device,&ci,nullptr,&raw)==VK_SUCCESS,"Create a caller-owned image");
+    VkImageMemoryRequirementsInfo2 request={VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2};request.image=raw;
+    VkMemoryRequirements2 requirements={VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2};v.GetImageMemoryRequirements2(device,&request,&requirements);
+    uint32_t type=UINT32_MAX;for(uint32_t i=0;i<d.resource.memory.memoryTypeCount && type==UINT32_MAX;++i)
+        if((requirements.memoryRequirements.memoryTypeBits&(1u<<i)) && (d.resource.memory.memoryTypes[i].propertyFlags&VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))type=i;
+    VkMemoryAllocateInfo ai={VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=requirements.memoryRequirements.size;ai.memoryTypeIndex=type;
+    VkDeviceMemory memory=VK_NULL_HANDLE;check(type!=UINT32_MAX && v.AllocateMemory(device,&ai,nullptr,&memory)==VK_SUCCESS && v.BindImageMemory(device,raw,memory,0)==VK_SUCCESS,"Bind the caller-owned image");
+    VkCommandPoolCreateInfo pi={VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};pi.queueFamilyIndex=d.resource.queue_family;VkCommandPool pool=VK_NULL_HANDLE;
+    check(v.CreateCommandPool(device,&pi,nullptr,&pool)==VK_SUCCESS,"Caller command pool");
+    auto run=[&](const std::function<void(VkCommandBuffer)>& record,const VkSemaphore* wait){
+        VkCommandBufferAllocateInfo bi={VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};bi.commandPool=pool;bi.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;bi.commandBufferCount=1;
+        VkCommandBuffer cb=VK_NULL_HANDLE;check(v.AllocateCommandBuffers(device,&bi,&cb)==VK_SUCCESS,"Caller command buffer");
+        VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};v.BeginCommandBuffer(cb,&begin);record(cb);v.EndCommandBuffer(cb);
+        VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};VkFence fence=VK_NULL_HANDLE;v.CreateFence(device,&fi,nullptr,&fence);
+        const VkPipelineStageFlags stage=VK_PIPELINE_STAGE_TRANSFER_BIT;VkSubmitInfo si={VK_STRUCTURE_TYPE_SUBMIT_INFO};si.commandBufferCount=1;si.pCommandBuffers=&cb;
+        if(wait){si.waitSemaphoreCount=1;si.pWaitSemaphores=wait;si.pWaitDstStageMask=&stage;}
+        check(v.QueueSubmit(d.queue,1,&si,fence)==VK_SUCCESS && v.WaitForFences(device,1,&fence,VK_TRUE,UINT64_MAX)==VK_SUCCESS,"Caller submission");
+        v.DestroyFence(device,fence,nullptr);free_buffers(device,pool,1,&cb);
+    };
+    auto barrier=[&](VkCommandBuffer cb,VkImageLayout from,VkImageLayout to){VkImageMemoryBarrier b={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;b.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;b.oldLayout=from;b.newLayout=to;
+        b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.image=raw;b.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+        v.CmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&b);};
+    const VkClearColorValue color{{0.25f,0.5f,0.75f,1.0f}};const VkImageSubresourceRange whole{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+    run([&](VkCommandBuffer cb){barrier(cb,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        v.CmdClearColorImage(cb,raw,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&color,1,&whole);
+        barrier(cb,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);},nullptr);
+    auto& resources=f.backend->resources();gpu::ImageDescription description;description.format=ci.format;description.extent=ci.extent;description.usage=ci.usage;
+    auto image=resources.commands().import_image(raw,description,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    resources.backbuffer(image,DXGI_FORMAT_R32G32B32A32_FLOAT);
+    VkSemaphoreCreateInfo si={VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};VkSemaphore done=VK_NULL_HANDLE;check(create_semaphore(device,&si,nullptr,&done)==VK_SUCCESS,"Create semaphore");
+    resources.begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    check(f.ini->present({},1,0,f.why),"Present draws into the imported back buffer");
+    gpu::ResourceCommands::SubmitSync sync;sync.signals={done};auto ticket=resources.finish(sync);check(bool(ticket),"Imported back buffer submission");
+    // The caller waits on the semaphore and uses the image from its own layout again.
+    run([&](VkCommandBuffer cb){barrier(cb,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        barrier(cb,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);},&done);
+    ticket->wait();ticket.reset();
+    resources.begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    const auto bytes=resources.commands().readback(d.queue,image,image_region(image));resources.discard();
+    const auto* texels=reinterpret_cast<const float*>(bytes.data());size_t kept=0,drawn=0;
+    for(size_t i=0;i<32;++i){const bool clear=texels[i*4]==0.25f && texels[i*4+1]==0.5f && texels[i*4+2]==0.75f && texels[i*4+3]==1.0f;kept+=clear;drawn+=!clear;}
+    check(kept>0 && drawn>0,"The imported image keeps its contents outside the draw and receives the draw");
+    check(kept+drawn==32,"Imported back buffer readback covers the image");
+    resources.backbuffer(nullptr,DXGI_FORMAT_UNKNOWN);image.reset();f.release();
+    destroy_semaphore(device,done,nullptr);v.DestroyCommandPool(device,pool,nullptr);v.DestroyImage(device,raw,nullptr);v.FreeMemory(device,memory,nullptr);
+}

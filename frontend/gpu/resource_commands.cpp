@@ -118,17 +118,20 @@ void ResourceCommands::write_stage(const Buffer& stage,const void* bytes,size_t 
     const auto status=stage->coherent_?VK_SUCCESS:device_.dispatch.FlushMappedMemoryRanges(device_.device,1,&range);
     device_.dispatch.UnmapMemory(device_.device,stage->memory_);check(status,"Flush resource upload");
 }
-std::shared_ptr<ResourceSubmission> ResourceCommands::submit(VkQueue queue) {
+std::shared_ptr<ResourceSubmission> ResourceCommands::submit(VkQueue queue,const SubmitSync& sync) {
     if(!queue || (queue_ && queue_!=queue))throw std::runtime_error("Resource execution requires one serialized queue");
+    if(sync.waits.size()!=sync.stages.size() || sync.waits.size()>64 || sync.signals.size()>64)throw std::runtime_error("Invalid resource submission semaphores");
     if(!pending_)return {};
     // Publish a common layout only with the submission. Recording then discard
     // must leave each owner's last submitted layout unchanged.
-    for(const auto& item:pending_->image_layouts_)transition(item.first,VK_IMAGE_LAYOUT_GENERAL);
+    for(const auto& item:pending_->image_layouts_)transition(item.first,item.first->external_?item.first->external_layout_:VK_IMAGE_LAYOUT_GENERAL);
     barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
     const auto& d=device_.dispatch;auto p=std::move(pending_);
     check(d.EndCommandBuffer(p->command_),"End resource command buffer");
     VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};check(d.CreateFence(device_.device,&fi,nullptr,&p->fence_),"Create resource fence");
     VkSubmitInfo si={VK_STRUCTURE_TYPE_SUBMIT_INFO};si.commandBufferCount=1;si.pCommandBuffers=&p->command_;
+    si.waitSemaphoreCount=uint32_t(sync.waits.size());si.pWaitSemaphores=sync.waits.data();si.pWaitDstStageMask=sync.stages.data();
+    si.signalSemaphoreCount=uint32_t(sync.signals.size());si.pSignalSemaphores=sync.signals.data();
     check(d.QueueSubmit(queue,1,&si,p->fence_),"Submit resource commands");p->submitted_=true;queue_=queue;
     for(const auto& item:p->image_layouts_)item.first->initialized_=true;
     return p;

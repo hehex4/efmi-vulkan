@@ -102,6 +102,10 @@ private:
     VkDeviceSize allocation_=0;
     // True only after a successful submission. Discard never commits layouts.
     bool initialized_=false;
+    // An imported image the caller owns: valid in this layout before and after every
+    // submission that uses it, and never destroyed here.
+    VkImageLayout external_layout_=VK_IMAGE_LAYOUT_UNDEFINED;
+    bool external_=false;
 };
 using Image=std::shared_ptr<ImageResource>;
 class ImageViewResource {
@@ -166,6 +170,9 @@ public:
     void fill(const Buffer&,VkDeviceSize offset,VkDeviceSize size,uint32_t word);
     void write(const Buffer&,VkDeviceSize offset,const void*,size_t);
     Image create_image(ImageDescription);
+    // A caller-owned image (a swap chain image) for this domain: one mip, one layer, single
+    // sample. Its contents are taken from `layout`, and each submission returns it there.
+    Image import_image(VkImage,ImageDescription,VkImageLayout layout);
     // View creation does not initialize pixels or emit descriptors. Once a
     // submission using an image completes, its entire allocation is GENERAL.
     // Layout changes inside a pending batch are private and discarded with it.
@@ -185,7 +192,14 @@ public:
     VkDeviceSize transfer_size(const Image&,const VkBufferImageCopy&) const;
     void write(const Image&,VkBufferImageCopy,const void*,size_t);
     std::vector<uint8_t> readback(VkQueue,const Image&,VkBufferImageCopy);
-    std::shared_ptr<ResourceSubmission> submit(VkQueue);
+    // Semaphores the submission waits on (with their stages) and signals, for a host that
+    // orders it against application work such as a presentation.
+    struct SubmitSync {
+        std::vector<VkSemaphore> waits;
+        std::vector<VkPipelineStageFlags> stages;
+        std::vector<VkSemaphore> signals;
+    };
+    std::shared_ptr<ResourceSubmission> submit(VkQueue,const SubmitSync& sync={});
     // Synchronous feedback required by original store. Only explicit hosts
     // owning queue synchronization may call this; never an implicit draw wait.
     std::vector<uint8_t> readback(VkQueue,const Buffer&,VkDeviceSize offset,VkDeviceSize size);

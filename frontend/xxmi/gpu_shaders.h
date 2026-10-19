@@ -31,6 +31,9 @@ public:
     // HLSL's exactly; such a cache runs through the exact bytecode translation. Without this
     // opt-in a CustomShader with a valid cache refuses rather than running different code.
     void enable_cached_bytecode(const std::filesystem::path& library,gpu::DxbcFloat32Mode);
+    // CustomShaders another extension executes natively (the merged-skeleton Core) are not
+    // compiled here; their run commands live only in natively replaced lists. Before install.
+    void exclude_shaders(std::vector<std::wstring> names);
     size_t cached_programs() const {return cached_programs_;}
     bool execute_original(CommandListState&,std::wstring&);
     void set_scissor(const D3D11_RECT& value){scissor_=value;}
@@ -63,6 +66,7 @@ private:
     std::unique_ptr<gpu::DxbcCompiler> cached_compiler_;
     gpu::DxbcFloat32Mode cached_mode_=gpu::DxbcFloat32Mode::Software;
     size_t cached_programs_=0;
+    std::vector<std::wstring> excluded_;
     uint32_t api_version_;
     std::filesystem::path working_directory_;
     DrawPlanAdapter* adapter_=nullptr;

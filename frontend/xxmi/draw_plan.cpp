@@ -20,7 +20,8 @@ struct Refused : std::exception {
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
 constexpr size_t max_active_depth = 64;
-struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;DrawPlanAdapter::ShaderQuery shader;size_t count=0;bool general_matches=false;};
+struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;DrawPlanAdapter::ShaderQuery shader;size_t count=0;bool general_matches=false;
+    std::function<bool()> gate;bool open() const {return !gate || gate();}};
 class NativeShaderQuery final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListOperand> source;
@@ -28,7 +29,7 @@ public:
     NativeShaderQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
     float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
         float value=0;std::wstring why;
-        if(!state || !service->shader || ++service->count>max_steps)refuse(L"Shader query adapter is unavailable or over budget");
+        if(!state || !service->shader || !service->open() || ++service->count>max_steps)refuse(L"Shader query adapter is unavailable or over budget");
         if(!service->shader(*source,*state,value,why))refuse(why.empty()?L"Original shader query refused":why);return value;
     }
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
@@ -52,7 +53,7 @@ public:
     NativeResourceQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
     float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
         float result=0;std::wstring reason;
-        if(!state || ++service->count>max_steps)refuse(L"Resource query adapter is unavailable or over budget");
+        if(!state || !service->open() || ++service->count>max_steps)refuse(L"Resource query adapter is unavailable or over budget");
         auto& target=source->texture_filter_target;
         const bool pixel=target.type==ResourceCopyTargetType::THIS_RESOURCE ||
             (target.type==ResourceCopyTargetType::SHADER_RESOURCE && target.shader_type==L'p');
@@ -346,9 +347,12 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::ResourceMatchQuery resource_match;
     std::array<DrawPlanAdapter::PixelBinding,128> pixel_bindings;
     std::unordered_set<CustomResource*> files;
+    std::function<bool()> owned_gate;
+    // The owned GPU callbacks apply unless a gate says the host has no owned scope open.
+    bool owned() const {return !owned_gate || owned_gate();}
 
     void flush(CommandListState& state,bool force=false){
-        if(!parameter_flush || (!force && !state.update_params))return;
+        if(!parameter_flush || !owned() || (!force && !state.update_params))return;
         std::wstring why;
         if(!parameter_flush(state,force,why))refuse(why.empty()?L"GPU parameter publication refused":why);
     }
@@ -378,7 +382,7 @@ struct DrawPlanAdapter::Runtime {
         if(resolved.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE || resolved.IsRange())
             refuse(L"Resource matching requires an adapted single resource target");
         matches.clear();bound=false;
-        if(resource_match){
+        if(resource_match && owned()){
             SourceResourceMatch source;std::wstring why;
             if(!resource_match(resolved,state,source,why))refuse(why.empty()?L"Original resource identity is unknown":why);
             // Native THIS delegates resource resolution but keeps its own type
@@ -404,10 +408,26 @@ struct DrawPlanAdapter::Runtime {
                                    !adapted.count(match->post_command_list.ResolveCommandList()))
             refuse(L"Matched texture command lists were not adapted");
     }
+    // A declaration reference executed by the owned backend is also what later replaced draws
+    // resolve through the plan, exactly as the plan path itself would record it.
+    void mirror_reference(CommandListCommand& command,CommandListState& state)
+    {
+        auto* copy=dynamic_cast<ResourceCopyOperation*>(&command);
+        if(!copy || typeid(*copy)!=typeid(ResourceCopyOperation) || copy->options!=ResourceCopyOptions::REFERENCE)return;
+        auto& dst=effective_target(copy->dst,state);
+        if(dst.type!=ResourceCopyTargetType::CUSTOM_RESOURCE || dst.custom_resource_pool || dst.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE ||
+           copy->src.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE || copy->src.custom_resource_pool)return;
+        CustomResource* source=nullptr;
+        if(copy->src.type==ResourceCopyTargetType::CUSTOM_RESOURCE)source=referenced(copy->src.GetCustomResource(&state));
+        else if(copy->src.type!=ResourceCopyTargetType::EMPTY)return;
+        auto* destination=dst.GetCustomResource(&state,true);if(!destination)return;
+        if(references.size()>=max_steps && !references.count(destination))refuse(L"Declaration reference budget exceeded");
+        references[destination]=source;
+    }
     void check_texture(CheckTextureOverrideCommand& check,CommandListState& state)
     {
         auto& target=effective_target(check.target,state);
-        if(!resource_match && (target.type!=ResourceCopyTargetType::SHADER_RESOURCE || target.shader_type!=L'p' ||
+        if(!(resource_match && owned()) && (target.type!=ResourceCopyTargetType::SHADER_RESOURCE || target.shader_type!=L'p' ||
            (target.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE &&
             target.evaluation_mode!=ResourceCopyTargetEvaluationMode::SLOT_RANGE)))
             refuse(L"Texture override only supports pixel resource slots");
@@ -485,21 +505,23 @@ struct DrawPlanAdapter::Runtime {
         }
         if(auto* shader=dynamic_cast<RunCustomShaderCommand*>(original.get())){
             std::wstring why;
+            if(shader_command && !owned())refuse(L"CustomShader needs the host's owned GPU scope, which replaced draws do not open");
             if(!shader_command || !shader_command(*shader,*state,why) || nested_failed)
                 refuse(why.empty()?L"CustomShader requires a shader execution adapter":why);
             return;
         }
         if(dynamic_cast<DrawCommand*>(original.get())){
             if(state->call_info && state->call_info->hunting_skip)return;
-            if(draw_prepare){std::wstring why;if(!draw_prepare(*state,why))refuse(why.empty()?L"Source draw preparation refused":why);}
+            if(draw_prepare && owned()){std::wstring why;if(!draw_prepare(*state,why))refuse(why.empty()?L"Source draw preparation refused":why);}
             // Original DrawCommand flushes even for a zero-count draw, before
             // evaluating arguments or entering the draw/dispatch implementation.
             flush(*state);
         }
-        if(resource_command && (dynamic_cast<ResourceCopyOperation*>(original.get()) ||
+        if(resource_command && owned() && (dynamic_cast<ResourceCopyOperation*>(original.get()) ||
            dynamic_cast<ClearViewCommand*>(original.get()) || dynamic_cast<StoreCommand*>(original.get()) ||
            dynamic_cast<DrawCommand*>(original.get()) || dynamic_cast<SlotRangeCopyOperation*>(original.get()))) {
             std::wstring why;
+            if(owned_gate)mirror_reference(*original,*state);
             if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
             return;
         }
@@ -576,7 +598,7 @@ struct DrawPlanAdapter::Runtime {
             return;
         }
         if (auto* batch = dynamic_cast<ShaderResourceBatch*>(original.get())) {
-            if(!resource_command && !dynamic_cast<ShaderResourceBindBatch*>(batch))
+            if(!(resource_command && owned()) && !dynamic_cast<ShaderResourceBindBatch*>(batch))
                 refuse(L"Shader resource fetch requires a GPU resource adapter");
             // Upstream batches adjacent reference operations after parsing.
             for (auto& operation : batch->operations) {
@@ -788,6 +810,10 @@ void DrawPlanAdapter::parameter_flush(ParameterFlush callback)
 void DrawPlanAdapter::draw_prepare(DrawPrepare callback){
     if(runtime_->active || !runtime_->adapted.empty())refuse(L"Draw preparation must be installed before adaptation");
     runtime_->draw_prepare=std::move(callback);
+}
+void DrawPlanAdapter::owned_scope(std::function<bool()> gate){
+    if(runtime_->active || !runtime_->adapted.empty() || !gate || runtime_->owned_gate)refuse(L"Install one owned scope gate before adaptation");
+    runtime_->owned_gate=gate;runtime_->queries->gate=std::move(gate);
 }
 void DrawPlanAdapter::shader_commands(ShaderCommand callback){
     if(runtime_->active || !runtime_->adapted.empty() || !callback)refuse(L"Install shader execution before adaptation");

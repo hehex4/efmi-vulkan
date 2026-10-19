@@ -102,7 +102,7 @@ def main() -> int:
         finally:
             write_ascii(out / "build.txt", log.getvalue())
         inputs = sources + [ROOT / "sandbox/resource_image_cases.h", ROOT / "sandbox/resource_image_ini_cases.h",
-                            ROOT / "sandbox/resource_image_conversion_cases.h", ROOT / "sandbox/resource_png_cases.h", ROOT / "sandbox/resource_backbuffer_cases.h", ROOT / "sandbox/resource_panel_cases.h",
+                            ROOT / "sandbox/resource_image_conversion_cases.h", ROOT / "sandbox/resource_png_cases.h", ROOT / "sandbox/resource_backbuffer_cases.h", ROOT / "sandbox/resource_panel_cases.h", ROOT / "sandbox/resource_owned_generation_cases.h",
                             ROOT / "sandbox/resource_parameter_cases.h",
                             ROOT / "sandbox/resource_parameter_consumer.h", ROOT / "sandbox/resource_shader_cases.h",
                             ROOT / "sandbox/resource_compute_cases.h", ROOT / "sandbox/resource_usage_cases.h",

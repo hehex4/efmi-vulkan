@@ -45,7 +45,8 @@ public:
     // may submit and wait for GPU feedback inside it. A draw hook cannot opt in
     // by silently treating an active render pass as OutsideRenderPass.
     void begin(VkQueue,ExecutionSite);
-    std::shared_ptr<gpu::ResourceSubmission> finish();
+    bool scope_active() const {return active_;}
+    std::shared_ptr<gpu::ResourceSubmission> finish(const gpu::ResourceCommands::SubmitSync& sync={});
     // Discards unsubmitted work. Like the original interpreter, earlier CPU
     // assignments and already-submitted store feedback are not rolled back.
     void discard();

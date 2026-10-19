@@ -41,6 +41,7 @@ VkFormatFeatureFlags required_features(VkImageUsageFlags usage,VkImageAspectFlag
 }
 }
 ImageResource::~ImageResource() {
+    if(external_)return;
     if(image_)device_.dispatch.DestroyImage(device_.device,image_,nullptr);
     if(memory_)device_.dispatch.FreeMemory(device_.device,memory_,nullptr);
     if(allocation_)budget_->release(allocation_);
@@ -55,6 +56,15 @@ VkExtent3D ImageResource::extent(uint32_t mip) const {
 }
 VkImageSubresourceRange ImageResource::full_range() const {
     return {info(description_.format).aspects,0,description_.mips,0,description_.layers};
+}
+Image ResourceCommands::import_image(VkImage handle,ImageDescription desc,VkImageLayout layout) {
+    if(!handle || desc.type!=VK_IMAGE_TYPE_2D || desc.mips!=1 || desc.layers!=1 || desc.samples!=VK_SAMPLE_COUNT_1_BIT ||
+       !desc.extent.width || !desc.extent.height || desc.extent.depth!=1 || desc.flags&~VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT)
+        throw std::runtime_error("Imported images are single 2D images with one mip and layer");
+    if(layout==VK_IMAGE_LAYOUT_UNDEFINED || layout==VK_IMAGE_LAYOUT_PREINITIALIZED)throw std::runtime_error("Imported image needs a defined layout");
+    if(info(desc.format).aspects!=VK_IMAGE_ASPECT_COLOR_BIT)throw std::runtime_error("Imported images are color images");
+    auto image=std::make_shared<ImageResource>();image->device_=device_;image->domain_=domain_;image->description_=desc;
+    image->image_=handle;image->external_=true;image->external_layout_=layout;image->budget_=budgets_.resident;return image;
 }
 Image ResourceCommands::create_image(ImageDescription desc) {
     if(!device_.physical || !device_.GetImageFormatProperties || !device_.GetFormatProperties ||
@@ -180,16 +190,20 @@ ImageView ResourceCommands::view(const Image& image,VkImageViewType type,VkForma
 }
 void ResourceCommands::transition(const Image& image,VkImageLayout layout) {
     auto cb=command();auto found=pending_->image_layouts_.find(image);
-    const auto old=found==pending_->image_layouts_.end()?(image->initialized_?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED):found->second;
+    const auto old=found!=pending_->image_layouts_.end()?found->second:image->external_?image->external_layout_:
+        (image->initialized_?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED);
     // Insertion retains the owner before a command can refer to its image.
     pending_->image_layouts_[image]=layout;if(old==layout)return;
     VkImageMemoryBarrier b={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.image=image->image_;b.subresourceRange=image->full_range();
     b.oldLayout=old;b.newLayout=layout;b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
     b.srcAccessMask=old==VK_IMAGE_LAYOUT_UNDEFINED?0:VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
-    b.dstAccessMask=layout==VK_IMAGE_LAYOUT_GENERAL?VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT:
+    const bool transfer=layout==VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL || layout==VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    // Handing an imported image back (to presentation) needs no later access in this submission.
+    b.dstAccessMask=layout==VK_IMAGE_LAYOUT_PRESENT_SRC_KHR?0:!transfer?VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT:
         (layout==VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL?VK_ACCESS_TRANSFER_READ_BIT:VK_ACCESS_TRANSFER_WRITE_BIT);
     device_.dispatch.CmdPipelineBarrier(cb,old==VK_IMAGE_LAYOUT_UNDEFINED?VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-        layout==VK_IMAGE_LAYOUT_GENERAL?VK_PIPELINE_STAGE_ALL_COMMANDS_BIT:VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&b);
+        layout==VK_IMAGE_LAYOUT_PRESENT_SRC_KHR?VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT:transfer?VK_PIPELINE_STAGE_TRANSFER_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+        0,0,nullptr,0,nullptr,1,&b);
 }
 VkDeviceSize ResourceCommands::transfer_size(const Image& image,const VkBufferImageCopy& r) const {
     region(image,r.imageSubresource,r.imageOffset,r.imageExtent);const auto& f=info(image->description_.format);

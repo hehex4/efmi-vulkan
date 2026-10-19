@@ -1931,3 +1931,11 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Findings on the way: the first panel mark section has no match_first_index; hardware float32 mode needs denormal flushing the sandbox device lacks (Software used); the null t101 slot needed D-071; the hardware D3D11 adapter and the owned Vulkan device are both the NVIDIA RTX 5060 Laptop GPU (checked by name).
 - Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.3.out): GPU resources 11137 checks with no validation message, including the installed panel (2 of 360,000 pixels differ from native hardware D3D11 on the same NVIDIA GPU), execution matrix 32 classes and 41 probes. Sandbox only.
 - Not done: step 4 (layer, swap chain, character generation); no deployment, game, launcher or system action.
+
+## 2026-10-19: INI completion phase 1 foundations (candidate 1.4.4, branch claude/ini)
+
+- The user asked whether the INI was fully adapted (it is not: parsing yes, sandbox execution mostly, the game only character content) and chose to complete the INI first. Phase plan recorded in TASKS T-031.
+- P1-1 (D-072): frontend/xxmi/owned_generation.h/.cpp, draw_plan.h/.cpp (owned_scope gate, reference mirroring), gpu_shaders.h/.cpp (exclude_shaders), gpu_resources.h (scope_active), scripts/build_xxmi_runtime.py, sandbox/resource_owned_generation_cases.h. A first test version listed an unreferenced command list that explicit-input generations do not compile; it now loads as a directory generation.
+- P1-2: frontend/gpu/resource_commands.h/.cpp and resource_images.cpp (import_image, external layouts, SubmitSync), gpu_resources.h/.cpp (finish with semaphores), sandbox/resource_backbuffer_cases.h (imported_backbuffer). Version 1.4.4.
+- Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.4.out): GPU resources 11175 checks with no validation message (mixed generation and imported back buffer included), runtime 471, execution matrix 41 probes. Sandbox only.
+- Not done: P1-3 (layer), P2, phases 2 to 4; no deployment, game, launcher or system action.

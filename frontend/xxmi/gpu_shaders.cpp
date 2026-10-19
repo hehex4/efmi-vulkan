@@ -28,7 +28,11 @@ void GpuShaderRuntime::enable_cached_bytecode(const std::filesystem::path& libra
     require(!adapter_ && !cached_compiler_,"Cached bytecode translation is enabled once, before installation");
     cached_compiler_=std::make_unique<gpu::DxbcCompiler>(library);cached_mode_=mode;
 }
+void GpuShaderRuntime::exclude_shaders(std::vector<std::wstring> names){
+    require(!adapter_,"Excluded CustomShaders are set before installation");excluded_=std::move(names);
+}
 void GpuShaderRuntime::compile(const RuntimeShaderDeclaration& declaration){
+    for(const auto& name:excluded_)if(!_wcsicmp(name.c_str(),declaration.name.c_str()))return;
     require(shaders_.size()<4096,"CustomShader declaration budget exceeded");Entry entry;
     for(unsigned i=0;i<6;++i){const auto& file=declaration.sources[i];if(file.empty())continue;entry.overrides[i]=true;
         if(!_wcsicmp(file.c_str(),L"null"))continue;

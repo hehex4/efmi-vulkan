@@ -734,3 +734,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - D3D11 reads a null shader resource, constant buffer or UAV as zero, reports zero dimensions and drops writes. The image panel relies on it (t101 is null unless minimised). VK_EXT_robustness2 nullDescriptor gives the same behaviour for a descriptor written with a null handle.
 - An unbound CustomShader slot is written as a null descriptor when the host reports nullDescriptor enabled on the device (ShaderHost::null_descriptors); otherwise it refuses as before. Only that feature is used; robust buffer and image access stay disabled, so in-bounds behaviour is unchanged.
 - In the game this needs the feature on the application's device (step 4): enabling it at device creation or refusing the panel are the options.
+
+## D-072: A generation in the game combines the character extension with owned GPU execution behind a host scope
+
+- Date: 2026-10-19 (candidate 1.4.4, branch claude/ini), phase 1 of completing the INI in the game.
+- Replaced character draws must stay inside the application's render pass with the game's pipeline variants (the file plan); original GPU commands (clears, copies, store, CustomShader, non-indexed draws) need the owned outside-render-pass domain. One generation keeps the INI's variables shared, which the image panel needs (it toggles the main INI's outfit variables).
+- The owned GPU callbacks therefore apply only while the host has an owned scope open (Present, Constants, key and reload lists). Replaced draws open none and behave exactly as before; a CustomShader inside one refuses until phase 1 step P2 records such work into private command buffers before the application's submission.
+- Declaration references executed by the GPU side are mirrored into the plan; references made by replaced draws are not yet visible to the GPU side (recorded limitation). The native extension's preparation runs with the gate closed, and its natively executed CustomShaders are not compiled.

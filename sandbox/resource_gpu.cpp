@@ -1417,6 +1417,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_bytecode_views.h"
 #include "resource_backbuffer_cases.h"
 #include "resource_panel_cases.h"
+#include "resource_owned_generation_cases.h"
 int wmain(int argc,wchar_t** argv){
     setvbuf(stdout,nullptr,_IONBF,0);
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true,true,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
@@ -1445,7 +1446,7 @@ int wmain(int argc,wchar_t** argv){
         original_image_binding_ranges(device);original_attachment_bindings(device,root/"attachment-bindings");
         original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");
         graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();owned_graphics(device,root/"owned-graphics");
-        original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_backbuffer(device,root/"backbuffer");original_image_panel(device,root/"panel");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
+        original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_backbuffer(device,root/"backbuffer");imported_backbuffer(device,root/"imported-backbuffer");original_image_panel(device,root/"panel");owned_generation_cases(device,root/"owned-generation");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
         original_ini_graphics_sampling(device,root/"ini-graphics-sampling");original_ini_graphics_state_pixels(device,root/"ini-graphics-state");
         original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");
         original_ini_geometry(device,root/"ini-geometry");original_core_text(root/"core-text");

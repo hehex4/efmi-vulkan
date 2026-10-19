@@ -118,6 +118,12 @@ public:
     // General source targets, including IB/VB, stage slots, resources and pools.
     // Mutually exclusive with the legacy pixel-only file-plan provider.
     void resource_matches(ResourceMatchQuery);
+    // A generation that also renders replaced draws through the file plan installs a gate:
+    // while it returns false, every owned GPU callback above (resource commands and queries,
+    // matches, parameter publication, draw preparation, CustomShader) is treated as absent, so
+    // replaced draws keep the plan path. Declaration references made while it is open are
+    // mirrored into the plan's references. Install before adaptation.
+    void owned_scope(std::function<bool()>);
     // File declarations referenced anywhere in the adapted command graph,
     // including both branches. Unused INI declarations need not exist on disk.
     std::vector<CustomResource*> referenced_files() const;
