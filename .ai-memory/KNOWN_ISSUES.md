@@ -716,3 +716,10 @@ counters and application shader correspondence remain separate work.
 Original defect: `~UpscalingFlipBBCommand` in the pinned CommandList.cpp writes `G->upscaling_command_list_using_explicit_bb_flip`. IniRuntime's destructor destroyed the generation with `G` null (only a Scope sets it), so any generation holding the command crashed the process when it was retired: F10, a module exchange or exit. The bridge also refused the command at run time, so the crash came at teardown. Found by the execution matrix probe; it is the only original destructor that touches `G`. No installed Mod uses the command; no game observation.
 
 Correction 1.3.9: the destructor points `G` at the generation's own globals, which outlive every other member, for the teardown. The same fixture segfaults (exit 139) on a build without the fix and completes with it; the matrix probe keeps it covered.
+
+## BUG-026: A refused character package crashes the process after device creation
+
+- Found 2026-10-19 in the sandbox (inject entry), before catalogue session B. With m2_package naming build/character/arcane-live.bin, whose Mod folder `arcane fes 1.2` is no longer installed, the layer logs "character package refused: Runtime resource missing ..." at device creation and the process then ends with an access violation (0xC0000005). m2_enabled = 0 does not prevent it: the package is still loaded. Both the deployed 1.0.2 and candidate 1.4.7 crash; without m2_package the same layer runs and exits normally.
+- Consequence: the deployed dist configuration of 1.0.2 would have crashed the game under Vulkan with the current Mods folder. The session B configuration has no package.
+- Open: find and fix the crash (the refused package must leave replacement off, never a half-built backend), and honour m2_enabled = 0 before loading a package; add a suite case with a package whose files are missing.
+
