@@ -111,7 +111,7 @@ MODULE_DLL = "efmi_vk_backend.dll"
 MODULE_SOURCES = [
     "module/module_main.cpp", "src/character_backend.cpp", "src/character_package.cpp", "src/character_materials.cpp",
     "src/character_program.cpp", "src/character_present.cpp",
-    "src/material_sibling.cpp", "src/merged_skeleton.cpp", "src/pipeline_variant.cpp", "src/spirv_repoint.cpp",
+    "src/merged_skeleton.cpp", "src/pipeline_variant.cpp", "src/spirv_repoint.cpp",
     "src/variant_cache.cpp", "src/draw_snapshots.cpp", "src/pipeline_recipe.cpp", "../frontend/gpu/fragment_images.cpp",
 ]
 # Headers whose structures cross between the layer and a module. A module built from other
@@ -188,7 +188,7 @@ def build_module(vcvars: str, include: str, out: str, mismatch: bool = False) ->
 
 
 # Shared static material path also linked by tracker/recipe fixtures with the backend.
-MATERIAL_SOURCES = ["../frontend/gpu/material_plan.cpp", "../frontend/assets/dds.cpp",
+MATERIAL_SOURCES = ["../frontend/gpu/material_plan.cpp", "../frontend/gpu/source_registers.cpp", "../frontend/assets/dds.cpp",
                     "../frontend/assets/image_upload.cpp", "../frontend/assets/buffer_upload.cpp",
                     "../frontend/assets/resource_cache.cpp"]
 
@@ -257,7 +257,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
                      "../frontend/gpu/fragment_images.cpp",
                      "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                      "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + runtime_link() + [
+                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link() + [
                      "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                      "/PDB:build\\tracker\\test.pdb", "user32.lib"]
     run_cl(vcvars, folder, args)
@@ -280,12 +280,12 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
         if name == "mesh_test":
             sources += ["../layer/src/m2_mesh.cpp", "../layer/src/util.cpp"]
         if name == "character_test":
-            sources += ["../layer/src/character_package.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp", "../frontend/gpu/material_plan.cpp", "../layer/src/util.cpp"]
+            sources += ["../layer/src/character_package.cpp", "../layer/src/character_materials.cpp", "../frontend/gpu/material_plan.cpp", "../frontend/gpu/source_registers.cpp", "../layer/src/util.cpp"]
         if tracker:
             sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                         "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                         "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + runtime_link()
+                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link()
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
         args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                            "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]

@@ -7,7 +7,7 @@
 #include "character_program.h"
 #include "character_present.h"
 #include "character_materials.h"
-#include "material_sibling.h"
+#include "../../frontend/gpu/source_registers.h"
 #include "merged_skeleton.h"
 #include "state.h"
 #include "work.h"
@@ -42,11 +42,8 @@ constexpr uint64_t kExpiryMicroseconds = 500000;
 constexpr size_t kIdentities = 16;
 constexpr uint32_t kArenaEntries = 256, kArenaSlices = 64;
 constexpr uint64_t kRehashFrames = 256;
-// Unprofiled fragment shaders (material_sibling.h): how often a profiled shader's bound images are
-// read again, how long a failed search rests, and how many images a shader may have beyond its sibling.
-constexpr uint64_t kSignatureFrames = 30, kDeriveRetryFrames = 30;
-constexpr uint32_t kSiblingExtras = 2;
-constexpr size_t kDerivedProfiles = 256, kSignaturesPerSection = 32;
+// Fragment shaders without a profile in the package whose rules are derived from the module.
+constexpr size_t kDerivedProfiles = 256;
 
 float ini_seconds()
 {
@@ -158,21 +155,13 @@ struct IndexKeyHash {
 struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; };
 struct BoneSite { bool ok = false; uint32_t set = 0, binding = 0; };
 using StaticMaterial = CharacterMaterial;
-// What a profiled fragment shader had bound at its image variables when it last drew a section.
-struct Signature { uint32_t profile = 0; uint64_t pass = 0, frame = 0; std::vector<BoundImage> images; };
-// Rules a shader without a profile took over from a profiled sibling, prepared like a profile.
+// Rules of a fragment shader the package has no profile for, read off its module by the DX11
+// register rule (D-076), prepared like a profile.
 struct DerivedProfile {
-    uint32_t crc = 0, sibling = 0;
+    uint32_t crc = 0;
     std::vector<uint32_t> code;
     std::vector<CharacterMaterialRule> rules;
     std::vector<StaticMaterial> plans;
-};
-// The search for one unprofiled shader drawing one section.
-struct Derived {
-    bool parsed = false, settled = false;
-    uint32_t profile = kCharacterNone; // none: the application's images stay
-    uint64_t retry = 0;
-    std::vector<std::pair<uint32_t, uint32_t>> images;
 };
 // The character backend's part of a command buffer. The counter outlives the backend: a command
 // may still be sealed after the code it came from was exchanged.
@@ -227,13 +216,10 @@ public:
     std::vector<efmi::assets::ResourceHandle> image_handles;
     std::vector<std::vector<StaticMaterial>> materials; // profile x package draw, prepared at setup
     std::unordered_map<uint32_t, uint32_t> material_profiles; // pipeline generation -> exact profile
-    // Under the mod lock. Per profile its fragment image variables (none: module not understood).
-    std::vector<std::vector<std::pair<uint32_t, uint32_t>>> profile_images;
-    std::vector<uint8_t> profile_readable;
-    std::vector<std::vector<Signature>> signatures;                // per section
-    std::unordered_map<uint64_t, Derived> derived;                 // pipeline generation and section
+    std::vector<uint32_t> material_slots;                          // DX11 pixel slots the package binds
+    std::unordered_map<uint32_t, uint32_t> derived_for_pipeline;   // pipeline generation -> derived profile or none
     std::vector<std::unique_ptr<DerivedProfile>> derived_profiles;
-    std::unordered_map<uint32_t, uint64_t> pass_kinds;             // pipeline generation -> kind of pass
+    uint32_t rule_mismatches = 0;                                  // package profiles the register rule disagrees with
     std::set<uint32_t> image_counts{0};
     std::mutex queue_mx;
     bool queues_stopped = false;
@@ -425,140 +411,73 @@ public:
         for (auto count : counts) if (!image_counts.count(count)) return refuse(C_MATERIAL, "runtime material lacks a prepared arena");
         return true;
     }
-    // `origin`: 0 the package's own profile or nothing to bind, 1 rules of a sibling, 2 the application's images.
+    // `origin`: 0 the package's own profile or nothing to bind, 1 rules derived from the module, 2 the application's images.
     bool material_draws(const PipeInfo&, uint32_t section, const DrawRec&, uint64_t now, const CharacterList&,
                         std::vector<const StaticMaterial*>&, std::vector<std::vector<SnapshotImage>>&, uint32_t& origin);
 
-    // Siblings are looked for among shaders that draw in the same kind of pass.
-    uint64_t pass_kind(const PipeInfo& pipe)
+    // Material rules of a fragment module for the slots the package binds, by the DX11 register rule
+    // (D-076): a slot whose t register the module does not declare is absent, as an unread slot is
+    // under DX11; a single image is bound there. False for a module the rule cannot read or a slot on
+    // something else than one image (left to the application's images, never guessed).
+    bool rule_rules(const std::vector<uint32_t>& code, std::vector<CharacterMaterialRule>& rules, std::string& reason) const
     {
-        const auto found = pass_kinds.find(pipe.id);
-        if (found != pass_kinds.end()) return found->second;
-        uint32_t words[40] = {};
-        size_t count = 0;
-        const GraphicsRecipe& recipe = *pipe.recipe;
-        if (recipe.render_pass)
-            for (const auto& a : recipe.render_pass->attachments)
-                if (count + 2 <= 32) { words[count++] = static_cast<uint32_t>(a.format); words[count++] = static_cast<uint32_t>(a.samples); }
-        words[count++] = recipe.subpass;
-        words[count++] = recipe.has_depth ? 1 + recipe.depth.depthWriteEnable : 0;
-        words[count++] = recipe.has_depth ? static_cast<uint32_t>(recipe.depth.depthCompareOp) : 0;
-        const uint64_t kind = uint64_t(crc32c(0, words, count * 4)) << 32 | count;
-        if (pass_kinds.size() >= 4096) pass_kinds.clear();
-        pass_kinds[pipe.id] = kind;
-        return kind;
-    }
-
-    // Caller holds res_mx. What the application has bound at the image variables of a fragment shader.
-    std::vector<BoundImage> bound_images(const DrawRec& r, const std::vector<std::pair<uint32_t, uint32_t>>& places)
-    {
-        std::vector<BoundImage> out;
-        out.reserve(places.size());
-        for (const auto& place : places) {
-            BoundImage image;
-            image.set = place.first; image.binding = place.second;
-            out.push_back(image);
-            if (place.first >= kMaxSets) continue;
-            const SetBind& bind = r.sets[place.first];
-            const DescriptorSetInfo* contents = bind.pushed.get();
-            if (!contents && bind.id) {
-                const auto set = device->descriptor_sets.find(bind.set);
-                if (set != device->descriptor_sets.end() && set->second.id == bind.id) contents = &set->second;
+        std::vector<efmi::gpu::SourceRegister> registers;
+        if (!efmi::gpu::source_registers(code, registers, reason)) return false;
+        rules.clear();
+        for (uint32_t slot : material_slots) {
+            const auto* r = efmi::gpu::find_source_register(registers, 't', slot);
+            CharacterMaterialRule rule;
+            rule.slot = slot;
+            if (!r) { rule.kind = CharacterMaterialRule::Absent; rules.push_back(rule); continue; }
+            if (r->kind != efmi::gpu::SourceRegister::ImageSrv || r->count != 1) {
+                reason = "register t" + std::to_string(slot) + " is not a single image"; return false;
             }
-            if (bind.unsupported || !contents) continue;
-            const auto value = contents->values.find({place.second, 0});
-            if (value == contents->values.end() || !value->second.known || !value->second.image_view) continue;
-            const auto view = device->image_views.find(value->second.image_view);
-            if (view == device->image_views.end() || view->second.id != value->second.image_view_id || !view->second.image_id) continue;
-            uint32_t words[5] = {static_cast<uint32_t>(view->second.type), static_cast<uint32_t>(view->second.format), 0, 0, 0};
-            const auto source = device->images.find(view->second.image);
-            if (source != device->images.end() && source->second.id == view->second.image_id) {
-                words[2] = source->second.extent.width; words[3] = source->second.extent.height; words[4] = source->second.extent.depth;
-            }
-            out.back().image = view->second.image_id;
-            out.back().shape = uint64_t(crc32c(0, words, sizeof(words))) << 32 | crc32c(0x9E3779B9u, words, sizeof(words));
+            // The device-bound compatibility policy of the package covers a 2D file at a 3D image.
+            rule.kind = package.material_vendor && r->dim == 2 ? CharacterMaterialRule::ZeroFile : CharacterMaterialRule::Image;
+            rule.set = r->set; rule.binding = r->binding;
+            rules.push_back(rule);
         }
-        return out;
+        return true;
     }
 
-    // Caller holds res_mx. A profiled shader drew a section: keep what it had bound, for its siblings.
-    void remember(uint32_t section, uint32_t profile, const PipeInfo& pipe, const DrawRec& r, uint64_t now)
-    {
-        if (!profile_readable[profile]) return;
-        const uint64_t pass = pass_kind(pipe);
-        auto& list = signatures[section];
-        Signature* found = nullptr;
-        for (auto& s : list) if (s.profile == profile && s.pass == pass) { found = &s; break; }
-        if (found && now - found->frame < kSignatureFrames) return;
-        if (!found) {
-            if (list.size() >= kSignaturesPerSection) return;
-            list.emplace_back();
-            found = &list.back(); found->profile = profile; found->pass = pass;
-        }
-        found->images = bound_images(r, profile_images[profile]);
-        found->frame = now;
-    }
-
-    // Caller holds res_mx. The derived profile of an unprofiled fragment shader that draws a section,
+    // Caller holds res_mx. The derived profile of a fragment shader the package has no profile for,
     // or none: then the mesh is the mod's and the images stay the application's.
-    uint32_t derive(const PipeInfo& pipe, uint32_t section, const DrawRec& r, uint64_t now)
+    uint32_t derive(const PipeInfo& pipe)
     {
-        if (derived.size() >= 8192) derived.clear();
-        Derived& d = derived[uint64_t(pipe.id) << 32 | section];
-        if (d.settled || now < d.retry) return d.profile;
-        d.retry = now + kDeriveRetryFrames;
+        const auto known = derived_for_pipeline.find(pipe.id);
+        if (known != derived_for_pipeline.end()) return known->second;
+        if (derived_for_pipeline.size() >= 8192) derived_for_pipeline.clear();
+        uint32_t& result = derived_for_pipeline[pipe.id];
+        result = kCharacterNone;
         const std::vector<uint32_t>* code = nullptr;
         for (const auto& stage : pipe.recipe->stages)
             if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) code = &stage.shader->code;
-        if (!code) { d.settled = true; return d.profile; }
-        if (!d.parsed) {
-            d.parsed = true;
-            if (!fragment_image_bindings(*code, d.images) || d.images.empty()) { d.settled = true; return d.profile; }
-        }
-        const auto same = [](const std::vector<CharacterMaterialRule>& a, const std::vector<CharacterMaterialRule>& b) {
-            if (a.size() != b.size()) return false;
-            for (size_t i = 0; i < a.size(); ++i)
-                if (a[i].slot != b[i].slot || a[i].kind != b[i].kind || a[i].set != b[i].set || a[i].binding != b[i].binding) return false;
-            return true;
-        };
-        const uint64_t pass = pass_kind(pipe);
-        const auto target = bound_images(r, d.images);
-        SiblingRules best;
-        uint32_t sibling = kCharacterNone;
-        bool ambiguous = false;
-        for (const auto& s : signatures[section]) {
-            if (s.pass != pass) continue;
-            SiblingRules got;
-            if (!transfer_material_rules(s.images, package.profiles[s.profile].rules, target, got) || got.extras > kSiblingExtras) continue;
-            if (sibling == kCharacterNone || got.extras < best.extras) { best = std::move(got); sibling = s.profile; ambiguous = false; }
-            else if (got.extras == best.extras && !same(got.rules, best.rules)) ambiguous = true;
-        }
-        // Nothing yet: the sibling may not have drawn this section so far. Looked for again later.
-        if (sibling == kCharacterNone || ambiguous) return d.profile;
-        d.settled = true;
+        if (!code) return result;
         const uint32_t crc = crc32c(0, code->data(), code->size() * 4);
-        for (uint32_t i = 0; i < derived_profiles.size(); ++i) {
-            const DerivedProfile& known = *derived_profiles[i];
-            if (known.crc == crc && same(known.rules, best.rules) && known.code == *code) { d.profile = i; return i; }
-        }
-        if (derived_profiles.size() >= kDerivedProfiles) { note("character material: too many derived profiles"); return d.profile; }
+        for (uint32_t i = 0; i < derived_profiles.size(); ++i)
+            if (derived_profiles[i]->crc == crc && derived_profiles[i]->code == *code) return result = i;
+        std::string reason;
         auto created = std::make_unique<DerivedProfile>();
-        created->crc = crc; created->sibling = sibling; created->code = *code; created->rules = std::move(best.rules);
+        if (!rule_rules(*code, created->rules, reason)) {
+            char name[16];
+            snprintf(name, sizeof(name), "%08x", crc);
+            note(std::string("character material: fragment ") + name + " keeps the application's images: " + reason); return result;
+        }
+        if (derived_profiles.size() >= kDerivedProfiles) { note("character material: too many derived profiles"); return result; }
+        created->crc = crc; created->code = *code;
         CharacterMaterialProfile source;
         source.code = created->code; source.rules = created->rules;
         std::set<uint32_t> counts;
-        std::string reason;
         if (!prepare_character_profile(package, source, created->plans, counts, reason)) {
-            note("character material: derived profile refused: " + reason); return d.profile;
+            note("character material: derived profile refused: " + reason); return result;
         }
         // The arenas of a command are made for the image counts known at setup.
         for (uint32_t count : counts)
-            if (!image_counts.count(count)) { note("character material: derived profile needs an image count no arena has"); return d.profile; }
-        logf("character material: fragment %08x (pipeline %u) takes the rules of profile %u, %u more images",
-             crc, pipe.id, sibling, best.extras);
+            if (!image_counts.count(count)) { note("character material: derived profile needs an image count no arena has"); return result; }
+        logf("character material: fragment %08x (pipeline %u) takes %zu rules from the DX11 register rule",
+             crc, pipe.id, created->rules.size());
         derived_profiles.push_back(std::move(created));
-        d.profile = static_cast<uint32_t>(derived_profiles.size() - 1);
-        return d.profile;
+        return result = static_cast<uint32_t>(derived_profiles.size() - 1);
     }
 
     // Caller holds res_mx. The index bytes of one draw, hashed once and then recognized by a short
@@ -699,12 +618,25 @@ bool CharacterGeneration::init_materials()
         last_reason = "material dimension compatibility belongs to a different device"; return false;
     }
     if (!prepare_character_materials(package, materials, image_counts, last_reason)) return false;
-    for (const auto& profile : package.profiles) {
-        std::vector<std::pair<uint32_t, uint32_t>> places;
-        profile_readable.push_back(fragment_image_bindings(profile.code, places));
-        profile_images.push_back(std::move(places));
+    {
+        std::set<uint32_t> slots;
+        for (const auto& draw : package.pixels) for (const auto& pixel : draw) slots.insert(pixel.slot);
+        material_slots.assign(slots.begin(), slots.end());
     }
-    signatures.resize(package.sections.size());
+    // The package's own profiles came from paired captures; the register rule must give the same
+    // bindings for the slots they place. A difference is reported, the profile stays in use.
+    for (uint32_t i = 0; i < package.profiles.size(); ++i) {
+        std::vector<CharacterMaterialRule> rules;
+        std::string why;
+        if (!rule_rules(package.profiles[i].code, rules, why)) { ++rule_mismatches; logf("character material: profile %u not read by the register rule: %s", i, why.c_str()); continue; }
+        for (const auto& own : package.profiles[i].rules)
+            for (const auto& rule : rules)
+                if (rule.slot == own.slot && (rule.kind != own.kind || rule.set != own.set || rule.binding != own.binding)) {
+                    ++rule_mismatches;
+                    logf("character material: profile %u slot %u is %u.%u by capture, %u.%u by the register rule", i, own.slot,
+                         own.set, own.binding, rule.set, rule.binding);
+                }
+    }
 #define X(n) n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
     if (!n) { last_reason = "missing material vk" #n; return false; }
     X(CreateSemaphore) X(DestroySemaphore) X(CreateFence) X(DestroyFence) X(WaitForFences)
@@ -795,16 +727,15 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
         }
     }
     // The table of plans: the package's own profile; for a fragment shader without one the rules
-    // of a profiled sibling; failing that none, and the application's images stay on the mod's
-    // mesh. Keeping the game's mesh there instead would mix the two models on screen.
+    // the DX11 register rule reads off its module; failing that none, and the application's images
+    // stay on the mod's mesh. Keeping the game's mesh there instead would mix the two models on screen.
     const std::vector<StaticMaterial>* table = nullptr;
     bool binds = false;
     for (uint32_t i = 0; i < list.count; ++i) binds |= package.materials && !package.pixels[list.first + i].empty();
     if (binds && profile < package.profiles.size()) {
         table = &materials[profile];
-        remember(section, profile, pipe, r, now);
     } else if (binds && profile == kCharacterNone) {
-        const uint32_t index = derive(pipe, section, r, now);
+        const uint32_t index = derive(pipe);
         if (index != kCharacterNone) table = &derived_profiles[index]->plans;
         origin = table ? 1 : 2;
     }
@@ -1222,9 +1153,7 @@ void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
     std::lock_guard<std::mutex> lock(backend.mod_mx);
     backend.sites.erase(pipeline_id);
     backend.material_profiles.erase(pipeline_id);
-    backend.pass_kinds.erase(pipeline_id);
-    for (auto it = backend.derived.begin(); it != backend.derived.end();)
-        it = it->first >> 32 == pipeline_id ? backend.derived.erase(it) : std::next(it);
+    backend.derived_for_pipeline.erase(pipeline_id);
 }
 
 void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork* present)
@@ -1476,6 +1405,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kn("identities_replaced", custom);
         w.kn("lod", backend.lod);
         w.kn("material_derived_profiles", backend.derived_profiles.size());
+        w.kn("material_rule_mismatches", backend.rule_mismatches);
     }
 }
 

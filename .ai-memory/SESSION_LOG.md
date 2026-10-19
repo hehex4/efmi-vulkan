@@ -1982,3 +1982,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - Explored the 16-scene catalogue: names are stripped on both sides; interfaces differ (DX11 builds declare more and lay out constant buffers differently), but SPIR-V declaration order agreed with DX11 register order in all 675 adjacent pairs, and ranking shader resource views with buffers first predicts every observed t register (1187 of 1187 over both catalogues and both stages). FXC alone numbers by plain declaration order (own fixture), so buffers-first is the game's build convention.
 - server/efmi_vk/source_slots.py, scripts/check_source_slots.py (suite step), docs/source-slot-truth.json, docs/source-slots.md; unit tests with a DXC-compiled fixture (10 new, 110/110).
+
+## 2026-10-19: material rules from the register rule in the layer (candidate 1.4.8)
+
+- frontend/gpu/source_registers.h/.cpp (new), layer/src/character_backend.cpp (derive by the rule, profiles checked against it, sibling machinery removed), scripts/build.py (source_registers in the material sources; material_sibling gone), sandbox/character_test.cpp (register tests instead of sibling tests; --derived prints registers), sandbox/character_test.py and runtime_fixture.py (fixture slot 1), sandbox/character_gpu_case.h, docs/character-materials.md, character-backend.md, hot-swap.md. Removed: layer/src/material_sibling.h/.cpp, scripts/sibling_check.py, sibling_replay.py. Version 1.4.8.
+- Results: full rebuilt suite 31/31 steps (build/next/run_all-1.4.8.out). The dithered variant from the 0.9.8 flicker captures gets the same bindings by the rule as by the old sibling search.

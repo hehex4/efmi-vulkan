@@ -19,7 +19,7 @@ that copy unless told otherwise. `efmi_vk_backend.dll`, the module, holds the sa
 | | layer DLL (host) | module |
 |---|---|---|
 | hooks, tracker, probe pipe, captures | yes | no |
-| character backend, its package and materials, sibling rules, merged skeleton, pipeline variants and their cache, draw snapshots, texture upload | built in | yes |
+| character backend, its package and materials, derived material rules, merged skeleton, pipeline variants and their cache, draw snapshots, texture upload | built in | yes |
 | single-component backend of 0.9.x | yes | no |
 
 `layer/src/character_module.h` is the boundary: a table of the backend's functions

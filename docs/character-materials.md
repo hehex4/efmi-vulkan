@@ -212,46 +212,29 @@ textures, plus one image (a 256 x 256 noise texture), at bindings moved by one o
 component 0, lit pass: profile 09e0be38 has slot 15 at (1,6), 16 at (1,3), 17 at (1,1); the
 variant f1ded4ae holds the same three textures at (1,8), (1,4) and (1,2).
 
-So the rules of the profiled shader, the sibling, are taken to the variant through the images:
+0.9.9 took the rules of a profiled shader, the sibling, to such a variant through the images the
+application had bound (scripts/sibling_replay.py and sibling_check.py checked 25 captured
+variants). That was a heuristic: it kept a variant looking like its sibling, not the source API's
+slots, and it carried over rules that put a texture into an unrelated slot.
 
-- At a draw with a profiled shader the backend notes which image the application has bound at
-  each image variable of that shader (per section and kind of pass, read again every 30 frames).
-- At a draw with a shader that has no profile, the same is read for that shader. A profiled
-  shader of the same section and kind of pass is a candidate when every image it had bound has a
-  place in the new shader: the same image, or, for an image only one side holds, an image of the
-  same view type, format and extent, occurrences in binding order. The candidate that leaves the
-  fewest images of the new shader over wins, at most two; two best candidates with different
-  results give none.
-- A rule moves to the binding that holds the same image. It moves only through a certain match:
-  the same image the same number of times on both sides, or a shape that occurs once on each
-  side (the 3D texture of the dimension rule is another image every other frame). An absent slot
-  stays absent.
-- The result is prepared like a profile of the package (`prepare_character_profile`), once per
-  shader and rule set, and every draw plan must use an image count the arenas were made for.
-  Nothing yet (the sibling has not drawn so far): the application's images stay, and the search
-  is repeated 30 frames later.
+Since 2026-10-19 the rules of every fragment shader without a profile come from its own module
+by the DX11 register rule (D-076, docs/source-slots.md): for each slot the package binds, the
+module's t register of that number is looked up (shader resource views ranked in declaration
+order, read-only buffers first). No register there: the slot is absent, as an unread slot is
+under DX11. One image there: the slot binds it (or, under the package's device-bound dimension
+policy, the zero file at a 3D image). Anything else, or a module the rule cannot read: the
+application's images stay on the mod's mesh. The sibling search, its signatures and
+`material_sibling.cpp` are gone.
 
-This keeps a variant looking like its sibling. It is not a claim about the source API's slots in
-the variant shader: a rule that puts a texture into an unrelated slot of the sibling (profile
-2e2750b8 binds the mod's normal map where that shader samples the diffuse texture) is carried
-over as it is.
+For the example above the rule gives the variant f1ded4ae t15 (1,8), t16 (1,4), t17 (1,2), the
+same textures the sibling search found, and the profile 09e0be38 its captured (1,6), (1,3),
+(1,1). At setup the backend checks every profile of the package against the rule and reports a
+difference (`material_rule_mismatches`, a log line); the profile stays in use.
 
-A shader without a profile and without a sibling keeps the application's images on the mod's
-mesh. `material_derived` and `material_inherited` count replaced draws of the two kinds;
+`material_derived` and `material_inherited` count replaced draws of the two kinds;
 `material_derived_profiles` is the number of prepared rule sets, and the log names each.
-
-Evidence:
-
-- Frames and shaders from the running game: `scripts/flicker_capture.py` and
-  `scripts/flicker_shaders.py`, saved in `captures/flicker-0.9.8-20261013/`.
-- `scripts/sibling_replay.py` runs the rule over the 30 captured frames in draw order: 54
-  combinations of component, pass and unprofiled shader; 25 get one and the same sibling and rule
-  set in every draw, each with exactly one image more than the sibling; the other 29 have no
-  candidate (four-set overlay, after-images, the visibility pass, component 7's extra shader).
-- `scripts/sibling_check.py` puts the 25 real variant modules with their derived rules through
-  the production preparation (`efmi_vk_character_test --derived`): all accepted, and for every one
-  the supported draws, their textures and their null bindings equal the sibling's.
-- Native checks with the images the game had bound (`sandbox/character_test.cpp`,
-  `sibling_tests`) and a sandbox scene through the real hooks.
+Sandbox: the fixture's module has its read-only bone block at t0 and its image at t1, so the
+fixture binds slot 1; the variant with the image at binding 8 shows the mod's texture through the
+rule, and the four-set pipeline's shader, which declares no image, gets every slot absent.
 
 The game result is open.

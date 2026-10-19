@@ -125,9 +125,9 @@ filename = missing-unused.dds
 run = CommandList\EFMIv1\OverrideTextures
 ib = ResourceS1
 if $tint == 0
- ps-t15 = ResourceRed
+ ps-t1 = ResourceRed
 else
- ps-t15 = ResourceGreen
+ ps-t1 = ResourceGreen
 endif
 ps-t18 = ResourceGreen
 """ + draw(3, 4)
@@ -135,8 +135,8 @@ ps-t18 = ResourceGreen
 [CommandListDraw1]
 run = CommandList\EFMIv1\OverrideTextures
 ib = ResourceS1
-ps-t15 = ResourceGreen
-""" + draw(5, 6) + "ps-t15 = null\n" + draw(7, 8)
+ps-t1 = ResourceGreen
+""" + draw(5, 6) + "ps-t1 = null\n" + draw(7, 8)
     text += "\n[CommandListDraw2]\nrun = CommandList\\EFMIv1\\OverrideTextures\n"
     (folder / "mod.ini").write_text(text, encoding="ascii")
     (folder / "keys.txt").write_text("1\n", encoding="ascii")

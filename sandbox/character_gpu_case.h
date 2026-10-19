@@ -342,7 +342,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     }
     if(material){
         // A fragment shader without a profile that samples the profiled shader's texture at another
-        // binding takes that shader's rule to its own binding: A's mesh in the mod's texture (5).
+        // binding gets the rule of its own module (D-076): A's mesh in the mod's texture (5).
         // The application's texture on the mod's mesh would be 1, the application's own draw 1 at
         // the unreplaced place.
         bool derived=false;
@@ -352,7 +352,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
                     shade_at(.6f,-.6f)==0 && shade_at(-.6f,-.6f)==0 && shade_at(0,-.6f)==0;
             if(!derived)Sleep(5);
         }
-        check(derived,"an unprofiled fragment shader with the texture at another binding gets the mod's texture through its profiled sibling");
+        check(derived,"an unprofiled fragment shader with the texture at another binding gets the mod's texture through the register rule");
     }
     // LOD 1 of component A: its palette is in another order and the package remaps it.
     // Merged bone 0 <- source 1 = (-.6,-.2), merged bone 1 <- source 0 = (-.2,.6).
@@ -482,9 +482,9 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
               "failed candidate DDS upload retains old Ready images and the live drawing generation");
         write_text("green.dds", texture_bytes);
         auto changed = original_text;
-        const auto alternate = changed.find("else\n ps-t15 = ResourceGreen\n");
+        const auto alternate = changed.find("else\n ps-t1 = ResourceGreen\n");
         if (alternate == std::string::npos) throw std::runtime_error("Runtime fixture branch not found");
-        changed.replace(alternate, strlen("else\n ps-t15 = ResourceGreen\n"), "else\n ps-t15 = ResourceRed\n");
+        changed.replace(alternate, strlen("else\n ps-t1 = ResourceGreen\n"), "else\n ps-t1 = ResourceRed\n");
         write_text("mod.ini", changed);
         // This records one more green command before F10 starts parsing. Keep
         // resubmitting that sealed recording throughout retirement of its owner.

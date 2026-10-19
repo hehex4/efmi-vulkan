@@ -142,9 +142,9 @@ remain questions for the next user-started session.
   replaced since 0.9.8; the tracker follows slots 0 to 3, so a private set at slot 4 or above is
   used only while no pipeline layout of the application has that many sets (in the game: none of
   1,430 pipelines has more than four).
-- With a material package, a fragment shader without a profile takes the rules of a profiled
-  sibling where one is found, and otherwise keeps the application's images on the mod's mesh
-  (0.9.9, `docs/character-materials.md`). The mesh is replaced either way. A four-set pipeline
+- With a material package, a fragment shader without a profile takes the rules the DX11 register
+  rule reads off its module (D-076 since 2026-10-19; a profiled sibling's rules from 0.9.9 on before
+  that), and otherwise keeps the application's images on the mod's mesh (`docs/character-materials.md`). The mesh is replaced either way. A four-set pipeline
   whose fragment shader has material rules is covered by the rewrite and not by a sandbox scene.
 - A draw whose vertex shader has no bone buffer keeps the original mesh (`refused_variant`). The
   game's after-images of a dash are such draws (LIMIT-027).

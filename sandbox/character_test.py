@@ -82,8 +82,10 @@ def material_package(path, reject_late=False):
     shader = path.with_suffix(".spv")
     subprocess.run([str(Path(DIST) / "efmi_vk_character_test.exe"), "--material-shader", str(shader)],
                    cwd=path.parent, check=True, capture_output=True)
-    profiles = [dict(code=shader.read_bytes(), rules=[(15, 2, 1, 6), (18, 1, 0, 0)])]
-    pixels = [{15: 0, 18: 1}, {15: 1}, {42 if reject_late else 15: NONE}]
+    # The fixture module's image is t1 by the DX11 register rule (its read-only bone block is t0), so
+    # the package binds slot 1; slot 18 is not declared there. 42 is a slot no profile knows.
+    profiles = [dict(code=shader.read_bytes(), rules=[(1, 2, 1, 6), (18, 1, 0, 0)])]
+    pixels = [{1: 0, 18: 1}, {1: 1}, {42 if reject_late else 1: NONE}]
     path.write_bytes(envelope(path.read_bytes(), paths, profiles, pixels))
 
 
@@ -168,11 +170,14 @@ def main():
             checks.check(c["restored_set3"] >= 10, label + " the application's set 3 was bound again after replacements")
             refused = {k: v for k, v in c.items() if k.startswith(("refused_", "unreadable_", "import_", "exhausted", "identities_full")) and v}
             checks.equal(refused, {}, label + " no refusal of any kind")
-            # A fragment shader without a profile: with a profiled sibling it takes that shader's rules,
-            # without one the mesh is replaced and the application's images stay. Mesh-only runs have neither.
-            checks.equal((c["material_derived"] > 0, c["material_inherited"] > 0, r["material_derived_profiles"]),
-                         (True, True, 1) if material else (False, False, 0),
-                         label + " unprofiled fragment shaders counted: rules from a sibling, and the application's images")
+            # A fragment shader without a profile takes the rules the DX11 register rule reads off its own
+            # module (D-076); none keeps the application's images. Two are derived: the variant with its
+            # image at binding 8, and the four-set pipeline's shader, which declares no image, so every
+            # slot is absent there as under DX11. Mesh-only runs have neither. The package's profile
+            # agrees with the rule.
+            checks.equal((c["material_derived"] > 0, c["material_inherited"] > 0, r["material_derived_profiles"], r.get("material_rule_mismatches")),
+                         (True, False, 2, 0) if material else (False, False, 0, 0),
+                         label + " unprofiled fragment shaders take their rules from their module; the profile agrees with the rule")
             # A run on two queues brings the textures up in a phase of its own first, which exchanges once too.
             earlier = r.get("module", {}).get("generation", -1)
             swapped = folder / "character-swapped.json"

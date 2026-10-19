@@ -1,10 +1,11 @@
 // Bounded decoding of a character package and the vertex declaration it asks for.
 // "--inspect <file>" runs the production decoder on a real package and prints what it holds.
 // "--derived <package> <fragment.spv> <slot:kind:set:binding>..." prepares that fragment module with
-// those rules as the backend does for a shader without a profile, and prints what each draw gets.
+// those rules as the backend does for a shader without a profile, and prints what each draw gets and
+// the DX11 registers the rule of D-076 gives the module's resources.
 #include "../layer/src/character_package.h"
 #include "../layer/src/character_materials.h"
-#include "../layer/src/material_sibling.h"
+#include "../frontend/gpu/source_registers.h"
 #include "../layer/src/json.h"
 #include "variant_fixture.h"
 #include <cstdio>
@@ -199,66 +200,29 @@ static void declaration_tests(const CharacterPackage& p)
           "a declaration that already has the file's layout passes unchanged");
 }
 
-// Rules for a fragment shader without a profile. The image lists are what the game had bound for
-// component 0 in captures/flicker-0.9.8-20261013: the lit pass (profile 09e0be38 and its dithered
-// variant f1ded4ae) and a pass whose rule names a 3D texture that changes from frame to frame.
-static void sibling_tests()
+// The DX11 register rule (D-076) on the fixture's fragment modules. Their bone block is a read-only
+// buffer and comes first (t0); the image follows (t1) wherever its binding is, as for a feature
+// variant of a game shader that moves its bindings.
+static void register_tests()
 {
-    using Places = std::vector<std::pair<uint32_t, uint32_t>>;
-    Places places;
-    check(fragment_image_bindings(variant_fixture::shader(false, true), places) && places == Places({{1, 6}}),
-          "the image variable of a fragment module is found with its set and binding");
-    check(fragment_image_bindings(variant_fixture::shader(false, true, 8), places) && places == Places({{1, 8}}),
-          "the same module with the image declared elsewhere reports the other binding");
-    check(fragment_image_bindings(variant_fixture::shader(false, false), places) && places.empty(),
-          "a fragment module without images has none; its buffers are not counted");
-    places = {{9, 9}};
+    using efmi::gpu::SourceRegister;
+    std::vector<SourceRegister> r;
+    std::string reason;
+    const auto at = [&](char letter, uint32_t index) { return efmi::gpu::find_source_register(r, letter, index); };
+    check(efmi::gpu::source_registers(variant_fixture::shader(false, true), r, reason) && at('t', 0) && at('t', 1) &&
+          at('t', 0)->kind == SourceRegister::BufferSrv && at('t', 0)->set == 0 && at('t', 0)->binding == 7 &&
+          at('t', 1)->kind == SourceRegister::ImageSrv && at('t', 1)->set == 1 && at('t', 1)->binding == 6 && at('t', 1)->dim == 1 && !at('t', 2),
+          "the read-only bone block is t0 and the image t1 of the material fragment module");
+    check(efmi::gpu::source_registers(variant_fixture::shader(false, true, 8), r, reason) && at('t', 1) && at('t', 1)->binding == 8,
+          "the variant with the image at another binding keeps it at t1");
+    check(efmi::gpu::source_registers(variant_fixture::shader(false, false), r, reason) && at('t', 0) && !at('t', 1) &&
+          at('b', 0) && at('b', 0)->kind == SourceRegister::ConstantBuffer && at('b', 0)->set == 2 && at('b', 0)->binding == 0,
+          "a module without an image has its buffer at t0 and its uniform block at b0");
     auto cut = variant_fixture::shader(false, true);
     cut.resize(cut.size() - 3);
-    check(!fragment_image_bindings(cut, places) && !fragment_image_bindings({1, 2, 3}, places) && places == Places({{9, 9}}),
+    r = {SourceRegister{}};
+    check(!efmi::gpu::source_registers(cut, r, reason) && !efmi::gpu::source_registers({1, 2, 3}, r, reason) && r.size() == 1,
           "a truncated or foreign module is refused and the output stays");
-
-    const auto shape = [](uint32_t w, uint32_t h, uint32_t d, uint32_t format) { return uint64_t(format) << 48 | uint64_t(w) << 32 | uint64_t(h) << 16 | d; };
-    const auto at = [](uint32_t set, uint32_t binding, uint32_t image, uint64_t s) { BoundImage b; b.set = set; b.binding = binding; b.image = image; b.shape = s; return b; };
-    const uint64_t big = shape(2048, 2048, 1, 145), color = shape(2048, 2048, 1, 146), ramp = shape(256, 1, 1, 37), froxel = shape(70, 40, 128, 97);
-    // The globals of set 0, the same in both shaders except the froxel texture at binding 36.
-    const auto globals = [&](uint32_t froxel_image) {
-        std::vector<BoundImage> g = {at(0, 3, 0, 0), at(0, 22, 1156496, shape(1114, 626, 1, 16)), at(0, 27, 1156026, shape(6144, 4096, 1, 124)),
-            at(0, 29, 40, shape(4, 4, 1, 43)), at(0, 30, 1143882, shape(128, 192, 128, 37)), at(0, 31, 1143878, shape(128, 192, 128, 37)),
-            at(0, 32, 1143874, shape(128, 192, 128, 37)), at(0, 36, froxel_image, froxel), at(0, 39, 9054757, shape(512, 512, 1, 145))};
-        return g;
-    };
-    auto sibling = globals(1156084), target = globals(1156489);
-    for (const auto& b : {at(1, 1, 1568641, big), at(1, 2, 7570151, shape(256, 256, 1, 37)), at(1, 3, 1215305, big),
-                          at(1, 4, 8780991, shape(512, 512, 1, 145)), at(1, 5, 9071222, ramp), at(1, 6, 1214541, color)}) sibling.push_back(b);
-    for (const auto& b : {at(1, 1, 0, 0), at(1, 2, 1568641, big), at(1, 3, 7570151, shape(256, 256, 1, 37)), at(1, 4, 1215305, big),
-                          at(1, 5, 8780991, shape(512, 512, 1, 145)), at(1, 6, 7765414, shape(256, 256, 1, 146)), at(1, 7, 9071222, ramp),
-                          at(1, 8, 1214541, color)}) target.push_back(b);
-    const auto rule = [](uint32_t slot, uint32_t kind, uint32_t set, uint32_t binding) {
-        CharacterMaterialRule r; r.slot = slot; r.kind = static_cast<CharacterMaterialRule::Kind>(kind); r.set = set; r.binding = binding; return r; };
-    const auto is = [](const CharacterMaterialRule& r, uint32_t slot, uint32_t kind, uint32_t set, uint32_t binding) {
-        return r.slot == slot && uint32_t(r.kind) == kind && r.set == set && r.binding == binding; };
-    SiblingRules out;
-    check(transfer_material_rules(sibling, {rule(15, 2, 1, 6), rule(16, 2, 1, 3), rule(17, 2, 1, 1)}, target, out) && out.extras == 1 &&
-          out.rules.size() == 3 && is(out.rules[0], 15, 2, 1, 8) && is(out.rules[1], 16, 2, 1, 4) && is(out.rules[2], 17, 2, 1, 2),
-          "the dithered variant of the lit shader takes the three rules to the bindings that hold the same textures");
-    check(transfer_material_rules(sibling, {rule(15, 3, 0, 36), rule(16, 1, 0, 0)}, target, out) && out.rules.size() == 2 &&
-          is(out.rules[0], 15, 3, 0, 36) && is(out.rules[1], 16, 1, 0, 0),
-          "a rule on a texture that is another image each frame moves by its shape, which occurs once; an absent slot stays absent");
-    // The other direction: the variant holds an image the profiled shader has no place for.
-    const SiblingRules kept = out;
-    check(!transfer_material_rules(target, {rule(15, 2, 1, 8)}, sibling, out) && out.rules.size() == kept.rules.size() && out.extras == kept.extras,
-          "a shader that lacks an image of the other is no sibling; the output stays");
-    // Two textures of one shape whose images differ on both sides cannot be told apart.
-    std::vector<BoundImage> a = {at(1, 1, 11, big), at(1, 2, 12, big)}, b = {at(1, 4, 21, big), at(1, 5, 22, big)};
-    check(!transfer_material_rules(a, {rule(15, 2, 1, 1)}, b, out) && transfer_material_rules(a, {rule(15, 1, 0, 0)}, b, out) && out.extras == 0,
-          "a rule does not move through a shape that occurs twice; without such a rule the shaders still pair");
-    // One image bound once on one side and twice on the other.
-    a = {at(1, 1, 40, ramp), at(1, 2, 50, color)}; b = {at(1, 1, 40, ramp), at(1, 2, 40, ramp), at(1, 3, 50, color)};
-    check(!transfer_material_rules(a, {rule(15, 2, 1, 1)}, b, out) && transfer_material_rules(a, {rule(15, 2, 1, 2)}, b, out) &&
-          is(out.rules[0], 15, 2, 1, 3) && out.extras == 1,
-          "a rule does not move to an image the target holds more often; the rule on the other image does");
-    check(!transfer_material_rules(a, {rule(15, 2, 1, 7)}, b, out), "a rule on a binding the sibling has nothing bound at does not move");
 }
 
 int main(int argc, char** argv)
@@ -315,15 +279,19 @@ int main(int argc, char** argv)
             if (sscanf(argv[i], "%u:%u:%u:%u", &r.slot, &kind, &r.set, &r.binding) != 4) { fprintf(stderr, "rule unreadable\n"); return 1; }
             r.kind = static_cast<CharacterMaterialRule::Kind>(kind); source.rules.push_back(r);
         }
-        std::vector<std::pair<uint32_t, uint32_t>> places;
-        const bool readable = fragment_image_bindings(source.code, places);
+        std::vector<efmi::gpu::SourceRegister> registers;
+        std::string unread;
+        const bool readable = efmi::gpu::source_registers(source.code, registers, unread);
         std::vector<CharacterMaterial> plans;
         const bool prepared = prepare_character_profile(p, source, plans, used, why);
         bool covered = true;
         for (uint32_t count : used) covered &= counts.count(count) != 0;
         JsonWriter w; w.begin_object(); w.kb("readable", readable); w.kb("prepared", prepared); w.kv("reason", why); w.kb("counts_covered", covered);
-        w.key("images"); w.begin_array();
-        for (const auto& place : places) { w.begin_array(); w.num(place.first); w.num(place.second); w.end_array(); }
+        // The DX11 registers the rule gives the module's resources: [letter, register, set, binding].
+        w.key("registers"); w.begin_array();
+        for (const auto& r : registers) {
+            w.begin_array(); w.str(std::string(1, r.letter)); w.num(r.index); w.num(r.set); w.num(r.binding); w.end_array();
+        }
         w.end_array(); w.key("draws"); w.begin_array();
         for (const auto& plan : plans) {
             w.begin_object(); w.kb("ok", plan.supported); w.kv("reason", plan.reason);
@@ -401,7 +369,7 @@ int main(int argc, char** argv)
     check(p.decode(valid, why), "valid package still accepted after the refusals");
     declaration_tests(p);
     material_tests(valid);
-    sibling_tests();
+    register_tests();
     check(!is_character_package("character-test-missing.bin"), "a missing file is not a character package");
     printf("character package: %d checks passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;
