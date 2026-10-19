@@ -1971,3 +1971,9 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - The user started the game under DX11 (PID 12024, EFMI MCP probe 0.1.9) and showed 16 characters in the character display with mods off; 16 frames captured into captures/catalogue-20261019/dx11 with shader declarations, DXBC archive and texture content hashes. Verified: every archive entry present and fingerprinted, names equal XXMI's fnv_64_buf, no unreadable texture; manifest.json written. 247 distinct shaders, 509 distinct texture contents. The probe's held capture was released. No launcher setting changed; our layer was not loaded.
 
+## 2026-10-19: catalogue collection session B under Vulkan, launcher back to DX11, D-075
+
+- At the user's request: launcher EFMI profile switched to Vulkan (17:04, backup build/backups/launcher-vulkan-20261019-170405), dist/efmi_vk.cfg set to probe only with image hashes and no character package after a sandbox check found BUG-026 (a refused package crashes the process, 1.0.2 and 1.4.7). A full sandbox capture with the deployed layer and this configuration passed before the game was started.
+- The user started the game under Vulkan (PID 17836) and showed the 16 characters again; 16 bundles captured, matched one to one with the DX11 frames, paired and built into a first catalogue (CURRENT_STATE). Helper scripts for this session lived in the scratchpad (capture step with empty-frame retry, scene matching, supplement of omitted pipelines).
+- At the user's request the launcher was switched back to DX11 (17:35, backup build/backups/launcher-dx11-20261019-173504); the injected library is the user's to set back.
+- The user stated that the work is general, not per character: D-075, AGENTS.md, docs/shader-catalogue.md (role of the catalogue as ground truth), auto memory.

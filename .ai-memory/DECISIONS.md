@@ -756,3 +756,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - effective_dpi and cursor_hotspot_x/_y are answered by a host-value adapter from the host's sample; the original's Win32 calls (GetDpiForMonitor with a temporary per-monitor awareness, GetIconInfo) run in the layer at the presentation, not inside a generation. Without a sample the original's floor 96 and a zero hotspot remain. This supersedes the "stay refused" part of D-069 for these operands.
 - rt_width/rt_height are answered only in the owned domain, from o0 with the original's view rule and state caching; the window heuristic uses the same answer. In replaced draws the game's render target is not known, so they still refuse there (D-069's note stays true outside the owned domain).
 - ->hashregion/->spatialhash on owned resources return what the original returns for resources without its CPU data cache: -2 for null, -3 for images, UNKNOWN (-1) for buffers. Hashes of game data stay refused until game bindings are known; Core's spatial identification keeps its bounded adapter.
+
+## D-075: General mechanisms only; captures are ground truth, not per-character data
+
+- Date: 2026-10-19, user ("you must remember, what you are making is general, not adapting characters one by one"), said right after the 16-character catalogue collection. Recorded in AGENTS.md. It restates D-044.
+- Every installed Mod and every character, including characters never captured, must work through shared mechanisms. No per-character package, profile, table, branch or capture is a requirement of the product.
+- Captures (the 2026-10-19 catalogue collection, the arcane sample) are ground truth: they build and check general rules. The DX11-to-Vulkan correspondence is to be derived from the shaders themselves (DXBC declarations and their vkd3d translation against the game's SPIR-V interface); the catalogue measures how well it works. A rule that only works for captured shaders is not the solution.
+- The arcane vertical slice (one package, 20 profiles from paired captures) is history and a regression fixture, not a model for further Mods.

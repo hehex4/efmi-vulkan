@@ -6,6 +6,12 @@ reads the game's own bindings (typhoeus' chest physics, Si Lunabelle's guard) al
 Vulkan pipeline of a draw, the DX11 shader it stands for and where each DX11 slot is in Vulkan.
 The user chose on 2026-10-19 to collect game data for it.
 
+The product is general (AGENTS.md, D-075): the runtime must find the correspondence for any
+character and Mod, including characters never captured. A catalogue built from captures is
+therefore ground truth for deriving and checking a general rule (the correspondence read from
+the shaders' own interfaces, see "Open"), not a per-character table the runtime depends on.
+Collecting more characters is never an installation step.
+
 ## Method
 
 One scene is captured under DX11 and under Vulkan. `scripts/dx11_baseline.py summarize`
@@ -56,8 +62,23 @@ Afterwards, offline:
     py scripts/dx11_baseline.py --out captures/catalogue-<date>/dx11 summarize --label <character> --vulkan captures/catalogue-<date>/vulkan/<character>
     py scripts/shader_catalogue.py build --summary <each summary> --out build/catalogue/catalogue.json --check docs/arcane-texture-slots.json
 
-Optionally a character at LOD1 distance in the open world in both sessions. Start with four or
-five characters and look at how many new programs each adds before collecting more.
+Optionally a character at LOD1 distance in the open world in both sessions. The number of
+scenes is chosen for the variety of the ground truth (passes, material families), not to cover
+characters one by one.
+
+## First collection (2026-10-19)
+
+Session A (DX11, PID 12024, probe 0.1.9) and session B (Vulkan, PID 17836, layer 1.0.2 as a probe
+without a character package) showed the same 16 characters at 2560x1600 in the same order; every
+Vulkan frame matches its DX11 frame by index region hashes. Captures in
+captures/catalogue-20261019 (not committed). Two Vulkan frames used more than 128 pipelines; the
+rest were queried while the objects were alive and recorded in each bundle's supplement.json.
+Catalogue from the 16 scenes: 953 draw pairs, 116 programs (116 fragment and 57 vertex shaders),
+113 of the 163 drawn DX11 pixel shaders and 33 of 54 vertex shaders; 800 texture slots placed with
+1891 observations by content and 1507 by look, no texture conflict; constant buffers by size with
+two conflicts (vs-cb3); consistent with the verified arcane table. Objects drawn once more under
+DX11 than under Vulkan (an extra pass in some DX11 frames) are left unpaired; per-pass alignment
+would pair them.
 
 ## Open
 
@@ -65,8 +86,10 @@ five characters and look at how many new programs each adds before collecting mo
   selected draws and the DX11 capture the constant buffer windows; comparing static content
   (material constants) would make those pairs strong. Camera and time constants differ between
   sessions and cannot be compared by content.
-- Shaders seen under only one API stay outside the catalogue. Structural matching (vkd3d
-  translation of the DXBC against the game's SPIR-V interface) can be tested on the collected
-  ground truth.
+- The general rule: derive the correspondence from the shaders themselves (the DXBC's
+  declarations and the vkd3d translation against the game's SPIR-V interface: inputs, outputs,
+  sampled images in use order, constant block sizes), so that shaders never captured are
+  covered. The 16-scene catalogue is the ground truth to measure it against. Shaders seen under
+  only one API need it.
 - A game update changes shader bytes; the catalogue is then collected again. Texture identity
   does not depend on it.
