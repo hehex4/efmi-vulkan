@@ -45,9 +45,9 @@ def main():
         # were already parsed by the original engine, including other Mods.
         if not re.search(r"(?im)^\s*\[CommandListInitializeMergedSkeleton\]\s*$", data.decode("utf-8-sig")):
             continue
-        name = source["namespace"]
-        if not name:
-            raise ValueError("Merged-skeleton fixture needs an explicit namespace")
+        # Without a namespace line the original names the file's sections by its path; the host
+        # parses one file under its file name, so that is the implicit namespace here.
+        name = source["namespace"] or path.name
         folder = out / hashlib.sha256(str(path).encode()).hexdigest()[:16]
         folder.mkdir(exist_ok=True)
         row = dict(ini=str(path), namespace=name, output=str(folder))
@@ -62,7 +62,13 @@ def main():
         result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/check_mod_draw_plans.py"),
                                  "--mod", str(path), "--out", str(folder)],
                                 cwd=ROOT, capture_output=True, text=True, errors="replace", timeout=120)
-        callback = json.loads((folder / "mod-plan-report.json").read_text())
+        report = folder / "mod-plan-report.json"
+        if not report.exists():
+            # The planner stopped before its report; keep its error instead of losing the corpus.
+            (folder / "mod-plan-errors.txt").write_text((result.stderr or "")[-4000:].encode("ascii", "backslashreplace").decode(), encoding="ascii")
+            callback = {"passed": False, "error": "Planner stopped without a report (exit %d); see mod-plan-errors.txt" % result.returncode}
+        else:
+            callback = json.loads(report.read_text())
         row["callbacks_passed"] = result.returncode == 0 and callback["passed"]
         row["callback_error"] = callback.get("error")
         for key in ("plans", "draws", "unique_index_ranges", "texture_files", "rabbit_texture_roles"):

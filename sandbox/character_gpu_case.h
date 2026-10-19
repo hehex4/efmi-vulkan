@@ -3,7 +3,7 @@
 // component's bones (the merged skeleton), one the mod hides, and a second LOD with a bone remap.
 // The package is written by sandbox/character_test.py; positions below must agree with it.
 
-static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_late=false)
+static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_late=false,bool lazy_packages=false)
 {
     auto recipe=m2_fixture::recipe();
     RecipeFixture layout_fixture(material);auto layout=layout_fixture.layout;
@@ -259,15 +259,17 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
                                        shade_at(-.6f,-.6f)==0 && shade_at(0,-.6f)==0 && shade_at(.6f,-.6f)==0 && shade_at(.6f,-.1f)==1;};
 
     // The backend prepares its mesh and arenas on a thread of its own. The game is long past that
-    // when a character appears; the scene waits for it, so that no draw meets an empty pool.
+    // when a character appears; the scene waits for it, so that no draw meets an empty pool. A
+    // package of a directory goes to the GPU on its first match, so there the character's first
+    // frame comes before the wait: the application draws it, and the character is known after it.
+    if(lazy_packages){frame(false);check(original(),"first frame of a new character is drawn by the application");}
     bool prepared=false;
     for(uint32_t attempt=0;attempt<1000 && !prepared;++attempt){
         prepared=self_probe("{\"cmd\":\"status\"}","character-ready.json").find("\"ready\":true")!=std::string::npos;
         if(!prepared)Sleep(5);
     }
     check(prepared,"the backend is ready before the scene begins");
-    frame(false);
-    check(original(),"first frame of a new character is drawn by the application");
+    if(!lazy_packages){frame(false);check(original(),"first frame of a new character is drawn by the application");}
     if(reject_late){
         bool refused=false;
         for(uint32_t attempt=0;attempt<400 && !refused;++attempt){

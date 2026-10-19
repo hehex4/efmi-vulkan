@@ -185,7 +185,14 @@ def build(args) -> dict:
             raise ValueError(f"component {c['id']} has a LOD0 remap, which this tool does not expect")
         callback = callbacks.get(c["id"])
         if callback is None:
-            raise ValueError(f"component {c['id']} has no entry section")
+            # The mod has bones for this component but no entry section that draws it: nothing of
+            # it is replaced, its lists stay empty.
+            pair = []
+            for lod in (0, 1):
+                pair.append(len(lists))
+                lists.append({"first": len(draws), "count": 0})
+            components.append({"first": c["first"], "count": c["count"], "remap": remap_stream, "lists": pair, "id": c["id"]})
+            continue
         pair = []
         for lod in (0, 1):
             run = runs.get((callback, lod))
@@ -249,12 +256,14 @@ def build(args) -> dict:
             lists.append({"first": first, "count": len(draws) - first})
         components.append({"first": c["first"], "count": c["count"], "remap": remap_stream, "lists": pair, "id": c["id"]})
 
-    sections = []
+    sections, skipped_lods = [], []
     for entry in found:
         if entry["component"] != NONE and entry["component"] not in dense:
             raise ValueError(f"{entry['section']} names an inactive component")
         if entry["lod"] not in (None, 0, 1):
-            raise ValueError(f"{entry['section']}: only LOD 0 and 1 are supported")
+            # LOD0 and LOD1 are the requested scope; a farther LOD stays the game's.
+            skipped_lods.append(entry["section"])
+            continue
         sections.append({"hash": entry["hash"], "match_count": entry["match_count"],
                          "match_first": NONE if entry["match_first"] is None else entry["match_first"],
                          "component": NONE if entry["component"] == NONE else dense[entry["component"]], "lod": NONE if entry["lod"] is None else entry["lod"],
@@ -312,7 +321,8 @@ def build(args) -> dict:
     materials = None
     if args.textures:
         from character_materials import build_materials
-        data, materials = build_materials(data, images, pixels, args.material_slots, args.dx11_dimension_zero)
+        data, materials = build_materials(data, images, pixels, None if args.no_profiles else args.material_slots,
+                                          args.dx11_dimension_zero)
     elif args.dx11_dimension_zero:
         raise ValueError("Dimension compatibility requires --textures")
     out = args.out.resolve()
@@ -323,6 +333,7 @@ def build(args) -> dict:
     report = {
         "scope": "meshes, bones and optional static materials of one scenario; no keys, conditions or reload",
         "materials": materials,
+        "skipped_lod_sections": skipped_lods,
         "ini": {"path": str(ini), "sha256": ini_hash},
         "plans": {"path": str(args.plans.resolve()), "sha256": sha(args.plans), "scenario": args.scenario,
                   "host_executable_sha256": plan_report.get("executable_sha256")},
@@ -451,6 +462,8 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=ROOT / "build/character/character.bin")
     ap.add_argument("--textures", action="store_true", help="include static hosted pixel bindings and verified fragment profiles")
     ap.add_argument("--material-slots", type=Path, default=ROOT / "docs/arcane-texture-slots.json")
+    ap.add_argument("--no-profiles", action="store_true",
+                    help="with --textures: no captured fragment profiles; the layer derives every shader's rules (D-076)")
     ap.add_argument("--dx11-dimension-zero", type=Path, help="explicit invalid-dimension compatibility, bound to the measured hardware report")
     ap.add_argument("--check", type=Path, action="append", default=[], help="saved game bundle to replay against the package")
     args = ap.parse_args()

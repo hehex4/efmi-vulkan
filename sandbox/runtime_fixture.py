@@ -41,13 +41,13 @@ local $levels = $\EFMIv1\cfg_ms_max_lod_level_count
 """
 
 
-def fixture(folder):
-    package = folder / "character.bin"
-    fixture_package(package)
+def fixture(folder, salt=0, settings="fixture", name="character.bin"):
+    package = folder / name
+    fixture_package(package, salt)
     data = package.read_bytes()
     bones, nc, ns, nt, nl, nd, ne, crc, payload_size = struct.unpack_from("<8IQ", data, 8)
     source_data = data[-payload_size:]
-    config = dict(schema=1, ini=str(folder / "mod.ini"), core=str(CORE), namespace="runtime_fixture", settings="fixture")
+    config = dict(schema=1, ini=str(folder / "mod.ini"), core=str(CORE), namespace="runtime_fixture", settings=settings)
     declarations = []
     for i in range(ns):
         kind, stride, start, size, bone_index, bone_weight = struct.unpack_from("<2I2Q2I", data, 48 + nc * 24 + i * 32)

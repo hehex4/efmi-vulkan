@@ -6,6 +6,7 @@
 #include "state.h"
 #include "json.h"
 #include <algorithm>
+#include <filesystem>
 #include <chrono>
 #include <shared_mutex>
 
@@ -312,7 +313,9 @@ void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const
 {
     if(g_cfg.m2_package.empty() || g_cfg.mode!=Mode::Probe || !g_cfg.track_resources)return;
     // The file says which backend it is for: a whole character or the single-component package.
-    if(is_character_package(g_cfg.m2_package)){
+    // A directory names several character packages (one per Mod, lazy on the GPU).
+    std::error_code directory_error;
+    if(is_character_package(g_cfg.m2_package) || std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package),directory_error)){
         device->physical_properties=properties;device->memory_properties=memory;
         device->character_module=builtin_character_module();
         device->character=device->character_module->create(device,properties,memory);

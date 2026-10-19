@@ -526,7 +526,7 @@ static void run(Gpu& g, bool use_rp2,bool material)
 
 int wmain(int argc, wchar_t** argv)
 {
-    bool rp2 = false, canary = false, m2 = false, material=false, character=false, reject_late=false, split_queues=false;
+    bool rp2 = false, canary = false, m2 = false, material=false, character=false, reject_late=false, split_queues=false, lazy_packages=false;
     uint32_t character_assets=0;
     uint32_t graphics_queues=1, queue_index=0, submit_kind=0;
     for (int i = 1; i < argc; i++) {
@@ -544,6 +544,7 @@ int wmain(int argc, wchar_t** argv)
         }
         else if (!wcscmp(argv[i], L"--material")) material = true;
         else if (!wcscmp(argv[i], L"--character-reject-late")) reject_late = true;
+        else if (!wcscmp(argv[i], L"--lazy-packages")) lazy_packages = true;
         else if (!wcscmp(argv[i], L"--character-assets") && i+1<argc) character_assets=static_cast<uint32_t>(_wtoi(argv[++i]));
         else if (!wcscmp(argv[i], L"--graphics-queues") && i+1<argc) graphics_queues=static_cast<uint32_t>(_wtoi(argv[++i]));
         else if (!wcscmp(argv[i], L"--queue-index") && i+1<argc) queue_index=static_cast<uint32_t>(_wtoi(argv[++i]));
@@ -566,7 +567,7 @@ int wmain(int argc, wchar_t** argv)
                   "validation aborts the deliberate zero-size buffer");
         } else if (character_assets) run_character_assets(g,character_assets);
         else if (m2) run_m2(g, rp2);
-        else if (character) run_character(g, rp2,material,reject_late);
+        else if (character) run_character(g, rp2,material,reject_late,lazy_packages);
         else run(g, rp2,material);
     } catch (const std::exception& e) { printf("FAILED: %s\n", e.what()); failed++; }
     printf("validation: errors=%u warnings=%u\n", errors.load(), warnings.load());

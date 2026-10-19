@@ -112,6 +112,15 @@ static void material_tests(const std::vector<uint8_t>& mesh)
     check(package.decode(data, reason) && package.materials && package.images == std::vector<std::string>{path} &&
           package.profiles[0].code == code && package.pixels[0][0].asset == 0 && package.pixels[1][0].asset == kCharacterNone,
           "material envelope preserves exact code, per-draw file/null and mesh bytes");
+    {
+        // A package without profiles: every fragment shader's rules come from its module (D-076).
+        std::vector<uint8_t> bare(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(profile));
+        bare.insert(bare.end(), data.begin() + static_cast<std::ptrdiff_t>(pixels), data.end());
+        poke(bare, table + 4, uint32_t(0)); poke(bare, 16, uint64_t(bare.size() - table)); reseal(bare);
+        CharacterPackage plain;
+        check(plain.decode(bare, reason) && plain.materials && plain.profiles.empty() && plain.pixels.size() == 2 &&
+              plain.pixels[0][0].slot == 15 && plain.pixels[0][0].asset == 0, "a material envelope without profiles keeps its per-draw bindings");
+    }
     std::vector<std::vector<CharacterMaterial>> plans;
     std::set<uint32_t> counts;
     check(prepare_character_materials(package, plans, counts, reason) && plans[0][0].supported && plans[0][1].supported &&

@@ -43,7 +43,8 @@ bool decode_materials(const std::vector<uint8_t>& file, CharacterPackage& output
     const uint32_t images = at<uint32_t>(p), profiles = at<uint32_t>(p + 4), draws = at<uint32_t>(p + 8);
     next.material_vendor = at<uint32_t>(p + 12); next.material_device = at<uint32_t>(p + 16);
     const uint32_t policy = at<uint32_t>(p + 20); p += 24;
-    if (images > 64 || !profiles || profiles > 256 || draws != next.draws.size() || policy > 1 ||
+    // No profile is valid: the layer derives every fragment shader's rules from its module (D-076).
+    if (images > 64 || profiles > 256 || draws != next.draws.size() || policy > 1 ||
         (policy ? (!next.material_vendor || !next.material_device) : (next.material_vendor || next.material_device)))
         return fail("character material dimensions or policy invalid");
     for (uint32_t i = 0; i < images; ++i) {

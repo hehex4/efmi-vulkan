@@ -14,11 +14,12 @@ from character_materials import envelope
 NONE = 0xFFFFFFFF
 
 
-def fixture_package(path):
+def fixture_package(path, salt=0):
     """Three components. A (bones 0-1, LOD 1 remap [1, 0]), B (bones 2-3), C (bone 4, hidden).
 
     Must agree with sandbox/character_gpu_case.h: index regions of the application's draws,
-    and where each replacement lands on screen.
+    and where each replacement lands on screen. A nonzero `salt` changes every section hash: the
+    package of another character, which matches none of the scene's draws.
     """
     base = ((-.22, -.2), (.22, -.2), (0, .22))
 
@@ -44,7 +45,7 @@ def fixture_package(path):
     def region(first, count):
         values = [0] * count
         values[0:3] = [0, 1, 2]
-        return crc32c(struct.pack("<%dH" % count, *values))
+        return crc32c(struct.pack("<%dH" % count, *values)) ^ salt
 
     draws = [(index, 3, 0, 0, (a_position, texcoord, a_blend, a_position)),
              (index, 3, 0, 0, (b1_position, texcoord, b1_blend, b1_position)),

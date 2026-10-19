@@ -1,10 +1,17 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-19, branch claude/ini: candidate 1.4.9 (BUG-026 fixed) after 1.4.8, which derives the material rules of every fragment shader without a package profile from its own module by the DX11 register rule (D-076); the sibling heuristic is gone. Not loaded into the game. Next: automatic packages for every installed Mod and several packages at once toward the directory generation (phase 2). main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist: layer 1.0.2 with the probe-only configuration of session B. Launcher on DX11.
+> Last updated: 2026-10-19, branch claude/ini: candidate 1.5.0 runs several character packages at once (a directory in m2_package, lazy GPU residency) and 13 of the 22 installed character Mods are packaged without captures (docs/several-packages.md). Not loaded into the game. Next: measure 13 real packages in the sandbox, then a game session when the user agrees. main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist: layer 1.0.2 with the probe-only configuration of session B. Launcher on DX11.
 
 Launcher state, 2026-10-19 17:35: at the user's explicit request, switched the EFMI profile back to DX11 after catalogue session B: d3d11_mode_cmd_args = -force-d3d11, xxmi_dll_inject_mode = DIRECT; game and launcher closed, checked again before writing; only the two value spans changed, exact readback. Backup and manifest: build/backups/launcher-dx11-20261019-173504/. The injected library (signed) was still dist/efmi_vk_inject.dll at that time; the user sets it back to F:\EFMI MCP\dist\efmi_probe.dll in the launcher UI (a DX11 start with efmi_vk_inject.dll injected crashed on 2026-10-11). dist/efmi_vk.cfg keeps the probe-only configuration without a character package (BUG-026); the earlier one is in build/backups/before-catalogue-b-20261019-170419/.
 
 
+
+## Several packages at once, packages without captures (candidate 1.5.0, 2026-10-19)
+
+- scripts/check_mod_corpus.py plans every installed character INI (implicit namespace = file name; a planner that stops is recorded, not fatal): 21 of 22 skeletons, 14 of 22 callback fixtures. scripts/package_directory.py (new) builds each planned Mod's package with static pixel bindings and no fragment profiles (package_character.py --no-profiles; components without an entry section get empty lists; entry sections beyond LOD1 are left out), its live sidecar, and checks it with the production decoder: 13 of 22 packaged (build/characters/directory.json). The decoder accepts a material envelope without profiles (D-076).
+- m2_package may name a directory: every *.bin with a .runtime.json sidecar is a package; the module's backend holds one controller per package, draws go to the first whose section matches, Present work runs package by package. GPU residency is lazy for a directory: mesh, arenas and images go up on a package's first match (all 13 at once would be about 2.7 GB of images). Status: the first package on the GPU at the top, every package under "packages".
+- Not done: releasing packages, one engine for the whole directory, the eight Mods planning cannot isolate, chengqianyu's R32 blend-index edit.
+- Evidence: live INI 45/45 including two packages in a directory (the other character's package sorts first, never activates, uploads nothing; the scene's keys, reloads, module exchanges and pixels as with one package); character package 74, character replacement 357/357; full rebuilt suite 31/31 steps (build/next/run_all-1.5.0.out). Sandbox only.
 
 ## BUG-026 fixed (candidate 1.4.9, 2026-10-19)
 

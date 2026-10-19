@@ -36,8 +36,10 @@ def envelope(mesh: bytes, paths: list[str], profiles: list[dict], pixels: list[d
 
 def build_materials(mesh: bytes, paths: list[str], pixels: list[dict], table_path: Path,
                     zero_report: Path | None) -> tuple[bytes, dict]:
-    table = json.loads(table_path.read_text())
-    shaders = profile_shaders(table)
+    # Without a table the package carries no profiles: the layer derives every fragment shader's
+    # rules from its module by the DX11 register rule (D-076).
+    table = json.loads(table_path.read_text()) if table_path else {"slots": {}, "undeclared": []}
+    shaders = profile_shaders(table) if table_path else {}
     device, policy = (0, 0), None
     if zero_report:
         # The measured NVIDIA result is a compatibility choice, not portable D3D11 semantics.
@@ -70,7 +72,8 @@ def build_materials(mesh: bytes, paths: list[str], pixels: list[dict], table_pat
     files = [dict(path=path, bytes=Path(path).stat().st_size,
                   sha256=hashlib.sha256(Path(path).read_bytes()).hexdigest()) for path in paths]
     return envelope(mesh, paths, profiles, pixels, device), dict(
-        table=str(table_path.resolve()), table_sha256=hashlib.sha256(table_path.read_bytes()).hexdigest(),
+        table=str(table_path.resolve()) if table_path else None,
+        table_sha256=hashlib.sha256(table_path.read_bytes()).hexdigest() if table_path else None,
         files=files, profiles=records, pixels=pixels, compatibility=policy,
         limits=["Fixed hosted scenario; no runtime keys or Core texture-identity query execution",
                 "Unknown exact fragment code or logical slot retains the original draw"])

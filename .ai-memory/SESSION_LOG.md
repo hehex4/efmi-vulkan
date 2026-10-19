@@ -1992,3 +1992,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - layer/src/character_backend.cpp (abandon after a refused init; arena counts for rules from modules), sandbox/runtime_test.py (refused package with a missing stream file in both entries). Version 1.4.9.
 - Results: live INI 38/38; full rebuilt suite 31/31 steps (build/next/run_all-1.4.9.out). The user asked not to end the turn while waiting; waits now block inside the turn.
+
+## 2026-10-19: several packages at once, packages without captures (candidate 1.5.0)
+
+- scripts/check_mod_corpus.py (implicit namespace, planner failures recorded), scripts/package_directory.py (new), scripts/package_character.py (--no-profiles, empty lists for components without entries, LOD beyond 1 left out), scripts/character_materials.py (no table), layer/src/character_package.cpp (no profile allowed), layer/src/character_backend.cpp (CharacterController per package, directory packages, lazy activation, reload of lazy packages, status), layer/src/m2_backend.cpp (character mode for a directory), sandbox (fixture salt and names, --lazy-packages scene prelude, two-package test, envelope without profiles), docs/several-packages.md. Version 1.5.0.
+- Results: corpus 21/22 skeletons, 14/22 callbacks; 13 packages built; full rebuilt suite 31/31 steps (build/next/run_all-1.5.0.out).

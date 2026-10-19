@@ -15,6 +15,7 @@
 #include "../../frontend/assets/resource_cache.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -262,8 +263,14 @@ public:
     std::unordered_map<uint32_t, BoneSite> sites;
     std::vector<uint8_t> scratch, current, previous;
 
-    CharacterGeneration(Device* dev, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m)
-        : device(dev), properties(p), memory(m) {}
+    // `lazy`: one of several packages (a directory). Its mesh, arenas and images go to the GPU only
+    // when one of its sections first matches a draw, so characters not on screen take no memory there.
+    CharacterGeneration(Device* dev, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m,
+                        std::string path = g_cfg.m2_package, bool deferred = false)
+        : device(dev), properties(p), memory(m), package_path(std::move(path)), lazy(deferred) {}
+    std::string package_path;
+    bool lazy = false;
+    std::atomic<bool> activated{false};
     ~CharacterGeneration() { stop(); }
 
     void note(const std::string& reason) { std::lock_guard<std::mutex> lock(pool_mx); last_reason = reason; }
@@ -271,13 +278,13 @@ public:
 
     bool init()
     {
-        if (!package.load(g_cfg.m2_package, last_reason)) return false;
-        if (CharacterProgram::configured(g_cfg.m2_package)) {
+        if (!package.load(package_path, last_reason)) return false;
+        if (CharacterProgram::configured(package_path)) {
             program = std::make_unique<CharacterProgram>();
             const auto gpu = [this](const std::filesystem::path& working, std::string& why) {
                 return OwnedPresenter::runtime(device, memory, working, why);
             };
-            if (!program->init(g_cfg.m2_package, package, last_reason, gpu)) return false;
+            if (!program->init(package_path, package, last_reason, gpu)) return false;
             if (program->gpu()) presenter = std::make_unique<OwnedPresenter>(device, program->gpu());
             else if (!program->gpu_reason().empty()) logf("owned GPU work unavailable: %s", program->gpu_reason().c_str());
             {
@@ -317,8 +324,20 @@ public:
         // the feature variants of its shaders are counted; a full cache would refuse the rest for good.
         cache = std::make_unique<VariantCache>(device->handle, draw, properties.limits.maxBoundDescriptorSets, 2048, properties.limits);
         enabled = g_cfg.m2_enabled;
-        worker = std::thread([this] { prepare(); });
+        if (!lazy) activate();
         return true;
+    }
+
+    // Caller holds mod_mx, or init runs alone. The GPU side of the generation: images demanded, mesh
+    // and arenas prepared by the worker. Once.
+    void activate()
+    {
+        if (activated.exchange(true)) return;
+        if (images)
+            for (const auto& handle : image_handles)
+                if (!images->demand(handle)) { note("character texture could not be demanded"); break; }
+        if (lazy) logf("character package activated on its first match: %s", package_path.c_str());
+        worker = std::thread([this] { prepare(); });
     }
 
     // After a refused init: nothing of the generation runs. The worker was not started yet.
@@ -681,7 +700,7 @@ bool CharacterGeneration::init_materials()
     images = std::make_unique<assets::ResourceCache>(resource, image_budgets, 64);
     for (const auto& path : package.images) {
         auto handle = images->declare_image(std::filesystem::u8path(path), last_reason);
-        if (!handle || !images->demand(handle)) return false;
+        if (!handle) return false;
         image_handles.push_back(std::move(handle));
     }
     return true;
@@ -812,6 +831,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             if (s.hash == hash && (s.match_first == kCharacterNone || s.match_first == r.first)) { section = &s; break; }
         }
         if (!section) return false;
+        if (!activated.load(std::memory_order_relaxed)) { activate(); return false; }
         ++counters[C_MATCHED];
         if (section->component == kCharacterNone) {
             // Exact IB-only override: no fabricated identity or bone import.
@@ -1134,9 +1154,10 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
 }
 
 std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkPhysicalDeviceProperties& properties,
-                                                   const VkPhysicalDeviceMemoryProperties& memory)
+                                                   const VkPhysicalDeviceMemoryProperties& memory,
+                                                   const std::string& path, bool lazy)
 {
-    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory);
+    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory, path, lazy);
     try {
         if (!backend->init()) {
             // BUG-026: a refusal can come after the INI program or its presenter were made; a refused
@@ -1223,8 +1244,10 @@ void generation_status(CharacterGeneration&, JsonWriter&);
 // F10 owns another complete resource generation. Its CPU parsing/validation and
 // Vulkan preparation run while the current generation continues to draw. Only
 // a Ready candidate takes over; command buffers retain their immutable owners.
-class CharacterBackend {
+class CharacterController {
 public:
+    std::string path;
+    bool lazy = false;
     std::shared_mutex mutex;
     std::shared_ptr<CharacterGeneration> active, staged;
     std::future<std::shared_ptr<CharacterGeneration>> loading;
@@ -1232,7 +1255,7 @@ public:
     uint64_t generation = 0, reloads = 0, rejected = 0, staged_at = 0;
     std::string reload_error;
     bool stopped = false;
-    ~CharacterBackend() { stop(); }
+    ~CharacterController() { stop(); }
     void retire(std::shared_ptr<CharacterGeneration> old)
     {
         if (old) retiring.push_back(std::async(std::launch::async, [old = std::move(old)] { old->stop(); }));
@@ -1262,10 +1285,15 @@ public:
             if (!candidate || !generation_usable(*candidate, reason)) {
                 ++rejected; reload_error = reason.empty() ? "INI generation preparation failed" : reason;
                 logf("INI reload refused; current generation retained: %s", reload_error.c_str()); retire(std::move(candidate));
-            } else { staged = std::move(candidate); staged_at = host_time_us(); }
+            } else {
+                staged = std::move(candidate); staged_at = host_time_us();
+                // A lazy package already on the GPU brings its successor up at once.
+                if (active->activated.load()) { std::lock_guard<std::mutex> hold(staged->mod_mx); staged->activate(); }
+            }
         }
         if (staged) {
-            if (generation_ready(*staged)) {
+            // A lazy package never matched yet needs nothing on the GPU to take over.
+            if (generation_ready(*staged) || (staged->lazy && !staged->activated.load())) {
                 staged->enabled = active->enabled.load();
                 if (active->program && staged->program) {
                     active->program->suspend_persistence();
@@ -1285,56 +1313,147 @@ public:
             loading = std::async(std::launch::async, [previous] {
                 std::string reason;
                 if (!previous->program->save(reason)) {
-                    auto failed = std::make_shared<CharacterGeneration>(previous->device, previous->properties, previous->memory);
+                    auto failed = std::make_shared<CharacterGeneration>(previous->device, previous->properties, previous->memory,
+                                                                        previous->package_path, previous->lazy);
                     failed->note("Cannot preserve settings before reload: " + reason); return failed;
                 }
-                return generation_create(previous->device, previous->properties, previous->memory);
+                return generation_create(previous->device, previous->properties, previous->memory, previous->package_path,
+                                         previous->lazy);
             });
         }
     }
 };
 
+// The module's backend: one controller per configured package. A directory names every live
+// package in it (a package with its .runtime.json sidecar); they share the device and the frame,
+// each matches only its own sections, and each goes to the GPU on its first match.
+class CharacterBackend {
+public:
+    std::vector<std::unique_ptr<CharacterController>> controllers;
+    std::string reason; // why there is no package
+    ~CharacterBackend() { for (auto& c : controllers) c->stop(); }
+};
+
+namespace {
+std::vector<std::string> configured_packages(std::string& reason)
+{
+    const std::string& path = g_cfg.m2_package;
+    std::error_code error;
+    const auto where = std::filesystem::u8path(path);
+    if (!std::filesystem::is_directory(where, error)) return {path};
+    std::vector<std::string> found;
+    for (const auto& entry : std::filesystem::directory_iterator(where, error)) {
+        if (!entry.is_regular_file(error) || entry.path().extension() != ".bin") continue;
+        std::filesystem::path sidecar = entry.path();
+        sidecar += ".runtime.json";
+        if (std::filesystem::is_regular_file(sidecar, error)) found.push_back(entry.path().u8string());
+    }
+    std::sort(found.begin(), found.end());
+    if (found.size() > 32) { found.resize(32); logf("character packages: more than 32 in %s, the first 32 are used", path.c_str()); }
+    if (found.empty()) reason = "no live character package in " + path;
+    return found;
+}
+}
+
 std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m)
 {
-    auto controller = std::make_shared<CharacterBackend>(); controller->active = generation_create(d, p, m); return controller;
+    auto backend = std::make_shared<CharacterBackend>();
+    std::error_code error;
+    const bool directory = std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package), error);
+    for (const auto& path : configured_packages(backend->reason)) {
+        auto controller = std::make_unique<CharacterController>();
+        controller->path = path; controller->lazy = directory;
+        controller->active = generation_create(d, p, m, path, directory);
+        backend->controllers.push_back(std::move(controller));
+    }
+    if (directory) logf("character packages: %zu from %s", backend->controllers.size(), g_cfg.m2_package.c_str());
+    return backend;
 }
-void character_stop(CharacterBackend& b) { b.stop(); }
+void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); }
 bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
 {
-    std::shared_lock<std::shared_mutex> lock(b.mutex); return !b.stopped && b.active && generation_record(*b.active, cb, r);
+    // The first package whose section matches records the draw; the others never see it.
+    for (auto& c : b.controllers) {
+        std::shared_lock<std::shared_mutex> lock(c->mutex);
+        if (!c->stopped && c->active && generation_record(*c->active, cb, r)) return true;
+    }
+    return false;
 }
 void character_retire(CharacterBackend& b, uint32_t id)
 {
-    std::shared_lock<std::shared_mutex> lock(b.mutex);
-    if (b.active) generation_retire(*b.active, id);
-    if (b.staged) generation_retire(*b.staged, id);
+    for (auto& c : b.controllers) {
+        std::shared_lock<std::shared_mutex> lock(c->mutex);
+        if (c->active) generation_retire(*c->active, id);
+        if (c->staged) generation_retire(*c->staged, id);
+    }
 }
 VkResult character_submit(CharacterBackend& b, VkQueue q)
 {
-    std::shared_lock<std::shared_mutex> lock(b.mutex); if (b.stopped) return VK_SUCCESS;
-    auto result = b.active ? generation_submit(*b.active, q) : VK_SUCCESS;
-    if (result == VK_SUCCESS && b.staged) result = generation_submit(*b.staged, q);
-    return result;
+    for (auto& c : b.controllers) {
+        std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->stopped) continue;
+        auto result = c->active ? generation_submit(*c->active, q) : VK_SUCCESS;
+        if (result == VK_SUCCESS && c->staged) result = generation_submit(*c->staged, q);
+        if (result != VK_SUCCESS) return result;
+    }
+    return VK_SUCCESS;
 }
-void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present) { b.frame(had_draws, present); }
+// Each package runs its Present work in turn; a presenter waits for what the one before handed on.
+void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present) { for (auto& c : b.controllers) c->frame(had_draws, present); }
 bool character_usable(CharacterBackend& b, std::string& reason)
 {
-    std::shared_lock<std::shared_mutex> lock(b.mutex); return b.active && generation_usable(*b.active, reason);
+    reason = b.reason;
+    bool any = false;
+    for (auto& c : b.controllers) {
+        std::shared_lock<std::shared_mutex> lock(c->mutex);
+        std::string why;
+        if (c->active && generation_usable(*c->active, why)) any = true;
+        else if (reason.empty()) reason = why;
+    }
+    if (any) reason.clear();
+    return any;
 }
+// Every usable package is ready; a lazy one counts as ready, it prepares on its first match.
 bool character_ready(CharacterBackend& b)
 {
-    std::shared_lock<std::shared_mutex> lock(b.mutex); return b.active && generation_ready(*b.active);
+    bool any = false;
+    for (auto& c : b.controllers) {
+        std::shared_lock<std::shared_mutex> lock(c->mutex);
+        std::string why;
+        if (!c->active || !generation_usable(*c->active, why)) continue;
+        any = true;
+        if (!c->lazy && !generation_ready(*c->active)) return false;
+    }
+    return any;
 }
 void character_enable(CharacterBackend& b, bool enabled)
 {
-    std::shared_lock<std::shared_mutex> lock(b.mutex); if (b.active) generation_enable(*b.active, enabled);
+    for (auto& c : b.controllers) { std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->active) generation_enable(*c->active, enabled); }
 }
+static void controller_status(CharacterController& c, JsonWriter& w)
+{
+    std::shared_lock<std::shared_mutex> lock(c.mutex);
+    w.kn("ini_generation", c.generation); w.kn("ini_reloads", c.reloads); w.kn("ini_reload_rejected", c.rejected);
+    w.kb("ini_reload_pending", c.loading.valid() || bool(c.staged)); w.kv("ini_reload_error", c.reload_error);
+    if (c.active) generation_status(*c.active, w);
+}
+// One package's fields at the top as before: the first one on the GPU, else the first. Every package
+// under "packages" when there are more.
 void character_status(CharacterBackend& b, JsonWriter& w)
 {
-    std::shared_lock<std::shared_mutex> lock(b.mutex);
-    w.kn("ini_generation", b.generation); w.kn("ini_reloads", b.reloads); w.kn("ini_reload_rejected", b.rejected);
-    w.kb("ini_reload_pending", b.loading.valid() || bool(b.staged)); w.kv("ini_reload_error", b.reload_error);
-    if (b.active) generation_status(*b.active, w);
+    CharacterController* primary = b.controllers.empty() ? nullptr : b.controllers.front().get();
+    for (auto& c : b.controllers) {
+        std::shared_lock<std::shared_mutex> lock(c->mutex);
+        if (c->active && c->active->activated.load()) { primary = c.get(); break; }
+    }
+    if (primary) controller_status(*primary, w);
+    else w.kv("package_reason", b.reason);
+    if (b.controllers.size() > 1) {
+        w.key("packages"); w.begin_array();
+        for (auto& c : b.controllers) {
+            w.begin_object(); w.kv("path", c->path); controller_status(*c, w); w.end_object();
+        }
+        w.end_array();
+    }
 }
 
 const CharacterModule* builtin_character_module()
@@ -1420,6 +1539,8 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kn("identities_replaced", custom);
         w.kn("lod", backend.lod);
         w.kn("material_derived_profiles", backend.derived_profiles.size());
+        w.kb("lazy", backend.lazy);
+        w.kb("activated", backend.activated.load());
         w.kn("material_rule_mismatches", backend.rule_mismatches);
     }
 }
