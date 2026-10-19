@@ -69,6 +69,12 @@ def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: 
                 label + " texture format and size")
         c.equal(tex["content"], {"state": "hashed", "crc": texture["crc"], "bytes": texture["bytes"], "uploads": texture["uploads"]},
                 label + " content hash of the last whole upload, rows without padding")
+        # D-077: the description of the sampled RGBA8 image (format 28, shader resource) seeded with the
+        # hash of the first width * height bytes of that upload, which the layer reads row by row.
+        width, height = texture["extent"][:2]
+        description = struct.pack("<11I", width, height, 1, 1, 28, 1, 0, 0, 8, 0, 0)
+        c.equal(tex.get("dx11_hash"), "%08x" % crc32c(description, int(texture["prefix_crc"], 16)),
+                label + " the image's original DX11 hash from its padded upload")
         c.equal(tex["image_layout"], 5, label + " declared shader-read image layout")
         c.equal(tex["subresource"], {"aspect": 1, "base_mip": 0, "levels": 1, "base_layer": 0, "layers": 1}, label + " image view range")
         c.check(not material["truncated"], label + " all material elements captured")

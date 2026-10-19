@@ -119,7 +119,9 @@ public:
     // The provider proves the source-API resource hash (including the original
     // hash policy), not merely a Vulkan object identity or arbitrary byte hash.
     // Unknown data refuses. Hash matching uses original XXMI rules; descriptor
-    // fuzzy matching is unsupported and refuses. Install before adaptation.
+    // fuzzy matching is unsupported and refuses. Install before adaptation. With a
+    // source resource matcher as well, the matcher answers inside owned scopes and
+    // this query outside them (the host's draws, D-077).
     void texture_queries(TextureQuery);
     bool has_texture_queries() const;
     using ResourceMatchQuery=std::function<bool(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&)>;

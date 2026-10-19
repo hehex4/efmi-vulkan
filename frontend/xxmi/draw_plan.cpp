@@ -908,7 +908,7 @@ bool DrawPlanAdapter::flush_parameters(CommandListState& state,bool force,std::w
 
 void DrawPlanAdapter::texture_queries(TextureQuery query)
 {
-    if(runtime_->active || !runtime_->adapted.empty() || !query || runtime_->resource_match)refuse(L"Install one texture matcher before adapting command lists");
+    if(runtime_->active || !runtime_->adapted.empty() || !query || runtime_->texture_query)refuse(L"Install one texture matcher before adapting command lists");
     runtime_->texture_query=std::move(query);std::weak_ptr<Runtime> weak=runtime_;
     runtime_->queries->texture=[weak](ResourceCopyTarget& target,CommandListState& state,float& result,std::wstring& reason){
         auto owner=weak.lock();if(!owner || !owner->active){reason=L"Texture query outside an active plan";return false;}
@@ -921,7 +921,7 @@ void DrawPlanAdapter::texture_queries(TextureQuery query)
 }
 bool DrawPlanAdapter::has_texture_queries() const {return bool(runtime_->texture_query) || bool(runtime_->resource_match);}
 void DrawPlanAdapter::resource_matches(ResourceMatchQuery query){
-    if(runtime_->active || !runtime_->adapted.empty() || !query || runtime_->texture_query || runtime_->resource_match)
+    if(runtime_->active || !runtime_->adapted.empty() || !query || runtime_->resource_match)
         refuse(L"Install one source resource matcher before adapting command lists");
     runtime_->resource_match=std::move(query);runtime_->queries->general_matches=true;std::weak_ptr<Runtime> weak=runtime_;
     runtime_->queries->texture=[weak](ResourceCopyTarget& target,CommandListState& state,float& result,std::wstring& reason){

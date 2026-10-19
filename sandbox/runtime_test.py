@@ -64,6 +64,10 @@ def main():
                          (2, 2, 1, False, ""), label + " two accepted reloads, one with an original warning, and one refused")
             checks.equal(status["ini"]["diagnostics"], 0, label + " the last generation has no warning left")
             checks.equal(status["ini"]["variables"]["$\\runtime_fixture\\tint"], 1, label + " persistent variable survives F10")
+            variables = status["ini"]["variables"]
+            checks.equal((variables.get("$\\runtime_fixture\\texture_seen"), variables.get("$\\runtime_fixture\\texture_other")), (1, 0),
+                         label + " Core's OverrideTextures finds the application texture by its original hash, and only that (D-077)")
+            checks.check(status.get("texture_queries", 0) > 0, label + " the layer answered texture queries")
             saved = folder / "settings/fixture.ini"
             checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(), label + " settings atomically saved outside mod source")
             refused = {k: v for k, v in status["counters"].items() if k.startswith(("refused_", "unreadable_", "import_", "exhausted")) and v}

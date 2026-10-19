@@ -86,6 +86,8 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         if (!validate_refreshed(package, reason)) return false;
         efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
                                              manifest.parent_path() / "settings", config.get("settings", "mod")};
+        // The layer answers texture queries of replaced draws (D-077).
+        options.texture_identity = true;
         if (!config.get("rabbit_textures").empty())
             throw std::runtime_error("RabbitFX texture-role inspection is not a complete runtime shader contract");
         std::shared_ptr<efmi::frontend::RuntimeExtension> extension = efmi::frontend::character_core(config.get("namespace"), package);

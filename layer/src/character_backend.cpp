@@ -8,6 +8,7 @@
 #include "character_present.h"
 #include "character_materials.h"
 #include "../../frontend/gpu/source_registers.h"
+#include "texture_identity.h"
 #include "merged_skeleton.h"
 #include "state.h"
 #include "work.h"
@@ -218,6 +219,12 @@ public:
     std::vector<std::vector<StaticMaterial>> materials; // profile x package draw, prepared at setup
     std::unordered_map<uint32_t, uint32_t> material_profiles; // pipeline generation -> exact profile
     std::vector<uint32_t> material_slots;                          // DX11 pixel slots the package binds
+    // Under the mod lock: the DX11 registers of each pipeline's fragment module (D-076), for texture
+    // queries; `readable` false when the register rule could not read the module.
+    struct FragmentRegisters { bool readable = false; std::vector<efmi::gpu::SourceRegister> list; };
+    std::unordered_map<uint32_t, FragmentRegisters> fragment_registers;
+    uint64_t texture_queries = 0, texture_unknown = 0;
+    const char* texture_reason = nullptr; // why the latest unknown answer was unknown
     std::unordered_map<uint32_t, uint32_t> derived_for_pipeline;   // pipeline generation -> derived profile or none
     std::vector<std::unique_ptr<DerivedProfile>> derived_profiles;
     uint32_t rule_mismatches = 0;                                  // package profiles the register rule disagrees with
@@ -466,6 +473,54 @@ public:
             rule.set = r->set; rule.binding = r->binding;
             rules.push_back(rule);
         }
+        return true;
+    }
+
+    // Caller holds mod_mx and res_mx shared. The application's texture at DX11 pixel slot `slot` of the
+    // draw, by its original resource hash (D-077): the slot's binding comes from the fragment module's
+    // registers (D-076), the image from the tracked descriptor. A slot the module does not declare reads
+    // nothing here; a resource whose hash cannot be known answers a bound slot without a hash, so no
+    // override matches it and the draw is still replaced (counted in texture_unknown, reason noted).
+    bool pixel_texture(const DrawRec& r, unsigned slot, bool& bound, uint32_t& hash, std::string&)
+    {
+        ++texture_queries;
+        bound = false; hash = 0;
+        const auto unknown = [&](const char* why) { bound = true; hash = 0; ++texture_unknown; texture_reason = why; return true; };
+        const auto pipe = device->pipes.find(r.pipeline);
+        if (pipe == device->pipes.end() || !pipe->second.recipe) return unknown("unknown pipeline");
+        auto known = fragment_registers.find(pipe->second.id);
+        if (known == fragment_registers.end()) {
+            if (fragment_registers.size() >= 8192) fragment_registers.clear();
+            FragmentRegisters registers;
+            registers.readable = true; // a pipeline without a fragment stage reads no texture
+            for (const auto& stage : pipe->second.recipe->stages)
+                if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) {
+                    std::string why;
+                    registers.readable = efmi::gpu::source_registers(stage.shader->code, registers.list, why);
+                }
+            known = fragment_registers.emplace(pipe->second.id, std::move(registers)).first;
+        }
+        if (!known->second.readable) return unknown("the fragment module is not read by the register rule");
+        const auto* reg = efmi::gpu::find_source_register(known->second.list, 't', slot);
+        if (!reg) return true;
+        if (reg->kind != efmi::gpu::SourceRegister::ImageSrv || reg->count != 1 || reg->set >= kMaxSets)
+            return unknown("a pixel slot is not a single image");
+        const SetBind& bind = r.sets[reg->set];
+        const DescriptorSetInfo* contents = bind.pushed.get();
+        if (!contents && bind.id) {
+            const auto set = device->descriptor_sets.find(bind.set);
+            if (set != device->descriptor_sets.end() && set->second.id == bind.id) contents = &set->second;
+        }
+        if (bind.unsupported || !contents) return unknown("the descriptor set of a pixel slot is not tracked");
+        const auto value = contents->values.find({reg->binding, 0});
+        if (value == contents->values.end() || !value->second.known) return unknown("a pixel slot's descriptor is unknown");
+        if (!value->second.image_view) return true; // a null view: an empty slot
+        const auto view = device->image_views.find(value->second.image_view);
+        if (view == device->image_views.end() || view->second.id != value->second.image_view_id) return unknown("unknown image view");
+        const auto image = device->images.find(view->second.image);
+        if (image == device->images.end() || image->second.id != view->second.image_id) return unknown("unknown image");
+        if (!dx11_texture_hash(image->second, hash)) return unknown("an image without a known original hash");
+        bound = true;
         return true;
     }
 
@@ -842,6 +897,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
                 request.base = r.vertex_offset; request.instances = r.instances; request.first_instance = r.first_instance;
                 request.frame = present; request.seconds = ini_seconds();
                 request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
+                request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
+                    return pixel_texture(r, slot, bound, value, why); };
                 bool skip = false, added = false; std::string reason;
                 if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI hide: " + reason);
                 if (!skip) return false;
@@ -941,6 +998,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
             request.seconds = ini_seconds();
             request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
+            request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
+                return pixel_texture(r, slot, bound, value, why); };
             bool skip = false, added = false; std::string reason;
             if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI plan: " + reason);
             if (!skip) return false;
@@ -1190,6 +1249,7 @@ void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
     backend.sites.erase(pipeline_id);
     backend.material_profiles.erase(pipeline_id);
     backend.derived_for_pipeline.erase(pipeline_id);
+    backend.fragment_registers.erase(pipeline_id);
 }
 
 void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork* present)
@@ -1540,6 +1600,9 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kn("lod", backend.lod);
         w.kn("material_derived_profiles", backend.derived_profiles.size());
         w.kb("lazy", backend.lazy);
+        w.kn("texture_queries", backend.texture_queries);
+        w.kn("texture_unknown", backend.texture_unknown);
+        if (backend.texture_reason) w.kv("texture_unknown_reason", backend.texture_reason);
         w.kb("activated", backend.activated.load());
         w.kn("material_rule_mismatches", backend.rule_mismatches);
     }

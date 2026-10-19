@@ -128,6 +128,10 @@ time spent in microseconds.
 The same value is computed on the DX11 side by `scripts/dx11_baseline.py capture --textures`
 (mip 0 read back through the DX11 probe), and `summarize` pairs textures by content first.
 
+From 1.5.1 the element also carries `dx11_hash` beside `content` when the image's original DX11
+resource hash is known (D-077, docs/texture-identity.md): the hash 3DMigoto gives the same
+texture, the one a Mod's `[TextureOverride]` names.
+
 Cost and bounds: the work happens once per upload, on the submitting thread, with the resource
 lock held shared while reading. `image_hash_limit` (default 64 MiB, `EFMI_VK_IMAGE_HASH_LIMIT`)
 bounds one upload; `image_hash = 0` (`EFMI_VK_IMAGE_HASH`) switches the feature off, and so does

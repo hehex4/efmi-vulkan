@@ -26,6 +26,8 @@ class CharacterCore : public RuntimeExtension {
     RuntimeDraw current;
     bool prepared = false, attached = false;
     bool rabbit_textures = false;
+    bool textures = false;                 // the host answers texture queries (D-077)
+    size_t outside_package = 0, texture_sections = 0;
     std::vector<uint32_t> original_components;
     CustomResource* skeleton = nullptr;
     std::vector<std::wstring> boundaries;
@@ -127,11 +129,15 @@ global $mod_id = -1
                 return fail(why, L"Mod did not attach its prepared merged skeleton");
             return adapter->invoke(list(L"callback_component_drawcustom"), state, 1, why);
         });
-        native(L"overridetextures", [this](CommandListState&, unsigned phases, std::wstring& why) {
-            // This generation registers mesh overrides only. Image-hash sections
-            // are rejected during preparation, never assigned invented hashes.
-            return !(phases & 1) || prepared || fail(why, L"Texture registry is not prepared");
-        });
+        // With the host's texture identities (D-077) the original OverrideTextures runs: its
+        // CheckTextureOverride on ps-t0 to ps-t22 finds texture-hash sections by the hash of what is
+        // bound. Without them the generation registers mesh overrides only and refuses image-hash
+        // sections during preparation, never assigning invented hashes.
+        textures = a.has_texture_queries();
+        if (!textures)
+            native(L"overridetextures", [this](CommandListState&, unsigned phases, std::wstring& why) {
+                return !(phases & 1) || prepared || fail(why, L"Texture registry is not prepared");
+            });
         // Preparation executes the original mod's bone declarations, including
         // its exact LOD1 file references. Runtime connection executes them too.
         HostCompileGraph(L"commandlist" + mod + L"initializemergedskeleton", boundaries);
@@ -156,10 +162,15 @@ global $mod_id = -1
                     if (s.hash == hashed.first && matches(entry.match_index_count, s.match_count, false) &&
                         matches(entry.match_first_index, s.match_first, true)) break;
                 }
-                if (_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size()) != 0 ||
-                    index == expected.sections.size() || seen[index])
-                    return fail(why, L"Generation contains an unprofiled override; source-image identity is unavailable");
-                seen[index] = true;
+                const bool mesh = entry.match_index_count.op != FuzzyMatchOp::ALWAYS;
+                if (index < expected.sections.size() && !seen[index] && !_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size())) {
+                    seen[index] = true; continue;
+                }
+                // A mesh section the renderer has no part for (a LOD beyond its scope) stays the
+                // game's; an image-hash section runs against the host's texture identities.
+                if (mesh) { ++outside_package; continue; }
+                if (!textures) return fail(why, L"Generation contains an unprofiled override; source-image identity is unavailable");
+                ++texture_sections;
             }
         }
         return std::all_of(seen.begin(), seen.end(), [](bool v) { return v; }) || fail(why, L"Original mesh override registry differs from its profile");

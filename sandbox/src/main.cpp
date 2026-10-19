@@ -237,6 +237,7 @@ struct App {
 
     Buffer vb, ib_a, ib_b, ubo, storage, staging, staging2, tex_staging;
     uint32_t texture_crc = 0;
+    uint32_t texture_prefix_crc = 0; // the first width * height bytes of the last upload (D-077)
 
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer primary = VK_NULL_HANDLE;
@@ -900,6 +901,7 @@ static bool create_resources()
         for (uint32_t y = 0; y < kTexSize; y++)
             memcpy(tex + kTexPaddedAt + y * kTexPaddedRow * 4, last + y * kTexSize * 4, kTexSize * 4);
         g.texture_crc = crc32c_sw(last, sizeof(last));
+        g.texture_prefix_crc = crc32c_sw(last, kTexSize * kTexSize);
     }
     memset(g.storage.map, 0, static_cast<size_t>(g.storage.size));
     for (int i = 0; i <= kDrawCount; i++) {
@@ -1153,8 +1155,10 @@ static bool write_expected()
              kFollowBytes);
     out += line;
     snprintf(line, sizeof(line),
-             "  \"texture\": {\"extent\": [%u, %u, 1], \"format\": %d, \"crc\": \"%08x\", \"bytes\": %u, \"uploads\": 3}\n}\n",
-             kTexSize, kTexSize, static_cast<int>(VK_FORMAT_R8G8B8A8_UNORM), g.texture_crc, kTexSize * kTexSize * 4);
+             "  \"texture\": {\"extent\": [%u, %u, 1], \"format\": %d, \"crc\": \"%08x\", \"prefix_crc\": \"%08x\", "
+             "\"bytes\": %u, \"uploads\": 3}\n}\n",
+             kTexSize, kTexSize, static_cast<int>(VK_FORMAT_R8G8B8A8_UNORM), g.texture_crc, g.texture_prefix_crc,
+             kTexSize * kTexSize * 4);
     out += line;
 
     std::wstring tmp = g.expected_path + L".tmp";

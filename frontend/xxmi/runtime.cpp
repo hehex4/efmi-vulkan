@@ -154,6 +154,7 @@ void f10(HackerDevice*, void*) { G->gReloadConfigPending = true; }
 }
 
 struct IniRuntime::Impl {
+    const RuntimeDraw* current_draw = nullptr; // during draw(): the host's texture identities
     EngineState state;
     RuntimeConfig config;
     std::filesystem::path settings;
@@ -257,6 +258,17 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if(type==ParamOverrideType::CURSOR_HOTSPOT_Y){value=float(sample.cursor.hotspot_y);return true;}
             return false;
         });
+        if (config.texture_identity && !config.shader_hooks) {
+            p.adapter.texture_queries([&p](unsigned slot, const DrawPlanAdapter::PixelBinding& binding, CommandListState&,
+                                           DrawPlanAdapter::TextureIdentity& id, std::wstring& why) {
+                // A resource of the generation: the original keeps no hash for what it creates itself.
+                if (!binding.application) { id.bound = binding.resource != nullptr; id.hash = 0; return true; }
+                if (!p.current_draw || !p.current_draw->pixel_texture) { why = L"Source texture identity unavailable outside a draw"; return false; }
+                bool bound = false; uint32_t hash = 0; std::string reason;
+                if (!p.current_draw->pixel_texture(slot, bound, hash, reason)) { why.assign(reason.begin(), reason.end()); return false; }
+                id.bound = bound; id.hash = hash; return true;
+            });
+        }
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
         if(config.shader_hooks){HostParseShaderOverrides();HostParseShaderRegex();
             for(const auto& entry:G->mShaderOverrideMap)
@@ -344,6 +356,7 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
         if(impl_->config.shader_hooks)throw std::runtime_error("Shader hook generation requires the intercepted call entry");
         if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
         auto& p = *impl_; Scope scope(p.state);
+        struct Current {Impl& p; Current(Impl& owner, const RuntimeDraw& draw):p(owner){p.current_draw=&draw;} ~Current(){p.current_draw=nullptr;}} current(p, input);
         G->frame_no = unsigned(input.frame); G->gTime = input.seconds; G->gFrameTime = input.frame_seconds;
         DrawCallInfo call(DrawCall::DrawIndexedInstanced, 0, input.count, input.instances, uint32_t(input.base), input.first, input.first_instance, nullptr, 0);
         TextureOverrideMatches matches; find_texture_override_for_hash(input.hash, &matches, &call);

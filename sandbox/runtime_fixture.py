@@ -3,8 +3,15 @@ import json
 from pathlib import Path
 import struct
 from character_test import fixture_package, material_package, NONE
+from efmi_vk.hashes import crc32c
 
 CORE = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Core/EFMI")
+# The scene's application texture at the fixture shader's t1: a 64x64 R8G8B8A8_UNORM image that is
+# sampled and never uploaded, so its original hash is the crc32c of its D3D11_TEXTURE2D_DESC alone
+# (D-077). The same description over uploaded data has another hash, which must not match.
+APP_TEXTURE_DESC = struct.pack("<11I", 64, 64, 1, 1, 28, 1, 0, 0, 8, 0, 0)
+APP_TEXTURE_HASH = crc32c(APP_TEXTURE_DESC)
+OTHER_TEXTURE_HASH = crc32c(APP_TEXTURE_DESC, 1)
 
 
 COMMON = r"""
@@ -68,6 +75,8 @@ global $bones_count = 5
 global $max_instance_count = 8
 global $lod_level = 0
 global $merged_skeleton_initialized = 0
+global $texture_seen = 0
+global $texture_other = 0
 [KeyTint]
 key = ctrl 5
 condition = $active == 1
@@ -76,6 +85,8 @@ $tint = 0,1,
 [Present]
 post $active = 0
 """
+    text += f"\n[TextureOverride_AppTexture]\nhash = {APP_TEXTURE_HASH:08x}\n$texture_seen = 1\n"
+    text += f"\n[TextureOverride_OtherTexture]\nhash = {OTHER_TEXTURE_HASH:08x}\n$texture_other = 1\n"
     for i, (hashed, count, first, component, lod) in enumerate(sections):
         text += f"\n[TextureOverride_EntryPoint_{i}]\nhash = {hashed:08x}\nmatch_index_count = {count}\n"
         if first != NONE:

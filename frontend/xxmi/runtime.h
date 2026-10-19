@@ -1,6 +1,7 @@
 #pragma once
 #include "../assets/file_plan.h"
 #include <array>
+#include <functional>
 #include <map>
 
 namespace efmi::frontend {
@@ -20,6 +21,9 @@ struct RuntimeConfig {
     // executable pre/original/post call boundary. Existing character plans do not.
     bool shader_hooks=false;
     std::shared_ptr<const SourceShaderState> initial_shaders;
+    // The host answers texture queries of draws (RuntimeDraw::pixel_texture): texture-hash
+    // overrides, CheckTextureOverride and Core's OverrideTextures run against its answers (D-077).
+    bool texture_identity=false;
 };
 struct RuntimeInput {
     bool foreground = false;
@@ -66,6 +70,9 @@ struct RuntimeDraw {
     bool rolling_bone_source = false;
     int32_t source_vs_config_slot = -1;
     float frame_seconds = 0;
+    // With RuntimeConfig::texture_identity: the application's texture at a DX11 pixel slot of this
+    // draw, as the original's resource hash (`bound` false for an empty slot). False refuses.
+    std::function<bool(unsigned slot, bool& bound, uint32_t& hash, std::string& reason)> pixel_texture;
 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;

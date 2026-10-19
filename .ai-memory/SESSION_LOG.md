@@ -2002,3 +2002,6 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - Sandbox with build/characters (13 live packages): all refused at INI load (11 texture-hash overrides need source-image identity, 2 shader sections). Measured 2 s and 364 MB, normal exit.
 - Texture hash rule checked offline on the catalogue captures (docs/texture-identity.md, D-077).
+- Implemented in candidate 1.5.1: tracker data hash (layer/src/resources.cpp/.h), layer/src/texture_identity.cpp/.h (new), per-draw texture answers in layer/src/character_backend.cpp, frontend texture queries (frontend/xxmi/runtime.h/.cpp, draw_plan.cpp/.h coexistence with the resource matcher, character_core.cpp), sandbox fixture texture-hash overrides and probe_test DX11 hash check, docs/texture-identity.md and docs/probe-resources.md.
+- First suite run failed two steps because the capture's content object gained a key (probe end to end, budgets): moved `dx11_hash` beside `content`, and no hash when image content tracking is off. Rerun: full rebuilt suite 31/31 steps (build/next/run_all-1.5.1.out); live INI 53/53.
+- 13-package smoke on 1.5.1: 10 configure, 3 refused (perlica, xaihi: shader sections; zhuangfangyi: mesh outside the stream profile); RabbitFX references unresolved in five (LIMIT-004). Sandbox only.

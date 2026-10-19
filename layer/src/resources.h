@@ -49,9 +49,12 @@ struct ImageInfo {
     VkImageType type = VK_IMAGE_TYPE_2D;
     VkFormat format = VK_FORMAT_UNDEFINED;
     VkExtent3D extent = {};
-    uint32_t levels = 0, layers = 0, samples = 0, usage = 0;
+    uint32_t levels = 0, layers = 0, samples = 0, usage = 0, flags = 0;
     uint8_t content = IMG_NONE;
     uint32_t content_crc = 0;
+    // With IMG_HASHED: the original's data hash of the same upload (D-077): the first
+    // width * height * layers bytes of the level when that is not longer, else content_crc.
+    uint32_t dx11_data_crc = 0;
     uint32_t content_uploads = 0; // copies from a buffer to mip 0, layer 0
     uint64_t content_bytes = 0;   // size of the level without row padding, when the format is known
 };

@@ -113,6 +113,7 @@ MODULE_SOURCES = [
     "src/character_program.cpp", "src/character_present.cpp",
     "src/merged_skeleton.cpp", "src/pipeline_variant.cpp", "src/spirv_repoint.cpp",
     "src/variant_cache.cpp", "src/draw_snapshots.cpp", "src/pipeline_recipe.cpp", "../frontend/gpu/fragment_images.cpp",
+    "src/texture_identity.cpp",
 ]
 # Headers whose structures cross between the layer and a module. A module built from other
 # contents of these is refused by the layer.
@@ -257,7 +258,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
                      "../frontend/gpu/fragment_images.cpp",
                      "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                      "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link() + [
+                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link() + [
                      "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                      "/PDB:build\\tracker\\test.pdb", "user32.lib"]
     run_cl(vcvars, folder, args)
@@ -285,7 +286,7 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
             sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                         "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                         "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link()
+                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link()
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
         args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                            "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]

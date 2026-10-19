@@ -2,6 +2,7 @@
 // No Vulkan calls are made here. Ordinary sets resolve at submit; pushes at record.
 #include "state.h"
 #include "json.h"
+#include "texture_identity.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -125,6 +126,7 @@ void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info)
     image.layers = info->arrayLayers;
     image.samples = info->samples;
     image.usage = info->usage;
+    image.flags = info->flags;
     dev->images[h] = image;
 }
 
@@ -722,6 +724,8 @@ static void write_element(JsonWriter& w, Device* dev, const DescriptorElement& e
                 if (image.content == IMG_HASHED) { w.key("crc"); w.hex32(image.content_crc); }
                 w.kn("bytes", image.content_bytes); w.kn("uploads", image.content_uploads);
                 w.end_object();
+                uint32_t original = 0;
+                if (dx11_texture_hash(image, original)) { w.key("dx11_hash"); w.hex32(original); } // D-077
             }
         }
     }
@@ -889,6 +893,7 @@ void apply_image_writes(Device* dev, CmdBuf* cb)
         uint8_t state;
         uint32_t crc;
         uint64_t bytes;
+        uint32_t dx11 = 0; // the original's data hash (D-077)
     };
     std::vector<Result> results;
     results.reserve(cb->image_writes.size());
@@ -905,7 +910,10 @@ void apply_image_writes(Device* dev, CmdBuf* cb)
             if (it == dev->images.end())
                 continue;
             const ImageInfo& img = it->second;
-            Result r = {w.dst, IMG_PARTIAL, 0, 0};
+            Result r = {w.dst, IMG_PARTIAL, 0, 0, 0};
+            // texture_hash_version 0: width * height * array size bytes from the start of the first
+            // subresource when that is not longer than it, else the whole subresource.
+            const uint64_t original_length = uint64_t(img.extent.width) * img.extent.height * std::max(img.layers, 1u);
             uint32_t bw, bh, bb;
             bool whole = w.ox == 0 && w.oy == 0 && w.oz == 0 && w.w == img.extent.width && w.h == img.extent.height &&
                          w.d == img.extent.depth;
@@ -928,6 +936,7 @@ void apply_image_writes(Device* dev, CmdBuf* cb)
                     tmp.resize(static_cast<size_t>(r.bytes));
                     if (read_buffer_locked(dev, bit->second, w.src_off, r.bytes, tmp.data()) != SRC_NONE) {
                         r.crc = crc32c(0, tmp.data(), tmp.size());
+                        r.dx11 = original_length < r.bytes ? crc32c(0, tmp.data(), static_cast<size_t>(original_length)) : r.crc;
                         r.state = IMG_HASHED;
                     } else {
                         r.state = IMG_UNREADABLE;
@@ -936,6 +945,7 @@ void apply_image_writes(Device* dev, CmdBuf* cb)
                     // Padded rows or slices: hash the rows one after the other, as if they were packed.
                     tmp.resize(static_cast<size_t>(row_bytes));
                     r.state = IMG_HASHED;
+                    uint64_t prefix = original_length < r.bytes ? original_length : 0;
                     for (uint64_t z = 0; z < w.d && r.state == IMG_HASHED; z++)
                         for (uint64_t y = 0; y < rows; y++) {
                             uint64_t off = w.src_off + (z * slice_rows + y) * pitch;
@@ -944,7 +954,13 @@ void apply_image_writes(Device* dev, CmdBuf* cb)
                                 break;
                             }
                             r.crc = crc32c(r.crc, tmp.data(), tmp.size());
+                            if (prefix) {
+                                const uint64_t take = std::min<uint64_t>(prefix, tmp.size());
+                                r.dx11 = crc32c(r.dx11, tmp.data(), static_cast<size_t>(take));
+                                prefix -= take;
+                            }
                         }
+                    if (r.state == IMG_HASHED && !(original_length < r.bytes)) r.dx11 = r.crc;
                 }
                 if (r.state == IMG_HASHED)
                     hashed_bytes += r.bytes;
@@ -960,6 +976,7 @@ void apply_image_writes(Device* dev, CmdBuf* cb)
                 continue;
             it->second.content = r.state;
             it->second.content_crc = r.crc;
+            it->second.dx11_data_crc = r.dx11;
             it->second.content_bytes = r.bytes;
             it->second.content_uploads++;
             dev->image_uploads[r.state].fetch_add(1, std::memory_order_relaxed);
