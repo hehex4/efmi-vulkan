@@ -1227,6 +1227,9 @@ std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkP
         logf("character package configured: %u sections, %u components, %u bones, %u draws, enabled=%u",
              static_cast<uint32_t>(backend->package.sections.size()), static_cast<uint32_t>(backend->package.components.size()),
              backend->package.bones, static_cast<uint32_t>(backend->package.draws.size()), backend->enabled.load() ? 1 : 0);
+        if (backend->program && backend->program->outside_meshes())
+            logf("character package: %zu referenced mesh file(s) outside the package stay with the game's draws",
+                 backend->program->outside_meshes());
     } catch (const std::exception& e) {
         backend->enabled = false; backend->note(e.what());
         logf("character package exception: %s", e.what());

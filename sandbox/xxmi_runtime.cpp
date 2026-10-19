@@ -282,9 +282,12 @@ int wmain(int argc, wchar_t** argv)
                   "A broken expression is reported and skipped; the rest of the candidate loads");
         }
         // A candidate this host cannot execute is refused instead, and the live one stays.
-        write(ini, "namespace = runtime_test\n[ShaderOverrideUnadapted]\nhash = 1234\n");
+        // (A ShaderOverride that acts on the application's draws; one with only a hash runs nothing.)
+        write(ini, "namespace = runtime_test\n[ShaderOverrideUnadapted]\nhash = 1234\nhandling = skip\n");
         auto failed = IniRuntime::load(config, {}, reason);
         check(!failed, "A candidate with an unadapted section is refused");
+        write(ini, "namespace = runtime_test\n[ShaderOverrideInert]\nhash = 1234\nfilter_index = 5\nallow_duplicate_hash = overrule\n");
+        check(bool(IniRuntime::load(config, {}, reason)), "A ShaderOverride with only hash and filter_index runs nothing and loads");
         render(first); check(plan.items.back().index_count == 9, "Failed parse leaves live generation usable");
         first.reset(); render(second);
         check(plan.items.back().index_count == 9, "Retiring one generation preserves another");
@@ -331,7 +334,7 @@ int wmain(int argc, wchar_t** argv)
             check(warned && loaded.diagnostics >= 1 && named, "An invalid dormant command is reported and skipped, as by the original loader");
         }
         // What this generation cannot execute refuses the whole candidate instead.
-        write(tree / "Mods/second/dormant.ini", "[ShaderOverrideUnsupported]\nhash = 1234\n");
+        write(tree / "Mods/second/dormant.ini", "[ShaderOverrideUnsupported]\nhash = 1234\nhandling = skip\n");
         check(!IniRuntime::load(folder_config, {}, reason), "A section without an adapter refuses the candidate");
         render(directory);
         check(plan.items.back().index_count == 6 && directory->status().variables.at("$\\second\\hits") == 24,

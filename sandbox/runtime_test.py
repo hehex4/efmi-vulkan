@@ -29,6 +29,67 @@ def refused_package(checks):
         checks.check(not status.get("ready") and not status.get("enabled"), label + ": the refused backend neither is ready nor enabled")
 
 
+def outside_mesh(checks):
+    """Another INI of the Mod folder draws its own mesh at an object the package has no part for (as
+    zhuangfangyi's "fangyi ul.ini"): the original loads it with the character, the package keeps
+    working, and that mesh stays with the game's draws."""
+    folder = Path(test_dir("runtime-outside-"))
+    package = fixture(folder)
+    (folder / "other-index.buf").write_bytes(bytes([0, 0, 1, 0, 2, 0]))
+    (folder / "other.ini").write_text("""[TextureOverride_OtherMesh]
+hash = 0badf00d
+match_first_index = 0
+match_index_count = 3
+handling = skip
+ib = ResourceOtherIndex
+drawindexed = 3,0,0
+[ResourceOtherIndex]
+type = Buffer
+format = DXGI_FORMAT_R16_UINT
+filename = other-index.buf
+""", encoding="ascii")
+    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
+    status = {}
+    with Sandbox(seconds=4, env_extra=extra, entry="layer") as sb:
+        with ProbeClient(sb.pid) as probe:
+            status = probe.status().get("replacement", {})
+        sb.proc.wait(timeout=60)
+        code = sb.proc.returncode
+    log = Path(sb.log_path).read_text(encoding="utf-8", errors="replace") if sb.log_path and Path(sb.log_path).is_file() else ""
+    label = "another INI's mesh outside the package"
+    checks.equal(code, 0, label + ": the application runs and exits normally")
+    checks.check("character package configured" in log and "character package refused" not in log, label + ": the package is configured")
+    checks.check("1 referenced mesh file(s) outside the package" in log, label + ": the mesh outside the package is logged")
+    checks.check(status.get("enabled") is True, label + ": the backend is enabled")
+
+
+def shader_sections(checks):
+    """A ShaderOverride with only hash and filter_index (perlica's hair sections) runs nothing and
+    loads; one that acts on the game's draws (xaihi's handling = skip) needs the game shaders' DX11
+    identity and still refuses the package."""
+    cases = (("inert", "filter_index = 3737\nallow_duplicate_hash = overrule\n", True),
+             ("acting", "handling = skip\n", False))
+    for name, body, accepted in cases:
+        folder = Path(test_dir("runtime-shader-"))
+        package = fixture(folder)
+        (folder / "shaders.ini").write_text("[ShaderOverrideFixture]\nhash = 5d7710a77fb65f25\n" + body, encoding="ascii")
+        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
+        status = {}
+        with Sandbox(seconds=4, env_extra=extra, entry="layer") as sb:
+            with ProbeClient(sb.pid) as probe:
+                status = probe.status().get("replacement", {})
+            sb.proc.wait(timeout=60)
+            code = sb.proc.returncode
+        log = Path(sb.log_path).read_text(encoding="utf-8", errors="replace") if sb.log_path and Path(sb.log_path).is_file() else ""
+        label = f"{name} ShaderOverride in another INI of the Mod folder"
+        checks.equal(code, 0, label + ": the application runs and exits normally")
+        if accepted:
+            checks.check("character package configured" in log and status.get("enabled") is True, label + ": the package loads")
+        else:
+            checks.check("character package refused: input loading: INI declares an unsupported shader/overlay section" in log
+                         and not status.get("enabled"), label + ": the package is refused with the reason")
+
+
 def main():
     checks = Checks("live INI rendering")
     validation = os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
@@ -73,6 +134,8 @@ def main():
             refused = {k: v for k, v in status["counters"].items() if k.startswith(("refused_", "unreadable_", "import_", "exhausted")) and v}
             checks.equal(refused, {}, label + " no refused drawing after successful reload")
     refused_package(checks)
+    outside_mesh(checks)
+    shader_sections(checks)
     several_packages(checks, validation)
     return checks.finish()
 

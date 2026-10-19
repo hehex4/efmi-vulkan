@@ -122,7 +122,10 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
                 const auto found = streams_.find(key(file->path));
                 if (found == streams_.end()) {
                     if (remaps.count(key(file->path))) continue; // Validated by the native Core palette reader.
-                    throw std::runtime_error("Referenced INI mesh is outside the prepared stream profile");
+                    // A mesh of sections the renderer has no part for (another INI of the Mod folder,
+                    // a LOD beyond the packager's scope) stays with the game's draws, which are not
+                    // planned; a replaced draw that binds it refuses in plan().
+                    ++outside_meshes_; continue;
                 }
                 const auto& stream = package.streams[found->second];
                 if (file->stride != stream.stride || (file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT) != (stream.kind == CharacterStream::Index))

@@ -2005,3 +2005,10 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Implemented in candidate 1.5.1: tracker data hash (layer/src/resources.cpp/.h), layer/src/texture_identity.cpp/.h (new), per-draw texture answers in layer/src/character_backend.cpp, frontend texture queries (frontend/xxmi/runtime.h/.cpp, draw_plan.cpp/.h coexistence with the resource matcher, character_core.cpp), sandbox fixture texture-hash overrides and probe_test DX11 hash check, docs/texture-identity.md and docs/probe-resources.md.
 - First suite run failed two steps because the capture's content object gained a key (probe end to end, budgets): moved `dx11_hash` beside `content`, and no hash when image content tracking is off. Rerun: full rebuilt suite 31/31 steps (build/next/run_all-1.5.1.out); live INI 53/53.
 - 13-package smoke on 1.5.1: 10 configure, 3 refused (perlica, xaihi: shader sections; zhuangfangyi: mesh outside the stream profile); RabbitFX references unresolved in five (LIMIT-004). Sandbox only.
+
+## 2026-10-19: meshes of other INIs, inert shader sections (candidate 1.5.2)
+
+- layer/src/character_program.cpp/.h and character_backend.cpp (meshes outside the stream profile stay the game's, logged), frontend/xxmi/runtime_parser.cpp (inert ShaderOverride accepted without shader hooks), sandbox/runtime_test.py (outside mesh, inert and acting shader sections), sandbox/xxmi_runtime.cpp and resource_gpu.cpp (unexecutable candidates now use handling = skip; inert form loads), docs/several-packages.md. Version 1.5.2.
+- Results: 12 of 13 directory packages load in the sandbox (xaihi refused); live INI 61/61; full suite 30/30 test steps on the rebuilt layer (build/next/run_all-1.5.2.out; the final run used --no-build after a test-only fix).
+- Found: six of the twelve reference RabbitFX, a ShaderRegex library in another Mod folder; its patterns pick the game's main character shader by its constant buffer layout and replace the first, second and third texture samples (diffuse, lightmap, normal) with t70 to t72. Planning refuses seven Mods for original diagnostics, mostly the same RabbitFX references inside callback lists.
+

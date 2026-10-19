@@ -376,7 +376,7 @@ static void ini_gpu(Device& d,const std::filesystem::path& root){
         auto warned=IniRuntime::load(config,std::make_shared<GpuResourceRuntime>(d.resource,budgets),why);
         check(warned && warned->status().diagnostics>=1,"An unknown command line is reported and skipped, as by the original loader");
     }
-    write(root/"Mods/resource.ini","[ShaderOverrideUnadapted]\nhash = 1234\n");
+    write(root/"Mods/resource.ini","[ShaderOverrideUnadapted]\nhash = 1234\nhandling = skip\n");
     auto failed=IniRuntime::load(config,std::make_shared<GpuResourceRuntime>(d.resource,budgets),why);
     check(!failed,"A candidate without an adapter refuses without replacing a working generation");
     backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);check(ini->present({},3,0,why),"Working generation survives bad candidate");

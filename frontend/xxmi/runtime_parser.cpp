@@ -35,6 +35,15 @@ void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,boo
     for (const auto& section : ini_sections) {
         if (!_wcsnicmp(section.first.c_str(), L"Include", 7))
             throw std::runtime_error("Recursive INI includes need an explicit runtime input adapter");
+        // A ShaderOverride with nothing but its hash, filter_index and allow_duplicate_hash runs no
+        // command; without shader facts nothing can read its filter_index either (a ps or vs operand
+        // is no CPU expression and refuses), so the original would do nothing with it here.
+        if (!shader_hooks && !_wcsnicmp(section.first.c_str(), L"ShaderOverride", 14) &&
+            std::all_of(section.second.kv_vec.begin(), section.second.kv_vec.end(), [](const IniLine& line) {
+                return !_wcsicmp(line.first.c_str(), L"hash") || !_wcsicmp(line.first.c_str(), L"filter_index") ||
+                       !_wcsicmp(line.first.c_str(), L"allow_duplicate_hash");
+            }))
+            continue;
         for (const auto* prefix : {L"CustomShader", L"ShaderOverride", L"ShaderRegex"})
             if (!_wcsnicmp(section.first.c_str(), prefix, wcslen(prefix)) &&
                 !(custom_shaders && !wcscmp(prefix,L"CustomShader")) &&

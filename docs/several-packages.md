@@ -58,6 +58,25 @@ scene's keys, reloads, module exchanges and pixels pass as with one package, the
 never activated and uploads nothing, the fixture's activates on its first match. Native decoder
 tests cover the envelope without profiles. None of this was loaded into the game.
 
+## The 13 packages in the sandbox (1.5.1 and 1.5.2)
+
+The sandbox program loads all 13 directory packages (no draw of it matches a character, so none
+goes to the GPU): about 2.7 s and 394 MB, normal exit.
+- 1.5.0: all 13 refused at INI load, 11 for texture-hash TextureOverrides, 2 for shader sections.
+- 1.5.1 (texture identity, docs/texture-identity.md): 10 load.
+- 1.5.2: 12 load. zhuangfangyi's folder holds a second INI (`fangyi ul.ini`) with its own mesh
+  overrides at objects the package has no part for; the original loads it with the character,
+  and its meshes now stay with the game's draws (logged as mesh files outside the package; a
+  replaced draw binding one would refuse). perlica's ShaderOverride sections carry only a hash and
+  a filter_index nobody reads; such a section runs nothing, and without shader facts nothing can
+  read its filter_index (a ps or vs operand is no CPU expression), so it is accepted.
+- Still refused: xaihi, whose `ps skip.ini` skips the game's draws of two shaders by their DX11
+  hash. That needs the DX11 identity of the game's shaders, which no rule gives from SPIR-V
+  (phase 4 shader facts).
+- Six of the twelve reference RabbitFX (akekuri, avywenna, estella, mifu, perlica, rossiy), a
+  ShaderRegex library in its own Mod folder; those references stay original warnings and their
+  RabbitFX textures do not bind (LIMIT-004).
+
 ## Open
 
 - Packages that were on the GPU stay there until the process ends; releasing a character not seen

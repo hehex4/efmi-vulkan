@@ -18,7 +18,7 @@ Khronos VVL 1.4.321 and SPIRV-Tools are built under `F:/vulkan`. The sandbox pas
 
 6 of the 9 local character mods pass their textures only through RabbitFX, which patches DX11 shader assembly. They cannot be degraded gracefully by stubbing RabbitFX.
 
-2026-10-19 (1.5.1): five of the ten directory packages that load in the sandbox reference RabbitFX (akekuri, avywenna, estella, mifu, rossiy). The library is a ShaderRegex Mod in its own folder (`Mods/RabbitFX -ENDMI-`), outside the per-Mod generation, so its references stay original warnings and its textures (ps-t70 to t74, t60, t61) never bind. Belongs with the phase 4 shader work.
+2026-10-19 (1.5.2): six of the twelve directory packages that load in the sandbox reference RabbitFX (akekuri, avywenna, estella, mifu, perlica, rossiy). The library is a ShaderRegex Mod in its own folder (`Mods/RabbitFX -ENDMI-`), outside the per-Mod generation, so its references stay original warnings and its textures (ps-t70 to t74, t60, t61) never bind. Belongs with the phase 4 shader work.
 
 ## LIMIT-005: Dynamic offsets attributed to the first set (fixed in 0.4.0)
 
