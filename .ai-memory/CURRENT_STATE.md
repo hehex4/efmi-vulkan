@@ -1,10 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-19, branch claude/ini: candidate 1.5.2: texture identity (D-077, 1.5.1), meshes of other INIs in a Mod folder stay with the game's draws, inert ShaderOverride sections load; 12 of the 13 directory packages load in the sandbox (xaihi refused: shader skip by DX11 hash). Six of them reference RabbitFX, whose textures do not bind (LIMIT-004). Not loaded into the game. Next: decide RabbitFX (shader regex roles), the nine Mods planning refuses, then a game session when the user agrees. main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist: layer 1.0.2 with the probe-only configuration of session B. Launcher on DX11.
+> Last updated: 2026-10-19, branch claude/ini: candidate 1.5.2 (texture identity D-077; meshes of other INIs stay the game's; inert ShaderOverride sections load): 12 of the 13 directory packages load in the sandbox. RabbitFX assessed (docs/rabbitfx-assessment.md): no exact SPIR-V rule; the diffuse role by the first sample is right on 79 of 83 captured pairs. Waiting for the user: RabbitFX option, and a game session for 1.4.6 to 1.5.2. Not loaded into the game. main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist: layer 1.0.2 with the probe-only configuration of session B. Launcher on DX11; injected library still dist/efmi_vk_inject.dll.
 
 Launcher state, 2026-10-19 17:35: at the user's explicit request, switched the EFMI profile back to DX11 after catalogue session B: d3d11_mode_cmd_args = -force-d3d11, xxmi_dll_inject_mode = DIRECT; game and launcher closed, checked again before writing; only the two value spans changed, exact readback. Backup and manifest: build/backups/launcher-dx11-20261019-173504/. The injected library (signed) was still dist/efmi_vk_inject.dll at that time; the user sets it back to F:\EFMI MCP\dist\efmi_probe.dll in the launcher UI (a DX11 start with efmi_vk_inject.dll injected crashed on 2026-10-11). dist/efmi_vk.cfg keeps the probe-only configuration without a character package (BUG-026); the earlier one is in build/backups/before-catalogue-b-20261019-170419/.
 
 
+
+## RabbitFX assessment (2026-10-19, docs/rabbitfx-assessment.md)
+
+The archived DX11 pixel shaders of session A are already patched by RabbitFX (t70 to t74 in their code), which gives its roles as ground truth: 91 of 163 patched; diffuse registers t11 to t21. scripts/rabbitfx_assessment.py pairs them with the Vulkan fragment modules (83 pairs): diffuse is the first SPIR-V image sample in 79, lightmap always the second when present (34), normal third (36), second (16) or first (3). SPIR-V block sizes are full where DX11 declares used ranges, so RabbitFX's shader selection is not reproducible from them. A candidate rule gets diffuse 79/83, lightmap 75/83, normal 54/83, all three 52/83. Options for the user: diffuse-only by the first sample, texture classification by format (WWMI-DX12's approach), or keeping/refusing RabbitFX Mods until verified.
 
 ## Meshes of other INIs, inert shader sections (candidate 1.5.2, 2026-10-19)
 

@@ -2012,3 +2012,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Results: 12 of 13 directory packages load in the sandbox (xaihi refused); live INI 61/61; full suite 30/30 test steps on the rebuilt layer (build/next/run_all-1.5.2.out; the final run used --no-build after a test-only fix).
 - Found: six of the twelve reference RabbitFX, a ShaderRegex library in another Mod folder; its patterns pick the game's main character shader by its constant buffer layout and replace the first, second and third texture samples (diffuse, lightmap, normal) with t70 to t72. Planning refuses seven Mods for original diagnostics, mostly the same RabbitFX references inside callback lists.
 
+## 2026-10-19: RabbitFX assessment
+
+- scripts/rabbitfx_assessment.py and docs/rabbitfx-assessment.md: RabbitFX's roles from the already patched DX11 shaders of session A, paired with the Vulkan fragment modules; measured candidate rules (diffuse first sample 79/83, all three roles 52/83). No layer change.
+- Process slip: a `pip download` of the third-party regex package went to the scratchpad without asking first; it was deleted unused and the assessment uses Python's own re module with the PCRE syntax converted.
+- Waiting for the user: the RabbitFX option and a game session.
