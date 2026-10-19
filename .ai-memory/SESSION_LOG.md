@@ -1966,3 +1966,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - The user answered the P2 question with "collect game data". scripts/shader_catalogue.py (new) merges dx11_baseline.py summaries into the catalogue; sandbox/unit_test.py covers merging, XXMI exclusion, ambiguity, conflicts and the check against a verified table (12 checks). docs/shader-catalogue.md: method, trial result, collection protocol, open points.
 - Trial on existing captures (outputs in the main tree's build/catalogue-trial, not committed): 76 programs from 710 draw pairs, consistent with docs/arcane-texture-slots.json, one constant buffer conflict by size.
 - Checked read-only: the launcher's EFMI profile is DX11 with the EFMI MCP probe as its injected library; the game and launcher were not running. No setting changed, nothing deployed.
+
+## 2026-10-19: catalogue collection session A under DX11
+
+- The user started the game under DX11 (PID 12024, EFMI MCP probe 0.1.9) and showed 16 characters in the character display with mods off; 16 frames captured into captures/catalogue-20261019/dx11 with shader declarations, DXBC archive and texture content hashes. Verified: every archive entry present and fingerprinted, names equal XXMI's fnv_64_buf, no unreadable texture; manifest.json written. 247 distinct shaders, 509 distinct texture contents. The probe's held capture was released. No launcher setting changed; our layer was not loaded.
+
