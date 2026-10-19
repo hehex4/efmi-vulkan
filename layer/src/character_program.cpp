@@ -59,7 +59,7 @@ bool CharacterProgram::configured(const std::string& path)
 {
     return std::filesystem::exists(std::filesystem::u8path(path + ".runtime.json"));
 }
-bool CharacterProgram::init(const std::string& path, CharacterPackage& package, std::string& reason)
+bool CharacterProgram::init(const std::string& path, CharacterPackage& package, std::string& reason, const GpuFactory& factory)
 {
     try {
         const auto manifest = std::filesystem::u8path(path + ".runtime.json");
@@ -88,7 +88,31 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
                                              manifest.parent_path() / "settings", config.get("settings", "mod")};
         if (!config.get("rabbit_textures").empty())
             throw std::runtime_error("RabbitFX texture-role inspection is not a complete runtime shader contract");
-        runtime_ = efmi::frontend::IniRuntime::load(options, efmi::frontend::character_core(config.get("namespace"), package), reason);
+        std::shared_ptr<efmi::frontend::RuntimeExtension> extension = efmi::frontend::character_core(config.get("namespace"), package);
+        if (factory) gpu_ = factory(core.parent_path().parent_path(), gpu_reason_);
+        if (gpu_) {
+            // The original loads every enabled INI of the Mod folder (DISABLED names excluded).
+            const auto folder = ini.parent_path();
+            std::error_code error;
+            for (auto it = std::filesystem::recursive_directory_iterator(folder, error); !error && it != std::filesystem::recursive_directory_iterator();
+                 it.increment(error)) {
+                const auto name = it->path().filename().wstring();
+                // The generation's own settings are never a Mod input, wherever they are kept.
+                const bool settings = it->is_directory() && std::filesystem::equivalent(it->path(), options.settings_directory, error);
+                if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
+                if (!it->is_regular_file() || _wcsicmp(it->path().extension().c_str(), L".ini") || std::filesystem::equivalent(it->path(), ini, error)) continue;
+                if (options.inputs.size() >= 64) throw std::runtime_error("The Mod folder has too many INI files for one generation");
+                options.inputs.push_back(it->path());
+            }
+            extension = gpu_->combine(std::move(extension));
+            gpu_->begin_deferred();
+        }
+        runtime_ = efmi::frontend::IniRuntime::load(options, extension, reason);
+        if (gpu_) {
+            if (!runtime_ && gpu_->scope_active()) gpu_->discard();
+            // Recorded work stays pending; replaced draws keep the plan until the first Present.
+            if (runtime_ && gpu_->scope_active()) gpu_->suspend();
+        }
         if (!runtime_) return false;
         for (uint32_t i = 0; i < package.images.size(); ++i) images_.emplace(key(std::filesystem::u8path(package.images[i])), i);
         for (const auto& file : runtime_->resources()) {
@@ -101,6 +125,8 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
                 const auto& stream = package.streams[found->second];
                 if (file->stride != stream.stride || (file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT) != (stream.kind == CharacterStream::Index))
                     throw std::runtime_error("Original file declaration differs from the renderer stream profile");
+            } else if (_wcsicmp(file->path.extension().c_str(), L".dds")) {
+                continue; // Only owned GPU work reads other image files; a replaced draw binding one refuses.
             } else if (!images_.count(key(file->path))) {
                 if (package.images.size() >= 64) throw std::runtime_error("Runtime image catalogue exceeds budget");
                 images_.emplace(key(file->path), uint32_t(package.images.size())); package.images.push_back(file->path.u8string());

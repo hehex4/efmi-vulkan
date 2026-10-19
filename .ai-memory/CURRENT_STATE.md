@@ -1,10 +1,20 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-19, branch claude/ini: candidate 1.4.5 records presentation facts in the layer host (P1-3a); 1.4.4 mixed generation and imported images. Next P1-3b, the module's owned Present. The host ABI changed (state.h): the injected DLL may be replaced only while the game is closed. main follows claude/ini at checkpoints; Codex's uncommitted work stays restored in the main tree. dist 1.0.2 unchanged. Launcher on DX11.
+> Last updated: 2026-10-19, branch claude/ini: candidate 1.4.6 runs a character generation's original Present work on the swap chain through the layer (phase 1 step P1 done in the sandbox, docs/owned-present.md). Not loaded into the game. Next: P2 (GPU work inside replaced draws), then the directory generation. The host ABI changed: the injected DLL may be replaced only while the game is closed. main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist 1.0.2 unchanged. Launcher on DX11.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## P1-3b: original Present work on the swap chain (candidate 1.4.6, 2026-10-19)
+
+The character generation in the game becomes a mixed generation when the owned GPU tools are deployed beside the layer (DXC with dxil, efmi-vkd3d-shader, SPIRV-Tools-shared, copied by scripts/build.py): CharacterProgram combines the character extension with the owned runtime through frontend/xxmi/owned_runtime.h (a facade keeping the original engine's headers out of the layer), loads the Mod folder's other enabled INIs with it (DISABLED names and the settings folder excluded), keeps non-DDS images out of the character package, and loads inside a deferred scope that is suspended afterwards. layer/src/character_present.cpp (OwnedPresenter) samples the window, cursor and swap chain size, imports the presented image as bb (PRESENT_SRC in and out), runs the Present lists in a scope on the presenting queue and submits with the application's wait semaphores, signalling a per-image semaphore that the presentation waits for instead. The module's frame entry gained the presentation (PresentWork, an ABI change). The first refusal is logged; it leaves the GPU side failed while replaced draws continue.
+
+D-073: in character mode the layer enables on the application's objects what this work needs and the application did not: robustness2 nullDescriptor (D-071), shaderDrawParameters (HLSL vertex IDs need the base vertex; the application's own feature structure is set for the call and restored, or a structure of the layer's is added), color attachment usage on swap chains. Found by the first windowed run: without draw parameters the compiled panel shader refused.
+
+sandbox/owned_present_test.py (new suite step) runs efmi_vk_sandbox.exe with a real swap chain in both entries, the synthetic character fixture and a second INI drawing an opaque quarter from its Present list: the test-only copy of the 20th owned presentation shows the quarter and the application's picture elsewhere; core and synchronization validation are clean. Not verified in the game.
+
+Evidence: full rebuilt suite passes all 30 steps (build/next/run_all-1.4.6.out), including owned Present on a swap chain 20/20 in both entries with clean core and synchronization validation, live INI 32/32 and character 357/357 with the mixed generation. Sandbox only.
 
 ## P1-3a: presentation facts in the layer host (candidate 1.4.5, 2026-10-19)
 

@@ -129,12 +129,17 @@ void GpuResourceRuntime::draw_commands(DrawExecutor executor){
 }
 void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
     require(!failed_,"GPU resource generation failed; prepare a new generation");
-    require(!active_ && queue && site==ExecutionSite::OutsideRenderPass,"GPU resource execution requires an explicit outside-render-pass scope");
-    require(!queue_ || queue_==queue,"GPU resource scope cannot change queues");queue_=queue;active_=true;
+    require(!active_ && ((queue && site==ExecutionSite::OutsideRenderPass) || (!queue && site==ExecutionSite::Deferred)),
+            "GPU resource execution requires an explicit outside-render-pass scope");
+    require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;active_=true;
 }
-std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::ResourceCommands::SubmitSync& sync) {
-    active();require(!failed_,"Cannot submit a failed GPU resource scope");auto result=commands_.submit(queue_,sync);active_=false;return result;
+std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::ResourceCommands::SubmitSync& sync,VkQueue queue) {
+    active();require(!failed_,"Cannot submit a failed GPU resource scope");
+    require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;
+    require(queue_!=VK_NULL_HANDLE,"A deferred GPU resource scope needs its queue to submit");
+    auto result=commands_.submit(queue_,sync);active_=false;return result;
 }
+void GpuResourceRuntime::suspend(){active();active_=false;}
 void GpuResourceRuntime::discard(){commands_.discard();active_=false;failed_=true;}
 void GpuResourceRuntime::active() const {require(active_,"GPU resource operation has no outside-render-pass execution scope");}
 ResourceCopyTarget& GpuResourceRuntime::effective(ResourceCopyTarget& t,CommandListState& state) {
@@ -537,6 +542,7 @@ void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
     // structured buffers, and returns zero for an out-of-range read.
     if(op.CalculateCopyRegion(source.description,sizeof(float),offset,&from,&size,&value_offset) &&
        from<=source.description.ByteWidth && size<=source.description.ByteWidth-from){
+        require(queue_!=VK_NULL_HANDLE,"Original store needs immediate GPU feedback, which a scope without its queue cannot give");
         auto bytes=commands_.readback(queue_,source.buffer,from,size);memcpy(&value,bytes.data()+value_offset,sizeof(value));
     }
     op.SetOutputValue(&state,value);

@@ -32,7 +32,9 @@ bool source_bindings_overlap(const GpuResourceBinding&,const GpuResourceBinding&
 // One instance per frontend generation, sharing budget ledgers across reloads.
 class GpuResourceRuntime final : public RuntimeExtension {
 public:
-    enum class ExecutionSite { OutsideRenderPass, InsideRenderPass };
+    // Deferred: recording without a queue yet, on a thread that must not touch it (a generation
+    // loading in the background); finish() names the queue. Store refuses there.
+    enum class ExecutionSite { OutsideRenderPass, InsideRenderPass, Deferred };
     GpuResourceRuntime(gpu::ResourceDevice,gpu::ResourceBudgets={});
     std::vector<std::wstring> install(DrawPlanAdapter&) override;
     bool initialize_parameters(CommandListState&,std::wstring&) override;
@@ -46,7 +48,10 @@ public:
     // by silently treating an active render pass as OutsideRenderPass.
     void begin(VkQueue,ExecutionSite);
     bool scope_active() const {return active_;}
-    std::shared_ptr<gpu::ResourceSubmission> finish(const gpu::ResourceCommands::SubmitSync& sync={});
+    // Closes the scope without submitting: recorded work stays pending for the next scope's
+    // finish(). A generation loaded in the background is suspended until its first Present.
+    void suspend();
+    std::shared_ptr<gpu::ResourceSubmission> finish(const gpu::ResourceCommands::SubmitSync& sync={},VkQueue queue=VK_NULL_HANDLE);
     // Discards unsubmitted work. Like the original interpreter, earlier CPU
     // assignments and already-submitted store feedback are not rolled back.
     void discard();

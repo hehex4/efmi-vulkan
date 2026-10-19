@@ -110,7 +110,7 @@ COMMON = [
 MODULE_DLL = "efmi_vk_backend.dll"
 MODULE_SOURCES = [
     "module/module_main.cpp", "src/character_backend.cpp", "src/character_package.cpp", "src/character_materials.cpp",
-    "src/character_program.cpp",
+    "src/character_program.cpp", "src/character_present.cpp",
     "src/material_sibling.cpp", "src/merged_skeleton.cpp", "src/pipeline_variant.cpp", "src/spirv_repoint.cpp",
     "src/variant_cache.cpp", "src/draw_snapshots.cpp", "src/pipeline_recipe.cpp", "../frontend/gpu/fragment_images.cpp",
 ]
@@ -257,7 +257,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
                      "../frontend/gpu/fragment_images.cpp",
                      "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                      "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + runtime_link() + [
+                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + runtime_link() + [
                      "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                      "/PDB:build\\tracker\\test.pdb", "user32.lib"]
     run_cl(vcvars, folder, args)
@@ -285,7 +285,7 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
             sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                         "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                         "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + runtime_link()
+                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/character_materials.cpp", "../layer/src/material_sibling.cpp"] + MATERIAL_SOURCES + runtime_link()
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
         args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                            "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]
@@ -303,6 +303,28 @@ def build_bone_test(vcvars: str, include: str, out: str) -> str:
                      "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE", "/PDB:build\\bones\\test.pdb"]
     run_cl(vcvars, folder, args)
     return exe
+
+
+# Tools owned GPU work loads from the layer's own folder (D-072): the HLSL compiler, the exact
+# DXBC translation and the SPIR-V validator. Copied unchanged from the project's F:\vulkan.
+OWNED_GPU_TOOLS = [
+    "F:/vulkan/dxc-1.9.2609/bin/x64/dxcompiler.dll",
+    "F:/vulkan/dxc-1.9.2609/bin/x64/dxil.dll",
+    "F:/vulkan/vkd3d-2.1-build/efmi-vkd3d-shader.dll",
+    "F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/build/source/SPIRV-Tools-shared.dll",
+]
+
+
+def deploy_owned_gpu_tools(out: str) -> list[str]:
+    copied = []
+    for tool in OWNED_GPU_TOOLS:
+        target = os.path.join(out, os.path.basename(tool))
+        if not os.path.isfile(tool):
+            raise BuildError("owned GPU tool missing: " + tool)
+        if not os.path.isfile(target) or os.path.getsize(target) != os.path.getsize(tool) or os.path.getmtime(target) < os.path.getmtime(tool):
+            shutil.copy2(tool, target)
+        copied.append(target)
+    return copied
 
 
 def build(targets, out: str | None = None) -> dict:
@@ -323,6 +345,7 @@ def build(targets, out: str | None = None) -> dict:
         result["tracker_test"] = build_tracker_test(vcvars, include, out)
         result.update(build_recipe_tests(vcvars, include, out))
         result["bone_test"] = build_bone_test(vcvars, include, out)
+        result["owned_gpu_tools"] = deploy_owned_gpu_tools(out)
     if "sandbox" in targets:
         result["sandbox"] = build_sandbox(vcvars, include, out)
     return result

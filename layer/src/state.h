@@ -20,6 +20,7 @@ namespace efvk {
 
 class M2Backend;
 class CharacterBackend;
+struct PresentWork;
 struct CommandOwner;
 struct CharacterModule;
 
@@ -124,6 +125,7 @@ struct SwapchainInfo {
     VkImageUsageFlags usage = 0;
     VkSwapchainCreateFlagsKHR flags = 0;
     uint32_t generation = 0; // counts recreations of this device's swap chains
+    bool usage_added = false; // color attachment use added by the layer in character mode
     std::vector<VkImage> images;
 };
 
@@ -454,6 +456,13 @@ struct Device {
     // application's own. Owned GPU work needs it for D3D11 null views (D-071).
     uint32_t app_api_version = 0;
     bool null_descriptors = false, null_descriptors_added = false;
+    bool draw_parameters = false, draw_parameters_added = false; // shaderDrawParameters, as for null descriptors
+    // What owned GPU work may rely on: the core features the application enabled and, with core
+    // 1.2 or VK_KHR_shader_float_controls enabled, the float control properties.
+    VkPhysicalDeviceFeatures enabled_features = {};
+    bool float_controls = false;
+    VkPhysicalDeviceFloatControlsProperties float_properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES};
+    PFN_vkGetPhysicalDeviceFormatProperties2 format_properties2 = nullptr;
 
     // Presentation: the swap chains of this device and the window behind each.
     std::mutex swap_mx;
@@ -582,7 +591,7 @@ void on_record_indexed(Device* dev, CmdBuf* cb);
 
 // Frame assembly.
 void on_submit(Device* dev, uint32_t count, const VkCommandBuffer* cbs);
-void on_present(Device* dev);
+void on_present(Device* dev, PresentWork* present = nullptr);
 
 // Reads `size` bytes of a buffer. The caller holds res_mx (shared is enough).
 ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, uint8_t* out);

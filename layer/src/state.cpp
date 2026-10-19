@@ -1232,7 +1232,7 @@ void on_submit(Device* dev, uint32_t count, const VkCommandBuffer* cbs)
     }
 }
 
-void on_present(Device* dev)
+void on_present(Device* dev, PresentWork* present)
 {
     if (dev->passive)
         return;
@@ -1242,7 +1242,7 @@ void on_present(Device* dev)
     const uint64_t us = host_time_us();
     dev->pacing.observe(us, dev->frame_no, dev->image_hash_us.load(std::memory_order_relaxed), dev->cap_state == 2);
     dev->cur.frame = dev->frame_no;
-    m2_frame(dev, dev->cur.draws != 0);
+    m2_frame(dev, dev->cur.draws != 0, present);
     dev->total_draws += dev->cur.draws;
     dev->max_threads = std::max(dev->max_threads, static_cast<uint32_t>(dev->cur.threads.size()));
     dev->max_command_buffers = std::max(dev->max_command_buffers, dev->cur.command_buffers);
@@ -1507,6 +1507,8 @@ std::string probe_status()
     w.kn("application_api", dev->app_api_version);
     w.kb("null_descriptors", dev->null_descriptors);
     w.kb("null_descriptors_added", dev->null_descriptors_added);
+    w.kb("draw_parameters", dev->draw_parameters);
+    w.kb("draw_parameters_added", dev->draw_parameters_added);
     w.key("swapchains");
     w.begin_array();
     {
@@ -1521,6 +1523,7 @@ std::string probe_status()
             w.kn("flags", s.flags);
             w.kn("images", s.images.size());
             w.kb("window", s.window != nullptr);
+            w.kb("usage_added", s.usage_added);
             w.end_object();
         }
     }

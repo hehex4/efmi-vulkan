@@ -5,6 +5,7 @@
 #include "variant_cache.h"
 #include "character_package.h"
 #include "character_program.h"
+#include "character_present.h"
 #include "character_materials.h"
 #include "material_sibling.h"
 #include "merged_skeleton.h"
@@ -214,6 +215,8 @@ public:
     SnapshotDispatch storage;
     CharacterPackage package;
     std::unique_ptr<CharacterProgram> program;
+    // Owned GPU execution of the generation's Present work; destroyed before the program.
+    std::unique_ptr<OwnedPresenter> presenter;
     std::atomic<bool> save_requested{false};
     std::unordered_map<uint32_t, std::vector<uint32_t>> by_count; // immutable after init
     std::vector<BoneComponent> ranges;
@@ -285,7 +288,12 @@ public:
         if (!package.load(g_cfg.m2_package, last_reason)) return false;
         if (CharacterProgram::configured(g_cfg.m2_package)) {
             program = std::make_unique<CharacterProgram>();
-            if (!program->init(g_cfg.m2_package, package, last_reason)) return false;
+            const auto gpu = [this](const std::filesystem::path& working, std::string& why) {
+                return OwnedPresenter::runtime(device, memory, working, why);
+            };
+            if (!program->init(g_cfg.m2_package, package, last_reason, gpu)) return false;
+            if (program->gpu()) presenter = std::make_unique<OwnedPresenter>(device, program->gpu());
+            else if (!program->gpu_reason().empty()) logf("owned GPU work unavailable: %s", program->gpu_reason().c_str());
             {
                 // What the original overlay would show after a load; the generation carries on (D-067).
                 const auto loaded = program->status();
@@ -329,6 +337,7 @@ public:
     {
         { std::lock_guard<std::mutex> lock(pool_mx); stopped = true; enabled = false; wake.notify_all(); }
         if (worker.joinable()) worker.join();
+        if (presenter) presenter->stop();
         if (program) { std::string reason; if (!program->save(reason)) note("INI shutdown settings: " + reason); }
         if (cache) cache->stop();
         {
@@ -1114,6 +1123,25 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
     for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext)
         if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2)
             device->material_bc_enabled = reinterpret_cast<const VkPhysicalDeviceFeatures2*>(p)->features.textureCompressionBC != 0;
+    // What owned GPU work may rely on: the core features the application enabled, and float
+    // controls when core 1.2 or the extension is enabled on this device (D-072).
+    if (info->pEnabledFeatures) device->enabled_features = *info->pEnabledFeatures;
+    for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext)
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2)
+            device->enabled_features = reinterpret_cast<const VkPhysicalDeviceFeatures2*>(p)->features;
+    const uint32_t effective = std::min(device->app_api_version ? device->app_api_version : VK_API_VERSION_1_0, device->api_version);
+    bool float_extension = false;
+    for (uint32_t i = 0; i < info->enabledExtensionCount; ++i)
+        float_extension |= !strcmp(info->ppEnabledExtensionNames[i], VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
+    const auto properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(gipa(instance, "vkGetPhysicalDeviceProperties2"));
+    if (properties2 && (effective >= VK_API_VERSION_1_2 || float_extension)) {
+        VkPhysicalDeviceProperties2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        query.pNext = &device->float_properties;
+        properties2(device->phys, &query);
+        device->float_controls = true;
+    }
+    if (effective >= VK_API_VERSION_1_1)
+        device->format_properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties2>(gipa(instance, "vkGetPhysicalDeviceFormatProperties2"));
     device->material_format_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties>(gipa(instance, "vkGetPhysicalDeviceFormatProperties"));
     device->material_image_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceImageFormatProperties>(gipa(instance, "vkGetPhysicalDeviceImageFormatProperties"));
     std::vector<VkQueue> queues;
@@ -1199,7 +1227,7 @@ void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
         it = it->first >> 32 == pipeline_id ? backend.derived.erase(it) : std::next(it);
 }
 
-void generation_frame(CharacterGeneration& backend, bool had_draws)
+void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork* present)
 {
     if (!had_draws) return;
     const uint64_t now = host_time_us();
@@ -1212,9 +1240,22 @@ void generation_frame(CharacterGeneration& backend, bool had_draws)
     if (backend.program) {
         auto input = sample_ini_input();
         input.frame_seconds = backend.frame_seconds.load(std::memory_order_relaxed);
+        OwnedPresenter::sample(backend.device, present, input);
         std::lock_guard<std::mutex> lock(backend.mod_mx);
-        std::string reason;
-        if (!backend.program->present(input, backend.frame.load(), ini_seconds(), reason)) backend.note("INI Present: " + reason);
+        std::string reason, owned_reason;
+        // With a presentation the generation's GPU commands run in a scope ordered before it.
+        const bool owned = backend.presenter && backend.presenter->begin(present, owned_reason);
+        if (!owned_reason.empty()) backend.note(owned_reason);
+        const bool executed = backend.program->present(input, backend.frame.load(), ini_seconds(), reason);
+        if (!executed) backend.note("INI Present: " + reason);
+        // The first refusal of owned Present work ends the generation's GPU side; keep its reason.
+        static std::atomic<bool> logged{false};
+        if (owned && !executed && !logged.exchange(true)) logf("INI Present refused with owned GPU work: %s", reason.c_str());
+        if (owned) {
+            std::string submission;
+            backend.presenter->finish(present, executed, submission);
+            if (!submission.empty()) backend.note(submission);
+        }
         backend.save_requested = true; backend.wake.notify_one();
     }
 }
@@ -1262,11 +1303,11 @@ public:
         for (auto& future : retiring) future.get();
         retiring.clear(); staged.reset();
     }
-    void frame(bool had_draws)
+    void frame(bool had_draws, PresentWork* present)
     {
         std::unique_lock<std::shared_mutex> lock(mutex);
         if (stopped || !active) return;
-        generation_frame(*active, had_draws);
+        generation_frame(*active, had_draws, present);
         for (auto it = retiring.begin(); it != retiring.end();) {
             if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) { it->get(); it = retiring.erase(it); }
             else ++it;
@@ -1330,7 +1371,7 @@ VkResult character_submit(CharacterBackend& b, VkQueue q)
     if (result == VK_SUCCESS && b.staged) result = generation_submit(*b.staged, q);
     return result;
 }
-void character_frame(CharacterBackend& b, bool had_draws) { b.frame(had_draws); }
+void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present) { b.frame(had_draws, present); }
 bool character_usable(CharacterBackend& b, std::string& reason)
 {
     std::shared_lock<std::shared_mutex> lock(b.mutex); return b.active && generation_usable(*b.active, reason);
@@ -1368,6 +1409,8 @@ void generation_enable(CharacterGeneration& backend, bool enabled) { backend.ena
 
 void generation_status(CharacterGeneration& backend, JsonWriter& w)
 {
+    if (backend.presenter) backend.presenter->status(w);
+    if (backend.program && !backend.program->gpu_reason().empty()) w.kv("owned_gpu_unavailable", backend.program->gpu_reason());
     if (backend.program) {
         const auto status = backend.program->status();
         w.key("ini"); w.begin_object();

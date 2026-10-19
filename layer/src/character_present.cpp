@@ -1,0 +1,219 @@
+#include "character_present.h"
+#include "json.h"
+#include <cstring>
+#include <fstream>
+
+namespace efvk {
+namespace {
+namespace gpu = efmi::gpu;
+std::filesystem::path module_directory()
+{
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(&module_directory), &module))
+        return {};
+    std::wstring path(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+    if (!length || length >= path.size()) return {};
+    path.resize(length);
+    return std::filesystem::path(path).parent_path();
+}
+bool enabled(const Device* device, const char* extension)
+{
+    for (const auto& name : device->extensions) if (name == extension) return true;
+    return false;
+}
+// The DXGI format the original back buffer view would report for this swap chain format.
+DXGI_FORMAT back_buffer_format(VkFormat format)
+{
+    switch (format) {
+    case VK_FORMAT_B8G8R8A8_UNORM: return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case VK_FORMAT_B8G8R8A8_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    case VK_FORMAT_R8G8B8A8_UNORM: return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case VK_FORMAT_R8G8B8A8_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return DXGI_FORMAT_R10G10B10A2_UNORM;
+    case VK_FORMAT_R16G16B16A16_SFLOAT: return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    default: return DXGI_FORMAT_UNKNOWN;
+    }
+}
+// A test-only copy of one presented image, honored only by the sandbox program.
+std::filesystem::path readback_request()
+{
+    wchar_t executable[32768] = {}, value[32768] = {};
+    GetModuleFileNameW(nullptr, executable, 32768);
+    if (_wcsicmp(std::filesystem::path(executable).filename().c_str(), L"efmi_vk_sandbox.exe")) return {};
+    const DWORD length = GetEnvironmentVariableW(L"EFMI_VK_TEST_PRESENT_READBACK", value, 32768);
+    return length && length < 32768 ? std::filesystem::path(value) : std::filesystem::path{};
+}
+} // namespace
+
+std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* device, const VkPhysicalDeviceMemoryProperties& memory,
+                                                                         const std::filesystem::path& working, std::string& reason)
+{
+    try {
+        const auto tools = module_directory();
+        const auto compiler = tools / L"dxcompiler.dll", bytecode = tools / L"efmi-vkd3d-shader.dll", validator = tools / L"SPIRV-Tools-shared.dll";
+        for (const auto& tool : {compiler, bytecode, validator})
+            if (!std::filesystem::is_regular_file(tool)) { reason = "owned GPU tools are not deployed beside the layer: " + tool.filename().string(); return {}; }
+        const uint32_t api = std::min(device->app_api_version ? device->app_api_version : VK_API_VERSION_1_0, device->api_version);
+        if (api < VK_API_VERSION_1_1 || !device->material_image_properties || !device->material_format_properties) {
+            reason = "owned GPU work needs Vulkan 1.1 and the device's format queries"; return {};
+        }
+        gpu::ResourceDevice resource;
+        resource.device = device->handle; resource.memory = memory; resource.queue_family = device->material_family;
+        resource.dispatch.SetDeviceLoaderData = device->set_loader_data;
+#define X(n) resource.dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
+        if (!resource.dispatch.n) { reason = "missing owned vk" #n; return {}; }
+        EFMI_RESOURCE_COMMAND_FUNCS(X)
+#undef X
+        resource.physical = device->phys; resource.enabled_features = device->enabled_features;
+        resource.enabled_depth_range_unrestricted = enabled(device, VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
+        resource.queue_flags = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+        resource.api_version = api;
+        resource.GetImageFormatProperties = device->material_image_properties;
+        resource.GetFormatProperties = device->material_format_properties;
+        resource.format_features2 = device->format_properties2 && (api >= VK_API_VERSION_1_3 || enabled(device, VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME));
+        resource.GetFormatProperties2 = device->format_properties2;
+        gpu::ShaderHost host;
+        host.get_device_proc = device->next_gdpa; host.properties = device->physical_properties; host.validator = validator;
+        host.float_controls = device->float_controls; host.float_properties = device->float_properties;
+        host.null_descriptors = device->null_descriptors;
+        host.shader_draw_parameters = device->draw_parameters;
+        // The shipped CustomShader caches run through the exact translation (D-070). Without
+        // denormal flushing the translation lowers it in software.
+        efmi::frontend::OwnedRuntime::Tools owned;
+        owned.compiler = compiler; owned.bytecode = bytecode;
+        owned.mode = device->float_properties.shaderDenormFlushToZeroFloat32 ? gpu::DxbcFloat32Mode::Hardware : gpu::DxbcFloat32Mode::Software;
+        return std::make_shared<efmi::frontend::OwnedRuntime>(resource, host, owned, working);
+    } catch (const std::exception& e) { reason = std::string("owned GPU runtime: ") + e.what(); return {}; }
+}
+
+void OwnedPresenter::sample(Device* device, const PresentWork* present, efmi::frontend::RuntimeInput& input)
+{
+    if (!device || !present || !present->info || !present->info->swapchainCount) return;
+    HWND window = nullptr; VkExtent2D extent = {};
+    {
+        std::lock_guard<std::mutex> lock(device->swap_mx);
+        const auto found = device->swapchains.find(present->info->pSwapchains[0]);
+        if (found == device->swapchains.end()) return;
+        window = found->second.window; extent = found->second.extent;
+    }
+    if (extent.width && extent.height && extent.width <= 65536 && extent.height <= 65536) {
+        input.resolution_width = extent.width; input.resolution_height = extent.height;
+    }
+    RECT client = {}; POINT origin = {};
+    if (window && GetClientRect(window, &client) && ClientToScreen(window, &origin))
+        input.window = {true, origin.x, origin.y, client.right - client.left, client.bottom - client.top};
+    CURSORINFO cursor = {sizeof(CURSORINFO)};
+    if (GetCursorInfo(&cursor)) input.cursor = {(cursor.flags & CURSOR_SHOWING) != 0, cursor.ptScreenPos.x, cursor.ptScreenPos.y};
+}
+
+OwnedPresenter::OwnedPresenter(Device* device, std::shared_ptr<efmi::frontend::OwnedRuntime> gpu)
+    : device_(device), gpu_(std::move(gpu)), readback_(readback_request())
+{
+    CreateSemaphore_ = reinterpret_cast<PFN_vkCreateSemaphore>(device_->next_gdpa(device_->handle, "vkCreateSemaphore"));
+    DestroySemaphore_ = reinterpret_cast<PFN_vkDestroySemaphore>(device_->next_gdpa(device_->handle, "vkDestroySemaphore"));
+}
+
+OwnedPresenter::~OwnedPresenter() { stop(); }
+
+bool OwnedPresenter::begin(PresentWork* present, std::string& reason)
+{
+    current_ = nullptr;
+    if (stopped_ || !present || !present->info || !present->info->swapchainCount || !present->queue) return false;
+    SwapchainInfo chain;
+    {
+        std::lock_guard<std::mutex> lock(device_->swap_mx);
+        const auto found = device_->swapchains.find(present->info->pSwapchains[0]);
+        if (found == device_->swapchains.end()) return false;
+        chain = found->second;
+    }
+    const uint32_t index = present->info->pImageIndices ? present->info->pImageIndices[0] : UINT32_MAX;
+    if (index >= chain.images.size()) return false;
+    try {
+        auto& entry = images_[chain.images[index]];
+        const auto format = back_buffer_format(chain.format);
+        if (!entry.image || entry.generation != chain.generation) {
+            gpu::ImageDescription description;
+            description.format = chain.format; description.extent = {chain.extent.width, chain.extent.height, 1};
+            description.usage = chain.usage;
+            if (chain.flags & VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR) description.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+            entry.image = gpu_->commands().import_image(chain.images[index], description, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            entry.generation = chain.generation;
+        }
+        if (!entry.done) {
+            VkSemaphoreCreateInfo info = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+            if (!CreateSemaphore_ || CreateSemaphore_(device_->handle, &info, nullptr, &entry.done) != VK_SUCCESS) {
+                reason = "cannot create the presentation semaphore"; return false;
+            }
+        }
+        if (!gpu_->scope_active()) gpu_->begin(present->queue);
+        if (format != DXGI_FORMAT_UNKNOWN && (chain.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
+            gpu_->backbuffer(entry.image, format, (chain.usage & VK_IMAGE_USAGE_SAMPLED_BIT) != 0);
+        else { gpu_->backbuffer(nullptr, DXGI_FORMAT_UNKNOWN, false); ++unsupported_; }
+        current_ = &entry; ++presents_;
+        return true;
+    } catch (const std::exception& e) { reason = std::string("owned Present: ") + e.what(); last_error_ = reason; ++failed_; return false; }
+}
+
+void OwnedPresenter::finish(PresentWork* present, bool executed, std::string& reason)
+{
+    try {
+        gpu_->backbuffer(nullptr, DXGI_FORMAT_UNKNOWN, false);
+        if (!gpu_->scope_active()) { current_ = nullptr; return; }
+        if (!executed) { gpu_->discard(); ++failed_; current_ = nullptr; return; }
+        gpu::ResourceCommands::SubmitSync sync;
+        if (current_) {
+            sync.waits = present->waits;
+            sync.stages.assign(sync.waits.size(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+            sync.signals = {current_->done};
+        }
+        auto ticket = gpu_->finish(sync, present->queue);
+        if (ticket && current_) {
+            present->waits = {current_->done}; present->replaced = true; ++submitted_;
+            tickets_.push_back(std::move(ticket));
+            if (!readback_.empty() && submitted_ == 20) readback(present, *current_);
+        }
+    } catch (const std::exception& e) { reason = std::string("owned Present submission: ") + e.what(); last_error_ = reason; ++failed_; }
+    while (!tickets_.empty() && tickets_.front()->ready()) tickets_.pop_front();
+    current_ = nullptr;
+}
+
+void OwnedPresenter::readback(PresentWork* present, const Presented& entry)
+{
+    gpu_->begin(present->queue);
+    VkBufferImageCopy region = {};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = entry.image->extent();
+    const auto bytes = gpu_->commands().readback(present->queue, entry.image, region);
+    gpu_->finish({}, present->queue);
+    std::ofstream out(readback_, std::ios::binary);
+    out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    std::ofstream meta(readback_.wstring() + L".json");
+    meta << "{\"width\":" << region.imageExtent.width << ",\"height\":" << region.imageExtent.height
+         << ",\"format\":" << int(entry.image->description().format) << "}\n";
+}
+
+void OwnedPresenter::stop()
+{
+    if (stopped_) return;
+    stopped_ = true;
+    for (auto& ticket : tickets_) ticket->wait();
+    tickets_.clear();
+    if (gpu_ && gpu_->scope_active()) gpu_->discard();
+    for (auto& entry : images_) {
+        entry.second.image.reset();
+        if (entry.second.done && DestroySemaphore_) DestroySemaphore_(device_->handle, entry.second.done, nullptr);
+    }
+    images_.clear();
+}
+
+void OwnedPresenter::status(JsonWriter& w) const
+{
+    w.key("owned_present"); w.begin_object();
+    w.kn("presents", presents_); w.kn("submitted", submitted_); w.kn("failed", failed_);
+    w.kn("unsupported_formats", unsupported_); w.kn("images", images_.size()); w.kn("in_flight", tickets_.size());
+    w.kv("last_error", last_error_);
+    w.end_object();
+}
+} // namespace efvk

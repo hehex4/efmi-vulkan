@@ -41,6 +41,7 @@ STEPS = [
     ("M2 hook rendering", [os.path.join(HERE, "m2_test.py")]),
     ("character replacement", [os.path.join(HERE, "character_test.py")]),
     ("live INI rendering", [os.path.join(HERE, "runtime_test.py")]),
+    ("owned Present on a swap chain", [os.path.join(HERE, "owned_present_test.py")]),
     ("probe end to end", [os.path.join(HERE, "probe_test.py")]),
     ("modes", [os.path.join(HERE, "modes_test.py")]),
     ("budgets and reduced tracking", [os.path.join(HERE, "limits_test.py")]),

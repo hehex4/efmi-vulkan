@@ -34,6 +34,17 @@ struct HostApi {
                                          std::vector<BoundRange>& out) = nullptr;
 };
 
+// The presentation a frame ends with, when the host saw one (vkQueuePresentKHR on `queue`). The
+// module may draw into the image of the first swap chain before it is shown: it then waits for
+// `waits` itself, replaces them with the semaphores the presentation is to wait for and sets
+// `replaced`. Called on the presenting thread, which owns `queue` for the duration.
+struct PresentWork {
+    VkQueue queue = VK_NULL_HANDLE;
+    const VkPresentInfoKHR* info = nullptr;
+    std::vector<VkSemaphore> waits;
+    bool replaced = false;
+};
+
 // The functions of one copy of the replacement code.
 struct CharacterModule {
     uint32_t size = 0;
@@ -47,7 +58,7 @@ struct CharacterModule {
     void (*stop)(CharacterBackend&) = nullptr;
     bool (*record)(CharacterBackend&, CmdBuf*, const DrawRec&) = nullptr;
     void (*retire)(CharacterBackend&, uint32_t pipeline_id) = nullptr;
-    void (*frame)(CharacterBackend&, bool had_draws) = nullptr;
+    void (*frame)(CharacterBackend&, bool had_draws, PresentWork* present) = nullptr;
     void (*status)(CharacterBackend&, JsonWriter&) = nullptr;
     void (*enable)(CharacterBackend&, bool) = nullptr;
     VkResult (*submit)(CharacterBackend&, VkQueue) = nullptr;

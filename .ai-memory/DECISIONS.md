@@ -741,3 +741,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Replaced character draws must stay inside the application's render pass with the game's pipeline variants (the file plan); original GPU commands (clears, copies, store, CustomShader, non-indexed draws) need the owned outside-render-pass domain. One generation keeps the INI's variables shared, which the image panel needs (it toggles the main INI's outfit variables).
 - The owned GPU callbacks therefore apply only while the host has an owned scope open (Present, Constants, key and reload lists). Replaced draws open none and behave exactly as before; a CustomShader inside one refuses until phase 1 step P2 records such work into private command buffers before the application's submission.
 - Declaration references executed by the GPU side are mirrored into the plan; references made by replaced draws are not yet visible to the GPU side (recorded limitation). The native extension's preparation runs with the gate closed, and its natively executed CustomShaders are not compiled.
+
+## D-073: In character mode the layer enables what owned GPU work needs on the application's objects
+
+- Date: 2026-10-19 (candidate 1.4.6, branch claude/ini).
+- Owned Present work runs on the application's device and swap chain. It needs D3D11 null views (robustness2 nullDescriptor, D-071), vertex IDs with D3D semantics in HLSL-compiled shaders (shaderDrawParameters, core in Vulkan 1.1) and a swap chain image usable as a color attachment.
+- Only in character mode, only when supported and not already requested: the layer adds the robustness2 extension with nullDescriptor alone; sets shaderDrawParameters in the application's own Vulkan 1.1 or draw-parameter feature structure for the duration of vkCreateDevice and restores it afterwards, or adds a structure of its own; adds color attachment usage to a swap chain lacking it (every swap chain supports it). Application requests are never changed otherwise.
+- The status reports each addition, so a session shows exactly what was enabled. None of this affects the application's own rendering; it is not an anti-cheat measure in any direction.

@@ -11,7 +11,7 @@
 //                   [--inject DLL | --inject-late DLL | --inject-late-exports DLL]
 //                   [--descriptors ordinary|template|push|push-template]
 //                   [--draws N] [--timings FILE --warmup N --frames N]
-//                   [--validation] [--validation-canary]
+//                   [--validation] [--validation-canary] [--readable-swapchain]
 //
 // --inject loads a DLL before the program touches Vulkan, the way a launcher injects one at
 // process start. --inject-late loads it after the device exists, which is too late to intercept.
@@ -193,6 +193,7 @@ struct App {
     bool validation = false, validation_canary = false;
     VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
     bool primary_screen = false;
+    bool readable_swapchain = false; // test readback of what the layer drew into the image
     std::wstring expected_path;
     std::wstring trigger_path;
     std::wstring inject_path;
@@ -558,7 +559,7 @@ static bool create_swapchain()
     info.imageColorSpace = chosen.colorSpace;
     info.imageExtent = g.extent;
     info.imageArrayLayers = 1;
-    info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (g.readable_swapchain ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
     info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     info.preTransform = caps.currentTransform;
     info.compositeAlpha = alpha;
@@ -1503,6 +1504,8 @@ int wmain(int argc, wchar_t** argv)
             g.trigger_path = argv[++i];
         else if (a == L"--primary-screen")
             g.primary_screen = true;
+        else if (a == L"--readable-swapchain")
+            g.readable_swapchain = true;
         else if (a == L"--inject" && i + 1 < argc)
             g.inject_path = argv[++i];
         else if (a == L"--inject-late" && i + 1 < argc) {

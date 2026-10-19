@@ -6,6 +6,7 @@
 
 namespace efvk {
 struct Device;
+struct PresentWork;
 struct CmdBuf;
 struct DrawRec;
 class JsonWriter;
@@ -25,7 +26,7 @@ void m2_retire(Device*,VkPipeline);
 bool m2_record(Device*,CmdBuf*,const DrawRec&);
 void m2_seal(Device*,uint32_t,const VkCommandBuffer*);
 // Once per present; `had_draws` is false for an interval in which nothing was drawn.
-void m2_frame(Device*,bool had_draws);
+void m2_frame(Device*,bool had_draws,PresentWork* present=nullptr);
 // Before the application's submission goes down: uploads and publication of a character backend.
 VkResult m2_submit(Device*,VkQueue);
 void m2_status(Device*,JsonWriter&);

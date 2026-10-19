@@ -9,6 +9,7 @@
 //   inject - the DLL was loaded with LoadLibrary; bootstrap.cpp redirects the exports of
 //            vulkan-1.dll to the hooks, which then call the original exports.
 #include "state.h"
+#include "character_module.h"
 #include "m2_backend.h"
 #include "character_backend.h"
 
@@ -881,8 +882,20 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresent
 {
     count_call(HI_QueuePresentKHR);
     Device* dev = dev_of(queue);
-    on_present(dev);
-    return dev->d.QueuePresentKHR(queue, info);
+    PresentWork present;
+    present.queue = queue;
+    present.info = info;
+    if (info)
+        present.waits.assign(info->pWaitSemaphores, info->pWaitSemaphores + info->waitSemaphoreCount);
+    on_present(dev, &present);
+    if (!present.replaced || !info)
+        return dev->d.QueuePresentKHR(queue, info);
+    // Owned work was drawn into the image: the presentation waits for it, and it waited for the
+    // application's semaphores itself.
+    VkPresentInfoKHR changed = *info;
+    changed.waitSemaphoreCount = static_cast<uint32_t>(present.waits.size());
+    changed.pWaitSemaphores = present.waits.data();
+    return dev->d.QueuePresentKHR(queue, &changed);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* info,
@@ -890,6 +903,15 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, const VkSw
 {
     count_call(HI_CreateSwapchainKHR);
     Device* dev = dev_of(device);
+    // Owned Present work renders into the image; every swap chain supports color attachment use.
+    VkSwapchainCreateInfoKHR changed;
+    bool usage_added = false;
+    if (info && dev->character_mode && !(info->imageUsage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) {
+        changed = *info;
+        changed.imageUsage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        info = &changed;
+        usage_added = true;
+    }
     const VkResult r = dev->d.CreateSwapchainKHR(device, info, alloc, swapchain);
     if (r != VK_SUCCESS || dev->passive || !info)
         return r;
@@ -901,6 +923,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, const VkSw
     s.extent = info->imageExtent;
     s.usage = info->imageUsage;
     s.flags = info->flags;
+    s.usage_added = usage_added;
     uint32_t count = 0;
     if (dev->d.GetSwapchainImagesKHR && dev->d.GetSwapchainImagesKHR(device, *swapchain, &count, nullptr) == VK_SUCCESS && count && count <= 16) {
         s.images.resize(count);
@@ -1158,48 +1181,70 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     }
     if (!gdpa || !next)
         return VK_ERROR_INITIALIZATION_FAILED;
-    // Character mode: owned GPU work needs VK_EXT_robustness2 nullDescriptor for D3D11 null views
-    // (D-071). The layer adds the extension with that feature alone when the device supports it
-    // and the application did not ask for the extension; an application request stays as it is.
+    // Character mode: owned GPU work (D-072) needs VK_EXT_robustness2 nullDescriptor for D3D11
+    // null views (D-071) and shaderDrawParameters for D3D vertex IDs in compiled shaders. The layer
+    // enables what the device supports and the application did not: the extension with that one
+    // feature, the core 1.1 feature in the application's own feature structure for the duration
+    // of the call, or in a structure of its own. Application requests stay as they are.
     const VkDeviceCreateInfo* requested = info;
-    VkDeviceCreateInfo modified;
-    std::vector<const char*> extensions;
+    VkDeviceCreateInfo modified = *info;
+    std::vector<const char*> extensions(info->ppEnabledExtensionNames, info->ppEnabledExtensionNames + info->enabledExtensionCount);
     VkPhysicalDeviceRobustness2FeaturesEXT robust{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+    VkPhysicalDeviceShaderDrawParametersFeatures draw_parameters_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
     bool null_descriptors = false, null_descriptors_added = false, robustness_requested = false;
+    bool draw_parameters = false, draw_parameters_added = false;
+    VkBool32* app_draw_parameters = nullptr; // the application's field, set only for the call
+    bool changed = false;
     for (uint32_t i = 0; i < info->enabledExtensionCount; ++i)
         robustness_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
-    if (robustness_requested) {
-        for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext)
-            if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT)
-                null_descriptors = reinterpret_cast<const VkPhysicalDeviceRobustness2FeaturesEXT*>(p)->nullDescriptor != VK_FALSE;
-    } else if (!g_cfg.m2_package.empty() && inst && inst->EnumerateDeviceExtensionProperties && inst->GetPhysicalDeviceFeatures2) {
+    for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext) {
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT && robustness_requested)
+            null_descriptors = reinterpret_cast<const VkPhysicalDeviceRobustness2FeaturesEXT*>(p)->nullDescriptor != VK_FALSE;
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES) {
+            auto* features = const_cast<VkPhysicalDeviceVulkan11Features*>(reinterpret_cast<const VkPhysicalDeviceVulkan11Features*>(p));
+            draw_parameters = features->shaderDrawParameters != VK_FALSE; app_draw_parameters = &features->shaderDrawParameters;
+        }
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES) {
+            auto* features = const_cast<VkPhysicalDeviceShaderDrawParametersFeatures*>(reinterpret_cast<const VkPhysicalDeviceShaderDrawParametersFeatures*>(p));
+            draw_parameters = features->shaderDrawParameters != VK_FALSE; app_draw_parameters = &features->shaderDrawParameters;
+        }
+    }
+    const uint32_t app_api = inst ? inst->app_api_version : VK_API_VERSION_1_0;
+    if (!g_cfg.m2_package.empty() && inst && inst->EnumerateDeviceExtensionProperties && inst->GetPhysicalDeviceFeatures2) {
+        bool robustness_supported = false;
         uint32_t count = 0;
-        bool supported = false;
-        if (inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) == VK_SUCCESS && count && count < 4096) {
+        if (!robustness_requested && inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) == VK_SUCCESS && count && count < 4096) {
             std::vector<VkExtensionProperties> available(count);
             if (inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, available.data()) == VK_SUCCESS)
                 for (uint32_t i = 0; i < count; ++i)
-                    supported |= !strcmp(available[i].extensionName, VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
+                    robustness_supported |= !strcmp(available[i].extensionName, VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
         }
-        VkPhysicalDeviceRobustness2FeaturesEXT query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+        VkPhysicalDeviceRobustness2FeaturesEXT robust_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+        VkPhysicalDeviceShaderDrawParametersFeatures draw_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
+        draw_query.pNext = robustness_supported ? &robust_query : nullptr;
         VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-        features.pNext = &query;
-        if (supported)
-            inst->GetPhysicalDeviceFeatures2(phys, &features);
-        if (supported && query.nullDescriptor) {
-            extensions.assign(info->ppEnabledExtensionNames, info->ppEnabledExtensionNames + info->enabledExtensionCount);
+        features.pNext = &draw_query;
+        inst->GetPhysicalDeviceFeatures2(phys, &features);
+        void* chain = const_cast<void*>(info->pNext);
+        if (robustness_supported && robust_query.nullDescriptor) {
             extensions.push_back(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
-            modified = *info;
+            robust.nullDescriptor = VK_TRUE; robust.pNext = chain; chain = &robust;
+            null_descriptors = null_descriptors_added = changed = true;
+        }
+        if (!draw_parameters && app_api >= VK_API_VERSION_1_1 && draw_query.shaderDrawParameters) {
+            if (app_draw_parameters) *app_draw_parameters = VK_TRUE;
+            else { draw_parameters_feature.shaderDrawParameters = VK_TRUE; draw_parameters_feature.pNext = chain; chain = &draw_parameters_feature; }
+            draw_parameters = draw_parameters_added = changed = true;
+        }
+        if (changed) {
             modified.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
             modified.ppEnabledExtensionNames = extensions.data();
-            robust.nullDescriptor = VK_TRUE;
-            robust.pNext = const_cast<void*>(info->pNext);
-            modified.pNext = &robust;
+            modified.pNext = chain;
             info = &modified;
-            null_descriptors = null_descriptors_added = true;
         }
     }
     VkResult r = next(phys, info, alloc, device);
+    if (draw_parameters_added && app_draw_parameters) *app_draw_parameters = VK_FALSE;
     if (r != VK_SUCCESS)
         return r;
     info = requested;
@@ -1211,6 +1256,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     dev->set_loader_data = set_loader_data;
     dev->null_descriptors = null_descriptors;
     dev->null_descriptors_added = null_descriptors_added;
+    dev->draw_parameters = draw_parameters;
+    dev->draw_parameters_added = draw_parameters_added;
     if (inst)
         dev->app_api_version = inst->app_api_version;
     for (const HookEntry& h : g_hooks)
@@ -1236,6 +1283,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     logf("device created on %s, %u extensions enabled, application API 0x%x, null descriptors %s", dev->gpu_name,
          info->enabledExtensionCount, dev->app_api_version,
          null_descriptors_added ? "added" : null_descriptors ? "enabled by the application" : "off");
+    if (dev->draw_parameters) logf("shader draw parameters %s", dev->draw_parameters_added ? "added" : "enabled by the application");
     if (g_cfg.mode == Mode::Probe)
         ipc_start();
     return VK_SUCCESS;

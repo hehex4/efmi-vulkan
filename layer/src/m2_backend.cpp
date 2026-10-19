@@ -382,12 +382,12 @@ VkResult m2_submit(Device* device,VkQueue queue){
     if(device->character_staged)device->staged_module->submit(*device->character_staged,queue);
     return VK_SUCCESS;
 }
-void m2_frame(Device* device,bool had_draws){
+void m2_frame(Device* device,bool had_draws,PresentWork* present){
     if(!device->character_mode)return;
     bool promote=false,late=false;
     {
         std::shared_lock<std::shared_mutex> lock(device->character_mx);
-        if(device->character)device->character_module->frame(*device->character,had_draws);
+        if(device->character)device->character_module->frame(*device->character,had_draws,present);
         if(device->character_staged){
             promote=device->staged_module->ready(*device->character_staged);
             if(!promote){
