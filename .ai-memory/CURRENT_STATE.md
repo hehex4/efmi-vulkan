@@ -1,10 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-19, branch claude/ini: candidate 1.4.8 derives the material rules of every fragment shader without a package profile from its own module by the DX11 register rule (D-076); the sibling heuristic is gone. Not loaded into the game. Next: BUG-026, then automatic packages for every installed Mod and several packages at once toward the directory generation (phase 2). main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist: layer 1.0.2 with the probe-only configuration of session B. Launcher on DX11.
+> Last updated: 2026-10-19, branch claude/ini: candidate 1.4.9 (BUG-026 fixed) after 1.4.8, which derives the material rules of every fragment shader without a package profile from its own module by the DX11 register rule (D-076); the sibling heuristic is gone. Not loaded into the game. Next: automatic packages for every installed Mod and several packages at once toward the directory generation (phase 2). main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist: layer 1.0.2 with the probe-only configuration of session B. Launcher on DX11.
 
 Launcher state, 2026-10-19 17:35: at the user's explicit request, switched the EFMI profile back to DX11 after catalogue session B: d3d11_mode_cmd_args = -force-d3d11, xxmi_dll_inject_mode = DIRECT; game and launcher closed, checked again before writing; only the two value spans changed, exact readback. Backup and manifest: build/backups/launcher-dx11-20261019-173504/. The injected library (signed) was still dist/efmi_vk_inject.dll at that time; the user sets it back to F:\EFMI MCP\dist\efmi_probe.dll in the launcher UI (a DX11 start with efmi_vk_inject.dll injected crashed on 2026-10-11). dist/efmi_vk.cfg keeps the probe-only configuration without a character package (BUG-026); the earlier one is in build/backups/before-catalogue-b-20261019-170419/.
 
 
+
+## BUG-026 fixed (candidate 1.4.9, 2026-10-19)
+
+A refused character init now abandons the backend: the INI program and its presenter are dropped, so no presentation reaches a half-made program; the refusal is logged as before. Arenas: a package with a live INI program gets every image count of the budget (0 to 8), a static one the most slots one draw binds, since rules from a module (D-076) can bind any of them. sandbox/runtime_test.py (live INI step) runs the sandbox program in both entries with a fixture package whose stream file was removed: it runs and exits normally, logs the refusal and reports the backend neither ready nor enabled (6 new checks, 38/38). Full rebuilt suite passes all 31 steps (build/next/run_all-1.4.9.out). The deployed 1.0.2 still has the defect; dist keeps the configuration without a package.
 
 ## Material rules from the register rule in the layer (candidate 1.4.8, 2026-10-19)
 

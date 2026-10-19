@@ -717,9 +717,10 @@ Original defect: `~UpscalingFlipBBCommand` in the pinned CommandList.cpp writes 
 
 Correction 1.3.9: the destructor points `G` at the generation's own globals, which outlive every other member, for the teardown. The same fixture segfaults (exit 139) on a build without the fix and completes with it; the matrix probe keeps it covered.
 
-## BUG-026: A refused character package crashes the process after device creation
+## BUG-026: A refused character package crashes the process after device creation (fixed in candidate 1.4.9)
 
 - Found 2026-10-19 in the sandbox (inject entry), before catalogue session B. With m2_package naming build/character/arcane-live.bin, whose Mod folder `arcane fes 1.2` is no longer installed, the layer logs "character package refused: Runtime resource missing ..." at device creation and the process then ends with an access violation (0xC0000005). m2_enabled = 0 does not prevent it: the package is still loaded. Both the deployed 1.0.2 and candidate 1.4.7 crash; without m2_package the same layer runs and exits normally.
 - Consequence: the deployed dist configuration of 1.0.2 would have crashed the game under Vulkan with the current Mods folder. The session B configuration has no package.
-- Open: find and fix the crash (the refused package must leave replacement off, never a half-built backend), and honour m2_enabled = 0 before loading a package; add a suite case with a package whose files are missing.
+- Cause: CharacterGeneration::init returned false after program->init had failed, with the half-made program kept; generation_frame then ran its Present at every presentation.
+- Fixed in candidate 1.4.9: a refused init abandons the program and its presenter (generation_create). Suite case in sandbox/runtime_test.py. m2_enabled = 0 still loads the package (it can be enabled at run time); a refused one now does nothing. Deployed 1.0.2 keeps the defect until a new deployment.
 

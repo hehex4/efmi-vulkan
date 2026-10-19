@@ -3,8 +3,30 @@ import json
 import os
 from pathlib import Path
 import subprocess
-from harness import Checks, DIST, INJECT_DLL, inject_env, layer_env, test_dir
+from harness import Checks, DIST, INJECT_DLL, Sandbox, inject_env, layer_env, test_dir
 from runtime_fixture import fixture
+from efmi_vk.probe_client import ProbeClient
+
+
+def refused_package(checks):
+    """BUG-026: a package whose Mod files went missing is refused, and the application runs on."""
+    for entry in ("layer", "inject"):
+        folder = Path(test_dir("runtime-refused-"))
+        package = fixture(folder)
+        config = json.loads(Path(str(package) + ".runtime.json").read_text(encoding="ascii"))
+        Path(config["stream_0"]).unlink()
+        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
+        status = {}
+        with Sandbox(seconds=4, env_extra=extra, entry=entry) as sb:
+            with ProbeClient(sb.pid) as probe:
+                status = probe.status().get("replacement", {})
+            sb.proc.wait(timeout=60)
+            code = sb.proc.returncode
+        log = Path(sb.log_path).read_text(encoding="utf-8", errors="replace") if sb.log_path and Path(sb.log_path).is_file() else ""
+        label = f"{entry}, missing Mod file"
+        checks.equal(code, 0, label + ": the application runs and exits normally (BUG-026)")
+        checks.check("character package refused: Runtime resource missing" in log, label + ": the refusal and its reason are logged")
+        checks.check(not status.get("ready") and not status.get("enabled"), label + ": the refused backend neither is ready nor enabled")
 
 
 def main():
@@ -46,6 +68,7 @@ def main():
             checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(), label + " settings atomically saved outside mod source")
             refused = {k: v for k, v in status["counters"].items() if k.startswith(("refused_", "unreadable_", "import_", "exhausted")) and v}
             checks.equal(refused, {}, label + " no refused drawing after successful reload")
+    refused_package(checks)
     return checks.finish()
 
 

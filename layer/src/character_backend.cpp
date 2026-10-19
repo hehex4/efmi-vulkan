@@ -299,16 +299,18 @@ public:
         for (const auto& c : package.components) ranges.push_back({c.first, c.count});
         bone_bytes = (MergedSkeleton::kImplicitBones + 2 * package.bones) * static_cast<uint32_t>(MergedSkeleton::kBytesPerBone);
         if (package.materials && !init_materials()) return false;
-        if (program) {
-            // Runtime null/image choices can use any count up to the profile's
-            // declared image slots. Allocate these arenas before first drawing.
-            uint32_t maximum = 0;
+        if (program || package.materials) {
+            // Rules a fragment module gives (D-076) can use any count up to the slots one draw binds; a
+            // live INI chooses them at run time, so a program gets every count of the budget.
+            // Allocate these arenas before first drawing.
+            uint32_t maximum = program ? 8 : 0;
+            for (const auto& pixels : package.pixels) maximum = std::max(maximum, static_cast<uint32_t>(std::min<size_t>(pixels.size(), 64)));
             for (const auto& profile : package.profiles) {
                 uint32_t count = 0;
                 for (const auto& rule : profile.rules) count += rule.kind == CharacterMaterialRule::Image;
                 maximum = std::max(maximum, count);
             }
-            if (maximum > 8) { last_reason = "runtime material profile exceeds the image arena budget"; return false; }
+            if (maximum > 8) { last_reason = "runtime material slots exceed the image arena budget"; return false; }
             for (uint32_t i = 0; i <= maximum; ++i) image_counts.insert(i);
         }
         // One variant per pipeline and mesh draw. A character is drawn by some hundred pipelines once
@@ -317,6 +319,14 @@ public:
         enabled = g_cfg.m2_enabled;
         worker = std::thread([this] { prepare(); });
         return true;
+    }
+
+    // After a refused init: nothing of the generation runs. The worker was not started yet.
+    void abandon()
+    {
+        enabled = false;
+        presenter.reset();
+        program.reset();
     }
 
     void stop()
@@ -1128,7 +1138,12 @@ std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkP
 {
     auto backend = std::make_shared<CharacterGeneration>(device, properties, memory);
     try {
-        if (!backend->init()) { logf("character package refused: %s", backend->last_reason.c_str()); return backend; }
+        if (!backend->init()) {
+            // BUG-026: a refusal can come after the INI program or its presenter were made; a refused
+            // backend keeps neither, so no later presentation or draw reaches a half-made program.
+            backend->abandon();
+            logf("character package refused: %s", backend->last_reason.c_str()); return backend;
+        }
         logf("character package configured: %u sections, %u components, %u bones, %u draws, enabled=%u",
              static_cast<uint32_t>(backend->package.sections.size()), static_cast<uint32_t>(backend->package.components.size()),
              backend->package.bones, static_cast<uint32_t>(backend->package.draws.size()), backend->enabled.load() ? 1 : 0);
