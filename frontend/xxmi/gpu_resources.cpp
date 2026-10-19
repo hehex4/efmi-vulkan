@@ -120,6 +120,7 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     require(!installed_,"GPU resource runtime cannot belong to two INI generations");installed_=true;
     adapter.resource_commands([this](auto& command,auto& state,auto& why){return run(command,state,why);});
     adapter.resource_queries([this](auto& target,auto& state,float& value,auto& why){return query(target,state,value,why);});
+    adapter.render_target_size([this](auto& state,bool& bound,float& width,float& height,auto& why){return render_target(state,bound,width,height,why);});
     adapter.resource_matches([this](auto& target,auto& state,auto& value,auto& why){return match_source(target,state,value,why);});
     adapter.parameter_flush([this](auto& state,bool force,auto& why){return flush_parameters(state,force,why);});
     return {};
@@ -565,7 +566,8 @@ bool GpuResourceRuntime::query(ResourceCopyTarget& input,CommandListState& state
         require(mode==Mode::RESOURCE_STRIDE || mode==Mode::RESOURCE_SIZE || mode==Mode::RESOURCE_SOURCE_STRIDE ||
                 mode==Mode::RESOURCE_FORMAT || mode==Mode::RESOURCE_WIDTH || mode==Mode::RESOURCE_HEIGHT ||
                 mode==Mode::RESOURCE_ARRAY || mode==Mode::RESOURCE_MIPS || mode==Mode::RESOURCE_BIND_FLAGS ||
-                mode==Mode::RESOURCE_OFFSET || mode==Mode::RESOURCE_IDENTITY,"GPU resource property requires source-semantic adaptation");
+                mode==Mode::RESOURCE_OFFSET || mode==Mode::RESOURCE_IDENTITY || mode==Mode::RESOURCE_REGION_HASH ||
+                mode==Mode::RESOURCE_SPATIAL_HASH,"GPU resource property requires source-semantic adaptation");
         auto* custom=input.type==Target::CUSTOM_RESOURCE?declaration(input,state):nullptr;
         // These original getters return declaration metadata before attempting
         // resource creation. They also work in Constants without a GPU scope.
@@ -586,6 +588,22 @@ bool GpuResourceRuntime::query(ResourceCopyTarget& input,CommandListState& state
         active();auto b=get(input,state);
         // Sentinels from the pinned CommandList.cpp ResourcePropertyResult.
         if(!b){result=mode==Mode::RESOURCE_IDENTITY || mode==Mode::RESOURCE_BIND_FLAGS?0.0f:-2.0f;return true;}
+        if(mode==Mode::RESOURCE_REGION_HASH || mode==Mode::RESOURCE_SPATIAL_HASH){
+            if(b.image){result=-3.0f;return true;}
+            // GetResourceRegionHash/GetResourceSpatialHash: the region offset of a vertex or index
+            // buffer reads the draw call, then the arguments are evaluated.
+            require(state.call_info || (input.type!=Target::VERTEX_BUFFER && input.type!=Target::INDEX_BUFFER),
+                    "GPU buffer hash query requires a draw context");
+            const size_t arguments=mode==Mode::RESOURCE_REGION_HASH?2:4;
+            for(size_t i=0;i<arguments;++i){
+                require(input.member_args[i].expression!=nullptr,"GPU buffer hash query arguments incomplete");
+                input.member_args[i].GetValue(&state);
+            }
+            // The original hashes its CPU copy of application buffers (cache_resource_data) and of
+            // resources copied from them. An owned buffer holds Mod data, which the original never
+            // caches, so the hash is zero and the result stays UNKNOWN.
+            result=-1.0f;return true;
+        }
         switch(mode){
         case Mode::RESOURCE_SIZE:result=b.visible_size?float(b.visible_size):b.image?-3.0f:float(b.description.ByteWidth);break;
         case Mode::RESOURCE_STRIDE:
@@ -618,6 +636,17 @@ bool GpuResourceRuntime::query(ResourceCopyTarget& input,CommandListState& state
         default:throw std::runtime_error("GPU resource property requires source-semantic adaptation");
         }
         return true;
+    }catch(const std::exception& e){if(active_)failed_=true;reason=widen(e.what());return false;}
+}
+bool GpuResourceRuntime::render_target(CommandListState&,bool& bound,float& width,float& height,std::wstring& reason) {
+    try{require(!failed_,"GPU resource generation failed");active();bound=false;
+        const auto found=slots_.find({L'\0',Target::RENDER_TARGET,0u});
+        if(found==slots_.end() || !found->second.image)return true;
+        // ProcessParamRTSize: OMGetRenderTargets(1), then the Texture2D of a 2D or 2D multisample view.
+        const auto& b=found->second;
+        const auto view=original_image_view(b.image_description,Target::RENDER_TARGET,b.view_format).rtv.ViewDimension;
+        if(view!=D3D11_RTV_DIMENSION_TEXTURE2D && view!=D3D11_RTV_DIMENSION_TEXTURE2DMS)return true;
+        bound=true;width=float(b.image_description.texture.Width);height=float(b.image_description.texture.Height);return true;
     }catch(const std::exception& e){if(active_)failed_=true;reason=widen(e.what());return false;}
 }
 GpuResourceBinding GpuResourceRuntime::binding(wchar_t stage,Target type,unsigned index) const {

@@ -21,6 +21,7 @@ struct Refused : std::exception {
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
 constexpr size_t max_active_depth = 64;
 struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;DrawPlanAdapter::ShaderQuery shader;size_t count=0;bool general_matches=false;
+    DrawPlanAdapter::HostValue host;DrawPlanAdapter::RenderTargetSize rt;
     std::function<bool()> gate;bool open() const {return !gate || gate();}};
 class NativeShaderQuery final : public CommandListEvaluatable {
 public:
@@ -95,21 +96,69 @@ public:
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
     bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
 };
+// The original's ProcessParamRTSize caches the size of o0 in the state once a 2D view is bound
+// and asks again while the cache stays -1. The owned domain answers for o0; -2 marks "asked,
+// nothing bound" for the window heuristic, so the reference context is never queried.
+void fill_render_target(CommandListState& state,QueryService& service)
+{
+    if(state.rt_width!=-1 && state.rt_width!=-2)return;
+    if(!service.rt || !service.open())refuse(L"Render target size needs the owned GPU domain");
+    bool bound=false;float width=-1,height=-1;std::wstring why;
+    if(!service.rt(state,bound,width,height,why))refuse(why.empty()?L"Render target size query refused":why);
+    if(bound){state.rt_width=width;state.rt_height=height;}
+}
+class RenderTargetQuery final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListOperand> source;
+    std::shared_ptr<QueryService> service;
+    RenderTargetQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
+    float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
+        if(!state)refuse(L"Render target size needs a command list state");
+        fill_render_target(*state,*service);
+        const float value=source->type==ParamOverrideType::RT_WIDTH?state->rt_width:state->rt_height;
+        return value==-2?-1.0f:value;
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
 // window_width, window_height and the relative cursor fall back to the bound render target
-// when neither the window nor the resolution reaches 640. A hosted generation has no reference
-// render target, so the heuristic continues as the original does with none bound; the cached
-// size is set to a value below that bound, so the reference context is never queried.
+// when neither the window nor the resolution reaches 640. Outside the owned domain a hosted
+// generation has no render target, so the heuristic continues as the original does with none
+// bound.
 class HostWindowQuery final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListEvaluatable> source;
-    explicit HostWindowQuery(std::shared_ptr<CommandListEvaluatable> value):source(std::move(value)){}
+    std::shared_ptr<QueryService> service;
+    HostWindowQuery(std::shared_ptr<CommandListEvaluatable> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
     float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
-        if(state && state->rt_width==-1)state->rt_width=state->rt_height=-2;
+        if(state && (state->rt_width==-1 || state->rt_width==-2)){
+            if(service->rt && service->open())fill_render_target(*state,*service);
+            if(state->rt_width==-1)state->rt_width=state->rt_height=-2;
+        }
         return source->evaluate(state,device);
     }
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
     bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
 };
+// effective_dpi and cursor_hotspot_x/y: the original asks Win32 directly (GetDpiForMonitor on
+// the window's monitor, GetIconInfo on the cursor); the host answers from its sample.
+class HostValueQuery final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListOperand> source;
+    std::shared_ptr<QueryService> service;
+    HostValueQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
+    float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
+        if(!state && source->type!=ParamOverrideType::EFFECTIVE_DPI)refuse(L"Cursor operand needs a command list state");
+        float value=0;
+        if(!service->host || !service->host(source->type,value) || !std::isfinite(value))refuse(L"Host value is unavailable");
+        return value;
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
+bool host_value(ParamOverrideType type){
+    return type==ParamOverrideType::EFFECTIVE_DPI || type==ParamOverrideType::CURSOR_HOTSPOT_X || type==ParamOverrideType::CURSOR_HOTSPOT_Y;
+}
 bool window_heuristic(ParamOverrideType type){
     return type==ParamOverrideType::WINDOW_WIDTH || type==ParamOverrideType::WINDOW_HEIGHT ||
            type==ParamOverrideType::CURSOR_X || type==ParamOverrideType::CURSOR_Y;
@@ -152,6 +201,7 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
     if(const auto* guard=dynamic_cast<RangeIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* guard=dynamic_cast<SlotIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* query=dynamic_cast<HostWindowQuery*>(node.get()))return dynamic_cast<CommandListOperand*>(query->source.get())!=nullptr;
+    if(dynamic_cast<HostValueQuery*>(node.get()) || dynamic_cast<RenderTargetQuery*>(node.get()))return true;
     if (const auto* operand = dynamic_cast<CommandListOperand*>(node.get())) {
         switch (operand->type) {
         case ParamOverrideType::VALUE: return true;
@@ -160,6 +210,8 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
         case ParamOverrideType::VARIABLE: return operand->var_ftarget != nullptr;
         case ParamOverrideType::TEXTURE: {
             const auto& target=operand->texture_filter_target;
+            // process_texture_filter has no case for ->region: it returns 0 without the resource.
+            if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_REGION)return true;
             if(!target.custom_resource_pool || !cpu_target(target,depth+1))return false;
             switch(target.evaluation_mode){
             case ResourceCopyTargetEvaluationMode::VARIABLE:
@@ -174,7 +226,7 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
         case ParamOverrideType::FIRST_INDEX: case ParamOverrideType::FIRST_INSTANCE:
         case ParamOverrideType::DRAW_TYPE: case ParamOverrideType::FRAME_NUMBER: case ParamOverrideType::FRAME_TIME:
         case ParamOverrideType::DRAW_NUMBER: case ParamOverrideType::DISPATCH_NUMBER:
-        case ParamOverrideType::TIME:
+        case ParamOverrideType::TIME: case ParamOverrideType::FPS:
         case ParamOverrideType::THREAD_GROUP_COUNT_X: case ParamOverrideType::THREAD_GROUP_COUNT_Y:
         case ParamOverrideType::THREAD_GROUP_COUNT_Z: case ParamOverrideType::INDIRECT_OFFSET:
         // The host's window, cursor and swap chain sample answers these (RuntimeInput).
@@ -221,7 +273,11 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
                     arg.expression->evaluatable=std::make_shared<ShaderSlotGuard>(arg.expression->evaluatable,limit);}
             node=std::make_shared<NativeShaderQuery>(std::move(operand),queries);return;
         }
-        if(window_heuristic(operand->type)){node=std::make_shared<HostWindowQuery>(std::move(operand));return;}
+        if(window_heuristic(operand->type)){node=std::make_shared<HostWindowQuery>(std::move(operand),queries);return;}
+        if(host_value(operand->type) && queries->host){node=std::make_shared<HostValueQuery>(std::move(operand),queries);return;}
+        if((operand->type==ParamOverrideType::RT_WIDTH || operand->type==ParamOverrideType::RT_HEIGHT) && queries->rt){
+            node=std::make_shared<RenderTargetQuery>(std::move(operand),queries);return;
+        }
         guard_target(operand->texture_filter_target,queries,depth+1);
         if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && (queries->read || queries->texture))
             node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);
@@ -792,6 +848,14 @@ void DrawPlanAdapter::resource_queries(ResourceQuery query)
 {
     if(runtime_->active || !runtime_->adapted.empty())refuse(L"Install resource queries before adapting command lists");
     runtime_->queries->read=std::move(query);
+}
+void DrawPlanAdapter::host_values(HostValue values){
+    if(runtime_->active || !runtime_->adapted.empty() || !values)refuse(L"Install host values before adapting command lists");
+    runtime_->queries->host=std::move(values);
+}
+void DrawPlanAdapter::render_target_size(RenderTargetSize query){
+    if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install the render target size before adapting command lists");
+    runtime_->queries->rt=std::move(query);
 }
 void DrawPlanAdapter::shader_queries(ShaderQuery query){
     if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install shader queries before adapting command lists");

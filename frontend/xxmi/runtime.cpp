@@ -250,6 +250,13 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if(config.initial_shaders)p.source_shaders.install(*config.initial_shaders,p.context);
             p.adapter.shader_queries([&p](auto& operand,auto& state,auto& value,auto& why){return p.source_shaders.query(operand,state,value,why);});
         }else if(config.initial_shaders)throw std::runtime_error("Source shader facts require shader hook opt-in");
+        p.adapter.host_values([&p](ParamOverrideType type,float& value){
+            const auto& sample=p.state.sample;
+            if(type==ParamOverrideType::EFFECTIVE_DPI){value=(std::max)(float(sample.effective_dpi),96.0f);return true;}
+            if(type==ParamOverrideType::CURSOR_HOTSPOT_X){value=float(sample.cursor.hotspot_x);return true;}
+            if(type==ParamOverrideType::CURSOR_HOTSPOT_Y){value=float(sample.cursor.hotspot_y);return true;}
+            return false;
+        });
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
         if(config.shader_hooks){HostParseShaderOverrides();HostParseShaderRegex();
             for(const auto& entry:G->mShaderOverrideMap)
@@ -419,12 +426,15 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
         const auto& w = input.window;
         if (w.client_width < 0 || w.client_height < 0 || w.client_width > 65536 || w.client_height > 65536 ||
-            input.resolution_width > 65536 || input.resolution_height > 65536 || !input.resolution_width != !input.resolution_height)
+            input.resolution_width > 65536 || input.resolution_height > 65536 || !input.resolution_width != !input.resolution_height ||
+            input.effective_dpi > 65536 || std::abs(int64_t(input.cursor.hotspot_x)) > 65536 || std::abs(int64_t(input.cursor.hotspot_y)) > 65536)
             throw std::runtime_error("Host window sample is invalid");
         auto& p = *impl_; Scope scope(p.state); G->frame_no = unsigned(frame); G->gTime = seconds; G->gFrameTime = input.frame_seconds;
         p.last_input = input; p.state.sample = input;
         G->hWnd = w.present ? RuntimeWindowHandle() : nullptr;
         if (input.resolution_width) { G->mResolutionInfo.width = int(input.resolution_width); G->mResolutionInfo.height = int(input.resolution_height); }
+        // HackerSwapChain::RunFrameActions advances the counter before the Present list runs.
+        if (input.ticks_us) G->gFPSCounter.Update(input.ticks_us);
         auto sampled = input;
         for (size_t i = 0; i < sampled.keys.size(); ++i) {
             if (!input.foreground || !input.keys[i]) p.blocked_keys[i] = false;

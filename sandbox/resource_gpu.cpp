@@ -419,7 +419,6 @@ bind_flags = shader_resource unordered_access
         {"cs-t0 = ref ResourceSource->Region(40, 16)\n","region outside"},
         {"clear = ResourceSource 2\ndrawindexed = 3,0,0\n","shader execution"},
         {"cs-u0 = raw ref ResourceSource\n","raw allocation"},
-        {"$result = ResourceSource->hashregion(0,4)\n","source-semantic"},
     };
     for(const auto& item:bad){
         write(root/"Mods/files.ini",(base+item.command).c_str());gpu::ResourceBudgets budgets;
@@ -1300,14 +1299,14 @@ static void properties_gpu(Device& d,const std::filesystem::path& root){
         {"slot_offset","ps-t0->offset",-1},{"slot_same","@ps-t0 == @ResourceData",1},
         {"null_size","ResourceUnassigned->size",-2},{"null_id","@ResourceUnassigned",0},
         {"null_slot_format","ps-t30->format",-2},{"null_slot_flags","ps-t30->bindflags",0},
-        {"null_slot_size","ps-t30->size",-2},{"null_slot_offset","ps-t30->offset",-2},
-        {"cb_size","vs-cb0->size",16},{"cb_stride","vs-cb0->stride",16},{"cb_offset","vs-cb0->offset",16},
+        {"null_slot_size","ps-t30->size",-2},{"null_slot_offset","ps-t30->offset",-2},{"null_slot_hash","ps-t30->hashregion(0, 4)",-2},
+        {"cb_size","vs-cb0->size",16},{"cb_hash","vs-cb0->hashregion(0, 16)",-1},{"cb_stride","vs-cb0->stride",16},{"cb_offset","vs-cb0->offset",16},
         {"ib_format","ib->format",57},{"ib_stride","ib->stride",4},{"ib_size","ib->size",16},
         {"alias_null_source","ResourceAlias->sourcestride",16},{"alias_null_size","ResourceAlias->size",-2},
         {"pool_source","PoolViews[0]->sourcestride",16},{"pool_format","PoolViews[0]->format",-1},
     };
     const std::vector<Case> drawn={{"vb_offset","vb0->offset",24},{"ib_offset","ib->offset",6},
-        {"this_format","this->format",57},{"this_same","@this == @ib",1},{"this_offset","this->offset",-1}};
+        {"vb_hash","vb0->hashregion(0, 4)",-1},{"ib_spatial","ib->spatialhash(0, 1, 2, 1.5)",-1},{"this_format","this->format",57},{"this_same","@this == @ib",1},{"this_offset","this->offset",-1}};
     std::string source="namespace = properties\n[Constants]\n";
     for(const auto* group:{&early,&expected,&drawn})for(const auto& c:*group)source+="global $"+std::string(c.name)+" = 0\n";
     for(const auto& c:early)source+="$"+std::string(c.name)+" = "+c.expression+"\n";
@@ -1379,7 +1378,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
     binding={};ini.reset();backend.reset();check(!budgets.resident->used() && !budgets.staging->used(),"Property and draw-context fixture releases all owners");
     const std::vector<std::pair<std::string,std::string>> bad={
         {"vb0 = ref ResourceVertex\n$vb_offset = vb0->offset\n","requires a draw context"},
-        {"$vb_offset = ResourceData->hashregion(0, 4)\n","requires source-semantic adaptation"},
+        {"vb0 = ref ResourceVertex\n$vb_offset = vb0->hashregion(0, 4)\n","requires a draw context"},
     };
     for(const auto& failure:bad){const auto rejected=source.substr(0,source.find("[Present]"))+"[Present]\n"+failure.first;
         write(root/"Mods/properties.ini",rejected.c_str());backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);
@@ -1418,6 +1417,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_backbuffer_cases.h"
 #include "resource_panel_cases.h"
 #include "resource_owned_generation_cases.h"
+#include "resource_operand_cases.h"
 int wmain(int argc,wchar_t** argv){
     setvbuf(stdout,nullptr,_IONBF,0);
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true,true,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
@@ -1446,7 +1446,7 @@ int wmain(int argc,wchar_t** argv){
         original_image_binding_ranges(device);original_attachment_bindings(device,root/"attachment-bindings");
         original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");
         graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();owned_graphics(device,root/"owned-graphics");
-        original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_backbuffer(device,root/"backbuffer");imported_backbuffer(device,root/"imported-backbuffer");original_image_panel(device,root/"panel");owned_generation_cases(device,root/"owned-generation");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
+        original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_backbuffer(device,root/"backbuffer");imported_backbuffer(device,root/"imported-backbuffer");original_image_panel(device,root/"panel");original_owned_operands(device,root/"owned-operands");owned_generation_cases(device,root/"owned-generation");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
         original_ini_graphics_sampling(device,root/"ini-graphics-sampling");original_ini_graphics_state_pixels(device,root/"ini-graphics-state");
         original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");
         original_ini_geometry(device,root/"ini-geometry");original_core_text(root/"core-text");

@@ -84,6 +84,14 @@ public:
     void resource_queries(ResourceQuery);
     using ShaderQuery=std::function<bool(CommandListOperand&,CommandListState&,float&,std::wstring&)>;
     void shader_queries(ShaderQuery);
+    // Operands the original answers with Win32 calls outside the window sample (effective_dpi,
+    // cursor_hotspot_x/y): the host answers them from its own sample. Install before adaptation.
+    using HostValue=std::function<bool(ParamOverrideType,float&)>;
+    void host_values(HostValue);
+    // rt_width/rt_height: the size of the 2D render target view bound to o0; bound is false when
+    // there is none (the original then leaves its -1). Install before adaptation.
+    using RenderTargetSize=std::function<bool(CommandListState&,bool& bound,float& width,float& height,std::wstring&)>;
+    void render_target_size(RenderTargetSize);
     using ResourceCommand=std::function<bool(CommandListCommand&,CommandListState&,std::wstring&)>;
     // An opt-in execution backend owns resource state, GPU synchronization and
     // feedback. Without one, the existing immutable file-plan path is retained.
@@ -120,7 +128,8 @@ public:
     void resource_matches(ResourceMatchQuery);
     // A generation that also renders replaced draws through the file plan installs a gate:
     // while it returns false, every owned GPU callback above (resource commands and queries,
-    // matches, parameter publication, draw preparation, CustomShader) is treated as absent, so
+    // render target size, matches, parameter publication, draw preparation, CustomShader; not
+    // host values) is treated as absent, so
     // replaced draws keep the plan path. Declaration references made while it is open are
     // mirrored into the plan's references. Install before adaptation.
     void owned_scope(std::function<bool()>);

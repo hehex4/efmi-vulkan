@@ -1240,6 +1240,7 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
     if (backend.program) {
         auto input = sample_ini_input();
         input.frame_seconds = backend.frame_seconds.load(std::memory_order_relaxed);
+        input.ticks_us = now;
         OwnedPresenter::sample(backend.device, present, input);
         std::lock_guard<std::mutex> lock(backend.mod_mx);
         std::string reason, owned_reason;

@@ -128,8 +128,8 @@ and visibility, swap chain size); the original functions read that sample, and
 a generation's hWnd is only a token that never reaches a real window API. Draws
 between presents read the latest sample. The bridge accepts `res_*`,
 `window_*`, `cursor_showing`, `cursor_screen_*`, `cursor_window_*` and
-`cursor_x`/`_y`; `rt_width`, cursor hotspots, cursor images and effective DPI
-stay refused.
+`cursor_x`/`_y`; cursor images stay refused (see the next section for the
+other operands).
 
 Original fallbacks are kept: without a window, `window_width` takes the
 resolution and then the fallback screen size, and window positions equal screen
@@ -140,6 +140,52 @@ user's d3dx.ini sets 2560x1600 in [System], a difference that is reached only
 when neither a window nor a swap chain size is known. The layer does not
 supply the sample yet: that comes with the swap chain integration of the panel.
 `sandbox/runtime_window_cases.h` covers the semantics (13 checks).
+
+### Remaining operands (1.4.7)
+
+Probing every named operand in a draw and in [Present] (`runtime_test.exe
+--probe-command`) showed which ones a CPU generation still refused:
+
+- `hunting`, `frame_analysis`, `sli`, `stereo_active`, `stereo_available` already
+  worked: with hunting disabled, as in every hosted generation, the original
+  optimiser turns them into the constant 0.
+- `fps` reads the original FPS counter in the generation's globals. The host
+  passes its steady clock in microseconds (`RuntimeInput::ticks_us`, the
+  original's GetSystemTicks) and the counter advances at each presentation
+  before the Present list, as in HackerSwapChain::RunFrameActions (first tick
+  starts it, smoothing 0.1, pauses over a second ignored). Zero leaves it.
+- `effective_dpi` and `cursor_hotspot_x`/`_y`: the original calls Win32 directly
+  (GetDpiForMonitor on the window's nearest monitor with the thread made
+  per-monitor aware, GetIconInfo on the cursor). The bridge answers them from
+  the host sample (`RuntimeInput::effective_dpi`, `Cursor::hotspot_x/_y`) through
+  `DrawPlanAdapter::host_values`; the original's floor of 96 is applied. The
+  layer samples both at each presentation (`OwnedPresenter::sample`), keeping
+  a cursor's hotspot while its handle stays the same.
+- `Resource->region(...)` as an expression has no case in the original's
+  `process_texture_filter` and returns 0 without the resource; it is accepted.
+
+In the owned GPU domain (Present lists executed on the device):
+
+- `rt_width`/`rt_height` read o0 through `DrawPlanAdapter::render_target_size`:
+  the size of the Texture2D behind a 2D or 2D multisample render target view,
+  otherwise the original's -1 (a Texture2DArray view reports none). As in
+  ProcessParamRTSize, the size is cached in the command list state once found
+  and asked again while it is -1; the window heuristic falls back to it.
+- `->hashregion` and `->spatialhash` keep the original's sentinels (null -2,
+  image -3). On a buffer the original hashes its CPU copy of application data
+  (`cache_resource_data`), which a Mod-owned buffer never has, so the result is
+  UNKNOWN (-1). A vertex or index buffer outside a draw is refused, where the
+  original would read a missing draw call.
+
+Still refused: `rt_width`/`rt_height` in replaced draws and CPU generations (the
+game's render target is not known there), `scissor*_*` (the original reads the
+application's rasterizer state), cursor images (`cursor_mask`, `cursor_color`),
+`->lastframe` on pools, and buffer hashes outside the owned domain other than
+the Core spatial identification adapter. Their installed users all read game
+resources (Si Lunabelle's guard, Yvonne's translucency capture), which needs
+the shader catalogue. Covered by `sandbox/runtime_window_cases.h` (host values,
+12 checks) and `sandbox/resource_operand_cases.h` plus the property cases in
+`sandbox/resource_gpu.cpp` (owned domain).
 
 ## Verification
 

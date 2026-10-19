@@ -39,10 +39,18 @@ struct RuntimeInput {
     struct Cursor {
         bool showing = false;
         int32_t screen_x = 0, screen_y = 0;
+        int32_t hotspot_x = 0, hotspot_y = 0; // GetIconInfo on the cursor; zero without one.
     } cursor;
     // The swap chain size, which the original keeps in mResolutionInfo (res_width/res_height).
     // Zero keeps the previous value; a generation starts with the original's unset -1.
     uint32_t resolution_width = 0, resolution_height = 0;
+    // GetDpiForMonitor's effective DPI for the window's monitor (the primary one without a
+    // window), read per-monitor aware as the original does. The original reports at least 96;
+    // zero, without a sample, reports that.
+    uint32_t effective_dpi = 0;
+    // The host's steady clock at this presentation in microseconds (the original's
+    // GetSystemTicks), which advances the original FPS counter. Zero leaves it unchanged.
+    uint64_t ticks_us = 0;
 };
 struct RuntimeDraw {
     uint32_t hash = 0, count = 0, first = 0, instances = 1, first_instance = 0;

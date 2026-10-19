@@ -18,6 +18,45 @@ std::filesystem::path module_directory()
     path.resize(length);
     return std::filesystem::path(path).parent_path();
 }
+// The original's get_effective_dpi: the effective DPI of the window's nearest monitor, read with the
+// thread made per-monitor aware for the call; 0 when GetDpiForMonitor is unavailable.
+uint32_t effective_dpi(HWND window)
+{
+    using GetDpi = HRESULT(WINAPI*)(HMONITOR, int, UINT*, UINT*);
+    using SetAwareness = DPI_AWARENESS_CONTEXT(WINAPI*)(DPI_AWARENESS_CONTEXT);
+    static const GetDpi get = [] {
+        HMODULE shcore = GetModuleHandleW(L"shcore.dll");
+        if (!shcore) shcore = LoadLibraryExW(L"shcore.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        return shcore ? reinterpret_cast<GetDpi>(GetProcAddress(shcore, "GetDpiForMonitor")) : nullptr;
+    }();
+    static const SetAwareness set = reinterpret_cast<SetAwareness>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetThreadDpiAwarenessContext"));
+    if (!get) return 0;
+    const HMONITOR monitor = window ? MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) : MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    const DPI_AWARENESS_CONTEXT old = set ? set(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE) : nullptr;
+    UINT x = 0, y = 0;
+    if (FAILED(get(monitor, 0 /* MDT_EFFECTIVE_DPI */, &x, &y))) x = 0;
+    if (old) set(old);
+    return x;
+}
+// GetIconInfo's hotspot of a cursor. A cursor handle keeps its hotspot, so the last one is kept
+// instead of copying its bitmaps at every presentation.
+POINT cursor_hotspot(HCURSOR cursor)
+{
+    static std::mutex mx;
+    static HCURSOR last = nullptr;
+    static POINT hotspot = {};
+    std::lock_guard<std::mutex> lock(mx);
+    if (cursor == last) return hotspot;
+    ICONINFO icon = {};
+    hotspot = {};
+    if (cursor && GetIconInfo(cursor, &icon)) {
+        hotspot = {static_cast<LONG>(icon.xHotspot), static_cast<LONG>(icon.yHotspot)};
+        if (icon.hbmMask) DeleteObject(icon.hbmMask);
+        if (icon.hbmColor) DeleteObject(icon.hbmColor);
+    }
+    last = cursor;
+    return hotspot;
+}
 bool enabled(const Device* device, const char* extension)
 {
     for (const auto& name : device->extensions) if (name == extension) return true;
@@ -104,8 +143,12 @@ void OwnedPresenter::sample(Device* device, const PresentWork* present, efmi::fr
     RECT client = {}; POINT origin = {};
     if (window && GetClientRect(window, &client) && ClientToScreen(window, &origin))
         input.window = {true, origin.x, origin.y, client.right - client.left, client.bottom - client.top};
+    input.effective_dpi = effective_dpi(input.window.present ? window : nullptr);
     CURSORINFO cursor = {sizeof(CURSORINFO)};
-    if (GetCursorInfo(&cursor)) input.cursor = {(cursor.flags & CURSOR_SHOWING) != 0, cursor.ptScreenPos.x, cursor.ptScreenPos.y};
+    if (GetCursorInfo(&cursor)) {
+        const POINT hotspot = cursor_hotspot(cursor.hCursor);
+        input.cursor = {(cursor.flags & CURSOR_SHOWING) != 0, cursor.ptScreenPos.x, cursor.ptScreenPos.y, hotspot.x, hotspot.y};
+    }
 }
 
 OwnedPresenter::OwnedPresenter(Device* device, std::shared_ptr<efmi::frontend::OwnedRuntime> gpu)

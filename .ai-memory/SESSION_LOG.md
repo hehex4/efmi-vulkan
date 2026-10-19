@@ -1952,3 +1952,11 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Problems on the way: layer translation units cannot include the original engine's headers (hence the facade); the tracker test build needed the presenter; the fixture's settings folder sits inside its Mod folder and had to be excluded from the INI scan; the first windowed run refused because the compiled shader needed draw parameters (D-073).
 - Results: full rebuilt suite passes all 30 steps (build/next/run_all-1.4.6.out), including owned Present on a swap chain 20/20 in both entries with clean core and synchronization validation, live INI 32/32 and character 357/357 with the mixed generation. Sandbox only.
 - Not done: loading into the game (the user's decision), P2, phases 2 to 4.
+
+## 2026-10-19: phase 3, remaining operands and buffer hashes (candidate 1.4.7, branch claude/ini)
+
+- frontend/xxmi/draw_plan.h/.cpp (host_values, render_target_size, HostValueQuery, RenderTargetQuery, window heuristic through o0, fps and ->region accepted), runtime.h/.cpp (ticks_us, effective_dpi, cursor hotspot; FPS counter at present; host values installed), gpu_resources.h/.cpp (render target size, hash queries), layer/src/character_present.cpp (DPI and hotspot sample), character_backend.cpp (ticks), sandbox/runtime_window_cases.h (host values), sandbox/resource_operand_cases.h (new), sandbox/resource_gpu.cpp (hash property cases; the two negative cases that expected hash refusals now use a vertex buffer outside a draw), docs/live-ini.md. Version 1.4.7.
+- Problems on the way: two existing negative tests used ->hashregion as the example of an unsupported query; a Texture2D declared without array and msaa fails creation in the original (zeroed description), so the fixture declares them.
+- Results: full rebuilt suite passes all 30 steps (build/next/run_all-1.4.7.out): original INI runtime 483 (host values 12 new), GPU resources 11189 with clean validation (owned operand and hash property cases new), live INI 32/32, owned Present 20/20, character 357/357. Sandbox only.
+- P2 not started: its installed users read game resources. Reported to the user, who chose game data collection for the catalogue; the collection plan is proposed (TASKS T-031).
+- Not done: loading into the game (the user's decision), P2, phases 2 and 4.

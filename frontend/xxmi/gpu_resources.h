@@ -83,6 +83,7 @@ private:
     GpuResourceBinding backbuffer_;
     bool run(CommandListCommand&,CommandListState&,std::wstring&);
     bool query(ResourceCopyTarget&,CommandListState&,float&,std::wstring&);
+    bool render_target(CommandListState&,bool& bound,float& width,float& height,std::wstring&);
     bool match_source(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&);
     ResourceCopyTarget& effective(ResourceCopyTarget&,CommandListState&);
     Slot slot(ResourceCopyTarget&,CommandListState&);

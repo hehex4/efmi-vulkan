@@ -1,10 +1,21 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-19, branch claude/ini: candidate 1.4.6 runs a character generation's original Present work on the swap chain through the layer (phase 1 step P1 done in the sandbox, docs/owned-present.md). Not loaded into the game. Next: P2 (GPU work inside replaced draws), then the directory generation. The host ABI changed: the injected DLL may be replaced only while the game is closed. main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist 1.0.2 unchanged. Launcher on DX11.
+> Last updated: 2026-10-19, branch claude/ini: candidate 1.4.7 completes the catalogue-free part of phase 3 (fps, effective_dpi, cursor hotspots, ->region expressions; rt_width/rt_height and buffer hashes in the owned domain; docs/live-ini.md, D-074). P1 (1.4.6) is done in the sandbox, not loaded into the game. The user chose game data collection for the shader catalogue over the catalogue-free part of P2; the collection plan waits for the user's account, characters and session times (TASKS T-031). main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist 1.0.2 unchanged. Launcher on DX11.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## Phase 3: remaining operands and buffer hashes (candidate 1.4.7, 2026-10-19)
+
+A probe of every named operand in a draw and in [Present] showed hunting, frame_analysis, sli and stereo_* already constant 0 (the original optimiser, hunting disabled). Added (D-074):
+- fps: the generation's original FPS counter advances at each presentation from the host's steady clock (RuntimeInput::ticks_us; the layer passes host_time_us).
+- effective_dpi, cursor_hotspot_x/_y: DrawPlanAdapter::host_values answers them from the host sample (RuntimeInput::effective_dpi, Cursor::hotspot_x/_y; original floor 96). OwnedPresenter::sample computes them as the original does (GetDpiForMonitor per-monitor aware on the window's monitor; GetIconInfo, kept per cursor handle).
+- Resource->region(...) as an expression: the original returns 0 without the resource; accepted.
+- Owned domain: rt_width/rt_height through DrawPlanAdapter::render_target_size (o0's Texture2D for 2D/2DMS views, original caching in the state, the window heuristic falls back to it); ->hashregion/->spatialhash keep the original sentinels and are UNKNOWN on owned buffers, which never carry the original's data cache; vertex or index buffers outside a draw refuse.
+Still refused, all with installed users that read game resources only: rt_width in replaced draws and CPU generations, scissor_*, cursor images, ->lastframe on pools, buffer hashes outside the owned domain (Core spatial identification keeps its adapter).
+
+Evidence: full rebuilt suite passes all 30 steps (build/next/run_all-1.4.7.out): original INI runtime 483 (host values 12 new), GPU resources 11189 with clean validation (owned operand and hash property cases new), live INI 32/32, owned Present 20/20, character 357/357. Sandbox only.
 
 ## P1-3b: original Present work on the swap chain (candidate 1.4.6, 2026-10-19)
 
