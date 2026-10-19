@@ -1997,3 +1997,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - scripts/check_mod_corpus.py (implicit namespace, planner failures recorded), scripts/package_directory.py (new), scripts/package_character.py (--no-profiles, empty lists for components without entries, LOD beyond 1 left out), scripts/character_materials.py (no table), layer/src/character_package.cpp (no profile allowed), layer/src/character_backend.cpp (CharacterController per package, directory packages, lazy activation, reload of lazy packages, status), layer/src/m2_backend.cpp (character mode for a directory), sandbox (fixture salt and names, --lazy-packages scene prelude, two-package test, envelope without profiles), docs/several-packages.md. Version 1.5.0.
 - Results: corpus 21/22 skeletons, 14/22 callbacks; 13 packages built; full rebuilt suite 31/31 steps (build/next/run_all-1.5.0.out).
+
+## 2026-10-19: 13 real packages in the sandbox; texture identity (D-077)
+
+- Sandbox with build/characters (13 live packages): all refused at INI load (11 texture-hash overrides need source-image identity, 2 shader sections). Measured 2 s and 364 MB, normal exit.
+- Texture hash rule checked offline on the catalogue captures (docs/texture-identity.md, D-077).

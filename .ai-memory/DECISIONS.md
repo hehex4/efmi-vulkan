@@ -770,3 +770,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Both of the game's compilers keep the HLSL declaration order (FXC numbers registers, DXC emits variables in it); the DX11 build places read-only buffers ahead of textures. The t register of a resource is therefore its rank among the SPIR-V module's shader resource views, buffers first, each group in declaration order. Checked on 1187 observed slots of 258 shaders, pixel and vertex stage, no exception.
 - The runtime derives slot correspondence from the Vulkan module it already sees, for any shader. Captured per-shader profiles (the arcane 20) become test data. Constant buffers follow the declaration order of uniform blocks (size-checked); samplers and UAVs follow it unverified.
 - If a future shader breaks the rule, the refusal is per shader and the check names it; the rule is not to be patched per character.
+
+## D-077: DX11 texture hashes are computed from the game's Vulkan uploads
+
+- Date: 2026-10-19, after all 13 directory packages were refused for texture-hash overrides.
+- The original texture hash is crc32c of D3D11_TEXTURE2D_DESC seeded with the data hash of the first subresource (texture_hash_version 0 length rule). For the game's asset textures the description fields the Vulkan side lacks are constant: usage 0, bind flags shader-resource, CPU access 0, misc 0 (TEXTURECUBE for cube maps). The layer computes the hash from the first upload of mip 0 and the image's own description.
+- Checked: 506 of 506 DX11 shader-resource textures by the formula; 345 of 347 Vulkan images in BC/R8 formats give the DX11 hash of the same content (two explained). Uncompressed formats use the first W*H bytes, to be checked against data.
+- No per-character or per-texture table is involved; an image without a qualifying upload has no hash and a query for it refuses.

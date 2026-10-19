@@ -6,6 +6,10 @@ Launcher state, 2026-10-19 17:35: at the user's explicit request, switched the E
 
 
 
+## 13 real packages in the sandbox; DX11 texture hashes from Vulkan uploads (2026-10-19, D-077)
+
+Loading all 13 directory packages into the sandbox program (no draw of it matches a character): 2 s, 364 MB, exits normally, but every package is refused at INI load: 11 with "Native override registry refused: Generation contains an unprofiled override; source-image identity is unavailable" (texture-hash TextureOverrides), 2 with "INI declares an unsupported shader/overlay section" (ShaderOverride/ShaderRegex, phase 4). So texture identity is the next general mechanism. D-077, docs/texture-identity.md: the original hash is crc32c of the 44-byte D3D11_TEXTURE2D_DESC seeded with the data hash of the first subresource; checked on 506 of 506 DX11 shader-resource textures, and from Vulkan image records (format mapped to DXGI, usage 0, bind 8, misc 0, the layer's mip 0 CRC) on 345 of 347 BC/R8 textures with a DX11 counterpart (the two others explained: cube map, mip count). Uncompressed formats need the first W*H bytes (rule known, not yet checked). Next: compute the hash in the layer at upload and give the character program a texture identity provider, so texture-hash overrides and Core's OverrideTextures run.
+
 ## Several packages at once, packages without captures (candidate 1.5.0, 2026-10-19)
 
 - scripts/check_mod_corpus.py plans every installed character INI (implicit namespace = file name; a planner that stops is recorded, not fatal): 21 of 22 skeletons, 14 of 22 callback fixtures. scripts/package_directory.py (new) builds each planned Mod's package with static pixel bindings and no fragment profiles (package_character.py --no-profiles; components without an entry section get empty lists; entry sections beyond LOD1 are left out), its live sidecar, and checks it with the production decoder: 13 of 22 packaged (build/characters/directory.json). The decoder accepts a material envelope without profiles (D-076).
