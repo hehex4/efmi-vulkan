@@ -63,7 +63,9 @@ tests cover the envelope without profiles. None of this was loaded into the game
 The sandbox program loads all 13 directory packages (no draw of it matches a character, so none
 goes to the GPU): about 2.7 s and 394 MB, normal exit.
 - 1.5.0: all 13 refused at INI load, 11 for texture-hash TextureOverrides, 2 for shader sections.
-- 1.5.1 (texture identity, docs/texture-identity.md): 10 load.
+- 1.5.1: 10 load. The gain came from accepting mesh sections the package has no part for (LOD
+  beyond 1, other INIs); no installed Mod has a texture-hash section, and texture identity only
+  lets three hash-only `this = null` index sections pass the registry check.
 - 1.5.2: 12 load. zhuangfangyi's folder holds a second INI (`fangyi ul.ini`) with its own mesh
   overrides at objects the package has no part for; the original loads it with the character,
   and its meshes now stay with the game's draws (logged as mesh files outside the package; a
@@ -76,6 +78,9 @@ goes to the GPU): about 2.7 s and 394 MB, normal exit.
 - Six of the twelve reference RabbitFX (akekuri, avywenna, estella, mifu, perlica, rossiy), a
   ShaderRegex library in its own Mod folder; those references stay original warnings and their
   RabbitFX textures do not bind (LIMIT-004).
+
+From 1.5.3 the layer reads the Mods folder directly (docs/directory-generation.md): 19 of the 22
+character INIs load without any package.
 
 ## Open
 

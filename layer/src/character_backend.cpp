@@ -27,6 +27,43 @@
 
 namespace efvk {
 namespace {
+// Directory generation (D-078): a character Mod is named by its INI instead of a package file.
+bool is_mod_ini(const std::string& path)
+{
+    const auto extension = std::filesystem::u8path(path).extension().wstring();
+    return !_wcsicmp(extension.c_str(), L".ini");
+}
+std::filesystem::path absolute_folder(const std::string& path)
+{
+    std::error_code error;
+    auto folder = std::filesystem::absolute(std::filesystem::u8path(path), error).lexically_normal();
+    if (folder.has_filename()) return folder;
+    return folder.parent_path();
+}
+std::filesystem::path module_folder()
+{
+    HMODULE module = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(&module_folder), &module))
+        return {};
+    std::wstring path(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+    if (!length || length >= path.size()) return {};
+    path.resize(length);
+    return std::filesystem::path(path).parent_path();
+}
+CharacterProgram::Source mod_source(const std::string& ini)
+{
+    CharacterProgram::Source source;
+    source.ini = std::filesystem::absolute(std::filesystem::u8path(ini)).lexically_normal();
+    const auto mods = absolute_folder(g_cfg.m2_mods);
+    source.core = g_cfg.m2_core.empty() ? mods.parent_path() / "Core" / "EFMI" : absolute_folder(g_cfg.m2_core);
+    source.settings = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
+    source.mod_namespace = CharacterProgram::declared_namespace(source.ini);
+    return source;
+}
+}
+namespace {
 // Values of the core this follows (SpatialIdentification.ini): cell size of the position hash, base
 // radius in cells per 1/120 s, and the number of distinct components that identifies the object.
 constexpr float kCellSize = 0.125f;
@@ -161,6 +198,7 @@ using StaticMaterial = CharacterMaterial;
 // register rule (D-076), prepared like a profile.
 struct DerivedProfile {
     uint32_t crc = 0;
+    std::vector<uint32_t> slots; // the material slots the rules were read for
     std::vector<uint32_t> code;
     std::vector<CharacterMaterialRule> rules;
     std::vector<StaticMaterial> plans;
@@ -285,13 +323,21 @@ public:
 
     bool init()
     {
-        if (!package.load(package_path, last_reason)) return false;
-        if (CharacterProgram::configured(package_path)) {
+        const bool discovered = is_mod_ini(package_path);
+        if (!discovered && !package.load(package_path, last_reason)) return false;
+        if (discovered || CharacterProgram::configured(package_path)) {
             program = std::make_unique<CharacterProgram>();
             const auto gpu = [this](const std::filesystem::path& working, std::string& why) {
                 return OwnedPresenter::runtime(device, memory, working, why);
             };
-            if (!program->init(package_path, package, last_reason, gpu)) return false;
+            if (discovered) {
+                // The Mod's INI itself: the package is made from what the generation declares (D-078).
+                CharacterProgram::Source source;
+                try { source = mod_source(package_path); } catch (const std::exception& e) { last_reason = e.what(); return false; }
+                if (!program->discover(source, package, last_reason, gpu)) return false;
+                logf("character Mod read from its INI: %s: %zu mesh files, %zu images, %zu sections, %zu mesh sections left to the game",
+                     package_path.c_str(), package.streams.size(), package.images.size(), package.sections.size(), program->left_to_game());
+            } else if (!program->init(package_path, package, last_reason, gpu)) return false;
             if (program->gpu()) presenter = std::make_unique<OwnedPresenter>(device, program->gpu());
             else if (!program->gpu_reason().empty()) logf("owned GPU work unavailable: %s", program->gpu_reason().c_str());
             {
@@ -437,10 +483,22 @@ public:
     bool init_materials();
     bool refresh_materials()
     {
+        // The slots the mod binds are those of every planned draw. A live plan may bind one no earlier
+        // draw did (a key, a texture section): rules read for fewer slots stay with what they were made
+        // for, and every pipeline derives its rules again for the larger set.
+        {
+            std::set<uint32_t> slots(material_slots.begin(), material_slots.end());
+            for (const auto& draw : package.pixels) for (const auto& pixel : draw) slots.insert(pixel.slot);
+            if (slots.size() != material_slots.size()) {
+                material_slots.assign(slots.begin(), slots.end());
+                derived_for_pipeline.clear();
+            }
+        }
         std::set<uint32_t> counts;
         std::string reason;
         if (!prepare_character_materials(package, materials, counts, reason)) return refuse(C_MATERIAL, reason);
         for (auto& derived : derived_profiles) {
+            if (derived->slots != material_slots) continue;
             CharacterMaterialProfile profile{derived->code, derived->rules};
             if (!prepare_character_profile(package, profile, derived->plans, counts, reason)) return refuse(C_MATERIAL, reason);
         }
@@ -539,7 +597,7 @@ public:
         if (!code) return result;
         const uint32_t crc = crc32c(0, code->data(), code->size() * 4);
         for (uint32_t i = 0; i < derived_profiles.size(); ++i)
-            if (derived_profiles[i]->crc == crc && derived_profiles[i]->code == *code) return result = i;
+            if (derived_profiles[i]->crc == crc && derived_profiles[i]->slots == material_slots && derived_profiles[i]->code == *code) return result = i;
         std::string reason;
         auto created = std::make_unique<DerivedProfile>();
         if (!rule_rules(*code, created->rules, reason)) {
@@ -548,7 +606,7 @@ public:
             note(std::string("character material: fragment ") + name + " keeps the application's images: " + reason); return result;
         }
         if (derived_profiles.size() >= kDerivedProfiles) { note("character material: too many derived profiles"); return result; }
-        created->crc = crc; created->code = *code;
+        created->crc = crc; created->code = *code; created->slots = material_slots;
         CharacterMaterialProfile source;
         source.code = created->code; source.rules = created->rules;
         std::set<uint32_t> counts;
@@ -1398,8 +1456,41 @@ public:
 };
 
 namespace {
+// The character Mods of an EFMI Mods folder (D-078): every enabled INI (no part of its path starts
+// with DISABLED, as the original skips them) that declares the EFMIv1 merged-skeleton initializer.
+std::vector<std::string> mods_characters(std::string& reason)
+{
+    const auto root = absolute_folder(g_cfg.m2_mods);
+    std::vector<std::string> found;
+    std::error_code error;
+    for (auto it = std::filesystem::recursive_directory_iterator(root, error); !error && it != std::filesystem::recursive_directory_iterator();
+         it.increment(error)) {
+        const auto name = it->path().filename().wstring();
+        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
+        if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
+        std::ifstream in(it->path(), std::ios::binary);
+        std::string line;
+        bool character = false;
+        while (!character && std::getline(in, line)) {
+            const auto start = line.find_first_not_of(" \t");
+            if (start == std::string::npos || line[start] != '[') continue;
+            const auto end = line.find(']', start);
+            if (end == std::string::npos) continue;
+            std::string section = line.substr(start + 1, end - start - 1);
+            std::transform(section.begin(), section.end(), section.begin(), ::tolower);
+            character = section == "commandlistinitializemergedskeleton";
+        }
+        if (character) found.push_back(it->path().u8string());
+    }
+    if (error) reason = "cannot read the Mods folder " + g_cfg.m2_mods + ": " + error.message();
+    std::sort(found.begin(), found.end());
+    if (found.size() > 64) { found.resize(64); logf("character Mods: more than 64 in %s, the first 64 are used", g_cfg.m2_mods.c_str()); }
+    if (found.empty() && reason.empty()) reason = "no character Mod in " + g_cfg.m2_mods;
+    return found;
+}
 std::vector<std::string> configured_packages(std::string& reason)
 {
+    if (!g_cfg.m2_mods.empty()) return mods_characters(reason);
     const std::string& path = g_cfg.m2_package;
     std::error_code error;
     const auto where = std::filesystem::u8path(path);
@@ -1422,14 +1513,15 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
 {
     auto backend = std::make_shared<CharacterBackend>();
     std::error_code error;
-    const bool directory = std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package), error);
+    const bool directory = !g_cfg.m2_mods.empty() || std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package), error);
     for (const auto& path : configured_packages(backend->reason)) {
         auto controller = std::make_unique<CharacterController>();
         controller->path = path; controller->lazy = directory;
         controller->active = generation_create(d, p, m, path, directory);
         backend->controllers.push_back(std::move(controller));
     }
-    if (directory) logf("character packages: %zu from %s", backend->controllers.size(), g_cfg.m2_package.c_str());
+    if (directory) logf("character packages: %zu from %s", backend->controllers.size(),
+                        g_cfg.m2_mods.empty() ? g_cfg.m2_package.c_str() : g_cfg.m2_mods.c_str());
     return backend;
 }
 void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); }

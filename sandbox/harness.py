@@ -53,6 +53,7 @@ class Checks:
 # The defaults of layer/src/common.h, as the environment spells them.
 PINNED_SETTINGS = {
     "EFMI_VK_M2_PACKAGE": "off",
+    "EFMI_VK_M2_MODS": "off",
     "EFMI_VK_M2_ENABLED": "0",
     "EFMI_VK_RESOURCES": "1",
     "EFMI_VK_SHADOW_USAGE": "40",

@@ -84,13 +84,23 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         }
         package.payload = std::move(payload);
         if (!validate_refreshed(package, reason)) return false;
-        efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
-                                             manifest.parent_path() / "settings", config.get("settings", "mod")};
-        // The layer answers texture queries of replaced draws (D-077).
-        options.texture_identity = true;
         if (!config.get("rabbit_textures").empty())
             throw std::runtime_error("RabbitFX texture-role inspection is not a complete runtime shader contract");
-        std::shared_ptr<efmi::frontend::RuntimeExtension> extension = efmi::frontend::character_core(config.get("namespace"), package);
+        if (!load(ini, core, manifest.parent_path() / "settings", config.get("settings", "mod"),
+                  efmi::frontend::character_core(config.get("namespace"), package), factory, reason)) return false;
+        catalogue(package, remaps);
+        return true;
+    } catch (const std::exception& e) { reason = e.what(); return false; }
+}
+bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesystem::path& core, const std::filesystem::path& settings_folder,
+                            const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension> extension,
+                            const GpuFactory& factory, std::string& reason)
+{
+    {
+        efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
+                                             settings_folder, settings_name};
+        // The layer answers texture queries of replaced draws (D-077).
+        options.texture_identity = true;
         if (factory) gpu_ = factory(core.parent_path().parent_path(), gpu_reason_);
         if (gpu_) {
             // The original loads every enabled INI of the Mod folder (DISABLED names excluded).
@@ -115,7 +125,12 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
             // Recorded work stays pending; replaced draws keep the plan until the first Present.
             if (runtime_ && gpu_->scope_active()) gpu_->suspend();
         }
-        if (!runtime_) return false;
+        return bool(runtime_);
+    }
+}
+void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::wstring, uint32_t>& remaps)
+{
+    {
         for (uint32_t i = 0; i < package.images.size(); ++i) images_.emplace(key(std::filesystem::u8path(package.images[i])), i);
         for (const auto& file : runtime_->resources()) {
             if (file->usage) {
@@ -147,6 +162,90 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
             }
             index_bounds_[s] = {low, high};
         }
+    }
+}
+std::string CharacterProgram::declared_namespace(const std::filesystem::path& ini)
+{
+    const auto bytes = read(ini, 32u << 20);
+    std::istringstream in(std::string(bytes.begin(), bytes.end()));
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.size() >= 3 && (unsigned char)line[0] == 0xEF && (unsigned char)line[1] == 0xBB && (unsigned char)line[2] == 0xBF) line.erase(0, 3);
+        const auto start = line.find_first_not_of(" \t\r");
+        if (start == std::string::npos || line[start] == ';') continue;
+        if (line[start] == '[') return {}; // the namespace line precedes every section
+        const auto equals = line.find('=', start);
+        if (equals == std::string::npos) continue;
+        std::string name = line.substr(start, equals - start);
+        name.erase(name.find_last_not_of(" \t") + 1);
+        std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+        if (name != "namespace") continue;
+        std::string value = line.substr(equals + 1);
+        value.erase(0, value.find_first_not_of(" \t"));
+        value.erase(value.find_last_not_of(" \t\r") + 1);
+        std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+        return value;
+    }
+    return {};
+}
+bool CharacterProgram::discover(const Source& source, CharacterPackage& package, std::string& reason, const GpuFactory& factory)
+{
+    try {
+        if (!source.ini.is_absolute() || !source.core.is_absolute() || !source.settings.is_absolute())
+            throw std::runtime_error("Directory generation paths must be absolute");
+        if (source.mod_namespace.empty()) throw std::runtime_error("The INI declares no namespace");
+        auto found = std::make_shared<efmi::frontend::CharacterDiscovery>();
+        if (!load(source.ini, source.core, source.settings, source.mod_namespace,
+                  efmi::frontend::character_discovery(source.mod_namespace, found), factory, reason)) return false;
+        CharacterPackage made = found->contract;
+        made.lists.clear();
+        for (auto& c : made.components) {
+            c.lists[0] = uint32_t(made.lists.size()); made.lists.push_back({});
+            c.lists[1] = uint32_t(made.lists.size()); made.lists.push_back({});
+        }
+        // The blend-index edit is the one the live plans accept (CharacterProgram::plan).
+        made.edits.push_back({2, VK_FORMAT_R8G8B8A8_UINT, VK_FORMAT_R16G16B16A16_UINT});
+        std::map<std::wstring, uint32_t> remaps, meshes;
+        std::vector<uint8_t> payload;
+        auto add = [&](const std::filesystem::path& path, uint32_t kind, uint32_t stride) {
+            auto data = read(path, 128ull << 20);
+            if (data.empty() || !stride || data.size() % stride || payload.size() + data.size() > (512ull << 20))
+                throw std::runtime_error("Mesh size or stride invalid: " + path.u8string());
+            if (made.streams.size() >= 256) throw std::runtime_error("More mesh files than one character holds");
+            while (payload.size() % 16) payload.push_back(0);
+            CharacterStream s;
+            s.kind = kind; s.stride = stride; s.offset = payload.size(); s.size = data.size();
+            payload.insert(payload.end(), data.begin(), data.end());
+            made.streams.push_back(s);
+            return uint32_t(made.streams.size() - 1);
+        };
+        for (size_t i = 0; i < made.components.size(); ++i)
+            if (!found->remap_files[i].empty()) {
+                const auto k = key(found->remap_files[i]);
+                auto it = remaps.find(k);
+                if (it == remaps.end()) it = remaps.emplace(k, add(found->remap_files[i], CharacterStream::Remap, 2)).first;
+                made.components[i].remap_stream = it->second;
+            }
+        // Every mesh file the generation declares; those of sections the renderer has no part for
+        // are never bound by a replaced draw.
+        for (const auto& file : runtime_->resources()) {
+            if (!file->usage || remaps.count(key(file->path))) continue;
+            const uint32_t kind = file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT ? CharacterStream::Index : CharacterStream::Vertex;
+            const auto known = meshes.find(key(file->path));
+            if (known != meshes.end()) {
+                const auto& s = made.streams[known->second];
+                if (s.kind != kind || s.stride != file->stride) throw std::runtime_error("One mesh file declared with two meanings: " + file->path.u8string());
+                continue;
+            }
+            meshes.emplace(key(file->path), add(file->path, kind, file->stride));
+        }
+        made.payload = std::move(payload);
+        made.materials = true;
+        if (!validate_refreshed(made, reason)) return false;
+        package = std::move(made);
+        for (const auto& mesh : meshes) streams_.emplace(mesh.first, mesh.second);
+        catalogue(package, remaps);
+        left_to_game_ = found->left_to_game;
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
@@ -198,6 +297,16 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     item.layout[0].replace.format != 12)
                     throw std::runtime_error("Runtime input-layout edits differ from the validated blend-index contract");
                 bound.count = item.index_count; bound.first = item.first_index; bound.base = item.vertex_offset;
+                // The stream under the blend-index edit carries the bone indices: 16-bit indices in its
+                // last 8 bytes, 16-bit weights before them when the element is 16 bytes (the packager's
+                // rule). A stream first seen there is checked once, as decode checks a package's.
+                if (bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset == kCharacterNone) {
+                    const uint32_t stride = package.streams[bound.vb[2]].stride;
+                    if (stride != 8 && stride != 16) throw std::runtime_error("Blend stream stride outside the blend-index contract");
+                    std::string why;
+                    if (!package.adopt_bones(bound.vb[2], stride - 8, stride == 16 ? 0 : kCharacterNone, why))
+                        throw std::runtime_error("Blend stream refused: " + why);
+                }
                 const auto& index = package.streams[bound.index_stream];
                 if (uint64_t(bound.first) + bound.count > index.size / index.stride) throw std::runtime_error("Runtime indexed draw exceeds file bounds");
                 const auto extrema = index_bounds_[bound.index_stream];

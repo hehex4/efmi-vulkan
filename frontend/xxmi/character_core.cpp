@@ -4,7 +4,9 @@
 #include "palette_files.h"
 #include "rabbit_textures.h"
 #include "globals.h"
+#include <algorithm>
 #include <cmath>
+#include <map>
 
 void HostCompileGraph(const std::wstring&, const std::vector<std::wstring>&);
 
@@ -28,6 +30,31 @@ class CharacterCore : public RuntimeExtension {
     bool rabbit_textures = false;
     bool textures = false;                 // the host answers texture queries (D-077)
     size_t outside_package = 0, texture_sections = 0;
+    // Discovery (D-078): the mod's mesh sections as the registry holds them, with the original
+    // component id and LOD they assign; the contract is completed once the skeleton is known.
+    std::shared_ptr<CharacterDiscovery> discovery;
+    struct FoundSection { efvk::CharacterSection section; uint32_t original = efvk::kCharacterNone; };
+    std::vector<FoundSection> found;
+    // The constant a section's own command list assigns to `name` at its top level; none otherwise.
+    static uint32_t assigned(const CommandList& list, const std::wstring& name)
+    {
+        uint32_t result = efvk::kCharacterNone;
+        for (const auto& command : list.commands) {
+            const auto* assignment = dynamic_cast<const VariableAssignment*>(command.get());
+            float value = 0;
+            if (assignment && assignment->var && !_wcsicmp(assignment->var->name.c_str(), name.c_str()) &&
+                const_cast<CommandListExpression&>(assignment->expression).static_evaluate(&value) &&
+                std::isfinite(value) && value >= 0 && value < 65536 && std::floor(value) == value)
+                result = uint32_t(value);
+        }
+        return result;
+    }
+    static bool constant(const FuzzyMatch& f, uint32_t& value)
+    {
+        if (f.op != FuzzyMatchOp::EQUAL || f.rhs_type1 != FuzzyMatchOperandType::VALUE || f.rhs_type2 != FuzzyMatchOperandType::VALUE ||
+            f.mask != UINT32_MAX || f.numerator != 1 || f.denominator != 1) return false;
+        value = f.val; return true;
+    }
     std::vector<uint32_t> original_components;
     CustomResource* skeleton = nullptr;
     std::vector<std::wstring> boundaries;
@@ -41,6 +68,8 @@ class CharacterCore : public RuntimeExtension {
             fail(reason, L"Original Core request differs from the resolved native identity, bone or LOD contract");
     }
 public:
+    CharacterCore(const std::string& name, std::shared_ptr<CharacterDiscovery> output)
+        : CharacterCore(name, efvk::CharacterPackage{}, false) { discovery = std::move(output); }
     CharacterCore(const std::string& name, const efvk::CharacterPackage& package, bool rabbit) : expected(package), rabbit_textures(rabbit)
     {
         if (name.empty() || name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
@@ -146,6 +175,7 @@ global $mod_id = -1
     bool validate_overrides(std::wstring& why) override
     {
         if (!G->mFuzzyTextureOverrides.empty()) return fail(why, L"Fuzzy/image overrides require a source-image identity provider");
+        if (discovery) return discover_sections(why);
         std::vector<bool> seen(expected.sections.size(), false);
         auto matches = [](const FuzzyMatch& f, uint32_t value, bool optional) {
             if (optional && value == efvk::kCharacterNone) return f.op == FuzzyMatchOp::ALWAYS;
@@ -175,6 +205,86 @@ global $mod_id = -1
         }
         return std::all_of(seen.begin(), seen.end(), [](bool v) { return v; }) || fail(why, L"Original mesh override registry differs from its profile");
     }
+    // Discovery: a mesh section of this mod (a constant index count, an optional constant first
+    // index) is part of the contract; the component it assigns decides what it draws, none makes it
+    // a candidate to hide the game's mesh, which the live plan decides. Everything else stays the
+    // game's or, with texture identities, runs against them, as for a package.
+    bool discover_sections(std::wstring& why)
+    {
+        const std::wstring prefix = L"textureoverride" + mod;
+        const std::wstring component_id = L"$" + core_namespace + L"component_id", lod_level = L"$" + mod + L"lod_level";
+        for (const auto& hashed : G->mTextureOverrideMap) {
+            for (const auto& entry : hashed.second) {
+                const bool mesh = entry.match_index_count.op != FuzzyMatchOp::ALWAYS;
+                FoundSection s;
+                s.section.hash = hashed.first;
+                const bool own = !_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size());
+                const bool first_ok = entry.match_first_index.op == FuzzyMatchOp::ALWAYS || constant(entry.match_first_index, s.section.match_first);
+                if (own && mesh && constant(entry.match_index_count, s.section.match_count) && s.section.match_count && first_ok) {
+                    s.original = assigned(entry.command_list, component_id);
+                    s.section.lod = assigned(entry.command_list, lod_level);
+                    found.push_back(s);
+                    continue;
+                }
+                if (mesh) { ++outside_package; continue; }
+                if (!textures) return fail(why, L"Generation contains an unprofiled override; source-image identity is unavailable");
+                ++texture_sections;
+            }
+        }
+        if (found.size() > 256) return fail(why, L"More mesh sections than one character contract holds");
+        return true;
+    }
+    // Discovery: the active components in bone order, their LOD remaps, and the sections mapped to
+    // them. A section on an inactive component or a LOD beyond 1 stays the game's (the renderer's
+    // scope is LOD0 and LOD1, as for a package).
+    bool discover_contract(const SkeletonFilePlan& metadata, const core::PaletteDefinition& palette, std::wstring& why)
+    {
+        std::vector<uint32_t> order;
+        for (uint32_t i = 0; i < metadata.components.size(); ++i) if (metadata.components[i].count) order.push_back(i);
+        std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return metadata.components[a].first < metadata.components[b].first; });
+        if (order.empty() || order.size() > 32) return fail(why, L"Original skeleton has no or too many active components");
+        efvk::CharacterPackage contract;
+        contract.bones = metadata.bones;
+        std::vector<std::filesystem::path> remaps;
+        std::map<uint32_t, uint32_t> dense;
+        uint32_t cursor = 0;
+        for (uint32_t original : order) {
+            const auto& got = metadata.components[original];
+            const auto& maps = palette.components[original].lods;
+            if (got.first != cursor) return fail(why, L"Original components do not partition the skeleton");
+            cursor += got.count;
+            if (!maps[0].available || !maps[0].indices.empty() || !maps[1].available)
+                return fail(why, L"Original component has a LOD0 remap or no LOD1 assignment");
+            efvk::CharacterComponent c;
+            c.first = got.first; c.count = got.count;
+            c.has_remap = !maps[1].indices.empty(); c.remap_lod1 = maps[1].indices;
+            const auto& lod1 = got.lods[1];
+            if (c.has_remap && (lod1.source != RemapSource::File || lod1.path.empty())) return fail(why, L"Original LOD1 remap without its file");
+            remaps.push_back(c.has_remap ? lod1.path : std::filesystem::path{});
+            dense.emplace(original, uint32_t(contract.components.size()));
+            contract.components.push_back(std::move(c));
+        }
+        if (cursor != metadata.bones) return fail(why, L"Original components do not cover the skeleton");
+        size_t left = outside_package;
+        for (const auto& s : found) {
+            auto section = s.section;
+            if (section.lod != efvk::kCharacterNone && section.lod > 1) { ++left; continue; }
+            if (s.original == efvk::kCharacterNone) {
+                section.component = efvk::kCharacterNone; section.lod = efvk::kCharacterNone;
+            } else {
+                const auto it = dense.find(s.original);
+                if (it == dense.end()) { ++left; continue; }
+                section.component = it->second;
+            }
+            contract.sections.push_back(section);
+        }
+        if (contract.sections.empty()) return fail(why, L"The mod declares no mesh section the renderer can take");
+        expected = contract;
+        discovery->contract = std::move(contract);
+        discovery->remap_files = std::move(remaps);
+        discovery->left_to_game = left;
+        return true;
+    }
     bool prepare(DrawPlanAdapter& a, CommandListState& state, std::wstring& why) override
     {
         auto& init = explicitCommandListSections.at(L"commandlist" + mod + L"initializemergedskeleton");
@@ -189,6 +299,7 @@ global $mod_id = -1
             customResourcePools.at(pools + L"lodremaps"), a, files, metadata, why)) return false;
         core::PaletteDefinition palette; std::string error;
         if (!load_palette_files(metadata, palette, error)) { why.assign(error.begin(), error.end()); return false; }
+        if (discovery && !discover_contract(metadata, palette, why)) return false;
         if (metadata.bones != expected.bones || metadata.components.size() < expected.components.size())
             return fail(why, L"Original skeleton dimensions changed");
         original_components.assign(expected.components.size(), UINT32_MAX);
@@ -222,5 +333,10 @@ global $mod_id = -1
 std::shared_ptr<RuntimeExtension> character_core(const std::string& mod_namespace, const efvk::CharacterPackage& package, bool rabbit)
 {
     return std::make_shared<CharacterCore>(mod_namespace, package, rabbit);
+}
+std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_namespace, std::shared_ptr<CharacterDiscovery> output)
+{
+    if (!output) throw std::runtime_error("Character discovery needs its output");
+    return std::make_shared<CharacterCore>(mod_namespace, std::move(output));
 }
 }

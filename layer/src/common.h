@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "1.5.2"
+#define EFVK_VERSION "1.5.3"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -44,6 +44,10 @@ struct Config {
     Mode mode = Mode::Probe;
     Entry entry = Entry::Layer;
     std::string m2_package; // explicit experimental mesh package; empty keeps ordinary probe behavior
+    // Directory generation (D-078): the EFMI Mods folder whose character Mods run without packages,
+    // the Core folder they run with (default: Core\EFMI beside the Mods folder) and the project-owned
+    // folder their settings are saved in (default: settings beside the replacement module).
+    std::string m2_mods, m2_core, m2_settings;
     bool m2_enabled = false;
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped
@@ -69,6 +73,8 @@ struct Config {
 };
 
 extern Config g_cfg;
+// A character package, a directory of them or a Mods folder (D-078) is configured.
+inline bool character_configured() { return !g_cfg.m2_package.empty() || !g_cfg.m2_mods.empty(); }
 
 // What happened while attaching; reported by the status command.
 struct AttachInfo {

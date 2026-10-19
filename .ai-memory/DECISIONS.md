@@ -773,7 +773,15 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 ## D-077: DX11 texture hashes are computed from the game's Vulkan uploads
 
-- Date: 2026-10-19, after all 13 directory packages were refused for texture-hash overrides.
+- Date: 2026-10-19, after all 13 directory packages were refused for texture-hash overrides. Correction the same day: a scan of every installed INI finds no texture-hash TextureOverride; the refusals came from mesh sections outside the package (accepted since 1.5.1) and from three hash-only `this = null` index sections, which the registry check counts as texture sections. The mechanism has no installed user yet.
 - The original texture hash is crc32c of D3D11_TEXTURE2D_DESC seeded with the data hash of the first subresource (texture_hash_version 0 length rule). For the game's asset textures the description fields the Vulkan side lacks are constant: usage 0, bind flags shader-resource, CPU access 0, misc 0 (TEXTURECUBE for cube maps). The layer computes the hash from the latest complete upload of mip 0, slice 0 (the captures cannot tell it from the first, which the original uses with track_texture_updates = 0) and the image's own description; an image never uploaded from a buffer gets the hash with seed 0, as a texture created without data.
 - Checked: 506 of 506 DX11 shader-resource textures by the formula; 345 of 347 Vulkan images in BC/R8 formats give the DX11 hash of the same content (two explained). Uncompressed formats use the first W*H bytes, to be checked against data.
 - No per-character or per-texture table is involved. Where the hash cannot be known (partial or unreadable upload, unmapped format, a slot on a buffer or array, an untracked descriptor) the answer is a bound slot without a hash: no texture override matches, the draw is still replaced, and the case is counted (texture_unknown). Implemented in 1.5.1 (docs/texture-identity.md).
+
+## D-078: Character Mods are read from the Mods folder; packages are made in the layer
+
+- Date: 2026-10-19, user: "first do the directory generation, read Mods directly" and "do not go into the game unless unavoidable; first do everything that can be done".
+- `m2_mods` names the EFMI Mods folder. Every enabled INI declaring `[CommandListInitializeMergedSkeleton]` becomes a lazy generation; its package is made in-process from what the original engine declares in that generation: mesh sections from the override registry (constant matches and the constants their command lists assign to component and LOD), bones/components/remaps from the original Core initializer, every declared mesh file as a stream, every DDS file as an image, bone streams and material slots found by the live plans. The result passes the package decoder.
+- Offline packages (`m2_package`) stay for the tests and older configurations; no runtime path depends on them for a Mods folder. Settings go to a project-owned folder (`m2_settings`); nothing is written into the Mods folder.
+- Still one generation per character INI; one engine for the whole folder is the next step (D-075 generality: cross-folder libraries, shared keys).
+

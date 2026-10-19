@@ -127,6 +127,54 @@ bool CharacterPackage::load(const std::string& path, std::string& reason)
     return decode(data, reason);
 }
 
+// The component mask of a stream with bone indices (and optional weights), every index inside the
+// skeleton and the weights normalized.
+static bool stream_bones(const std::vector<CharacterComponent>& components, uint32_t bone_count, const uint8_t* payload,
+                         CharacterStream& s, std::string& reason)
+{
+    const uint32_t component_count = static_cast<uint32_t>(components.size());
+    auto component_of = [&](uint32_t bone) {
+        for (uint32_t i = 0; i < component_count; ++i)
+            if (bone < components[i].first + components[i].count) return i;
+        return component_count;
+    };
+    s.components = 0;
+    const uint64_t count = s.size / s.stride;
+    for (uint64_t v = 0; v < count; ++v) {
+        const uint8_t* element = payload + s.offset + v * s.stride;
+        uint32_t total = 0;
+        for (uint32_t k = 0; k < 4; ++k) {
+            const uint32_t bone = at<uint16_t>(element + s.bone_index_offset + k * 2);
+            // The shader may fetch every index, weighted or not: all of them stay inside the skeleton.
+            if (bone >= bone_count) { reason = "bone index outside the skeleton"; return false; }
+            uint32_t weight = 1;
+            if (s.bone_weight_offset != kCharacterNone) {
+                weight = at<uint16_t>(element + s.bone_weight_offset + k * 2);
+                total += weight;
+            }
+            if (weight) s.components |= 1u << component_of(bone);
+        }
+        if (s.bone_weight_offset != kCharacterNone && (total < 65533 || total > 65537)) { reason = "bone weights are not normalized"; return false; }
+    }
+    return true;
+}
+
+bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason)
+{
+    if (stream >= streams.size()) { reason = "bone stream out of range"; return false; }
+    CharacterStream s = streams[stream];
+    if (s.kind != CharacterStream::Vertex || s.bone_index_offset != kCharacterNone) { reason = "bone stream already known or not a vertex stream"; return false; }
+    s.bone_index_offset = index_offset; s.bone_weight_offset = weight_offset;
+    if (uint64_t(index_offset) + 8 > s.stride || (weight_offset != kCharacterNone &&
+        (uint64_t(weight_offset) + 8 > s.stride || (weight_offset < index_offset + 8 && index_offset < weight_offset + 8)))) {
+        reason = "bone elements outside the stream or overlapping"; return false;
+    }
+    if (s.offset + s.size > payload.size()) { reason = "bone stream outside the payload"; return false; }
+    if (!stream_bones(components, bones, payload.data(), s, reason)) return false;
+    streams[stream] = s;
+    return true;
+}
+
 bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& reason)
 {
     reason.clear();
@@ -228,30 +276,9 @@ bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& rea
         }
         next.components.push_back(std::move(c));
     }
-    auto component_of = [&](uint32_t bone) {
-        for (uint32_t i = 0; i < component_count; ++i)
-            if (bone < next.components[i].first + next.components[i].count) return i;
-        return component_count;
-    };
     for (auto& s : next.streams) {
         if (s.bone_index_offset == kCharacterNone) continue;
-        const uint64_t count = s.size / s.stride;
-        for (uint64_t v = 0; v < count; ++v) {
-            const uint8_t* element = payload + s.offset + v * s.stride;
-            uint32_t total = 0;
-            for (uint32_t k = 0; k < 4; ++k) {
-                const uint32_t bone = at<uint16_t>(element + s.bone_index_offset + k * 2);
-                // The shader may fetch every index, weighted or not: all of them stay inside the skeleton.
-                if (bone >= bone_count) return fail("bone index outside the skeleton");
-                uint32_t weight = 1;
-                if (s.bone_weight_offset != kCharacterNone) {
-                    weight = at<uint16_t>(element + s.bone_weight_offset + k * 2);
-                    total += weight;
-                }
-                if (weight) s.components |= 1u << component_of(bone);
-            }
-            if (s.bone_weight_offset != kCharacterNone && (total < 65533 || total > 65537)) return fail("bone weights are not normalized");
-        }
+        if (!stream_bones(next.components, bone_count, payload, s, reason)) return false;
     }
     for (const auto& d : next.draws) {
         if (d.index_stream >= stream_count || next.streams[d.index_stream].kind != CharacterStream::Index) return fail("draw without an index stream");

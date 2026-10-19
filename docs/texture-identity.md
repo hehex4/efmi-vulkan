@@ -58,6 +58,9 @@ BC1 and BC4 too (the second case); for RGBA8 it is the first quarter of mip 0.
 - With the host answering, CharacterCore lets Core's OverrideTextures run (CheckTextureOverride on
   ps-t0 to ps-t22) and accepts the Mod's texture-hash sections. Mesh sections the package has no
   part for (LOD levels beyond the packager's scope) are accepted as well and stay the game's.
+- Installed users: none. A scan of every installed INI (2026-10-19) finds no texture-hash
+  TextureOverride; only three hash-only `this = null` index sections (chengqianyu, last rite,
+  xaihi), which the registry check counts as texture sections and lets pass with identities.
 - Sandbox: the runtime fixture's `[TextureOverride_AppTexture]` uses the description-only hash of
   the scene's sampled image and sets `$texture_seen`; a section with the same description over other
   data must not fire (runtime_test, all four configurations). Not yet seen in the real game, and the

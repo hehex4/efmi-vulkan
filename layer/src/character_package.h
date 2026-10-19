@@ -84,6 +84,9 @@ struct CharacterPackage {
     // binds such a file all the same and the shader reads into the next vertex.
     bool vertex_input(const CharacterDraw&, const VertexInputRecipe& source, VertexInputRecipe& output,
                       std::string& reason) const;
+    // A vertex stream found to carry bone indices only at run time (the live plan binds it where the
+    // blend-index edit applies): the same checks as decode, then its component mask. Once per stream.
+    bool adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason);
 };
 
 // True when the file starts with the character package magic. No other validation.

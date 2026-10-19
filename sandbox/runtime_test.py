@@ -2,9 +2,10 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 from harness import Checks, DIST, INJECT_DLL, Sandbox, inject_env, layer_env, test_dir
-from runtime_fixture import fixture
+from runtime_fixture import CORE, fixture
 from efmi_vk.probe_client import ProbeClient
 
 
@@ -137,6 +138,7 @@ def main():
     outside_mesh(checks)
     shader_sections(checks)
     several_packages(checks, validation)
+    directory_generation(checks, validation)
     return checks.finish()
 
 
@@ -182,6 +184,65 @@ def several_packages(checks, validation):
         activations = [line for line in log.splitlines() if "activated on its first match" in line]
         checks.check(activations and all("character.bin" in line and "0-other.bin" not in line for line in activations),
                      label + ": only the fixture's package was activated, in each backend after the exchanges")
+
+
+def directory_generation(checks, validation):
+    """D-078: a Mods folder instead of packages. The fixture Mod and another character's Mod (whose
+    sections match no draw of the scene) sit in it as an EFMI Mods folder holds them; the layer reads
+    both INIs, makes their packages from what the original engine declares, and must then behave as
+    with the fixture's package: the scene's keys, reloads, exchanges and pixels."""
+    root = Path(test_dir("runtime-mods-"))
+    mods = root / "Mods"
+    folder = mods / "fixture"
+    (mods / "other").mkdir(parents=True)
+    folder.mkdir()
+    fixture(mods / "other", salt=0x5A5A5A5A, settings="other", name="other.bin", namespace="runtime_other")
+    fixture(folder)
+    (mods / "DISABLED old").mkdir()
+    (mods / "DISABLED old" / "mod.ini").write_text((folder / "mod.ini").read_text(encoding="ascii"), encoding="ascii")
+    settings = root / "settings"
+    extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
+                 EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
+                 VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
+                 XDG_CACHE_HOME=str(root), TEMP=str(root), TMP=str(root), TMPDIR=str(root))
+    env = layer_env(str(root / "layer.log"), extra=extra)
+    env["VK_LAYER_PATH"] = extra["VK_LAYER_PATH"]
+    args = [str(Path(DIST) / "efmi_vk_variant_gpu.exe"), "--character", "--material", "--validation", "--lazy-packages",
+            "--module", str(Path(DIST) / "efmi_vk_backend.dll"), "--bad-module", str(Path(DIST) / "efmi_vk_backend_mismatch.dll")]
+    sources = {p: p.read_bytes() for p in mods.rglob("*") if p.is_file()}
+    result = subprocess.run(args, env=env, cwd=folder, capture_output=True, text=True, errors="replace", timeout=120)
+    output = result.stdout + result.stderr
+    (root / "stdout.txt").write_text(output.encode("ascii", "backslashreplace").decode(), encoding="ascii")
+    label = "Mods folder (directory generation)"
+    checks.equal(result.returncode, 0, label + ": the scene's keys, reloads, exchanges and pixels as with the fixture's package")
+    checks.check("validation: errors=0 warnings=0" in output, label + ": clean core/sync validation")
+    if result.returncode:
+        print(output[-6000:]); print("artifacts:", root)
+    report = folder / "runtime-final.json"
+    status = json.loads(report.read_text())["result"]["replacement"] if report.is_file() else {}
+    packages = status.get("packages", [])
+    names = [Path(p.get("path", "")).parent.name for p in packages]
+    checks.equal(names, ["fixture", "other"], label + ": both character INIs found, the DISABLED folder skipped")
+    if len(packages) == 2:
+        own, other = packages
+        checks.equal((other["lazy"], other["activated"], other.get("images_ready", 0), other["counters"].get("replaced", 0)),
+                     (True, False, 0, 0), label + ": the other character's Mod never matched and never went to the GPU")
+        checks.check(own["activated"] and own["counters"].get("replaced", 0) > 0 and own["images_ready"] == 2,
+                     label + ": the fixture's Mod went to the GPU on its first match and replaced draws")
+        checks.equal((own["ini_generation"], own["ini_reloads"]), (2, 2), label + ": its reloads as with a package")
+        variables = own.get("ini", {}).get("variables", {})
+        checks.equal(variables.get("$\\runtime_fixture\\tint"), 1, label + ": the persistent variable survives F10")
+    saved = settings / "runtime_fixture.ini"
+    checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(), label + ": settings saved in the configured folder")
+    # The scene itself edits its mod.ini, drives its keys through keys.txt and writes its reports where
+    # it runs (the fixture's folder).
+    after = {p: p.read_bytes() for p in mods.rglob("*") if p.is_file()}
+    changed = [str(p.relative_to(mods)) for p in after if p.name not in ("mod.ini", "keys.txt") and p in sources and sources[p] != after[p]]
+    added = [str(p.relative_to(mods)) for p in after if p not in sources and
+             not (p.parent == folder and re.fullmatch(r"(character|runtime)-[\w-]+\.json|pixels\.rgba|stdout\.txt", p.name))]
+    checks.equal((changed, added), ([], []), label + ": the layer writes nothing into the Mods folder")
+    log = (root / "layer.log").read_text(encoding="utf-8", errors="replace")
+    checks.check(log.count("character Mod read from its INI") >= 2, label + ": every package was made from its INI")
 
 
 if __name__ == "__main__":

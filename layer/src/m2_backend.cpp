@@ -311,11 +311,13 @@ bool m2_record(Device* device,CmdBuf* cb,const DrawRec& r){
 
 void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const VkPhysicalDeviceMemoryProperties& memory)
 {
-    if(g_cfg.m2_package.empty() || g_cfg.mode!=Mode::Probe || !g_cfg.track_resources)return;
+    if(!character_configured() || g_cfg.mode!=Mode::Probe || !g_cfg.track_resources)return;
     // The file says which backend it is for: a whole character or the single-component package.
-    // A directory names several character packages (one per Mod, lazy on the GPU).
+    // A directory names several character packages (one per Mod, lazy on the GPU); a Mods folder
+    // names the character Mods themselves (D-078).
     std::error_code directory_error;
-    if(is_character_package(g_cfg.m2_package) || std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package),directory_error)){
+    if(!g_cfg.m2_mods.empty() || is_character_package(g_cfg.m2_package) ||
+       std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package),directory_error)){
         device->physical_properties=properties;device->memory_properties=memory;
         device->character_module=builtin_character_module();
         device->character=device->character_module->create(device,properties,memory);

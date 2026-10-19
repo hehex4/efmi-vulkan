@@ -1210,7 +1210,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         }
     }
     const uint32_t app_api = inst ? inst->app_api_version : VK_API_VERSION_1_0;
-    if (!g_cfg.m2_package.empty() && inst && inst->EnumerateDeviceExtensionProperties && inst->GetPhysicalDeviceFeatures2) {
+    if (character_configured() && inst && inst->EnumerateDeviceExtensionProperties && inst->GetPhysicalDeviceFeatures2) {
         bool robustness_supported = false;
         uint32_t count = 0;
         if (!robustness_requested && inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) == VK_SUCCESS && count && count < 4096) {
@@ -1271,7 +1271,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         dev->device_id = props.deviceID;
         dev->driver_version = props.driverVersion;
         dev->max_bound_descriptor_sets = props.limits.maxBoundDescriptorSets;
-        if (inst->GetPhysicalDeviceMemoryProperties && !g_cfg.m2_package.empty()) {
+        if (inst->GetPhysicalDeviceMemoryProperties && character_configured()) {
             VkPhysicalDeviceMemoryProperties memory;
             inst->GetPhysicalDeviceMemoryProperties(phys, &memory);
             character_device_setup(dev, info, inst->handle, inst->gipa);

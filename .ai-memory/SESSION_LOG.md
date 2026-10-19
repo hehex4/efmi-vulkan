@@ -2017,3 +2017,11 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - scripts/rabbitfx_assessment.py and docs/rabbitfx-assessment.md: RabbitFX's roles from the already patched DX11 shaders of session A, paired with the Vulkan fragment modules; measured candidate rules (diffuse first sample 79/83, all three roles 52/83). No layer change.
 - Process slip: a `pip download` of the third-party regex package went to the scratchpad without asking first; it was deleted unused and the assessment uses Python's own re module with the PCRE syntax converted.
 - Waiting for the user: the RabbitFX option and a game session.
+
+## 2026-10-19: character Mods straight from the Mods folder (candidate 1.5.3)
+
+- User: "first do the directory generation, read Mods directly"; then "do not go into the game unless unavoidable, first do everything that can be done".
+- frontend/xxmi/character_core.h/.cpp (CharacterDiscovery, discovery mode), layer/src/character_program.h/.cpp (load/catalogue split, discover, declared_namespace, lazy bone streams), character_package.h/.cpp (adopt_bones, shared bone check), character_backend.cpp (Mods enumeration, INI generations, growing material slots), common.h/util.cpp/layer.cpp/m2_backend.cpp (m2_mods, m2_core, m2_settings, character_configured), sandbox/runtime_fixture.py (namespace), runtime_test.py (directory generation), harness.py (pinned m2_mods off), docs/directory-generation.md, D-078. Version 1.5.3.
+- Results: installed Mods folder in the sandbox: 19 of 22 load; live INI 71/71; full rebuilt suite 31/31 steps (build/next/run_all-1.5.3.out).
+- Found while checking: no installed INI uses a texture-hash TextureOverride; D-077, texture-identity.md and several-packages.md corrected.
+
