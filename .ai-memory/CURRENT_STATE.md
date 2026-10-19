@@ -1,10 +1,20 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-19, branch claude/ini: the user chose to complete the INI before the panel-only route (phases in TASKS T-031). Candidate 1.4.4 lays phase 1 foundations: a mixed generation (native character extension plus owned GPU runtime behind a host scope) and imported caller-owned images with submission semaphores. Next P1-3, the layer. main follows claude/ini at checkpoints; Codex's uncommitted work stays restored in the main tree. dist 1.0.2 unchanged. Launcher on DX11.
+> Last updated: 2026-10-19, branch claude/ini: candidate 1.4.5 records presentation facts in the layer host (P1-3a); 1.4.4 mixed generation and imported images. Next P1-3b, the module's owned Present. The host ABI changed (state.h): the injected DLL may be replaced only while the game is closed. main follows claude/ini at checkpoints; Codex's uncommitted work stays restored in the main tree. dist 1.0.2 unchanged. Launcher on DX11.
 
 Launcher state, 2026-10-14 20:11: at the user's explicit request, restored the active EFMI profile to DX11: d3d11_mode_cmd_args = -force-d3d11 and xxmi_dll_inject_mode = DIRECT. Complete process checks found neither game nor launcher, including immediately before writing. Backup: build/backups/launcher-dx11-20261014-201131/; its manifest records exact hashes and verification. Only the two named JSON value spans changed; all other bytes and signed values are preserved. Project dist/config and original mod/Core files are unchanged. No game start, capture or deployment was performed. The user starts any DX11 session; a later Vulkan switch needs their explicit request.
 
 
+
+## P1-3a: presentation facts in the layer host (candidate 1.4.5, 2026-10-19)
+
+- Win32 surfaces are hooked in both entries (loader layer through vkGetInstanceProcAddr, injection through the vulkan-1.dll exports) and their windows recorded; vkCreateSwapchainKHR moved from counted to tracked, with vkDestroySwapchainKHR and vkGetSwapchainImagesKHR: each device keeps its swap chains' surface window, format, color space, extent, usage, flags and images (state.h SwapchainInfo, an ABI change).
+- The application's API version is kept per instance and device.
+- Character mode only: when the physical device supports VK_EXT_robustness2 nullDescriptor and the application did not ask for the extension, the layer adds it with that one feature (D-071); an application request is used as it is. dev->extensions keeps the application's own list. On the NVIDIA RTX 5060 the live INI and character tests run with it added and clean validation.
+- Status JSON device: application_api, null_descriptors, null_descriptors_added, swapchains (format, color space, size, usage, flags, image count, whether the window is known). A game session will report the game's swap chain format this way.
+- Verification: probe_test in all entry, thread and descriptor modes checks the recorded swap chain and window; live INI 32/32 and character 357/357 in character mode with the extension added.
+
+Evidence: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.5.out), probe end to end in all modes, live INI 32/32 and character 357/357 with the null-descriptor extension added. Sandbox only.
 
 ## Phase 1 foundations: mixed generation and imported images (candidate 1.4.4, 2026-10-19)
 

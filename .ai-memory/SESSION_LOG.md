@@ -1939,3 +1939,9 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - P1-2: frontend/gpu/resource_commands.h/.cpp and resource_images.cpp (import_image, external layouts, SubmitSync), gpu_resources.h/.cpp (finish with semaphores), sandbox/resource_backbuffer_cases.h (imported_backbuffer). Version 1.4.4.
 - Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.4.out): GPU resources 11175 checks with no validation message (mixed generation and imported back buffer included), runtime 471, execution matrix 41 probes. Sandbox only.
 - Not done: P1-3 (layer), P2, phases 2 to 4; no deployment, game, launcher or system action.
+
+## 2026-10-19: P1-3a presentation facts in the layer host (candidate 1.4.5, branch claude/ini)
+
+- layer/src/state.h (SwapchainInfo, device presentation and null-descriptor fields, surface_window), layer/src/layer.cpp (surface hooks in both entries, swap chain hooks, application API version, robustness2 nullDescriptor in character mode), layer/src/state.cpp (status), sandbox/probe_test.py (checks). Version 1.4.5.
+- Results: full rebuilt suite passes all 29 steps (build/next/run_all-1.4.5.out), probe end to end in all modes, live INI 32/32 and character 357/357 with the null-descriptor extension added. Sandbox only.
+- Design notes for P1-3b: the sandbox swap chain requests color attachment usage only, so the readback test needs an opt-in readable swap chain in the sandbox program; in character mode the layer will add color attachment usage if an application lacks it (always supported by the specification); bb's shader-resource bind flag follows the sampled usage. ShaderCommands needs the SPIR-V validator DLL, so DXC, vkd3d-shader and SPIRV-Tools are to be deployed next to the layer.

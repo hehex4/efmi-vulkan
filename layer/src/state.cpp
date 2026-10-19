@@ -1504,6 +1504,27 @@ std::string probe_status()
     w.kn("vendor_id", dev->vendor_id);
     w.kn("device_id", dev->device_id);
     w.kn("driver_version", dev->driver_version);
+    w.kn("application_api", dev->app_api_version);
+    w.kb("null_descriptors", dev->null_descriptors);
+    w.kb("null_descriptors_added", dev->null_descriptors_added);
+    w.key("swapchains");
+    w.begin_array();
+    {
+        std::lock_guard<std::mutex> lock(dev->swap_mx);
+        for (const auto& [handle, s] : dev->swapchains) {
+            w.begin_object();
+            w.kn("format", static_cast<uint64_t>(s.format));
+            w.kn("color_space", static_cast<uint64_t>(s.color_space));
+            w.kn("width", s.extent.width);
+            w.kn("height", s.extent.height);
+            w.kn("usage", s.usage);
+            w.kn("flags", s.flags);
+            w.kn("images", s.images.size());
+            w.kb("window", s.window != nullptr);
+            w.end_object();
+        }
+    }
+    w.end_array();
     w.end_object();
 
     PresentPacing pacing;

@@ -30,7 +30,15 @@ struct InstanceData {
     PFN_vkEnumerateDeviceExtensionProperties EnumerateDeviceExtensionProperties = nullptr;
     PFN_vkGetPhysicalDeviceProperties GetPhysicalDeviceProperties = nullptr;
     PFN_vkGetPhysicalDeviceMemoryProperties GetPhysicalDeviceMemoryProperties = nullptr;
+    PFN_vkGetPhysicalDeviceFeatures2 GetPhysicalDeviceFeatures2 = nullptr;
+    PFN_vkCreateWin32SurfaceKHR CreateWin32SurfaceKHR = nullptr;
+    PFN_vkDestroySurfaceKHR DestroySurfaceKHR = nullptr;
+    uint32_t app_api_version = 0;
 };
+
+// Win32 surfaces created through this layer and their windows, for every instance.
+std::mutex g_surface_mx;
+std::unordered_map<VkSurfaceKHR, HWND> g_surfaces;
 
 std::mutex g_inst_mx;
 std::unordered_map<void*, InstanceData*> g_insts;
@@ -42,6 +50,8 @@ PFN_vkGetDeviceProcAddr g_real_gdpa = nullptr;
 PFN_vkCreateInstance g_real_create_instance = nullptr;
 PFN_vkDestroyInstance g_real_destroy_instance = nullptr;
 PFN_vkCreateDevice g_real_create_device = nullptr;
+PFN_vkCreateWin32SurfaceKHR g_real_create_surface = nullptr;
+PFN_vkDestroySurfaceKHR g_real_destroy_surface = nullptr;
 Device g_passive_dev; // its dispatch table holds the original exports of the device functions
 
 bool injected()
@@ -875,6 +885,56 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresent
     return dev->d.QueuePresentKHR(queue, info);
 }
 
+VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR* info,
+                                                     const VkAllocationCallbacks* alloc, VkSwapchainKHR* swapchain)
+{
+    count_call(HI_CreateSwapchainKHR);
+    Device* dev = dev_of(device);
+    const VkResult r = dev->d.CreateSwapchainKHR(device, info, alloc, swapchain);
+    if (r != VK_SUCCESS || dev->passive || !info)
+        return r;
+    SwapchainInfo s;
+    s.surface = info->surface;
+    s.window = surface_window(info->surface);
+    s.format = info->imageFormat;
+    s.color_space = info->imageColorSpace;
+    s.extent = info->imageExtent;
+    s.usage = info->imageUsage;
+    s.flags = info->flags;
+    uint32_t count = 0;
+    if (dev->d.GetSwapchainImagesKHR && dev->d.GetSwapchainImagesKHR(device, *swapchain, &count, nullptr) == VK_SUCCESS && count && count <= 16) {
+        s.images.resize(count);
+        if (dev->d.GetSwapchainImagesKHR(device, *swapchain, &count, s.images.data()) != VK_SUCCESS)
+            s.images.clear();
+        s.images.resize(s.images.empty() ? 0 : count);
+    }
+    logf("swapchain created: format=%d color_space=%d %ux%u usage=0x%x flags=0x%x images=%zu window=%s", int(s.format),
+         int(s.color_space), s.extent.width, s.extent.height, unsigned(s.usage), unsigned(s.flags), s.images.size(),
+         s.window ? "known" : "unknown");
+    std::lock_guard<std::mutex> lock(dev->swap_mx);
+    static uint32_t generation = 0;
+    s.generation = ++generation;
+    dev->swapchains[*swapchain] = std::move(s);
+    return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_DestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks* alloc)
+{
+    count_call(HI_DestroySwapchainKHR);
+    Device* dev = dev_of(device);
+    if (!dev->passive) {
+        std::lock_guard<std::mutex> lock(dev->swap_mx);
+        dev->swapchains.erase(swapchain);
+    }
+    dev->d.DestroySwapchainKHR(device, swapchain, alloc);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_GetSwapchainImagesKHR(VkDevice device, VkSwapchainKHR swapchain, uint32_t* count, VkImage* images)
+{
+    count_call(HI_GetSwapchainImagesKHR);
+    return dev_of(device)->d.GetSwapchainImagesKHR(device, swapchain, count, images);
+}
+
 VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationCallbacks* alloc)
 {
     count_call(HI_DestroyDevice);
@@ -989,6 +1049,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateInstance(const VkInstanceCreateInfo* inf
         reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(gipa(*instance, "vkGetPhysicalDeviceProperties"));
     inst->GetPhysicalDeviceMemoryProperties =
         reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(gipa(*instance, "vkGetPhysicalDeviceMemoryProperties"));
+    inst->GetPhysicalDeviceFeatures2 =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(gipa(*instance, "vkGetPhysicalDeviceFeatures2"));
+    inst->CreateWin32SurfaceKHR = reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(gipa(*instance, "vkCreateWin32SurfaceKHR"));
+    inst->DestroySurfaceKHR = reinterpret_cast<PFN_vkDestroySurfaceKHR>(gipa(*instance, "vkDestroySurfaceKHR"));
+    inst->app_api_version = info->pApplicationInfo ? info->pApplicationInfo->apiVersion : VK_API_VERSION_1_0;
     {
         std::lock_guard<std::mutex> lock(g_inst_mx);
         g_insts[key_of(*instance)] = inst;
@@ -1015,6 +1080,39 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyInstance(VkInstance instance, const VkAlloc
     PFN_vkDestroyInstance next = inst->DestroyInstance;
     delete inst;
     next(instance, alloc);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_CreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR* info,
+                                                         const VkAllocationCallbacks* alloc, VkSurfaceKHR* surface)
+{
+    PFN_vkCreateWin32SurfaceKHR next = nullptr;
+    if (injected())
+        next = g_real_create_surface;
+    else if (InstanceData* inst = inst_of_key(key_of(instance)))
+        next = inst->CreateWin32SurfaceKHR;
+    if (!next)
+        return VK_ERROR_INITIALIZATION_FAILED;
+    const VkResult r = next(instance, info, alloc, surface);
+    if (r == VK_SUCCESS && info) {
+        std::lock_guard<std::mutex> lock(g_surface_mx);
+        g_surfaces[*surface] = info->hwnd;
+    }
+    return r;
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_DestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks* alloc)
+{
+    PFN_vkDestroySurfaceKHR next = nullptr;
+    if (injected())
+        next = g_real_destroy_surface;
+    else if (InstanceData* inst = inst_of_key(key_of(instance)))
+        next = inst->DestroySurfaceKHR;
+    {
+        std::lock_guard<std::mutex> lock(g_surface_mx);
+        g_surfaces.erase(surface);
+    }
+    if (next)
+        next(instance, surface, alloc);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_EnumerateDeviceExtensionProperties(VkPhysicalDevice phys, const char* layer_name,
@@ -1060,15 +1158,61 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     }
     if (!gdpa || !next)
         return VK_ERROR_INITIALIZATION_FAILED;
+    // Character mode: owned GPU work needs VK_EXT_robustness2 nullDescriptor for D3D11 null views
+    // (D-071). The layer adds the extension with that feature alone when the device supports it
+    // and the application did not ask for the extension; an application request stays as it is.
+    const VkDeviceCreateInfo* requested = info;
+    VkDeviceCreateInfo modified;
+    std::vector<const char*> extensions;
+    VkPhysicalDeviceRobustness2FeaturesEXT robust{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+    bool null_descriptors = false, null_descriptors_added = false, robustness_requested = false;
+    for (uint32_t i = 0; i < info->enabledExtensionCount; ++i)
+        robustness_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
+    if (robustness_requested) {
+        for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext)
+            if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT)
+                null_descriptors = reinterpret_cast<const VkPhysicalDeviceRobustness2FeaturesEXT*>(p)->nullDescriptor != VK_FALSE;
+    } else if (!g_cfg.m2_package.empty() && inst && inst->EnumerateDeviceExtensionProperties && inst->GetPhysicalDeviceFeatures2) {
+        uint32_t count = 0;
+        bool supported = false;
+        if (inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) == VK_SUCCESS && count && count < 4096) {
+            std::vector<VkExtensionProperties> available(count);
+            if (inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, available.data()) == VK_SUCCESS)
+                for (uint32_t i = 0; i < count; ++i)
+                    supported |= !strcmp(available[i].extensionName, VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
+        }
+        VkPhysicalDeviceRobustness2FeaturesEXT query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features.pNext = &query;
+        if (supported)
+            inst->GetPhysicalDeviceFeatures2(phys, &features);
+        if (supported && query.nullDescriptor) {
+            extensions.assign(info->ppEnabledExtensionNames, info->ppEnabledExtensionNames + info->enabledExtensionCount);
+            extensions.push_back(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
+            modified = *info;
+            modified.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+            modified.ppEnabledExtensionNames = extensions.data();
+            robust.nullDescriptor = VK_TRUE;
+            robust.pNext = const_cast<void*>(info->pNext);
+            modified.pNext = &robust;
+            info = &modified;
+            null_descriptors = null_descriptors_added = true;
+        }
+    }
     VkResult r = next(phys, info, alloc, device);
     if (r != VK_SUCCESS)
         return r;
+    info = requested;
 
     g_attach.devices_created.fetch_add(1);
     Device* dev = dev_create(*device);
     dev->phys = phys;
     dev->next_gdpa = gdpa;
     dev->set_loader_data = set_loader_data;
+    dev->null_descriptors = null_descriptors;
+    dev->null_descriptors_added = null_descriptors_added;
+    if (inst)
+        dev->app_api_version = inst->app_api_version;
     for (const HookEntry& h : g_hooks)
         next_slot(dev->d, h) = gdpa(*device, h.name);
     if (inst && inst->GetPhysicalDeviceProperties) {
@@ -1089,7 +1233,9 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     }
     for (uint32_t i = 0; i < info->enabledExtensionCount; i++)
         dev->extensions.push_back(info->ppEnabledExtensionNames[i]);
-    logf("device created on %s, %u extensions enabled", dev->gpu_name, info->enabledExtensionCount);
+    logf("device created on %s, %u extensions enabled, application API 0x%x, null descriptors %s", dev->gpu_name,
+         info->enabledExtensionCount, dev->app_api_version,
+         null_descriptors_added ? "added" : null_descriptors ? "enabled by the application" : "off");
     if (g_cfg.mode == Mode::Probe)
         ipc_start();
     return VK_SUCCESS;
@@ -1122,6 +1268,10 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetInstanceProcAddr(VkInstance insta
         return reinterpret_cast<PFN_vkVoidFunction>(hk_DestroyInstance);
     if (!strcmp(name, "vkCreateDevice"))
         return reinterpret_cast<PFN_vkVoidFunction>(hk_CreateDevice);
+    if (!strcmp(name, "vkCreateWin32SurfaceKHR"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_CreateWin32SurfaceKHR);
+    if (!strcmp(name, "vkDestroySurfaceKHR"))
+        return reinterpret_cast<PFN_vkVoidFunction>(hk_DestroySurfaceKHR);
     if (!strcmp(name, "vkEnumerateDeviceExtensionProperties") && !injected())
         return reinterpret_cast<PFN_vkVoidFunction>(hk_EnumerateDeviceExtensionProperties);
     if (!strcmp(name, "vkGetDeviceProcAddr"))
@@ -1143,6 +1293,13 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL hk_GetInstanceProcAddr(VkInstance insta
 
 namespace efvk {
 
+HWND surface_window(VkSurfaceKHR surface)
+{
+    std::lock_guard<std::mutex> lock(g_surface_mx);
+    const auto found = g_surfaces.find(surface);
+    return found == g_surfaces.end() ? nullptr : found->second;
+}
+
 void collect_export_hooks(std::vector<ExportHook>& out)
 {
     out.push_back({"vkGetInstanceProcAddr", reinterpret_cast<void*>(hk_GetInstanceProcAddr),
@@ -1155,6 +1312,10 @@ void collect_export_hooks(std::vector<ExportHook>& out)
                    reinterpret_cast<void**>(&g_real_destroy_instance)});
     out.push_back({"vkCreateDevice", reinterpret_cast<void*>(hk_CreateDevice),
                    reinterpret_cast<void**>(&g_real_create_device)});
+    out.push_back({"vkCreateWin32SurfaceKHR", reinterpret_cast<void*>(hk_CreateWin32SurfaceKHR),
+                   reinterpret_cast<void**>(&g_real_create_surface)});
+    out.push_back({"vkDestroySurfaceKHR", reinterpret_cast<void*>(hk_DestroySurfaceKHR),
+                   reinterpret_cast<void**>(&g_real_destroy_surface)});
     // A device function may be called through its export for a device that was created before
     // the redirection. The original address goes into the dispatch table of the passive device.
     for (const HookEntry& h : g_hooks) {

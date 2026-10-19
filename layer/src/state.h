@@ -28,6 +28,7 @@ struct CharacterModule;
 // because a driver may offer only one of them.
 #define EFVK_TRACKED_FUNCS(X)                                                                                          \
     X(DestroyDevice) X(QueuePresentKHR)                                                                                \
+    X(CreateSwapchainKHR) X(DestroySwapchainKHR) X(GetSwapchainImagesKHR)                                              \
     X(AllocateMemory) X(FreeMemory) X(MapMemory) X(UnmapMemory)                                                        \
     X(MapMemory2) X(MapMemory2KHR) X(UnmapMemory2) X(UnmapMemory2KHR)                                                  \
     X(CreateBuffer) X(DestroyBuffer) X(BindBufferMemory) X(BindBufferMemory2) X(BindBufferMemory2KHR)                  \
@@ -68,7 +69,7 @@ struct CharacterModule;
 #define EFVK_COUNTED_FUNCS(X)                                                                                          \
     X(CreateDescriptorPool)                                                                                           \
     X(CmdBindDescriptorBuffersEXT) X(CmdPushConstants)                                                                 \
-    X(CreateSwapchainKHR) X(CreateFramebuffer)                                                                         \
+    X(CreateFramebuffer)                                                                                               \
     X(CmdCopyImageToBuffer) X(CmdBlitImage) X(CmdNextSubpass) X(FlushMappedMemoryRanges)                               \
     X(CmdDrawMultiEXT) X(CmdDrawMultiIndexedEXT) X(CmdDrawMeshTasksEXT) X(CmdBindTransformFeedbackBuffersEXT)          \
     X(CmdBuildAccelerationStructuresKHR) X(CmdTraceRaysKHR)
@@ -111,6 +112,19 @@ struct IntervalSet {
     void remove(uint64_t off, uint64_t size);
     bool covers(uint64_t off, uint64_t size) const;
     uint64_t total() const;
+};
+
+// A swap chain as created: the facts owned presentation work needs (D-072).
+struct SwapchainInfo {
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    HWND window = nullptr;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    VkColorSpaceKHR color_space = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    VkExtent2D extent = {};
+    VkImageUsageFlags usage = 0;
+    VkSwapchainCreateFlagsKHR flags = 0;
+    uint32_t generation = 0; // counts recreations of this device's swap chains
+    std::vector<VkImage> images;
 };
 
 struct MemInfo {
@@ -435,6 +449,15 @@ struct Device {
     uint32_t driver_version = 0;
     uint32_t max_bound_descriptor_sets = 0;
     uint32_t max_layout_sets = 0; // most sets any pipeline layout of the application has had
+    // The API version the application asked for, and whether VK_EXT_robustness2 nullDescriptor is
+    // on: added by the layer in character mode when supported and not requested, or the
+    // application's own. Owned GPU work needs it for D3D11 null views (D-071).
+    uint32_t app_api_version = 0;
+    bool null_descriptors = false, null_descriptors_added = false;
+
+    // Presentation: the swap chains of this device and the window behind each.
+    std::mutex swap_mx;
+    std::unordered_map<VkSwapchainKHR, SwapchainInfo> swapchains;
 
     // Memory, buffers, pipelines. Readers of mapped memory hold the lock shared;
     // unmap, free and destroy take it exclusively before the call goes down.
@@ -511,6 +534,8 @@ struct Device {
 
 // Device registry.
 Device* dev_create(VkDevice handle);
+// The window of a Win32 surface created through this layer, or null.
+HWND surface_window(VkSurfaceKHR surface);
 void dev_destroy(Device* dev);
 void dev_set_passive(Device* dev);
 Device* dev_of_key(void* key);

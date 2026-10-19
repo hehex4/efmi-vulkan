@@ -166,6 +166,15 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
             c.equal(status["mode"], "probe", "status mode")
             c.equal(status["exe"], "efmi_vk_sandbox.exe", "status exe")
             c.check(bool(status["device"]["name"]), "device name reported")
+            swapchains = status["device"]["swapchains"]
+            c.equal(len(swapchains), 1, "the swap chain is recorded at creation")
+            if swapchains:
+                chain = swapchains[0]
+                c.check(chain["window"], "the swap chain's surface window is known", entry)
+                c.check(chain["width"] > 0 and chain["height"] > 0 and chain["images"] >= 2, "swap chain extent and images", chain)
+                c.check(chain["usage"] & 0x10, "the swap chain images are color attachments", chain["usage"])
+            c.check(status["device"]["application_api"] > 0, "the application API version is recorded")
+            c.equal(status["device"]["null_descriptors_added"], False, "no extension is added outside character mode")
             c.check("capture" in status["features"], "capture feature listed")
             c.check("capture_wait_draws" in status["features"], "nonempty capture feature listed")
             c.equal(status["entry"], entry, "status entry")
