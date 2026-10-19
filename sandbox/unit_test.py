@@ -394,8 +394,64 @@ def test_shader_catalogue(c: Checks) -> None:
             "an earlier verified table is checked where both have the shader")
 
 
+SLOT_HLSL = r"""
+cbuffer First : register(b0) { float4 a; float4 b[3]; };
+[[vk::binding(27, 0)]] Texture2D ColourMap;
+[[vk::binding(5, 1)]] SamplerState Linear;
+[[vk::binding(54, 0)]] StructuredBuffer<float4> Lights;
+[[vk::binding(53, 0)]] ByteAddressBuffer Raw;
+[[vk::binding(2, 1)]] Texture2D Layers[3];
+[[vk::binding(9, 2)]] RWStructuredBuffer<float4> Output;
+[[vk::binding(7, 1)]] Buffer<float4> Typed;
+[[vk::binding(1, 2)]] cbuffer Second { float4 c; };
+float4 main(float2 uv : TEXCOORD0) : SV_Target {
+    Output[0] = c;
+    return ColourMap.Sample(Linear, uv) + Lights[0] + asfloat(Raw.Load4(0)) + Layers[2].Sample(Linear, uv)
+         + Typed[0] + a + b[2];
+}
+"""
+
+
+def test_source_slots(c: Checks) -> None:
+    import subprocess
+    from efmi_vk.source_slots import binding_of, declarations, registers
+    dxc = r"F:\vulkan\dxc-1.9.2609\bin\x64\dxc.exe"
+    folder = test_dir("slots")
+    source, target = os.path.join(folder, "slots.hlsl"), os.path.join(folder, "slots.spv")
+    with open(source, "w", encoding="ascii") as f:
+        f.write(SLOT_HLSL)
+    run = subprocess.run([dxc, "-spirv", "-T", "ps_6_0", "-E", "main", "-Fo", target, source], capture_output=True, text=True)
+    c.check(run.returncode == 0, "DXC compiles the slot fixture: %s" % run.stderr[-300:])
+    if run.returncode:
+        return
+    decls = declarations(open(target, "rb").read())
+    by = {(d["set"], d["binding"]): d for d in decls}
+    c.equal([by[(0, 27)]["kind"], by[(1, 5)]["kind"], by[(0, 54)]["kind"], by[(0, 53)]["kind"], by[(1, 2)]["kind"],
+             by[(2, 9)]["kind"], by[(1, 7)]["kind"]],
+            ["srv-image", "sampler", "srv-buffer", "srv-buffer", "srv-image", "uav-buffer", "srv-texbuf"],
+            "resource kinds: images, samplers, read-only and writable storage buffers, texel buffers")
+    c.equal(by[(1, 2)]["count"], 3, "an array of textures counts its elements")
+    c.equal([d["size"] for d in decls if d["kind"] == "cbuffer"], [64, 16], "constant blocks in declaration order with their sizes")
+    regs = {k: v["register"] for k, v in registers(decls).items()}
+    # Buffers first (54, 53, then the texel buffer 7), then images in declaration order (27, the array 2..4).
+    c.equal([regs[(0, 54)], regs[(0, 53)], regs[(1, 7)], regs[(0, 27)], regs[(1, 2)]], ["t0", "t1", "t2", "t3", "t4"],
+            "t registers: read-only buffers first, then images, each in declaration order")
+    c.equal((regs[(1, 5)], regs[(2, 9)]), ("s0", "u0"), "samplers and UAVs numbered in their own order")
+    c.equal([v["register"] for k, v in sorted(registers(decls).items()) if v["kind"] == "cbuffer"], ["cb0", "cb1"],
+            "constant buffers in declaration order")
+    c.equal((binding_of(decls, "t3"), binding_of(decls, "t9")), ((0, 27), None), "a register leads back to its binding")
+    c.check(registers(decls)[(0, 27)]["rule"] == "verified" and registers(decls)[(1, 5)]["rule"] == "unverified",
+            "each register says how far its rule is checked")
+    try:
+        declarations(b"\x00" * 24)
+        c.check(False, "a module that is not SPIR-V is refused")
+    except ValueError:
+        c.check(True, "a module that is not SPIR-V is refused")
+
+
 def main() -> int:
     c = Checks("unit_test")
+    test_source_slots(c)
     test_hashes(c)
     test_mods(c)
     test_mcp(c)

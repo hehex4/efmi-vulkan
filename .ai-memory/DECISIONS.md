@@ -763,3 +763,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Every installed Mod and every character, including characters never captured, must work through shared mechanisms. No per-character package, profile, table, branch or capture is a requirement of the product.
 - Captures (the 2026-10-19 catalogue collection, the arcane sample) are ground truth: they build and check general rules. The DX11-to-Vulkan correspondence is to be derived from the shaders themselves (DXBC declarations and their vkd3d translation against the game's SPIR-V interface); the catalogue measures how well it works. A rule that only works for captured shaders is not the solution.
 - The arcane vertical slice (one package, 20 profiles from paired captures) is history and a regression fixture, not a model for further Mods.
+
+## D-076: DX11 registers come from the game's SPIR-V by declaration order
+
+- Date: 2026-10-19, after the 16-character catalogue (D-075).
+- Both of the game's compilers keep the HLSL declaration order (FXC numbers registers, DXC emits variables in it); the DX11 build places read-only buffers ahead of textures. The t register of a resource is therefore its rank among the SPIR-V module's shader resource views, buffers first, each group in declaration order. Checked on 1187 observed slots of 258 shaders, pixel and vertex stage, no exception.
+- The runtime derives slot correspondence from the Vulkan module it already sees, for any shader. Captured per-shader profiles (the arcane 20) become test data. Constant buffers follow the declaration order of uniform blocks (size-checked); samplers and UAVs follow it unverified.
+- If a future shader breaks the rule, the refusal is per shader and the check names it; the rule is not to be patched per character.

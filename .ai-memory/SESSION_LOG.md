@@ -1977,3 +1977,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - The user started the game under Vulkan (PID 17836) and showed the 16 characters again; 16 bundles captured, matched one to one with the DX11 frames, paired and built into a first catalogue (CURRENT_STATE). Helper scripts for this session lived in the scratchpad (capture step with empty-frame retry, scene matching, supplement of omitted pipelines).
 - At the user's request the launcher was switched back to DX11 (17:35, backup build/backups/launcher-dx11-20261019-173504); the injected library is the user's to set back.
 - The user stated that the work is general, not per character: D-075, AGENTS.md, docs/shader-catalogue.md (role of the catalogue as ground truth), auto memory.
+
+## 2026-10-19: DX11 registers from SPIR-V (D-076)
+
+- Explored the 16-scene catalogue: names are stripped on both sides; interfaces differ (DX11 builds declare more and lay out constant buffers differently), but SPIR-V declaration order agreed with DX11 register order in all 675 adjacent pairs, and ranking shader resource views with buffers first predicts every observed t register (1187 of 1187 over both catalogues and both stages). FXC alone numbers by plain declaration order (own fixture), so buffers-first is the game's build convention.
+- server/efmi_vk/source_slots.py, scripts/check_source_slots.py (suite step), docs/source-slot-truth.json, docs/source-slots.md; unit tests with a DXC-compiled fixture (10 new, 110/110).
