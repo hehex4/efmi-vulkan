@@ -20,7 +20,7 @@ struct Refused : std::exception {
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
 constexpr size_t max_active_depth = 64;
-struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read;DrawPlanAdapter::ShaderQuery shader;size_t count=0;bool general_matches=false;
+struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read;DrawPlanAdapter::ShaderQuery shader,plan_shader;size_t count=0;bool general_matches=false;
     DrawPlanAdapter::HostValue host;DrawPlanAdapter::RenderTargetSize rt;
     // inside: in a draw's scope, within a CustomShader (D-087); drawing: a draw's scope is open.
     std::function<bool()> gate,inside,drawing;bool open() const {return !gate || gate() || (inside && inside());}};
@@ -42,7 +42,12 @@ public:
     NativeShaderQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
     float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
         float value=0;std::wstring why;
-        if(!state || !service->shader || !service->open() || ++service->count>max_steps)refuse(L"Shader query adapter is unavailable or over budget");
+        if(!state || ++service->count>max_steps)refuse(L"Shader query adapter is unavailable or over budget");
+        if(!service->shader || !service->open()){
+            // A replaced draw's plan: what the host answers on the CPU (D-089).
+            if(service->plan_shader && service->plan_shader(*source,*state,value,why))return value;
+            refuse(why.empty()?L"Shader query adapter is unavailable or over budget":why);
+        }
         if(!service->shader(*source,*state,value,why))refuse(why.empty()?L"Original shader query refused":why);return value;
     }
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
@@ -68,6 +73,11 @@ public:
         float result=0;std::wstring reason;
         if(!state || ++service->count>max_steps)refuse(L"Resource query adapter is unavailable or over budget");
         auto& target=source->texture_filter_target;
+        // `null` (`X === null`): the original finds no resource, -0 as a resource, 0 as an identity.
+        if(target.type==ResourceCopyTargetType::EMPTY && !target.custom_resource_pool){
+            if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE)return -0.0f;
+            if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY)return 0.0f;
+        }
         const bool drawing=service->drawing && service->drawing();
         if(!service->open() || (drawing && !owned_side(target))){
             // Outside an owned scope (a replaced draw's plan), or the application's bindings in a draw's
@@ -286,7 +296,7 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
 {
     if(depth>256)refuse(L"Pool expression nesting budget exceeded");
     if(auto operand=std::dynamic_pointer_cast<CommandListOperand>(node)){
-        if(operand->type==ParamOverrideType::SHADER && queries->shader){
+        if(operand->type==ParamOverrideType::SHADER && (queries->shader || queries->plan_shader)){
             auto& target=operand->shader_target;
             const auto mode=target.evaluation_mode;
             const unsigned limit=mode==ShaderTargetEvaluationMode::DCL_CB_TYPE || mode==ShaderTargetEvaluationMode::DCL_CB_SIZE?14u:128u;
@@ -984,6 +994,10 @@ void DrawPlanAdapter::host_values(HostValue values){
 void DrawPlanAdapter::render_target_size(RenderTargetSize query){
     if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install the render target size before adapting command lists");
     runtime_->queries->rt=std::move(query);
+}
+void DrawPlanAdapter::plan_shader_queries(ShaderQuery query){
+    if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install plan shader queries before adapting command lists");
+    runtime_->queries->plan_shader=std::move(query);
 }
 void DrawPlanAdapter::shader_queries(ShaderQuery query){
     if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install shader queries before adapting command lists");

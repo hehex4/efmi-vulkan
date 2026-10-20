@@ -88,6 +88,9 @@ struct RuntimeDraw {
     bool targets_known = false;
     uint32_t render_targets = 0;
     uint64_t render_pass = 0;
+    // The shader stages of the draw's pipeline, as Vulkan stage bits (vertex 1, geometry 8,
+    // fragment 16), known with the render targets (D-089).
+    uint32_t shader_stages = 0;
 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;

@@ -846,3 +846,8 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 ## D-088: On NVIDIA, a translated module with a division loses RoundingModeRTE
 
 - Date: 2026-10-20 (candidate 1.6.3, BUG-031). NVIDIA driver 591.86 (RTX 5060 Laptop GPU) ends the process inside its shader compiler for any module with `RoundingModeRTE 32` and an OpFDiv, OpFRem or OpFMod (a three-instruction compute shader shows it; FAdd, FSub, FMul are fine, and so is the module without the mode). `frontend/gpu/driver_workarounds.h` drops that execution mode for such modules on vendor 0x10de at both module creation sites; NVIDIA's 32-bit float arithmetic rounds to nearest even without it. Other modules and vendors are unchanged.
+
+## D-089: Sections acting on game shaders stay inert in a Vulkan character generation
+
+- Date: 2026-10-20 (candidate 1.6.4). User: do every item offline, Yvonne/Xaihi included. A DX11 shader hash cannot be derived for a Vulkan pipeline (SPIR-V compiled separately, game assets encrypted, no interface rule), and a capture-derived DX11-to-Vulkan shader table would be a table the runtime depends on (D-075), which needs the user's decision.
+- Replaces the earlier rule "reject the whole candidate instead of silently dropping active features" for ShaderOverride and ShaderRegex: they load inert and are named in the generation's warnings, so the Mod's meshes and textures apply. `vs`/`ps` in a replaced draw read "named by no ShaderOverride" (0 bound, -0 absent, from the pipeline's stages); `oN` reads -0 unbound and 0 bound (no Mod TextureOverride matches a game render target here). Declaration queries still refuse.

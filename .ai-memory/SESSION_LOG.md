@@ -2077,3 +2077,7 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - P2: replaced draws run their CustomShaders and copies into Mod resources as owned work recorded during the plan and submitted before the application's submission; owned buffers bind as vertex streams (D-087). Typhoeus' body and clothes are the Mod's in the vk06 replay; its physics stays off (LIMIT-035).
 - The first P2 replay crashed in NVIDIA's shader compiler; a crash stack printer in the replay program and a standalone pipeline tool isolated RoundingModeRTE with a division (BUG-031, D-088).
+
+## 2026-10-20: sections acting on game shaders load inert (candidate 1.6.4)
+
+- ShaderOverride/ShaderRegex sections no longer refuse a Mod folder; they are inert and named in the warnings, `vs`/`ps` read as named by none, `oN` reads the subpass (D-089). Yvonne and Xaihi load in the replays.

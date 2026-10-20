@@ -909,6 +909,8 @@ public:
         if (sub.has_depth && sub.depth.attachment != VK_ATTACHMENT_UNUSED) mask |= 1u << 8;
         request.targets_known = true; request.render_targets = mask;
         request.render_pass = uint64_t(pipe.recipe->render_pass->id) << 8 | pipe.recipe->subpass;
+        request.shader_stages = 0;
+        for (const auto& stage : pipe.recipe->stages) request.shader_stages |= uint32_t(stage.stage);
     }
     // The application's draw made again with the Mod's textures (D-083). Caller holds res_mx and
     // mod_mx; `list` is a texture-only list of the program.

@@ -77,7 +77,7 @@ replay device enabled the features the game's shaders use, see below).
 
 | Bundle | Mod | Replaced draws | Passes | Note |
 | --- | --- | --- | --- | --- |
-| vk01 | Yvonne | 0 | 0/5 | package refused: `EFMITTL/translucency.ini` acts on game shaders (ShaderOverride) |
+| vk01 | Yvonne | 0 | 0/5 | package refused: `EFMITTL/translucency.ini` acts on game shaders (ShaderOverride); 1.6.4 (D-089): loads, 8071 replaced at 360 frames, no refusal |
 | vk02 | TangTang | 497 | 5/5 | |
 | vk03 | arcane | 528 | 3/3 | |
 | vk04 | Si Lunabelle | 0 | 0/4 | LIMIT-034: `Si_BossGuard.ini` replaces the Core's identification (1.6.2, D-086: 10334 replaced, 4/4, 360 frames) |
@@ -92,7 +92,7 @@ replay device enabled the features the game's shaders use, see below).
 | vk13 | laevatain | 224 | 3/3 | |
 | vk14 | perlica | 6956 | 5/5 | 360 frames |
 | vk15 | arclight | 2573 | 4/4 | 360 frames |
-| vk16 | Xaihi | 0 | 0/5 | package refused: `ps skip.ini` acts on game shaders (ShaderOverride) |
+| vk16 | Xaihi | 0 | 0/5 | package refused: `ps skip.ini` acts on game shaders (ShaderOverride); 1.6.4 (D-089): loads, 10072 replaced at 360 frames, no refusal |
 
 13 of 16 characters show the Mod's mesh in every pass their components draw in: the depth
 prepass, the G-buffer and, with the Mod's textures through the game's forward shaders, the forward
@@ -140,3 +140,13 @@ identification" (vk04, 120 frames, --check).
 corruption) to its output with the faulting stack, symbolized from the modules' own debug
 information, before the process ends (`stdout.txt` of the run). It found BUG-031: NVIDIA's shader
 compiler ending the process on a translated division (D-088).
+
+## All 16 bundles after 1.6.4 (2026-10-20)
+
+Every catalogue character loads and replaces, none with a refused draw (360 frames; vk03 300 and
+vk04 120 from the suite): Yvonne 8071, TangTang 5944, arcane 3368, Si 3517, Liino 7404, Typhoeus
+14110, mifu 6259, zhuangfangyi 2732, rossiy 3520, last rite 6919, ardelia 9125, gilberta 4180,
+laevatain 4132, perlica 10121, arclight 4533, Xaihi 10072 replaced draws; validation clean in all
+runs. What stays the game's: Typhoeus' chest physics (LIMIT-035), the shader-keyed parts of Yvonne
+and Xaihi (LIMIT-036). `exhausted` at the start of a replay is the snapshot pool filling while the
+first frames run (the same count in 1.6.2 and 1.6.3 for vk03). Sandbox only.

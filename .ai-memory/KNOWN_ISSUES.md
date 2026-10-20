@@ -767,3 +767,7 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 ## LIMIT-035: Owned GPU work in a replaced draw cannot read the game's bindings
 
 - 2026-10-20 (candidate 1.6.3, D-087). Owned work in a draw refuses when it reads or binds `vs-t0`, `vs-cbN`, render targets or other application bindings, and `store` refuses. Typhoeus' chest physics and detection read the game's bones and camera constant buffers; they stay off (the classification finds no camera pass), so the chest is drawn from the state at rest. Needs the game's bindings in Vulkan terms (shader catalogue, T-030).
+
+## LIMIT-036: ShaderOverride and ShaderRegex sections are inert under Vulkan
+
+- 2026-10-20 (candidate 1.6.4, D-089). The layer cannot tell which Vulkan pipeline a DX11 shader hash means. Xaihi's `ps skip.ini` (two pixel shaders skipped) and Yvonne's EFMITTL translucency (lit-pass capture and composite keyed to a vertex shader and the depth copy shader) do not act: the game draws those shaders, and Yvonne's translucent part appears only in depth-only passes. Lifting this needs a source of DX11 shader identity in Vulkan (a game-wide shader table from the paired catalogue would be one, if the user decides the runtime may depend on it).

@@ -282,8 +282,18 @@ int wmain(int argc, wchar_t** argv)
                   "A broken expression is reported and skipped; the rest of the candidate loads");
         }
         // A candidate this host cannot execute is refused instead, and the live one stays.
-        // (A ShaderOverride that acts on the application's draws; one with only a hash runs nothing.)
-        write(ini, "namespace = runtime_test\n[ShaderOverrideUnadapted]\nhash = 1234\nhandling = skip\n");
+        // (A CustomShader without shader execution. A ShaderOverride that acts on the application's
+        // draws names a DX11 shader the host cannot see: it loads inert and is reported, D-089.)
+        write(ini, "namespace = runtime_test\n[ShaderOverrideActing]\nhash = 1234\nhandling = skip\n");
+        {
+            auto inert = IniRuntime::load(config, {}, reason);
+            const auto loaded = inert ? inert->status() : RuntimeStatus{};
+            const bool reported = std::any_of(loaded.diagnostic_messages.begin(), loaded.diagnostic_messages.end(),
+                                              [](const std::string& text) { return text.find("inert") != std::string::npos; });
+            if (!inert) fprintf(stderr, "acting ShaderOverride candidate: %s\n", reason.c_str());
+            check(inert && reported, "A ShaderOverride acting on game shaders loads inert and is reported");
+        }
+        write(ini, "namespace = runtime_test\n[CustomShaderUnadapted]\ncs = absent.hlsl\n");
         auto failed = IniRuntime::load(config, {}, reason);
         check(!failed, "A candidate with an unadapted section is refused");
         write(ini, "namespace = runtime_test\n[ShaderOverrideInert]\nhash = 1234\nfilter_index = 5\nallow_duplicate_hash = overrule\n");
@@ -333,8 +343,9 @@ int wmain(int argc, wchar_t** argv)
             for (const auto& text : loaded.diagnostic_messages) named |= text.find("invalid_operation") != std::string::npos;
             check(warned && loaded.diagnostics >= 1 && named, "An invalid dormant command is reported and skipped, as by the original loader");
         }
-        // What this generation cannot execute refuses the whole candidate instead.
-        write(tree / "Mods/second/dormant.ini", "[ShaderOverrideUnsupported]\nhash = 1234\nhandling = skip\n");
+        // What this generation cannot execute refuses the whole candidate instead (a CustomShader
+        // without shader execution; an acting ShaderOverride loads inert since D-089).
+        write(tree / "Mods/second/dormant.ini", "[CustomShaderUnsupported]\ncs = absent.hlsl\n");
         check(!IniRuntime::load(folder_config, {}, reason), "A section without an adapter refuses the candidate");
         render(directory);
         check(plan.items.back().index_count == 6 && directory->status().variables.at("$\\second\\hits") == 24,

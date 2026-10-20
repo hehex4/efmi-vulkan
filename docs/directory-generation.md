@@ -151,3 +151,23 @@ their hash alone.
   instance with an explicit draw), skip draws nothing, custom or no result in this draw draws the
   Mod. Counter `kept_original`: matched draws whose plan leaves the game's draw (the Mod's
   identification kept the original, or its lists do not skip it yet, as before it registers).
+
+## Sections that act on game shaders (candidate 1.6.4, D-089)
+
+- A ShaderOverride or ShaderRegex names a game shader by the hash of its DX11 bytecode. The game's
+  Vulkan shaders are SPIR-V compiled separately, its assets are encrypted, and no rule derives a
+  DX11 hash from a Vulkan pipeline, so a character generation cannot tell which draw such a
+  section means. Until 1.6.3 a Mod folder with one that acts (`handling = skip`, command lists)
+  was refused as a whole (Yvonne's `EFMITTL/translucency.ini`, Xaihi's `ps skip.ini`).
+- Now such sections stay inert, as for shaders that never run; the original's overlay warning
+  names each acting one (`[...] acts on game shaders by their DX11 hash, which the Vulkan layer
+  cannot see: inert`), and the rest of the Mod loads.
+- Consistently, `vs` and `ps` in a replaced draw's plan read the game's shaders as named by no
+  ShaderOverride: 0 for a stage the pipeline has, -0 for one it has not. Declaration queries on
+  the game's shaders still refuse. `oN` reads -0 for a location the subpass leaves unused and 0
+  for a bound one. `null` reads as the original finds it, no resource (-0, identity 0), so
+  `X === null` no longer refuses a plan.
+- Effect: Xaihi's two skipped pixel shaders draw as the game draws them; Yvonne's translucent part
+  (EFMITTL) is drawn in the depth-only passes and left out of the others, as its list does for a
+  pass that is not the lit one, and its composite never runs. The game-shader identity itself
+  needs a source of DX11 shader identity in Vulkan, which the project does not have (TASKS).

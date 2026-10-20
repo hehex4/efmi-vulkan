@@ -102,6 +102,9 @@ public:
     void keep_original();
     using ShaderQuery=std::function<bool(CommandListOperand&,CommandListState&,float&,std::wstring&)>;
     void shader_queries(ShaderQuery);
+    // Shader operands (`vs`, `ps`) the host answers on the CPU where no owned shader facts apply (a
+    // replaced draw's plan, D-089). A false answer refuses. Install before adaptation.
+    void plan_shader_queries(ShaderQuery);
     // Operands the original answers with Win32 calls outside the window sample (effective_dpi,
     // cursor_hotspot_x/y): the host answers them from its own sample. Install before adaptation.
     using HostValue=std::function<bool(ParamOverrideType,float&)>;

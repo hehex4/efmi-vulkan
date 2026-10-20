@@ -162,14 +162,18 @@ class CharacterCore : public RuntimeExtension {
     // attachment within its render pass. Other questions about the draw's render targets refuse.
     bool render_target(ResourceCopyTarget& target, CommandListState& state, float& value, std::wstring& why)
     {
-        if (target.evaluation_mode != ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY || target.custom_resource_pool)
-            return fail(why, L"Only the identity of a replaced draw's render targets is known");
+        const bool identity = target.evaluation_mode == ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY;
+        if ((!identity && target.evaluation_mode != ResourceCopyTargetEvaluationMode::RESOURCE) || target.custom_resource_pool)
+            return fail(why, L"Only the presence and identity of a replaced draw's render targets are known");
         if (!current.targets_known) return fail(why, L"The replaced draw's render targets are not known");
         unsigned slot = 8;
         if (target.type == ResourceCopyTargetType::RENDER_TARGET) {
             slot = target.ResolveSlot(&state);
             if (slot >= 8) return fail(why, L"Render target slot out of range");
         }
+        // `oN` itself (D-089): -0 for none bound, as the original; a bound game target matches no
+        // TextureOverride of a Mod here (a DX11 render target hash has no Vulkan counterpart), 0.
+        if (!identity) { value = current.render_targets >> slot & 1 ? 0.0f : -0.0f; return true; }
         if (!(current.render_targets >> slot & 1)) { value = 0; return true; }
         const uint64_t mixed = current.render_pass * 0x9E3779B97F4A7C15ull ^ (uint64_t(slot) + 1) * 0xC2B2AE3D27D4EB4Full;
         value = EncodeFloat30(uint32_t(mixed ^ mixed >> 32) | 1u);
@@ -234,6 +238,19 @@ global $mod_id = -1
             if (target.type == ResourceCopyTargetType::RENDER_TARGET || target.type == ResourceCopyTargetType::DEPTH_STENCIL_TARGET)
                 return render_target(target, state, value, why);
             return instance_queries.read(target, state, value, why);
+        });
+        // `vs`, `ps` in a replaced draw's plan (D-089): a game shader has no DX11 identity here and no
+        // ShaderOverride is active, so a bound stage reads 0 and an absent one -0, as the original reads
+        // a shader no section names. Declaration queries on the game's shaders refuse.
+        a.plan_shader_queries([this](CommandListOperand& operand, CommandListState&, float& value, std::wstring& why) {
+            const auto& t = operand.shader_target;
+            if (t.evaluation_mode != ShaderTargetEvaluationMode::SHADER) return fail(why, L"The declarations of the game's shaders are not known");
+            if (!current.targets_known) return fail(why, L"The replaced draw's shader stages are not known");
+            const uint32_t bit = t.shader_type == L'v' ? 0x1u : t.shader_type == L'h' ? 0x2u : t.shader_type == L'd' ? 0x4u :
+                                 t.shader_type == L'g' ? 0x8u : t.shader_type == L'p' ? 0x10u : 0u;
+            if (!bit) return fail(why, L"A draw has no compute shader");
+            value = current.shader_stages & bit ? 0.0f : -0.0f;
+            return true;
         });
         auto native = [&](const wchar_t* name, DrawPlanAdapter::NativeCommand callback) {
             boundaries.push_back(command(name)); a.native(list(name), command(name), std::move(callback));

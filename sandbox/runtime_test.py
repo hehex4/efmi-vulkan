@@ -67,10 +67,11 @@ filename = other-index.buf
 def shader_sections(checks):
     """A ShaderOverride with only hash and filter_index (perlica's hair sections) runs nothing and
     loads; one that acts on the game's draws (xaihi's handling = skip) needs the game shaders' DX11
-    identity and still refuses the package."""
-    cases = (("inert", "filter_index = 3737\nallow_duplicate_hash = overrule\n", True),
-             ("acting", "handling = skip\n", False))
-    for name, body, accepted in cases:
+    identity, which the layer cannot see: it stays inert, the log names it, and the package loads
+    (D-089)."""
+    cases = (("declaring", "filter_index = 3737\nallow_duplicate_hash = overrule\n", False),
+             ("acting", "handling = skip\n", True))
+    for name, body, named in cases:
         folder = Path(test_dir("runtime-shader-"))
         package = fixture(folder)
         (folder / "shaders.ini").write_text("[ShaderOverrideFixture]\nhash = 5d7710a77fb65f25\n" + body, encoding="ascii")
@@ -84,11 +85,10 @@ def shader_sections(checks):
         log = Path(sb.log_path).read_text(encoding="utf-8", errors="replace") if sb.log_path and Path(sb.log_path).is_file() else ""
         label = f"{name} ShaderOverride in another INI of the Mod folder"
         checks.equal(code, 0, label + ": the application runs and exits normally")
-        if accepted:
-            checks.check("character package configured" in log and status.get("enabled") is True, label + ": the package loads")
-        else:
-            checks.check("character package refused: input loading: INI declares an unsupported shader/overlay section" in log
-                         and not status.get("enabled"), label + ": the package is refused with the reason")
+        checks.check("character package configured" in log and status.get("enabled") is True, label + ": the package loads")
+        inert = [line for line in log.lower().splitlines() if "fixture] acts on game shaders" in line and "inert" in line]
+        checks.check(bool(inert) == named,
+                     label + (": the log names it as inert" if named else ": nothing is named as inert"))
 
 
 def main():
