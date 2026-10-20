@@ -261,6 +261,11 @@ public:
     // queries; `readable` false when the register rule could not read the module.
     struct FragmentRegisters { bool readable = false; std::vector<efmi::gpu::SourceRegister> list; };
     std::unordered_map<uint32_t, FragmentRegisters> fragment_registers;
+    // Under the mod lock: what the original Core reads off each pipeline's vertex shader (D-079):
+    // the instance-config cb slot and whether the bones come from the rolling vs-t0 buffer.
+    struct SourceFacts { int32_t vs_config_slot = -1; bool rolling_bones = false; };
+    std::unordered_map<uint32_t, SourceFacts> source_facts;
+    uint64_t facts_unknown = 0;
     uint64_t texture_queries = 0, texture_unknown = 0;
     const char* texture_reason = nullptr; // why the latest unknown answer was unknown
     std::unordered_map<uint32_t, uint32_t> derived_for_pipeline;   // pipeline generation -> derived profile or none
@@ -749,6 +754,33 @@ public:
         return site;
     }
 
+    // Caller holds mod_mx and res_mx. The Core's facts by its own rules on the vertex module's DX11
+    // registers (D-076), kept only where they name what the renderer itself reads: the window at
+    // set 2, binding 0 (the instance entry) and the bone buffer the bone site found. Otherwise none,
+    // and the original Core leaves the mesh to the game.
+    SourceFacts facts_of(const PipeInfo& pipe, const BoneSite& site)
+    {
+        const auto known = source_facts.find(pipe.id);
+        if (known != source_facts.end()) return known->second;
+        if (source_facts.size() >= 4096) source_facts.clear();
+        SourceFacts facts;
+        if (pipe.recipe)
+            for (const auto& stage : pipe.recipe->stages) {
+                if (stage.stage != VK_SHADER_STAGE_VERTEX_BIT || !stage.shader) continue;
+                std::vector<efmi::gpu::SourceRegister> registers;
+                std::string why;
+                if (!efmi::gpu::source_registers(stage.shader->code, registers, why)) break;
+                const auto core = efmi::gpu::core_source_facts(registers);
+                if (core.config && core.config->set == 2 && core.config->binding == 0) {
+                    facts.vs_config_slot = core.vs_config_slot;
+                    facts.rolling_bones = core.rolling_bones && site.ok && core.bones->set == site.set && core.bones->binding == site.binding;
+                }
+            }
+        if (!facts.rolling_bones) ++facts_unknown;
+        source_facts[pipe.id] = facts;
+        return facts;
+    }
+
     bool record(CmdBuf* cb, const DrawRec& r);
 };
 
@@ -1058,8 +1090,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
             request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
                 return pixel_texture(r, slot, bound, value, why); };
+            {
+                const SourceFacts facts = facts_of(pipe->second, site);
+                request.source_vs_config_slot = facts.vs_config_slot;
+                request.rolling_bone_source = facts.rolling_bones;
+            }
             bool skip = false, added = false; std::string reason;
-            if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI plan: " + reason);
+            if (!program->plan(request, package, runtime_list, skip, added, reason, &pipe->second.recipe->vertex))
+                return refuse(C_STATE, "INI plan: " + reason);
             if (!skip) return false;
             if (added && !refresh_materials()) return false;
             list = &runtime_list;
@@ -1311,6 +1349,7 @@ void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
     backend.material_profiles.erase(pipeline_id);
     backend.derived_for_pipeline.erase(pipeline_id);
     backend.fragment_registers.erase(pipeline_id);
+    backend.source_facts.erase(pipeline_id);
 }
 
 void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork* present)
@@ -1456,34 +1495,11 @@ public:
 };
 
 namespace {
-// The character Mods of an EFMI Mods folder (D-078): every enabled INI (no part of its path starts
-// with DISABLED, as the original skips them) that declares the EFMIv1 merged-skeleton initializer.
+// The character Mods of an EFMI Mods folder (D-078).
 std::vector<std::string> mods_characters(std::string& reason)
 {
-    const auto root = absolute_folder(g_cfg.m2_mods);
     std::vector<std::string> found;
-    std::error_code error;
-    for (auto it = std::filesystem::recursive_directory_iterator(root, error); !error && it != std::filesystem::recursive_directory_iterator();
-         it.increment(error)) {
-        const auto name = it->path().filename().wstring();
-        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
-        if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
-        std::ifstream in(it->path(), std::ios::binary);
-        std::string line;
-        bool character = false;
-        while (!character && std::getline(in, line)) {
-            const auto start = line.find_first_not_of(" \t");
-            if (start == std::string::npos || line[start] != '[') continue;
-            const auto end = line.find(']', start);
-            if (end == std::string::npos) continue;
-            std::string section = line.substr(start + 1, end - start - 1);
-            std::transform(section.begin(), section.end(), section.begin(), ::tolower);
-            character = section == "commandlistinitializemergedskeleton";
-        }
-        if (character) found.push_back(it->path().u8string());
-    }
-    if (error) reason = "cannot read the Mods folder " + g_cfg.m2_mods + ": " + error.message();
-    std::sort(found.begin(), found.end());
+    for (const auto& path : CharacterProgram::mods_characters(absolute_folder(g_cfg.m2_mods), reason)) found.push_back(path.u8string());
     if (found.size() > 64) { found.resize(64); logf("character Mods: more than 64 in %s, the first 64 are used", g_cfg.m2_mods.c_str()); }
     if (found.empty() && reason.empty()) reason = "no character Mod in " + g_cfg.m2_mods;
     return found;
@@ -1696,6 +1712,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kn("material_derived_profiles", backend.derived_profiles.size());
         w.kb("lazy", backend.lazy);
         w.kn("texture_queries", backend.texture_queries);
+        w.kn("source_facts_unknown", backend.facts_unknown);
         w.kn("texture_unknown", backend.texture_unknown);
         if (backend.texture_reason) w.kv("texture_unknown_reason", backend.texture_reason);
         w.kb("activated", backend.activated.load());

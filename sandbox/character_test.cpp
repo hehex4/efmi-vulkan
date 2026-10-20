@@ -5,11 +5,14 @@
 // the DX11 registers the rule of D-076 gives the module's resources.
 #include "../layer/src/character_package.h"
 #include "../layer/src/character_materials.h"
+#include "../layer/src/character_program.h"
 #include "../frontend/gpu/source_registers.h"
 #include "../layer/src/json.h"
 #include "variant_fixture.h"
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
+#include <set>
 
 using namespace efvk;
 static int passed = 0, failed = 0;
@@ -314,6 +317,102 @@ int main(int argc, char** argv)
         }
         w.end_array(); w.end_object(); printf("%s\n", w.out.c_str()); return 0;
     }
+    if (argc >= 3 && !strcmp(argv[1], "--core-facts")) {
+        // D-079 as the backend computes it, per vertex module: "<file> <slot> <rolling> <set>.<binding>".
+        for (int i = 2; i < argc; ++i) {
+            std::ifstream in(argv[i], std::ios::binary | std::ios::ate);
+            std::vector<uint32_t> code(in ? size_t(in.tellg()) / 4 : 0);
+            if (in) { in.seekg(0); in.read(reinterpret_cast<char*>(code.data()), code.size() * 4); }
+            std::vector<efmi::gpu::SourceRegister> registers; std::string reason;
+            if (!efmi::gpu::source_registers(code, registers, reason)) { printf("%s refused %s\n", argv[i], reason.c_str()); continue; }
+            const auto facts = efmi::gpu::core_source_facts(registers);
+            printf("%s %d %d %d.%d\n", argv[i], facts.vs_config_slot, facts.rolling_bones ? 1 : 0,
+                   facts.config ? int(facts.config->set) : -1, facts.config ? int(facts.config->binding) : -1);
+        }
+        return 0;
+    }
+    if (argc == 5 && !strcmp(argv[1], "--plan-mods")) {
+        // Offline dry run of the directory generation (D-078): every character Mod of the folder
+        // read as the layer reads it, then the live plan of each of its sections in package order,
+        // with the LOD the backend would pass. No GPU, so no owned runtime: the Mod's other INIs and
+        // CustomShader sections are not part of these generations. What a replaced draw would bind.
+        const std::filesystem::path mods = std::filesystem::u8path(argv[2]), core = std::filesystem::u8path(argv[3]),
+                                    settings = std::filesystem::u8path(argv[4]);
+        std::string reason;
+        const auto inis = CharacterProgram::mods_characters(mods, reason);
+        if (inis.empty()) { fprintf(stderr, "no character Mod: %s\n", reason.c_str()); return 1; }
+        for (const auto& ini : inis) {
+            CharacterProgram program;
+            CharacterPackage package;
+            CharacterProgram::Source source{std::filesystem::absolute(ini), std::filesystem::absolute(core), std::filesystem::absolute(settings),
+                                            CharacterProgram::declared_namespace(ini)};
+            JsonWriter w; w.begin_object();
+            w.kv("ini", ini.lexically_relative(mods).u8string());
+            std::string why;
+            const bool loaded = program.discover(source, package, why);
+            w.kb("loaded", loaded);
+            if (!loaded) { w.kv("reason", why); w.end_object(); printf("%s\n", w.out.c_str()); continue; }
+            const auto status = program.status();
+            w.kn("warnings", status.diagnostics);
+            w.kn("streams", package.streams.size()); w.kn("images", package.images.size());
+            w.kn("components", package.components.size()); w.kn("bones", package.bones);
+            w.kn("left_to_game", program.left_to_game());
+            w.key("sections"); w.begin_array();
+            uint64_t frame = 0;
+            uint32_t current_lod = 0; // as the backend: a section that assigns the LOD changes it for those that do not
+            for (const auto& s : package.sections) {
+                if (s.lod != kCharacterNone) current_lod = s.lod;
+                for (uint32_t lod : {s.component == kCharacterNone ? kCharacterNone : current_lod}) {
+                    efmi::frontend::RuntimeInput input;
+                    ++frame;
+                    std::string presented;
+                    const bool present_ok = program.present(input, frame, float(frame) / 60.0f, presented);
+                    efmi::frontend::RuntimeDraw request;
+                    request.hash = s.hash; request.count = s.match_count; request.first = s.match_first == kCharacterNone ? 0 : s.match_first;
+                    request.frame = frame; request.seconds = float(frame) / 60.0f;
+                    if (s.component != kCharacterNone) { request.component = s.component; request.lod = lod; request.identity = 1; }
+                    // Offline there is no pipeline: the facts the backend reads off each vertex module
+                    // (D-079) are taken as the game's common ones, the rolling vs-t0 bones and vs-cb2.
+                    if (s.component != kCharacterNone) { request.rolling_bone_source = true; request.source_vs_config_slot = 2; }
+                    // Offline no game texture is known: every pixel slot is bound without a hash, as the
+                    // backend answers for a resource whose hash it cannot know.
+                    request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
+                    CharacterList list; bool skip = false, added = false; std::string refused;
+                    const bool ok = program.plan(request, package, list, skip, added, refused);
+                    w.begin_object();
+                    char hash[16]; snprintf(hash, sizeof(hash), "%08x", s.hash);
+                    w.kv("hash", hash); w.kn("count", s.match_count);
+                    if (s.component != kCharacterNone) { w.kn("component", s.component); w.kn("lod", lod); }
+                    if (!present_ok) w.kv("present_refused", presented);
+                    w.kb("planned", ok);
+                    if (!ok) w.kv("reason", refused);
+                    else {
+                        w.kb("skip", skip); w.kn("draws", list.count); w.kn("required", list.required);
+                        std::set<uint32_t> slots, files;
+                        for (uint32_t i = 0; i < list.count; ++i)
+                            for (const auto& pixel : package.pixels[list.first + i]) {
+                                slots.insert(pixel.slot);
+                                if (pixel.asset != kCharacterNone) files.insert(pixel.asset);
+                            }
+                        w.key("pixel_slots"); w.begin_array(); for (uint32_t slot : slots) w.num(slot); w.end_array();
+                        w.kn("images_bound", files.size());
+                    }
+                    w.end_object();
+                }
+            }
+            w.end_array();
+            // The Mod's own enable state after the run (EFMI exports register at a Present and draw after).
+            w.key("variables"); w.begin_object();
+            for (const auto& v : program.status().variables)
+                if (v.first.find("mod_enabled") != std::string::npos || v.first.find("object_detected") != std::string::npos ||
+                    v.first.find("mod_id") != std::string::npos)
+                    w.kv(v.first.c_str(), std::to_string(v.second));
+            w.end_object();
+            w.end_object();
+            printf("%s\n", w.out.c_str());
+        }
+        return 0;
+    }
     if (argc == 3 && !strcmp(argv[1], "--inspect")) {
         if (!p.load(argv[2], why)) { fprintf(stderr, "package rejected: %s\n", why.c_str()); return 1; }
         printf("{\"bones\":%u,\"components\":%zu,\"streams\":%zu,\"sections\":%zu,\"draws\":%zu,\"payload_bytes\":%zu,\"required\":[",
@@ -321,6 +420,29 @@ int main(int argc, char** argv)
         for (size_t i = 0; i < p.lists.size(); ++i) printf("%s%u", i ? "," : "", p.lists[i].required);
         printf("],\"materials\":%s,\"images\":%zu,\"profiles\":%zu}\n", p.materials ? "true" : "false", p.images.size(), p.profiles.size());
         return 0;
+    }
+    {
+        // D-079: the original Core's rules on a vertex module's registers.
+        using efmi::gpu::SourceRegister;
+        auto cb = [](uint32_t index, uint32_t bytes, uint32_t set, uint32_t binding) {
+            SourceRegister r; r.kind = SourceRegister::ConstantBuffer; r.letter = 'b'; r.index = index; r.bytes = bytes; r.set = set; r.binding = binding; return r;
+        };
+        SourceRegister bones; bones.kind = SourceRegister::BufferSrv; bones.letter = 't'; bones.index = 0; bones.stride = 16; bones.binding = 17;
+        std::vector<SourceRegister> game = {cb(0, 1312, 0, 11), cb(1, 3328, 0, 15), cb(2, 65536, 2, 0), cb(3, 448, 1, 0), bones};
+        auto facts = efmi::gpu::core_source_facts(game);
+        check(facts.vs_config_slot == 2 && facts.rolling_bones && facts.config && facts.config->set == 2 && facts.bones->binding == 17,
+              "the game's common vertex layout: the instance window at vs-cb2, the rolling bones at vs-t0");
+        game[2].bytes = 448; game[1].bytes = 65536;
+        facts = efmi::gpu::core_source_facts(game);
+        check(facts.vs_config_slot == 1 && facts.rolling_bones, "Component_ReadConfig's order: vs-cb2, then vs-cb1, then vs-cb3");
+        game[1].bytes = 3328;
+        facts = efmi::gpu::core_source_facts(game);
+        check(facts.vs_config_slot == -1 && !facts.rolling_bones, "no instance window: no facts, the Core leaves the mesh to the game");
+        game[1].bytes = 65536; game[4].stride = 64;
+        facts = efmi::gpu::core_source_facts(game);
+        check(facts.vs_config_slot == 1 && !facts.rolling_bones, "vs-t0 of another element size is not the rolling bone buffer");
+        game[4].stride = 16; game[4].kind = SourceRegister::ImageSrv;
+        check(!efmi::gpu::core_source_facts(game).rolling_bones, "an image at vs-t0 is not the rolling bone buffer");
     }
     Model m;
     const auto valid = package(&m);

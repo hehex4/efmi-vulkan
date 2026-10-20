@@ -726,3 +726,10 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 - Cause: CharacterGeneration::init returned false after program->init had failed, with the half-made program kept; generation_frame then ran its Present at every presentation.
 - Fixed in candidate 1.4.9: a refused init abandons the program and its presenter (generation_create). Suite case in sandbox/runtime_test.py. m2_enabled = 0 still loads the package (it can be enabled at run time); a refused one now does nothing. Deployed 1.0.2 keeps the defect until a new deployment.
 
+## BUG-027: Live INI plans never replaced a real EFMI Mod (fixed in candidate 1.5.4)
+
+- Found 2026-10-19 offline, by the dry run of the installed Mods through the production planner (`efmi_vk_character_test --plan-mods`): every component section of every Mod planned "not replaced".
+- Cause: EFMI exports draw only under `if $\EFMIv1\bones_data_source != 0 && $\EFMIv1\instance_config_vs_cb_slot != -1`. The layer's native Core (CharacterCore) sets both from source facts the backend never supplied, so both stayed unknown. The sandbox fixture has no such guard, so the scene passed; the live INI path (from 1.x) was never in the game with a real Mod, so no game result is affected.
+- Fix: D-079, the facts by the Core's rules on the vertex module's D-076 registers (docs/core-facts.md). Dry run after the fix: 137 component sections draw. Two smaller findings of the same run: section component/LOD assignments sit inside `if` branches (discovery reads them there), and a 24-byte blend stream (Typhoeus) needs the pipeline's element offset instead of the packager's stride rule.
+- Not covered by the sandbox scene: its vertex shader has no instance window; the rule is covered by unit checks, the catalogue check (57 vertex shaders) and the dry run.
+

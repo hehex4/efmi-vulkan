@@ -188,6 +188,33 @@ std::string CharacterProgram::declared_namespace(const std::filesystem::path& in
     }
     return {};
 }
+std::vector<std::filesystem::path> CharacterProgram::mods_characters(const std::filesystem::path& mods, std::string& reason)
+{
+    std::vector<std::filesystem::path> found;
+    std::error_code error;
+    for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
+         it.increment(error)) {
+        const auto name = it->path().filename().wstring();
+        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
+        if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
+        std::ifstream in(it->path(), std::ios::binary);
+        std::string line;
+        bool character = false;
+        while (!character && std::getline(in, line)) {
+            const auto start = line.find_first_not_of(" \t");
+            if (start == std::string::npos || line[start] != '[') continue;
+            const auto end = line.find(']', start);
+            if (end == std::string::npos) continue;
+            std::string section = line.substr(start + 1, end - start - 1);
+            std::transform(section.begin(), section.end(), section.begin(), ::tolower);
+            character = section == "commandlistinitializemergedskeleton";
+        }
+        if (character) found.push_back(it->path());
+    }
+    if (error) reason = "cannot read the Mods folder " + mods.u8string() + ": " + error.message();
+    std::sort(found.begin(), found.end());
+    return found;
+}
 bool CharacterProgram::discover(const Source& source, CharacterPackage& package, std::string& reason, const GpuFactory& factory)
 {
     try {
@@ -250,7 +277,7 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, CharacterPackage& package, CharacterList& output,
-                            bool& skip, bool& added, std::string& reason)
+                            bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex)
 {
     try {
         added = false; efmi::assets::FilePlan plan;
@@ -297,14 +324,28 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     item.layout[0].replace.format != 12)
                     throw std::runtime_error("Runtime input-layout edits differ from the validated blend-index contract");
                 bound.count = item.index_count; bound.first = item.first_index; bound.base = item.vertex_offset;
-                // The stream under the blend-index edit carries the bone indices: 16-bit indices in its
-                // last 8 bytes, 16-bit weights before them when the element is 16 bytes (the packager's
-                // rule). A stream first seen there is checked once, as decode checks a package's.
+                // The stream under the blend-index edit carries the bone indices where the pipeline reads
+                // the element the edit widens (R8G8B8A8_UINT in binding 2, then 16-bit indices), and
+                // 16-bit weights where it reads R16G16B16A16_UNORM in that binding. Without such an
+                // element (offline, or a pipeline that does not read the stream) the packager's rule:
+                // indices in the last 8 bytes of an 8- or 16-byte element, weights before them. A stream
+                // first seen there is checked once, as decode checks a package's; one that fits neither
+                // keeps no bone mask.
                 if (bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset == kCharacterNone) {
                     const uint32_t stride = package.streams[bound.vb[2]].stride;
-                    if (stride != 8 && stride != 16) throw std::runtime_error("Blend stream stride outside the blend-index contract");
+                    uint32_t indices = kCharacterNone, weights = kCharacterNone;
+                    if (vertex) {
+                        for (const auto& a : vertex->attributes) {
+                            if (a.binding != 2) continue;
+                            if (a.format == VK_FORMAT_R8G8B8A8_UINT) indices = a.offset;
+                            else if (a.format == VK_FORMAT_R16G16B16A16_UNORM) weights = a.offset;
+                        }
+                    }
+                    if (indices == kCharacterNone && (stride == 8 || stride == 16)) {
+                        indices = stride - 8; weights = stride == 16 ? 0 : kCharacterNone;
+                    }
                     std::string why;
-                    if (!package.adopt_bones(bound.vb[2], stride - 8, stride == 16 ? 0 : kCharacterNone, why))
+                    if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why))
                         throw std::runtime_error("Blend stream refused: " + why);
                 }
                 const auto& index = package.streams[bound.index_stream];

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 
 void HostCompileGraph(const std::wstring&, const std::vector<std::wstring>&);
 
@@ -35,19 +36,34 @@ class CharacterCore : public RuntimeExtension {
     std::shared_ptr<CharacterDiscovery> discovery;
     struct FoundSection { efvk::CharacterSection section; uint32_t original = efvk::kCharacterNone; };
     std::vector<FoundSection> found;
-    // The constant a section's own command list assigns to `name` at its top level; none otherwise.
+    // The constant a section's command list assigns to `name`, at its top level or inside its `if`
+    // branches (EFMI exports guard the assignments with `if $mod_enabled && DRAW_TYPE == 4`): one
+    // value when every assignment found gives the same constant, none when there is none, one that is
+    // not constant, or two that differ. The live plan still runs the branches as the original does.
+    static void assignments(const CommandList* list, const std::wstring& name, std::set<uint32_t>& values, bool& unknown, unsigned depth = 0)
+    {
+        if (!list || depth > 32) { unknown |= depth > 32; return; }
+        for (const auto& command : list->commands) {
+            if (const auto* branch = dynamic_cast<const IfCommand*>(command.get())) {
+                assignments(branch->true_commands_pre.get(), name, values, unknown, depth + 1);
+                assignments(branch->false_commands_pre.get(), name, values, unknown, depth + 1);
+                continue;
+            }
+            const auto* assignment = dynamic_cast<const VariableAssignment*>(command.get());
+            if (!assignment || !assignment->var || _wcsicmp(assignment->var->name.c_str(), name.c_str())) continue;
+            float value = 0;
+            if (const_cast<CommandListExpression&>(assignment->expression).static_evaluate(&value) &&
+                std::isfinite(value) && value >= 0 && value < 65536 && std::floor(value) == value)
+                values.insert(uint32_t(value));
+            else unknown = true;
+        }
+    }
     static uint32_t assigned(const CommandList& list, const std::wstring& name)
     {
-        uint32_t result = efvk::kCharacterNone;
-        for (const auto& command : list.commands) {
-            const auto* assignment = dynamic_cast<const VariableAssignment*>(command.get());
-            float value = 0;
-            if (assignment && assignment->var && !_wcsicmp(assignment->var->name.c_str(), name.c_str()) &&
-                const_cast<CommandListExpression&>(assignment->expression).static_evaluate(&value) &&
-                std::isfinite(value) && value >= 0 && value < 65536 && std::floor(value) == value)
-                result = uint32_t(value);
-        }
-        return result;
+        std::set<uint32_t> values;
+        bool unknown = false;
+        assignments(&list, name, values, unknown);
+        return !unknown && values.size() == 1 ? *values.begin() : efvk::kCharacterNone;
     }
     static bool constant(const FuzzyMatch& f, uint32_t& value)
     {

@@ -87,7 +87,7 @@ def declarations(code: bytes) -> list[dict]:
             count = consts.get(t[1][1], 1) if t[0] == 28 else 0
             tid = t[1][0]
             t = types.get(tid)
-        kind, block = "other", None
+        kind, block, stride = "other", None, None
         if t:
             if t[0] == 25:                            # OpTypeImage: dim, depth, arrayed, ms, sampled
                 prefix = "uav-" if t[1][5] == 2 else "srv-"
@@ -101,10 +101,16 @@ def declarations(code: bytes) -> list[dict]:
                 if storage == 12 or 3 in td:          # StorageBuffer or BufferBlock
                     readonly = 24 in d or 24 in td or len(member_ro.get(tid, ())) == len(t[1])
                     kind = "srv-buffer" if readonly else "uav-buffer"
+                    last = t[1][-1] if t[1] else None   # a structured buffer: its array's element stride
+                    if last in types and types[last][0] in (28, 29):
+                        stride = deco.get(last, {}).get(6)
                 elif storage == 2:                    # Uniform
                     kind = "cbuffer"
                     block = size(tid)
-        out.append({"kind": kind, "set": d.get(34, 0), "binding": d[33], "count": count, "size": block})
+        item = {"kind": kind, "set": d.get(34, 0), "binding": d[33], "count": count, "size": block}
+        if stride:
+            item["stride"] = stride
+        out.append(item)
     return out
 
 
@@ -131,3 +137,26 @@ def binding_of(decls: list[dict], register: str) -> tuple[int, int] | None:
         if item["register"] == register:
             return where
     return None
+
+
+def core_facts(decls: list[dict]) -> dict:
+    """What the original EFMIv1 Core reads off a vertex shader (D-079), by its own rules on the
+    registers above: Component_ReadConfig takes the first of vs-cb2, vs-cb1, vs-cb3 holding 4096
+    vectors; MergedSkeleton_DetectBoneDataSource the rolling bones when vs-t0 is a buffer of 16-byte
+    elements and such a window exists. {"slot": 1..3 or -1, "rolling": bool, "config": [set, binding]
+    or None, "bones": [set, binding] or None}."""
+    regs = registers(decls)
+    by_register = {r["register"]: (where, r) for where, r in regs.items()}
+    sizes = {(d["set"], d["binding"]): d for d in decls}
+    facts = {"slot": -1, "rolling": False, "config": None, "bones": None}
+    for slot in (2, 1, 3):
+        found = by_register.get("cb%d" % slot)
+        if found and sizes[found[0]].get("count", 1) == 1 and sizes[found[0]].get("size") == 4096 * 16:
+            facts["slot"], facts["config"] = slot, list(found[0])
+            break
+    t0 = by_register.get("t0")
+    if t0 and t0[1]["kind"] == "srv-buffer" and sizes[t0[0]].get("count", 1) == 1 and sizes[t0[0]].get("stride") == 16:
+        facts["bones"] = list(t0[0])
+    facts["rolling"] = facts["bones"] is not None and facts["slot"] != -1
+    return facts
+

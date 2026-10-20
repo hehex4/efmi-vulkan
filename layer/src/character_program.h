@@ -27,13 +27,19 @@ public:
     bool discover(const Source&, CharacterPackage&, std::string& reason, const GpuFactory& gpu = {});
     // The namespace an INI declares (`namespace = ...`), lower case; empty when it declares none.
     static std::string declared_namespace(const std::filesystem::path& ini);
+    // The character Mods of an EFMI Mods folder: every enabled INI (no part of its path starts with
+    // DISABLED, as the original skips them) that declares the EFMIv1 merged-skeleton initializer.
+    static std::vector<std::filesystem::path> mods_characters(const std::filesystem::path& mods, std::string& reason);
     const std::shared_ptr<efmi::frontend::OwnedRuntime>& gpu() const { return gpu_; }
     const std::string& gpu_reason() const { return gpu_reason_; }
     // Mesh files the generation's INIs reference that are not in the package's stream profile.
     size_t outside_meshes() const { return outside_meshes_; }
     // Discovery: mesh sections of the mod the contract has no part for (they stay the game's).
     size_t left_to_game() const { return left_to_game_; }
-    bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason);
+    // `vertex`: the vertex input of the pipeline the draw uses, where the blend-index element is found
+    // for a bone stream first seen; without it (offline) the packager's rule applies.
+    bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason,
+              const VertexInputRecipe* vertex = nullptr);
     bool present(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason) { return !runtime_ || runtime_->save(reason); }
     bool take_reload_request() { return runtime_ && runtime_->take_reload_request(); }

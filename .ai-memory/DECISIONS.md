@@ -785,3 +785,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Offline packages (`m2_package`) stay for the tests and older configurations; no runtime path depends on them for a Mods folder. Settings go to a project-owned folder (`m2_settings`); nothing is written into the Mods folder.
 - Still one generation per character INI; one engine for the whole folder is the next step (D-075 generality: cross-folder libraries, shared keys).
 
+## D-079: The Core's per-draw source facts come from the vertex module by the Core's own rules
+
+- Date: 2026-10-19, after BUG-027.
+- The original Core decides from the bound vertex resources whether a draw may be replaced: the instance-config cb slot (first of vs-cb2, vs-cb1, vs-cb3 with 4096 vectors) and the rolling bone source (vs-t0 a 16-byte structured buffer, with such a window). The layer applies the same rules to the registers D-076 gives the vertex module (declared block sizes, buffer element strides) and keeps them only where they name what the renderer itself reads (window at set 2, binding 0; bones at the bone site). Otherwise unknown, and the Core leaves the mesh to the game.
+- Checked on the 57 catalogue vertex shaders (docs/core-facts-truth.json, suite step): the replacement decision agrees for all; for the 49 with rolling bones slot and window agree. C++ and Python agree on all 57 modules. No per-shader table.
+- Bone streams under the blend-index edit take the element offset from the draw's pipeline (R8G8B8A8_UINT in binding 2, R16G16B16A16_UNORM weights); the packager's stride rule only where the pipeline has no such element.
+

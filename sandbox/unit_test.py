@@ -412,6 +412,15 @@ float4 main(float2 uv : TEXCOORD0) : SV_Target {
 """
 
 
+CORE_HLSL = r"""
+[[vk::binding(1, 0)]] cbuffer First { float4 x; };
+[[vk::binding(2, 0)]] cbuffer Second { float4 y; };
+[[vk::binding(0, 3)]] cbuffer Instances { float4 window[4096]; };
+[[vk::binding(5, 0)]] StructuredBuffer<float4> Bones;
+float4 main(uint id : SV_VertexID) : SV_Position { return Bones[id] + window[id] + x + y; }
+"""
+
+
 def test_source_slots(c: Checks) -> None:
     import subprocess
     from efmi_vk.source_slots import binding_of, declarations, registers
@@ -442,6 +451,19 @@ def test_source_slots(c: Checks) -> None:
     c.equal((binding_of(decls, "t3"), binding_of(decls, "t9")), ((0, 27), None), "a register leads back to its binding")
     c.check(registers(decls)[(0, 27)]["rule"] == "verified" and registers(decls)[(1, 5)]["rule"] == "unverified",
             "each register says how far its rule is checked")
+    from efmi_vk.source_slots import core_facts
+    c.equal((by[(0, 54)].get("stride"), by[(0, 53)].get("stride")), (16, 4), "a structured buffer's element stride")
+    c.equal(core_facts(decls), {"slot": -1, "rolling": False, "config": None, "bones": [0, 54]},
+            "D-079: a 16-byte buffer at t0 but no instance window: no rolling bones")
+    vertex_source, vertex_target = os.path.join(folder, "core.hlsl"), os.path.join(folder, "core.spv")
+    with open(vertex_source, "w", encoding="ascii") as f:
+        f.write(CORE_HLSL)
+    run = subprocess.run([dxc, "-spirv", "-T", "vs_6_0", "-E", "main", "-Fo", vertex_target, vertex_source], capture_output=True, text=True)
+    c.check(run.returncode == 0, "DXC compiles the Core facts fixture: %s" % run.stderr[-300:])
+    if not run.returncode:
+        c.equal(core_facts(declarations(open(vertex_target, "rb").read())),
+                {"slot": 2, "rolling": True, "config": [3, 0], "bones": [0, 5]},
+                "D-079: the instance window at vs-cb2 and the rolling bones at vs-t0, as Component_ReadConfig and DetectBoneDataSource read them")
     try:
         declarations(b"\x00" * 24)
         c.check(False, "a module that is not SPIR-V is refused")

@@ -2025,3 +2025,9 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Results: installed Mods folder in the sandbox: 19 of 22 load; live INI 71/71; full rebuilt suite 31/31 steps (build/next/run_all-1.5.3.out).
 - Found while checking: no installed INI uses a texture-hash TextureOverride; D-077, texture-identity.md and several-packages.md corrected.
 
+## 2026-10-20: Core source facts and the installed Mods' offline plans (candidate 1.5.4)
+
+- sandbox/character_test.cpp (--plan-mods dry run, --core-facts, unit checks), scripts/build.py (the character test links the program and the original runtime), frontend/xxmi/character_core.cpp (assignments inside if branches), frontend/gpu/source_registers.h/.cpp (block sizes, strides, core_source_facts), layer/src/character_backend.cpp (per-pipeline facts, vertex input to the plan), character_program.h/.cpp (bone element from the pipeline), server/efmi_vk/source_slots.py (stride, core_facts), scripts/check_core_facts.py, docs/core-facts-truth.json, scripts/check_mods_dry_run.py, sandbox/run_all.py (two steps), sandbox/unit_test.py, docs/core-facts.md, D-079, BUG-027. Version 1.5.4.
+- Found offline: BUG-027 (the live path never replaced a real Mod); fixed by D-079. The dry run of the installed Mods went from 0 to 137 drawn component sections.
+- A suite run was cut off by the session pause; rerun.
+

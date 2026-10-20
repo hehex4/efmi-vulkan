@@ -65,8 +65,23 @@ Known limits of those that load:
 - akekuri, avywenna, estella, mifu, perlica, rossiy, ardelia, liino and typhoeus reference
   RabbitFX, a library in another Mod folder; its references stay original warnings and its
   textures do not bind (LIMIT-004, docs/rabbitfx-assessment.md).
+- A blend stream whose element is not 8 or 16 bytes (Typhoeus' 24-byte one) takes its bone
+  offsets from the draw's pipeline; offline it keeps no bone mask.
 - Sections that match an index hash without an index count (`this = null`, `handling = skip` in
   chengqianyu, last rite, xaihi) are not matched by the renderer.
+
+## Offline plans of the installed Mods (1.5.4)
+
+`scripts/check_mods_dry_run.py` (suite step) runs every character INI through the production
+planner (`efmi_vk_character_test --plan-mods`, no GPU, so without the Mods' other INIs and
+CustomShader sections), with the Core's source facts of the game's common vertex shaders (D-079):
+20 of 22 load there (snowshine needs the owned runtime for its CustomShader sections, last rite has
+no namespace); 137 component sections draw the Mod's mesh (110 with its own images), 23 hide their
+component, 70 hide sections apply, 13 hide sections do not apply (their conditions), and 19 sections
+(the first of each Mod) are left to the game until the Mod registers at the next Present, as the
+original does. Refused: chengqianyu's two sections under its R32G32B32A32_UINT blend-index edit and
+one of ember's (GPU work inside a matched draw, P2). Before D-079 no component section drew
+(BUG-027).
 
 ## Verification
 

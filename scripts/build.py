@@ -281,7 +281,10 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
         if name == "mesh_test":
             sources += ["../layer/src/m2_mesh.cpp", "../layer/src/util.cpp"]
         if name == "character_test":
-            sources += ["../layer/src/character_package.cpp", "../layer/src/character_materials.cpp", "../frontend/gpu/material_plan.cpp", "../frontend/gpu/source_registers.cpp", "../layer/src/util.cpp"]
+            # --plan-mods runs the directory generation's planning (D-078) offline: the program and the
+            # original INI runtime join the decoder.
+            sources += ["../layer/src/character_package.cpp", "../layer/src/character_materials.cpp", "../layer/src/util.cpp",
+                        "../layer/src/character_program.cpp", "../layer/src/merged_skeleton.cpp"] + MATERIAL_SOURCES + runtime_link()
         if tracker:
             sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                         "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",

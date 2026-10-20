@@ -1,5 +1,7 @@
 #include "source_registers.h"
 
+#include <algorithm>
+#include <functional>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -8,9 +10,11 @@ namespace efmi::gpu {
 namespace {
 constexpr uint32_t kMagic = 0x07230203, kMaxWords = 4u << 20;
 enum : uint32_t {
+    OpTypeInt = 21, OpTypeFloat = 22, OpTypeVector = 23, OpTypeMatrix = 24,
     OpTypeImage = 25, OpTypeSampler = 26, OpTypeSampledImage = 27, OpTypeArray = 28, OpTypeRuntimeArray = 29,
     OpTypeStruct = 30, OpTypePointer = 32, OpConstant = 43, OpVariable = 59, OpDecorate = 71, OpMemberDecorate = 72,
-    DecorationBlock = 2, DecorationBufferBlock = 3, DecorationNonWritable = 24, DecorationBinding = 33, DecorationDescriptorSet = 34,
+    DecorationBlock = 2, DecorationBufferBlock = 3, DecorationArrayStride = 6, DecorationMatrixStride = 7, DecorationNonWritable = 24,
+    DecorationBinding = 33, DecorationDescriptorSet = 34, DecorationOffset = 35,
     StorageUniformConstant = 0, StorageUniform = 2, StorageStorageBuffer = 12,
 };
 struct Type { uint32_t op = 0; std::vector<uint32_t> operands; };
@@ -24,6 +28,8 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
     std::unordered_map<uint32_t, uint32_t> constants, bindings, sets;
     std::set<uint32_t> nonwritable, buffer_blocks;
     std::unordered_map<uint32_t, std::set<uint32_t>> readonly_members;
+    std::unordered_map<uint32_t, uint32_t> array_strides;
+    std::unordered_map<uint32_t, std::map<uint32_t, uint32_t>> member_offsets;
     struct Variable { uint32_t id, pointer, storage; };
     std::vector<Variable> variables;
     for (size_t i = 5; i < code.size();) {
@@ -36,18 +42,52 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
             else if (o[1] == DecorationDescriptorSet && n >= 3) sets[o[0]] = o[2];
             else if (o[1] == DecorationNonWritable) nonwritable.insert(o[0]);
             else if (o[1] == DecorationBufferBlock) buffer_blocks.insert(o[0]);
+            else if (o[1] == DecorationArrayStride && n >= 3) array_strides[o[0]] = o[2];
         } else if (op == OpMemberDecorate && n >= 3 && o[2] == DecorationNonWritable) {
             readonly_members[o[0]].insert(o[1]);
+        } else if (op == OpMemberDecorate && n >= 4 && o[2] == DecorationOffset) {
+            member_offsets[o[0]][o[1]] = o[3];
         } else if (op == OpConstant && n >= 3) {
             constants[o[1]] = o[2];
         } else if ((op == OpTypeImage || op == OpTypeSampler || op == OpTypeSampledImage || op == OpTypeArray ||
-                    op == OpTypeRuntimeArray || op == OpTypeStruct || op == OpTypePointer) && n >= 1) {
+                    op == OpTypeRuntimeArray || op == OpTypeStruct || op == OpTypePointer || op == OpTypeInt ||
+                    op == OpTypeFloat || op == OpTypeVector || op == OpTypeMatrix) && n >= 1) {
             types[o[0]] = {op, std::vector<uint32_t>(o + 1, o + n)};
         } else if (op == OpVariable && n >= 3) {
             variables.push_back({o[1], o[0], o[2]});
         }
         i += count;
     }
+    // Sizes as the block layout states them: scalars by width, vectors and matrices by their parts,
+    // arrays by their stride, structures by the last member's offset plus its size.
+    std::function<uint32_t(uint32_t, unsigned)> size_of = [&](uint32_t id, unsigned depth) -> uint32_t {
+        const auto t = types.find(id);
+        if (t == types.end() || depth > 16) return 0;
+        const auto& a = t->second.operands;
+        switch (t->second.op) {
+        case OpTypeInt: case OpTypeFloat: return a.empty() ? 0 : a[0] / 8;
+        case OpTypeVector: case OpTypeMatrix: return a.size() < 2 ? 0 : a[1] * size_of(a[0], depth + 1);
+        case OpTypeArray: {
+            if (a.size() < 2) return 0;
+            const auto length = constants.find(a[1]);
+            const auto stride = array_strides.find(id);
+            return length == constants.end() ? 0 : length->second * (stride != array_strides.end() ? stride->second : size_of(a[0], depth + 1));
+        }
+        case OpTypeStruct: {
+            const auto offsets = member_offsets.find(id);
+            if (a.empty()) return 0;
+            if (offsets == member_offsets.end() || offsets->second.empty()) {
+                uint32_t total = 0;
+                for (uint32_t member : a) total += size_of(member, depth + 1);
+                return total;
+            }
+            const auto last = std::max_element(offsets->second.begin(), offsets->second.end(),
+                                               [](const auto& x, const auto& y) { return x.second < y.second; });
+            return last->first < a.size() ? last->second + size_of(a[last->first], depth + 1) : 0;
+        }
+        default: return 0;
+        }
+    };
     std::vector<SourceRegister> found;
     for (const auto& v : variables) {
         const auto binding = bindings.find(v.id);
@@ -95,8 +135,16 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
                 const bool readonly = nonwritable.count(v.id) || nonwritable.count(type) ||
                                       (members != readonly_members.end() && members->second.size() == a.size());
                 r.kind = readonly ? SourceRegister::BufferSrv : SourceRegister::BufferUav;
+                if (!a.empty()) {
+                    const auto last = types.find(a.back());
+                    if (last != types.end() && (last->second.op == OpTypeRuntimeArray || last->second.op == OpTypeArray)) {
+                        const auto stride = array_strides.find(a.back());
+                        if (stride != array_strides.end()) r.stride = stride->second;
+                    }
+                }
             } else if (v.storage == StorageUniform) {
                 r.kind = SourceRegister::ConstantBuffer;
+                r.bytes = size_of(type, 0);
             } else { reason = "block in an unknown storage class"; return false; }
         } else { reason = "resource of unknown type"; return false; }
         found.push_back(r);
@@ -132,6 +180,21 @@ const SourceRegister* find_source_register(const std::vector<SourceRegister>& re
     for (const auto& r : registers)
         if (r.letter == letter && index >= r.index && index - r.index < r.count) return &r;
     return nullptr;
+}
+
+CoreSourceFacts core_source_facts(const std::vector<SourceRegister>& registers)
+{
+    CoreSourceFacts facts;
+    for (uint32_t slot : {2u, 1u, 3u}) {
+        const auto* cb = find_source_register(registers, 'b', slot);
+        if (cb && cb->kind == SourceRegister::ConstantBuffer && cb->count == 1 && cb->bytes == 4096 * 16) {
+            facts.vs_config_slot = int32_t(slot); facts.config = cb; break;
+        }
+    }
+    const auto* t0 = find_source_register(registers, 't', 0);
+    if (t0 && t0->kind == SourceRegister::BufferSrv && t0->count == 1 && t0->stride == 16) facts.bones = t0;
+    facts.rolling_bones = facts.bones && facts.vs_config_slot != -1;
+    return facts;
 }
 
 } // namespace efmi::gpu
