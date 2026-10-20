@@ -53,6 +53,11 @@ public:
     bool scope_active() const {return active_;}
     ExecutionSite site() const {return site_;}
     VkQueue queue() const {return queue_;}
+    // Another queue of the family once the host waited for every earlier submission (D-090).
+    void rebind(VkQueue queue){
+        if(active_ || !queue)throw std::runtime_error("GPU resource scope rebinds only while closed");
+        queue_=queue;commands_.rebind(queue);
+    }
     bool pending() const {return commands_.pending();}
     // Closes the scope without submitting: recorded work stays pending for the next scope's
     // finish(). A generation loaded in the background is suspended until its first Present.

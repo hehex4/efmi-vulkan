@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "1.6.4"
+#define EFVK_VERSION "1.6.5"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -53,6 +53,7 @@ struct Config {
     // directory generation applies it only on that device. The evidence is checked by the tooling.
     uint32_t m2_dimension_zero_vendor = 0, m2_dimension_zero_device = 0;
     bool m2_enabled = false;
+    bool m2_owned = true; // owned GPU execution (Present work, GPU work in draws); m2_owned = 0 turns it off
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped
     uint32_t shadow_usage = 0;                   // VkBufferUsageFlags that get a CPU shadow (set in util.cpp)

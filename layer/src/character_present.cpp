@@ -90,6 +90,7 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
                                                                          const std::filesystem::path& working, std::string& reason)
 {
     try {
+        if (!g_cfg.m2_owned) { reason = "owned GPU execution turned off (m2_owned = 0)"; return {}; }
         const auto tools = module_directory();
         const auto compiler = tools / L"dxcompiler.dll", bytecode = tools / L"efmi-vkd3d-shader.dll", validator = tools / L"SPIRV-Tools-shared.dll";
         for (const auto& tool : {compiler, bytecode, validator})
@@ -190,7 +191,12 @@ bool OwnedPresenter::begin(PresentWork* present, std::string& reason)
                 reason = "cannot create the presentation semaphore"; return false;
             }
         }
-        if (!gpu_->scope_active()) gpu_->begin(present->queue);
+        if (!gpu_->scope_active()) {
+            // The application presents on another queue than before (D-090): the owned work follows it
+            // once every earlier submission completed.
+            if (gpu_->queue() && gpu_->queue() != present->queue) follow(present->queue);
+            gpu_->begin(present->queue);
+        }
         if (format != DXGI_FORMAT_UNKNOWN && (chain.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
             gpu_->backbuffer(entry.image, format, (chain.usage & VK_IMAGE_USAGE_SAMPLED_BIT) != 0);
         else { gpu_->backbuffer(nullptr, DXGI_FORMAT_UNKNOWN, false); ++unsupported_; }
@@ -220,6 +226,16 @@ void OwnedPresenter::finish(PresentWork* present, bool executed, std::string& re
     } catch (const std::exception& e) { reason = std::string("owned Present submission: ") + e.what(); last_error_ = reason; ++failed_; }
     while (!tickets_.empty() && tickets_.front()->ready()) tickets_.pop_front();
     current_ = nullptr;
+}
+
+void OwnedPresenter::follow(VkQueue queue)
+{
+    for (auto& ticket : tickets_) ticket->wait();
+    tickets_.clear();
+    gpu_->rebind(queue);
+    ++queue_changes_;
+    logf("owned GPU work follows the presentation to queue %p (change %llu)", static_cast<void*>(queue),
+         static_cast<unsigned long long>(queue_changes_));
 }
 
 bool OwnedPresenter::submit_pending(VkQueue queue, std::string& reason)
@@ -273,6 +289,7 @@ void OwnedPresenter::status(JsonWriter& w) const
     w.kn("presents", presents_); w.kn("submitted", submitted_); w.kn("failed", failed_);
     w.kn("unsupported_formats", unsupported_); w.kn("images", images_.size()); w.kn("in_flight", tickets_.size());
     w.kn("draw_work_submitted", draw_submitted_);
+    w.kn("queue_changes", queue_changes_);
     w.kv("last_error", last_error_);
     w.end_object();
 }

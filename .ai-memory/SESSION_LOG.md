@@ -2085,3 +2085,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 ## 2026-10-20: game test of 1.6.4 prepared
 
 - User: set the shader-keyed features aside and test what is implemented in the game. Deployed 1.6.4 to dist (backup of 1.0.2 first), directory-mode cfg, and at the user's request switched the EFMI launcher profile to Vulkan (backup, two values, exact readback). The injected library is the user's step in the launcher UI.
+
+## 2026-10-20: first game session of 1.6.4 froze; 1.6.5
+
+- The game froze about a second after Si's package activated (probe frame 1535). Status while frozen: our locks free, owned Present failing since the game moved its presentation to its other graphics queue, uploads bound to the first queue. No driver timeout. Cause not proven (BUG-032).
+- 1.6.5 (D-090): owned work follows the presentation's queue, uploads and publications on any graphics queue, `m2_owned = 0` switch, stall watchdog in the log.

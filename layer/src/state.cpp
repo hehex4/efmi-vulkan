@@ -1,5 +1,7 @@
 // Tracking of memory, buffers, pipelines and command buffers; frame assembly; probe requests.
 #include "state.h"
+#include <condition_variable>
+#include <thread>
 #include "m2_backend.h"
 #include "pipeline_variant.h"
 #include "json.h"
@@ -120,8 +122,83 @@ static HANDLE cap_event()
     return g_cap_event;
 }
 
+// ---------------------------------------------------------------------------
+// Stall watchdog: with no presentation for five seconds, the log names every thread inside a hook
+// that can wait and every thread whose last hook is older than two seconds, every ten seconds while
+// the stall lasts. Runs while a device exists, never in passthrough mode.
+
+constexpr size_t kThreadTraces = 256;
+static ThreadTrace g_thread_traces[kThreadTraces];
+static std::atomic<size_t> g_thread_trace_count{0};
+static std::atomic<uint64_t> g_presented_us{0};
+static std::mutex g_watch_mx;
+static std::condition_variable g_watch_cv;
+static std::thread g_watch;
+static bool g_watch_stop = false;
+
+ThreadTrace* thread_trace()
+{
+    thread_local ThreadTrace* mine = nullptr;
+    thread_local bool assigned = false;
+    if (!assigned) {
+        assigned = true;
+        const size_t slot = g_thread_trace_count.fetch_add(1, std::memory_order_relaxed);
+        if (slot < kThreadTraces) { mine = &g_thread_traces[slot]; mine->thread.store(GetCurrentThreadId(), std::memory_order_relaxed); }
+    }
+    return mine;
+}
+
+void note_presented() { g_presented_us.store(host_time_us(), std::memory_order_relaxed); }
+
+static void watchdog()
+{
+    std::unique_lock<std::mutex> lock(g_watch_mx);
+    uint64_t reported = 0;
+    while (!g_watch_cv.wait_for(lock, std::chrono::seconds(1), [] { return g_watch_stop; })) {
+        const uint64_t last = g_presented_us.load(std::memory_order_relaxed), now = host_time_us();
+        if (!last || now < last || now - last < 5000000) { reported = 0; continue; }
+        if (reported && now - reported < 10000000) continue;
+        reported = now;
+        logf("stall: no presentation returned for %llu ms", static_cast<unsigned long long>((now - last) / 1000));
+        const size_t count = std::min(g_thread_trace_count.load(std::memory_order_relaxed), kThreadTraces);
+        for (size_t i = 0; i < count; ++i) {
+            const ThreadTrace& t = g_thread_traces[i];
+            const int hook = t.hook.load(std::memory_order_relaxed);
+            const uint64_t since = t.since_us.load(std::memory_order_relaxed);
+            const int inside = t.inside.load(std::memory_order_relaxed);
+            if (hook < 0 || hook >= HI_COUNT || !since || now < since) continue;
+            const uint64_t age = (now - since) / 1000;
+            if (!inside && age < 2000) continue;
+            logf("stall: thread %lu %s vk%s for %llu ms", static_cast<unsigned long>(t.thread.load(std::memory_order_relaxed)),
+                 inside ? "inside" : "last entered", g_api_names[hook], static_cast<unsigned long long>(age));
+        }
+    }
+}
+
+static void watchdog_start()
+{
+    if (g_cfg.mode == Mode::Passthrough) return;
+    std::lock_guard<std::mutex> lock(g_watch_mx);
+    if (g_watch.joinable()) return;
+    g_watch_stop = false;
+    g_watch = std::thread(watchdog);
+}
+
+static void watchdog_stop()
+{
+    std::thread done;
+    {
+        std::lock_guard<std::mutex> lock(g_watch_mx);
+        g_watch_stop = true;
+        done.swap(g_watch);
+    }
+    g_watch_cv.notify_all();
+    if (done.joinable()) done.join();
+}
+
 Device* dev_create(VkDevice handle)
 {
+    watchdog_start();
     Device* dev = new Device();
     dev->handle = handle;
     void* key = *reinterpret_cast<void**>(handle);
@@ -150,7 +227,10 @@ void dev_destroy(Device* dev)
     }
     if (g_active.load() == dev)
         g_active.store(g_devs.empty() ? nullptr : g_devs.begin()->second);
+    const bool last = g_devs.empty();
+    lock.unlock();
     delete dev;
+    if (last) watchdog_stop();
 }
 
 Device* dev_of_key(void* key)

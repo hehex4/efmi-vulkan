@@ -50,7 +50,8 @@ private:
     std::map<VkImage, Presented> images_;
     Presented* current_ = nullptr;
     std::deque<std::shared_ptr<efmi::gpu::ResourceSubmission>> tickets_;
-    uint64_t presents_ = 0, submitted_ = 0, failed_ = 0, unsupported_ = 0, draw_submitted_ = 0;
+    uint64_t presents_ = 0, submitted_ = 0, failed_ = 0, unsupported_ = 0, draw_submitted_ = 0, queue_changes_ = 0;
+    void follow(VkQueue queue);
     std::string last_error_;
     std::filesystem::path readback_;
     bool stopped_ = false;

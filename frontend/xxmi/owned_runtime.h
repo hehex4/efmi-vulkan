@@ -33,6 +33,8 @@ public:
     bool pending() const;
     // The queue the runtime's work is bound to; null until its first submission.
     VkQueue queue() const;
+    // Moves later work to another queue of the family; the host waited for every earlier submission.
+    void rebind(VkQueue);
     void suspend();
     void discard();
     bool scope_active() const;

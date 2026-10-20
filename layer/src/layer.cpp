@@ -830,6 +830,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdExecuteCommands(VkCommandBuffer cmd, uint32_t c
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, const VkSubmitInfo* submits, VkFence fence)
 {
     count_call(HI_QueueSubmit);
+    HookInside inside;
     Device* dev = dev_of(queue);
     {
         const auto result = m2_submit(dev, queue);
@@ -857,6 +858,7 @@ void track_submit2(Device* dev, uint32_t count, const VkSubmitInfo2* submits)
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence)
 {
     count_call(HI_QueueSubmit2);
+    HookInside inside;
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
     {
@@ -869,6 +871,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, co
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence)
 {
     count_call(HI_QueueSubmit2KHR);
+    HookInside inside;
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
     {
@@ -881,6 +884,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count,
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info)
 {
     count_call(HI_QueuePresentKHR);
+    struct Presented { HookInside inside; ~Presented() { note_presented(); } } presented;
     Device* dev = dev_of(queue);
     PresentWork present;
     present.queue = queue;
@@ -986,6 +990,7 @@ struct CountedHook<R (VKAPI_PTR*)(First, Args...), Member, Index> {
     {
         Device* dev = dev_of(first);
         count_call(Index);
+        HookInside inside;
         return (dev->d.*Member)(first, args...);
     }
 };

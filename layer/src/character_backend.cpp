@@ -297,6 +297,13 @@ public:
     VkQueue upload_queue = VK_NULL_HANDLE;
     std::vector<VkFence> publication_fences;      // the signal submission of each batch
     uint32_t publication_batches = 0, publications = 0; // under queue_mx
+    // Under queue_mx: the images of each submitted batch, which images are in a batch, and how many
+    // batches completed on the GPU. A consumer queue waits only for a completed batch (D-091), so the
+    // wait is already satisfied when it is enqueued and can never hold an application queue behind
+    // work on another queue that waits for this one.
+    std::vector<std::vector<uint32_t>> batch_images;
+    std::vector<char> image_batched;
+    uint32_t completed_publications = 0;
     // Per image: its publication signal is enqueued, so a recording may retain its view. Every image
     // published: `images_published` (an F10 candidate takes over only then).
     std::unique_ptr<std::atomic<bool>[]> image_published;
@@ -308,6 +315,7 @@ public:
     PFN_vkCreateFence CreateFence = nullptr;
     PFN_vkDestroyFence DestroyFence = nullptr;
     PFN_vkWaitForFences WaitForFences = nullptr;
+    PFN_vkGetFenceStatus GetFenceStatus = nullptr;
     std::atomic<bool> enabled{false}, ready{false};
     std::atomic<uint64_t> frame{1};
     std::shared_ptr<std::atomic<uint64_t>> batches = std::make_shared<std::atomic<uint64_t>>(0);
@@ -946,7 +954,7 @@ bool CharacterGeneration::init_materials()
     }
 #define X(n) n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
     if (!n) { last_reason = "missing material vk" #n; return false; }
-    X(CreateSemaphore) X(DestroySemaphore) X(CreateFence) X(DestroyFence) X(WaitForFences)
+    X(CreateSemaphore) X(DestroySemaphore) X(CreateFence) X(DestroyFence) X(WaitForFences) X(GetFenceStatus)
 #undef X
     assets::ResourceDevice resource;
     resource.device = device->handle; resource.physical = device->phys; resource.memory = memory;
@@ -979,6 +987,7 @@ bool CharacterGeneration::init_materials()
     // Publication objects for every batch on every graphics queue, allocated here and kept until
     // device shutdown (docs/character-materials.md).
     image_published.reset(new std::atomic<bool>[image_handles.size() + 1]());
+    image_batched.assign(image_handles.size() + 1, 0);
     publication_batches = std::min<uint32_t>(kPublicationBatches, std::max<uint32_t>(1, static_cast<uint32_t>(image_handles.size())));
     VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
@@ -1548,12 +1557,13 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
     auto found = std::find_if(backend.image_queues.begin(), backend.image_queues.end(),
                               [&](const ImageQueue& q) { return q.queue == queue; });
     if (found == backend.image_queues.end()) return VK_SUCCESS;
-    if (!backend.upload_queue) {
-        backend.upload_queue = queue;
-        backend.upload_queue_index = static_cast<uint32_t>(found - backend.image_queues.begin());
-    }
-    if (queue == backend.upload_queue) {
-        backend.images->submit_prepared(queue);
+    // Uploads and publications go to whichever graphics queue the application submits on (D-090): an
+    // image is published only once its upload completed, so no queue order is needed between them.
+    {
+        if (backend.images->submit_prepared(queue)) {
+            backend.upload_queue = queue;
+            backend.upload_queue_index = static_cast<uint32_t>(found - backend.image_queues.begin());
+        }
         // A batch of the images that became Ready since the last one; the last batch waits until
         // every image is Ready or failed. Its signal covers the upload queue's earlier work.
         const uint32_t count = static_cast<uint32_t>(backend.image_handles.size());
@@ -1561,7 +1571,7 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
             std::vector<uint32_t> fresh;
             bool settled = true;
             for (uint32_t i = 0; i < count; ++i) {
-                if (backend.image_published[i].load(std::memory_order_relaxed)) continue;
+                if (backend.image_batched[i]) continue;
                 const auto state = backend.image_handles[i]->snapshot().state;
                 if (state == efmi::assets::ResourceState::Ready) fresh.push_back(i);
                 else if (state != efmi::assets::ResourceState::Failed && state != efmi::assets::ResourceState::Stopped) settled = false;
@@ -1576,13 +1586,25 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
                 const auto result = backend.device->d.QueueSubmit(queue, 1, &publish, backend.publication_fences[batch]);
                 if (result != VK_SUCCESS) { backend.note("material publication submission failed"); return result; }
                 ++backend.publications; ++backend.image_publications;
-                for (uint32_t i : fresh) backend.image_published[i].store(true, std::memory_order_release);
-                if (backend.published_images.fetch_add(static_cast<uint32_t>(fresh.size())) + fresh.size() == count)
-                    backend.images_published.store(true, std::memory_order_release);
+                for (uint32_t i : fresh) backend.image_batched[i] = 1;
+                if (backend.batch_images.size() <= batch) backend.batch_images.resize(batch + 1);
+                backend.batch_images[batch] = std::move(fresh);
             }
         }
     }
-    while (found->waited < backend.publications) {
+    // A batch whose signal completed on the GPU publishes its images: a recording may retain them
+    // from now on, and every consumer queue's wait for it is enqueued before that recording's
+    // submission (below, before the application's work on the queue).
+    while (backend.completed_publications < backend.publications &&
+           backend.GetFenceStatus(backend.device->handle, backend.publication_fences[backend.completed_publications]) == VK_SUCCESS) {
+        const auto& images = backend.batch_images[backend.completed_publications];
+        for (uint32_t i : images) backend.image_published[i].store(true, std::memory_order_release);
+        const uint32_t count = static_cast<uint32_t>(backend.image_handles.size());
+        if (backend.published_images.fetch_add(static_cast<uint32_t>(images.size())) + images.size() == count)
+            backend.images_published.store(true, std::memory_order_release);
+        ++backend.completed_publications;
+    }
+    while (found->waited < backend.completed_publications) {
         VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         VkSubmitInfo wait{VK_STRUCTURE_TYPE_SUBMIT_INFO};
         wait.waitSemaphoreCount = 1; wait.pWaitSemaphores = &found->semaphores[found->waited]; wait.pWaitDstStageMask = &stage;

@@ -16,6 +16,7 @@ void OwnedRuntime::begin_deferred(){impl_->gpu->resources().begin(VK_NULL_HANDLE
 void OwnedRuntime::begin_draw(){impl_->gpu->resources().begin(VK_NULL_HANDLE,GpuResourceRuntime::ExecutionSite::Draw);}
 bool OwnedRuntime::pending() const {return impl_->gpu->resources().pending();}
 VkQueue OwnedRuntime::queue() const {return impl_->gpu->resources().queue();}
+void OwnedRuntime::rebind(VkQueue queue){impl_->gpu->resources().rebind(queue);}
 void OwnedRuntime::suspend(){impl_->gpu->resources().suspend();}
 void OwnedRuntime::discard(){impl_->gpu->resources().discard();}
 bool OwnedRuntime::scope_active() const {return impl_->gpu->resources().scope_active();}

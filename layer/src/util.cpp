@@ -279,6 +279,7 @@ void util_init(HMODULE self)
             g_cfg.m2_dimension_zero_vendor = vendor; g_cfg.m2_dimension_zero_device = device;
         }
     }
+    g_cfg.m2_owned = setting("EFMI_VK_M2_OWNED", "m2_owned") != "0";
     std::string m2_enabled = setting("EFMI_VK_M2_ENABLED", "m2_enabled");
     g_cfg.m2_enabled = m2_enabled == "1" || m2_enabled == "on";
 

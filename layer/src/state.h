@@ -73,7 +73,9 @@ struct CharacterModule;
     X(CreateFramebuffer)                                                                                               \
     X(CmdCopyImageToBuffer) X(CmdBlitImage) X(CmdNextSubpass) X(FlushMappedMemoryRanges)                               \
     X(CmdDrawMultiEXT) X(CmdDrawMultiIndexedEXT) X(CmdDrawMeshTasksEXT) X(CmdBindTransformFeedbackBuffersEXT)          \
-    X(CmdBuildAccelerationStructuresKHR) X(CmdTraceRaysKHR)
+    X(CmdBuildAccelerationStructuresKHR) X(CmdTraceRaysKHR)                                                           \
+    X(WaitForFences) X(AcquireNextImageKHR) X(AcquireNextImage2KHR) X(QueueWaitIdle) X(DeviceWaitIdle)                 \
+    X(WaitSemaphores) X(WaitSemaphoresKHR)
 
 #define EFVK_DEVICE_FUNCS(X) EFVK_TRACKED_FUNCS(X) EFVK_COUNTED_FUNCS(X)
 
@@ -94,10 +96,33 @@ enum HookIndex {
 extern std::atomic<uint64_t> g_api_calls[HI_COUNT];
 extern const char* const g_api_names[HI_COUNT];
 
+// Every thread's last entry into the layer, for the stall watchdog: the hook, when, and whether the
+// thread is still inside a hook that can wait (submission, presentation, fence and idle waits).
+struct ThreadTrace {
+    std::atomic<uint32_t> thread{0};
+    std::atomic<int> hook{-1};
+    std::atomic<uint64_t> since_us{0};
+    std::atomic<int> inside{0};
+};
+ThreadTrace* thread_trace(); // this thread's slot; null when every slot is taken
+
 inline void count_call(int index)
 {
     g_api_calls[index].fetch_add(1, std::memory_order_relaxed);
+    if (ThreadTrace* trace = thread_trace()) {
+        trace->hook.store(index, std::memory_order_relaxed);
+        trace->since_us.store(host_time_us(), std::memory_order_relaxed);
+    }
 }
+struct HookInside {
+    ThreadTrace* trace = thread_trace();
+    HookInside() { if (trace) trace->inside.fetch_add(1, std::memory_order_relaxed); }
+    ~HookInside() { if (trace) trace->inside.fetch_sub(1, std::memory_order_relaxed); }
+    HookInside(const HookInside&) = delete;
+    HookInside& operator=(const HookInside&) = delete;
+};
+// A presentation returned to the application (the watchdog's clock).
+void note_presented();
 
 // Remembers a function name the application asked vkGetDeviceProcAddr for.
 void note_resolved(const char* name);

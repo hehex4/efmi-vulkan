@@ -137,7 +137,8 @@ bool ResourceCache::submit_prepared(VkQueue queue)
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if(stopped_ || phase_!=ResourceState::Prepared || !upload_)return false;
-        if(submission_queue_ && submission_queue_!=queue)return false;
+        // A Prepared upload has no predecessor in flight (the worker waited for the last one), so the
+        // next may go to any queue of the family the application submits on (D-090).
         submission_queue_=queue;
         upload=upload_;phase_=ResourceState::Submitting;publish(pending_,phase_);
     }

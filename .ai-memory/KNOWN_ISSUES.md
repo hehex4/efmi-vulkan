@@ -771,3 +771,12 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 ## LIMIT-036: ShaderOverride and ShaderRegex sections are inert under Vulkan
 
 - 2026-10-20 (candidate 1.6.4, D-089). The layer cannot tell which Vulkan pipeline a DX11 shader hash means. Xaihi's `ps skip.ini` (two pixel shaders skipped) and Yvonne's EFMITTL translucency (lit-pass capture and composite keyed to a vertex shader and the depth copy shader) do not act: the game draws those shaders, and Yvonne's translucent part appears only in depth-only passes. Lifting this needs a source of DX11 shader identity in Vulkan (a game-wide shader table from the paired catalogue would be one, if the user decides the runtime may depend on it).
+
+## BUG-032: The first game session of 1.6.4 froze
+
+- 2026-10-20 19:10-19:18, user-started Vulkan session (PID 13172), layer 1.6.4 injected by the launcher, directory mode with 22 character Mods, owned GPU tools deployed. The game showed Yvonne replaced (583 replaced draws) and TangTang and Si matched; at probe frame 1535, about a second after Si's package activated on its first match (19:12:33), no presentation followed. The window stopped responding; the user ended the process at 19:17:59 (Application Hang 1002). No display driver timeout in the system log; the game's Player.log ends at 19:12:16 without an error.
+- Seen while frozen: the probe answered status twice (the answer takes every generation's mod_mx and the device lock, so none of them was held); the last frame had 2 submissions and no draw.
+- Found and fixed in 1.6.5 (D-090), cause of the freeze not proven: the game presented on one graphics queue for about 692 frames and on the other afterwards; every generation's owned runtime was bound to the first queue (its load-time work was submitted there by the draw-work flush), so every later owned Present failed ("GPU resource scope cannot change queues", 749 times per generation); image uploads were also bound to the first submitting queue (Si: 12 of 17 images uploaded).
+- Also seen: frames of 3 to 4 seconds while characters load (frames 673, 1186, 1419). Not yet attributed.
+- Most likely cause found afterwards (D-091): the consumer-queue waits for image publications could hold one graphics queue behind work on the other that waits for it; 1.6.5 only enqueues waits that are already satisfied.
+- Next session: the stall watchdog of 1.6.5 logs where every thread is when no presentation returns for five seconds; `m2_owned = 0` separates owned execution from the rest.
