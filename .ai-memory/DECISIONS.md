@@ -819,3 +819,8 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Date: 2026-10-20 (candidate 1.5.9), the next step after D-082 (13 sections of six installed Mods keep the game's mesh and change its textures, mostly through RabbitFX).
 - A plan that leaves the application's draw and binds textures in its pre phase, and nothing else, is a texture-only draw: the layer draws the application's draw again in its place with the application's geometry, arguments and vertex stage, through a variant that only re-points fragment images to the private set, with the Mod's images by the same material rules. Post-phase commands are not part of it (DrawPlan/FilePlan pre_items).
 - Geometry changes of a game draw without a draw of the Mod (vertex/index bindings alone) stay the game's. docs/texture-only-draws.md.
+
+## D-084: A Mod's hash-only hide sections match by the index region's hash at any count
+
+- Date: 2026-10-20 (candidate 1.6.0).
+- A section of the Mod with a hash and neither index count nor first index, whose list skips the draw, is a hide section for any count, as the original matches it; one without a skip stays a possible texture-hash section (D-077). Only an activated character's draws are hashed for them; the hashes are cached per region. docs/directory-generation.md.

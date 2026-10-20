@@ -2059,3 +2059,7 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 ## 2026-10-20: texture-only draws (candidate 1.5.9)
 
 - Sections that keep the game's mesh and only change its textures now redraw the game's draw with the Mod's textures through a vertex-preserving variant (D-083). Files and evidence in CURRENT_STATE.
+
+## 2026-10-20: hash-only hide sections (candidate 1.6.0)
+
+- A Mod's sections with a hash alone that skip the draw now hide game meshes by the region hash at any count (D-084). The replay selected draws by (hash, count) and missed them at first; it now also selects by hash alone. The test copy of arcane under build/hash-only-mods was removed after the run.

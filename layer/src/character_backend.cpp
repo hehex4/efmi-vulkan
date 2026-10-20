@@ -254,6 +254,9 @@ public:
     std::unique_ptr<OwnedPresenter> presenter;
     std::atomic<bool> save_requested{false};
     std::unordered_map<uint32_t, std::vector<uint32_t>> by_count; // immutable after init
+    // Sections matched by their hash alone (any index count): hidden game meshes. Only an activated
+    // character's draws are hashed for them, every indexed draw then. Immutable after init.
+    std::vector<uint32_t> hash_only;
     std::vector<BoneComponent> ranges;
     uint32_t bone_bytes = 0;
     std::unique_ptr<VariantCache> cache;
@@ -383,7 +386,10 @@ public:
         EFVK_SNAPSHOT_FUNCS(X)
 #undef X
         if (!draw.CreateGraphicsPipelines || !draw.CreateRenderPass || !draw.CmdDrawIndexed) { last_reason = "missing graphics entry"; return false; }
-        for (uint32_t i = 0; i < package.sections.size(); ++i) by_count[package.sections[i].match_count].push_back(i);
+        for (uint32_t i = 0; i < package.sections.size(); ++i) {
+            if (package.sections[i].match_count == kCharacterNone) hash_only.push_back(i);
+            else by_count[package.sections[i].match_count].push_back(i);
+        }
         for (const auto& c : package.components) ranges.push_back({c.first, c.count});
         bone_bytes = (MergedSkeleton::kImplicitBones + 2 * package.bones) * static_cast<uint32_t>(MergedSkeleton::kBytesPerBone);
         if (package.materials && !init_materials()) return false;
@@ -1038,10 +1044,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
 {
     if (!enabled.load(std::memory_order_relaxed) || !cache) return false;
     const auto candidates = by_count.find(r.count);
-    if (candidates == by_count.end()) return false;
-    bool possible = false;
-    for (uint32_t index : candidates->second)
-        possible |= package.sections[index].match_first == kCharacterNone || package.sections[index].match_first == r.first;
+    const bool by_hash = !hash_only.empty() && activated.load(std::memory_order_relaxed);
+    bool possible = by_hash;
+    if (candidates != by_count.end())
+        for (uint32_t index : candidates->second)
+            possible |= package.sections[index].match_first == kCharacterNone || package.sections[index].match_first == r.first;
     if (!possible) return false;
 
     std::lock_guard<std::mutex> mod_lock(mod_mx);
@@ -1066,10 +1073,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
         uint32_t hash = 0;
         if (!region_hash(r, present, hash)) return false;
         const CharacterSection* section = nullptr;
-        for (uint32_t index : candidates->second) {
-            const auto& s = package.sections[index];
-            if (s.hash == hash && (s.match_first == kCharacterNone || s.match_first == r.first)) { section = &s; break; }
-        }
+        if (candidates != by_count.end())
+            for (uint32_t index : candidates->second) {
+                const auto& s = package.sections[index];
+                if (s.hash == hash && (s.match_first == kCharacterNone || s.match_first == r.first)) { section = &s; break; }
+            }
+        if (!section && by_hash)
+            for (uint32_t index : hash_only)
+                if (package.sections[index].hash == hash) { section = &package.sections[index]; break; }
         if (!section) return false;
         if (!activated.load(std::memory_order_relaxed)) { activate(); return false; }
         ++counters[C_MATCHED];

@@ -100,3 +100,20 @@ configured folder, and nothing is written into the Mods folder. Not loaded into 
   other folders, keys shared across Mods).
 - Implicit namespaces, hash-only index sections, the R32 blend-index edit.
 - Releasing characters not seen for a while; reading mesh files only on activation.
+
+## Sections matched by their hash alone (candidate 1.6.0, D-084)
+
+A section of the Mod with an index hash, no `match_index_count` and no `match_first_index`, whose
+list skips the draw (`handling = skip`, also inside a branch), hides a game mesh by its index region's
+hash whatever its count, as the original matches it. Discovery takes such sections into the contract
+with an index count of "any" (`kCharacterNone`); they are never a component. The backend keeps them
+apart from the count-indexed sections and, once the character's package is activated, hashes every
+indexed draw it sees for them (the region hash is cached per buffer region and re-checked by a short
+fingerprint). A hash without a skip is left as before: it may name a texture (D-077).
+
+Installed Mods: five such sections (xaihi 3, chengqianyu 1, last rite 1); the dry run plans all five
+as hidden (hide applied 76 to 81). None of their hashes is in the catalogue frames. Runtime check:
+the capture replay of arcane with a project-owned copy of the Mod in which one counted hide section
+(`9e31e918`, 9546 indices) lost its count and first index gives the same matched and hidden counts as
+the original Mod (10439 and 6119 over 360 frames); the replay selects draws for such sections by
+their hash alone.

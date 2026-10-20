@@ -78,6 +78,18 @@ class CharacterCore : public RuntimeExtension {
             return uint32_t(core->second.fval);
         return 0;
     }
+    // A `handling = skip` anywhere in the list (inside its branches too): the section hides a draw.
+    static bool skips(const CommandList* list, unsigned depth = 0)
+    {
+        if (!list || depth > 32) return false;
+        for (const auto& held : list->commands) {
+            const CommandListCommand* command = DrawPlanAdapter::original(*held);
+            if (dynamic_cast<const SkipCommand*>(command)) return true;
+            if (const auto* branch = dynamic_cast<const IfCommand*>(command))
+                if (skips(branch->true_commands_pre.get(), depth + 1) || skips(branch->false_commands_pre.get(), depth + 1)) return true;
+        }
+        return false;
+    }
     static uint32_t assigned(const CommandList& list, const std::wstring& name)
     {
         std::set<uint32_t> values;
@@ -240,8 +252,9 @@ global $mod_id = -1
         if (!G->mFuzzyTextureOverrides.empty()) return fail(why, L"Fuzzy/image overrides require a source-image identity provider");
         if (discovery) return discover_sections(why);
         std::vector<bool> seen(expected.sections.size(), false);
-        auto matches = [](const FuzzyMatch& f, uint32_t value, bool optional) {
-            if (optional && value == efvk::kCharacterNone) return f.op == FuzzyMatchOp::ALWAYS;
+        auto matches = [](const FuzzyMatch& f, uint32_t value, bool) {
+            // None: any value (an optional first index, a hash-only section's index count).
+            if (value == efvk::kCharacterNone) return f.op == FuzzyMatchOp::ALWAYS;
             return f.op == FuzzyMatchOp::EQUAL && f.rhs_type1 == FuzzyMatchOperandType::VALUE &&
                 f.rhs_type2 == FuzzyMatchOperandType::VALUE && f.val == value && f.mask == UINT32_MAX &&
                 f.numerator == 1 && f.denominator == 1;
@@ -286,6 +299,13 @@ global $mod_id = -1
                 if (own && mesh && constant(entry.match_index_count, s.section.match_count) && s.section.match_count && first_ok) {
                     s.original = assigned(entry.command_list, component_id);
                     s.section.lod = assigned(entry.command_list, lod_level);
+                    found.push_back(s);
+                    continue;
+                }
+                // A hash alone that skips the draw hides a game mesh by its index region's hash,
+                // whatever its index count (as the original matches it); it is never a component.
+                if (own && !mesh && entry.match_first_index.op == FuzzyMatchOp::ALWAYS && skips(&entry.command_list)) {
+                    s.section.match_count = efvk::kCharacterNone; s.section.match_first = efvk::kCharacterNone;
                     found.push_back(s);
                     continue;
                 }

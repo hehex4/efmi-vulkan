@@ -39,6 +39,7 @@ from efmi_vk.hashes import crc32c  # noqa: E402
 from efmi_vk.source_slots import core_facts, declarations  # noqa: E402
 
 MODS = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Mods")
+ANY_COUNT = 0xFFFFFFFF            # a section matched by its hash alone (any index count)
 CORE = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Core\EFMI")
 IDENTITY_BONES = 1024            # bones written as identity at each instance entry's offsets
 # The stand-in bone: the character meshes are stored Z-up and their skeleton turns them upright
@@ -499,15 +500,23 @@ def main() -> int:
     replay = Replay(args.bundle, out)
     replay.probe_vertices = args.probe_vertices
     replay.small_images = args.small_images
+    def section_of(d: dict):
+        """The (hash, count) a Mod section matches this draw by: its own count, or any count for a
+        section matched by its hash alone."""
+        ib = (d.get("ib") or {}).get("hash")
+        for key in ((ib, d.get("count")), (ib, ANY_COUNT)):
+            if key in sections:
+                return key
+        return None
+
     draws = []
     for d in replay.frame["draws"]:
-        ib = d.get("ib") or {}
-        if (ib.get("hash"), d.get("count")) in sections and d.get("kind") == "indexed" and (not args.rp or d.get("rp") in args.rp):
+        if section_of(d) and d.get("kind") == "indexed" and (not args.rp or d.get("rp") in args.rp):
             made = replay.draw(d)
             if made:
+                made["key"] = section_of(d)
                 draws.append(made)
-    mods = sorted({sections[((d.get("ib") or {}).get("hash"), d.get("count"))] for d in replay.frame["draws"]
-                   if ((d.get("ib") or {}).get("hash"), d.get("count")) in sections})
+    mods = sorted({sections[section_of(d)] for d in replay.frame["draws"] if section_of(d)})
     print("bundle %s: Mods %s; %d draws replayed, omitted %s; %d pipelines, %d buffers, %d images, %d bytes of data" % (
         args.bundle.name, mods, len(draws), dict(replay.omitted), len(replay.cases), len(replay.buffers), len(replay.images), len(replay.data)))
     if not draws:

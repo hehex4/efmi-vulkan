@@ -457,7 +457,8 @@ int main(int argc, char** argv)
                     std::string presented;
                     const bool present_ok = program.present(input, frame, float(frame) / 60.0f, presented);
                     efmi::frontend::RuntimeDraw request;
-                    request.hash = s.hash; request.count = s.match_count; request.first = s.match_first == kCharacterNone ? 0 : s.match_first;
+                    request.hash = s.hash; request.count = s.match_count == kCharacterNone ? 0 : s.match_count;
+                    request.first = s.match_first == kCharacterNone ? 0 : s.match_first;
                     request.frame = frame; request.seconds = float(frame) / 60.0f;
                     if (s.component != kCharacterNone) { request.component = s.component; request.lod = lod; request.identity = 1; }
                     // Offline there is no pipeline: the facts the backend reads off each vertex module
