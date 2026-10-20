@@ -6,8 +6,9 @@ the game's common vertex shaders give (rolling vs-t0 bones, vs-cb2). No GPU and 
 so a Mod's other INIs and CustomShader sections are not part of these generations. Read-only.
 
 Checked, as invariants that hold whatever Mods are installed: every Mod that loads draws its mesh in
-at least one section, and every refused section is refused for a known limit. The numbers are
-printed for the record.
+at least one section, every refused section is refused for a known limit, and every Mod that loads
+states how many components identify it (its own identification_min_components, else the Core's).
+The numbers are printed for the record.
 """
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ def main() -> int:
     (out / "plans.jsonl").write_text(run.stdout, encoding="utf-8")
     if run.returncode:
         print(run.stderr[-2000:]); return 1
-    totals, problems, loaded, mods = Counter(), [], 0, 0
+    totals, problems, loaded, mods, thresholds = Counter(), [], 0, 0, Counter()
     for line in run.stdout.splitlines():
         mod = json.loads(line)
         mods += 1
@@ -47,6 +48,9 @@ def main() -> int:
             totals["not loaded"] += 1
             continue
         loaded += 1
+        thresholds[mod.get("identify_components", 0)] += 1
+        if not 1 <= mod.get("identify_components", 0) <= 16:
+            problems.append("%s: no identification threshold" % mod["ini"])
         drawn = 0
         for s in mod["sections"]:
             if not s["planned"]:
@@ -65,7 +69,9 @@ def main() -> int:
             problems.append("%s: no section draws the Mod's mesh" % mod["ini"])
     for p in problems[:20]:
         print("  " + p)
-    print("mods dry run: %d character INIs, %d load; sections: %s" % (mods, loaded, ", ".join("%s %d" % kv for kv in sorted(totals.items()))))
+    print("mods dry run: %d character INIs, %d load; sections: %s; identification thresholds: %s" % (
+        mods, loaded, ", ".join("%s %d" % kv for kv in sorted(totals.items())),
+        ", ".join("%d components %d Mods" % kv for kv in sorted(thresholds.items()))))
     return 1 if problems or not loaded else 0
 
 

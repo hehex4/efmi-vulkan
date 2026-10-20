@@ -920,6 +920,10 @@ void DrawPlanAdapter::texture_queries(TextureQuery query)
     };
 }
 bool DrawPlanAdapter::has_texture_queries() const {return bool(runtime_->texture_query) || bool(runtime_->resource_match);}
+const CommandListCommand* DrawPlanAdapter::original(const CommandListCommand& command)
+{
+    const auto* bridge=dynamic_cast<const BridgeCommand*>(&command);return bridge?bridge->original.get():&command;
+}
 void DrawPlanAdapter::resource_matches(ResourceMatchQuery query){
     if(runtime_->active || !runtime_->adapted.empty() || !query || runtime_->resource_match)
         refuse(L"Install one source resource matcher before adapting command lists");

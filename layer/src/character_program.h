@@ -36,6 +36,8 @@ public:
     size_t outside_meshes() const { return outside_meshes_; }
     // Discovery: mesh sections of the mod the contract has no part for (they stay the game's).
     size_t left_to_game() const { return left_to_game_; }
+    // The Mod's identification threshold (CharacterDiscovery::identify_components); 0 unknown.
+    uint32_t identify_components() const { return identify_components_; }
     // `vertex`: the vertex input of the pipeline the draw uses, where the blend-index element is found
     // for a bone stream first seen; without it (offline) the packager's rule applies.
     bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason,
@@ -57,5 +59,6 @@ private:
     std::map<std::string, CharacterList> lists_;
     std::vector<std::pair<uint32_t, uint32_t>> index_bounds_;
     size_t outside_meshes_ = 0, left_to_game_ = 0;
+    uint32_t identify_components_ = 0;
 };
 }

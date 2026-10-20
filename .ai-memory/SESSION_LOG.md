@@ -2036,3 +2036,10 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - layer/src/character_package.h/.cpp (CharacterDraw::blend, bone_index_bytes, 32-bit adoption), character_program.cpp (DXGI 3 accepted, refusal names the edits, implicit namespace and plain settings names), frontend/xxmi/character_core.cpp (namespace check), sandbox/character_test.cpp (4 checks), sandbox/runtime_test.py (implicit namespace), scripts/check_core_facts.py (truth written with LF), docs. Version 1.5.5.
 - Dry run of the installed Mods: 21 of 22 load without the owned runtime (snowshine needs it), 144 component sections draw, 2 refused for known limits.
 
+
+## 2026-10-20: captured frames replayed through the layer (candidate 1.5.6)
+
+- User direction in force: no game session unless unavoidable; do everything offline first.
+- scripts/replay_capture.py (new), sandbox/replay_gpu.cpp (new), sandbox/run_all.py (replay step), scripts/check_mods_dry_run.py (thresholds), frontend/xxmi/character_core.h/.cpp (identification threshold, facts output), draw_plan.h/.cpp (DrawPlanAdapter::original), layer/src/character_program.h/.cpp, character_backend.cpp (threshold, image budget, dimension policy, status), common.h/util.cpp (m2_dimension_zero), sandbox/character_test.cpp, harness.py (pinned off), docs/capture-replay.md, D-080, BUG-028, LIMIT-034. Version 1.5.6.
+- Debugging path worth keeping: an empty G-buffer in the replay was the replay's own (identity bones leave the Z-up mesh lying outside the view); --probe-vertices proved the replayed pass draws, identity everywhere in the bone buffer proved the Mod's draws do, and the upright stand-in fixed it. The forward pass needed the G-buffer's depth (EQUAL tests) and a clear value chosen from any reversed-depth pipeline of the pass.
+- Results: 13 of 16 bundles show the Mod in every pass, 0 validation messages in 32 runs; full rebuilt suite (build/next/run_all-1.5.6.out).

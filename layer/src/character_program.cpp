@@ -86,8 +86,10 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         if (!validate_refreshed(package, reason)) return false;
         if (!config.get("rabbit_textures").empty())
             throw std::runtime_error("RabbitFX texture-role inspection is not a complete runtime shader contract");
+        auto facts = std::make_shared<efmi::frontend::CharacterDiscovery>();
         if (!load(ini, core, manifest.parent_path() / "settings", config.get("settings", "mod"),
-                  efmi::frontend::character_core(config.get("namespace"), package), factory, reason)) return false;
+                  efmi::frontend::character_core(config.get("namespace"), package, facts), factory, reason)) return false;
+        identify_components_ = facts->identify_components;
         catalogue(package, remaps);
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
@@ -285,6 +287,7 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
         for (const auto& mesh : meshes) streams_.emplace(mesh.first, mesh.second);
         catalogue(package, remaps);
         left_to_game_ = found->left_to_game;
+        identify_components_ = found->identify_components;
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }

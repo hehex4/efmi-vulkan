@@ -124,6 +124,8 @@ public:
     // this query outside them (the host's draws, D-077).
     void texture_queries(TextureQuery);
     bool has_texture_queries() const;
+    // The original command an adapted list holds in place of `command` (itself when not adapted).
+    static const CommandListCommand* original(const CommandListCommand& command);
     using ResourceMatchQuery=std::function<bool(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&)>;
     // General source targets, including IB/VB, stage slots, resources and pools.
     // Mutually exclusive with the legacy pixel-only file-plan provider.

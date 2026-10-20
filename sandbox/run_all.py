@@ -33,6 +33,8 @@ STEPS = [
     ("DX11 registers from SPIR-V", [os.path.join(ROOT, "scripts", "check_source_slots.py")]),
     ("Core facts from SPIR-V", [os.path.join(ROOT, "scripts", "check_core_facts.py")]),
     ("installed Mods offline plans", [os.path.join(ROOT, "scripts", "check_mods_dry_run.py")]),
+    ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                      r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "300", "--check"]),
     ("original INI GPU resources", [os.path.join(ROOT, "scripts", "check_resource_commands.py")]),
     ("original HLSL Vulkan compiler", [os.path.join(ROOT, "scripts", "check_shader_compiler.py")]),
     ("installed Mods and Core HLSL", [os.path.join(ROOT, "scripts", "check_hlsl_folder.py")]),

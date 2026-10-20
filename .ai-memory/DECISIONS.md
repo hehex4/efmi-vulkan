@@ -792,3 +792,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Checked on the 57 catalogue vertex shaders (docs/core-facts-truth.json, suite step): the replacement decision agrees for all; for the 49 with rolling bones slot and window agree. C++ and Python agree on all 57 modules. No per-shader table.
 - Bone streams under the blend-index edit take the element offset from the draw's pipeline (R8G8B8A8_UINT in binding 2, R16G16B16A16_UNORM weights); the packager's stride rule only where the pipeline has no such element.
 
+
+## D-080: A Mod's identification threshold, the image budget and the dimension policy follow the Mod and the device
+
+- Date: 2026-10-20, after the capture replay (docs/capture-replay.md) found BUG-028.
+- Identification: an object becomes the Mod's once as many of its components were seen at one place as the Mod's own `$\EFMIv1\identification_min_components` asks, read as a constant assignment in the Mod's command lists (EFMI exports set 3 or 2 in DrawInstances) and through command-list adapters to the original command; without one, the Core's global value (default 4). Never a per-character number.
+- Resident image budget per character: a quarter of the largest device-local heap, clamped to 512 MiB .. 2 GiB (was a fixed 512 MiB; arcane needs 576 MiB).
+- The DX11 dimension policy for a 2D file at a 3D shader image (reads zero on the measured NVIDIA device) is configuration, `m2_dimension_zero = vendor:device`, applied to every package of a Mods folder when the device matches; offline packages keep their own. The replay and the deployment take it from the DX11 dimension evidence; another device gets no policy and such material slots keep the game's image.

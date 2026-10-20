@@ -340,6 +340,11 @@ public:
                 CharacterProgram::Source source;
                 try { source = mod_source(package_path); } catch (const std::exception& e) { last_reason = e.what(); return false; }
                 if (!program->discover(source, package, last_reason, gpu)) return false;
+                // The measured dimension policy, on the device it was measured on only.
+                if (g_cfg.m2_dimension_zero_vendor && g_cfg.m2_dimension_zero_vendor == properties.vendorID &&
+                    g_cfg.m2_dimension_zero_device == properties.deviceID) {
+                    package.material_vendor = properties.vendorID; package.material_device = properties.deviceID;
+                }
                 logf("character Mod read from its INI: %s: %zu mesh files, %zu images, %zu sections, %zu mesh sections left to the game",
                      package_path.c_str(), package.streams.size(), package.images.size(), package.sections.size(), program->left_to_game());
             } else if (!program->init(package_path, package, last_reason, gpu)) return false;
@@ -842,6 +847,15 @@ bool CharacterGeneration::init_materials()
 #define X(n) resource.buffer_dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n));
     EFMI_BUFFER_UPLOAD_FUNCS(X)
 #undef X
+    {
+        // The images of one character may hold a quarter of the largest device-local heap, between
+        // 512 MiB and 2 GiB. Installed Mods ship textures of 64 MiB (4096 x 4096 uncompressed); a fixed
+        // 512 MiB left a character's last images unloaded and its materials waiting for good.
+        uint64_t heap = 0;
+        for (uint32_t i = 0; i < memory.memoryHeapCount; ++i)
+            if (memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) heap = std::max<uint64_t>(heap, memory.memoryHeaps[i].size);
+        image_budgets.resident = std::make_shared<assets::AllocationBudget>(std::clamp<uint64_t>(heap / 4, 512ull << 20, 2048ull << 20));
+    }
     images = std::make_unique<assets::ResourceCache>(resource, image_budgets, 64);
     for (const auto& path : package.images) {
         auto handle = images->declare_image(std::filesystem::u8path(path), last_reason);
@@ -1077,7 +1091,9 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
         if (!identity->custom) {
             uint32_t bits = 0;
             for (uint32_t value = identity->seen; value; value &= value - 1) ++bits;
-            if (bits >= std::min<uint32_t>(kIdentifyingComponents, static_cast<uint32_t>(package.components.size())) && now > identity->first_frame)
+            // The original Core's identification_min_components as the Mod sets it (EFMI exports: 3).
+            const uint32_t wanted = program && program->identify_components() ? program->identify_components() : kIdentifyingComponents;
+            if (bits >= std::min<uint32_t>(wanted, static_cast<uint32_t>(package.components.size())) && now > identity->first_frame)
                 identity->custom = true;
             else { ++counters[C_IDENTIFYING]; return false; }
         }
@@ -1713,6 +1729,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kb("lazy", backend.lazy);
         w.kn("texture_queries", backend.texture_queries);
         w.kn("source_facts_unknown", backend.facts_unknown);
+        w.kn("identify_components", backend.program ? backend.program->identify_components() : 0);
         w.kn("texture_unknown", backend.texture_unknown);
         if (backend.texture_reason) w.kv("texture_unknown_reason", backend.texture_reason);
         w.kb("activated", backend.activated.load());

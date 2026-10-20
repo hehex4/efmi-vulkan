@@ -391,6 +391,7 @@ int main(int argc, char** argv)
             w.kn("streams", package.streams.size()); w.kn("images", package.images.size());
             w.kn("components", package.components.size()); w.kn("bones", package.bones);
             w.kn("left_to_game", program.left_to_game());
+            w.kn("identify_components", program.identify_components());
             w.key("sections"); w.begin_array();
             uint64_t frame = 0;
             uint32_t current_lod = 0; // as the backend: a section that assigns the LOD changes it for those that do not

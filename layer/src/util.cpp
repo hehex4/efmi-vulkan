@@ -272,6 +272,13 @@ void util_init(HMODULE self)
     if (g_cfg.m2_mods == "off") g_cfg.m2_mods.clear();
     g_cfg.m2_core = setting("EFMI_VK_M2_CORE", "m2_core");
     g_cfg.m2_settings = setting("EFMI_VK_M2_SETTINGS", "m2_settings");
+    {
+        const std::string zero = setting("EFMI_VK_M2_DIMENSION_ZERO", "m2_dimension_zero");
+        unsigned vendor = 0, device = 0;
+        if (sscanf(zero.c_str(), "%u:%u", &vendor, &device) == 2) {
+            g_cfg.m2_dimension_zero_vendor = vendor; g_cfg.m2_dimension_zero_device = device;
+        }
+    }
     std::string m2_enabled = setting("EFMI_VK_M2_ENABLED", "m2_enabled");
     g_cfg.m2_enabled = m2_enabled == "1" || m2_enabled == "on";
 

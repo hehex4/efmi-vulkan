@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "1.5.5"
+#define EFVK_VERSION "1.5.6"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -48,6 +48,10 @@ struct Config {
     // the Core folder they run with (default: Core\EFMI beside the Mods folder) and the project-owned
     // folder their settings are saved in (default: settings beside the replacement module).
     std::string m2_mods, m2_core, m2_settings;
+    // The measured DX11 result for a 2D file at a 3D shader image on one device (zero: the
+    // dx11-invalid-2d-to-3d-zero policy, docs/character-materials.md), as "vendor:device"; the
+    // directory generation applies it only on that device. The evidence is checked by the tooling.
+    uint32_t m2_dimension_zero_vendor = 0, m2_dimension_zero_device = 0;
     bool m2_enabled = false;
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped

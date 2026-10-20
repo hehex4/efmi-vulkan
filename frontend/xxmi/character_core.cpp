@@ -33,7 +33,7 @@ class CharacterCore : public RuntimeExtension {
     size_t outside_package = 0, texture_sections = 0;
     // Discovery (D-078): the mod's mesh sections as the registry holds them, with the original
     // component id and LOD they assign; the contract is completed once the skeleton is known.
-    std::shared_ptr<CharacterDiscovery> discovery;
+    std::shared_ptr<CharacterDiscovery> discovery, facts;
     struct FoundSection { efvk::CharacterSection section; uint32_t original = efvk::kCharacterNone; };
     std::vector<FoundSection> found;
     // The constant a section's command list assigns to `name`, at its top level or inside its `if`
@@ -43,13 +43,15 @@ class CharacterCore : public RuntimeExtension {
     static void assignments(const CommandList* list, const std::wstring& name, std::set<uint32_t>& values, bool& unknown, unsigned depth = 0)
     {
         if (!list || depth > 32) { unknown |= depth > 32; return; }
-        for (const auto& command : list->commands) {
-            if (const auto* branch = dynamic_cast<const IfCommand*>(command.get())) {
+        for (const auto& held : list->commands) {
+            // Adapted lists hold the original command inside the planner's bridge.
+            const CommandListCommand* command = DrawPlanAdapter::original(*held);
+            if (const auto* branch = dynamic_cast<const IfCommand*>(command)) {
                 assignments(branch->true_commands_pre.get(), name, values, unknown, depth + 1);
                 assignments(branch->false_commands_pre.get(), name, values, unknown, depth + 1);
                 continue;
             }
-            const auto* assignment = dynamic_cast<const VariableAssignment*>(command.get());
+            const auto* assignment = dynamic_cast<const VariableAssignment*>(command);
             if (!assignment || !assignment->var || _wcsicmp(assignment->var->name.c_str(), name.c_str())) continue;
             float value = 0;
             if (const_cast<CommandListExpression&>(assignment->expression).static_evaluate(&value) &&
@@ -57,6 +59,24 @@ class CharacterCore : public RuntimeExtension {
                 values.insert(uint32_t(value));
             else unknown = true;
         }
+    }
+    // Constant values assigned to `name` anywhere in the mod's command lists (a restore from a saved
+    // variable is not a value of its own).
+    uint32_t identification_threshold() const
+    {
+        const std::wstring name = L"$" + core_namespace + L"identification_min_components";
+        const std::wstring prefix = L"commandlist" + mod;
+        std::set<uint32_t> values;
+        for (const auto& section : explicitCommandListSections) {
+            if (_wcsnicmp(section.first.c_str(), prefix.c_str(), prefix.size())) continue;
+            bool unknown = false;
+            assignments(&section.second.command_list, name, values, unknown);
+        }
+        if (values.size() == 1 && *values.begin() > 0 && *values.begin() <= 16) return *values.begin();
+        const auto core = command_list_globals.find(name);
+        if (core != command_list_globals.end() && std::isfinite(core->second.fval) && core->second.fval >= 1 && core->second.fval <= 16)
+            return uint32_t(core->second.fval);
+        return 0;
     }
     static uint32_t assigned(const CommandList& list, const std::wstring& name)
     {
@@ -84,6 +104,7 @@ class CharacterCore : public RuntimeExtension {
             fail(reason, L"Original Core request differs from the resolved native identity, bone or LOD contract");
     }
 public:
+    void set_facts(std::shared_ptr<CharacterDiscovery> out) { facts = std::move(out); }
     CharacterCore(const std::string& name, std::shared_ptr<CharacterDiscovery> output)
         : CharacterCore(name, efvk::CharacterPackage{}, false) { discovery = std::move(output); }
     CharacterCore(const std::string& name, const efvk::CharacterPackage& package, bool rabbit) : expected(package), rabbit_textures(rabbit)
@@ -340,7 +361,9 @@ global $mod_id = -1
         }
         if (std::find(original_components.begin(), original_components.end(), UINT32_MAX) != original_components.end())
             return fail(why, L"Profiled component is absent from original skeleton");
-        prepared = true; return true;
+        prepared = true;
+        if (const auto out = discovery ? discovery : facts) out->identify_components = identification_threshold();
+        return true;
     }
     bool before_draw(const RuntimeDraw& draw, CommandListState&, std::wstring& why) override
     {
@@ -353,6 +376,13 @@ global $mod_id = -1
 std::shared_ptr<RuntimeExtension> character_core(const std::string& mod_namespace, const efvk::CharacterPackage& package, bool rabbit)
 {
     return std::make_shared<CharacterCore>(mod_namespace, package, rabbit);
+}
+std::shared_ptr<RuntimeExtension> character_core(const std::string& mod_namespace, const efvk::CharacterPackage& package,
+                                               std::shared_ptr<CharacterDiscovery> facts)
+{
+    auto core = std::make_shared<CharacterCore>(mod_namespace, package, false);
+    core->set_facts(std::move(facts));
+    return core;
 }
 std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_namespace, std::shared_ptr<CharacterDiscovery> output)
 {

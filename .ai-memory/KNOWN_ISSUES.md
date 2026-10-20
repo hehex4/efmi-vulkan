@@ -733,3 +733,16 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 - Fix: D-079, the facts by the Core's rules on the vertex module's D-076 registers (docs/core-facts.md). Dry run after the fix: 137 component sections draw. Two smaller findings of the same run: section component/LOD assignments sit inside `if` branches (discovery reads them there), and a 24-byte blend stream (Typhoeus) needs the pipeline's element offset instead of the packager's stride rule.
 - Not covered by the sandbox scene: its vertex shader has no instance window; the rule is covered by unit checks, the catalogue check (57 vertex shaders) and the dry run.
 
+
+## BUG-028: Directory-mode characters were never replaced with real pipelines (fixed in candidate 1.5.6)
+
+- Found 2026-10-20 offline by the capture replay (scripts/replay_capture.py, arcane bundle vk03): every matched draw stayed the game's.
+- Causes, in the order they showed: (1) identification waited for four components (the Core's default) while EFMI exports set `identification_min_components = 3` in DrawInstances, and adapted command lists (BridgeCommand) hid that assignment from the reader; (2) the resident image budget of 512 MiB was below arcane's 576 MiB of images, so materials stayed pending forever; (3) in directory mode no package carried the DX11 dimension policy, so material slots with a 2D file at a 3D shader image were refused.
+- Fix: D-080. After it the replay replaces the draws of all three passes (prepass, G-buffer, forward) without validation errors.
+- Not covered before: the sandbox scene's fixture draws every one of its few components and has small images; the offline dry run has no images and no GPU.
+
+## LIMIT-034: A Mod that replaces the Core's instance identification with its own list is refused at its draws
+
+- Found 2026-10-20 by the capture replay (Si Lunabelle, bundle vk04). `Si_BossGuard.ini`, an optional INI in the Mod's folder, sets `CommandList\si_lunabelle\_OptionalInstanceIdentification` in Present to its own list, which runs the Core's spatial-identity internals itself (`Resource\EFMIv1\Original_VS_CB->SpatialHash(...)`, the Core's spatial pools, `SpatialIdentity_IdentifyObject`) to identify only the player's body and not a boss with the same parts.
+- The layer identifies objects natively (the Core's `SpatialIdentity_IdentifyComponentInstances` is a native call); a resource query on the original VS constant buffer is not answered in a replaced draw's plan, so every draw of the Mod is refused ("Resource query adapter is unavailable or over budget") and the game draws its own mesh. Safe, but the Mod does not apply.
+- The offline dry run does not show it: its generations hold the character INI alone. Supporting it means running the Core's spatial identification for real in the plan, with the instance entries as `Original_VS_CB`; not attempted. The Mod's own comment says the file may be removed to restore the base behaviour; Mods are read-only to this project.
