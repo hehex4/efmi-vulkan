@@ -1016,6 +1016,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         run(pre,state);
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         runtime_->flush(state);
+        candidate.pre_items=candidate.items.size();
         if(between){std::wstring why;if(!between(state,why))refuse(why.empty()?L"Root phase boundary refused":why);}
         if(post){
             // RunCommandListComplete creates a fresh state for the independent

@@ -1,5 +1,6 @@
 #pragma once
 #include "resource_cache.h"
+#include <cstdint>
 namespace efmi::core {struct PaletteSnapshot;}
 
 namespace efmi::assets {
@@ -39,6 +40,7 @@ struct FilePlanItem {
 struct FilePlan {
     bool skip_original=false;
     std::vector<FilePlanItem> items;
+    size_t pre_items=SIZE_MAX; // items before the original draw (DrawPlan::pre_items)
 };
 enum class FileReadiness { Pending, Ready, Failed };
 class PreparedFilePlan {

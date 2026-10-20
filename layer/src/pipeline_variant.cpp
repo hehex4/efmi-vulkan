@@ -114,7 +114,19 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
 {
     clear(); reason.clear(); result = VK_SUCCESS;
     VertexRepoint rewritten;
-    if (!prepare_vertex_variant(recipe, source, max_sets, rewritten, reason)) return false;
+    if (patch.keep_vertex) {
+        // Only the layout: the private set above the pipeline's own sets, no vertex rewrite.
+        if (!recipe.complete) { reason = "recipe:" + recipe.reason; return false; }
+        if (!source.complete || source.flags || source.sets.empty() || source.sets.size() > 8 || source.sets.size() >= max_sets) {
+            reason = "layout_requires_complete_sets_and_one_free_slot"; return false;
+        }
+        for (const auto& s : source.sets) {
+            if (!s || !s->complete || s->flags) { reason = "set_layout_unsupported"; return false; }
+            for (const auto& pair : s->bindings)
+                if (!pair.second.immutable_samplers.empty() || pair.second.flags) { reason = "immutable_sampler_or_binding_flags"; return false; }
+        }
+        if (patch.images.empty() && patch.nulls.empty()) { reason = "texture_only_variant_without_images"; return false; }
+    } else if (!prepare_vertex_variant(recipe, source, max_sets, rewritten, reason)) return false;
     size_t fs_index=recipe.stages.size();std::vector<uint32_t> fragment;
     own_set = static_cast<uint32_t>(source.sets.size());
     if(!prepare_fragment(recipe,source,patch,limits,own_set,fs_index,fragment,reason))return false;
@@ -154,7 +166,7 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
     }
     std::vector<VkShaderModule> modules;
     for (size_t i = 0; i < recipe.stages.size(); i++) {
-        const auto& code = i == vs_index ? rewritten.words : (i==fs_index?fragment:recipe.stages[i].shader->code);
+        const auto& code = i == vs_index && !patch.keep_vertex ? rewritten.words : (i==fs_index?fragment:recipe.stages[i].shader->code);
         VkShaderModuleCreateInfo ci = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         ci.codeSize = code.size() * sizeof(uint32_t); ci.pCode = code.data();
         VkShaderModule module = VK_NULL_HANDLE;

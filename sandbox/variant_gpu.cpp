@@ -339,6 +339,27 @@ static void run(Gpu& g, bool use_rp2,bool material)
         check(null_variant.state==VariantState::Ready && null_variant.variant->image_count==0,"null material has an independently compiled buffer-only private layout");
         if(!null_variant.variant)throw std::runtime_error(null_variant.reason);
     }
+    // A texture-only variant (D-083): the application's vertex stage and geometry, the fragment image re-pointed.
+    VariantResult keep_variant;
+    if(material){
+        FragmentPatch keep;keep.images={{1,6}};keep.keep_vertex=true;
+        do{
+            keep_variant=cache.request(1,owned_recipe,owned_layout,recipe.vertex,keep);
+            if(keep_variant.state==VariantState::Queued || keep_variant.state==VariantState::Building)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));else break;
+        }while(std::chrono::steady_clock::now()<deadline);
+        check(keep_variant.state==VariantState::Ready && keep_variant.variant->image_count==1 && keep_variant.variant->own_set==3 &&
+              keep_variant.variant.get()!=pending.variant.get(),"texture-only variant keeps the vertex stage and is cached apart");
+        if(!keep_variant.variant)throw std::runtime_error(keep_variant.reason);
+        FragmentPatch empty;empty.keep_vertex=true;
+        VariantResult nothing;
+        do{
+            nothing=cache.request(1,owned_recipe,owned_layout,recipe.vertex,empty);
+            if(nothing.state==VariantState::Queued || nothing.state==VariantState::Building)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));else break;
+        }while(std::chrono::steady_clock::now()<deadline);
+        check(nothing.state==VariantState::Failed,"a texture-only variant without images is refused");
+    }
     // A separate compatible pass is used for drawing, rather than the already destroyed creation pass.
     VK(recipe.render_pass->create(g.device, vkCreateRenderPass, vkCreateRenderPass2, &g.pass));
     Image color = g.image(VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -367,11 +388,14 @@ static void run(Gpu& g, bool use_rp2,bool material)
     memcpy(original_bones + 258 * 4, game_tint, 16); memcpy(own_bones.data() + 258 * 16, own_tint, 16);
     uint32_t offset = static_cast<uint32_t>(g.properties.limits.minUniformBufferOffsetAlignment);
     if (offset < 32) offset = 32;
-    Buffer instance = g.buffer(offset + 32, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    Buffer instance = g.buffer(2 * offset + 32, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     InstanceEntry own_instance = {};
     const float original_instance[] = {0, -.35f, 0, 0, 1, 1, material?1.f:0.f, material?1.f:.5f};
     const float replacement_instance[] = {0, .35f, 0, 0, 1, 0, 1, 1};
     memcpy(static_cast<char*>(instance.mapped) + offset, original_instance, 32);
+    // A second application entry, for the texture-only draw: the same mesh moved right (x 48, y 19).
+    const float textured_instance[] = {1, -.35f, 0, 0, 1, 1, 1, 1};
+    memcpy(static_cast<char*>(instance.mapped) + 2 * offset, textured_instance, 32);
     memcpy(own_instance.data(), replacement_instance, 32);
     // Offset zero is deliberately wrong for both draws.
     static_cast<float*>(instance.mapped)[0] = 10;
@@ -413,6 +437,14 @@ static void run(Gpu& g, bool use_rp2,bool material)
         check(null_snapshots.create(g.memory,g.properties.limits,1,static_cast<uint32_t>(own_bones.size())) &&
               null_snapshots.append(own_bones,null_entry,null_slot),"explicit null material uses no image descriptor or owner");
         null_snapshots.seal();
+    }
+    DrawSnapshots texture_snapshots(g.device,snapshot_dispatch);SnapshotSlot texture_slot;
+    if(material){
+        check(texture_snapshots.create_shared(g.memory,g.properties.limits,1,1,static_cast<uint32_t>(own_bones.size()),65536,1) &&
+              texture_snapshots.append_images(own_instance,image_list(2),texture_slot) && texture_snapshots.slices_used()==0,
+              "a texture-only entry takes an image and no bone copy");
+        check(!texture_snapshots.append_images(own_instance,image_list(2),bad_slot),"full texture-only storage refuses");
+        texture_snapshots.seal();
     }
     std::fill(own_bones.begin(),own_bones.end(),0); own_instance.fill(0);
     Buffer readback = g.buffer(64 * 64 * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
@@ -485,6 +517,14 @@ static void run(Gpu& g, bool use_rp2,bool material)
     check(emit_variant_draws(dispatch,cmd,sequence,2,g.pipeline,original), "multiple resolved ranges emitted by one transaction");
     if(material)check(emit_variant_draw(dispatch,cmd,*null_variant.variant,null_slot.set,null_slot.offset,replacement,draw,g.pipeline,original),
                       "explicit null fragment variant restores original application state");
+    if(material){
+        // The application's draw again, with its own sets at the second entry, through the texture-only variant.
+        const uint32_t second_entry=2*offset;
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.layout,0,3,sets,1,&second_entry);
+        check(emit_variant_draw(dispatch,cmd,*keep_variant.variant,texture_slot.set,texture_slot.offset,original,draw,g.pipeline,original),
+              "texture-only draw emitted with the application's geometry");
+        vkCmdBindDescriptorSets(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.layout,0,3,sets,1,&offset);
+    }
     vkCmdDrawIndexed(cmd, 3, 1, 0, 0, 0);
     vkCmdEndRenderPass(cmd);
     VkBufferImageCopy copy = {}; copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}; copy.imageExtent = {64, 64, 1};
@@ -513,6 +553,7 @@ static void run(Gpu& g, bool use_rp2,bool material)
         sample(16,42,{0,255,0,255},"second material draw reads its private green image and original fragment buffers");
         sample(32,8,{0,0,0,0},"null variant produces zero without a bound null descriptor");
         sample(16,19,{0,0,255,255},"following original draw keeps original blue material");
+        sample(48,19,{0,255,0,255},"texture-only draw: the application's vertex stage and mesh, the private green image");
     }else{
         pixel(48, 42, true, "mod geometry moved by both own buffers, original fragment data and blending");
         pixel(16, 42, true, "second range uses its first index, vertex offset and private instance entry");

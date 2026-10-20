@@ -40,8 +40,11 @@ public:
     uint32_t identify_components() const { return identify_components_; }
     // `vertex`: the vertex input of the pipeline the draw uses, where the blend-index element is found
     // for a bone stream first seen; without it (offline) the packager's rule applies.
+    // `textures`: when the plan leaves the application's draw (skip false) but binds textures for it in
+    // its pre phase, and nothing else, `output` is a list of one texture-only draw with those pixels
+    // and *textures is true (D-083). Without the pointer such a plan is just the application's draw.
     bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason,
-              const VertexInputRecipe* vertex = nullptr);
+              const VertexInputRecipe* vertex = nullptr, bool* textures = nullptr);
     bool present(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason) { return !runtime_ || runtime_->save(reason); }
     bool take_reload_request() { return runtime_ && runtime_->take_reload_request(); }

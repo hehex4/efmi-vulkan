@@ -292,13 +292,48 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, CharacterPackage& package, CharacterList& output,
-                            bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex)
+                            bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures)
 {
     try {
         added = false; efmi::assets::FilePlan plan;
+        if (textures) *textures = false;
         if (!runtime_->draw(request, plan, reason)) return false;
         skip = plan.skip_original;
-        if (!skip) { output = {}; return true; }
+        if (!skip) {
+            output = {};
+            if (!textures) return true;
+            // The application's draw stays, with the textures the pre phase bound for it: under DX11
+            // they are bound when the game's draw runs. Geometry or draws of the Mod make it no
+            // texture-only plan; post commands come after the draw.
+            std::map<uint32_t, uint32_t> pixels;
+            for (size_t i = 0; i < plan.items.size() && i < plan.pre_items; ++i) {
+                const auto& item = plan.items[i];
+                using Op = efmi::assets::FileOperation;
+                if (item.operation == Op::BindPixelResource) {
+                    if (!item.resource) { pixels[item.slot] = kCharacterNone; continue; }
+                    const auto found = images_.find(key(item.resource->path));
+                    if (found == images_.end()) throw std::runtime_error("INI image not in prepared resource catalogue");
+                    pixels[item.slot] = found->second;
+                } else if (item.operation != Op::External) return true;
+            }
+            if (pixels.empty()) return true;
+            std::vector<uint8_t> signature{'T'};
+            for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
+            const std::string id(signature.begin(), signature.end());
+            const auto found = lists_.find(id);
+            if (found == lists_.end()) {
+                if (lists_.size() >= 1024 || package.draws.size() + 1 > 16384) throw std::runtime_error("Runtime draw-plan cache budget exceeded");
+                CharacterDraw draw;
+                draw.index_stream = kCharacterNone; draw.texture_only = true;
+                std::vector<CharacterPixel> material;
+                for (const auto& pixel : pixels) material.push_back({pixel.first, pixel.second});
+                const CharacterList result{uint32_t(package.draws.size()), 1, 0};
+                package.draws.push_back(draw); package.pixels.push_back(std::move(material));
+                lists_.emplace(id, result); added = true; output = result;
+            } else output = found->second;
+            *textures = true;
+            return true;
+        }
         CharacterDraw bound;
         bound.index_stream = kCharacterNone;
         std::map<uint32_t, uint32_t> pixels;

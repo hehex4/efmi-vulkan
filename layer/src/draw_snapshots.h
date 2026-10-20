@@ -45,6 +45,9 @@ public:
     bool append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry&, SnapshotSlot&);
     bool append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry&,
                        const std::vector<SnapshotImage>&, SnapshotSlot&);
+    // A texture-only draw (D-083): the entry and images; the bone binding points at the arena's
+    // first slice without copying (the pipeline does not read it). Shared arenas only.
+    bool append_images(const InstanceEntry&, const std::vector<SnapshotImage>&, SnapshotSlot&);
     uint32_t slices_used() const { return slices_used_; }
     bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, SnapshotSlot&);
     bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, const std::vector<SnapshotImage>&, SnapshotSlot&);

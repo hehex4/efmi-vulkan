@@ -26,6 +26,9 @@ struct CharacterDraw {
     // A live plan's blend-index format for binding 2 (R16G16B16A16_UINT or R32G32B32A32_UINT);
     // undefined keeps the package's edits. Not part of the package file.
     VkFormat blend = VK_FORMAT_UNDEFINED;
+    // A live plan that leaves the application's draw but binds textures for it (D-083): no geometry
+    // of the package; the draw is made again with its own geometry and these pixels. Not in the file.
+    bool texture_only = false;
 };
 struct CharacterList {
     uint32_t first = 0, count = 0; // into draws; an empty list hides the original geometry

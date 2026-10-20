@@ -23,6 +23,9 @@ struct FragmentPatch {
     // Ordered images become private bindings 2+i; nulls consume no descriptors.
     // Neither list contains asset handles, component ids or inferred slot names.
     std::vector<efmi::gpu::ImageBinding> images, nulls;
+    // The application's vertex stage unchanged: the variant only re-points fragment images (a
+    // texture-only draw, D-083); the private set's buffers are bound but not read.
+    bool keep_vertex = false;
 };
 std::vector<VkDescriptorSetLayoutBinding> private_draw_bindings(uint32_t image_count);
 

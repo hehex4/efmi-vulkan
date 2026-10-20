@@ -813,3 +813,9 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - The classification must be general (no per-shader or per-character table, D-075) and is checked against the RabbitFX ground truth of the catalogue (the patched DX11 shaders) before any Mod relies on it.
 - Same day, the user chose to continue offline before a game session.
 - Implemented in 1.5.8 (docs/rabbitfx-roles.md): diffuse = first sRGB asset texture sampled; lightmap = a linear BC texture of its size right after it; normal map = the first BC5 after those, else a sample decoded as a normal (x2 then a square root in its data flow) within 100 instructions, else the next linear BC texture. Agrees with RabbitFX on 462/474/457 of 480 catalogue draws (diffuse/lightmap/normal), all three on 117 of 128 patterns; the 11 others are RabbitFX's own misreadings, named in scripts/check_texture_roles.py. Where RabbitFX takes a lightmap for the normal map the rule follows the shader. Glow, FX and hue need RabbitFX's rewrite and are not reproduced.
+
+## D-083: A section that only changes a game draw's textures redraws that draw with them
+
+- Date: 2026-10-20 (candidate 1.5.9), the next step after D-082 (13 sections of six installed Mods keep the game's mesh and change its textures, mostly through RabbitFX).
+- A plan that leaves the application's draw and binds textures in its pre phase, and nothing else, is a texture-only draw: the layer draws the application's draw again in its place with the application's geometry, arguments and vertex stage, through a variant that only re-points fragment images to the private set, with the Mod's images by the same material rules. Post-phase commands are not part of it (DrawPlan/FilePlan pre_items).
+- Geometry changes of a game draw without a draw of the Mod (vertex/index bindings alone) stay the game's. docs/texture-only-draws.md.

@@ -466,8 +466,8 @@ int main(int argc, char** argv)
                     // Offline no game texture is known: every pixel slot is bound without a hash, as the
                     // backend answers for a resource whose hash it cannot know.
                     request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
-                    CharacterList list; bool skip = false, added = false; std::string refused;
-                    const bool ok = program.plan(request, package, list, skip, added, refused);
+                    CharacterList list; bool skip = false, added = false, textures = false; std::string refused;
+                    const bool ok = program.plan(request, package, list, skip, added, refused, nullptr, &textures);
                     w.begin_object();
                     char hash[16]; snprintf(hash, sizeof(hash), "%08x", s.hash);
                     w.kv("hash", hash); w.kn("count", s.match_count);
@@ -477,6 +477,7 @@ int main(int argc, char** argv)
                     if (!ok) w.kv("reason", refused);
                     else {
                         w.kb("skip", skip); w.kn("draws", list.count); w.kn("required", list.required);
+                        if (textures) w.kb("textures", true); // the application's draw with the Mod's textures (D-083)
                         std::set<uint32_t> slots, files;
                         for (uint32_t i = 0; i < list.count; ++i)
                             for (const auto& pixel : package.pixels[list.first + i]) {

@@ -20,7 +20,7 @@ Khronos VVL 1.4.321 and SPIRV-Tools are built under `F:/vulkan`. The sandbox pas
 
 2026-10-19 (1.5.2): six of the twelve directory packages that load in the sandbox reference RabbitFX (akekuri, avywenna, estella, mifu, perlica, rossiy). The library is a ShaderRegex Mod in its own folder (`Mods/RabbitFX -ENDMI-`), outside the per-Mod generation, so its references stay original warnings and its textures (ps-t70 to t74, t60, t61) never bind. Belongs with the phase 4 shader work. Assessment with ground truth from the catalogue: docs/rabbitfx-assessment.md (no exact SPIR-V rule; diffuse by the first sample 79 of 83).
 
-2026-10-20 (1.5.8, D-082): partly lifted. The layer's generations carry a native RabbitFX namespace; SetTextures binds a Mod's diffuse, lightmap and normal map at the roles the draw's fragment shader and textures give (docs/rabbitfx-roles.md). Still open: RabbitFX in sections that keep the game's mesh and only change its textures (texture-only replacement of game draws), and the glow/FX/hue features that need RabbitFX's shader rewrite.
+2026-10-20 (1.5.8, D-082): partly lifted. The layer's generations carry a native RabbitFX namespace; SetTextures binds a Mod's diffuse, lightmap and normal map at the roles the draw's fragment shader and textures give (docs/rabbitfx-roles.md). Still open: the glow/FX/hue features that need RabbitFX's shader rewrite. Sections that keep the game's mesh and only change its textures: done in 1.5.9 (D-083).
 
 ## LIMIT-005: Dynamic offsets attributed to the first set (fixed in 0.4.0)
 

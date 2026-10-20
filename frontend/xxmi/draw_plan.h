@@ -1,5 +1,6 @@
 #pragma once
 #include "CommandList.h"
+#include <cstdint>
 #include <functional>
 namespace efmi::core {struct PaletteSnapshot;}
 
@@ -29,6 +30,8 @@ struct PlanItem {
 struct DrawPlan {
     bool skip_original = false;
     std::vector<PlanItem> items;
+    // Items the pre phase made: those before the original draw; the rest are post commands.
+    size_t pre_items = SIZE_MAX;
 };
 
 // Mediate backend commands; retain the original XXMI expression, branch and

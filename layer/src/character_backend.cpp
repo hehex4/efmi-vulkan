@@ -120,14 +120,14 @@ enum Counter : uint32_t {
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
-    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_COUNT
+    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
     "refused_state", "refused_instances", "refused_set3", "refused_pipeline", "refused_vertex", "refused_variant",
     "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
-    "material_derived", "material_inherited", "identities_created", "identities_expired"
+    "material_derived", "material_inherited", "identities_created", "identities_expired", "textured"
 };
 
 struct GpuMesh {
@@ -859,6 +859,9 @@ public:
     }
 
     bool record(CmdBuf* cb, const DrawRec& r);
+    // The application's draw made again with the Mod's textures (D-083). Caller holds res_mx and
+    // mod_mx; `list` is a texture-only list of the program.
+    bool record_textures(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present, const CharacterList& list);
 };
 
 bool CharacterGeneration::init_materials()
@@ -1082,9 +1085,16 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
                 request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
                     return pixel_texture(r, slot, bound, value, why); };
                 request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
-                bool skip = false, added = false; std::string reason;
-                if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI hide: " + reason);
-                if (!skip) return false;
+                bool skip = false, added = false, textures = false; std::string reason;
+                if (!program->plan(request, package, runtime_list, skip, added, reason, nullptr, &textures)) return refuse(C_STATE, "INI hide: " + reason);
+                if (!skip) {
+                    if (!textures) return false;
+                    if (added && !refresh_materials()) return false;
+                    const auto pipe = device->pipes.find(r.pipeline);
+                    if (pipe == device->pipes.end() || !pipe->second.recipe || !pipe->second.layout)
+                        return refuse(C_PIPELINE, "texture-only draw pipeline metadata missing");
+                    return record_textures(cb, r, pipe->second, static_cast<uint32_t>(section - package.sections.data()), present, runtime_list);
+                }
                 if (runtime_list.count) return refuse(C_STATE, "INI hide override unexpectedly emits geometry");
             }
             ++counters[C_HIDDEN]; return true;
@@ -1191,10 +1201,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
                 request.source_vs_config_slot = facts.vs_config_slot;
                 request.rolling_bone_source = facts.rolling_bones;
             }
-            bool skip = false, added = false; std::string reason;
-            if (!program->plan(request, package, runtime_list, skip, added, reason, &pipe->second.recipe->vertex))
+            bool skip = false, added = false, textures = false; std::string reason;
+            if (!program->plan(request, package, runtime_list, skip, added, reason, &pipe->second.recipe->vertex, &textures))
                 return refuse(C_STATE, "INI plan: " + reason);
-            if (!skip) return false;
+            if (!skip) {
+                if (!textures) return false;
+                if (added && !refresh_materials()) return false;
+                return record_textures(cb, r, pipe->second, static_cast<uint32_t>(section - package.sections.data()), present, runtime_list);
+            }
             if (added && !refresh_materials()) return false;
             list = &runtime_list;
         }
@@ -1304,6 +1318,90 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
         if (!plan->patch.images.empty() || !plan->patch.nulls.empty()) ++counters[C_MATERIAL_ITEMS];
         if (plan->compatibility) ++counters[C_COMPAT_ITEMS];
     }
+    return true;
+}
+
+bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present,
+                                          const CharacterList& list)
+{
+    if (list.count != 1 || !package.draws[list.first].texture_only) return refuse(C_STATE, "texture-only list expected");
+    if (cb->secondary || !cb->in_rp || cb->dyn_rp_count || cb->m2_extended_bind)
+        return refuse(C_STATE, "texture-only draw outside a primary classic render pass or after extended binds");
+    std::vector<const StaticMaterial*> plans;
+    std::vector<std::vector<SnapshotImage>> views;
+    uint32_t origin = 0;
+    if (!material_draws(pipe, section, r, present, list, plans, views, origin)) return false;
+    // Nothing the module can take: the application's draw stays as it is.
+    if (plans.size() != 1 || (plans[0]->patch.images.empty() && plans[0]->patch.nulls.empty())) return false;
+    // The private set above the pipeline's own sets, and an application set there bound again after.
+    uint32_t restore_slot = 0;
+    VkPipelineLayout restore_layout = VK_NULL_HANDLE;
+    VkDescriptorSet restore_set = VK_NULL_HANDLE;
+    std::vector<uint32_t> restore_offsets;
+    const uint32_t own = static_cast<uint32_t>(pipe.layout->sets.size());
+    if (own >= kMaxSets) {
+        if (device->max_layout_sets > own) return refuse(C_SET3, "texture-only draw: the slot above the pipeline's sets is in use and not tracked");
+    } else if (r.sets[own].pushed) {
+        return refuse(C_SET3, "texture-only draw with pushed descriptors at the private set's slot");
+    } else if (r.sets[own].set) {
+        const SetBind& app = r.sets[own];
+        restore_slot = own;
+        auto live = device->pipeline_layouts.find(app.layout_handle);
+        if (!app.layout_handle || !app.layout || app.unsupported || live == device->pipeline_layouts.end() ||
+            live->second != app.layout || (app.dyn_count && uint64_t(app.dyn_first) + app.dyn_count > cb->dyn.size()))
+            return refuse(C_SET3, "texture-only draw with an application set that cannot be bound again");
+        restore_layout = app.layout_handle; restore_set = app.set;
+        restore_offsets.assign(cb->dyn.begin() + app.dyn_first, cb->dyn.begin() + app.dyn_first + app.dyn_count);
+    }
+    // The application's own geometry: the vertex bindings the pipeline reads among the tracked ones,
+    // bound again as they are; higher ones are not touched and stay the application's.
+    DrawGeometry original;
+    uint32_t slots = 0;
+    for (const auto& b : pipe.recipe->vertex.bindings) if (b.binding < kMaxVb) slots = std::max(slots, b.binding + 1);
+    if (!r.ib) return refuse(C_BINDINGS, "texture-only draw without a tracked index binding");
+    for (uint32_t slot = 0; slot < slots; ++slot) {
+        if (!r.vb[slot].buf) return refuse(C_BINDINGS, "texture-only draw's vertex bindings incomplete");
+        original.buffers.push_back(r.vb[slot].buf); original.offsets.push_back(r.vb[slot].off);
+    }
+    if (original.buffers.empty()) return refuse(C_BINDINGS, "texture-only draw without vertex bindings");
+    original.index = r.ib; original.index_offset = r.ib_off;
+    original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
+    FragmentPatch patch = plans[0]->patch;
+    patch.keep_vertex = true;
+    const auto result = cache->request(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, patch);
+    if (!result.variant) {
+        if (result.state == VariantState::Queued || result.state == VariantState::Building) { ++counters[C_PENDING]; return false; }
+        return refuse(C_VARIANT, "texture-only variant: " + result.reason);
+    }
+    if (cb->m2 && cb->m2->backend != generation_key.get()) {
+        if (cb->m2->used) return refuse(C_STATE, "recording holds another backend's work");
+        cb->m2.reset();
+    }
+    if (!cb->m2) cb->m2 = command();
+    if (!cb->m2) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
+    CharacterCommand* const command_owner = static_cast<CharacterCommand*>(cb->m2.get());
+    command_owner->used = true;
+    const uint32_t count = static_cast<uint32_t>(views[0].size());
+    auto arena = count ? command_owner->material_snapshots.at(count) : command_owner->snapshots;
+    static const InstanceEntry unused{};
+    SnapshotSlot slot;
+    if (!arena->append_images(unused, views[0], slot)) return refuse(C_EXHAUSTED, arena->reason);
+    IndexedDraw args;
+    args.count = r.count; args.instances = r.instances; args.first = r.first; args.vertex_offset = r.vertex_offset;
+    args.first_instance = r.first_instance;
+    const VariantDraw item{result.variant.get(), slot.set, slot.offset, &original, args};
+    command_owner->variants.push_back(result.variant);
+    if (!emit_variant_draws(draw, cb->handle, &item, 1, r.pipeline, original))
+        return refuse(C_VARIANT, "texture-only draw transaction refused");
+    if (restore_layout) {
+        draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
+                                   static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
+        ++counters[C_SET3_RESTORED];
+    }
+    ++counters[C_TEXTURED];
+    if (origin) ++counters[origin == 1 ? C_DERIVED : C_INHERITED];
+    ++counters[C_MATERIAL_ITEMS];
+    if (plans[0]->compatibility) ++counters[C_COMPAT_ITEMS];
     return true;
 }
 

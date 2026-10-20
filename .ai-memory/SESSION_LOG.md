@@ -2055,3 +2055,7 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - User: continue offline; RabbitFX option 2 (texture classification). Also asked whether characters were adapted one by one: answered no; every change is a shared mechanism, captures only check rules.
 - server/efmi_vk/texture_roles.py, frontend/gpu/texture_roles.h/.cpp, scripts/check_texture_roles.py, docs/texture-roles-truth.json, frontend/xxmi/rabbit_textures.h (library), character_core.cpp (ResolveRoles native), runtime.h (texture_roles), layer/src/character_backend.cpp (role queries, bound_image, BUG-030, derivation logs), frontend/gpu/material_plan.cpp (BUG-030), sandbox/character_test.cpp (--texture-roles, 8 checks), asset_material_plan_test.cpp (4 checks), scripts/replay_capture.py and replay_gpu.cpp (recorded texture sizes, --small-images), build.py, run_all.py, docs/rabbitfx-roles.md, D-082, BUG-030, LIMIT-004. Version 1.5.8.
 - Pitfalls met: an elif chain of 64 branches made the dry run hang (nested else-if walked in both phases); flat if blocks over t0..t31 instead. The mifu shirt went black in the replay: BUG-030.
+
+## 2026-10-20: texture-only draws (candidate 1.5.9)
+
+- Sections that keep the game's mesh and only change its textures now redraw the game's draw with the Mod's textures through a vertex-preserving variant (D-083). Files and evidence in CURRENT_STATE.

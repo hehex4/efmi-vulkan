@@ -57,6 +57,8 @@ def main() -> int:
                 totals["refused"] += 1
                 if not any(k in s["reason"] for k in KNOWN):
                     problems.append("%s %s: %s" % (mod["ini"], s["hash"], s["reason"]))
+            elif s.get("textures"):
+                totals["texture-only"] += 1
             elif "component" not in s:
                 totals["hide applied" if s["skip"] else "hide not applied"] += 1
             elif not s["skip"]:
