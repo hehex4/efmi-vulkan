@@ -103,8 +103,18 @@ struct ThreadTrace {
     std::atomic<int> hook{-1};
     std::atomic<uint64_t> since_us{0};
     std::atomic<int> inside{0};
+    std::atomic<const char*> stage{nullptr}; // what the thread does inside the layer (a static text)
 };
 ThreadTrace* thread_trace(); // this thread's slot; null when every slot is taken
+// Names what the thread does from here to the end of the scope, for the stall watchdog.
+struct StageMark {
+    ThreadTrace* trace;
+    const char* previous = nullptr;
+    StageMark(ThreadTrace* t, const char* stage) : trace(t) { if (trace) previous = trace->stage.exchange(stage, std::memory_order_relaxed); }
+    ~StageMark() { if (trace) trace->stage.store(previous, std::memory_order_relaxed); }
+    StageMark(const StageMark&) = delete;
+    StageMark& operator=(const StageMark&) = delete;
+};
 
 inline void count_call(int index)
 {
@@ -322,7 +332,9 @@ struct CmdBuf {
     bool secondary = false;
     uint32_t tid = 0;
     bool m2_extended_bind = false; // the initial replacement cannot reproduce Bind*2 size/stride state
-    std::shared_ptr<CommandOwner> m2; // kept until a legal recording reset/free after GPU completion
+    // The work of each replacement backend recorded into this command buffer (several character
+    // packages share one recording), kept until a legal recording reset/free after GPU completion.
+    std::vector<std::shared_ptr<CommandOwner>> owners;
     uint64_t character_frame = 0;  // the character backend's number for this recording; 0: none yet
 
     // Current bindings while recording.
@@ -438,6 +450,8 @@ struct Capture {
 };
 
 struct Device {
+    // The layer's per-thread trace (thread_trace), for code that runs in a replacement module.
+    ThreadTrace* (*trace)() = nullptr;
     VkDevice handle = VK_NULL_HANDLE;
     VkPhysicalDevice phys = VK_NULL_HANDLE;
     // Stands for every device that was created before the DLL attached: calls are
@@ -467,6 +481,9 @@ struct Device {
     bool material_bc_enabled = false;
     PFN_vkGetPhysicalDeviceFormatProperties material_format_properties = nullptr;
     PFN_vkGetPhysicalDeviceImageFormatProperties material_image_properties = nullptr;
+    // VK_EXT_memory_budget of the physical device, for the character packages' activation (D-092).
+    PFN_vkGetPhysicalDeviceMemoryProperties2 memory_properties2 = nullptr;
+    bool memory_budget = false;
 
     char gpu_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE] = {};
     std::vector<std::string> extensions; // enabled at creation

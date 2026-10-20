@@ -833,13 +833,18 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
     HookInside inside;
     Device* dev = dev_of(queue);
     {
+        StageMark stage(thread_trace(), "character submission work");
         const auto result = m2_submit(dev, queue);
         if (result != VK_SUCCESS) return result;
     }
-    for (uint32_t i = 0; i < count; i++) {
-        m2_seal(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
-        on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
+    {
+        StageMark stage(thread_trace(), "submission tracking");
+        for (uint32_t i = 0; i < count; i++) {
+            m2_seal(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
+            on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
+        }
     }
+    StageMark stage(thread_trace(), "driver vkQueueSubmit");
     return dev->d.QueueSubmit(queue, count, submits, fence);
 }
 
@@ -891,7 +896,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresent
     present.info = info;
     if (info)
         present.waits.assign(info->pWaitSemaphores, info->pWaitSemaphores + info->waitSemaphoreCount);
-    on_present(dev, &present);
+    {
+        StageMark stage(thread_trace(), "presentation work (frame, character Present)");
+        on_present(dev, &present);
+    }
+    StageMark stage(thread_trace(), "driver vkQueuePresentKHR");
     if (!present.replaced || !info)
         return dev->d.QueuePresentKHR(queue, info);
     // Owned work was drawn into the image: the presentation waits for it, and it waited for the

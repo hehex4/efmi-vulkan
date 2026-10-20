@@ -863,3 +863,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 - Date: 2026-10-20 (candidate 1.6.5, BUG-032). Until 1.6.4 the layer enqueued, before an application submission on a graphics queue, a wait for each image publication signalled by its own submission on the upload queue. If the application lets work on that other queue wait for a signal it submits later on this one (allowed with timeline semaphores), the inserted wait holds this queue while the other waits for it: a deadlock of both queues. The game uses two graphics queues, and the session froze about a second after Si's images were published.
 - Now a batch publishes its images only when its signal submission's fence has completed (checked with vkGetFenceStatus at each application submission); consumer queues enqueue waits only for completed batches, which are already satisfied and cannot block. A recording retains an image only after its batch completed, and that recording's submission comes after the wait for it on its queue. Images become usable a frame or two later than before. D-040's semaphore dependency stays.
+
+## D-092: A character package activates only with device memory to spare
+
+- Date: 2026-10-20 (candidate 1.6.6, BUG-033). Each package used to check only its own image budget (a quarter of the heap), so switching through characters piled images, meshes and snapshot batches onto the game's own memory until the device was oversubscribed. A lazy package now activates on its first match only when the largest device-local heap's budget minus its use (VK_EXT_memory_budget, a physical-device query) covers what it takes (its DDS sizes up to the image budget, the mesh, 128 MiB of snapshot batches) plus a reserve (`m2_reserve_mb`, default the larger of 1 GiB and an eighth of the heap). Otherwise its character stays the game's; the check repeats about once a second (counter waiting_memory, a log line every 30 seconds). Without the extension nothing changes.
+- Not yet: releasing the memory of packages whose characters are no longer drawn.
+
+## D-093: Several character packages share one recording
+
+- Date: 2026-10-20 (candidate 1.6.6, BUG-033). A command buffer keeps one owner per replacement backend (`CmdBuf::owners`, `owner_for`); an owner another backend left unused gives way as before. The open world draws several characters in one command buffer; before, only the first package replaced its draws and the others kept the game's, and packages took command buffers from one another, emptying their snapshot pools.
+- The stall watchdog also prints what a thread does inside the layer (StageMark: character submission work, image queue lock, consumer waits, character Present, character draw, driver vkQueueSubmit or vkQueuePresentKHR).

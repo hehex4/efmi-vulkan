@@ -280,6 +280,7 @@ void util_init(HMODULE self)
         }
     }
     g_cfg.m2_owned = setting("EFMI_VK_M2_OWNED", "m2_owned") != "0";
+    g_cfg.m2_reserve_mb = strtoull(setting("EFMI_VK_M2_RESERVE_MB", "m2_reserve_mb").c_str(), nullptr, 10);
     std::string m2_enabled = setting("EFMI_VK_M2_ENABLED", "m2_enabled");
     g_cfg.m2_enabled = m2_enabled == "1" || m2_enabled == "on";
 

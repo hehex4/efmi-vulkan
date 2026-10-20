@@ -120,7 +120,7 @@ enum Counter : uint32_t {
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
-    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_COUNT
+    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -128,7 +128,7 @@ const char* const kCounterNames[C_COUNT] = {
     "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
-    "kept_original", "owned_streams"
+    "kept_original", "owned_streams", "waiting_memory"
 };
 
 struct GpuMesh {
@@ -430,6 +430,49 @@ public:
 
     // Caller holds mod_mx, or init runs alone. The GPU side of the generation: images demanded, mesh
     // and arenas prepared by the worker. Once.
+    // What activating takes in device-local memory: the images (at most the image budget), the mesh
+    // and the snapshot batches made at once (D-092). Set when the package is configured.
+    uint64_t activation_bytes = 0;
+    uint64_t next_memory_check = 0, memory_logged_us = 0;
+    // The largest device-local heap's budget minus its use (VK_EXT_memory_budget); false without it.
+    static bool device_local_free(Device* device, uint64_t& free_bytes, uint64_t& heap_bytes)
+    {
+        if (!device->memory_budget || !device->memory_properties2) return false;
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT};
+        VkPhysicalDeviceMemoryProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2};
+        properties.pNext = &budget;
+        device->memory_properties2(device->phys, &properties);
+        bool found = false;
+        for (uint32_t i = 0; i < properties.memoryProperties.memoryHeapCount; ++i) {
+            const auto& heap = properties.memoryProperties.memoryHeaps[i];
+            if (!(heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) || (found && heap.size <= heap_bytes)) continue;
+            found = true; heap_bytes = heap.size;
+            free_bytes = budget.heapBudget[i] > budget.heapUsage[i] ? budget.heapBudget[i] - budget.heapUsage[i] : 0;
+        }
+        return found;
+    }
+    // A lazy package activates only while the device keeps a reserve beyond what it takes: the game's
+    // own memory comes first, and a character that does not fit stays the game's (D-092). Checked
+    // about once a second while it waits; logged once every 30 seconds.
+    bool memory_allows_activation()
+    {
+        const uint64_t now = frame.load(std::memory_order_relaxed);
+        if (now < next_memory_check) return false;
+        next_memory_check = now + 60;
+        uint64_t free_bytes = 0, heap_bytes = 0;
+        if (!device_local_free(device, free_bytes, heap_bytes)) return true;
+        const uint64_t reserve = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(1024ull << 20, heap_bytes / 8);
+        if (free_bytes >= activation_bytes + reserve) return true;
+        const uint64_t clock = host_time_us();
+        if (!memory_logged_us || clock - memory_logged_us > 30000000) {
+            memory_logged_us = clock;
+            logf("character package waits for device memory: %s needs %llu MiB and keeps %llu MiB in reserve, %llu MiB free",
+                 package_path.c_str(), static_cast<unsigned long long>(activation_bytes >> 20),
+                 static_cast<unsigned long long>(reserve >> 20), static_cast<unsigned long long>(free_bytes >> 20));
+        }
+        return false;
+    }
+
     void activate()
     {
         if (activated.exchange(true)) return;
@@ -979,6 +1022,17 @@ bool CharacterGeneration::init_materials()
         image_budgets.resident = std::make_shared<assets::AllocationBudget>(std::clamp<uint64_t>(heap / 4, 512ull << 20, 2048ull << 20));
     }
     images = std::make_unique<assets::ResourceCache>(resource, image_budgets, 64);
+    {
+        // D-092: images on disk (DDS sizes are their GPU sizes), at most the image budget, the mesh
+        // and two snapshot batches.
+        uint64_t image_bytes = 0;
+        for (const auto& path : package.images) {
+            std::error_code error;
+            const auto size = std::filesystem::file_size(std::filesystem::u8path(path), error);
+            if (!error) image_bytes += size;
+        }
+        activation_bytes = std::min<uint64_t>(image_bytes, image_budgets.resident->limit()) + package.payload.size() + (128ull << 20);
+    }
     for (const auto& path : package.images) {
         auto handle = images->declare_image(std::filesystem::u8path(path), last_reason);
         if (!handle) return false;
@@ -1107,7 +1161,10 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             possible |= package.sections[index].match_first == kCharacterNone || package.sections[index].match_first == r.first;
     if (!possible) return false;
 
+    ThreadTrace* const trace = device->trace ? device->trace() : nullptr;
+    StageMark locking(trace, "character draw (generation lock)");
     std::lock_guard<std::mutex> mod_lock(mod_mx);
+    StageMark stage(trace, "character draw (plan, variants, recording)");
     const uint64_t present = frame.load(std::memory_order_relaxed);
     InstanceEntry entry, patched;
     const CharacterList* list = nullptr;
@@ -1138,7 +1195,10 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             for (uint32_t index : hash_only)
                 if (package.sections[index].hash == hash) { section = &package.sections[index]; break; }
         if (!section) return false;
-        if (!activated.load(std::memory_order_relaxed)) { activate(); return false; }
+        if (!activated.load(std::memory_order_relaxed)) {
+            if (!memory_allows_activation()) { ++counters[C_MEMORY]; return false; }
+            activate(); return false;
+        }
         ++counters[C_MATCHED];
         if (section->component == kCharacterNone) {
             // Exact IB-only override: no fabricated identity or bone import.
@@ -1345,13 +1405,10 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
 
     // A recording that holds work of other replacement code keeps it to its end. What that code
     // left in a command buffer from earlier recordings gives way.
-    if (cb->m2 && cb->m2->backend != generation_key.get()) {
-        if (cb->m2->used) return refuse(C_STATE, "recording holds another backend's work");
-        cb->m2.reset();
-    }
-    if (!cb->m2) cb->m2 = command();
-    if (!cb->m2) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
-    CharacterCommand* const command_owner = static_cast<CharacterCommand*>(cb->m2.get());
+    // Every character package that replaces draws of a recording has its own owner in it.
+    const auto held = owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
+    if (!held) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
+    CharacterCommand* const command_owner = static_cast<CharacterCommand*>(held.get());
     command_owner->used = true;
     const auto mesh_owner = std::static_pointer_cast<const GpuMesh>(command_owner->keep);
     if (!mesh_owner) return refuse(C_EXHAUSTED, "character command owner has no mesh");
@@ -1453,13 +1510,10 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
         if (result.state == VariantState::Queued || result.state == VariantState::Building) { ++counters[C_PENDING]; return false; }
         return refuse(C_VARIANT, "texture-only variant: " + result.reason);
     }
-    if (cb->m2 && cb->m2->backend != generation_key.get()) {
-        if (cb->m2->used) return refuse(C_STATE, "recording holds another backend's work");
-        cb->m2.reset();
-    }
-    if (!cb->m2) cb->m2 = command();
-    if (!cb->m2) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
-    CharacterCommand* const command_owner = static_cast<CharacterCommand*>(cb->m2.get());
+    // Every character package that replaces draws of a recording has its own owner in it.
+    const auto held = owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
+    if (!held) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
+    CharacterCommand* const command_owner = static_cast<CharacterCommand*>(held.get());
     command_owner->used = true;
     const uint32_t count = static_cast<uint32_t>(views[0].size());
     auto arena = count ? command_owner->material_snapshots.at(count) : command_owner->snapshots;
@@ -1534,6 +1588,18 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
         device->format_properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties2>(gipa(instance, "vkGetPhysicalDeviceFormatProperties2"));
     device->material_format_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties>(gipa(instance, "vkGetPhysicalDeviceFormatProperties"));
     device->material_image_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceImageFormatProperties>(gipa(instance, "vkGetPhysicalDeviceImageFormatProperties"));
+    // The device-local memory still free, for activating character packages (D-092).
+    if (effective >= VK_API_VERSION_1_1) {
+        device->memory_properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties2>(gipa(instance, "vkGetPhysicalDeviceMemoryProperties2"));
+        const auto enumerate = reinterpret_cast<PFN_vkEnumerateDeviceExtensionProperties>(gipa(instance, "vkEnumerateDeviceExtensionProperties"));
+        uint32_t count = 0;
+        if (enumerate && device->memory_properties2 && enumerate(device->phys, nullptr, &count, nullptr) == VK_SUCCESS && count) {
+            std::vector<VkExtensionProperties> found(count);
+            if (enumerate(device->phys, nullptr, &count, found.data()) == VK_SUCCESS)
+                for (uint32_t i = 0; i < count; ++i)
+                    device->memory_budget |= !strcmp(found[i].extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+        }
+    }
     std::vector<VkQueue> queues;
     for (uint32_t i = 0; i < chosen->queueCount; ++i) {
         VkQueue queue = VK_NULL_HANDLE;
@@ -1549,10 +1615,13 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
 
 VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
 {
+    ThreadTrace* const trace = backend.device->trace ? backend.device->trace() : nullptr;
     // Owned GPU work of replaced draws runs before the application's work on the queue (D-087).
-    if (backend.presenter) backend.submit_draw_work(queue);
+    if (backend.presenter) { StageMark stage(trace, "character draw work submission (generation lock)"); backend.submit_draw_work(queue); }
     if (!backend.images || !backend.cache) return VK_SUCCESS;
+    StageMark stage(trace, "character image queue lock");
     std::lock_guard<std::mutex> lock(backend.queue_mx);
+    StageMark uploads(trace, "character image uploads and publication");
     if (backend.queues_stopped) return VK_SUCCESS;
     auto found = std::find_if(backend.image_queues.begin(), backend.image_queues.end(),
                               [&](const ImageQueue& q) { return q.queue == queue; });
@@ -1604,6 +1673,7 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
             backend.images_published.store(true, std::memory_order_release);
         ++backend.completed_publications;
     }
+    StageMark waits(trace, "character consumer queue waits");
     while (found->waited < backend.completed_publications) {
         VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         VkSubmitInfo wait{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -1675,7 +1745,10 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
         input.frame_seconds = backend.frame_seconds.load(std::memory_order_relaxed);
         input.ticks_us = now;
         OwnedPresenter::sample(backend.device, present, input);
+        ThreadTrace* const trace = backend.device->trace ? backend.device->trace() : nullptr;
+        StageMark locking(trace, "character Present (generation lock)");
         std::lock_guard<std::mutex> lock(backend.mod_mx);
+        StageMark stage(trace, "character Present (owned scope, INI Present, owned submission)");
         std::string reason, owned_reason;
         // With a presentation the generation's GPU commands run in a scope ordered before it.
         const bool owned = backend.presenter && backend.presenter->begin(present, owned_reason);

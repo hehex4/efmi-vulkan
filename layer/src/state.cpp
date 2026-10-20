@@ -169,8 +169,10 @@ static void watchdog()
             if (hook < 0 || hook >= HI_COUNT || !since || now < since) continue;
             const uint64_t age = (now - since) / 1000;
             if (!inside && age < 2000) continue;
-            logf("stall: thread %lu %s vk%s for %llu ms", static_cast<unsigned long>(t.thread.load(std::memory_order_relaxed)),
-                 inside ? "inside" : "last entered", g_api_names[hook], static_cast<unsigned long long>(age));
+            const char* stage = t.stage.load(std::memory_order_relaxed);
+            logf("stall: thread %lu %s vk%s for %llu ms%s%s", static_cast<unsigned long>(t.thread.load(std::memory_order_relaxed)),
+                 inside ? "inside" : "last entered", g_api_names[hook], static_cast<unsigned long long>(age),
+                 stage ? ", at: " : "", stage ? stage : "");
         }
     }
 }
@@ -200,6 +202,7 @@ Device* dev_create(VkDevice handle)
 {
     watchdog_start();
     Device* dev = new Device();
+    dev->trace = thread_trace;
     dev->handle = handle;
     void* key = *reinterpret_cast<void**>(handle);
     std::unique_lock<std::shared_mutex> lock(g_dev_mx);
@@ -268,7 +271,7 @@ DeviceRef::DeviceRef() : lock(g_dev_mx)
 
 void CmdBuf::reset_recording()
 {
-    if (m2) m2->reset_after_completion();
+    for (auto& owner : owners) if (owner) owner->reset_after_completion();
     character_frame = 0;
     m2_extended_bind = false;
     gfx_pipeline = VK_NULL_HANDLE;

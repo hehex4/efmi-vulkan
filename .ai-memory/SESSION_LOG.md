@@ -2090,3 +2090,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - The game froze about a second after Si's package activated (probe frame 1535). Status while frozen: our locks free, owned Present failing since the game moved its presentation to its other graphics queue, uploads bound to the first queue. No driver timeout. Cause not proven (BUG-032).
 - 1.6.5 (D-090): owned work follows the presentation's queue, uploads and publications on any graphics queue, `m2_owned = 0` switch, stall watchdog in the log.
+
+## 2026-10-20: second game session froze; 1.6.6
+
+- The user switched through characters; the session froze after eight package activations in 17 seconds. The watchdog showed the submit and present threads inside the driver; the status showed about 3 GiB of our images and meshes, late meshes outside device memory: device memory oversubscribed (BUG-033). The user also saw characters flicker between original and Mod, and Mods missing in the open world: one package per recording.
+- 1.6.6: activation waits for device memory to spare (D-092), several packages share a recording (D-093), watchdog stages.

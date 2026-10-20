@@ -207,13 +207,9 @@ bool M2Backend::record(CmdBuf* cb,const DrawRec& r)
     if(!skeleton.configure(profile.bones,1,components,reason) || !skeleton.begin_update(0,reason) ||
        skeleton.import_component(0,selected,0,entry,{current.data(),current.size()},{previous.data(),previous.size()}, {},1,reason)==BoneImportResult::Rejected ||
        !skeleton.patch_entry(0,entry,patched,reason))return refuse(unreadable,"M2 bone import: "+reason);
-    if(cb->m2 && cb->m2->backend!=this){
-        if(cb->m2->used)return refuse(unsupported,"recording holds another backend's work");
-        cb->m2.reset();
-    }
-    if(!cb->m2)cb->m2=command();
-    if(!cb->m2)return refuse(exhausted,"M2 snapshot pool is at capacity or refilling");
-    M2Command* const owner=static_cast<M2Command*>(cb->m2.get());owner->used=true;
+    const auto held=owner_for(cb->owners,this,[this]{return std::shared_ptr<CommandOwner>(command());});
+    if(!held)return refuse(exhausted,"M2 snapshot pool is at capacity or refilling");
+    M2Command* const owner=static_cast<M2Command*>(held.get());owner->used=true;
     SnapshotSlot slot;
     if(!owner->snapshots->append(skeleton.bytes(),patched,slot))return refuse(exhausted,owner->snapshots->reason);
     // Establish ownership before recording any private handle. No allocations after the draw
@@ -373,7 +369,7 @@ void m2_retire(Device* device,VkPipeline handle){
 void m2_seal(Device* device,uint32_t count,const VkCommandBuffer* buffers){
     if(!device->m2 && !device->character_mode)return;
     for(uint32_t i=0;i<count;++i)if(auto* cb=cb_of(device,buffers[i]))
-        if(cb->m2 && cb->m2->seal() && device->m2)++device->m2->batches;
+        for(auto& owner:cb->owners)if(owner && owner->seal() && device->m2)++device->m2->batches;
 }
 VkResult m2_submit(Device* device,VkQueue queue){
     if(!device->character_mode)return VK_SUCCESS;
