@@ -144,7 +144,8 @@ static bool stream_bones(const std::vector<CharacterComponent>& components, uint
         const uint8_t* element = payload + s.offset + v * s.stride;
         uint32_t total = 0;
         for (uint32_t k = 0; k < 4; ++k) {
-            const uint32_t bone = at<uint16_t>(element + s.bone_index_offset + k * 2);
+            const uint32_t bone = s.bone_index_bytes == 4 ? at<uint32_t>(element + s.bone_index_offset + k * 4)
+                                                          : at<uint16_t>(element + s.bone_index_offset + k * 2);
             // The shader may fetch every index, weighted or not: all of them stay inside the skeleton.
             if (bone >= bone_count) { reason = "bone index outside the skeleton"; return false; }
             uint32_t weight = 1;
@@ -159,14 +160,16 @@ static bool stream_bones(const std::vector<CharacterComponent>& components, uint
     return true;
 }
 
-bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason)
+bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason, uint32_t index_bytes)
 {
     if (stream >= streams.size()) { reason = "bone stream out of range"; return false; }
     CharacterStream s = streams[stream];
     if (s.kind != CharacterStream::Vertex || s.bone_index_offset != kCharacterNone) { reason = "bone stream already known or not a vertex stream"; return false; }
-    s.bone_index_offset = index_offset; s.bone_weight_offset = weight_offset;
-    if (uint64_t(index_offset) + 8 > s.stride || (weight_offset != kCharacterNone &&
-        (uint64_t(weight_offset) + 8 > s.stride || (weight_offset < index_offset + 8 && index_offset < weight_offset + 8)))) {
+    if (index_bytes != 2 && index_bytes != 4) { reason = "bone index width unsupported"; return false; }
+    s.bone_index_offset = index_offset; s.bone_weight_offset = weight_offset; s.bone_index_bytes = index_bytes;
+    const uint32_t element = 4 * index_bytes;
+    if (uint64_t(index_offset) + element > s.stride || (weight_offset != kCharacterNone &&
+        (uint64_t(weight_offset) + 8 > s.stride || (weight_offset < index_offset + element && index_offset < weight_offset + 8)))) {
         reason = "bone elements outside the stream or overlapping"; return false;
     }
     if (s.offset + s.size > payload.size()) { reason = "bone stream outside the payload"; return false; }
@@ -330,7 +333,10 @@ bool CharacterPackage::vertex_input(const CharacterDraw& draw, const VertexInput
         for (auto& a : next.attributes) {
             if (a.binding != slot) continue;
             for (const auto& e : edits)
-                if (e.binding == slot && e.source == a.format) { a.format = e.format; break; }
+                if (e.binding == slot && e.source == a.format) {
+                    a.format = slot == 2 && draw.blend != VK_FORMAT_UNDEFINED ? draw.blend : e.format;
+                    break;
+                }
             const uint32_t bytes = vertex_format_bytes(a.format);
             if (!bytes) { reason = "replaced stream has an element of an unknown format"; return false; }
             if (uint64_t(a.offset) + bytes > uint64_t(stride) + kCharacterOvershoot) {

@@ -220,10 +220,22 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
     try {
         if (!source.ini.is_absolute() || !source.core.is_absolute() || !source.settings.is_absolute())
             throw std::runtime_error("Directory generation paths must be absolute");
-        if (source.mod_namespace.empty()) throw std::runtime_error("The INI declares no namespace");
+        // Without a namespace line the runtime parses the INI under its file name (its path relative
+        // to the Mod folder), which names its sections and variables as the original's implicit
+        // namespace does. The settings file gets a name of plain characters.
+        std::string mod_namespace = source.mod_namespace;
+        if (mod_namespace.empty()) {
+            const auto name = source.ini.filename().wstring();
+            if (std::any_of(name.begin(), name.end(), [](wchar_t c) { return c < 0x20 || c > 0x7e; }))
+                throw std::runtime_error("The INI declares no namespace and its file name is not ASCII");
+            mod_namespace.assign(name.begin(), name.end());
+            std::transform(mod_namespace.begin(), mod_namespace.end(), mod_namespace.begin(), ::tolower);
+        }
+        std::string settings_name = mod_namespace;
+        for (char& c : settings_name) if (!isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') c = '_';
         auto found = std::make_shared<efmi::frontend::CharacterDiscovery>();
-        if (!load(source.ini, source.core, source.settings, source.mod_namespace,
-                  efmi::frontend::character_discovery(source.mod_namespace, found), factory, reason)) return false;
+        if (!load(source.ini, source.core, source.settings, settings_name,
+                  efmi::frontend::character_discovery(mod_namespace, found), factory, reason)) return false;
         CharacterPackage made = found->contract;
         made.lists.clear();
         for (auto& c : made.components) {
@@ -320,9 +332,20 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
             } else if (item.operation == Op::DrawIndexed) {
                 if (draws.size() >= 64 || item.instance_count != 1 || item.first_instance || bound.index_stream == kCharacterNone)
                     throw std::runtime_error("Runtime draw outside the single-instance contract");
+                // The blend-index widening EFMI exports use: BLENDINDICES of slot 2 as R16G16B16A16_UINT
+                // (DXGI 12) or R32G32B32A32_UINT (DXGI 3); the shader reads four unsigned integers either way.
                 if (item.layout.size() != 1 || item.layout[0].match.input_slot != 2 || item.layout[0].match.semantic_name != "BLENDINDICES" ||
-                    item.layout[0].replace.format != 12)
-                    throw std::runtime_error("Runtime input-layout edits differ from the validated blend-index contract");
+                    (item.layout[0].replace.format != 12 && item.layout[0].replace.format != 3))
+                {
+                    std::string edits;
+                    for (const auto& edit : item.layout)
+                        edits += " slot " + std::to_string(edit.match.input_slot) + " " + edit.match.semantic_name + " to format " +
+                                 std::to_string(edit.replace.format) + ";";
+                    throw std::runtime_error("Runtime input-layout edits differ from the validated blend-index contract (" +
+                                             std::to_string(item.layout.size()) + " edits:" + edits + ")");
+                }
+                bound.blend = item.layout[0].replace.format == 3 ? VK_FORMAT_R32G32B32A32_UINT : VK_FORMAT_R16G16B16A16_UINT;
+                const uint32_t index_bytes = bound.blend == VK_FORMAT_R32G32B32A32_UINT ? 4 : 2;
                 bound.count = item.index_count; bound.first = item.first_index; bound.base = item.vertex_offset;
                 // The stream under the blend-index edit carries the bone indices where the pipeline reads
                 // the element the edit widens (R8G8B8A8_UINT in binding 2, then 16-bit indices), and
@@ -331,6 +354,9 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 // indices in the last 8 bytes of an 8- or 16-byte element, weights before them. A stream
                 // first seen there is checked once, as decode checks a package's; one that fits neither
                 // keeps no bone mask.
+                if (bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset != kCharacterNone &&
+                    package.streams[bound.vb[2]].bone_index_bytes != index_bytes)
+                    throw std::runtime_error("One blend stream under two blend-index widths");
                 if (bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset == kCharacterNone) {
                     const uint32_t stride = package.streams[bound.vb[2]].stride;
                     uint32_t indices = kCharacterNone, weights = kCharacterNone;
@@ -341,11 +367,11 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                             else if (a.format == VK_FORMAT_R16G16B16A16_UNORM) weights = a.offset;
                         }
                     }
-                    if (indices == kCharacterNone && (stride == 8 || stride == 16)) {
+                    if (indices == kCharacterNone && index_bytes == 2 && (stride == 8 || stride == 16)) {
                         indices = stride - 8; weights = stride == 16 ? 0 : kCharacterNone;
                     }
                     std::string why;
-                    if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why))
+                    if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why, index_bytes))
                         throw std::runtime_error("Blend stream refused: " + why);
                 }
                 const auto& index = package.streams[bound.index_stream];
@@ -361,6 +387,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 for (const auto& pixel : pixels) material.back().push_back({pixel.first, pixel.second});
                 put(signature, bound.index_stream); put(signature, bound.count); put(signature, bound.first); put(signature, bound.base);
                 for (auto stream : bound.vb) put(signature, stream);
+                put(signature, uint32_t(bound.blend));
                 put(signature, uint32_t(pixels.size()));
                 for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
             } else throw std::runtime_error("Unresolved runtime native operation");

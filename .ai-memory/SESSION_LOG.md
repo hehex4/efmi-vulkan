@@ -2031,3 +2031,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Found offline: BUG-027 (the live path never replaced a real Mod); fixed by D-079. The dry run of the installed Mods went from 0 to 137 drawn component sections.
 - A suite run was cut off by the session pause; rerun.
 
+## 2026-10-20: 32-bit blend indices, namespaces (candidate 1.5.5)
+
+- layer/src/character_package.h/.cpp (CharacterDraw::blend, bone_index_bytes, 32-bit adoption), character_program.cpp (DXGI 3 accepted, refusal names the edits, implicit namespace and plain settings names), frontend/xxmi/character_core.cpp (namespace check), sandbox/character_test.cpp (4 checks), sandbox/runtime_test.py (implicit namespace), scripts/check_core_facts.py (truth written with LF), docs. Version 1.5.5.
+- Dry run of the installed Mods: 21 of 22 load without the owned runtime (snowshine needs it), 144 component sections draw, 2 refused for known limits.
+

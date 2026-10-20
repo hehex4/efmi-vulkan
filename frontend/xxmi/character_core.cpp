@@ -88,8 +88,12 @@ public:
         : CharacterCore(name, efvk::CharacterPackage{}, false) { discovery = std::move(output); }
     CharacterCore(const std::string& name, const efvk::CharacterPackage& package, bool rabbit) : expected(package), rabbit_textures(rabbit)
     {
-        if (name.empty() || name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
-            throw std::runtime_error("Mod namespace must be a normalized ASCII identifier");
+        // A declared namespace, or the name the runtime parses an INI without one under (its path
+        // relative to the Mod folder, as the original names such a file by its path): printable
+        // ASCII in lower case, without the separators of section names.
+        if (name.empty() || name.size() > 260 || std::any_of(name.begin(), name.end(), [](char c) {
+                return c < 0x20 || c > 0x7e || c == '\\' || c == '[' || c == ']' || (c >= 'A' && c <= 'Z'); }))
+            throw std::runtime_error("Mod namespace must be lower-case printable ASCII without separators");
         mod = L"\\" + std::wstring(name.begin(), name.end()) + L"\\";
         // Only contracts are needed here; do not duplicate the mesh payload.
         expected.payload.clear(); expected.payload.shrink_to_fit();

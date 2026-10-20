@@ -139,6 +139,7 @@ def main():
     shader_sections(checks)
     several_packages(checks, validation)
     directory_generation(checks, validation)
+    implicit_namespace(checks)
     return checks.finish()
 
 
@@ -184,6 +185,28 @@ def several_packages(checks, validation):
         activations = [line for line in log.splitlines() if "activated on its first match" in line]
         checks.check(activations and all("character.bin" in line and "0-other.bin" not in line for line in activations),
                      label + ": only the fixture's package was activated, in each backend after the exchanges")
+
+
+def implicit_namespace(checks):
+    """An INI without a namespace line (D-078): the runtime parses it under its file name, which
+    names its sections and variables as the original's implicit namespace does. The production
+    planner (efmi_vk_character_test --plan-mods, no GPU) must read it and draw its components."""
+    root = Path(test_dir("runtime-implicit-"))
+    folder = root / "Mods" / "fixture"
+    folder.mkdir(parents=True)
+    fixture(folder)
+    text = (folder / "mod.ini").read_text(encoding="ascii")
+    first, rest = text.split("\n", 1)
+    checks.equal(first, "namespace = runtime_fixture", "the fixture INI starts with its namespace line")
+    (folder / "mod.ini").write_text(rest, encoding="ascii")
+    run = subprocess.run([str(Path(DIST) / "efmi_vk_character_test.exe"), "--plan-mods", str(root / "Mods"), str(CORE),
+                          str(root / "settings")], cwd=root, capture_output=True, text=True, errors="replace", timeout=120)
+    rows = [json.loads(line) for line in run.stdout.splitlines() if line.startswith("{")]
+    label = "INI without a namespace line"
+    checks.check(run.returncode == 0 and len(rows) == 1 and rows[0].get("loaded"), label + ": read under its file name " +
+                 (rows[0].get("reason", "") if rows else run.stderr[-300:]))
+    drawn = [s for s in (rows[0].get("sections", []) if rows else []) if s.get("planned") and s.get("skip") and s.get("draws")]
+    checks.check(len(drawn) >= 2, label + ": its components are drawn by their live plans")
 
 
 def directory_generation(checks, validation):

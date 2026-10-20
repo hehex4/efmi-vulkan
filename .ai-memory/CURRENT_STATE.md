@@ -1,10 +1,17 @@
 # EFMI Vulkan - Current development state
 
-> Last updated: 2026-10-20, branch claude/ini: candidate 1.5.4. BUG-027 found offline and fixed: real EFMI Mods never replaced through the live INI path because the Core's source facts were unknown; D-079 derives them from the vertex module (docs/core-facts.md), checked on 57 catalogue vertex shaders. The installed Mods' offline dry run (suite step) now draws 137 component sections. 1.5.3: Mods read straight from the Mods folder (D-078). User direction 2026-10-19: no game session unless unavoidable. RabbitFX option still open. Not loaded into the game. main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist: layer 1.0.2 with the probe-only configuration of session B. Launcher on DX11; injected library still dist/efmi_vk_inject.dll.
+> Last updated: 2026-10-20, branch claude/ini: candidate 1.5.5: the 32-bit blend-index edit per draw, namespaces with spaces and INIs without a namespace line. Installed Mods' offline dry run: 21 of 22 load without the owned runtime, 144 component sections draw, 2 refused (an ElementOffset edit, GPU work in a draw). 1.5.4: BUG-027 fixed by D-079 (Core source facts from the vertex module). 1.5.3: Mods read straight from the Mods folder (D-078). User direction 2026-10-19: no game session unless unavoidable. RabbitFX option still open. Not loaded into the game. main follows claude/ini; Codex's uncommitted work stays restored in the main tree. dist: layer 1.0.2 with the probe-only configuration of session B. Launcher on DX11; injected library still dist/efmi_vk_inject.dll.
 
 Launcher state, 2026-10-19 17:35: at the user's explicit request, switched the EFMI profile back to DX11 after catalogue session B: d3d11_mode_cmd_args = -force-d3d11, xxmi_dll_inject_mode = DIRECT; game and launcher closed, checked again before writing; only the two value spans changed, exact readback. Backup and manifest: build/backups/launcher-dx11-20261019-173504/. The injected library (signed) was still dist/efmi_vk_inject.dll at that time; the user sets it back to F:\EFMI MCP\dist\efmi_probe.dll in the launcher UI (a DX11 start with efmi_vk_inject.dll injected crashed on 2026-10-11). dist/efmi_vk.cfg keeps the probe-only configuration without a character package (BUG-026); the earlier one is in build/backups/before-catalogue-b-20261019-170419/.
 
 
+
+## 32-bit blend indices, namespaces (candidate 1.5.5, 2026-10-20)
+
+- A live draw under `vb2->ElementFormat(BLENDINDICES, 0) = R32G32B32A32_UINT` (DXGI 3) is accepted: CharacterDraw carries the draw's blend format, vertex_input widens binding 2's R8G8B8A8_UINT element to it, and the stream's bone indices are adopted as 32-bit (CharacterStream::bone_index_bytes; same checks as for 16-bit). chengqianyu's component 2 plans now.
+- CharacterCore accepts any lower-case printable ASCII namespace without separators (last rite declares `namespace = last rite`); discovery reads an INI without a namespace line under its file name, the settings file gets a plain name.
+- A refused layout edit now names the edits (chengqianyu's LOD1 section: ElementOffset of NORMAL and TEXCOORD6, not supported).
+- Evidence: character package unit checks 83 (32-bit widening, 32-bit bone adoption), runtime_test implicit namespace 3 checks, Mods dry run 21 load / 144 drawn / 2 refused (known limits), full rebuilt suite (build/next/run_all-1.5.5.out). Offline only.
 
 ## Core source facts, offline plans of the installed Mods (candidate 1.5.4, 2026-10-20, D-079, BUG-027)
 

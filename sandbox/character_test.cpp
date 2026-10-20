@@ -10,6 +10,7 @@
 #include "../layer/src/json.h"
 #include "variant_fixture.h"
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -186,6 +187,39 @@ static void declaration_tests(const CharacterPackage& p)
     small.streams[small.draws[0].vb[2]].stride = 8;
     check(small.vertex_input(small.draws[0], narrow, result, why) && result.bindings[2].stride == 8 &&
           result.attributes[1].format == VK_FORMAT_R16G16B16A16_UINT, "4-byte index-only stream widened to 8");
+    {
+        // A live draw under a 32-bit blend-index edit (R32G32B32A32_UINT): the same element, four 32-bit indices.
+        auto wide32 = p;
+        wide32.streams[wide32.draws[0].vb[2]].stride = 24;
+        auto draw = wide32.draws[0];
+        draw.blend = VK_FORMAT_R32G32B32A32_UINT;
+        check(wide32.vertex_input(draw, source, result, why) && result.bindings[2].stride == 24 &&
+              result.attributes[3].format == VK_FORMAT_R32G32B32A32_UINT && result.attributes[3].offset == 8 &&
+              result.attributes[2].format == VK_FORMAT_R16G16B16A16_UNORM,
+              "a 32-bit blend-index edit widens the element to R32G32B32A32_UINT for that draw");
+        CharacterPackage bones;
+        bones.bones = 5;
+        CharacterComponent a, b; a.first = 0; a.count = 2; b.first = 2; b.count = 3;
+        bones.components = {a, b};
+        CharacterStream s; s.kind = CharacterStream::Vertex; s.stride = 24; s.offset = 0; s.size = 48;
+        bones.streams = {s};
+        bones.payload.assign(48, 0);
+        for (uint32_t v = 0; v < 2; ++v) {
+            const uint16_t weights[4] = {65535, 0, 0, 0};
+            const uint32_t indices[4] = {v == 0 ? 1u : 3u, 4, 4, 4};
+            std::memcpy(bones.payload.data() + v * 24, weights, 8);
+            std::memcpy(bones.payload.data() + v * 24 + 8, indices, 16);
+        }
+        auto adopted = bones;
+        check(adopted.adopt_bones(0, 8, 0, why, 4) && adopted.streams[0].components == 3 && adopted.streams[0].bone_index_bytes == 4,
+              "32-bit bone indices are read as such; only weighted bones count for the component mask");
+        auto outside = bones;
+        const uint32_t beyond = 5;
+        std::memcpy(outside.payload.data() + 8 + 4, &beyond, 4);
+        check(!outside.adopt_bones(0, 8, 0, why, 4) && why == "bone index outside the skeleton",
+              "a 32-bit bone index outside the skeleton refuses, weighted or not");
+        check(!bones.adopt_bones(0, 16, 0, why, 4), "32-bit indices that do not fit the element refuse");
+    }
     auto depth_only = source;
     depth_only.bindings = {{0, 16, VK_VERTEX_INPUT_RATE_VERTEX}};
     depth_only.attributes = {{0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0}};

@@ -16,12 +16,16 @@ struct CharacterStream {
     // For a vertex stream that carries bone indices: byte offsets of four 16-bit indices and,
     // when present, of four 16-bit normalized weights inside one element.
     uint32_t bone_index_offset = kCharacterNone, bone_weight_offset = kCharacterNone;
+    uint32_t bone_index_bytes = 2; // width of one bone index: 2 (16-bit), or 4 under a 32-bit blend-index edit
     uint32_t components = 0; // bit per component whose bones this stream refers to (computed at load)
 };
 struct CharacterDraw {
     uint32_t index_stream = 0, count = 0, first = 0;
     int32_t base = 0;
     uint32_t vb[4] = {kCharacterNone, kCharacterNone, kCharacterNone, kCharacterNone};
+    // A live plan's blend-index format for binding 2 (R16G16B16A16_UINT or R32G32B32A32_UINT);
+    // undefined keeps the package's edits. Not part of the package file.
+    VkFormat blend = VK_FORMAT_UNDEFINED;
 };
 struct CharacterList {
     uint32_t first = 0, count = 0; // into draws; an empty list hides the original geometry
@@ -86,7 +90,7 @@ struct CharacterPackage {
                       std::string& reason) const;
     // A vertex stream found to carry bone indices only at run time (the live plan binds it where the
     // blend-index edit applies): the same checks as decode, then its component mask. Once per stream.
-    bool adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason);
+    bool adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason, uint32_t index_bytes = 2);
 };
 
 // True when the file starts with the character package magic. No other validation.

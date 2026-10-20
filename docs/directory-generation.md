@@ -55,13 +55,17 @@ packaged and 12 loaded. Refused:
 
 - xaihi (`ps skip.ini`) and yvonne (`EFMITTL/translucency.ini`): ShaderOverride sections that act
   on the game's draws; they need the DX11 identity of game shaders.
-- last rite: its INI declares no namespace; the implicit namespace is not handled yet.
+- last rite (until 1.5.5): its namespace `last rite` has a space, which the native Core's name
+  check refused. From 1.5.5 a namespace is any lower-case printable ASCII name without
+  separators, and an INI without a namespace line is read under its file name, as the runtime
+  parses it (the original's implicit namespace by path).
 
 Known limits of those that load:
 
-- chengqianyu edits its blend indices to R32G32B32A32_UINT; the live plans accept only the
-  R16G16B16A16_UINT widening, so its replaced draws are expected to refuse and stay the game's
-  (from the plan contract; no draw of it was exercised).
+- chengqianyu edits its blend indices to R32G32B32A32_UINT for one component: accepted per draw
+  from 1.5.5 (the element becomes R32G32B32A32_UINT, its bone indices are read as 32-bit). One of
+  its LOD1 sections also moves NORMAL and TEXCOORD6 with `ElementOffset`, which needs the DX11
+  semantic of a Vulkan attribute; that section stays the game's.
 - akekuri, avywenna, estella, mifu, perlica, rossiy, ardelia, liino and typhoeus reference
   RabbitFX, a library in another Mod folder; its references stay original warnings and its
   textures do not bind (LIMIT-004, docs/rabbitfx-assessment.md).
@@ -75,8 +79,8 @@ Known limits of those that load:
 `scripts/check_mods_dry_run.py` (suite step) runs every character INI through the production
 planner (`efmi_vk_character_test --plan-mods`, no GPU, so without the Mods' other INIs and
 CustomShader sections), with the Core's source facts of the game's common vertex shaders (D-079):
-20 of 22 load there (snowshine needs the owned runtime for its CustomShader sections, last rite has
-no namespace); 137 component sections draw the Mod's mesh (110 with its own images), 23 hide their
+20 of 22 load there in 1.5.4 (snowshine needs the owned runtime for its CustomShader sections, last
+rite's namespace was refused), 21 in 1.5.5; 137 component sections draw (144 in 1.5.5) the Mod's mesh (110 with its own images), 23 hide their
 component, 70 hide sections apply, 13 hide sections do not apply (their conditions), and 19 sections
 (the first of each Mod) are left to the game until the Mod registers at the next Present, as the
 original does. Refused: chengqianyu's two sections under its R32G32B32A32_UINT blend-index edit and

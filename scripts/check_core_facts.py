@@ -132,7 +132,8 @@ def main() -> int:
         items = list(truth["shaders"].items())
         lines += ['"%s": %s%s' % (k, json.dumps(v, separators=(",", ":")), "," if i + 1 < len(items) else "") for i, (k, v) in enumerate(items)]
         lines += ["}", "}"]
-        TRUTH.write_text("\n".join(lines) + "\n", encoding="ascii")
+        with TRUTH.open("w", encoding="ascii", newline="\n") as out:
+            out.write("\n".join(lines) + "\n")
         print("written %s: %d vertex shaders" % (TRUTH, len(items)))
     truth = json.loads(TRUTH.read_text(encoding="ascii"))
     stats, problems = check(truth)
