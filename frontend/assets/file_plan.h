@@ -30,6 +30,7 @@ struct FilePlanItem {
     FileOperation operation=FileOperation::External;
     uint32_t slot=0;
     std::shared_ptr<const FileResource> resource; // Null is an explicit unbind.
+    int32_t application_slot=-1; // the application's texture at this DX11 pixel slot of the draw (PlanItem)
     uint32_t index_count=0,first_index=0,instance_count=1,first_instance=0;
     int32_t vertex_offset=0;
     std::vector<LayoutEdit> layout;

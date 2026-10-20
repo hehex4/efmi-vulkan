@@ -824,3 +824,8 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 - Date: 2026-10-20 (candidate 1.6.0).
 - A section of the Mod with a hash and neither index count nor first index, whose list skips the draw, is a hide section for any count, as the original matches it; one without a skip stays a possible texture-hash section (D-077). Only an activated character's draws are hashed for them; the hashes are cached per region. docs/directory-generation.md.
+
+## D-085: Element offset edits take the game's offset from the Mod's own restore
+
+- Date: 2026-10-20 (candidate 1.6.1). The game's SPIR-V has no input semantics (no UserSemantic, no names), so an ElementOffset edit cannot be mapped to a Vulkan attribute by name. The constant offsets a Mod's lists give one (slot, semantic, index) are collected; with exactly two, the value the draw's edit does not set is the game's, and the attribute of that binding at that offset is moved. No capture or table; a Mod without the set-and-restore idiom stays refused.
+- Same version: `ResourceX = ref ps-tN` keeps the application's texture of the matched draw; bound back at its own slot it is the application's binding.

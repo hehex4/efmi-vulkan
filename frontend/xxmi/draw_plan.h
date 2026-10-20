@@ -24,6 +24,9 @@ struct PlanItem {
     std::vector<InputLayoutElementOverride> layout;
     std::wstring external;
     unsigned phase_mask = 0; // External callback: bit 0 pre, bit 1 post.
+    // BindPixelResource of the application's own texture at this DX11 pixel slot of the matched draw
+    // (a resource that took `= ref ps-tN`); resource is null then. -1: none.
+    int application_slot = -1;
     std::shared_ptr<const core::PaletteSnapshot> palette; // Optional owned native Core draw data.
 };
 
@@ -85,6 +88,12 @@ public:
     // Install before adaptation. Every mediated query must explicitly succeed;
     // refusal never falls through to the reference D3D graphics scaffolding.
     void resource_queries(ResourceQuery);
+    // Queries the host answers on the CPU where the owned GPU callbacks are absent (a replaced
+    // draw's plan): a false answer refuses as before. Install before adaptation.
+    void plan_resource_queries(ResourceQuery);
+    // During a plan: the original draw runs after all (an earlier `handling = skip` is undone), as a
+    // native command decides when the original Core would draw the original instance.
+    void keep_original();
     using ShaderQuery=std::function<bool(CommandListOperand&,CommandListState&,float&,std::wstring&)>;
     void shader_queries(ShaderQuery);
     // Operands the original answers with Win32 calls outside the window sample (effective_dpi,

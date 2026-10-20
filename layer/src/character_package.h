@@ -29,6 +29,10 @@ struct CharacterDraw {
     // A live plan that leaves the application's draw but binds textures for it (D-083): no geometry
     // of the package; the draw is made again with its own geometry and these pixels. Not in the file.
     bool texture_only = false;
+    // Element offset edits of a live plan (D-085): the attribute of `binding` at the game's offset
+    // `from` reads the Mod's stream at `to`. Not in the file.
+    struct Offset { uint32_t binding = 0, from = 0, to = 0; };
+    std::vector<Offset> offsets;
 };
 struct CharacterList {
     uint32_t first = 0, count = 0; // into draws; an empty list hides the original geometry

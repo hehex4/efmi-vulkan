@@ -117,3 +117,21 @@ the capture replay of arcane with a project-owned copy of the Mod in which one c
 (`9e31e918`, 9546 indices) lost its count and first index gives the same matched and hidden counts as
 the original Mod (10439 and 6119 over 360 frames); the replay selects draws for such sections by
 their hash alone.
+
+## The application's textures by reference; element offset edits (candidate 1.6.1, D-085)
+
+- `ResourceX = ref ps-tN` in a matched draw's plan keeps a reference to the application's texture at
+  pixel slot N of that draw (a fetch batch of such lines too); `ps-tN = ref ResourceX` then binds the
+  application's own texture there, which at its own slot is what the draw already binds (the plan
+  item carries `application_slot`, the material path inherits that slot). Moving it to another slot
+  is refused. ember's LOD1 section 79b78a0f, whose first sub-draw keeps the game's skin textures,
+  plans now.
+- `vbN->ElementOffset(SEMANTIC, i) = X`: SPIR-V keeps no input semantics, so the game's offset of the
+  element comes from the Mod itself. Discovery collects the constant offsets each (slot, semantic,
+  index) is set to in the Mod's lists; a Mod that moves an element for its own stream sets it back
+  afterwards, so with exactly two values the other one is the game's. The draw's attribute of that
+  binding at the game's offset then reads the Mod's stream at the new one; an edit that names no
+  attribute of the pipeline changes nothing, as under DX11. chengqianyu's LOD1 section fc19ffe3
+  (NORMAL 0 and TEXCOORD 6 to 40, back to 12) plans now. One value only, or more than two, still
+  refuses.
+- Offline dry run of the installed Mods: no refused section left (146 drawn).

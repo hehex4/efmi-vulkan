@@ -332,6 +332,8 @@ bool CharacterPackage::vertex_input(const CharacterDraw& draw, const VertexInput
         const uint32_t stride = streams[draw.vb[slot]].stride;
         for (auto& a : next.attributes) {
             if (a.binding != slot) continue;
+            for (const auto& o : draw.offsets)
+                if (o.binding == slot && o.from == a.offset) { a.offset = o.to; break; }
             for (const auto& e : edits)
                 if (e.binding == slot && e.source == a.format) {
                     a.format = slot == 2 && draw.blend != VK_FORMAT_UNDEFINED ? draw.blend : e.format;

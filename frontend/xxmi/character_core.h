@@ -1,5 +1,8 @@
 #pragma once
 #include "runtime.h"
+#include <map>
+#include <set>
+#include <tuple>
 #include "../../layer/src/character_package.h"
 
 namespace efmi::frontend {
@@ -25,6 +28,10 @@ struct CharacterDiscovery {
     // object as the Mod's: the constant the Mod's lists assign to $\EFMIv1\identification_min_components
     // (EFMI exports set 3 around SpatialIdentity_IdentifyComponentInstances), else the Core's default.
     uint32_t identify_components = 0;
+    // Constant element offsets the Mod's lists set (`vbN->ElementOffset(SEMANTIC, i) = X`), by input
+    // slot, upper-case semantic and index. A Mod that moves an element for its own stream and sets it
+    // back names the game's offset with the second value (D-085).
+    std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets;
 };
 std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_namespace, std::shared_ptr<CharacterDiscovery> output);
 }

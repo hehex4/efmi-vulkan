@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MODS = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Mods")
 CORE = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Core\EFMI")
 # Limits recorded in docs/directory-generation.md; any other refusal is a regression.
-KNOWN = ("validated blend-index contract",          # layout edits besides the blend-index widening (ElementOffset)
+KNOWN = ("validated blend-index contract",          # layout edits beyond the blend-index widening and restorable offsets
          "Shader resource fetch requires a GPU resource adapter")  # GPU work inside a matched draw (P2)
 
 

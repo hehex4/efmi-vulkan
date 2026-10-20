@@ -4,6 +4,8 @@
 #include "../../frontend/xxmi/owned_runtime.h"
 #include <functional>
 #include <map>
+#include <set>
+#include <tuple>
 
 namespace efvk {
 // A parsed original INI generation and its file-to-renderer resource catalogue.
@@ -63,5 +65,6 @@ private:
     std::vector<std::pair<uint32_t, uint32_t>> index_bounds_;
     size_t outside_meshes_ = 0, left_to_game_ = 0;
     uint32_t identify_components_ = 0;
+    std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets_;
 };
 }

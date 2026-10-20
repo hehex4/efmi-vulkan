@@ -20,7 +20,7 @@ struct Refused : std::exception {
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
 constexpr size_t max_active_depth = 64;
-struct QueryService {DrawPlanAdapter::ResourceQuery read,texture;DrawPlanAdapter::ShaderQuery shader;size_t count=0;bool general_matches=false;
+struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read;DrawPlanAdapter::ShaderQuery shader;size_t count=0;bool general_matches=false;
     DrawPlanAdapter::HostValue host;DrawPlanAdapter::RenderTargetSize rt;
     std::function<bool()> gate;bool open() const {return !gate || gate();}};
 class NativeShaderQuery final : public CommandListEvaluatable {
@@ -54,7 +54,12 @@ public:
     NativeResourceQuery(std::shared_ptr<CommandListOperand> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
     float evaluate(CommandListState* state,HackerDevice* =nullptr) override {
         float result=0;std::wstring reason;
-        if(!state || !service->open() || ++service->count>max_steps)refuse(L"Resource query adapter is unavailable or over budget");
+        if(!state || ++service->count>max_steps)refuse(L"Resource query adapter is unavailable or over budget");
+        if(!service->open()){
+            // Outside an owned scope (a replaced draw's plan): only what the host answers on the CPU.
+            if(service->plan_read && service->plan_read(source->texture_filter_target,*state,result,reason))return result;
+            refuse(reason.empty()?L"Resource query adapter is unavailable or over budget":reason);
+        }
         auto& target=source->texture_filter_target;
         const bool pixel=target.type==ResourceCopyTargetType::THIS_RESOURCE ||
             (target.type==ResourceCopyTargetType::SHADER_RESOURCE && target.shader_type==L'p');
@@ -402,6 +407,13 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::TextureQuery texture_query;
     DrawPlanAdapter::ResourceMatchQuery resource_match;
     std::array<DrawPlanAdapter::PixelBinding,128> pixel_bindings;
+    // `ResourceX = ref ps-tN` in a matched draw's plan: X refers to the application's texture at
+    // pixel slot N of that draw. One stand-in per slot marks it; it never reaches a file plan.
+    std::array<CustomResource,128> application_textures;
+    int application_slot(const CustomResource* resource) const {
+        if(resource<application_textures.data() || resource>=application_textures.data()+application_textures.size())return -1;
+        return int(resource-application_textures.data());
+    }
     std::unordered_set<CustomResource*> files;
     std::function<bool()> owned_gate;
     // The owned GPU callbacks apply unless a gate says the host has no owned scope open.
@@ -622,6 +634,12 @@ struct DrawPlanAdapter::Runtime {
                 CustomResource* source=nullptr;
                 if(src.type==ResourceCopyTargetType::CUSTOM_RESOURCE && binding->options==ResourceCopyOptions::REFERENCE){
                     source=src.GetCustomResource(state);direct_resource(source);source=referenced(source);
+                }else if(src.type==ResourceCopyTargetType::SHADER_RESOURCE && src.shader_type==L'p' &&
+                         binding->options==ResourceCopyOptions::REFERENCE){
+                    // The application's texture at this pixel slot of the matched draw, kept by reference.
+                    const unsigned slot=src.ResolveSlot(state);
+                    if(slot>=128)refuse(L"Pixel slot out of range: "+original->ini_line);
+                    source=&application_textures[slot];
                 }else if(src.type!=ResourceCopyTargetType::EMPTY ||
                          (binding->options!=ResourceCopyOptions::REFERENCE && binding->options!=ResourceCopyOptions::COPY))
                     refuse(L"Unsupported declaration reference: "+original->ini_line);
@@ -644,17 +662,29 @@ struct DrawPlanAdapter::Runtime {
                 binding->options == ResourceCopyOptions::REFERENCE) {
                 item.resource = src.GetCustomResource(state);
                 direct_resource(item.resource);item.resource=referenced(item.resource);
+                const int application=application_slot(item.resource);
+                if(application>=0){
+                    if(item.operation!=PlanOperation::BindPixelResource)refuse(L"An application texture bound outside a pixel slot: "+original->ini_line);
+                    item.application_slot=application;item.resource=nullptr;
+                }
             } else if (src.type != ResourceCopyTargetType::EMPTY ||
                        (binding->options != ResourceCopyOptions::REFERENCE &&
                         binding->options != ResourceCopyOptions::COPY)) {
                 refuse(L"Unsupported resource source or copy policy: " + original->ini_line);
             }
-            if(item.operation==PlanOperation::BindPixelResource)pixel_bindings[item.slot]={false,item.resource};
+            if(item.operation==PlanOperation::BindPixelResource)
+                pixel_bindings[item.slot]=item.application_slot==int(item.slot)?PixelBinding{}:PixelBinding{false,item.resource};
             append(std::move(item));
             return;
         }
         if (auto* batch = dynamic_cast<ShaderResourceBatch*>(original.get())) {
-            if(!(resource_command && owned()) && !dynamic_cast<ShaderResourceBindBatch*>(batch))
+            // A fetch of pixel slots into resources by reference keeps the application's textures
+            // (application_textures); other fetches need the owned GPU adapter.
+            bool application_fetch=dynamic_cast<ShaderResourceFetchBatch*>(batch) && batch->shader_type==L'p';
+            for(const auto& operation:batch->operations)
+                application_fetch=application_fetch && operation && operation->options==ResourceCopyOptions::REFERENCE &&
+                    operation->dst.type==ResourceCopyTargetType::CUSTOM_RESOURCE && operation->src.type==ResourceCopyTargetType::SHADER_RESOURCE;
+            if(!(resource_command && owned()) && !dynamic_cast<ShaderResourceBindBatch*>(batch) && !application_fetch)
                 refuse(L"Shader resource fetch requires a GPU resource adapter");
             // Upstream batches adjacent reference operations after parsing.
             for (auto& operation : batch->operations) {
@@ -848,6 +878,16 @@ void DrawPlanAdapter::resource_queries(ResourceQuery query)
 {
     if(runtime_->active || !runtime_->adapted.empty())refuse(L"Install resource queries before adapting command lists");
     runtime_->queries->read=std::move(query);
+}
+void DrawPlanAdapter::plan_resource_queries(ResourceQuery query)
+{
+    if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install plan resource queries before adapting command lists");
+    runtime_->queries->plan_read=std::move(query);
+}
+void DrawPlanAdapter::keep_original()
+{
+    if(!runtime_->active)refuse(L"Keeping the original draw needs an active plan");
+    runtime_->active->skip_original=false;
 }
 void DrawPlanAdapter::host_values(HostValue values){
     if(runtime_->active || !runtime_->adapted.empty() || !values)refuse(L"Install host values before adapting command lists");

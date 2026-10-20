@@ -182,6 +182,18 @@ static void declaration_tests(const CharacterPackage& p)
           result.bindings[4].stride == 0 && result.attributes[3].format == VK_FORMAT_R16G16B16A16_UINT && result.attributes[3].offset == 8 &&
           result.attributes[2].format == VK_FORMAT_R16G16B16A16_UNORM && result.attributes[4].binding == 4,
           "12-byte blend stream widened to 16; other streams and the default attribute untouched");
+    {
+        // An element offset edit (D-085): the attribute at the game's offset reads the Mod's stream at
+        // the new one; an edit that names no attribute of the pipeline changes nothing.
+        auto moved = p.draws[0];
+        moved.offsets = {{2, 8, 12}, {3, 12, 40}};
+        auto wide = p;
+        wide.streams[wide.draws[0].vb[2]].stride = 16;
+        check(wide.vertex_input(moved, source, result, why) && result.attributes[3].offset == 12 && result.attributes[2].offset == 0 &&
+              result.attributes[0].offset == 0, "an offset edit moves the attribute at the game's offset only");
+        moved.offsets = {{2, 8, 100}};
+        check(!wide.vertex_input(moved, source, result, why), "an offset edit far past the Mod's stride refuses");
+    }
     auto narrow = source;
     narrow.bindings[2].stride = 4; narrow.attributes = {{0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0}, {3, 2, VK_FORMAT_R8G8B8A8_UINT, 0}};
     auto small = p;

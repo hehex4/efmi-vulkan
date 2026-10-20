@@ -90,6 +90,7 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         if (!load(ini, core, manifest.parent_path() / "settings", config.get("settings", "mod"),
                   efmi::frontend::character_core(config.get("namespace"), package, facts), factory, reason)) return false;
         identify_components_ = facts->identify_components;
+        element_offsets_ = facts->element_offsets;
         catalogue(package, remaps);
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
@@ -288,6 +289,7 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
         catalogue(package, remaps);
         left_to_game_ = found->left_to_game;
         identify_components_ = found->identify_components;
+        element_offsets_ = found->element_offsets;
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
@@ -310,6 +312,10 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 const auto& item = plan.items[i];
                 using Op = efmi::assets::FileOperation;
                 if (item.operation == Op::BindPixelResource) {
+                    if (item.application_slot >= 0) {
+                        if (uint32_t(item.application_slot) != item.slot) throw std::runtime_error("An application texture moved to another pixel slot");
+                        pixels.erase(item.slot); continue;
+                    }
                     if (!item.resource) { pixels[item.slot] = kCharacterNone; continue; }
                     const auto found = images_.find(key(item.resource->path));
                     if (found == images_.end()) throw std::runtime_error("INI image not in prepared resource catalogue");
@@ -344,7 +350,11 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         for (const auto& item : plan.items) {
             using Op = efmi::assets::FileOperation;
             if (item.operation == Op::BindPixelResource) {
-                if (item.resource) {
+                if (item.application_slot >= 0) {
+                    // The application's own texture at its own slot: what the draw binds anyway.
+                    if (uint32_t(item.application_slot) != item.slot) throw std::runtime_error("An application texture moved to another pixel slot");
+                    pixels.erase(item.slot);
+                } else if (item.resource) {
                     const auto found = images_.find(key(item.resource->path));
                     if (found == images_.end()) throw std::runtime_error("INI image not in prepared resource catalogue");
                     pixels[item.slot] = found->second;
@@ -372,17 +382,35 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     throw std::runtime_error("Runtime draw outside the single-instance contract");
                 // The blend-index widening EFMI exports use: BLENDINDICES of slot 2 as R16G16B16A16_UINT
                 // (DXGI 12) or R32G32B32A32_UINT (DXGI 3); the shader reads four unsigned integers either way.
-                if (item.layout.size() != 1 || item.layout[0].match.input_slot != 2 || item.layout[0].match.semantic_name != "BLENDINDICES" ||
-                    (item.layout[0].replace.format != 12 && item.layout[0].replace.format != 3))
-                {
+                // Besides it, element offset edits whose game offset the Mod's lists name (D-085).
+                const efmi::assets::LayoutEdit* blend = nullptr;
+                bound.offsets.clear();
+                bool understood = true;
+                for (const auto& edit : item.layout) {
+                    const auto& m = edit.match; const auto& r = edit.replace;
+                    const bool plain_match = !m.format && m.format_byte_size == UINT32_MAX && m.aligned_byte_offset == UINT32_MAX &&
+                                             r.semantic_name.empty() && r.semantic_index == UINT32_MAX;
+                    if (!blend && plain_match && m.input_slot == 2 && m.semantic_name == "BLENDINDICES" && (r.format == 12 || r.format == 3) &&
+                        r.aligned_byte_offset == UINT32_MAX) { blend = &edit; continue; }
+                    if (plain_match && !r.format && r.aligned_byte_offset != UINT32_MAX && m.input_slot < 4 && m.semantic_index != UINT32_MAX) {
+                        const auto known = element_offsets_.find({m.input_slot, m.semantic_name, m.semantic_index});
+                        if (known != element_offsets_.end() && known->second.size() == 2 && known->second.count(r.aligned_byte_offset)) {
+                            const uint32_t game = *known->second.begin() == r.aligned_byte_offset ? *known->second.rbegin() : *known->second.begin();
+                            if (game != r.aligned_byte_offset) { bound.offsets.push_back({m.input_slot, game, r.aligned_byte_offset}); continue; }
+                        }
+                    }
+                    understood = false;
+                }
+                if (!blend || !understood) {
                     std::string edits;
                     for (const auto& edit : item.layout)
-                        edits += " slot " + std::to_string(edit.match.input_slot) + " " + edit.match.semantic_name + " to format " +
-                                 std::to_string(edit.replace.format) + ";";
+                        edits += " slot " + std::to_string(edit.match.input_slot) + " " + edit.match.semantic_name + " to " +
+                                 (edit.replace.aligned_byte_offset != UINT32_MAX ? "offset " + std::to_string(edit.replace.aligned_byte_offset)
+                                                                                : "format " + std::to_string(edit.replace.format)) + ";";
                     throw std::runtime_error("Runtime input-layout edits differ from the validated blend-index contract (" +
                                              std::to_string(item.layout.size()) + " edits:" + edits + ")");
                 }
-                bound.blend = item.layout[0].replace.format == 3 ? VK_FORMAT_R32G32B32A32_UINT : VK_FORMAT_R16G16B16A16_UINT;
+                bound.blend = blend->replace.format == 3 ? VK_FORMAT_R32G32B32A32_UINT : VK_FORMAT_R16G16B16A16_UINT;
                 const uint32_t index_bytes = bound.blend == VK_FORMAT_R32G32B32A32_UINT ? 4 : 2;
                 bound.count = item.index_count; bound.first = item.first_index; bound.base = item.vertex_offset;
                 // The stream under the blend-index edit carries the bone indices where the pipeline reads
@@ -426,6 +454,8 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 put(signature, bound.index_stream); put(signature, bound.count); put(signature, bound.first); put(signature, bound.base);
                 for (auto stream : bound.vb) put(signature, stream);
                 put(signature, uint32_t(bound.blend));
+                put(signature, uint32_t(bound.offsets.size()));
+                for (const auto& o : bound.offsets) { put(signature, o.binding); put(signature, o.from); put(signature, o.to); }
                 put(signature, uint32_t(pixels.size()));
                 for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
             } else throw std::runtime_error("Unresolved runtime native operation");

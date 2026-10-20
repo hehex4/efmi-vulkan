@@ -90,6 +90,42 @@ class CharacterCore : public RuntimeExtension {
         }
         return false;
     }
+    // Every constant element-offset edit in a list (and its branches) into `out`.
+    static void element_edits(const CommandList* list, std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>>& out,
+                              unsigned depth = 0)
+    {
+        if (!list || depth > 32) return;
+        for (const auto& held : list->commands) {
+            const CommandListCommand* command = DrawPlanAdapter::original(*held);
+            if (const auto* branch = dynamic_cast<const IfCommand*>(command)) {
+                element_edits(branch->true_commands_pre.get(), out, depth + 1);
+                element_edits(branch->false_commands_pre.get(), out, depth + 1);
+                continue;
+            }
+            const auto* edit = dynamic_cast<const LayoutElementOperation*>(command);
+            if (!edit || edit->override.replace.aligned_byte_offset == UINT32_MAX || !edit->dst.member_args[1].expression) continue;
+            float index = 0;
+            if (!edit->dst.member_args[1].expression->static_evaluate(&index) || !std::isfinite(index) || index < 0 || index > 255) continue;
+            out[{edit->override.match.input_slot, edit->override.match.semantic_name, uint32_t(index)}].insert(edit->override.replace.aligned_byte_offset);
+        }
+    }
+    std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets() const
+    {
+        std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> out;
+        const std::wstring lists = L"commandlist" + mod, overrides = L"textureoverride" + mod;
+        for (const auto& section : explicitCommandListSections)
+            if (!_wcsnicmp(section.first.c_str(), lists.c_str(), lists.size())) {
+                element_edits(&section.second.command_list, out);
+                element_edits(&section.second.post_command_list, out);
+            }
+        for (const auto& hashed : G->mTextureOverrideMap)
+            for (const auto& entry : hashed.second)
+                if (!_wcsnicmp(entry.ini_section.c_str(), overrides.c_str(), overrides.size())) {
+                    element_edits(&entry.command_list, out);
+                    element_edits(&entry.post_command_list, out);
+                }
+        return out;
+    }
     static uint32_t assigned(const CommandList& list, const std::wstring& name)
     {
         std::set<uint32_t> values;
@@ -404,7 +440,10 @@ global $mod_id = -1
         if (std::find(original_components.begin(), original_components.end(), UINT32_MAX) != original_components.end())
             return fail(why, L"Profiled component is absent from original skeleton");
         prepared = true;
-        if (const auto out = discovery ? discovery : facts) out->identify_components = identification_threshold();
+        if (const auto out = discovery ? discovery : facts) {
+            out->identify_components = identification_threshold();
+            out->element_offsets = element_offsets();
+        }
         return true;
     }
     bool before_draw(const RuntimeDraw& draw, CommandListState&, std::wstring& why) override

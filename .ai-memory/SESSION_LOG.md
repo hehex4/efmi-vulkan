@@ -2063,3 +2063,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 ## 2026-10-20: hash-only hide sections (candidate 1.6.0)
 
 - A Mod's sections with a hash alone that skip the draw now hide game meshes by the region hash at any count (D-084). The replay selected draws by (hash, count) and missed them at first; it now also selects by hash alone. The test copy of arcane under build/hash-only-mods was removed after the run.
+
+## 2026-10-20: application textures and element offsets (candidate 1.6.1)
+
+- User: continue offline, do every item. Checked the game's SPIR-V for input semantics (none) and the game folder for a source of DX11 shader identity (assets in an encrypted VFS: not a route).
+- ember's `ResourceX = ref ps-tN` and chengqianyu's ElementOffset edits now plan (D-085); the dry run of the installed Mods refuses no section.
