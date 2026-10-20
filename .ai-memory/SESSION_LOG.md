@@ -2081,3 +2081,7 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 ## 2026-10-20: sections acting on game shaders load inert (candidate 1.6.4)
 
 - ShaderOverride/ShaderRegex sections no longer refuse a Mod folder; they are inert and named in the warnings, `vs`/`ps` read as named by none, `oN` reads the subpass (D-089). Yvonne and Xaihi load in the replays.
+
+## 2026-10-20: game test of 1.6.4 prepared
+
+- User: set the shader-keyed features aside and test what is implemented in the game. Deployed 1.6.4 to dist (backup of 1.0.2 first), directory-mode cfg, and at the user's request switched the EFMI launcher profile to Vulkan (backup, two values, exact readback). The injected library is the user's step in the launcher UI.
