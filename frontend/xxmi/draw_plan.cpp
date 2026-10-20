@@ -284,7 +284,7 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
             node=std::make_shared<RenderTargetQuery>(std::move(operand),queries);return;
         }
         guard_target(operand->texture_filter_target,queries,depth+1);
-        if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && (queries->read || queries->texture))
+        if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && (queries->read || queries->texture || queries->plan_read))
             node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);
     }
     else if(auto* op=dynamic_cast<CommandListOperator*>(node.get())){
@@ -403,6 +403,7 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::DrawPrepare draw_prepare;
     DrawPlanAdapter::ShaderCommand shader_command;
     bool nested_failed=false;
+    bool keep_original=false; // a native kept the application's draw (DrawPlanAdapter::keep_original)
     size_t active_depth=0;
     DrawPlanAdapter::TextureQuery texture_query;
     DrawPlanAdapter::ResourceMatchQuery resource_match;
@@ -887,7 +888,7 @@ void DrawPlanAdapter::plan_resource_queries(ResourceQuery query)
 void DrawPlanAdapter::keep_original()
 {
     if(!runtime_->active)refuse(L"Keeping the original draw needs an active plan");
-    runtime_->active->skip_original=false;
+    runtime_->keep_original=true;
 }
 void DrawPlanAdapter::host_values(HostValue values){
     if(runtime_->active || !runtime_->adapted.empty() || !values)refuse(L"Install host values before adapting command lists");
@@ -1042,6 +1043,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
     DrawPlan candidate;
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
+    runtime_->keep_original=false;
     runtime_->pixel_bindings={};
     try {
         auto run=[&](const auto& lists,CommandListState& phase){for(auto* root:lists){
@@ -1070,6 +1072,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
             runtime_->flush(after);
         }
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
+        if(runtime_->keep_original)candidate.skip_original=false;
         output = std::move(candidate);
     } catch (const Refused& error) {
         reason = error.reason;
@@ -1093,7 +1096,7 @@ bool DrawPlanAdapter::execute_intercepted(const std::vector<CommandList*>& pre,c
     }
     DrawPlan candidate;candidate.skip_original=state.call_info->skip;
     runtime_->active=&candidate;runtime_->steps=runtime_->draws=runtime_->queries->count=0;
-    runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};
+    runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};runtime_->keep_original=false;
     try{
         auto fresh=[&](CommandListState& root,bool after){root.mHackerDevice=state.mHackerDevice;root.mHackerContext=state.mHackerContext;
             root.mOrigDevice1=state.mOrigDevice1;root.mOrigContext1=state.mOrigContext1;root.call_info=state.call_info;root.post=after;};

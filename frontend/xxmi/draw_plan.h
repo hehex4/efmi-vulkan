@@ -91,8 +91,9 @@ public:
     // Queries the host answers on the CPU where the owned GPU callbacks are absent (a replaced
     // draw's plan): a false answer refuses as before. Install before adaptation.
     void plan_resource_queries(ResourceQuery);
-    // During a plan: the original draw runs after all (an earlier `handling = skip` is undone), as a
-    // native command decides when the original Core would draw the original instance.
+    // During a plan: the application's draw runs after all, whatever `handling = skip` the matched
+    // lists execute, as a native command decides when the original Core draws the original instance
+    // (its explicit draw with the application's bindings).
     void keep_original();
     using ShaderQuery=std::function<bool(CommandListOperand&,CommandListState&,float&,std::wstring&)>;
     void shader_queries(ShaderQuery);

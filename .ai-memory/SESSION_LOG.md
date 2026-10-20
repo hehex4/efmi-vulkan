@@ -2068,3 +2068,7 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - User: continue offline, do every item. Checked the game's SPIR-V for input semantics (none) and the game folder for a source of DX11 shader identity (assets in an encrypted VFS: not a route).
 - ember's `ResourceX = ref ps-tN` and chengqianyu's ElementOffset edits now plan (D-085); the dry run of the installed Mods refuses no section.
+
+## 2026-10-20: a Mod's own instance identification (candidate 1.6.2)
+
+- Si Lunabelle's BossGuard INI runs the Core's identification internals itself; the plan now answers the spatial query from the instance entry, DRAW_NUMBER counts planned draws, and the native draw call honours the Core's result (D-086). vk04 replays with the guard; a copy whose guard rejects every object keeps the game's draws. New suite step for vk04.

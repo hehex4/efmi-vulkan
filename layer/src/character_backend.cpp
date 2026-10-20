@@ -120,14 +120,15 @@ enum Counter : uint32_t {
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
-    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_COUNT
+    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
     "refused_state", "refused_instances", "refused_set3", "refused_pipeline", "refused_vertex", "refused_variant",
     "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
-    "material_derived", "material_inherited", "identities_created", "identities_expired", "textured"
+    "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
+    "kept_original"
 };
 
 struct GpuMesh {
@@ -1202,6 +1203,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             efmi::frontend::RuntimeDraw request;
             request.hash = section->hash; request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
+            request.instance_entry = entry.data(); request.instance_entry_size = entry.size();
             request.seconds = ini_seconds();
             request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
             request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
@@ -1216,7 +1218,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             if (!program->plan(request, package, runtime_list, skip, added, reason, &pipe->second.recipe->vertex, &textures))
                 return refuse(C_STATE, "INI plan: " + reason);
             if (!skip) {
-                if (!textures) return false;
+                // The Mod's lists keep the game's draw (its own identification rejected the object, D-086).
+                if (!textures) { ++counters[C_KEPT]; return false; }
                 if (added && !refresh_materials()) return false;
                 return record_textures(cb, r, pipe->second, static_cast<uint32_t>(section - package.sections.data()), present, runtime_list);
             }

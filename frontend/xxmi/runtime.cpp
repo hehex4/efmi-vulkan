@@ -358,6 +358,8 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
         auto& p = *impl_; Scope scope(p.state);
         struct Current {Impl& p; Current(Impl& owner, const RuntimeDraw& draw):p(owner){p.current_draw=&draw;} ~Current(){p.current_draw=nullptr;}} current(p, input);
         G->frame_no = unsigned(input.frame); G->gTime = input.seconds; G->gFrameTime = input.frame_seconds;
+        // DRAW_NUMBER: the Core's identification tells a second identifier call within one draw by it.
+        ++p.context.draw_number;
         DrawCallInfo call(DrawCall::DrawIndexedInstanced, 0, input.count, input.instances, uint32_t(input.base), input.first, input.first_instance, nullptr, 0);
         TextureOverrideMatches matches; find_texture_override_for_hash(input.hash, &matches, &call);
         assets::FilePlan result;

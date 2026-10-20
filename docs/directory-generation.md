@@ -135,3 +135,18 @@ their hash alone.
   (NORMAL 0 and TEXCOORD 6 to 40, back to 12) plans now. One value only, or more than two, still
   refuses.
 - Offline dry run of the installed Mods: no refused section left (146 drawn).
+
+## A Mod's own instance identification (candidate 1.6.2, D-086)
+
+- A replaced draw's plan answers `Resource\EFMIv1\Original_VS_CB->SpatialHash(...)` on the CPU
+  from the renderer's instance entry of the draw (the original Core's 64 floats per instance, the
+  translation at floats 12 to 14, the same position the renderer identifies by). Other resource
+  queries in a plan still refuse.
+- DRAW_NUMBER counts the application draws the runtime plans, so the Core's `IdentifyCaller` tells
+  a second identifier call within one draw from the first.
+- The native identification call writes what the Core would for an identified instance
+  (`draw_call_has_modded_instance`, status custom for instance 0); the native
+  `Component_DrawInstances` reads the status of instance 0: original keeps the application's
+  draw (whatever `handling = skip` the matched lists ran: the original Core draws the original
+  instance with an explicit draw), skip draws nothing, custom or no result in this draw draws the
+  Mod. Counter `kept_original`.

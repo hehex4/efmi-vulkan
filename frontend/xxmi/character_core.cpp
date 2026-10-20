@@ -3,6 +3,7 @@
 #include "skeleton_plan.h"
 #include "palette_files.h"
 #include "rabbit_textures.h"
+#include "buffer_queries.h"
 #include "globals.h"
 #include <algorithm>
 #include <cmath>
@@ -141,6 +142,17 @@ class CharacterCore : public RuntimeExtension {
     }
     std::vector<uint32_t> original_components;
     CustomResource* skeleton = nullptr;
+    // The instance entry of the current draw as the original Core's `Original_VS_CB` (D-086).
+    BufferQueries instance_queries;
+    // The original Core's identification result for instance 0 of the current draw
+    // (`$PoolSpatialIdentity_IdentifiedInstances[0]`); null when the pool is absent.
+    static CommandListVariable* identified_instance(bool assignment)
+    {
+        const auto found = customResourcePools.find(L"pool" + core_namespace + L"spatialidentity_identifiedinstances");
+        if (found == customResourcePools.end()) return nullptr;
+        auto* value = found->second.GetVariable(0, false, false, assignment);
+        return value == found->second.variable_template.get() ? nullptr : value;
+    }
     std::vector<std::wstring> boundaries;
     bool fail(std::wstring& reason, const wchar_t* message) { reason = message; return false; }
     bool contract(std::wstring& reason)
@@ -197,6 +209,10 @@ global $mod_id = -1
     std::vector<std::wstring> install(DrawPlanAdapter& a) override
     {
         adapter = &a;
+        // `Original_VS_CB->SpatialHash(...)` in a replaced draw's plan: the renderer's instance entry.
+        a.plan_resource_queries([this](ResourceCopyTarget& target, CommandListState& state, float& value, std::wstring& why) {
+            return instance_queries.read(target, state, value, why);
+        });
         auto native = [&](const wchar_t* name, DrawPlanAdapter::NativeCommand callback) {
             boundaries.push_back(command(name)); a.native(list(name), command(name), std::move(callback));
         };
@@ -229,8 +245,13 @@ global $mod_id = -1
         });
         native(L"spatialidentity_identifycomponentinstances", [this](CommandListState&, unsigned phases, std::wstring& why) {
             // Identity resolution is the renderer's existing recording-clock
-            // implementation, already supplied before this original callback.
-            return !(phases & 1) || contract(why);
+            // implementation, already supplied before this original callback: the instance is the
+            // Mod's, and the Core's outputs say so.
+            if (!(phases & 1)) return true;
+            if (!contract(why)) return false;
+            var(L"draw_call_has_modded_instance").fval = 1; var(L"draw_call_has_unknown_instance").fval = 0;
+            if (auto* status = identified_instance(true)) status->fval = var(L"enum_override_type_custom").fval;
+            return true;
         });
         native(L"mergedskeleton_attachcomponent", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
@@ -242,6 +263,13 @@ global $mod_id = -1
         native(L"component_drawinstances", [this](CommandListState& state, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
             if (!prepared || !contract(why)) return false;
+            // A Mod that runs the Core's identification itself (D-086) may decide otherwise than the
+            // renderer: the original instance is drawn by the application's own draw, a skipped one
+            // not at all. No result in this draw leaves the renderer's identification.
+            if (const auto* status = identified_instance(false)) {
+                if (status->fval == var(L"enum_override_type_original").fval) { adapter->keep_original(); return true; }
+                if (status->fval == var(L"enum_override_type_skip").fval) return true;
+            }
             attached = false;
             if (!adapter->invoke(list(L"callback_mergedskeleton_connectcomponent"), state, 1, why) || !attached)
                 return fail(why, L"Mod did not attach its prepared merged skeleton");
@@ -450,8 +478,17 @@ global $mod_id = -1
     {
         if (draw.source_vs_config_slot != -1 && (draw.source_vs_config_slot < 1 || draw.source_vs_config_slot > 3))
             return fail(why, L"Unsupported original Core instance-config constant slot");
-        current = draw; return true;
+        current = draw;
+        instance_queries.clear();
+        if (draw.instance_entry && draw.instance_entry_size) {
+            const auto vs_cb = customResources.find(L"resource" + core_namespace + L"original_vs_cb");
+            if (vs_cb != customResources.end() && !instance_queries.bind(&vs_cb->second, draw.instance_entry, draw.instance_entry_size, why))
+                return false;
+        }
+        if (auto* status = identified_instance(true)) status->fval = 0;
+        return true;
     }
+    void after_draw() noexcept override { instance_queries.clear(); }
 };
 }
 std::shared_ptr<RuntimeExtension> character_core(const std::string& mod_namespace, const efvk::CharacterPackage& package, bool rabbit)

@@ -77,6 +77,11 @@ struct RuntimeDraw {
     // lightmap and the normal map its fragment shader samples, -1 for a role it has not. False:
     // not known, and the RabbitFX library binds nothing.
     std::function<bool(int32_t roles[3], std::string& reason)> texture_roles;
+    // The renderer's instance entry of this single-instance draw (the 64 floats per instance the
+    // original Core reads from `Original_VS_CB`, its translation at floats 12 to 14), valid during the
+    // call; a Mod that runs the Core's spatial identification itself reads it (D-086). Null: none.
+    const uint8_t* instance_entry = nullptr;
+    size_t instance_entry_size = 0;
 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;

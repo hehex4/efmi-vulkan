@@ -829,3 +829,9 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 - Date: 2026-10-20 (candidate 1.6.1). The game's SPIR-V has no input semantics (no UserSemantic, no names), so an ElementOffset edit cannot be mapped to a Vulkan attribute by name. The constant offsets a Mod's lists give one (slot, semantic, index) are collected; with exactly two, the value the draw's edit does not set is the game's, and the attribute of that binding at that offset is moved. No capture or table; a Mod without the set-and-restore idiom stays refused.
 - Same version: `ResourceX = ref ps-tN` keeps the application's texture of the matched draw; bound back at its own slot it is the application's binding.
+
+## D-086: A Mod's own identification runs over the Core's internals; the native draw honours its result
+
+- Date: 2026-10-20 (candidate 1.6.2, LIMIT-034). Si Lunabelle's optional guard replaces the Core's identification call with its own list over the Core's spatial pools and output lists. The renderer still identifies by place first (D-041); within an identified draw's plan, `Original_VS_CB->SpatialHash` is answered on the CPU from the renderer's instance entry (the same 64 floats, the same translation), DRAW_NUMBER counts planned draws, and the Core's lists run as written.
+- The native `Component_DrawInstances` reads `$PoolSpatialIdentity_IdentifiedInstances[0]`, reset before each draw: original keeps the application's draw for the whole plan (sticky against a later `handling = skip`, as the original Core's explicit draw of the original instance is not undone by it), skip draws nothing, custom or no result draws the Mod. The native identification call writes the custom result itself.
+- General: any Mod that drives the Core's identification itself, by the Core's own lists; no per-character rule. A guard's own reads of game bindings beyond the instance entry still refuse.

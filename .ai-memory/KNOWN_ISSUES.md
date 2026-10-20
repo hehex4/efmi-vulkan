@@ -743,11 +743,12 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 - Fix: D-080. After it the replay replaces the draws of all three passes (prepass, G-buffer, forward) without validation errors.
 - Not covered before: the sandbox scene's fixture draws every one of its few components and has small images; the offline dry run has no images and no GPU.
 
-## LIMIT-034: A Mod that replaces the Core's instance identification with its own list is refused at its draws
+## LIMIT-034: A Mod that replaces the Core's instance identification with its own list is refused at its draws (resolved in candidate 1.6.2, D-086)
 
 - Found 2026-10-20 by the capture replay (Si Lunabelle, bundle vk04). `Si_BossGuard.ini`, an optional INI in the Mod's folder, sets `CommandList\si_lunabelle\_OptionalInstanceIdentification` in Present to its own list, which runs the Core's spatial-identity internals itself (`Resource\EFMIv1\Original_VS_CB->SpatialHash(...)`, the Core's spatial pools, `SpatialIdentity_IdentifyObject`) to identify only the player's body and not a boss with the same parts.
 - The layer identifies objects natively (the Core's `SpatialIdentity_IdentifyComponentInstances` is a native call); a resource query on the original VS constant buffer is not answered in a replaced draw's plan, so every draw of the Mod is refused ("Resource query adapter is unavailable or over budget") and the game draws its own mesh. Safe, but the Mod does not apply.
-- The offline dry run does not show it: its generations hold the character INI alone. Supporting it means running the Core's spatial identification for real in the plan, with the instance entries as `Original_VS_CB`; not attempted. The Mod's own comment says the file may be removed to restore the base behaviour; Mods are read-only to this project.
+- The offline dry run does not show it: its generations hold the character INI alone. Supporting it means running the Core's spatial identification for real in the plan, with the instance entries as `Original_VS_CB`. The Mod's own comment says the file may be removed to restore the base behaviour; Mods are read-only to this project.
+- Resolved 2026-10-20 in candidate 1.6.2 (D-086): the plan answers the spatial query from the instance entry and the native draw call honours the Core's result; vk04 replays with the guard (10334 replaced at 360 frames), and a copy whose guard rejects every object keeps the game's draws. Sandbox only.
 
 ## BUG-029: One failed character image blocked every replacement of the character (fixed in candidate 1.5.7)
 

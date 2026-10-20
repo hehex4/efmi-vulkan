@@ -80,7 +80,7 @@ replay device enabled the features the game's shaders use, see below).
 | vk01 | Yvonne | 0 | 0/5 | package refused: `EFMITTL/translucency.ini` acts on game shaders (ShaderOverride) |
 | vk02 | TangTang | 497 | 5/5 | |
 | vk03 | arcane | 528 | 3/3 | |
-| vk04 | Si Lunabelle | 0 | 0/4 | LIMIT-034: `Si_BossGuard.ini` replaces the Core's identification |
+| vk04 | Si Lunabelle | 0 | 0/4 | LIMIT-034: `Si_BossGuard.ini` replaces the Core's identification (1.6.2, D-086: 10334 replaced, 4/4, 360 frames) |
 | vk05 | Liino | 5372 | 4/4 | 360 frames |
 | vk06 | Typhoeus | 5995 | 5/5 | 360 frames; the chest component's per-draw compute deformation (copy, CustomShader, owned vb0) is refused (P2), the game draws that part |
 | vk07 | mifu | 4843 | 4/4 | 360 frames |
@@ -119,3 +119,17 @@ folder, as the dry-run step needs the Mods.
   (the arcane slice) and not here.
 - Timing in the game: the replay's frame is 29 to 59 draws.
 - The game itself: nothing here was loaded into the game.
+
+## A Mod's own identification (candidate 1.6.2, D-086)
+
+Si Lunabelle's optional `Si_BossGuard.ini` replaces the Core's identification call with its own
+list over the Core's internals (spatial pools, `Original_VS_CB->SpatialHash`, the Core's output
+lists), so that only an object whose body was drawn at that place this frame or the last is the
+Mod's. vk04 now replays with it: 10334 draws replaced at 360 frames (3549 at 120), every pass,
+the guard's own pool and the Core's spatial pools filled; the first draws of the first identified
+frame keep the game's draw (`kept_original` 44), as the original Core draws the original
+instance while it identifies. A project-owned copy of the Mod whose guard never sees a body
+(`build/replay-mods/si-guard-rejects`, the witness component changed to 99) replaces nothing and
+keeps the game's draw of every identified draw (4998 of 5039 matched, the rest still
+identifying): what a boss with the same parts gets. Suite step "captured frame with a Mod's own
+identification" (vk04, 120 frames, --check).

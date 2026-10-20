@@ -36,6 +36,9 @@ STEPS = [
     ("installed Mods offline plans", [os.path.join(ROOT, "scripts", "check_mods_dry_run.py")]),
     ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                       r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "300", "--check"]),
+    # Si Lunabelle's optional guard runs the Core's spatial identification itself (D-086).
+    ("captured frame with a Mod's own identification", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                       r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check"]),
     ("original INI GPU resources", [os.path.join(ROOT, "scripts", "check_resource_commands.py")]),
     ("original HLSL Vulkan compiler", [os.path.join(ROOT, "scripts", "check_shader_compiler.py")]),
     ("installed Mods and Core HLSL", [os.path.join(ROOT, "scripts", "check_hlsl_folder.py")]),
