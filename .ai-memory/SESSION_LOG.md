@@ -2072,3 +2072,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 ## 2026-10-20: a Mod's own instance identification (candidate 1.6.2)
 
 - Si Lunabelle's BossGuard INI runs the Core's identification internals itself; the plan now answers the spatial query from the instance entry, DRAW_NUMBER counts planned draws, and the native draw call honours the Core's result (D-086). vk04 replays with the guard; a copy whose guard rejects every object keeps the game's draws. New suite step for vk04.
+
+## 2026-10-20: GPU work inside replaced draws (candidate 1.6.3)
+
+- P2: replaced draws run their CustomShaders and copies into Mod resources as owned work recorded during the plan and submitted before the application's submission; owned buffers bind as vertex streams (D-087). Typhoeus' body and clothes are the Mod's in the vk06 replay; its physics stays off (LIMIT-035).
+- The first P2 replay crashed in NVIDIA's shader compiler; a crash stack printer in the replay program and a standalone pipeline tool isolated RoundingModeRTE with a division (BUG-031, D-088).

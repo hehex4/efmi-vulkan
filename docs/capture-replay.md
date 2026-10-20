@@ -82,7 +82,7 @@ replay device enabled the features the game's shaders use, see below).
 | vk03 | arcane | 528 | 3/3 | |
 | vk04 | Si Lunabelle | 0 | 0/4 | LIMIT-034: `Si_BossGuard.ini` replaces the Core's identification (1.6.2, D-086: 10334 replaced, 4/4, 360 frames) |
 | vk05 | Liino | 5372 | 4/4 | 360 frames |
-| vk06 | Typhoeus | 5995 | 5/5 | 360 frames; the chest component's per-draw compute deformation (copy, CustomShader, owned vb0) is refused (P2), the game draws that part |
+| vk06 | Typhoeus | 5995 | 5/5 | 360 frames; the chest component's per-draw compute deformation (copy, CustomShader, owned vb0) is refused (P2), the game draws that part (1.6.3, D-087: 14130 replaced, body and clothes the Mod's, docs/draw-gpu-work.md) |
 | vk07 | mifu | 4843 | 4/4 | 360 frames |
 | vk08 | zhuangfangyi | 2022 | 3/3 | 360 frames |
 | vk09 | rossiy | 314 | 4/4 | |
@@ -133,3 +133,10 @@ instance while it identifies. A project-owned copy of the Mod whose guard never 
 keeps the game's draw of every identified draw (4998 of 5039 matched, the rest still
 identifying): what a boss with the same parts gets. Suite step "captured frame with a Mod's own
 identification" (vk04, 120 frames, --check).
+
+## A fatal exception in a replay (candidate 1.6.3)
+
+`replay_gpu.exe` writes a fatal exception (breakpoint, access violation, fast fail, heap
+corruption) to its output with the faulting stack, symbolized from the modules' own debug
+information, before the process ends (`stdout.txt` of the run). It found BUG-031: NVIDIA's shader
+compiler ending the process on a translated division (D-088).

@@ -11,6 +11,8 @@
 #include <set>
 
 void HostCompileGraph(const std::wstring&, const std::vector<std::wstring>&);
+// Pinned original resource identity encoding in ResourceHash.cpp.
+float EncodeFloat30(const uint32_t hash);
 
 namespace efmi::frontend {
 namespace {
@@ -155,6 +157,24 @@ class CharacterCore : public RuntimeExtension {
     }
     std::vector<std::wstring> boundaries;
     bool fail(std::wstring& reason, const wchar_t* message) { reason = message; return false; }
+    // `@oN` and `@oD` in a replaced draw's plan (D-087): bound when the draw's subpass has that
+    // attachment; the original's identity is a hash of the bound resource, here one of the
+    // attachment within its render pass. Other questions about the draw's render targets refuse.
+    bool render_target(ResourceCopyTarget& target, CommandListState& state, float& value, std::wstring& why)
+    {
+        if (target.evaluation_mode != ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY || target.custom_resource_pool)
+            return fail(why, L"Only the identity of a replaced draw's render targets is known");
+        if (!current.targets_known) return fail(why, L"The replaced draw's render targets are not known");
+        unsigned slot = 8;
+        if (target.type == ResourceCopyTargetType::RENDER_TARGET) {
+            slot = target.ResolveSlot(&state);
+            if (slot >= 8) return fail(why, L"Render target slot out of range");
+        }
+        if (!(current.render_targets >> slot & 1)) { value = 0; return true; }
+        const uint64_t mixed = current.render_pass * 0x9E3779B97F4A7C15ull ^ (uint64_t(slot) + 1) * 0xC2B2AE3D27D4EB4Full;
+        value = EncodeFloat30(uint32_t(mixed ^ mixed >> 32) | 1u);
+        return true;
+    }
     bool contract(std::wstring& reason)
     {
         return (current.identity && current.instances == 1 && !current.first_instance && current.component < expected.components.size() && current.lod < 2 &&
@@ -211,6 +231,8 @@ global $mod_id = -1
         adapter = &a;
         // `Original_VS_CB->SpatialHash(...)` in a replaced draw's plan: the renderer's instance entry.
         a.plan_resource_queries([this](ResourceCopyTarget& target, CommandListState& state, float& value, std::wstring& why) {
+            if (target.type == ResourceCopyTargetType::RENDER_TARGET || target.type == ResourceCopyTargetType::DEPTH_STENCIL_TARGET)
+                return render_target(target, state, value, why);
             return instance_queries.read(target, state, value, why);
         });
         auto native = [&](const wchar_t* name, DrawPlanAdapter::NativeCommand callback) {

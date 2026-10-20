@@ -30,6 +30,9 @@ public:
     // After the Present lists: submit and hand the presentation this image's semaphore, or
     // discard the scope when they refused.
     void finish(PresentWork*, bool executed, std::string& reason);
+    // Owned work recorded since the last submission (replaced draws' work, D-087), on `queue`
+    // before an application submission there. False with the reason when it cannot be submitted.
+    bool submit_pending(VkQueue queue, std::string& reason);
     // Waits for every submission; the device's images and semaphores are released after it.
     void stop();
     void status(JsonWriter&) const;
@@ -47,7 +50,7 @@ private:
     std::map<VkImage, Presented> images_;
     Presented* current_ = nullptr;
     std::deque<std::shared_ptr<efmi::gpu::ResourceSubmission>> tickets_;
-    uint64_t presents_ = 0, submitted_ = 0, failed_ = 0, unsupported_ = 0;
+    uint64_t presents_ = 0, submitted_ = 0, failed_ = 0, unsupported_ = 0, draw_submitted_ = 0;
     std::string last_error_;
     std::filesystem::path readback_;
     bool stopped_ = false;

@@ -35,6 +35,7 @@ FileReadiness request_file_draws(const PreparedFilePlan& plan,ResourceCache& cac
             state.palette=item.palette;
             next.draws.push_back(state);continue;
         }
+        if(item.owned)return refuse("An owned GPU buffer has no file draw");
         if(item.operation==FileOperation::BindPixelResource && item.application_slot>=0){
             // The application's own texture: at its own slot it is what the draw already binds.
             if(item.application_slot!=int32_t(item.slot))return refuse("An application texture moved to another pixel slot");

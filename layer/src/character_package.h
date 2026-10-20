@@ -7,6 +7,8 @@
 namespace efvk {
 
 constexpr uint32_t kCharacterNone = UINT32_MAX;
+// A draw's vertex slot bound to an owned GPU buffer of a live plan (CharacterDraw::owned).
+constexpr uint32_t kCharacterOwned = UINT32_MAX - 1;
 constexpr uint32_t kCharacterOvershoot = 64;
 
 struct CharacterStream {
@@ -33,6 +35,15 @@ struct CharacterDraw {
     // `from` reads the Mod's stream at `to`. Not in the file.
     struct Offset { uint32_t binding = 0, from = 0, to = 0; };
     std::vector<Offset> offsets;
+    // Vertex slots a live plan binds to a buffer its owned GPU work wrote (P2, D-087): vb[slot] is
+    // kCharacterOwned; the Vulkan buffer is bound as it is and `keep` holds it. Not in the file.
+    struct OwnedStream { uint32_t slot = 0; uint64_t buffer = 0, offset = 0, size = 0; uint32_t stride = 0; std::shared_ptr<void> keep; };
+    std::vector<OwnedStream> owned;
+    const OwnedStream* owned_stream(uint32_t slot) const
+    {
+        for (const auto& o : owned) if (o.slot == slot) return &o;
+        return nullptr;
+    }
 };
 struct CharacterList {
     uint32_t first = 0, count = 0; // into draws; an empty list hides the original geometry

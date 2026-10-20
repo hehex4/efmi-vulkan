@@ -27,6 +27,11 @@ struct PlanItem {
     // BindPixelResource of the application's own texture at this DX11 pixel slot of the matched draw
     // (a resource that took `= ref ps-tN`); resource is null then. -1: none.
     int application_slot = -1;
+    // BindVertex of a buffer the owned GPU work of a replaced draw wrote (P2, D-087): a Vulkan
+    // handle on the application's device, bound as it is; resource is null then. `keep` holds the
+    // allocation while the item lives.
+    struct OwnedBuffer { uint64_t buffer = 0, offset = 0, size = 0; uint32_t stride = 0; std::shared_ptr<void> keep; };
+    std::shared_ptr<const OwnedBuffer> owned;
     std::shared_ptr<const core::PaletteSnapshot> palette; // Optional owned native Core draw data.
 };
 
@@ -150,6 +155,15 @@ public:
     // replaced draws keep the plan path. Declaration references made while it is open are
     // mirrored into the plan's references. Install before adaptation.
     void owned_scope(std::function<bool()>);
+    // The host's scope for GPU work inside a replaced draw (P2, D-087). While it returns true the
+    // draw's own bindings and draws keep the plan path; CustomShaders, copies into the Mod's
+    // resources and everything inside a CustomShader run as owned work, which never reads or binds
+    // the application's resources; a vertex binding of a resource that work wrote binds the owned
+    // buffer (owned_bindings). Queries on the application's bindings take the plan's answers, those
+    // on the Mod's resources the owned ones. Install before adaptation, beside owned_scope.
+    void draw_scope(std::function<bool()>);
+    using OwnedBinding=std::function<bool(ResourceCopyTarget&,CommandListState&,PlanItem::OwnedBuffer&,std::wstring&)>;
+    void owned_bindings(OwnedBinding);
     // File declarations referenced anywhere in the adapted command graph,
     // including both branches. Unused INI declarations need not exist on disk.
     std::vector<CustomResource*> referenced_files() const;

@@ -70,6 +70,11 @@ bool FilePlanCompiler::compile(const DrawPlan& source,assets::FilePlan& output,s
     assets::FilePlan next;next.skip_original=source.skip_original;next.pre_items=source.pre_items;size_t draws=0;
     for(const auto& item:source.items){
         assets::FilePlanItem own;own.slot=item.slot;own.application_slot=item.application_slot;
+        if(item.owned){
+            if(item.operation!=PlanOperation::BindVertex || item.resource)return refuse(L"Owned buffer outside a vertex binding");
+            const auto& o=*item.owned;
+            own.owned=std::make_shared<const assets::OwnedBuffer>(assets::OwnedBuffer{o.buffer,o.offset,o.size,o.stride,o.keep});
+        }
         switch(item.operation){
         case PlanOperation::BindVertex: own.operation=assets::FileOperation::BindVertex;break;
         case PlanOperation::BindIndex: own.operation=assets::FileOperation::BindIndex;break;

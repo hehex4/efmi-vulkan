@@ -149,4 +149,5 @@ their hash alone.
   `Component_DrawInstances` reads the status of instance 0: original keeps the application's
   draw (whatever `handling = skip` the matched lists ran: the original Core draws the original
   instance with an explicit draw), skip draws nothing, custom or no result in this draw draws the
-  Mod. Counter `kept_original`.
+  Mod. Counter `kept_original`: matched draws whose plan leaves the game's draw (the Mod's
+  identification kept the original, or its lists do not skip it yet, as before it registers).

@@ -329,7 +329,9 @@ bool CharacterPackage::vertex_input(const CharacterDraw& draw, const VertexInput
         // A stream the pipeline does not declare is bound and ignored, as under the source API.
         if (binding == next.bindings.end()) continue;
         if (binding->inputRate != VK_VERTEX_INPUT_RATE_VERTEX) { reason = "replaced stream is per instance in the pipeline"; return false; }
-        const uint32_t stride = streams[draw.vb[slot]].stride;
+        const auto* owned = draw.vb[slot] == kCharacterOwned ? draw.owned_stream(slot) : nullptr;
+        if (draw.vb[slot] == kCharacterOwned && !owned) { reason = "owned vertex slot without its buffer"; return false; }
+        const uint32_t stride = owned ? owned->stride : streams[draw.vb[slot]].stride;
         for (auto& a : next.attributes) {
             if (a.binding != slot) continue;
             for (const auto& o : draw.offsets)

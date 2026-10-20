@@ -1,6 +1,7 @@
 #include "shader_commands_internal.h"
 #include "graphics_link.h"
 #include "image_formats.h"
+#include "driver_workarounds.h"
 #include <spirv_reflect.h>
 #include <algorithm>
 #include <cmath>
@@ -139,7 +140,8 @@ Graphics ShaderCommands::compile_graphics(const std::vector<HlslProgram>& progra
     pass.subpassCount=1;pass.pSubpasses=&subpass;pass.dependencyCount=2;pass.pDependencies=deps;
     checked(d->CreateRenderPass(dev,&pass,nullptr,&result->pass),"Create owned graphics render pass");
     std::vector<VkPipelineShaderStageCreateInfo> stages;result->modules.reserve(result->programs.size());
-    for(const auto& program:result->programs){VkShaderModuleCreateInfo module={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};module.codeSize=program.spirv.size()*4;module.pCode=program.spirv.data();
+    for(const auto& program:result->programs){const auto words=driver_module_words(program.spirv,d->host.properties);
+        VkShaderModuleCreateInfo module={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};module.codeSize=words.size()*4;module.pCode=words.data();
         VkShaderModule handle;checked(d->CreateShaderModule(dev,&module,nullptr,&handle),"Create graphics shader module");result->modules.push_back(handle);
         VkPipelineShaderStageCreateInfo stage={VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};stage.stage=program.stage;stage.module=handle;stage.pName="main";stages.push_back(stage);}
     VkPipelineVertexInputStateCreateInfo inputs={VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};inputs.vertexBindingDescriptionCount=uint32_t(state.streams.size());inputs.pVertexBindingDescriptions=state.streams.data();

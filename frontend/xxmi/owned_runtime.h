@@ -27,6 +27,12 @@ public:
     // background, suspended after loading and submitted with the first scope's finish().
     void begin(VkQueue);
     void begin_deferred();
+    // A replaced draw's plan (P2, D-087): its owned work is recorded without a queue and stays
+    // pending until a scope on the queue the work belongs to finishes.
+    void begin_draw();
+    bool pending() const;
+    // The queue the runtime's work is bound to; null until its first submission.
+    VkQueue queue() const;
     void suspend();
     void discard();
     bool scope_active() const;

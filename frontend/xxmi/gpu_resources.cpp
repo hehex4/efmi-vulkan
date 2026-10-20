@@ -123,6 +123,7 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     adapter.render_target_size([this](auto& state,bool& bound,float& width,float& height,auto& why){return render_target(state,bound,width,height,why);});
     adapter.resource_matches([this](auto& target,auto& state,auto& value,auto& why){return match_source(target,state,value,why);});
     adapter.parameter_flush([this](auto& state,bool force,auto& why){return flush_parameters(state,force,why);});
+    adapter.owned_bindings([this](auto& target,auto& state,auto& out,auto& why){return owned_vertex(target,state,out,why);});
     return {};
 }
 void GpuResourceRuntime::draw_commands(DrawExecutor executor){
@@ -130,9 +131,9 @@ void GpuResourceRuntime::draw_commands(DrawExecutor executor){
 }
 void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
     require(!failed_,"GPU resource generation failed; prepare a new generation");
-    require(!active_ && ((queue && site==ExecutionSite::OutsideRenderPass) || (!queue && site==ExecutionSite::Deferred)),
+    require(!active_ && ((queue && site==ExecutionSite::OutsideRenderPass) || (!queue && (site==ExecutionSite::Deferred || site==ExecutionSite::Draw))),
             "GPU resource execution requires an explicit outside-render-pass scope");
-    require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;active_=true;
+    require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;active_=true;site_=site;recorded_=false;
 }
 std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::ResourceCommands::SubmitSync& sync,VkQueue queue) {
     active();require(!failed_,"Cannot submit a failed GPU resource scope");
@@ -201,6 +202,19 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r) {
     r.is_null=false;r.stride=b.stride;r.format=b.format;r.buf_size=b.visible_size;resources_[&r]=b;return b;
 }
 GpuResourceBinding GpuResourceRuntime::resolve(ResourceCopyTarget& input,CommandListState& state){active();return get(input,state);}
+// The owned buffer a replaced draw binds as a vertex stream (D-087): what the resource holds now,
+// with the stride the original would bind it with.
+bool GpuResourceRuntime::owned_vertex(ResourceCopyTarget& target,CommandListState& state,PlanItem::OwnedBuffer& out,std::wstring& why){
+    try{
+        active();require(!failed_,"GPU resource generation failed");
+        auto b=get(target,state);
+        require(b.buffer && !b.image,"Only an owned buffer binds as a replaced draw's vertex stream");
+        require(b.buffer->usage()&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,"The owned buffer was not made for vertex input");
+        require(b.stride && b.offset<b.buffer->size() && b.buffer->size()-b.offset>=b.stride,"The owned vertex buffer has no whole vertex");
+        out.buffer=reinterpret_cast<uint64_t>(b.buffer->buffer());out.offset=b.offset;out.size=b.buffer->size()-b.offset;
+        out.stride=b.stride;out.keep=b.buffer;return true;
+    }catch(const std::exception& e){why=widen(e.what());return false;}
+}
 namespace {
 std::shared_ptr<void> resource_owner(const GpuResourceBinding& binding){
     return binding.image?std::static_pointer_cast<void>(binding.image):std::static_pointer_cast<void>(binding.buffer);
@@ -543,13 +557,13 @@ void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
     // structured buffers, and returns zero for an out-of-range read.
     if(op.CalculateCopyRegion(source.description,sizeof(float),offset,&from,&size,&value_offset) &&
        from<=source.description.ByteWidth && size<=source.description.ByteWidth-from){
-        require(queue_!=VK_NULL_HANDLE,"Original store needs immediate GPU feedback, which a scope without its queue cannot give");
+        require(queue_!=VK_NULL_HANDLE && site_!=ExecutionSite::Draw,"Original store needs immediate GPU feedback, which a scope without its queue cannot give");
         auto bytes=commands_.readback(queue_,source.buffer,from,size);memcpy(&value,bytes.data()+value_offset,sizeof(value));
     }
     op.SetOutputValue(&state,value);
 }
 bool GpuResourceRuntime::run(CommandListCommand& command,CommandListState& state,std::wstring& reason) {
-    try{active();require(!failed_,"GPU resource generation failed");
+    try{active();require(!failed_,"GPU resource generation failed");recorded_=true;
         if(auto* c=dynamic_cast<ResourceCopyOperation*>(&command))copy(*c,state);
         else if(auto* c=dynamic_cast<SlotRangeCopyOperation*>(&command))ranges(*c,state);
         else if(auto* c=dynamic_cast<ClearViewCommand*>(&command))clear(*c,state);

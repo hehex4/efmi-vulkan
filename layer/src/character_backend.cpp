@@ -120,7 +120,7 @@ enum Counter : uint32_t {
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
-    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_COUNT
+    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -128,7 +128,7 @@ const char* const kCounterNames[C_COUNT] = {
     "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
-    "kept_original"
+    "kept_original", "owned_streams"
 };
 
 struct GpuMesh {
@@ -214,9 +214,11 @@ struct CharacterCommand : CommandOwner {
     std::vector<std::shared_ptr<const PipelineVariant>> variants;
     std::map<uint32_t, std::shared_ptr<DrawSnapshots>> material_snapshots;
     std::shared_ptr<std::atomic<uint64_t>> batches;
+    // Owned GPU buffers the recording binds as vertex streams (D-087).
+    std::vector<std::shared_ptr<void>> owned;
     void reset_after_completion() override
     {
-        used = false;
+        used = false; owned.clear();
         variants.clear(); snapshots->recycle_completed();
         for (auto& arena : material_snapshots) arena.second->recycle_completed();
     }
@@ -253,6 +255,8 @@ public:
     std::unique_ptr<CharacterProgram> program;
     // Owned GPU execution of the generation's Present work; destroyed before the program.
     std::unique_ptr<OwnedPresenter> presenter;
+    // Owned GPU work inside replaced draws (P2, D-087) stopped after its first failure.
+    bool draw_work_failed = false;
     std::atomic<bool> save_requested{false};
     std::unordered_map<uint32_t, std::vector<uint32_t>> by_count; // immutable after init
     // Sections matched by their hash alone (any index count): hidden game meshes. Only an activated
@@ -866,6 +870,46 @@ public:
     }
 
     bool record(CmdBuf* cb, const DrawRec& r);
+    // A replaced draw's plan with a scope for its owned GPU work (P2, D-087): recorded without a
+    // queue, pending until submit_draw_work. Caller holds mod_mx.
+    bool plan_draw(const efmi::frontend::RuntimeDraw& request, CharacterList& output, bool& skip, bool& added, std::string& reason,
+                   const VertexInputRecipe* vertex, bool* textures)
+    {
+        efmi::frontend::OwnedRuntime* gpu = nullptr;
+        if (presenter && !draw_work_failed && program->gpu() && !program->gpu()->scope_active()) {
+            try { program->gpu()->begin_draw(); gpu = program->gpu().get(); } catch (const std::exception&) {}
+        }
+        const bool planned = program->plan(request, package, output, skip, added, reason, vertex, textures);
+        if (gpu && gpu->scope_active()) { try { gpu->suspend(); } catch (const std::exception&) {} }
+        return planned;
+    }
+    // Before an application submission on a graphics queue: the owned work replaced draws recorded,
+    // on the queue the generation's owned work belongs to (its first submission fixes it).
+    void submit_draw_work(VkQueue queue)
+    {
+        std::lock_guard<std::mutex> lock(mod_mx);
+        if (!presenter || !program || !program->gpu() || draw_work_failed || !program->gpu()->pending()) return;
+        if (std::find(device->material_queues.begin(), device->material_queues.end(), queue) == device->material_queues.end()) return;
+        const VkQueue bound = program->gpu()->queue();
+        if (bound && bound != queue) return;
+        std::string reason;
+        if (!presenter->submit_pending(queue, reason)) {
+            draw_work_failed = true; note(reason);
+            logf("owned GPU work of replaced draws stopped: %s", reason.c_str());
+        }
+    }
+    // The draw's render targets for `@oN` (D-087), from its pipeline's subpass.
+    static void render_targets(const PipeInfo& pipe, efmi::frontend::RuntimeDraw& request)
+    {
+        if (!pipe.recipe || !pipe.recipe->render_pass || pipe.recipe->subpass >= pipe.recipe->render_pass->subpasses.size()) return;
+        const auto& sub = pipe.recipe->render_pass->subpasses[pipe.recipe->subpass];
+        uint32_t mask = 0;
+        for (size_t i = 0; i < sub.colors.size() && i < 8; ++i)
+            if (sub.colors[i].attachment != VK_ATTACHMENT_UNUSED) mask |= 1u << i;
+        if (sub.has_depth && sub.depth.attachment != VK_ATTACHMENT_UNUSED) mask |= 1u << 8;
+        request.targets_known = true; request.render_targets = mask;
+        request.render_pass = uint64_t(pipe.recipe->render_pass->id) << 8 | pipe.recipe->subpass;
+    }
     // The application's draw made again with the Mod's textures (D-083). Caller holds res_mx and
     // mod_mx; `list` is a texture-only list of the program.
     bool record_textures(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present, const CharacterList& list);
@@ -1097,8 +1141,12 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
                 request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
                     return pixel_texture(r, slot, bound, value, why); };
                 request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
+                {
+                    const auto found = device->pipes.find(r.pipeline);
+                    if (found != device->pipes.end()) render_targets(found->second, request);
+                }
                 bool skip = false, added = false, textures = false; std::string reason;
-                if (!program->plan(request, package, runtime_list, skip, added, reason, nullptr, &textures)) return refuse(C_STATE, "INI hide: " + reason);
+                if (!plan_draw(request, runtime_list, skip, added, reason, nullptr, &textures)) return refuse(C_STATE, "INI hide: " + reason);
                 if (!skip) {
                     if (!textures) return false;
                     if (added && !refresh_materials()) return false;
@@ -1204,6 +1252,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             request.hash = section->hash; request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
             request.instance_entry = entry.data(); request.instance_entry_size = entry.size();
+            render_targets(pipe->second, request);
             request.seconds = ini_seconds();
             request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
             request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
@@ -1215,7 +1264,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
                 request.rolling_bone_source = facts.rolling_bones;
             }
             bool skip = false, added = false, textures = false; std::string reason;
-            if (!program->plan(request, package, runtime_list, skip, added, reason, &pipe->second.recipe->vertex, &textures))
+            if (!plan_draw(request, runtime_list, skip, added, reason, &pipe->second.recipe->vertex, &textures))
                 return refuse(C_STATE, "INI plan: " + reason);
             if (!skip) {
                 // The Mod's lists keep the game's draw (its own identification rejected the object, D-086).
@@ -1309,8 +1358,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             return refuse(C_EXHAUSTED, arena->reason);
         DrawGeometry& g = geometry[i];
         g = original;
-        for (uint32_t s = 0; s < g.buffers.size(); ++s)
-            if (d.vb[s] != kCharacterNone) { g.buffers[s] = mesh_owner->buffer; g.offsets[s] = package.streams[d.vb[s]].offset; }
+        for (uint32_t s = 0; s < g.buffers.size(); ++s) {
+            if (d.vb[s] == kCharacterOwned) {
+                // Checked by vertex_input above: the slot has its owned buffer.
+                const auto* o = d.owned_stream(s);
+                g.buffers[s] = reinterpret_cast<VkBuffer>(o->buffer); g.offsets[s] = o->offset;
+                command_owner->owned.push_back(o->keep); ++counters[C_OWNED];
+            } else if (d.vb[s] != kCharacterNone) { g.buffers[s] = mesh_owner->buffer; g.offsets[s] = package.streams[d.vb[s]].offset; }
+        }
         const auto& index = package.streams[d.index_stream];
         g.index = mesh_owner->buffer; g.index_offset = index.offset;
         g.index_type = index.stride == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
@@ -1483,6 +1538,8 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
 
 VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
 {
+    // Owned GPU work of replaced draws runs before the application's work on the queue (D-087).
+    if (backend.presenter) backend.submit_draw_work(queue);
     if (!backend.images || !backend.cache) return VK_SUCCESS;
     std::lock_guard<std::mutex> lock(backend.queue_mx);
     if (backend.queues_stopped) return VK_SUCCESS;

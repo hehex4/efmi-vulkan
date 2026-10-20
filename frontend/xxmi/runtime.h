@@ -82,6 +82,12 @@ struct RuntimeDraw {
     // call; a Mod that runs the Core's spatial identification itself reads it (D-086). Null: none.
     const uint8_t* instance_entry = nullptr;
     size_t instance_entry_size = 0;
+    // The draw's render targets as its pipeline's subpass names them (D-087): bit i for a color
+    // attachment at location i, which the fragment shader's output i (DX11 oN) writes, bit 8 for a
+    // depth attachment. `render_pass` tells the attachments of different render passes apart.
+    bool targets_known = false;
+    uint32_t render_targets = 0;
+    uint64_t render_pass = 0;
 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;

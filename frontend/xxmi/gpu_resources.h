@@ -34,7 +34,9 @@ class GpuResourceRuntime final : public RuntimeExtension {
 public:
     // Deferred: recording without a queue yet, on a thread that must not touch it (a generation
     // loading in the background); finish() names the queue. Store refuses there.
-    enum class ExecutionSite { OutsideRenderPass, InsideRenderPass, Deferred };
+    // Draw: recording without a queue during a replaced draw's plan (P2, D-087); the host submits
+    // the work before the application's submission. Store refuses there.
+    enum class ExecutionSite { OutsideRenderPass, InsideRenderPass, Deferred, Draw };
     GpuResourceRuntime(gpu::ResourceDevice,gpu::ResourceBudgets={});
     std::vector<std::wstring> install(DrawPlanAdapter&) override;
     bool initialize_parameters(CommandListState&,std::wstring&) override;
@@ -42,12 +44,16 @@ public:
     // A shader host may execute draws in this same explicit queue domain. The
     // original parameter flush runs before this callback, including count zero.
     void draw_commands(DrawExecutor);
-    void execution_failed() noexcept override {if(active_)failed_=true;}
+    // In a replaced draw's scope a refusal before any owned work recorded leaves the runtime usable.
+    void execution_failed() noexcept override {if(active_ && (site_!=ExecutionSite::Draw || recorded_))failed_=true;}
     // The host owns this queue's synchronization for the complete scope. Store
     // may submit and wait for GPU feedback inside it. A draw hook cannot opt in
     // by silently treating an active render pass as OutsideRenderPass.
     void begin(VkQueue,ExecutionSite);
     bool scope_active() const {return active_;}
+    ExecutionSite site() const {return site_;}
+    VkQueue queue() const {return queue_;}
+    bool pending() const {return commands_.pending();}
     // Closes the scope without submitting: recorded work stays pending for the next scope's
     // finish(). A generation loaded in the background is suspended until its first Present.
     void suspend();
@@ -83,6 +89,7 @@ private:
     GpuResourceBinding backbuffer_;
     bool run(CommandListCommand&,CommandListState&,std::wstring&);
     bool query(ResourceCopyTarget&,CommandListState&,float&,std::wstring&);
+    bool owned_vertex(ResourceCopyTarget&,CommandListState&,PlanItem::OwnedBuffer&,std::wstring&);
     bool render_target(CommandListState&,bool& bound,float& width,float& height,std::wstring&);
     bool match_source(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&);
     ResourceCopyTarget& effective(ResourceCopyTarget&,CommandListState&);
@@ -135,6 +142,8 @@ private:
     std::map<SlotRangeCopyOperation*,std::vector<GpuResourceBinding>> range_views_;
     VkQueue queue_=VK_NULL_HANDLE;
     D3D11_VIEWPORT viewport_{};
+    ExecutionSite site_=ExecutionSite::OutsideRenderPass;
+    bool recorded_=false; // owned work recorded in the current Draw scope
     bool active_=false,installed_=false,failed_=false;
 };
 }

@@ -23,7 +23,9 @@ public:
         auto boundaries=native_->install(adapter);
         gpu_->exclude_shaders(native_->native_shaders());
         auto more=gpu_->install(adapter);boundaries.insert(boundaries.end(),more.begin(),more.end());
-        adapter.owned_scope([this]{return !native_phase_ && gpu_->resources().scope_active();});
+        using Site=GpuResourceRuntime::ExecutionSite;
+        adapter.owned_scope([this]{return !native_phase_ && gpu_->resources().scope_active() && gpu_->resources().site()!=Site::Draw;});
+        adapter.draw_scope([this]{return !native_phase_ && gpu_->resources().scope_active() && gpu_->resources().site()==Site::Draw;});
         return boundaries;
     }
     bool initialize_parameters(CommandListState& state,std::wstring& why) override {return gpu_->initialize_parameters(state,why);}

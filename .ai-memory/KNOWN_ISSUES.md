@@ -759,3 +759,11 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 
 - Found 2026-10-20 while adding RabbitFX roles (D-082): a Mod's material slots are those of all its draws, and every fragment shader derives rules for all of them. A slot that held a buffer or an array in some shader made rule_rules refuse that shader ("register tN is not a single image"); one whose image could take neither a file nor a null (an integer image, a depth comparison) made MaterialProfile::prepare refuse it. That shader's draws then kept the game's textures on the Mod's mesh. In the mifu replay the shirt went black once the hair's RabbitFX roles added slots t0/t1.
 - Fix: such a slot is absent for that shader (rule_rules), or marked as taking neither (prepare); only a draw that binds it is refused (select). A binding the shader does not declare, or a module the material path cannot read, still refuses the profile. Material plan test 261 checks (4 new).
+
+## BUG-031: A translated shader with a division ended the process in NVIDIA's shader compiler (fixed in candidate 1.6.3)
+
+- Found 2026-10-20 by the vk06 replay with P2: Typhoeus' deformation CustomShader (its DXBC cache through the exact translation) crashed the replay with a breakpoint exception inside nvgpucomp64 during vkCreateComputePipelines. Isolated with a standalone pipeline tool and SPIR-V variants: RoundingModeRTE 32 with OpFDiv, OpFRem or OpFMod. Fixed by D-088. Every translated shader with a division was affected, including in a real game session.
+
+## LIMIT-035: Owned GPU work in a replaced draw cannot read the game's bindings
+
+- 2026-10-20 (candidate 1.6.3, D-087). Owned work in a draw refuses when it reads or binds `vs-t0`, `vs-cbN`, render targets or other application bindings, and `store` refuses. Typhoeus' chest physics and detection read the game's bones and camera constant buffers; they stay off (the classification finds no camera pass), so the chest is drawn from the state at rest. Needs the game's bindings in Vulkan terms (shader catalogue, T-030).

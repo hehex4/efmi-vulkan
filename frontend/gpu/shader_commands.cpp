@@ -1,6 +1,7 @@
 #include "shader_commands_internal.h"
 #include "image_formats.h"
 #include "shader_usage.h"
+#include "driver_workarounds.h"
 #include <spirv_reflect.h>
 #include <spirv-tools/libspirv.h>
 #include <windows.h>
@@ -102,7 +103,8 @@ Compute ShaderCommands::compile(const HlslProgram& program){
     require(threads<=limits.maxComputeWorkGroupInvocations,"Shader workgroup invocation count exceeds device limit");
     auto result=std::make_shared<ShaderPipelineState>(d);result->programs={program};result->usage=std::move(usage);
     layout(*result);const auto dev=d->resource.device;
-    VkShaderModuleCreateInfo module={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};module.codeSize=program.spirv.size()*4;module.pCode=program.spirv.data();
+    const auto words=driver_module_words(program.spirv,d->host.properties);
+    VkShaderModuleCreateInfo module={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};module.codeSize=words.size()*4;module.pCode=words.data();
     checked(d->CreateShaderModule(dev,&module,nullptr,&result->module),"Create compute shader module");
     VkComputePipelineCreateInfo pipeline={VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};pipeline.layout=result->layout;
     pipeline.stage.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;pipeline.stage.stage=VK_SHADER_STAGE_COMPUTE_BIT;pipeline.stage.module=result->module;pipeline.stage.pName="main";

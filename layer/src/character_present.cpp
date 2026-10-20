@@ -222,6 +222,22 @@ void OwnedPresenter::finish(PresentWork* present, bool executed, std::string& re
     current_ = nullptr;
 }
 
+bool OwnedPresenter::submit_pending(VkQueue queue, std::string& reason)
+{
+    try {
+        if (stopped_ || gpu_->scope_active() || !gpu_->pending()) return true;
+        gpu_->begin(queue);
+        auto ticket = gpu_->finish({}, queue);
+        if (ticket) { tickets_.push_back(std::move(ticket)); ++draw_submitted_; }
+    } catch (const std::exception& e) {
+        reason = std::string("owned draw work submission: ") + e.what(); last_error_ = reason; ++failed_;
+        if (gpu_->scope_active()) gpu_->discard();
+        return false;
+    }
+    while (!tickets_.empty() && tickets_.front()->ready()) tickets_.pop_front();
+    return true;
+}
+
 void OwnedPresenter::readback(PresentWork* present, const Presented& entry)
 {
     gpu_->begin(present->queue);
@@ -256,6 +272,7 @@ void OwnedPresenter::status(JsonWriter& w) const
     w.key("owned_present"); w.begin_object();
     w.kn("presents", presents_); w.kn("submitted", submitted_); w.kn("failed", failed_);
     w.kn("unsupported_formats", unsupported_); w.kn("images", images_.size()); w.kn("in_flight", tickets_.size());
+    w.kn("draw_work_submitted", draw_submitted_);
     w.kv("last_error", last_error_);
     w.end_object();
 }

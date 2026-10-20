@@ -360,6 +360,18 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     pixels[item.slot] = found->second;
                 } else pixels[item.slot] = kCharacterNone;
             } else if (item.operation == Op::BindIndex || item.operation == Op::BindVertex) {
+                if (item.operation == Op::BindVertex && item.slot < 4)
+                    bound.owned.erase(std::remove_if(bound.owned.begin(), bound.owned.end(), [&](const auto& o) { return o.slot == item.slot; }),
+                                      bound.owned.end());
+                if (item.owned) {
+                    // A buffer the owned GPU work of this draw wrote (P2, D-087).
+                    if (item.operation != Op::BindVertex || item.slot >= 4) throw std::runtime_error("Owned GPU buffer outside a profiled vertex slot");
+                    const auto& o = *item.owned;
+                    if (!o.buffer || !o.stride || o.size < o.stride) throw std::runtime_error("Owned vertex buffer without a whole vertex");
+                    bound.vb[item.slot] = kCharacterOwned;
+                    bound.owned.push_back({item.slot, o.buffer, o.offset, o.size, o.stride, o.keep});
+                    continue;
+                }
                 if (!item.resource) {
                     if (item.operation == Op::BindIndex) bound.index_stream = kCharacterNone;
                     else if (item.slot < 4) bound.vb[item.slot] = kCharacterNone;
@@ -420,6 +432,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 // indices in the last 8 bytes of an 8- or 16-byte element, weights before them. A stream
                 // first seen there is checked once, as decode checks a package's; one that fits neither
                 // keeps no bone mask.
+                if (bound.vb[2] == kCharacterOwned) throw std::runtime_error("An owned blend stream has no known bone indices");
                 if (bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset != kCharacterNone &&
                     package.streams[bound.vb[2]].bone_index_bytes != index_bytes)
                     throw std::runtime_error("One blend stream under two blend-index widths");
@@ -443,16 +456,24 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 const auto& index = package.streams[bound.index_stream];
                 if (uint64_t(bound.first) + bound.count > index.size / index.stride) throw std::runtime_error("Runtime indexed draw exceeds file bounds");
                 const auto extrema = index_bounds_[bound.index_stream];
-                for (uint32_t stream : bound.vb) if (stream != kCharacterNone) {
-                    const auto& vertex = package.streams[stream];
-                    if (int64_t(extrema.first) + bound.base < 0 || int64_t(extrema.second) + bound.base >= int64_t(vertex.size / vertex.stride))
+                for (uint32_t slot = 0; slot < 4; ++slot) {
+                    const uint32_t stream = bound.vb[slot];
+                    if (stream == kCharacterNone) continue;
+                    uint64_t vertices = 0;
+                    if (stream == kCharacterOwned) {
+                        const auto* o = bound.owned_stream(slot);
+                        vertices = o ? o->size / o->stride : 0;
+                    } else vertices = package.streams[stream].size / package.streams[stream].stride;
+                    if (int64_t(extrema.first) + bound.base < 0 || int64_t(extrema.second) + bound.base >= int64_t(vertices))
                         throw std::runtime_error("Runtime indexed draw exceeds vertex file bounds");
-                    required |= vertex.components;
+                    if (stream != kCharacterOwned) required |= package.streams[stream].components;
                 }
                 draws.push_back(bound); material.emplace_back();
                 for (const auto& pixel : pixels) material.back().push_back({pixel.first, pixel.second});
                 put(signature, bound.index_stream); put(signature, bound.count); put(signature, bound.first); put(signature, bound.base);
                 for (auto stream : bound.vb) put(signature, stream);
+                put(signature, uint32_t(bound.owned.size()));
+                for (const auto& o : bound.owned) { put(signature, o.slot); put(signature, o.buffer); put(signature, o.offset); put(signature, o.size); put(signature, o.stride); }
                 put(signature, uint32_t(bound.blend));
                 put(signature, uint32_t(bound.offsets.size()));
                 for (const auto& o : bound.offsets) { put(signature, o.binding); put(signature, o.from); put(signature, o.to); }

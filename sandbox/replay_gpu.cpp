@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <dbghelp.h>
 
 struct HistoricalCase {
     efvk::GraphicsRecipe recipe;
@@ -214,8 +215,34 @@ struct Target {VkImage image{};VkDeviceMemory memory{};VkImageView view{};VkForm
 // tests depth with GREATER or GREATER_OR_EQUAL, so the depth starts at 0.
 struct Group {uint32_t pipe=0;std::vector<Target> targets;VkFramebuffer framebuffer{};bool keep=false,reversed=false;};
 
+// A fatal exception in the process (the layer, its module, a driver) is written to stderr with the
+// faulting stack, symbolized from the modules' own debug information, before the process ends.
+static LONG WINAPI fatal_exception(EXCEPTION_POINTERS* info){
+    const DWORD code=info->ExceptionRecord->ExceptionCode;
+    if(code!=EXCEPTION_BREAKPOINT && code!=EXCEPTION_ACCESS_VIOLATION && code!=0xC0000409 && code!=0xC0000374 &&
+       code!=EXCEPTION_ILLEGAL_INSTRUCTION && code!=EXCEPTION_STACK_OVERFLOW)return EXCEPTION_CONTINUE_SEARCH;
+    static LONG once=0;if(InterlockedExchange(&once,1))return EXCEPTION_CONTINUE_SEARCH;
+    const HANDLE process=GetCurrentProcess(),thread=GetCurrentThread();
+    SymSetOptions(SYMOPT_UNDNAME|SYMOPT_DEFERRED_LOADS|SYMOPT_LOAD_LINES);SymInitialize(process,nullptr,TRUE);
+    fprintf(stderr,"fatal exception 0x%08lx at %p\n",code,info->ExceptionRecord->ExceptionAddress);
+    CONTEXT context=*info->ContextRecord;STACKFRAME64 frame{};
+    frame.AddrPC.Offset=context.Rip;frame.AddrPC.Mode=AddrModeFlat;frame.AddrFrame.Offset=context.Rbp;frame.AddrFrame.Mode=AddrModeFlat;
+    frame.AddrStack.Offset=context.Rsp;frame.AddrStack.Mode=AddrModeFlat;
+    for(int i=0;i<48 && StackWalk64(IMAGE_FILE_MACHINE_AMD64,process,thread,&frame,&context,nullptr,SymFunctionTableAccess64,SymGetModuleBase64,nullptr);++i){
+        const DWORD64 address=frame.AddrPC.Offset;char buffer[sizeof(SYMBOL_INFO)+512]{};auto* symbol=reinterpret_cast<SYMBOL_INFO*>(buffer);
+        symbol->SizeOfStruct=sizeof(SYMBOL_INFO);symbol->MaxNameLen=511;DWORD64 displacement=0;
+        IMAGEHLP_MODULE64 module{};module.SizeOfStruct=sizeof(module);SymGetModuleInfo64(process,address,&module);
+        IMAGEHLP_LINE64 line{};line.SizeOfStruct=sizeof(line);DWORD column=0;
+        const bool named=SymFromAddr(process,address,&displacement,symbol)!=0;const bool lined=SymGetLineFromAddr64(process,address,&column,&line)!=0;
+        fprintf(stderr,"  %2d %s!%s+0x%llx %s:%lu\n",i,module.ModuleName[0]?module.ModuleName:"?",named?symbol->Name:"?",
+                (unsigned long long)displacement,lined?line.FileName:"",lined?line.LineNumber:0ul);
+    }
+    fflush(stderr);return EXCEPTION_CONTINUE_SEARCH;
+}
+
 int wmain(int argc,wchar_t** argv){
     SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX);setvbuf(stdout,nullptr,_IONBF,0);
+    AddVectoredExceptionHandler(1,fatal_exception);
     unsigned drawn=0,frames=argc>2?unsigned(_wtoi(argv[2])):4;
     // Diagnosis only: "open" turns off depth, stencil and culling in every replayed pipeline, so
     // that what reaches the rasterizer shows whatever those tests would have kept of it.

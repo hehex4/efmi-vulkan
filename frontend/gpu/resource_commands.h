@@ -200,6 +200,8 @@ public:
         std::vector<VkSemaphore> signals;
     };
     std::shared_ptr<ResourceSubmission> submit(VkQueue,const SubmitSync& sync={});
+    // Work recorded and not yet submitted.
+    bool pending() const {return bool(pending_);}
     // Synchronous feedback required by original store. Only explicit hosts
     // owning queue synchronization may call this; never an implicit draw wait.
     std::vector<uint8_t> readback(VkQueue,const Buffer&,VkDeviceSize offset,VkDeviceSize size);

@@ -364,7 +364,7 @@ def build(out: Path) -> Path:
     exe = out / "replay_gpu.exe"
     args = COMMON + ["/DNOMINMAX", "/I" + find_vulkan_include(), "/I" + str(out), "/I" + str(ROOT / "frontend/assets"),
                      "/Fo" + str(out) + "/", "/Fd" + str(out / "replay.pdb")]
-    args += [str(p) for p in sources] + ["/Fe:" + str(exe), "/link", "/NOLOGO", "user32.lib"]
+    args += [str(p) for p in sources] + ["/Fe:" + str(exe), "/link", "/NOLOGO", "user32.lib", "dbghelp.lib"]
     log = io.StringIO()
     try:
         with contextlib.redirect_stdout(log):
