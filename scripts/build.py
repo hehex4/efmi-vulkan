@@ -189,7 +189,7 @@ def build_module(vcvars: str, include: str, out: str, mismatch: bool = False) ->
 
 
 # Shared static material path also linked by tracker/recipe fixtures with the backend.
-MATERIAL_SOURCES = ["../frontend/gpu/material_plan.cpp", "../frontend/gpu/source_registers.cpp", "../frontend/assets/dds.cpp",
+MATERIAL_SOURCES = ["../frontend/gpu/material_plan.cpp", "../frontend/gpu/source_registers.cpp", "../frontend/gpu/texture_roles.cpp", "../frontend/assets/dds.cpp",
                     "../frontend/assets/image_upload.cpp", "../frontend/assets/buffer_upload.cpp",
                     "../frontend/assets/resource_cache.cpp"]
 

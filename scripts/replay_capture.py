@@ -10,7 +10,7 @@ import the bones and draw the Mod's mesh with the game's own shaders.
 What the capture does not hold is made up, never guessed into game data: the index bytes (only the
 region's hash is kept) are forged to the same CRC-32C with small indices, vertex buffers and
 storage buffers are zero, the bone buffer holds upright stand-in bones where the instance entries
-point, and every texture is a small grey image of the recorded format and view type. The Mod's
+point, and every texture is a zero or grey image of the recorded format, size, mip chain and view type. The Mod's
 mesh therefore stands in its bind pose at the place and with the projection the game used; the
 original draws collapse to nothing. Passes of one depth format share their depth. Read-only on the
 capture and the Mods; output under build/. docs/capture-replay.md has the details.
@@ -168,6 +168,7 @@ class Replay:
         self.image_of, self.shared = {}, {}
         self.omitted = Counter()
         self.probe_vertices = False  # diagnosis: the original draws get a small known shape
+        self.small_images = False    # diagnosis: 4x4 single-level textures instead of the recorded size
 
     def put(self, payload: bytes) -> int:
         while len(self.data) % 16:
@@ -182,10 +183,17 @@ class Replay:
 
     def image(self, e: dict) -> int:
         layers = e["subresource"]["layers"] if e.get("subresource") else e.get("array_layers", 1)
-        key = (e["image_format"], e["format"], e["image_type"], e["view_type"], max(1, layers))
+        extent = (e.get("extent") or [4, 4, 1])[:2]
+        # The recorded size and mip chain (capped), so a texture keeps the description the layer reads
+        # (RabbitFX's roles classify by it, D-082); the content stays zero or grey.
+        width, height = min(max(1, extent[0]), 4096), min(max(1, extent[1]), 4096)
+        mips = min(max(1, e.get("mip_levels") or 1), max(width, height).bit_length())
+        if self.small_images:  # diagnosis: the earlier 4x4 single-level images
+            width, height, mips = 4, 4, 1
+        key = (e["image_format"], e["format"], e["image_type"], e["view_type"], max(1, layers), width, height, mips)
         if key not in self.image_of:
             self.image_of[key] = len(self.images)
-            self.images.append(dict(zip(("format", "view_format", "type", "view_type", "layers"), key)))
+            self.images.append(dict(zip(("format", "view_format", "type", "view_type", "layers", "width", "height", "mips"), key)))
         return self.image_of[key]
 
     def case(self, pid: int) -> int:
@@ -326,7 +334,8 @@ def emit(replay: Replay, draws: list[dict]) -> str:
         lines.append("b.push_back({%du,{%s}});" % (b["size"], fills))
     lines.append("return b;}")
     lines.append("static std::vector<ReplayImage> replay_images(){return {")
-    lines += ["{%du,%du,%du,%du,%du}," % (i["format"], i["view_format"], i["type"], i["view_type"], i["layers"]) for i in replay.images]
+    lines += ["{%du,%du,%du,%du,%du,%du,%du,%du}," % (i["format"], i["view_format"], i["type"], i["view_type"], i["layers"],
+                                                     i["width"], i["height"], i["mips"]) for i in replay.images]
     lines.append("};}")
     groups = {}
     for d in draws:
@@ -475,6 +484,7 @@ def main() -> int:
     ap.add_argument("--rp", type=int, action="append", help="replay only the draws of these recorded render pass instances")
     ap.add_argument("--open-tests", action="store_true", help="diagnosis: no depth, stencil or culling in the replayed pipelines")
     ap.add_argument("--probe-vertices", action="store_true", help="diagnosis: the original draws get a small known shape")
+    ap.add_argument("--small-images", action="store_true", help="diagnosis: 4x4 single-level textures")
     ap.add_argument("--mods", type=Path, help="another Mods folder than the installed one (a project-owned copy)")
     ap.add_argument("--check", action="store_true", help="fail unless both runs are clean, the originals draw nothing and every "
                     "render pass with a component of the Mod shows the Mod's draws (regression suite)")
@@ -483,11 +493,12 @@ def main() -> int:
     MODS = args.mods or MODS
     dist = Path(os.environ.get("EFMI_VK_DIST", ROOT / "dist"))
     validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))
-    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else ""))
+    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else ""))
     out.mkdir(parents=True, exist_ok=True)
     sections, components = mod_sections(dist, out)
     replay = Replay(args.bundle, out)
     replay.probe_vertices = args.probe_vertices
+    replay.small_images = args.small_images
     draws = []
     for d in replay.frame["draws"]:
         ib = d.get("ib") or {}

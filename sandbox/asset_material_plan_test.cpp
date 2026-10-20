@@ -40,6 +40,24 @@ static efmi::gpu::MaterialPlan material_plan_tests(const FileBinding& red,const 
         check(!profile.prepare(code,bad_rules,reason) && resolve_material_plan(draws,code,&profile,output,reason),
               "invalid or aliased profile preparation preserves the previous validated profile");
     }
+    {
+        // The same image declared as an integer image: neither a file nor a null can be patched in.
+        // The profile still serves draws that do not bind it; one that does is refused (D-082: the
+        // slots are those of every draw of a Mod, and one shader's odd image must not refuse the rest).
+        auto integer=code;uint32_t int_type=0;
+        for(size_t at=5;at<integer.size();at+=integer[at]>>16)if((integer[at]&65535)==21){int_type=integer[at+1];break;}
+        bool changed=false;
+        for(size_t at=5;at<integer.size() && int_type;at+=integer[at]>>16)
+            if((integer[at]&65535)==25){integer[at+2]=int_type;changed=true;break;}
+        MaterialProfile odd;
+        check(changed && odd.prepare(integer,rules,reason),"an image slot that takes neither a file nor a null no longer refuses the profile");
+        FileDraws untouched;untouched.draws.resize(1);untouched.draws[0].pixel[17].source=BindingSource::File;MaterialPlan kept;
+        check(resolve_material_plan(untouched,integer,&odd,kept,reason) && kept.draws[0].images.empty(),
+              "a draw that does not bind that slot still resolves");
+        FileDraws touching;touching.draws.resize(1);touching.draws[0].pixel[15]=red;
+        check(!resolve_material_plan(touching,integer,&odd,kept,reason) && !reason.empty(),"a draw that binds that slot is refused");
+        check(!odd.prepare(integer,{{15,MaterialSlotKind::Image,{1,99}}},reason),"a binding the shader does not declare still refuses");
+    }
     auto volume=code;
     for(size_t at=5;at<volume.size();at+=volume[at]>>16)if((volume[at]&65535)==25){volume[at+3]=2;break;}
     MaterialProfile volume_profile;

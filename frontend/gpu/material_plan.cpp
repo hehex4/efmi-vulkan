@@ -22,8 +22,14 @@ bool MaterialProfile::prepare(const std::vector<uint32_t>& fragment,const std::v
             return refuse("Material profile contains an unsupported or aliased image binding");
         slot.image=rule.image;std::vector<uint32_t> changed;std::string detail;
         slot.file_supported=repoint_fragment_images(fragment,{{rule.image.set,rule.image.binding,3,2}},changed,detail);
+        // An image the shader declares but does not read as a plain float 2D colour image (a depth
+        // comparison, an opaque use, another type) takes neither a file nor a null: only a draw that
+        // binds this slot is refused (select), the profile's other slots still serve. A missing
+        // binding or a module this path does not read still refuses the profile.
+        const bool slot_specific=detail=="fragment_source_not_uniform_constant" || detail=="fragment_source_not_float_2d_color_image" ||
+                                 detail=="fragment_image_depth_or_opaque_escape";
         slot.null_supported=null_fragment_images(fragment,{rule.image},changed,detail);
-        if(!slot.file_supported && !slot.null_supported)
+        if(!slot.file_supported && !slot.null_supported && !slot_specific)
             return refuse("Material profile target is not a supported direct sampled image");
     }
     *this=std::move(next);return true;

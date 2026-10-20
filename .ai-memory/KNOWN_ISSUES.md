@@ -20,6 +20,8 @@ Khronos VVL 1.4.321 and SPIRV-Tools are built under `F:/vulkan`. The sandbox pas
 
 2026-10-19 (1.5.2): six of the twelve directory packages that load in the sandbox reference RabbitFX (akekuri, avywenna, estella, mifu, perlica, rossiy). The library is a ShaderRegex Mod in its own folder (`Mods/RabbitFX -ENDMI-`), outside the per-Mod generation, so its references stay original warnings and its textures (ps-t70 to t74, t60, t61) never bind. Belongs with the phase 4 shader work. Assessment with ground truth from the catalogue: docs/rabbitfx-assessment.md (no exact SPIR-V rule; diffuse by the first sample 79 of 83).
 
+2026-10-20 (1.5.8, D-082): partly lifted. The layer's generations carry a native RabbitFX namespace; SetTextures binds a Mod's diffuse, lightmap and normal map at the roles the draw's fragment shader and textures give (docs/rabbitfx-roles.md). Still open: RabbitFX in sections that keep the game's mesh and only change its textures (texture-only replacement of game draws), and the glow/FX/hue features that need RabbitFX's shader rewrite.
+
 ## LIMIT-005: Dynamic offsets attributed to the first set (fixed in 0.4.0)
 
 Offsets now split using the set layouts in set/binding/array order. The sandbox checks two sets with a dynamic uniform buffer and a dynamic storage-buffer array, both multi-set and nonzero-firstSet binds, through both entries and with secondary command buffers. Missing layouts produce an explicit unknown reason instead of guessed offsets.
@@ -751,3 +753,8 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 
 - Found 2026-10-20 by reading the publication rule while measuring first appearance in the capture replay: the uploader published once all of a package's images were Ready, and material draws waited for that publication. A failed image (truncated or unsupported DDS, a file over 128 MiB, the resident budget) therefore left the whole character to the game for the rest of the generation, without a refusal that named it.
 - Fix: D-081. Shown by the replay of arcane with one truncated diffuse map in a project-owned copy (docs/character-materials.md).
+
+## BUG-030: One odd slot refused a shader's whole material profile (fixed in candidate 1.5.8)
+
+- Found 2026-10-20 while adding RabbitFX roles (D-082): a Mod's material slots are those of all its draws, and every fragment shader derives rules for all of them. A slot that held a buffer or an array in some shader made rule_rules refuse that shader ("register tN is not a single image"); one whose image could take neither a file nor a null (an integer image, a depth comparison) made MaterialProfile::prepare refuse it. That shader's draws then kept the game's textures on the Mod's mesh. In the mifu replay the shirt went black once the hair's RabbitFX roles added slots t0/t1.
+- Fix: such a slot is absent for that shader (rule_rules), or marked as taking neither (prepare); only a draw that binds it is refused (select). A binding the shader does not declare, or a module the material path cannot read, still refuses the profile. Material plan test 261 checks (4 new).

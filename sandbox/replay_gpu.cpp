@@ -29,7 +29,7 @@ static std::shared_ptr<efvk::ShaderInfo> shader_file(const char* path,uint32_t i
 }
 struct ReplayFill{uint64_t dst,src,size;};
 struct ReplayBuffer{uint64_t size;std::vector<ReplayFill> fills;};
-struct ReplayImage{uint32_t format,view_format,type,view_type,layers;};
+struct ReplayImage{uint32_t format,view_format,type,view_type,layers,width,height,mips;};
 struct ReplayDescriptor{uint32_t set,binding,type,buffer,offset,range,image;};
 struct ReplayVertex{uint32_t binding,buffer;};
 struct ReplayDraw{uint32_t pipeline,group,count,instances,first,first_instance;int32_t vertex_offset;uint32_t index_buffer,index_type;
@@ -286,19 +286,19 @@ int wmain(int argc,wchar_t** argv){
             }
             buffers.push_back(made);
         }
-        // Textures: small grey images of the recorded format and view type.
+        // Textures: zero or grey images of the recorded format, size, mip chain and view type.
         const auto image_specs=replay_images();
         std::vector<VkImageView> views;
         {
             auto cb=g.begin();
-            auto zero=g.buffer(1<<16,VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+            auto zero=g.buffer(size_t(32)<<20,VK_BUFFER_USAGE_TRANSFER_SRC_BIT); // largest level: 4096 x 4096 at 2 bytes per texel
             for(const auto& s:image_specs){
                 const auto format=static_cast<VkFormat>(s.format),view_format=static_cast<VkFormat>(s.view_format);
                 const auto view_type=static_cast<VkImageViewType>(s.view_type);
                 const bool cube=view_type==VK_IMAGE_VIEW_TYPE_CUBE || view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
                 VkImageCreateInfo ci={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=static_cast<VkImageType>(s.type);ci.format=format;
-                ci.extent={4,ci.imageType==VK_IMAGE_TYPE_1D?1u:4u,ci.imageType==VK_IMAGE_TYPE_3D?4u:1u};
-                ci.mipLevels=1;ci.arrayLayers=std::max(cube?6u:1u,s.layers);ci.samples=VK_SAMPLE_COUNT_1_BIT;ci.tiling=VK_IMAGE_TILING_OPTIMAL;
+                ci.extent={s.width,ci.imageType==VK_IMAGE_TYPE_1D?1u:s.height,ci.imageType==VK_IMAGE_TYPE_3D?4u:1u};
+                ci.mipLevels=s.mips;ci.arrayLayers=std::max(cube?6u:1u,s.layers);ci.samples=VK_SAMPLE_COUNT_1_BIT;ci.tiling=VK_IMAGE_TILING_OPTIMAL;
                 ci.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
                 if(cube)ci.flags|=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
                 if(format!=view_format)ci.flags|=VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
@@ -307,21 +307,24 @@ int wmain(int argc,wchar_t** argv){
                 image.memory=g.allocate(req,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);CHECK_VK(pBindImageMemory(g.device,image.image,image.memory,0));
                 const auto aspect=aspect_of(format);
                 VkImageMemoryBarrier b={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.image=image.image;b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-                b.subresourceRange={aspect,0,1,0,ci.arrayLayers};b.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;b.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                b.subresourceRange={aspect,0,ci.mipLevels,0,ci.arrayLayers};b.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;b.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
                 b.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
                 pCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&b);
                 if(depth_format(format)){
                     VkClearDepthStencilValue v{0.5f,0};pCmdClearDepthStencilImage(cb,image.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&v,1,&b.subresourceRange);
                 }else if(block_format(format) || !texel_bytes(format)){
-                    VkBufferImageCopy copy{};copy.imageSubresource={aspect,0,0,ci.arrayLayers};copy.imageExtent=ci.extent;
-                    pCmdCopyBufferToImage(cb,zero.buffer,image.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
+                    for(uint32_t level=0;level<ci.mipLevels;++level){
+                        VkBufferImageCopy copy{};copy.imageSubresource={aspect,level,0,ci.arrayLayers};
+                        copy.imageExtent={std::max(1u,ci.extent.width>>level),std::max(1u,ci.extent.height>>level),std::max(1u,ci.extent.depth>>level)};
+                        pCmdCopyBufferToImage(cb,zero.buffer,image.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
+                    }
                 }else{
                     VkClearColorValue grey{{0.5f,0.5f,0.5f,1.0f}};pCmdClearColorImage(cb,image.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&grey,1,&b.subresourceRange);
                 }
                 b.oldLayout=b.newLayout;b.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;b.srcAccessMask=b.dstAccessMask;b.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
                 pCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,0,0,nullptr,0,nullptr,1,&b);
                 VkImageViewCreateInfo vi={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};vi.image=image.image;vi.viewType=view_type;vi.format=view_format;
-                vi.subresourceRange={depth_format(format)?VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT):aspect,0,1,0,
+                vi.subresourceRange={depth_format(format)?VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT):aspect,0,ci.mipLevels,0,
                                      view_type==VK_IMAGE_VIEW_TYPE_CUBE?6u:(view_type==VK_IMAGE_VIEW_TYPE_2D || view_type==VK_IMAGE_VIEW_TYPE_1D ||
                                                                            view_type==VK_IMAGE_VIEW_TYPE_3D?1u:ci.arrayLayers)};
                 VkImageView view{};CHECK_VK(pCreateImageView(g.device,&vi,nullptr,&view));views.push_back(view);

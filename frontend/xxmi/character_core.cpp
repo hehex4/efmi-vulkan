@@ -136,7 +136,7 @@ global $mod_id = -1
     }
     std::vector<std::wstring> declaration_units() override
     {
-        return rabbit_textures ? std::vector<std::wstring>{rabbit_texture_declarations()} : std::vector<std::wstring>{};
+        return {rabbit_textures ? rabbit_texture_declarations() : rabbitfx_library_declarations()};
     }
     std::vector<std::wstring> native_shaders() override
     {
@@ -199,6 +199,28 @@ global $mod_id = -1
                 return fail(why, L"Mod did not attach its prepared merged skeleton");
             return adapter->invoke(list(L"callback_component_drawcustom"), state, 1, why);
         });
+        if (!rabbit_textures) {
+            // RabbitFX (D-082): SetTextures binds the Mod's maps where this draw's fragment shader samples
+            // the diffuse, lightmap and normal map; a role the draw has not, an unknown answer or a map
+            // the Mod did not set binds nothing, and the game's texture stays.
+            const std::wstring resolve = L"commandlist\\rabbitfx\\resolveroles";
+            boundaries.push_back(resolve);
+            a.native(explicitCommandListSections.at(resolve), resolve, [this](CommandListState&, unsigned phases, std::wstring&) {
+                if (!(phases & 1)) return true;
+                int32_t roles[3] = {-1, -1, -1};
+                std::string reason;
+                if (!current.texture_roles || !current.texture_roles(roles, reason)) roles[0] = roles[1] = roles[2] = -1;
+                static const wchar_t* const maps[3] = {L"diffuse", L"lightmap", L"normalmap"};
+                static const wchar_t* const slots[3] = {L"diffuse_slot", L"lightmap_slot", L"normal_slot"};
+                for (int i = 0; i < 3; ++i) {
+                    const auto declared = customResources.find(std::wstring(L"resource\\rabbitfx\\") + maps[i]);
+                    const bool given = declared != customResources.end() && adapter->referenced_resource(&declared->second);
+                    command_list_globals.at(std::wstring(L"$\\rabbitfx\\") + slots[i]).fval =
+                        given && roles[i] >= 0 && roles[i] < int32_t(kRabbitRoleSlots) ? float(roles[i]) : -1.0f;
+                }
+                return true;
+            });
+        }
         // With the host's texture identities (D-077) the original OverrideTextures runs: its
         // CheckTextureOverride on ps-t0 to ps-t22 finds texture-hash sections by the hash of what is
         // bound. Without them the generation registers mesh overrides only and refuses image-hash

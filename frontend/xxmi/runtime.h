@@ -73,6 +73,10 @@ struct RuntimeDraw {
     // With RuntimeConfig::texture_identity: the application's texture at a DX11 pixel slot of this
     // draw, as the original's resource hash (`bound` false for an empty slot). False refuses.
     std::function<bool(unsigned slot, bool& bound, uint32_t& hash, std::string& reason)> pixel_texture;
+    // RabbitFX's texture roles in this draw (D-082): the DX11 t registers of the diffuse map, the
+    // lightmap and the normal map its fragment shader samples, -1 for a role it has not. False:
+    // not known, and the RabbitFX library binds nothing.
+    std::function<bool(int32_t roles[3], std::string& reason)> texture_roles;
 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;

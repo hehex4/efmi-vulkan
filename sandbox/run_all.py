@@ -32,6 +32,7 @@ STEPS = [
     ("INI execution matrix", [os.path.join(ROOT, "scripts", "check_ini_execution_matrix.py")]),
     ("DX11 registers from SPIR-V", [os.path.join(ROOT, "scripts", "check_source_slots.py")]),
     ("Core facts from SPIR-V", [os.path.join(ROOT, "scripts", "check_core_facts.py")]),
+    ("RabbitFX texture roles", [os.path.join(ROOT, "scripts", "check_texture_roles.py")]),
     ("installed Mods offline plans", [os.path.join(ROOT, "scripts", "check_mods_dry_run.py")]),
     ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                       r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "300", "--check"]),

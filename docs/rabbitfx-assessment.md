@@ -52,3 +52,8 @@ truth). Options, for the user to decide:
 
 A table of DX11 shader hashes per Vulkan module would give exact roles for captured shaders only
 and is excluded by D-075.
+
+## Decision (2026-10-20)
+
+The user chose option 2, classification by the bound textures (D-082). The rule and its agreement with
+RabbitFX are in docs/rabbitfx-roles.md.

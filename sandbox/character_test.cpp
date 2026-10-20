@@ -7,6 +7,7 @@
 #include "../layer/src/character_materials.h"
 #include "../layer/src/character_program.h"
 #include "../frontend/gpu/source_registers.h"
+#include "../frontend/gpu/texture_roles.h"
 #include "../layer/src/json.h"
 #include "variant_fixture.h"
 #include <cstdio>
@@ -246,6 +247,41 @@ static void declaration_tests(const CharacterPackage& p)
           "a declaration that already has the file's layout passes unchanged");
 }
 
+// RabbitFX's roles by the bound textures (D-082): the decisions server/efmi_vk/texture_roles.py makes.
+static void texture_role_tests()
+{
+    using efmi::gpu::RoleSample; using efmi::gpu::RoleTexture;
+    const RoleTexture srgb{true, 146, 2048, 2048, 12}, linear{true, 145, 2048, 2048, 12}, small{true, 145, 512, 512, 10},
+                      bc5{true, 141, 2048, 2048, 12}, target{true, 122, 1708, 1068, 1}, placeholder{true, 43, 4, 4, 1};
+    auto run = [](std::vector<std::pair<RoleSample, RoleTexture>> items) {
+        std::vector<RoleSample> samples;
+        for (const auto& item : items) samples.push_back(item.first);
+        return efmi::gpu::texture_roles(samples, [&](const RoleSample& s) {
+            for (const auto& item : items) if (item.first.t == s.t) return item.second;
+            return RoleTexture{};
+        });
+    };
+    auto sample = [](uint32_t t, uint32_t at, bool decoded = false) { RoleSample s; s.t = t; s.at = at; s.decoded = decoded; return s; };
+    check(efmi::gpu::texture_class(srgb) == 'S' && efmi::gpu::texture_class(linear) == 'U' && efmi::gpu::texture_class(bc5) == 'N' &&
+          efmi::gpu::texture_class(target) == 'o' && efmi::gpu::texture_class(placeholder) == 'o' &&
+          efmi::gpu::texture_class(RoleTexture{true, 146, 2048, 2048, 11}) == 'o',
+          "texture classes: sRGB, linear BC, BC5 asset textures; targets, placeholders and short mip chains are none");
+    auto r = run({{sample(16, 10), srgb}, {sample(17, 20), linear}, {sample(18, 50, true), bc5}});
+    check(r.diffuse == 16 && r.lightmap == 17 && r.normal == 18, "diffuse, a lightmap of its size, then a BC5 normal map");
+    r = run({{sample(16, 10), srgb}, {sample(17, 20), linear}, {sample(18, 50, true), linear}, {sample(12, 90), small}});
+    check(r.diffuse == 16 && r.lightmap == 17 && r.normal == 18, "a linear normal map decoded right after the lightmap");
+    r = run({{sample(0, 10), srgb}, {sample(1, 40, true), srgb}});
+    check(r.diffuse == 0 && r.lightmap == -1 && r.normal == 1, "an sRGB texture decoded as a normal near the diffuse");
+    r = run({{sample(14, 10), srgb}, {sample(12, 20), target}, {sample(13, 700, true), linear}});
+    check(r.diffuse == 14 && r.lightmap == -1 && r.normal == -1, "a normal decode far from the diffuse is not a role");
+    r = run({{sample(13, 10), srgb}, {sample(14, 20), small}});
+    check(r.diffuse == 13 && r.lightmap == -1 && r.normal == 14, "a linear texture of another size is the normal map, not a lightmap");
+    r = run({{sample(5, 10), target}, {sample(6, 20), linear}});
+    check(r.diffuse == -1 && r.lightmap == -1 && r.normal == -1, "no sRGB asset texture: no role");
+    r = run({{sample(16, 10), srgb}, {sample(16, 15), srgb}, {sample(17, 20), RoleTexture{}}});
+    check(r.diffuse == 16 && r.lightmap == -1 && r.normal == -1, "a register sampled twice counts once; an unknown texture has no class");
+}
+
 // The DX11 register rule (D-076) on the fixture's fragment modules. Their bone block is a read-only
 // buffer and comes first (t0); the image follows (t1) wherever its binding is, as for a feature
 // variant of a game shader that moves its bindings.
@@ -362,6 +398,24 @@ int main(int argc, char** argv)
             const auto facts = efmi::gpu::core_source_facts(registers);
             printf("%s %d %d %d.%d\n", argv[i], facts.vs_config_slot, facts.rolling_bones ? 1 : 0,
                    facts.config ? int(facts.config->set) : -1, facts.config ? int(facts.config->binding) : -1);
+        }
+        return 0;
+    }
+    if (argc >= 3 && !strcmp(argv[1], "--texture-roles")) {
+        // D-082 as the backend reads a fragment module: "<file> t.set.binding.decoded.at ..." per sample.
+        for (int i = 2; i < argc; ++i) {
+            std::ifstream in(argv[i], std::ios::binary | std::ios::ate);
+            std::vector<uint32_t> code(in ? size_t(in.tellg()) / 4 : 0);
+            if (in) { in.seekg(0); in.read(reinterpret_cast<char*>(code.data()), code.size() * 4); }
+            std::vector<efmi::gpu::RoleSample> samples; std::string reason;
+            if (!efmi::gpu::role_samples(code, samples, reason)) { printf("%s refused %s\n", argv[i], reason.c_str()); continue; }
+            std::string line;
+            for (const auto& s : samples) {
+                char item[64];
+                snprintf(item, sizeof(item), "%s%u.%u.%u.%d.%u", line.empty() ? "" : " ", s.t, s.set, s.binding, s.decoded ? 1 : 0, s.at);
+                line += item;
+            }
+            printf("%s %s\n", argv[i], line.c_str());
         }
         return 0;
     }
@@ -536,6 +590,7 @@ int main(int argc, char** argv)
     declaration_tests(p);
     material_tests(valid);
     register_tests();
+    texture_role_tests();
     check(!is_character_package("character-test-missing.bin"), "a missing file is not a character package");
     printf("character package: %d checks passed, %d failed\n", passed, failed);
     return failed ? 1 : 0;

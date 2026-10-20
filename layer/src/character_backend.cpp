@@ -8,6 +8,7 @@
 #include "character_present.h"
 #include "character_materials.h"
 #include "../../frontend/gpu/source_registers.h"
+#include "../../frontend/gpu/texture_roles.h"
 #include "texture_identity.h"
 #include "merged_skeleton.h"
 #include "state.h"
@@ -266,12 +267,17 @@ public:
     // queries; `readable` false when the register rule could not read the module.
     struct FragmentRegisters { bool readable = false; std::vector<efmi::gpu::SourceRegister> list; };
     std::unordered_map<uint32_t, FragmentRegisters> fragment_registers;
+    // Under the mod lock: the image samples of each pipeline's fragment module, for RabbitFX's
+    // texture roles (D-082); `readable` false when the module is not read.
+    struct FragmentSamples { bool readable = false; std::vector<efmi::gpu::RoleSample> list; };
+    std::unordered_map<uint32_t, FragmentSamples> fragment_samples;
     // Under the mod lock: what the original Core reads off each pipeline's vertex shader (D-079):
     // the instance-config cb slot and whether the bones come from the rolling vs-t0 buffer.
     struct SourceFacts { int32_t vs_config_slot = -1; bool rolling_bones = false; };
     std::unordered_map<uint32_t, SourceFacts> source_facts;
     uint64_t facts_unknown = 0;
     uint64_t texture_queries = 0, texture_unknown = 0;
+    uint64_t role_queries = 0, role_draws = 0; // RabbitFX role queries, and those that found a diffuse map
     const char* texture_reason = nullptr; // why the latest unknown answer was unknown
     std::unordered_map<uint32_t, uint32_t> derived_for_pipeline;   // pipeline generation -> derived profile or none
     std::vector<std::unique_ptr<DerivedProfile>> derived_profiles;
@@ -333,6 +339,9 @@ public:
     ~CharacterGeneration() { stop(); }
 
     void note(const std::string& reason) { std::lock_guard<std::mutex> lock(pool_mx); last_reason = reason; }
+    // A fragment shader without a profile of its own keeps the application's images; logged once per
+    // pipeline and slot set (derive caches the answer).
+    uint32_t refuse_profile(const std::string& reason, uint32_t result) { note(reason); logf("%s", reason.c_str()); return result; }
     bool refuse(Counter counter, const std::string& reason) { ++counters[counter]; note(reason); return false; }
 
     bool init()
@@ -541,9 +550,11 @@ public:
             const auto* r = efmi::gpu::find_source_register(registers, 't', slot);
             CharacterMaterialRule rule;
             rule.slot = slot;
-            if (!r) { rule.kind = CharacterMaterialRule::Absent; rules.push_back(rule); continue; }
-            if (r->kind != efmi::gpu::SourceRegister::ImageSrv || r->count != 1) {
-                reason = "register t" + std::to_string(slot) + " is not a single image"; return false;
+            // The slots are those of every draw of the Mod (RabbitFX roles among them, D-082); a slot that
+            // holds no single image in this shader (a buffer, an array) takes no file image here, as
+            // one it does not declare, and the rest of the shader's slots still do.
+            if (!r || r->kind != efmi::gpu::SourceRegister::ImageSrv || r->count != 1) {
+                rule.kind = CharacterMaterialRule::Absent; rules.push_back(rule); continue;
             }
             // The device-bound compatibility policy of the package covers a 2D file at a 3D image.
             rule.kind = package.material_vendor && r->dim == 2 ? CharacterMaterialRule::ZeroFile : CharacterMaterialRule::Image;
@@ -582,22 +593,72 @@ public:
         if (!reg) return true;
         if (reg->kind != efmi::gpu::SourceRegister::ImageSrv || reg->count != 1 || reg->set >= kMaxSets)
             return unknown("a pixel slot is not a single image");
-        const SetBind& bind = r.sets[reg->set];
+        const char* why = nullptr;
+        bool empty = false;
+        const ImageInfo* image = bound_image(r, reg->set, reg->binding, empty, why);
+        if (empty) return true; // a null view: an empty slot
+        if (!image) return unknown(why);
+        if (!dx11_texture_hash(*image, hash)) return unknown("an image without a known original hash");
+        bound = true;
+        return true;
+    }
+
+    // Caller holds res_mx. The image the draw binds at element 0 of (set, binding): null with `empty`
+    // for a null view, null with `why` when the layer cannot tell.
+    const ImageInfo* bound_image(const DrawRec& r, uint32_t set_index, uint32_t binding, bool& empty, const char*& why)
+    {
+        empty = false;
+        if (set_index >= kMaxSets) { why = "a set outside the tracked slots"; return nullptr; }
+        const SetBind& bind = r.sets[set_index];
         const DescriptorSetInfo* contents = bind.pushed.get();
         if (!contents && bind.id) {
             const auto set = device->descriptor_sets.find(bind.set);
             if (set != device->descriptor_sets.end() && set->second.id == bind.id) contents = &set->second;
         }
-        if (bind.unsupported || !contents) return unknown("the descriptor set of a pixel slot is not tracked");
-        const auto value = contents->values.find({reg->binding, 0});
-        if (value == contents->values.end() || !value->second.known) return unknown("a pixel slot's descriptor is unknown");
-        if (!value->second.image_view) return true; // a null view: an empty slot
+        if (bind.unsupported || !contents) { why = "the descriptor set of a pixel slot is not tracked"; return nullptr; }
+        const auto value = contents->values.find({binding, 0});
+        if (value == contents->values.end() || !value->second.known) { why = "a pixel slot's descriptor is unknown"; return nullptr; }
+        if (!value->second.image_view) { empty = true; return nullptr; }
         const auto view = device->image_views.find(value->second.image_view);
-        if (view == device->image_views.end() || view->second.id != value->second.image_view_id) return unknown("unknown image view");
+        if (view == device->image_views.end() || view->second.id != value->second.image_view_id) { why = "unknown image view"; return nullptr; }
         const auto image = device->images.find(view->second.image);
-        if (image == device->images.end() || image->second.id != view->second.image_id) return unknown("unknown image");
-        if (!dx11_texture_hash(image->second, hash)) return unknown("an image without a known original hash");
-        bound = true;
+        if (image == device->images.end() || image->second.id != view->second.image_id) { why = "unknown image"; return nullptr; }
+        return &image->second;
+    }
+
+    // Caller holds res_mx and mod_mx. RabbitFX's roles in this draw (D-082): the fragment module's
+    // samples and the images the draw binds at them. False when the module is not read.
+    bool texture_roles(const DrawRec& r, int32_t roles[3], std::string& reason)
+    {
+        roles[0] = roles[1] = roles[2] = -1;
+        const auto pipe = device->pipes.find(r.pipeline);
+        if (pipe == device->pipes.end() || !pipe->second.recipe) { reason = "unknown pipeline"; return false; }
+        auto known = fragment_samples.find(pipe->second.id);
+        if (known == fragment_samples.end()) {
+            if (fragment_samples.size() >= 8192) fragment_samples.clear();
+            FragmentSamples samples;
+            samples.readable = true; // a pipeline without a fragment stage samples nothing
+            for (const auto& stage : pipe->second.recipe->stages)
+                if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) {
+                    std::string why;
+                    samples.readable = efmi::gpu::role_samples(stage.shader->code, samples.list, why);
+                }
+            known = fragment_samples.emplace(pipe->second.id, std::move(samples)).first;
+        }
+        if (!known->second.readable) { reason = "the fragment module is not read"; return false; }
+        const auto found = efmi::gpu::texture_roles(known->second.list, [&](const efmi::gpu::RoleSample& s) {
+            efmi::gpu::RoleTexture texture;
+            const char* why = nullptr;
+            bool empty = false;
+            if (const ImageInfo* image = bound_image(r, s.set, s.binding, empty, why)) {
+                texture.known = true; texture.format = image->format;
+                texture.width = image->extent.width; texture.height = image->extent.height; texture.levels = image->levels;
+            }
+            return texture;
+        });
+        roles[0] = found.diffuse; roles[1] = found.lightmap; roles[2] = found.normal;
+        ++role_queries;
+        if (found.diffuse >= 0) ++role_draws;
         return true;
     }
 
@@ -622,19 +683,21 @@ public:
         if (!rule_rules(*code, created->rules, reason)) {
             char name[16];
             snprintf(name, sizeof(name), "%08x", crc);
-            note(std::string("character material: fragment ") + name + " keeps the application's images: " + reason); return result;
+            return refuse_profile(std::string("character material: fragment ") + name + " keeps the application's images: " + reason, result);
         }
-        if (derived_profiles.size() >= kDerivedProfiles) { note("character material: too many derived profiles"); return result; }
+        if (derived_profiles.size() >= kDerivedProfiles) return refuse_profile("character material: too many derived profiles", result);
         created->crc = crc; created->code = *code; created->slots = material_slots;
         CharacterMaterialProfile source;
         source.code = created->code; source.rules = created->rules;
         std::set<uint32_t> counts;
         if (!prepare_character_profile(package, source, created->plans, counts, reason)) {
-            note("character material: derived profile refused: " + reason); return result;
+            return refuse_profile("character material: pipeline " + std::to_string(pipe.id) + " derived profile refused: " + reason, result);
         }
         // The arenas of a command are made for the image counts known at setup.
         for (uint32_t count : counts)
-            if (!image_counts.count(count)) { note("character material: derived profile needs an image count no arena has"); return result; }
+            if (!image_counts.count(count))
+                return refuse_profile("character material: derived profile of pipeline " + std::to_string(pipe.id) + " needs " +
+                                      std::to_string(count) + " images, no arena has that count", result);
         logf("character material: fragment %08x (pipeline %u) takes %zu rules from the DX11 register rule",
              crc, pipe.id, created->rules.size());
         derived_profiles.push_back(std::move(created));
@@ -1018,6 +1081,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
                 request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
                 request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
                     return pixel_texture(r, slot, bound, value, why); };
+                request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
                 bool skip = false, added = false; std::string reason;
                 if (!program->plan(request, package, runtime_list, skip, added, reason)) return refuse(C_STATE, "INI hide: " + reason);
                 if (!skip) return false;
@@ -1121,6 +1185,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
             request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
                 return pixel_texture(r, slot, bound, value, why); };
+            request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
             {
                 const SourceFacts facts = facts_of(pipe->second, site);
                 request.source_vs_config_slot = facts.vs_config_slot;
@@ -1764,6 +1829,8 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kn("material_derived_profiles", backend.derived_profiles.size());
         w.kb("lazy", backend.lazy);
         w.kn("texture_queries", backend.texture_queries);
+        w.kn("texture_role_queries", backend.role_queries);
+        w.kn("texture_role_draws", backend.role_draws);
         w.kn("source_facts_unknown", backend.facts_unknown);
         w.kn("identify_components", backend.program ? backend.program->identify_components() : 0);
         w.kn("texture_unknown", backend.texture_unknown);
