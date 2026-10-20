@@ -250,7 +250,7 @@ static void run_character_assets(Gpu& g,uint32_t expected)
         VK(g.submit());
         Sleep(10);
         const auto status=self_probe("{\"cmd\":\"status\"}","character-assets.json");
-        ready=status.find(marker)!=std::string::npos && status.find("\"images_published\":true")!=std::string::npos;
+        ready=status.find(marker)!=std::string::npos;
     }while(!ready && std::chrono::steady_clock::now()<deadline);
     check(ready,"actual character DDS files reach Ready through the layer's queue service");
     if(ready && !g_module_path.empty()){
@@ -265,8 +265,7 @@ static void run_character_assets(Gpu& g,uint32_t expected)
             Sleep(10);
             self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
             const auto status=self_probe("{\"cmd\":\"status\"}","character-assets-swapped.json");
-            exchanged=status.find("\"generation\":1,")!=std::string::npos && status.find(marker)!=std::string::npos &&
-                      status.find("\"images_published\":true")!=std::string::npos;
+            exchanged=status.find("\"generation\":1,")!=std::string::npos && status.find(marker)!=std::string::npos;
         }while(!exchanged && std::chrono::steady_clock::now()<deadline);
         check(exchanged,"the module's backend takes over with all actual files Ready");
         for(uint32_t i=0;i<20;++i){VK(g.submit());Sleep(10);}

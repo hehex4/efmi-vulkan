@@ -281,6 +281,13 @@ void util_init(HMODULE self)
     }
     g_cfg.m2_owned = setting("EFMI_VK_M2_OWNED", "m2_owned") != "0";
     g_cfg.m2_reserve_mb = strtoull(setting("EFMI_VK_M2_RESERVE_MB", "m2_reserve_mb").c_str(), nullptr, 10);
+    g_cfg.m2_texture_budget_mb = strtoull(setting("EFMI_VK_M2_TEXTURE_BUDGET_MB", "m2_texture_budget_mb").c_str(), nullptr, 10);
+    {
+        const std::string reduce = setting("EFMI_VK_M2_TEXTURE_REDUCE_MB", "m2_texture_reduce_mb");
+        if (!reduce.empty()) g_cfg.m2_texture_reduce_mb = strtoull(reduce.c_str(), nullptr, 10);
+    }
+    g_cfg.m2_texture_preload = setting("EFMI_VK_M2_TEXTURE_PRELOAD", "m2_texture_preload") == "1";
+    g_cfg.m2_pageable = setting("EFMI_VK_M2_PAGEABLE", "m2_pageable") != "0";
     std::string m2_enabled = setting("EFMI_VK_M2_ENABLED", "m2_enabled");
     g_cfg.m2_enabled = m2_enabled == "1" || m2_enabled == "on";
 

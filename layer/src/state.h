@@ -499,6 +499,11 @@ struct Device {
     uint32_t app_api_version = 0;
     bool null_descriptors = false, null_descriptors_added = false;
     bool draw_parameters = false, draw_parameters_added = false; // shaderDrawParameters, as for null descriptors
+    // D-095: timeline semaphores (texture publication), VK_EXT_memory_priority and
+    // VK_EXT_pageable_device_local_memory (the layer's textures page before the application's).
+    bool timeline_semaphores = false, timeline_semaphores_added = false;
+    bool memory_priority = false, memory_priority_added = false;
+    bool pageable_memory = false, pageable_memory_added = false;
     // What owned GPU work may rely on: the core features the application enabled and, with core
     // 1.2 or VK_KHR_shader_float_controls enabled, the float control properties.
     VkPhysicalDeviceFeatures enabled_features = {};

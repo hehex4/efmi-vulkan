@@ -16,7 +16,7 @@ def refused_package(checks):
         package = fixture(folder)
         config = json.loads(Path(str(package) + ".runtime.json").read_text(encoding="ascii"))
         Path(config["stream_0"]).unlink()
-        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
+        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1")
         status = {}
         with Sandbox(seconds=4, env_extra=extra, entry=entry) as sb:
             with ProbeClient(sb.pid) as probe:
@@ -49,7 +49,7 @@ type = Buffer
 format = DXGI_FORMAT_R16_UINT
 filename = other-index.buf
 """, encoding="ascii")
-    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
+    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1")
     status = {}
     with Sandbox(seconds=4, env_extra=extra, entry="layer") as sb:
         with ProbeClient(sb.pid) as probe:
@@ -75,7 +75,7 @@ def shader_sections(checks):
         folder = Path(test_dir("runtime-shader-"))
         package = fixture(folder)
         (folder / "shaders.ini").write_text("[ShaderOverrideFixture]\nhash = 5d7710a77fb65f25\n" + body, encoding="ascii")
-        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
+        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1")
         status = {}
         with Sandbox(seconds=4, env_extra=extra, entry="layer") as sb:
             with ProbeClient(sb.pid) as probe:
@@ -98,7 +98,7 @@ def main():
         for queues in (1, 2):
             folder = Path(test_dir("runtime-"))
             package = fixture(folder)
-            extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
+            extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1", EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
                          VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
                          XDG_CACHE_HOME=str(folder), TEMP=str(folder), TMP=str(folder), TMPDIR=str(folder))
             env = (layer_env if entry == "layer" else inject_env)(str(folder / "layer.log"), extra=extra)
@@ -154,7 +154,7 @@ def several_packages(checks, validation):
     package = fixture(folder)
     for suffix in ("", ".runtime.json"):
         shutil.copyfile(folder / "b" / ("other.bin" + suffix), folder / ("0-other.bin" + suffix))
-    extra = dict(EFMI_VK_M2_PACKAGE=str(folder), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
+    extra = dict(EFMI_VK_M2_PACKAGE=str(folder), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1", EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
                  XDG_CACHE_HOME=str(folder), TEMP=str(folder), TMP=str(folder), TMPDIR=str(folder))
     env = layer_env(str(folder / "layer.log"), extra=extra)
@@ -224,7 +224,7 @@ def directory_generation(checks, validation):
     (mods / "DISABLED old").mkdir()
     (mods / "DISABLED old" / "mod.ini").write_text((folder / "mod.ini").read_text(encoding="ascii"), encoding="ascii")
     settings = root / "settings"
-    extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
+    extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1",
                  EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
                  XDG_CACHE_HOME=str(root), TEMP=str(root), TMP=str(root), TMPDIR=str(root))

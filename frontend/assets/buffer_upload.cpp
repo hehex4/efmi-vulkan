@@ -113,10 +113,13 @@ bool BufferUpload::record(uint32_t graphics_family)
     if(!result(d_.CreateFence(device_,&fi,nullptr,&fence_),"create mesh upload fence"))return false;
     state_=UploadState::Recorded;return true;
 }
-bool BufferUpload::submit(VkQueue queue)
+bool BufferUpload::submit(VkQueue queue,VkSemaphore timeline,uint64_t value)
 {
     if(state_!=UploadState::Recorded || !queue){reason_="Buffer ticket is not ready for submission";return false;}
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};si.commandBufferCount=1;si.pCommandBuffers=&command_;
+    VkTimelineSemaphoreSubmitInfo values={VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+    if(timeline){values.signalSemaphoreValueCount=1;values.pSignalSemaphoreValues=&value;si.pNext=&values;
+        si.signalSemaphoreCount=1;si.pSignalSemaphores=&timeline;}
     if(!result(d_.QueueSubmit(queue,1,&si,fence_),"submit mesh upload"))return false;
     in_flight_=true;state_=UploadState::Submitted;return true;
 }

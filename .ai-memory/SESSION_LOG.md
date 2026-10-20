@@ -2095,3 +2095,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - The user switched through characters; the session froze after eight package activations in 17 seconds. The watchdog showed the submit and present threads inside the driver; the status showed about 3 GiB of our images and meshes, late meshes outside device memory: device memory oversubscribed (BUG-033). The user also saw characters flicker between original and Mod, and Mods missing in the open world: one package per recording.
 - 1.6.6: activation waits for device memory to spare (D-092), several packages share a recording (D-093), watchdog stages.
+
+## 2026-10-20: texture residency (candidate 1.6.7)
+
+- Third game session: no freeze; only three characters, the rest waiting for device memory; stutter at zero free memory. The user: DX11 handles twenty Mods, this does not; study 3DMigoto, use Vulkan's features, optimize to the limit.
+- Studied CustomResource::Substantiate (load on first use) and the device's features (timeline, memory priority, pageable, sparse, ReBAR). Built the device-wide residency (D-094) with timeline publication and the enabled features (D-095); Si replays fully under a 200 MiB cap with reduced loads.

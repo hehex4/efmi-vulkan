@@ -6,6 +6,7 @@
 #include "character_package.h"
 #include "character_program.h"
 #include "character_present.h"
+#include "texture_residency.h"
 #include "character_materials.h"
 #include "../../frontend/gpu/source_registers.h"
 #include "../../frontend/gpu/texture_roles.h"
@@ -231,17 +232,6 @@ struct CharacterCommand : CommandOwner {
         return true;
     }
 };
-// A graphics queue that may consume the character's images: per publication batch the semaphore it
-// waits on before forwarding application work, and the fence of that wait submission.
-struct ImageQueue {
-    VkQueue queue = VK_NULL_HANDLE;
-    std::vector<VkSemaphore> semaphores;
-    std::vector<VkFence> fences;
-    uint32_t waited = 0; // batches this queue has waited for
-};
-// Images are published in at most this many batches: each batch as soon as at least one more image
-// is Ready, the last one only once every image is Ready or failed.
-constexpr uint32_t kPublicationBatches = 16;
 } // namespace
 
 class CharacterGeneration {
@@ -265,9 +255,8 @@ public:
     std::vector<BoneComponent> ranges;
     uint32_t bone_bytes = 0;
     std::unique_ptr<VariantCache> cache;
-    efmi::assets::ResourceBudgets image_budgets;
-    std::unique_ptr<efmi::assets::ResourceCache> images;
-    std::vector<efmi::assets::ResourceHandle> image_handles;
+    TextureResidency* textures = nullptr;              // the device's (D-094)
+    std::vector<TextureResidency::ImageId> image_ids;  // per package image
     std::vector<std::vector<StaticMaterial>> materials; // profile x package draw, prepared at setup
     std::unordered_map<uint32_t, uint32_t> material_profiles; // pipeline generation -> exact profile
     std::vector<uint32_t> material_slots;                          // DX11 pixel slots the package binds
@@ -291,31 +280,6 @@ public:
     std::vector<std::unique_ptr<DerivedProfile>> derived_profiles;
     uint32_t rule_mismatches = 0;                                  // package profiles the register rule disagrees with
     std::set<uint32_t> image_counts{0};
-    std::mutex queue_mx;
-    bool queues_stopped = false;
-    std::vector<ImageQueue> image_queues;
-    VkQueue upload_queue = VK_NULL_HANDLE;
-    std::vector<VkFence> publication_fences;      // the signal submission of each batch
-    uint32_t publication_batches = 0, publications = 0; // under queue_mx
-    // Under queue_mx: the images of each submitted batch, which images are in a batch, and how many
-    // batches completed on the GPU. A consumer queue waits only for a completed batch (D-091), so the
-    // wait is already satisfied when it is enqueued and can never hold an application queue behind
-    // work on another queue that waits for this one.
-    std::vector<std::vector<uint32_t>> batch_images;
-    std::vector<char> image_batched;
-    uint32_t completed_publications = 0;
-    // Per image: its publication signal is enqueued, so a recording may retain its view. Every image
-    // published: `images_published` (an F10 candidate takes over only then).
-    std::unique_ptr<std::atomic<bool>[]> image_published;
-    std::atomic<uint32_t> published_images{0};
-    std::atomic<bool> images_published{false};
-    std::atomic<uint32_t> image_queue_waits{0}, upload_queue_index{UINT32_MAX}, image_publications{0};
-    PFN_vkCreateSemaphore CreateSemaphore = nullptr;
-    PFN_vkDestroySemaphore DestroySemaphore = nullptr;
-    PFN_vkCreateFence CreateFence = nullptr;
-    PFN_vkDestroyFence DestroyFence = nullptr;
-    PFN_vkWaitForFences WaitForFences = nullptr;
-    PFN_vkGetFenceStatus GetFenceStatus = nullptr;
     std::atomic<bool> enabled{false}, ready{false};
     std::atomic<uint64_t> frame{1};
     std::shared_ptr<std::atomic<uint64_t>> batches = std::make_shared<std::atomic<uint64_t>>(0);
@@ -347,8 +311,8 @@ public:
     // `lazy`: one of several packages (a directory). Its mesh, arenas and images go to the GPU only
     // when one of its sections first matches a draw, so characters not on screen take no memory there.
     CharacterGeneration(Device* dev, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m,
-                        std::string path = g_cfg.m2_package, bool deferred = false)
-        : device(dev), properties(p), memory(m), package_path(std::move(path)), lazy(deferred) {}
+                        std::string path = g_cfg.m2_package, bool deferred = false, TextureResidency* residency = nullptr)
+        : device(dev), properties(p), memory(m), textures(residency), package_path(std::move(path)), lazy(deferred) {}
     std::string package_path;
     bool lazy = false;
     std::atomic<bool> activated{false};
@@ -462,7 +426,8 @@ public:
         uint64_t free_bytes = 0, heap_bytes = 0;
         if (!device_local_free(device, free_bytes, heap_bytes)) return true;
         const uint64_t reserve = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(1024ull << 20, heap_bytes / 8);
-        if (free_bytes >= activation_bytes + reserve) return true;
+        const uint64_t activating = textures ? textures->activating_bytes.load() : 0;
+        if (free_bytes >= activation_bytes + reserve + activating) return true;
         const uint64_t clock = host_time_us();
         if (!memory_logged_us || clock - memory_logged_us > 30000000) {
             memory_logged_us = clock;
@@ -476,9 +441,11 @@ public:
     void activate()
     {
         if (activated.exchange(true)) return;
-        if (images)
-            for (const auto& handle : image_handles)
-                if (!images->demand(handle)) { note("character texture could not be demanded"); break; }
+        if (textures) {
+            textures->activating_bytes += activation_bytes;
+            // Textures come on their first bind (D-094); a test may ask for all of them at once.
+            if (g_cfg.m2_texture_preload) textures->preload(image_ids);
+        }
         if (lazy) logf("character package activated on its first match: %s", package_path.c_str());
         worker = std::thread([this] { prepare(); });
     }
@@ -498,21 +465,7 @@ public:
         if (presenter) presenter->stop();
         if (program) { std::string reason; if (!program->save(reason)) note("INI shutdown settings: " + reason); }
         if (cache) cache->stop();
-        {
-            std::lock_guard<std::mutex> lock(queue_mx);
-            queues_stopped = true;
-            if (images) images->stop();
-            // Device shutdown only. Never wait for a queue or fence on the draw/submit path.
-            for (uint32_t b = 0; b < publications; ++b) WaitForFences(device->handle, 1, &publication_fences[b], VK_TRUE, UINT64_MAX);
-            for (auto& q : image_queues) {
-                for (uint32_t b = 0; b < q.waited; ++b) WaitForFences(device->handle, 1, &q.fences[b], VK_TRUE, UINT64_MAX);
-                for (auto s : q.semaphores) if (s) DestroySemaphore(device->handle, s, nullptr);
-                for (auto f : q.fences) if (f) DestroyFence(device->handle, f, nullptr);
-            }
-            image_queues.clear();
-            for (auto f : publication_fences) if (f) DestroyFence(device->handle, f, nullptr);
-            publication_fences.clear(); publications = publication_batches = 0;
-        }
+        if (textures) textures->forget(image_ids);
         std::deque<std::shared_ptr<CharacterCommand>> old;
         std::shared_ptr<const GpuMesh> old_mesh;
         { std::lock_guard<std::mutex> lock(pool_mx); old.swap(available); old_mesh.swap(mesh); ready = false; }
@@ -520,6 +473,11 @@ public:
 
     void prepare()
     {
+        // The activation gate counts this package until its mesh is on the device (D-092).
+        struct Activating {
+            TextureResidency* textures; uint64_t bytes;
+            ~Activating() { if (textures) textures->activating_bytes.fetch_sub(std::min(textures->activating_bytes.load(), bytes)); }
+        } activating{textures, activation_bytes};
         try {
             auto created = std::make_shared<GpuMesh>(device->handle, storage);
             std::string reason;
@@ -527,6 +485,7 @@ public:
             logf("character mesh uploaded: %llu bytes in %s memory", static_cast<unsigned long long>(package.payload.size()),
                  created->device_local ? "device" : "host");
             { std::lock_guard<std::mutex> lock(pool_mx); mesh = created; }
+            activating.~Activating(); activating.textures = nullptr;
             while (true) {
                 if (program && save_requested.exchange(false)) {
                     std::string error;
@@ -995,69 +954,16 @@ bool CharacterGeneration::init_materials()
                          own.set, own.binding, rule.set, rule.binding);
                 }
     }
-#define X(n) n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
-    if (!n) { last_reason = "missing material vk" #n; return false; }
-    X(CreateSemaphore) X(DestroySemaphore) X(CreateFence) X(DestroyFence) X(WaitForFences) X(GetFenceStatus)
-#undef X
-    assets::ResourceDevice resource;
-    resource.device = device->handle; resource.physical = device->phys; resource.memory = memory;
-    resource.graphics_family = device->material_family; resource.bc_enabled = device->material_bc_enabled;
-    resource.format_properties = device->material_format_properties; resource.image_properties = device->material_image_properties;
-    resource.dispatch.SetDeviceLoaderData = device->set_loader_data;
-    resource.buffer_dispatch.SetDeviceLoaderData = device->set_loader_data;
-#define X(n) resource.dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
-    if (!resource.dispatch.n) { last_reason = "missing material vk" #n; return false; }
-    EFMI_IMAGE_UPLOAD_FUNCS(X)
-#undef X
-#define X(n) resource.buffer_dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n));
-    EFMI_BUFFER_UPLOAD_FUNCS(X)
-#undef X
-    {
-        // The images of one character may hold a quarter of the largest device-local heap, between
-        // 512 MiB and 2 GiB. Installed Mods ship textures of 64 MiB (4096 x 4096 uncompressed); a fixed
-        // 512 MiB left a character's last images unloaded and its materials waiting for good.
-        uint64_t heap = 0;
-        for (uint32_t i = 0; i < memory.memoryHeapCount; ++i)
-            if (memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) heap = std::max<uint64_t>(heap, memory.memoryHeaps[i].size);
-        image_budgets.resident = std::make_shared<assets::AllocationBudget>(std::clamp<uint64_t>(heap / 4, 512ull << 20, 2048ull << 20));
-    }
-    images = std::make_unique<assets::ResourceCache>(resource, image_budgets, 64);
-    {
-        // D-092: images on disk (DDS sizes are their GPU sizes), at most the image budget, the mesh
-        // and two snapshot batches.
-        uint64_t image_bytes = 0;
-        for (const auto& path : package.images) {
-            std::error_code error;
-            const auto size = std::filesystem::file_size(std::filesystem::u8path(path), error);
-            if (!error) image_bytes += size;
-        }
-        activation_bytes = std::min<uint64_t>(image_bytes, image_budgets.resident->limit()) + package.payload.size() + (128ull << 20);
-    }
+    // The images as the device's residency holds them (D-094): declared here, loaded on first bind.
+    if (!textures || !textures->usable()) { last_reason = textures ? textures->reason() : "textures need the device's residency"; return false; }
     for (const auto& path : package.images) {
-        auto handle = images->declare_image(std::filesystem::u8path(path), last_reason);
-        if (!handle) return false;
-        image_handles.push_back(std::move(handle));
+        std::string why;
+        const auto id = textures->declare(path, reinterpret_cast<uint64_t>(generation_key.get()), why);
+        if (id == TextureResidency::kNone) { last_reason = why; return false; }
+        image_ids.push_back(id);
     }
-    // Publication objects for every batch on every graphics queue, allocated here and kept until
-    // device shutdown (docs/character-materials.md).
-    image_published.reset(new std::atomic<bool>[image_handles.size() + 1]());
-    image_batched.assign(image_handles.size() + 1, 0);
-    publication_batches = std::min<uint32_t>(kPublicationBatches, std::max<uint32_t>(1, static_cast<uint32_t>(image_handles.size())));
-    VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-    publication_fences.assign(publication_batches, VK_NULL_HANDLE);
-    for (auto& fence : publication_fences)
-        if (CreateFence(device->handle, &fi, nullptr, &fence) != VK_SUCCESS) { last_reason = "cannot allocate material publication fence"; return false; }
-    for (auto queue : device->material_queues) {
-        image_queues.push_back({queue});
-        auto& q = image_queues.back();
-        q.semaphores.assign(publication_batches, VK_NULL_HANDLE); q.fences.assign(publication_batches, VK_NULL_HANDLE);
-        for (uint32_t b = 0; b < publication_batches; ++b)
-            if (CreateSemaphore(device->handle, &si, nullptr, &q.semaphores[b]) != VK_SUCCESS ||
-                CreateFence(device->handle, &fi, nullptr, &q.fences[b]) != VK_SUCCESS) {
-                last_reason = "cannot allocate material queue publication"; return false;
-            }
-    }
+    // D-092: activating brings the mesh and the first snapshot batches up; the textures come on demand.
+    activation_bytes = package.payload.size() + (32ull << 20);
     return true;
 }
 
@@ -1128,21 +1034,17 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
         }
         plans.push_back(plan);
     }
-    // No command can retain a file image until its publication signal is enqueued; every consumer
-    // queue inserts its waits before forwarding application work. An image the draw waits for is
-    // loaded next.
+    // Each image as the device's residency holds it now (D-094): a recording retains the GPU image
+    // it binds; one not resident yet is demanded, and the draw stays the game's meanwhile.
     bool pending = false;
     for (const auto* plan : plans) {
         std::vector<SnapshotImage> draw_views;
         for (uint32_t asset : plan->assets) {
-            auto result = image_handles[asset]->snapshot();
-            if (result.state == efmi::assets::ResourceState::Failed || result.state == efmi::assets::ResourceState::Stopped)
-                return refuse(C_IMAGE, "character texture: " + result.reason);
-            if (!image_published[asset].load(std::memory_order_acquire) || result.state != efmi::assets::ResourceState::Ready ||
-                !result.image || !result.image->view()) {
-                pending = true; images->prioritize(image_handles[asset]); continue;
-            }
-            draw_views.push_back({result.image->view(), result.image});
+            if (!textures || asset >= image_ids.size()) return refuse(C_IMAGE, "character texture outside the package's images");
+            auto bound = textures->bind(image_ids[asset]);
+            if (bound.failed) return refuse(C_IMAGE, "character texture: " + bound.reason);
+            if (!bound.view) { pending = true; continue; }
+            draw_views.push_back({bound.view, bound.owner});
         }
         views.push_back(std::move(draw_views));
     }
@@ -1618,79 +1520,14 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
     ThreadTrace* const trace = backend.device->trace ? backend.device->trace() : nullptr;
     // Owned GPU work of replaced draws runs before the application's work on the queue (D-087).
     if (backend.presenter) { StageMark stage(trace, "character draw work submission (generation lock)"); backend.submit_draw_work(queue); }
-    if (!backend.images || !backend.cache) return VK_SUCCESS;
-    StageMark stage(trace, "character image queue lock");
-    std::lock_guard<std::mutex> lock(backend.queue_mx);
-    StageMark uploads(trace, "character image uploads and publication");
-    if (backend.queues_stopped) return VK_SUCCESS;
-    auto found = std::find_if(backend.image_queues.begin(), backend.image_queues.end(),
-                              [&](const ImageQueue& q) { return q.queue == queue; });
-    if (found == backend.image_queues.end()) return VK_SUCCESS;
-    // Uploads and publications go to whichever graphics queue the application submits on (D-090): an
-    // image is published only once its upload completed, so no queue order is needed between them.
-    {
-        if (backend.images->submit_prepared(queue)) {
-            backend.upload_queue = queue;
-            backend.upload_queue_index = static_cast<uint32_t>(found - backend.image_queues.begin());
-        }
-        // A batch of the images that became Ready since the last one; the last batch waits until
-        // every image is Ready or failed. Its signal covers the upload queue's earlier work.
-        const uint32_t count = static_cast<uint32_t>(backend.image_handles.size());
-        if (backend.publications < backend.publication_batches && backend.published_images.load() < count) {
-            std::vector<uint32_t> fresh;
-            bool settled = true;
-            for (uint32_t i = 0; i < count; ++i) {
-                if (backend.image_batched[i]) continue;
-                const auto state = backend.image_handles[i]->snapshot().state;
-                if (state == efmi::assets::ResourceState::Ready) fresh.push_back(i);
-                else if (state != efmi::assets::ResourceState::Failed && state != efmi::assets::ResourceState::Stopped) settled = false;
-            }
-            if (!fresh.empty() && (backend.publications + 1 < backend.publication_batches || settled)) {
-                const uint32_t batch = backend.publications;
-                std::vector<VkSemaphore> signals;
-                for (const auto& q : backend.image_queues) signals.push_back(q.semaphores[batch]);
-                VkSubmitInfo publish{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-                publish.signalSemaphoreCount = static_cast<uint32_t>(signals.size());
-                publish.pSignalSemaphores = signals.data();
-                const auto result = backend.device->d.QueueSubmit(queue, 1, &publish, backend.publication_fences[batch]);
-                if (result != VK_SUCCESS) { backend.note("material publication submission failed"); return result; }
-                ++backend.publications; ++backend.image_publications;
-                for (uint32_t i : fresh) backend.image_batched[i] = 1;
-                if (backend.batch_images.size() <= batch) backend.batch_images.resize(batch + 1);
-                backend.batch_images[batch] = std::move(fresh);
-            }
-        }
-    }
-    // A batch whose signal completed on the GPU publishes its images: a recording may retain them
-    // from now on, and every consumer queue's wait for it is enqueued before that recording's
-    // submission (below, before the application's work on the queue).
-    while (backend.completed_publications < backend.publications &&
-           backend.GetFenceStatus(backend.device->handle, backend.publication_fences[backend.completed_publications]) == VK_SUCCESS) {
-        const auto& images = backend.batch_images[backend.completed_publications];
-        for (uint32_t i : images) backend.image_published[i].store(true, std::memory_order_release);
-        const uint32_t count = static_cast<uint32_t>(backend.image_handles.size());
-        if (backend.published_images.fetch_add(static_cast<uint32_t>(images.size())) + images.size() == count)
-            backend.images_published.store(true, std::memory_order_release);
-        ++backend.completed_publications;
-    }
-    StageMark waits(trace, "character consumer queue waits");
-    while (found->waited < backend.completed_publications) {
-        VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-        VkSubmitInfo wait{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        wait.waitSemaphoreCount = 1; wait.pWaitSemaphores = &found->semaphores[found->waited]; wait.pWaitDstStageMask = &stage;
-        const auto result = backend.device->d.QueueSubmit(queue, 1, &wait, found->fences[found->waited]);
-        if (result != VK_SUCCESS) { backend.note("material consumer queue wait failed"); return result; }
-        ++found->waited;
-        ++backend.image_queue_waits;
-    }
     return VK_SUCCESS;
 }
 
 std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkPhysicalDeviceProperties& properties,
                                                    const VkPhysicalDeviceMemoryProperties& memory,
-                                                   const std::string& path, bool lazy)
+                                                   const std::string& path, bool lazy, TextureResidency* textures)
 {
-    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory, path, lazy);
+    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory, path, lazy, textures);
     try {
         if (!backend->init()) {
             // BUG-026: a refusal can come after the INI program or its presenter were made; a refused
@@ -1776,7 +1613,9 @@ bool generation_usable(CharacterGeneration& backend, std::string& reason)
 
 bool generation_ready(CharacterGeneration& backend)
 {
-    return backend.cache && backend.ready.load() && (!backend.package.materials || backend.images_published.load());
+    // Mesh and arenas in place, and no image of the generation still on its way (a reload candidate
+    // brings up what the live generation shows before it takes over, D-094).
+    return backend.cache && backend.ready.load() && (!backend.textures || !backend.textures->loading(backend.image_ids));
 }
 
 void generation_enable(CharacterGeneration&, bool);
@@ -1828,13 +1667,22 @@ public:
                 logf("INI reload refused; current generation retained: %s", reload_error.c_str()); retire(std::move(candidate));
             } else {
                 staged = std::move(candidate); staged_at = host_time_us();
-                // A lazy package already on the GPU brings its successor up at once.
-                if (active->activated.load()) { std::lock_guard<std::mutex> hold(staged->mod_mx); staged->activate(); }
+                // A lazy package already on the GPU brings its successor up at once, with the textures
+                // the live generation shows, read again from their files (D-094).
+                if (active->activated.load()) {
+                    std::lock_guard<std::mutex> hold(staged->mod_mx); staged->activate();
+                    if (staged->textures) staged->textures->preload_matching(staged->image_ids, active->image_ids);
+                }
             }
         }
         if (staged) {
+            // A candidate whose texture file does not load is refused and the live generation kept.
+            const bool bad_image = staged->textures && staged->textures->any_failed(staged->image_ids);
             // A lazy package never matched yet needs nothing on the GPU to take over.
-            if (generation_ready(*staged) || (staged->lazy && !staged->activated.load())) {
+            if (bad_image) {
+                ++rejected; reload_error = "INI candidate texture failed to load; current generation retained";
+                logf("%s", reload_error.c_str()); retire(std::move(staged));
+            } else if (generation_ready(*staged) || (staged->lazy && !staged->activated.load())) {
                 staged->enabled = active->enabled.load();
                 if (active->program && staged->program) {
                     active->program->suspend_persistence();
@@ -1844,7 +1692,7 @@ public:
                 auto old = std::move(active); active = std::move(staged); ++generation; ++reloads; reload_error.clear();
                 logf("INI generation %llu Ready; F10 exchange complete", static_cast<unsigned long long>(generation));
                 retire(std::move(old));
-            } else if ((staged->images && staged->images->stats().failed) || host_time_us() - staged_at > 30000000) {
+            } else if (host_time_us() - staged_at > 30000000) {
                 ++rejected; reload_error = "INI candidate resource upload failed or timed out; current generation retained";
                 logf("%s", reload_error.c_str()); retire(std::move(staged));
             }
@@ -1855,11 +1703,11 @@ public:
                 std::string reason;
                 if (!previous->program->save(reason)) {
                     auto failed = std::make_shared<CharacterGeneration>(previous->device, previous->properties, previous->memory,
-                                                                        previous->package_path, previous->lazy);
+                                                                        previous->package_path, previous->lazy, previous->textures);
                     failed->note("Cannot preserve settings before reload: " + reason); return failed;
                 }
                 return generation_create(previous->device, previous->properties, previous->memory, previous->package_path,
-                                         previous->lazy);
+                                         previous->lazy, previous->textures);
             });
         }
     }
@@ -1870,9 +1718,46 @@ public:
 // each matches only its own sections, and each goes to the GPU on its first match.
 class CharacterBackend {
 public:
+    // The device's texture residency (D-094), shared by every package; stopped after the controllers.
+    std::unique_ptr<TextureResidency> textures;
     std::vector<std::unique_ptr<CharacterController>> controllers;
     std::string reason; // why there is no package
-    ~CharacterBackend() { for (auto& c : controllers) c->stop(); }
+    // The packages by the index counts their sections match, and those with hash-only sections
+    // (D-096): a draw looks up one count instead of asking every package. Rebuilt when a
+    // controller's generation changes (its sections may differ).
+    struct Index {
+        std::unordered_map<uint32_t, std::vector<uint32_t>> by_count;
+        std::vector<uint32_t> hash_only;
+        std::vector<uint64_t> generations;
+    };
+    std::shared_mutex index_mx;
+    std::shared_ptr<const Index> index;
+    void rebuild_index()
+    {
+        auto next = std::make_shared<Index>();
+        for (uint32_t i = 0; i < controllers.size(); ++i) {
+            auto& c = *controllers[i];
+            std::shared_lock<std::shared_mutex> lock(c.mutex);
+            next->generations.push_back(c.generation);
+            if (c.stopped || !c.active) continue;
+            for (const auto& entry : c.active->by_count) next->by_count[entry.first].push_back(i);
+            if (!c.active->hash_only.empty()) next->hash_only.push_back(i);
+        }
+        std::unique_lock<std::shared_mutex> lock(index_mx);
+        index = std::move(next);
+    }
+    bool index_stale()
+    {
+        std::shared_ptr<const Index> current;
+        { std::shared_lock<std::shared_mutex> lock(index_mx); current = index; }
+        if (!current || current->generations.size() != controllers.size()) return true;
+        for (uint32_t i = 0; i < controllers.size(); ++i) {
+            std::shared_lock<std::shared_mutex> lock(controllers[i]->mutex);
+            if (controllers[i]->generation != current->generations[i]) return true;
+        }
+        return false;
+    }
+    ~CharacterBackend() { for (auto& c : controllers) c->stop(); if (textures) textures->stop(); }
 };
 
 namespace {
@@ -1909,25 +1794,40 @@ std::vector<std::string> configured_packages(std::string& reason)
 std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m)
 {
     auto backend = std::make_shared<CharacterBackend>();
+    backend->textures = std::make_unique<TextureResidency>(d, m);
+    if (!backend->textures->usable()) logf("character textures unavailable: %s", backend->textures->reason().c_str());
     std::error_code error;
     const bool directory = !g_cfg.m2_mods.empty() || std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package), error);
     for (const auto& path : configured_packages(backend->reason)) {
         auto controller = std::make_unique<CharacterController>();
         controller->path = path; controller->lazy = directory;
-        controller->active = generation_create(d, p, m, path, directory);
+        controller->active = generation_create(d, p, m, path, directory, backend->textures.get());
         backend->controllers.push_back(std::move(controller));
     }
     if (directory) logf("character packages: %zu from %s", backend->controllers.size(),
                         g_cfg.m2_mods.empty() ? g_cfg.m2_package.c_str() : g_cfg.m2_mods.c_str());
+    backend->rebuild_index();
     return backend;
 }
-void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); }
+void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); if (b.textures) b.textures->stop(); }
 bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
 {
-    // The first package whose section matches records the draw; the others never see it.
-    for (auto& c : b.controllers) {
-        std::shared_lock<std::shared_mutex> lock(c->mutex);
-        if (!c->stopped && c->active && generation_record(*c->active, cb, r)) return true;
+    // The first package whose section matches records the draw; the others never see it. Only the
+    // packages with a section of this index count, or with hash-only sections, are asked (D-096).
+    std::shared_ptr<const CharacterBackend::Index> index;
+    { std::shared_lock<std::shared_mutex> lock(b.index_mx); index = b.index; }
+    if (!index) return false;
+    auto record = [&](uint32_t i) {
+        auto& c = *b.controllers[i];
+        std::shared_lock<std::shared_mutex> lock(c.mutex);
+        return !c.stopped && c.active && generation_record(*c.active, cb, r);
+    };
+    const auto found = index->by_count.find(r.count);
+    if (found != index->by_count.end())
+        for (uint32_t i : found->second) if (record(i)) return true;
+    for (uint32_t i : index->hash_only) {
+        if (found != index->by_count.end() && std::find(found->second.begin(), found->second.end(), i) != found->second.end()) continue;
+        if (record(i)) return true;
     }
     return false;
 }
@@ -1941,6 +1841,8 @@ void character_retire(CharacterBackend& b, uint32_t id)
 }
 VkResult character_submit(CharacterBackend& b, VkQueue q)
 {
+    // The textures' uploads and publication on this queue, before any package's work (D-094).
+    if (b.textures) { const auto result = b.textures->before_submit(q); if (result != VK_SUCCESS) return result; }
     for (auto& c : b.controllers) {
         std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->stopped) continue;
         auto result = c->active ? generation_submit(*c->active, q) : VK_SUCCESS;
@@ -1950,7 +1852,12 @@ VkResult character_submit(CharacterBackend& b, VkQueue q)
     return VK_SUCCESS;
 }
 // Each package runs its Present work in turn; a presenter waits for what the one before handed on.
-void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present) { for (auto& c : b.controllers) c->frame(had_draws, present); }
+void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
+{
+    if (b.textures) b.textures->frame();
+    for (auto& c : b.controllers) c->frame(had_draws, present);
+    if (b.index_stale()) b.rebuild_index();
+}
 bool character_usable(CharacterBackend& b, std::string& reason)
 {
     reason = b.reason;
@@ -1999,6 +1906,7 @@ void character_status(CharacterBackend& b, JsonWriter& w)
     }
     if (primary) controller_status(*primary, w);
     else w.kv("package_reason", b.reason);
+    if (b.textures) b.textures->status(w);
     if (b.controllers.size() > 1) {
         w.key("packages"); w.begin_array();
         for (auto& c : b.controllers) {
@@ -2064,21 +1972,20 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
     w.kn("package_bytes", backend.package.payload.size());
     w.kb("materials", backend.package.materials);
     w.kn("material_profiles", backend.package.profiles.size());
-    w.kn("image_count", backend.image_handles.size());
-    w.kn("image_resident_bytes", backend.image_budgets.resident->used());
+    w.kn("image_count", backend.image_ids.size());
+    {
+        // Of this package's images: resident now (published), failed, and their bytes on disk.
+        uint64_t resident = 0, failed = 0, bytes = 0;
+        if (backend.textures)
+            for (const auto id : backend.image_ids) {
+                if (backend.textures->resident(id)) { ++resident; bytes += backend.textures->file_bytes(id); }
+                else if (backend.textures->failed(id)) ++failed;
+            }
+        w.kn("images_ready", resident); w.kn("images_failed", failed); w.kn("image_resident_bytes", bytes);
+    }
     w.kb("dimension_zero_policy", backend.package.material_vendor != 0);
     w.kn("material_graphics_queues", backend.device->material_queues.size());
     w.kn("material_graphics_family", backend.device->material_family);
-    w.kn("image_upload_queue_index", backend.upload_queue_index.load());
-    w.kb("images_published", backend.images_published.load());
-    w.kn("image_publications", backend.image_publications.load());
-    w.kn("images_published_count", backend.published_images.load());
-    w.kn("image_queue_waits", backend.image_queue_waits.load());
-    if (backend.images) {
-        const auto stats = backend.images->stats();
-        w.kn("images_ready", stats.ready); w.kn("images_failed", stats.failed);
-        w.kn("image_file_reads", stats.file_reads); w.kn("image_submissions", stats.submissions);
-    }
     {
         std::lock_guard<std::mutex> lock(backend.pool_mx);
         w.kv("last_reason", backend.last_reason);

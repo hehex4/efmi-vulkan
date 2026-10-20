@@ -117,7 +117,7 @@ def main():
             env = layer_env(str(folder / "layer.log")) if entry == "layer" else inject_env(str(folder / "layer.log"))
             env.update(VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1",
                        VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0", XDG_CACHE_HOME=str(folder), TMPDIR=str(folder),
-                       TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
+                       TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1")
             args = [os.path.join(DIST, "efmi_vk_variant_gpu.exe"), "--character"]
             # Every full run exchanges the replacement code twice while the scene draws and has a
             # module with another header stamp refused (docs/hot-swap.md).
@@ -153,19 +153,16 @@ def main():
             r = json.loads(final.read_text())["result"]["replacement"]
             c = r["counters"]
             if material:
+                textures = r.get("textures", {})
                 checks.check(r["materials"] and r["images_ready"] == 2 and r["images_failed"] == 0 and
-                             r["image_file_reads"] == 2 and r["image_submissions"] == 2,
+                             textures.get("file_reads") == 2 and textures.get("submissions") == 2,
                              label + " each DDS decoded and uploaded once by the layer")
                 checks.check(c["material_items"] > 0, label + " shader material changes emitted through real hooks")
-                # Images are published in batches as they become Ready; a queue that submits after a
-                # batch completed waits for it once (D-091). Split: the uploading queue 0 may submit
-                # nothing more, the rendering queue 1 waits for every batch.
-                waits, batches = r["image_queue_waits"], r["image_publications"]
-                checks.check(r["images_published"] and r["images_published_count"] == 2 and 1 <= batches <= 2 and
-                             r["material_graphics_queues"] == (1 if queue_case == "single" else 2) and
-                             (batches <= waits <= 2 * batches if queue_case == "split" else waits == batches) and
-                             r["image_upload_queue_index"] == (1 if queue_case == "second-only" else 0),
-                             label + " image publication reaches every used queue, including a nonzero uploader")
+                # Uploads signal the device's timeline; every queue that renders waits for what was
+                # published before its work (D-094, D-095).
+                checks.check(textures.get("usable") and textures.get("published", 0) >= 2 and textures.get("waits", 0) >= 1 and
+                             r["material_graphics_queues"] == (1 if queue_case == "single" else 2),
+                             label + " the textures' publication reaches the rendering queue")
             if reject_late:
                 checks.check(c["refused_material"] > 0 and c["replaced"] > 0 and c["hidden"] > 0,
                              label + " late refusal counted while independent components still replace")

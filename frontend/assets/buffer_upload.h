@@ -27,7 +27,7 @@ public:
     BufferUpload& operator=(const BufferUpload&)=delete;
     bool prepare(const uint8_t*,size_t,VkBufferUsageFlags,const VkPhysicalDeviceMemoryProperties&,bool readback=false);
     bool record(uint32_t graphics_family);
-    bool submit(VkQueue);
+    bool submit(VkQueue,VkSemaphore timeline=VK_NULL_HANDLE,uint64_t value=0);
     UploadState poll();
     UploadState state() const {return state_;}
     VkBuffer buffer() const {return state_==UploadState::Ready?buffer_:VK_NULL_HANDLE;}

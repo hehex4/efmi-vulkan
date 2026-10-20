@@ -127,8 +127,8 @@ int main()
         DrawSnapshots s(h<VkDevice>(1),dispatch());
         check(!s.create_shared(both,limits,4,0,145) && !s.create_shared(both,limits,2000,2,145) && live.empty(),
               "shared storage rejects zero slices and excess entries");
-        check(s.create_shared(both,limits,4,2,145) && last_type==1 && s.size()==1024+3*1024+65536,
-              "shared storage prefers device memory the host can write; two slices, four entries");
+        check(s.create_shared(both,limits,4,2,145) && last_type==0 && s.size()==1024+3*1024+65536,
+              "shared storage takes host memory the device reads over the bus (D-094); two slices, four entries");
         std::vector<uint8_t> first(145,0x11),second(145,0x22);InstanceEntry entry;entry.fill(0x38);
         SnapshotSlot a,b,c,d,out{h<VkDescriptorSet>(999),999};
         check(!s.append(first,entry,out) && out.offset==999,"per-draw append is refused on shared storage");

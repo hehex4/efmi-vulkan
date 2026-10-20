@@ -12,6 +12,12 @@ take the EFMI Mods folder itself; no packaging step, and an F10 reload reads the
 | `m2_mods` (`EFMI_VK_M2_MODS`) | the EFMI Mods folder; replaces `m2_package` |
 | `m2_core` (`EFMI_VK_M2_CORE`) | the Core folder; default `Core\EFMI` beside the Mods folder |
 | `m2_settings` (`EFMI_VK_M2_SETTINGS`) | project-owned folder for the Mods' saved variables; default `settings` beside the replacement module |
+| `m2_texture_budget_mb` | cap of the textures' device memory (D-094); 0: half the device-local heap |
+| `m2_reserve_mb` | device memory kept free for the game; 0: the larger of 1 GiB and an eighth of the heap (D-092, D-094) |
+| `m2_texture_reduce_mb` | textures this large on disk load without their top mip level when memory is tight; default 16, 0 never |
+| `m2_texture_preload` | 1: every image of a package demanded at its activation; default on first bind |
+| `m2_pageable` | 0: leave VK_EXT_memory_priority and VK_EXT_pageable_device_local_memory off (D-095) |
+| `m2_owned` | 0: no owned GPU execution (Present work, GPU work in draws) |
 
 Nothing is ever written into the Mods folder (checked by the sandbox test).
 

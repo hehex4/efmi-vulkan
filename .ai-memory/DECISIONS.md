@@ -873,3 +873,17 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 - Date: 2026-10-20 (candidate 1.6.6, BUG-033). A command buffer keeps one owner per replacement backend (`CmdBuf::owners`, `owner_for`); an owner another backend left unused gives way as before. The open world draws several characters in one command buffer; before, only the first package replaced its draws and the others kept the game's, and packages took command buffers from one another, emptying their snapshot pools.
 - The stall watchdog also prints what a thread does inside the layer (StageMark: character submission work, image queue lock, consumer waits, character Present, character draw, driver vkQueueSubmit or vkQueuePresentKHR).
+
+## D-094: Textures are loaded on first bind and evicted under a budget
+
+- Date: 2026-10-20 (candidate 1.6.7, BUG-033). User: study 3DMigoto's loading, use Vulkan's own means, performance to the limit. 3DMigoto substantiates a resource on its first use and the DX11 runtime pages unused textures; the layer loaded every DDS of a package at activation and freed nothing, so three characters filled the card.
+- One `TextureResidency` per device: images declared without IO under the generation's tag; loaded on first bind (the draw stays the game's meanwhile); a target from the cap (`m2_texture_budget_mb`, default heap/2) and the device's free memory beyond a reserve (VK_EXT_memory_budget, `m2_reserve_mb`); over it the least recently bound images not bound in the last two frames are released (recordings keep their GPU objects until they complete); under pressure the largest resident full-size texture is demoted and loads without its top mip level (a quarter), one per frame, and demands made under pressure load reduced (`m2_texture_reduce_mb`, default 16). A reload candidate reads its files again, preloads what the live generation shows and is refused when a file fails. Snapshot arenas in host memory. `m2_texture_preload` for tests. docs/texture-residency.md.
+
+## D-095: Timeline publication; memory priority and pageable device memory enabled by the layer
+
+- Date: 2026-10-20 (candidate 1.6.7). Every upload signals one timeline semaphore with its serial; before an application submission on a graphics queue the residency submits one upload, reads the counter and enqueues an already satisfied wait for it on queues that have not waited for that value: cross-queue visibility without per-package batches, binary semaphores or fences, and no wait that can hold a queue (D-091).
+- At device creation the layer enables, when supported and not enabled by the application: timeline semaphores (core 1.2, else VK_KHR_timeline_semaphore), VK_EXT_memory_priority (the layer's textures at 0.25) and VK_EXT_pageable_device_local_memory (`m2_pageable = 0` leaves both off), as it does nullDescriptor and shaderDrawParameters. This GPU (RTX 5060 Laptop, 591.86) supports all three, sparse residency and ReBAR.
+
+## D-096: One index of the packages' draw counts per device
+
+- Date: 2026-10-20 (candidate 1.6.7). Every draw asked every package in turn (22 shared locks and 22 hash lookups per draw, thousands of draws per frame). The device backend keeps one index from index count to the packages with such a section, and the packages with hash-only sections; a draw looks up its count once and asks only those. Rebuilt after a frame in which a controller's generation changed (F10), so one frame after an exchange may miss a count only the new generation has.

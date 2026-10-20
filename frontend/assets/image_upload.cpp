@@ -21,7 +21,7 @@ bool ImageUpload::result(VkResult value,const char* operation)
     reason_=std::string(operation)+": "+std::to_string(value);state_=UploadState::Failed;return false;
 }
 VkDeviceMemory ImageUpload::allocate(const VkMemoryRequirements& requirements,VkMemoryPropertyFlags flags,
-                                     const std::shared_ptr<AllocationBudget>& budget,uint64_t& charged)
+                                     const std::shared_ptr<AllocationBudget>& budget,uint64_t& charged,float priority)
 {
     if(requirements.size>(160ull<<20)){reason_="Image allocation budget exceeded";return VK_NULL_HANDLE;}
     for(uint32_t i=0;i<memory_.memoryTypeCount;++i)
@@ -29,6 +29,8 @@ VkDeviceMemory ImageUpload::allocate(const VkMemoryRequirements& requirements,Vk
             if(budget && !budget->acquire(requirements.size)){reason_="Aggregate image memory budget exceeded";return VK_NULL_HANDLE;}
             VkMemoryAllocateInfo info={VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
             info.allocationSize=requirements.size;info.memoryTypeIndex=i;VkDeviceMemory memory=VK_NULL_HANDLE;
+            VkMemoryPriorityAllocateInfoEXT priority_info={VK_STRUCTURE_TYPE_MEMORY_PRIORITY_ALLOCATE_INFO_EXT};
+            if(priority>=0.0f){priority_info.priority=priority;info.pNext=&priority_info;}
             if(result(d_.AllocateMemory(device_,&info,nullptr,&memory),"allocate image resource memory")){
                 charged=requirements.size;return memory;
             }
@@ -49,7 +51,7 @@ void ImageUpload::release_staging()
 }
 bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDeviceMemoryProperties& memory,
                           const VkImageFormatProperties& limits,VkFormatFeatureFlags features,
-                          bool bc_enabled,bool readback)
+                          bool bc_enabled,bool readback,uint32_t skip_levels,float priority)
 {
     if(state_!=UploadState::Empty){reason_="Image ticket cannot be prepared again";return false;}
 #define X(name) if(!d_.name){reason_="Missing image upload entry: vk" #name;state_=UploadState::Failed;return false;}
@@ -65,22 +67,27 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
         reason_="Image format, enabled features or device limits are incompatible";state_=UploadState::Failed;return false;
     }
     memory_=memory;
+    // The DDS's levels from skipped_ on become the image's levels 0..n: the texture at a quarter of
+    // its memory per level left out, never below 4 by 4 and never the last level.
+    skipped_=std::min<uint32_t>(skip_levels,static_cast<uint32_t>(decoded_.levels.size())-1);
+    while(skipped_ && (decoded_.levels[skipped_].width<4 || decoded_.levels[skipped_].height<4))--skipped_;
+    const auto& base=decoded_.levels[skipped_];
     VkImageCreateInfo image={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    image.imageType=VK_IMAGE_TYPE_2D;image.format=decoded_.format;image.extent={decoded_.width,decoded_.height,1};
-    image.mipLevels=static_cast<uint32_t>(decoded_.levels.size());image.arrayLayers=1;
+    image.imageType=VK_IMAGE_TYPE_2D;image.format=decoded_.format;image.extent={base.width,base.height,1};
+    image.mipLevels=static_cast<uint32_t>(decoded_.levels.size())-skipped_;image.arrayLayers=1;
     image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
     image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
     if(!result(d_.CreateImage(device_,&image,nullptr,&image_),"create asset image"))return false;
     VkMemoryRequirements req{};d_.GetImageMemoryRequirements(device_,image_,&req);
     if(req.size>limits.maxResourceSize){reason_="Image exceeds device resource limit";state_=UploadState::Failed;return false;}
-    image_memory_=allocate(req,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,resident_budget_,resident_charged_);
+    image_memory_=allocate(req,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,resident_budget_,resident_charged_,priority);
     if(!image_memory_){state_=UploadState::Failed;return false;}
     if(!result(d_.BindImageMemory(device_,image_,image_memory_,0),"bind asset image"))return false;
     VkImageViewCreateInfo view={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     view.image=image_;view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=decoded_.format;
     view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,image.mipLevels,0,1};
     if(!result(d_.CreateImageView(device_,&view,nullptr,&view_),"create asset image view"))return false;
-    const auto start=decoded_.levels[0].offset;
+    const auto start=base.offset;
     VkBufferCreateInfo buffer={VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer.size=size-start;buffer.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     if(!result(d_.CreateBuffer(device_,&buffer,nullptr,&stage_),"create image staging buffer"))return false;
@@ -110,13 +117,13 @@ bool ImageUpload::record(uint32_t graphics_family)
     barrier.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-    barrier.image=image_;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,static_cast<uint32_t>(decoded_.levels.size()),0,1};
+    barrier.image=image_;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,static_cast<uint32_t>(decoded_.levels.size())-skipped_,0,1};
     d_.CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
     std::vector<VkBufferImageCopy> copies;
-    for(uint32_t i=0;i<decoded_.levels.size();++i){
+    for(uint32_t i=skipped_;i<decoded_.levels.size();++i){
         const auto& level=decoded_.levels[i];VkBufferImageCopy copy{};
-        copy.bufferOffset=level.offset-decoded_.levels[0].offset;
-        copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i,0,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
+        copy.bufferOffset=level.offset-decoded_.levels[skipped_].offset;
+        copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped_,0,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
     }
     d_.CmdCopyBufferToImage(cmd,stage_,image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,static_cast<uint32_t>(copies.size()),copies.data());
     barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
@@ -127,10 +134,13 @@ bool ImageUpload::record(uint32_t graphics_family)
     if(!result(d_.CreateFence(device_,&fi,nullptr,&fence_),"create image upload fence"))return false;
     state_=UploadState::Recorded;return true;
 }
-bool ImageUpload::submit(VkQueue queue)
+bool ImageUpload::submit(VkQueue queue,VkSemaphore timeline,uint64_t value)
 {
     if(state_!=UploadState::Recorded || !queue){reason_="Image ticket is not ready for submission";return false;}
     VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&command_;
+    VkTimelineSemaphoreSubmitInfo values={VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+    if(timeline){values.signalSemaphoreValueCount=1;values.pSignalSemaphoreValues=&value;submit.pNext=&values;
+        submit.signalSemaphoreCount=1;submit.pSignalSemaphores=&timeline;}
     if(!result(d_.QueueSubmit(queue,1,&submit,fence_),"submit image upload"))return false;
     in_flight_=true;state_=UploadState::Submitted;return true;
 }

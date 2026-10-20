@@ -22,7 +22,9 @@ struct SourceCharge {
 struct ResourceCache::Upload {
     std::shared_ptr<ImageUpload> image;
     std::shared_ptr<BufferUpload> buffer;
-    bool submit(VkQueue queue){return image?image->submit(queue):buffer->submit(queue);}
+    uint64_t serial=0;
+    bool submit(VkQueue queue,VkSemaphore timeline,uint64_t value){
+        serial=timeline?value:0;return image?image->submit(queue,timeline,value):buffer->submit(queue,timeline,value);}
     UploadState poll(){return image?image->poll():buffer->poll();}
     UploadState state() const {return image?image->state():buffer->state();}
     const std::string& reason() const {return image?image->reason():buffer->reason();}
@@ -44,11 +46,11 @@ void ResourceCache::publish(const ResourceHandle& entry,ResourceState state,
                             std::shared_ptr<Upload> upload,std::string reason)
 {
     std::lock_guard<std::mutex> lock(entry->mutex_);
-    entry->value_={state,upload?upload->image:nullptr,upload?upload->buffer:nullptr,std::move(reason)};
+    entry->value_={state,upload?upload->image:nullptr,upload?upload->buffer:nullptr,std::move(reason),upload?upload->serial:0};
 }
-ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason)
+ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason,uint64_t tag)
 {
-    return declare(path,0,reason);
+    return declare(path,0,reason,tag);
 }
 ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason)
 {
@@ -56,28 +58,40 @@ ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,V
     if(!usage || (usage&~allowed)){reason="Unsupported buffer declaration usage";return {};}
     return declare(path,usage,reason);
 }
-ResourceHandle ResourceCache::declare(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason)
+ResourceHandle ResourceCache::declare(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag)
 {
     reason.clear();
     if(!path.is_absolute() || path.native().size()>32760 || path.native().find(L'\0')!=std::wstring::npos){
         reason="Resource path must be a bounded absolute path without nulls";return {};
     }
-    const Key key{path.lexically_normal(),usage};
+    const Key key{path.lexically_normal(),usage,tag};
     std::lock_guard<std::mutex> lock(mutex_);
     if(stopped_){reason="Resource cache stopped";return {};}
     auto found=entries_.find(key);if(found!=entries_.end())return found->second;
     if(entries_.size()>=capacity_){reason="Resource declaration capacity exceeded";return {};}
-    auto entry=std::make_shared<ResourceRequest>();entry->path_=key.first;entry->buffer_usage_=usage;entry->owner_=identity_;
+    auto entry=std::make_shared<ResourceRequest>();entry->path_=std::get<0>(key);entry->buffer_usage_=usage;entry->owner_=identity_;
     entries_.emplace(key,entry);return entry;
 }
-bool ResourceCache::demand(const ResourceHandle& entry)
+bool ResourceCache::demand(const ResourceHandle& entry,uint32_t skip_levels)
 {
     if(!entry || entry->owner_.lock()!=identity_)return false;
     std::lock_guard<std::mutex> lock(mutex_);
     if(stopped_)return false;
     const auto state=entry->snapshot().state;
-    if(state==ResourceState::Dormant){queue_.push_back(entry);publish(entry,ResourceState::Queued);wake_.notify_one();}
+    if(state==ResourceState::Dormant){entry->skip_levels_=skip_levels;queue_.push_back(entry);publish(entry,ResourceState::Queued);wake_.notify_one();}
     return state!=ResourceState::Failed && state!=ResourceState::Stopped;
+}
+bool ResourceCache::release(const ResourceHandle& entry)
+{
+    if(!entry || entry->owner_.lock()!=identity_)return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if(stopped_)return false;
+    const auto state=entry->snapshot().state;
+    if(state==ResourceState::Queued){
+        const auto found=std::find(queue_.begin(),queue_.end(),entry);
+        if(found!=queue_.end())queue_.erase(found);
+    }else if(state!=ResourceState::Ready)return false;
+    publish(entry,ResourceState::Dormant);++stats_.releases;return true;
 }
 bool ResourceCache::prioritize(const ResourceHandle& entry)
 {
@@ -125,11 +139,12 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
                                                VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,0,&limits);
     if(result!=VK_SUCCESS)throw std::runtime_error("Resource format unsupported for sampled upload");
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);
-    if(!upload->prepare(bytes.data(),bytes.size(),device_.memory,limits,features.optimalTilingFeatures,device_.bc_enabled) ||
+    if(!upload->prepare(bytes.data(),bytes.size(),device_.memory,limits,features.optimalTilingFeatures,device_.bc_enabled,false,
+                        entry->skip_levels_,device_.memory_priority) ||
        !upload->record(device_.graphics_family))throw std::runtime_error(upload->reason());
     ticket->image=std::move(upload);return ticket;
 }
-bool ResourceCache::submit_prepared(VkQueue queue)
+bool ResourceCache::submit_prepared(VkQueue queue,VkSemaphore timeline,uint64_t value)
 {
     if(!queue)return false;
     std::lock_guard<std::mutex> service(service_mutex_);
@@ -142,7 +157,7 @@ bool ResourceCache::submit_prepared(VkQueue queue)
         submission_queue_=queue;
         upload=upload_;phase_=ResourceState::Submitting;publish(pending_,phase_);
     }
-    const bool ok=upload->submit(queue);
+    const bool ok=upload->submit(queue,timeline,value);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         phase_=ok?ResourceState::Submitted:ResourceState::Failed;

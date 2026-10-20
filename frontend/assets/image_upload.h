@@ -33,13 +33,19 @@ public:
     ~ImageUpload();
     ImageUpload(const ImageUpload&)=delete;
     ImageUpload& operator=(const ImageUpload&)=delete;
+    // skip_levels: the image is made from the DDS's levels from that one on (a smaller copy of a
+    // texture when memory is tight). priority: VK_EXT_memory_priority of the image's memory, or
+    // negative for none.
     bool prepare(const uint8_t*,size_t,const VkPhysicalDeviceMemoryProperties&,
                  const VkImageFormatProperties&,VkFormatFeatureFlags,
-                 bool bc_enabled,bool readback=false);
+                 bool bc_enabled,bool readback=false,uint32_t skip_levels=0,float priority=-1.0f);
     // Creates/records upload commands off the submission path. After record,
-    // submit performs only QueueSubmit and changes ticket state.
+    // submit performs only QueueSubmit and changes ticket state. With a timeline semaphore the
+    // submission signals it with `value` once the upload completed.
     bool record(uint32_t graphics_family);
-    bool submit(VkQueue queue);
+    bool submit(VkQueue queue,VkSemaphore timeline=VK_NULL_HANDLE,uint64_t value=0);
+    uint64_t resident_bytes() const { return resident_charged_; }
+    uint32_t skipped_levels() const { return skipped_; }
     // Polls only; never waits on the normal readiness path. Releases staging
     // after the upload fence completes. Publication occurs only at Ready.
     UploadState poll();
@@ -52,7 +58,7 @@ public:
 private:
     bool result(VkResult,const char*);
     VkDeviceMemory allocate(const VkMemoryRequirements&,VkMemoryPropertyFlags,
-                            const std::shared_ptr<AllocationBudget>&,uint64_t& charged);
+                            const std::shared_ptr<AllocationBudget>&,uint64_t& charged,float priority=-1.0f);
     void release_staging();
     VkDevice device_;
     UploadDispatch d_;
@@ -70,5 +76,6 @@ private:
     VkCommandBuffer command_=VK_NULL_HANDLE;
     VkFence fence_=VK_NULL_HANDLE;
     bool in_flight_=false;
+    uint32_t skipped_=0;
 };
 }

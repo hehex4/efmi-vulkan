@@ -261,3 +261,10 @@ fixture binds slot 1; the variant with the image at binding 8 shows the mod's te
 rule, and the four-set pipeline's shader, which declares no image, gets every slot absent.
 
 The game result is open.
+
+## Textures loaded on first bind and evicted under a budget (1.6.7, D-094)
+
+The per-package image cache, its batches, binary semaphores and fences described above are gone:
+one residency per device loads an image when a draw first binds it, evicts least recently bound
+images under a budget the device's free memory sets, reduces large textures under pressure and
+publishes uploads through one timeline semaphore. See `docs/texture-residency.md`.

@@ -1205,13 +1205,45 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     std::vector<const char*> extensions(info->ppEnabledExtensionNames, info->ppEnabledExtensionNames + info->enabledExtensionCount);
     VkPhysicalDeviceRobustness2FeaturesEXT robust{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
     VkPhysicalDeviceShaderDrawParametersFeatures draw_parameters_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
+    VkPhysicalDeviceTimelineSemaphoreFeatures timeline_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+    VkPhysicalDeviceMemoryPriorityFeaturesEXT priority_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PRIORITY_FEATURES_EXT};
+    VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PAGEABLE_DEVICE_LOCAL_MEMORY_FEATURES_EXT};
     bool null_descriptors = false, null_descriptors_added = false, robustness_requested = false;
     bool draw_parameters = false, draw_parameters_added = false;
+    // D-095: timeline semaphores publish the characters' textures to every graphics queue; memory
+    // priority and pageable device-local memory let the driver page the layer's textures before the
+    // application's. Each is enabled when the device supports it and the application did not.
+    bool timeline = false, timeline_added = false, timeline_requested = false;
+    bool priority = false, priority_added = false, priority_requested = false;
+    bool pageable = false, pageable_added = false, pageable_requested = false;
     VkBool32* app_draw_parameters = nullptr; // the application's field, set only for the call
+    VkBool32* app_timeline = nullptr;
+    VkBool32* app_priority = nullptr;
+    VkBool32* app_pageable = nullptr;
     bool changed = false;
-    for (uint32_t i = 0; i < info->enabledExtensionCount; ++i)
+    for (uint32_t i = 0; i < info->enabledExtensionCount; ++i) {
         robustness_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
+        timeline_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+        priority_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME);
+        pageable_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME);
+    }
     for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext) {
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES) {
+            auto* features = const_cast<VkPhysicalDeviceVulkan12Features*>(reinterpret_cast<const VkPhysicalDeviceVulkan12Features*>(p));
+            timeline = features->timelineSemaphore != VK_FALSE; app_timeline = &features->timelineSemaphore;
+        }
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES) {
+            auto* features = const_cast<VkPhysicalDeviceTimelineSemaphoreFeatures*>(reinterpret_cast<const VkPhysicalDeviceTimelineSemaphoreFeatures*>(p));
+            timeline = features->timelineSemaphore != VK_FALSE; app_timeline = &features->timelineSemaphore;
+        }
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PRIORITY_FEATURES_EXT) {
+            auto* features = const_cast<VkPhysicalDeviceMemoryPriorityFeaturesEXT*>(reinterpret_cast<const VkPhysicalDeviceMemoryPriorityFeaturesEXT*>(p));
+            priority = priority_requested && features->memoryPriority != VK_FALSE; app_priority = &features->memoryPriority;
+        }
+        if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PAGEABLE_DEVICE_LOCAL_MEMORY_FEATURES_EXT) {
+            auto* features = const_cast<VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT*>(reinterpret_cast<const VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT*>(p));
+            pageable = pageable_requested && features->pageableDeviceLocalMemory != VK_FALSE; app_pageable = &features->pageableDeviceLocalMemory;
+        }
         if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT && robustness_requested)
             null_descriptors = reinterpret_cast<const VkPhysicalDeviceRobustness2FeaturesEXT*>(p)->nullDescriptor != VK_FALSE;
         if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES) {
@@ -1225,19 +1257,35 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     }
     const uint32_t app_api = inst ? inst->app_api_version : VK_API_VERSION_1_0;
     if (character_configured() && inst && inst->EnumerateDeviceExtensionProperties && inst->GetPhysicalDeviceFeatures2) {
-        bool robustness_supported = false;
+        bool robustness_supported = false, timeline_supported = false, priority_supported = false, pageable_supported = false;
         uint32_t count = 0;
-        if (!robustness_requested && inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) == VK_SUCCESS && count && count < 4096) {
+        if (inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) == VK_SUCCESS && count && count < 4096) {
             std::vector<VkExtensionProperties> available(count);
             if (inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, available.data()) == VK_SUCCESS)
-                for (uint32_t i = 0; i < count; ++i)
+                for (uint32_t i = 0; i < count; ++i) {
                     robustness_supported |= !strcmp(available[i].extensionName, VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
+                    timeline_supported |= !strcmp(available[i].extensionName, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+                    priority_supported |= !strcmp(available[i].extensionName, VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME);
+                    pageable_supported |= !strcmp(available[i].extensionName, VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME);
+                }
         }
+        robustness_supported = robustness_supported && !robustness_requested;
+        // Timeline semaphores are core since 1.2; a 1.1 application gets the extension.
+        const bool timeline_available = app_api >= VK_API_VERSION_1_2 || timeline_supported || timeline_requested;
         VkPhysicalDeviceRobustness2FeaturesEXT robust_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
         VkPhysicalDeviceShaderDrawParametersFeatures draw_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
-        draw_query.pNext = robustness_supported ? &robust_query : nullptr;
+        VkPhysicalDeviceTimelineSemaphoreFeatures timeline_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+        VkPhysicalDeviceMemoryPriorityFeaturesEXT priority_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PRIORITY_FEATURES_EXT};
+        VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PAGEABLE_DEVICE_LOCAL_MEMORY_FEATURES_EXT};
+        VkBaseOutStructure* query_chain = nullptr;
+        auto query = [&](void* node) { auto* s = static_cast<VkBaseOutStructure*>(node); s->pNext = query_chain; query_chain = s; };
+        query(&draw_query);
+        if (robustness_supported) query(&robust_query);
+        if (timeline_available) query(&timeline_query);
+        if (priority_supported) query(&priority_query);
+        if (pageable_supported) query(&pageable_query);
         VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-        features.pNext = &draw_query;
+        features.pNext = query_chain;
         inst->GetPhysicalDeviceFeatures2(phys, &features);
         void* chain = const_cast<void*>(info->pNext);
         if (robustness_supported && robust_query.nullDescriptor) {
@@ -1250,6 +1298,24 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
             else { draw_parameters_feature.shaderDrawParameters = VK_TRUE; draw_parameters_feature.pNext = chain; chain = &draw_parameters_feature; }
             draw_parameters = draw_parameters_added = changed = true;
         }
+        if (!timeline && timeline_available && timeline_query.timelineSemaphore) {
+            if (app_timeline) *app_timeline = VK_TRUE;
+            else { timeline_feature.timelineSemaphore = VK_TRUE; timeline_feature.pNext = chain; chain = &timeline_feature; }
+            if (app_api < VK_API_VERSION_1_2 && !timeline_requested) extensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+            timeline = timeline_added = changed = true;
+        }
+        if (g_cfg.m2_pageable && !priority && priority_supported && priority_query.memoryPriority) {
+            if (!priority_requested) extensions.push_back(VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME);
+            if (app_priority) *app_priority = VK_TRUE;
+            else { priority_feature.memoryPriority = VK_TRUE; priority_feature.pNext = chain; chain = &priority_feature; }
+            priority = priority_added = changed = true;
+        }
+        if (g_cfg.m2_pageable && !pageable && priority && pageable_supported && pageable_query.pageableDeviceLocalMemory) {
+            if (!pageable_requested) extensions.push_back(VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME);
+            if (app_pageable) *app_pageable = VK_TRUE;
+            else { pageable_feature.pageableDeviceLocalMemory = VK_TRUE; pageable_feature.pNext = chain; chain = &pageable_feature; }
+            pageable = pageable_added = changed = true;
+        }
         if (changed) {
             modified.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
             modified.ppEnabledExtensionNames = extensions.data();
@@ -1259,6 +1325,9 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     }
     VkResult r = next(phys, info, alloc, device);
     if (draw_parameters_added && app_draw_parameters) *app_draw_parameters = VK_FALSE;
+    if (timeline_added && app_timeline) *app_timeline = VK_FALSE;
+    if (priority_added && app_priority) *app_priority = VK_FALSE;
+    if (pageable_added && app_pageable) *app_pageable = VK_FALSE;
     if (r != VK_SUCCESS)
         return r;
     info = requested;
@@ -1272,6 +1341,9 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     dev->null_descriptors_added = null_descriptors_added;
     dev->draw_parameters = draw_parameters;
     dev->draw_parameters_added = draw_parameters_added;
+    dev->timeline_semaphores = timeline; dev->timeline_semaphores_added = timeline_added;
+    dev->memory_priority = priority; dev->memory_priority_added = priority_added;
+    dev->pageable_memory = pageable; dev->pageable_memory_added = pageable_added;
     if (inst)
         dev->app_api_version = inst->app_api_version;
     for (const HookEntry& h : g_hooks)
@@ -1298,6 +1370,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
          info->enabledExtensionCount, dev->app_api_version,
          null_descriptors_added ? "added" : null_descriptors ? "enabled by the application" : "off");
     if (dev->draw_parameters) logf("shader draw parameters %s", dev->draw_parameters_added ? "added" : "enabled by the application");
+    logf("timeline semaphores %s, memory priority %s, pageable device memory %s",
+         dev->timeline_semaphores ? (dev->timeline_semaphores_added ? "added" : "enabled by the application") : "off",
+         dev->memory_priority ? (dev->memory_priority_added ? "added" : "enabled by the application") : "off",
+         dev->pageable_memory ? (dev->pageable_memory_added ? "added" : "enabled by the application") : "off");
     if (g_cfg.mode == Mode::Probe)
         ipc_start();
     return VK_SUCCESS;

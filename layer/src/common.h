@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "1.6.6"
+#define EFVK_VERSION "1.6.7"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -53,7 +53,11 @@ struct Config {
     // directory generation applies it only on that device. The evidence is checked by the tooling.
     uint32_t m2_dimension_zero_vendor = 0, m2_dimension_zero_device = 0;
     bool m2_enabled = false;
-    uint64_t m2_reserve_mb = 0; // device-local memory kept free when a package activates; 0: automatic (D-092)
+    uint64_t m2_reserve_mb = 0; // device-local memory kept free for the application; 0: automatic (D-092, D-094)
+    uint64_t m2_texture_budget_mb = 0; // cap of the textures' device memory; 0: half the device-local heap (D-094)
+    uint64_t m2_texture_reduce_mb = 16; // a texture file this large loads without its top mip level when memory is tight; 0: never
+    bool m2_texture_preload = false;    // every image of a package demanded at its activation (tests); default on first bind
+    bool m2_pageable = true;            // VK_EXT_memory_priority and VK_EXT_pageable_device_local_memory when supported (D-095)
     bool m2_owned = true; // owned GPU execution (Present work, GPU work in draws); m2_owned = 0 turns it off
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped

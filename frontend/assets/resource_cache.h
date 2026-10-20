@@ -6,6 +6,7 @@
 #include <map>
 #include <mutex>
 #include <thread>
+#include <tuple>
 
 namespace efmi::assets {
 enum class ResourceState { Dormant, Queued, Loading, Prepared, Submitting, Submitted, Ready, Failed, Stopped };
@@ -14,6 +15,7 @@ struct ResourceSnapshot {
     std::shared_ptr<const ImageUpload> image;
     std::shared_ptr<const BufferUpload> buffer;
     std::string reason;
+    uint64_t serial=0; // the timeline value the upload signals; 0 when it signals none
 };
 class ResourceRequest {
 public:
@@ -22,6 +24,7 @@ private:
     friend class ResourceCache;
     std::filesystem::path path_;
     VkBufferUsageFlags buffer_usage_=0; // Zero selects the image decoder.
+    uint32_t skip_levels_=0;            // Image levels left out of the current load.
     std::weak_ptr<const uint8_t> owner_;
     mutable std::mutex mutex_;
     ResourceSnapshot value_;
@@ -37,13 +40,14 @@ struct ResourceDevice {
     BufferUploadDispatch buffer_dispatch;
     PFN_vkGetPhysicalDeviceFormatProperties format_properties=nullptr;
     PFN_vkGetPhysicalDeviceImageFormatProperties image_properties=nullptr;
+    float memory_priority=-1.0f; // VK_EXT_memory_priority of image memory; negative for none
 };
 struct ResourceBudgets {
     std::shared_ptr<AllocationBudget> resident=std::make_shared<AllocationBudget>(512ull<<20);
     std::shared_ptr<AllocationBudget> staging=std::make_shared<AllocationBudget>(160ull<<20);
     std::shared_ptr<AllocationBudget> source=std::make_shared<AllocationBudget>(128ull<<20);
 };
-struct ResourceCacheStats { uint64_t file_reads=0,submissions=0,ready=0,failed=0; };
+struct ResourceCacheStats { uint64_t file_reads=0,submissions=0,ready=0,failed=0,releases=0; };
 
 // One frontend generation, one device and one graphics queue. Workers read files,
 // decode/allocate/record, poll fences and release staging. They never submit.
@@ -58,28 +62,32 @@ public:
     ResourceCache& operator=(const ResourceCache&)=delete;
     // Call during frontend setup. Lexical normalization only: no file IO, no
     // eager load. Relative paths refuse. Equal normalized paths share a handle.
-    ResourceHandle declare_image(const std::filesystem::path&,std::string& reason);
+    // `tag` tells declarations of one path apart (a generation's own copy); equal path and tag share.
+    ResourceHandle declare_image(const std::filesystem::path&,std::string& reason,uint64_t tag=0);
     // Equal path + usage share one immutable buffer. A different usage or an
     // image declaration is a distinct request, never an unsafe type alias.
     ResourceHandle declare_buffer(const std::filesystem::path&,VkBufferUsageFlags,std::string& reason);
     // Safe for an already resolved draw binding: enqueue once, never wait for
     // file IO/driver/fence. Failure is sticky until a new generation is made.
-    bool demand(const ResourceHandle&);
+    bool demand(const ResourceHandle&,uint32_t skip_levels=0);
+    // A Ready or Queued resource back to Dormant: its GPU object lives on in the owners that hold it
+    // and is freed with the last of them; the next demand loads it again. False when it is loading.
+    bool release(const ResourceHandle&);
     // A queued declaration a draw is waiting for goes to the front of the queue. Same guarantees
     // as demand; false when it is not queued (loading, done, failed or never demanded).
     bool prioritize(const ResourceHandle&);
     // Caller holds its ordinary queue synchronization and always uses the same
     // queue. At most one already-recorded image or buffer upload per call, with no file IO,
     // allocation, recording, fence polling or waiting. False also means no work.
-    bool submit_prepared(VkQueue);
+    bool submit_prepared(VkQueue,VkSemaphore timeline=VK_NULL_HANDLE,uint64_t value=0);
     ResourceCacheStats stats() const;
     // Off render path; prevents new demands, joins worker and drains its one
     // outstanding upload. Previously obtained Ready owners remain usable.
     void stop();
 private:
     struct Upload;
-    using Key=std::pair<std::filesystem::path,VkBufferUsageFlags>;
-    ResourceHandle declare(const std::filesystem::path&,VkBufferUsageFlags,std::string&);
+    using Key=std::tuple<std::filesystem::path,VkBufferUsageFlags,uint64_t>;
+    ResourceHandle declare(const std::filesystem::path&,VkBufferUsageFlags,std::string&,uint64_t tag=0);
     void run();
     std::shared_ptr<Upload> prepare(const ResourceHandle&);
     void publish(const ResourceHandle&,ResourceState,std::shared_ptr<Upload> upload={},std::string reason={});

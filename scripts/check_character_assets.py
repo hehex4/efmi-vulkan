@@ -55,7 +55,8 @@ def main():
             validation = "F:/vulkan/validation-1.4.321.0/bin"
             env.update(VK_LAYER_PATH=os.pathsep.join([str(dist), validation]), VK_LAYER_VALIDATE_SYNC="1",
                        VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0", XDG_CACHE_HOME=str(folder), TMPDIR=str(folder),
-                       TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1")
+                       TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1",
+                       EFMI_VK_M2_TEXTURE_PRELOAD="1")
             if args.actual_config:
                 for key in list(env):
                     if key.startswith("EFMI_VK_") and key != "EFMI_VK_LOG":
@@ -75,10 +76,11 @@ def main():
                 raise ValueError("Actual material probe configuration disagrees")
             if not all(r[key] for key in ("configured", "enabled", "ready", "materials")) or r["images_failed"] or r["matched"]:
                 raise ValueError(f"{entry} asset status disagrees: {folder}")
-            if [r[key] for key in ("image_file_reads", "image_submissions", "images_ready")] != [expected] * 3:
+            textures = r.get("textures", {})
+            if r["images_ready"] != expected or textures.get("file_reads") != expected or textures.get("submissions") != expected:
                 raise ValueError("Character textures were not read/submitted exactly once")
-            if not r["images_published"] or r["image_queue_waits"] != 1 or r["material_graphics_queues"] != args.graphics_queues or r["image_upload_queue_index"] != args.queue_index:
-                raise ValueError("Character material queue publication disagrees")
+            if not textures.get("usable") or textures.get("waits", 0) < 1 or r["material_graphics_queues"] != args.graphics_queues:
+                raise ValueError("Character texture publication disagrees")
             report["runs"].append(dict(entry=entry, folder=str(folder), version=status["version"], replacement=r))
         report["passed"] = True
         if args.actual_config and hashlib.sha256((dist / "efmi_vk.cfg").read_bytes()).hexdigest() != report["config"]["sha256"]:

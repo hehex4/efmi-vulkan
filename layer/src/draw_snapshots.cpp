@@ -63,10 +63,10 @@ bool DrawSnapshots::create_storage(const VkPhysicalDeviceMemoryProperties& memor
     if (!good(d_.CreateBuffer(device_, &bi, nullptr, &buffer_), "create snapshot buffer")) return false;
     VkMemoryRequirements req; d_.GetBufferMemoryRequirements(device_, buffer_, &req);
     if (req.size > (128ull<<20)) { reason = "snapshot allocation budget exceeded"; clear(); return false; }
-    // Shared storage is read by every replaced draw of a frame: prefer memory on the device that the
-    // host can write, as the application uses for its own bone buffer; fall back to host memory.
-    uint32_t type = shared ? host_memory_type(memory, req.memoryTypeBits, true) : UINT32_MAX;
-    if (type == UINT32_MAX) type = host_memory_type(memory, req.memoryTypeBits, false);
+    // Host memory the device reads over the bus: a replaced draw reads its bone slice and entry once,
+    // tens of kilobytes; device memory stays the application's and the textures' (D-094).
+    uint32_t type = host_memory_type(memory, req.memoryTypeBits, false);
+    if (type == UINT32_MAX) type = host_memory_type(memory, req.memoryTypeBits, true);
     if (type == UINT32_MAX) { reason = "host-coherent snapshot memory unavailable"; clear(); return false; }
     VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO}; ai.allocationSize = req.size; ai.memoryTypeIndex = type;
     if (!good(d_.AllocateMemory(device_, &ai, nullptr, &memory_), "allocate snapshot memory")) return false;
