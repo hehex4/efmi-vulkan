@@ -79,6 +79,16 @@ bool ResourceCache::demand(const ResourceHandle& entry)
     if(state==ResourceState::Dormant){queue_.push_back(entry);publish(entry,ResourceState::Queued);wake_.notify_one();}
     return state!=ResourceState::Failed && state!=ResourceState::Stopped;
 }
+bool ResourceCache::prioritize(const ResourceHandle& entry)
+{
+    if(!entry || entry->owner_.lock()!=identity_)return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if(stopped_)return false;
+    const auto found=std::find(queue_.begin(),queue_.end(),entry);
+    if(found==queue_.end())return false;
+    if(found!=queue_.begin()){queue_.erase(found);queue_.push_front(entry);}
+    return true;
+}
 ResourceCacheStats ResourceCache::stats() const
 {
     std::lock_guard<std::mutex> lock(mutex_);return stats_;

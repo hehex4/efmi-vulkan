@@ -2043,3 +2043,9 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - scripts/replay_capture.py (new), sandbox/replay_gpu.cpp (new), sandbox/run_all.py (replay step), scripts/check_mods_dry_run.py (thresholds), frontend/xxmi/character_core.h/.cpp (identification threshold, facts output), draw_plan.h/.cpp (DrawPlanAdapter::original), layer/src/character_program.h/.cpp, character_backend.cpp (threshold, image budget, dimension policy, status), common.h/util.cpp (m2_dimension_zero), sandbox/character_test.cpp, harness.py (pinned off), docs/capture-replay.md, D-080, BUG-028, LIMIT-034. Version 1.5.6.
 - Debugging path worth keeping: an empty G-buffer in the replay was the replay's own (identity bones leave the Z-up mesh lying outside the view); --probe-vertices proved the replayed pass draws, identity everywhere in the bone buffer proved the Mod's draws do, and the upright stand-in fixed it. The forward pass needed the G-buffer's depth (EQUAL tests) and a clear value chosen from any reversed-depth pipeline of the pass.
 - Results: 13 of 16 bundles show the Mod in every pass, 0 validation messages in 32 runs; full rebuilt suite (build/next/run_all-1.5.6.out).
+
+## 2026-10-20: images published in batches (candidate 1.5.7)
+
+- frontend/assets/resource_cache.h/.cpp (prioritize), layer/src/character_backend.cpp (batch publication, per-image gating, status), sandbox/asset_cache_test.cpp, sandbox/character_test.py, scripts/replay_capture.py (--mods), docs/character-materials.md, D-081, BUG-029. Version 1.5.7.
+- Measured first: cold DDS reads run at about 940 MiB/s, so a Mod's ~600 MiB is not the bottleneck; the serial one-image pipeline and the all-images publication are.
+- Results: see CURRENT_STATE; the broken-image replay used a copy of arcane under build/broken-mods (the installed Mod untouched).

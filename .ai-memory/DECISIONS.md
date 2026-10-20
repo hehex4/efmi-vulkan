@@ -799,3 +799,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Identification: an object becomes the Mod's once as many of its components were seen at one place as the Mod's own `$\EFMIv1\identification_min_components` asks, read as a constant assignment in the Mod's command lists (EFMI exports set 3 or 2 in DrawInstances) and through command-list adapters to the original command; without one, the Core's global value (default 4). Never a per-character number.
 - Resident image budget per character: a quarter of the largest device-local heap, clamped to 512 MiB .. 2 GiB (was a fixed 512 MiB; arcane needs 576 MiB).
 - The DX11 dimension policy for a 2D file at a 3D shader image (reads zero on the measured NVIDIA device) is configuration, `m2_dimension_zero = vendor:device`, applied to every package of a Mods folder when the device matches; offline packages keep their own. The replay and the deployment take it from the DX11 dimension evidence; another device gets no policy and such material slots keep the game's image.
+
+## D-081: A character's images are published in batches as they become Ready
+
+- Date: 2026-10-20 (candidate 1.5.7), from the capture replay's first-appearance times and from reading the publication rule of 0.9.7.
+- The uploader queue publishes, at each of its submissions, the images that became Ready since the last batch: one signal per graphics queue per batch, at most 16 batches, the last only once every image is Ready or failed. Consumer queues wait once per batch before application work. Views are retained only after their image's batch was enqueued.
+- A draw that needs an image not yet published waits for it (the game draws) and moves it to the front of the load queue; a draw that needs a failed image is refused, the character's other draws still replace. Before, one failed image kept the whole character the game's, and unused variants delayed everything.
+- `images_published` keeps meaning "all images" for F10 adoption and the offline package's readiness.

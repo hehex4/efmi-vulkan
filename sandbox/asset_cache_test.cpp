@@ -137,6 +137,25 @@ void cache_tests(Gpu& g)
         check(!budget.resident->used() && !budget.staging->used() && request->snapshot().state==TextureState::Stopped,
               "cancellation before/after submission drains owned work without publishing it");
     }
+    {
+        // A draw waiting for a queued file moves it ahead of earlier demands: with the worker held on
+        // the first upload (Prepared until submitted), the third demand is loaded before the second.
+        const auto second=folder/L"second.dds",third=folder/L"third.dds";
+        write_fixture(second,fixture(98));write_fixture(third,fixture(99));
+        TextureCache ordered(device,budget);
+        auto a=ordered.declare_image(file,reason),b=ordered.declare_image(second,reason),c=ordered.declare_image(third,reason);
+        ordered.demand(a);await_texture(ordered,a,g,false);ordered.demand(b);ordered.demand(c);
+        check(ordered.prioritize(c) && !ordered.prioritize(a) && b->snapshot().state==TextureState::Queued,
+              "a queued request moves to the front; one already loading does not");
+        check(await_texture(ordered,a,g,true).state==TextureState::Ready,"held upload completes");
+        const auto c_first=await_texture(ordered,c,g,false);
+        check(c_first.state==TextureState::Prepared && b->snapshot().state==TextureState::Queued,
+              "the prioritized request is prepared before the earlier demand");
+        check(await_texture(ordered,c,g,true).state==TextureState::Ready && await_texture(ordered,b,g,true).state==TextureState::Ready,
+              "both requests complete after the reorder");
+        ordered.stop();
+        std::filesystem::remove(second,ignored);std::filesystem::remove(third,ignored);
+    }
     auto broken=device;broken.dispatch.QueueSubmit=[](VkQueue,uint32_t,const VkSubmitInfo*,VkFence)->VkResult {
         return VK_ERROR_OUT_OF_DEVICE_MEMORY;
     };

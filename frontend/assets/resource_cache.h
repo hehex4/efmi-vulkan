@@ -65,6 +65,9 @@ public:
     // Safe for an already resolved draw binding: enqueue once, never wait for
     // file IO/driver/fence. Failure is sticky until a new generation is made.
     bool demand(const ResourceHandle&);
+    // A queued declaration a draw is waiting for goes to the front of the queue. Same guarantees
+    // as demand; false when it is not queued (loading, done, failed or never demanded).
+    bool prioritize(const ResourceHandle&);
     // Caller holds its ordinary queue synchronization and always uses the same
     // queue. At most one already-recorded image or buffer upload per call, with no file IO,
     // allocation, recording, fence polling or waiting. False also means no work.

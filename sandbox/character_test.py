@@ -157,8 +157,11 @@ def main():
                              r["image_file_reads"] == 2 and r["image_submissions"] == 2,
                              label + " each DDS decoded and uploaded once by the layer")
                 checks.check(c["material_items"] > 0, label + " shader material changes emitted through real hooks")
-                checks.check(r["images_published"] and r["material_graphics_queues"] == (1 if queue_case == "single" else 2) and
-                             r["image_queue_waits"] == (2 if queue_case == "split" else 1) and
+                # Images are published in batches as they become Ready; every queue the application
+                # uses waits for each batch once.
+                checks.check(r["images_published"] and r["images_published_count"] == 2 and 1 <= r["image_publications"] <= 2 and
+                             r["material_graphics_queues"] == (1 if queue_case == "single" else 2) and
+                             r["image_queue_waits"] == r["image_publications"] * (2 if queue_case == "split" else 1) and
                              r["image_upload_queue_index"] == (1 if queue_case == "second-only" else 0),
                              label + " image publication reaches every used queue, including a nonzero uploader")
             if reject_late:

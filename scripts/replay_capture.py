@@ -475,12 +475,15 @@ def main() -> int:
     ap.add_argument("--rp", type=int, action="append", help="replay only the draws of these recorded render pass instances")
     ap.add_argument("--open-tests", action="store_true", help="diagnosis: no depth, stencil or culling in the replayed pipelines")
     ap.add_argument("--probe-vertices", action="store_true", help="diagnosis: the original draws get a small known shape")
+    ap.add_argument("--mods", type=Path, help="another Mods folder than the installed one (a project-owned copy)")
     ap.add_argument("--check", action="store_true", help="fail unless both runs are clean, the originals draw nothing and every "
                     "render pass with a component of the Mod shows the Mod's draws (regression suite)")
     args = ap.parse_args()
+    global MODS
+    MODS = args.mods or MODS
     dist = Path(os.environ.get("EFMI_VK_DIST", ROOT / "dist"))
     validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))
-    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else ""))
+    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else ""))
     out.mkdir(parents=True, exist_ok=True)
     sections, components = mod_sections(dist, out)
     replay = Replay(args.bundle, out)

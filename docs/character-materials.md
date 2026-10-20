@@ -71,6 +71,29 @@ The user starts again; image publication and actual character appearance must be
 checked in that new process. A queue that is enabled but never used need not
 increment image_queue_waits.
 
+## Images published in batches (1.5.7, D-081)
+
+Until 1.5.6 the uploader submitted one publication when every image of the package was Ready, so
+a single file that failed (a truncated DDS, an unsupported format, the resident budget) kept the
+whole character the game's for good, and a Mod's colour variants it never draws (arcane ships six
+diffuse maps) delayed its first appearance by their loading time. From 1.5.7 the uploader queue
+publishes in batches: at each of its submissions the images that became Ready since the last batch
+get one signal per graphics queue, at most 16 batches (the last one waits until every image is
+Ready or failed). Each consumer queue waits once per batch before forwarding application work, as
+before for the single signal. A recording retains an image's view only after its own batch was
+enqueued; a draw waiting for an image moves it to the front of the load queue
+(`ResourceCache::prioritize`); a draw needing a failed image is refused (`refused_image`) and the
+game draws it, while the character's other draws replace. All semaphores and fences are made at
+setup and drained only at shutdown. `images_published` still means every image (an F10 candidate
+takes over only then); new status fields `image_publications` and `images_published_count`.
+
+Checked: resource cache 257 checks including the reorder; character replacement 357 (queue waits
+equal batches times used queues); the capture replay of arcane with one diffuse map truncated in a
+project-owned copy of the Mod (`replay_capture.py --mods build/broken-mods`): 8 of 9 images
+published in 8 batches, 2352 draws replaced in the prepass, G-buffer and forward pass, 1192 forward
+draws that need the broken map refused and left to the game. With 1.5.6 nothing would have been
+replaced.
+
 ## Package and contracts
 
 `scripts/package_character.py --textures` snapshots each pixel binding immediately
