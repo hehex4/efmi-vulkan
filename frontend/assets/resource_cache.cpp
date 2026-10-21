@@ -33,13 +33,13 @@ ResourceSnapshot ResourceRequest::snapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);return value_;
 }
-ResourceCache::ResourceCache(const ResourceDevice& device,ResourceBudgets budgets,size_t capacity)
+ResourceCache::ResourceCache(const ResourceDevice& device,ResourceBudgets budgets,size_t capacity,unsigned workers)
     :device_(device),budgets_(std::move(budgets)),capacity_(std::min<size_t>(capacity,4096))
 {
     if(!device_.device || !device_.physical || !device_.format_properties || !device_.image_properties ||
        !budgets_.resident || !budgets_.staging || !budgets_.source)
         throw std::invalid_argument("Incomplete resource cache device or budgets");
-    worker_=std::thread(&ResourceCache::run,this);
+    for(unsigned i=0;i<std::max(1u,workers);++i)workers_.emplace_back(&ResourceCache::run,this);
 }
 ResourceCache::~ResourceCache(){stop();}
 void ResourceCache::publish(const ResourceHandle& entry,ResourceState state,
@@ -78,7 +78,7 @@ bool ResourceCache::demand(const ResourceHandle& entry,uint32_t skip_levels)
     std::lock_guard<std::mutex> lock(mutex_);
     if(stopped_)return false;
     const auto state=entry->snapshot().state;
-    if(state==ResourceState::Dormant){entry->skip_levels_=skip_levels;queue_.push_back(entry);publish(entry,ResourceState::Queued);wake_.notify_one();}
+    if(state==ResourceState::Dormant){entry->skip_levels_=skip_levels;entry->busy_since_us_=0;queue_.push_back(entry);publish(entry,ResourceState::Queued);wake_.notify_one();}
     return state!=ResourceState::Failed && state!=ResourceState::Stopped;
 }
 bool ResourceCache::release(const ResourceHandle& entry)
@@ -107,6 +107,18 @@ ResourceCacheStats ResourceCache::stats() const
 {
     std::lock_guard<std::mutex> lock(mutex_);return stats_;
 }
+namespace {
+// A budget that other loads hold for the moment (the aggregate source, staging and memory budgets):
+// the load goes again shortly. Every other failure (a file that is no DDS, a size outside a limit of
+// its own) is final.
+struct BudgetBusy:std::runtime_error{using std::runtime_error::runtime_error;};
+[[noreturn]] void fail_upload(const std::string& reason)
+{
+    if(reason.rfind("Aggregate ",0)==0)throw BudgetBusy(reason);
+    throw std::runtime_error(reason);
+}
+uint64_t steady_us(){return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());}
+}
 std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHandle& entry)
 {
     // Deny concurrent writes/deletes while taking an immutable byte snapshot.
@@ -118,17 +130,21 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
     if(!GetFileSizeEx(file.handle,&size) || size.QuadPart<=0 || size.QuadPart>(128ll<<20))
         throw std::runtime_error("Resource file size outside source budget");
     if(!budgets_.source->acquire(static_cast<uint64_t>(size.QuadPart)))
-        throw std::runtime_error("Aggregate resource source budget exceeded");
+        throw BudgetBusy("Aggregate resource source budget exceeded");
     SourceCharge charge{budgets_.source,static_cast<uint64_t>(size.QuadPart)};
     std::vector<uint8_t> bytes(static_cast<size_t>(size.QuadPart));DWORD read=0;
     if(!ReadFile(file.handle,bytes.data(),static_cast<DWORD>(bytes.size()),&read,nullptr) || read!=bytes.size())
         throw std::runtime_error("Incomplete resource file read");
     {std::lock_guard<std::mutex> lock(mutex_);++stats_.file_reads;}
     auto ticket=std::make_shared<Upload>();
+    // With the layer's upload queue the copy runs on its family, the object shared with the graphics family (D-103).
+    const bool own_queue=device_.upload_queue!=VK_NULL_HANDLE && device_.upload_family!=UINT32_MAX;
+    const uint32_t record_family=own_queue?device_.upload_family:device_.graphics_family;
     if(entry->buffer_usage_){
         ticket->buffer=std::make_shared<BufferUpload>(device_.device,device_.buffer_dispatch,budgets_.resident,budgets_.staging);
+        if(own_queue)ticket->buffer->share(device_.graphics_family,device_.upload_family);
         if(!ticket->buffer->prepare(bytes.data(),bytes.size(),entry->buffer_usage_,device_.memory) ||
-           !ticket->buffer->record(device_.graphics_family))throw std::runtime_error(ticket->buffer->reason());
+           !ticket->buffer->record(record_family,!own_queue || record_family==device_.graphics_family))fail_upload(ticket->buffer->reason());
         return ticket;
     }
     DdsImage meta;std::string reason;
@@ -139,9 +155,10 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
                                                VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,0,&limits);
     if(result!=VK_SUCCESS)throw std::runtime_error("Resource format unsupported for sampled upload");
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);
+    if(own_queue)upload->share(device_.graphics_family,device_.upload_family);
     if(!upload->prepare(bytes.data(),bytes.size(),device_.memory,limits,features.optimalTilingFeatures,device_.bc_enabled,false,
                         entry->skip_levels_,device_.memory_priority) ||
-       !upload->record(device_.graphics_family))throw std::runtime_error(upload->reason());
+       !upload->record(record_family))fail_upload(upload->reason());
     ticket->image=std::move(upload);return ticket;
 }
 bool ResourceCache::submit_prepared(VkQueue queue,VkSemaphore timeline,uint64_t value)
@@ -176,8 +193,55 @@ void ResourceCache::run()
             if(stopped_)return;
             pending_=entry=queue_.front();queue_.pop_front();phase_=ResourceState::Loading;publish(entry,phase_);
         }
-        std::shared_ptr<Upload> upload;std::string reason;
-        try{upload=prepare(entry);}catch(const std::exception& error){reason=error.what();}
+        std::shared_ptr<Upload> upload;std::string reason;bool busy=false;
+        try{upload=prepare(entry);}
+        catch(const BudgetBusy& error){reason=error.what();busy=true;}
+        catch(const std::exception& error){reason=error.what();}
+        if(!upload && busy){
+            // Another loader holds the staging, source or memory budget: this one goes again in a
+            // moment, behind the others queued, for up to ten seconds (D-103). A file that is no
+            // DDS or outside a limit of its own fails below at once.
+            std::unique_lock<std::mutex> lock(mutex_);
+            if(stopped_)return;
+            const uint64_t now=steady_us();
+            if(!entry->busy_since_us_)entry->busy_since_us_=now;
+            if(now-entry->busy_since_us_<10000000ull){
+                publish(entry,ResourceState::Queued);queue_.push_back(entry);
+                wake_.wait_for(lock,std::chrono::milliseconds(2),[&]{return stopped_;});
+                if(stopped_)return;
+                continue;
+            }
+            reason+=" (waited 10 s)";
+        }
+        entry->busy_since_us_=0;
+        if(upload && device_.upload_queue){
+            // The layer's own queue: submitted here, signalling the device's timeline with the next serial.
+            // The serial is taken under the queue's mutex: a timeline's signals must rise in submission
+            // order, and three loaders submit at once.
+            bool ok=false;
+            {
+                std::unique_lock<std::mutex> queue_lock(*device_.upload_mutex,std::defer_lock);
+                if(device_.upload_mutex)queue_lock.lock();
+                const uint64_t value=device_.serial?device_.serial->fetch_add(1)+1:0;
+                ok=upload->submit(device_.upload_queue,value?device_.timeline:VK_NULL_HANDLE,value);
+            }
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if(stopped_)return;
+                if(!ok){++stats_.failed;publish(entry,ResourceState::Failed,{},upload->reason());continue;}
+                ++stats_.submissions;publish(entry,ResourceState::Submitted,upload);
+            }
+            while(upload->state()==UploadState::Submitted){
+                if(upload->poll()!=UploadState::Submitted)break;
+                std::unique_lock<std::mutex> lock(mutex_);
+                if(wake_.wait_for(lock,std::chrono::milliseconds(1),[&]{return stopped_;}))return;
+            }
+            std::lock_guard<std::mutex> lock(mutex_);
+            if(stopped_)return;
+            if(upload->state()==UploadState::Ready){++stats_.ready;publish(entry,ResourceState::Ready,upload);}
+            else{++stats_.failed;publish(entry,ResourceState::Failed,{},upload->reason());}
+            continue;
+        }
         {
             std::unique_lock<std::mutex> lock(mutex_);
             if(stopped_)return;
@@ -210,9 +274,9 @@ void ResourceCache::stop()
     std::map<Key,ResourceHandle> retired;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        stopped_=true;retired.swap(entries_);queue_.clear();wake_.notify_one();
+        stopped_=true;retired.swap(entries_);queue_.clear();wake_.notify_all(); // every loader (D-103)
     }
-    if(worker_.joinable())worker_.join();
+    for(auto& worker:workers_)if(worker.joinable())worker.join();
     // Worker is done and no submission can start. Destruction may drain the one
     // outstanding upload. Command buffers retain their own Ready resource.
     upload_.reset();pending_.reset();

@@ -43,6 +43,8 @@ public:
     // submit performs only QueueSubmit and changes ticket state. With a timeline semaphore the
     // submission signals it with `value` once the upload completed.
     bool record(uint32_t graphics_family);
+    // Before prepare: the image is shared between these two queue families when they differ (D-103).
+    void share(uint32_t a,uint32_t b){families_[0]=a;families_[1]=b;shared_=a!=b && a!=UINT32_MAX && b!=UINT32_MAX;}
     bool submit(VkQueue queue,VkSemaphore timeline=VK_NULL_HANDLE,uint64_t value=0);
     uint64_t resident_bytes() const { return resident_charged_; }
     uint32_t skipped_levels() const { return skipped_; }
@@ -77,5 +79,7 @@ private:
     VkFence fence_=VK_NULL_HANDLE;
     bool in_flight_=false;
     uint32_t skipped_=0;
+    uint32_t families_[2]={0,0};
+    bool shared_=false;
 };
 }

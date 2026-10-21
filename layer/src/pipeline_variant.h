@@ -35,7 +35,7 @@ bool prepare_vertex_variant(const GraphicsRecipe&, const PipelineLayoutInfo&, ui
 
 class PipelineVariant {
 public:
-    PipelineVariant(VkDevice dev, const VariantDispatch& dispatch) : dev_(dev), d_(dispatch) {}
+    PipelineVariant(VkDevice dev, const VariantDispatch& dispatch, VkPipelineCache cache = VK_NULL_HANDLE) : dev_(dev), d_(dispatch), cache_(cache) {}
     ~PipelineVariant();
     PipelineVariant(const PipelineVariant&) = delete;
     PipelineVariant& operator=(const PipelineVariant&) = delete;
@@ -54,6 +54,7 @@ private:
     void clear();
     VkDevice dev_;
     VariantDispatch d_;
+    VkPipelineCache cache_ = VK_NULL_HANDLE; // the device's variant pipeline cache (D-101), or none
     std::vector<VkDescriptorSetLayout> sets_;
 };
 

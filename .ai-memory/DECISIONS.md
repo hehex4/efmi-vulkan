@@ -908,3 +908,22 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - A recording keeps another package's command owner until 8 resets found it unused: dropping it at the first draw of every recording destroyed its arenas and had its worker make new ones (142 us per draw).
 - Snapshot bone copies reused by key in any order, arenas in cached host memory; a backend disabled through the probe hashes nothing; the owned GPU tools are found beside the layer when the module lives elsewhere; stage timing per package and recording timing per device in the status, per-command timing behind EFMI_COMMAND_TIMING.
 - Result in the same scene: 24.5 ms mean against the 20.9 ms baseline; plan (INI, about a hundred commands per matched draw) and bones are what remains, to be worked on offline through the replay.
+
+## D-100: Identities survive dashes, cuts and brief occlusion
+
+- Date: 2026-10-21 (sixth game session, 1.6.9 to 1.7.0). Characters at close range reverted to the game's mesh for a moment: 42 identities created in ten minutes, each costing identification frames and bone imports. Nine were the same object's passes a cell apart within one frame; about twenty were identities expired after 0.5 s unseen; the rest were moves of 4-7 metres in one frame.
+- Within one recording an object's draws may differ by one cell; an identity expires after 10 s (and 4 presentations) without a draw (`m2_identity_expiry_ms`, the tests use 500 ms); when no identity is within the radius and exactly one identified object of the package has not been drawn since the last presentation, it is adopted as moved (`identities_adopted`). Verified in the running game by module exchange: 8 identities in three minutes, 4 of them first ones. docs/recording-performance.md.
+
+## D-101: Material rules for every slot; a pipeline cache on disk; parallel variant builders
+
+- Date: 2026-10-21 (sixth game session). In the character menu a switched character showed the game's mesh, became the Mod after two seconds and flickered back two or three times: derived material rules were made for the slots bound so far, a plan binding a new slot derived them again and the variants compiled again with new patches, the frame gate closing each time.
+- A fragment shader's rules cover every DX11 pixel slot (one image or absent), derived once per shader; `refresh_materials` only adds plans for new draws. Variants are created through a device-wide VkPipelineCache kept in the settings folder between sessions (the variant passes it through a creation thunk; the recipe's signature is one host and module share), and each variant cache builds on two to four threads. The rules change was exchanged into the running game and verified by the log (no repeated derivation); the cache and the builders take effect at the next start.
+
+## D-102: A placeholder image for textures on their way (withdrawn)
+
+- Date: 2026-10-21. Tried for the menu's flicker and withdrawn the same hour at the user's word: grey parts are no better than the game's mesh; the requirement is the original's behaviour (the first frame is the Mod, nothing flickers). Nothing of it remains in the code.
+
+## D-103: Resources ready before the draw: the layer's upload queue, waiting draws, one variant cache
+
+- Date: 2026-10-21 (sixth game session). The user: the first frame of a switched character must be the Mod and nothing may flicker. The original loads a resource synchronously when a draw first uses it.
+- The layer requests a queue of its own at device creation (a transfer-capable family with a queue the application did not take); images and buffers are shared between the two families; the residency's three loaders submit uploads there and publish through the device timeline; a loader finding an aggregate budget held by the others goes again later (ten seconds at most), every other failure is final at once (a broken texture file still refuses a reload candidate). A draw waits (bounded, 4 s) for a texture on its way and for a pipeline variant still building; the frame gate covers failures and timeouts; an object's first frame is skipped as the Core does, not drawn as the game's, and so are a package's draws while it goes to the GPU (`preparing`). One VariantCache per device, shared by every package, built on 2-4 threads through the disk pipeline cache. The texture timeline semaphore is retired, not destroyed, when the residency stops. Needs the game restarted; verified by the suite before deployment. docs/recording-performance.md, docs/texture-residency.md.

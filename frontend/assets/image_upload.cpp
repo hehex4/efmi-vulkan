@@ -77,6 +77,7 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
     image.mipLevels=static_cast<uint32_t>(decoded_.levels.size())-skipped_;image.arrayLayers=1;
     image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
     image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
+    if(shared_){image.sharingMode=VK_SHARING_MODE_CONCURRENT;image.queueFamilyIndexCount=2;image.pQueueFamilyIndices=families_;}
     if(!result(d_.CreateImage(device_,&image,nullptr,&image_),"create asset image"))return false;
     VkMemoryRequirements req{};d_.GetImageMemoryRequirements(device_,image_,&req);
     if(req.size>limits.maxResourceSize){reason_="Image exceeds device resource limit";state_=UploadState::Failed;return false;}

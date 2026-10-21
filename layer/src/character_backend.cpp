@@ -71,7 +71,7 @@ namespace {
 constexpr float kCellSize = 0.125f;
 constexpr float kBaseRadius = 3.0f;
 constexpr uint32_t kIdentifyingComponents = 4;
-constexpr uint64_t kExpiryFrames = 2;
+constexpr uint64_t kExpiryFrames = 4;
 // Two clocks. The character's frame is one recording of the command buffer its draws are in: the
 // game records all draws of a character for one frame into one command buffer, and it starts on
 // the next frame before the previous one is presented, so a present is no boundary while
@@ -79,7 +79,7 @@ constexpr uint64_t kExpiryFrames = 2;
 // and, together with time, the expiry: with frame generation presents come between the game's
 // frames, and the game leaves the character out for some frames of a dash, so an identity is given
 // up only after the core's two counted presents and this much time without a draw.
-constexpr uint64_t kExpiryMicroseconds = 500000;
+// An object not drawn this long (off screen, a cut) is forgotten: g_cfg.m2_identity_expiry_ms, 10 s by default (0.5 s until 1.7.0, D-100).
 constexpr size_t kIdentities = 16;
 constexpr uint32_t kArenaEntries = 256, kArenaSlices = 64;
 constexpr uint64_t kRehashFrames = 1024;
@@ -121,7 +121,8 @@ enum Counter : uint32_t {
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
-    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_SNAPSHOT_COPIES, C_COUNT
+    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_SNAPSHOT_COPIES, C_IDENTITY_ADOPTED,
+    C_PREPARING, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -129,7 +130,7 @@ const char* const kCounterNames[C_COUNT] = {
     "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
-    "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames", "snapshot_copies"
+    "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames", "snapshot_copies", "identities_adopted", "preparing"
 };
 // Where a matched draw's time goes (D-099): microseconds per stage of record(), in the status.
 enum Stage : uint32_t { S_LOCK, S_IDENTIFY, S_BONES, S_PLAN, S_MATERIALS, S_VARIANTS, S_OWNER, S_APPEND, S_SNAPSHOT, S_EMIT, S_COUNT };
@@ -179,6 +180,7 @@ struct Identity {
     bool used = false, custom = false;
     int32_t cell[3] = {};
     uint64_t first_frame = 0, last_frame = 0, update_frame = 0; // in frames of the character
+    uint64_t first_present = 0;      // counted presents when the identity appeared
     uint64_t last_present = 0;       // counted presents at the last draw
     uint64_t last_us = 0;            // host time of the last draw
     uint64_t id = 0, generation = 0; // generation changes whenever the master's bytes change
@@ -300,7 +302,7 @@ public:
     std::atomic<bool> save_requested{false};
     std::vector<BoneComponent> ranges;
     uint32_t bone_bytes = 0;
-    std::unique_ptr<VariantCache> cache;
+    std::shared_ptr<VariantCache> cache; // the device's (D-103), shared by every package
     TextureResidency* textures = nullptr;              // the device's (D-094)
     std::vector<TextureResidency::ImageId> image_ids;  // per package image
     std::vector<std::vector<StaticMaterial>> materials; // profile x package draw, prepared at setup
@@ -377,8 +379,10 @@ public:
     // `lazy`: one of several packages (a directory). Its mesh, arenas and images go to the GPU only
     // when one of its sections first matches a draw, so characters not on screen take no memory there.
     CharacterGeneration(Device* dev, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m,
-                        std::string path = g_cfg.m2_package, bool deferred = false, TextureResidency* residency = nullptr)
-        : device(dev), properties(p), memory(m), textures(residency), package_path(std::move(path)), lazy(deferred) {}
+                        std::string path = g_cfg.m2_package, bool deferred = false, TextureResidency* residency = nullptr,
+                        std::shared_ptr<VariantCache> variant_cache = nullptr)
+        : device(dev), properties(p), memory(m), textures(residency), variants(std::move(variant_cache)), package_path(std::move(path)), lazy(deferred) {}
+    std::shared_ptr<VariantCache> variants; // the device's (D-103)
     std::string package_path;
     bool lazy = false;
     std::atomic<bool> activated{false};
@@ -448,7 +452,8 @@ public:
         }
         // One variant per pipeline and mesh draw. A character is drawn by some hundred pipelines once
         // the feature variants of its shaders are counted; a full cache would refuse the rest for good.
-        cache = std::make_unique<VariantCache>(device->handle, draw, properties.limits.maxBoundDescriptorSets, 2048, properties.limits);
+        cache = variants; // the device's variant cache (D-103); null refuses the generation
+        if (!cache) { last_reason = "variant cache unavailable"; return false; }
         enabled = g_cfg.m2_enabled;
         if (!lazy) activate();
         return true;
@@ -526,7 +531,6 @@ public:
         if (worker.joinable()) worker.join();
         if (presenter) presenter->stop();
         if (program) { std::string reason; if (!program->save(reason)) note("INI shutdown settings: " + reason); }
-        if (cache) cache->stop();
         if (textures) textures->forget(image_ids);
         std::deque<std::shared_ptr<CharacterCommand>> old;
         std::shared_ptr<const GpuMesh> old_mesh;
@@ -594,22 +598,18 @@ public:
     bool init_materials();
     bool refresh_materials()
     {
-        // The slots the mod binds are those of every planned draw. A live plan may bind one no earlier
-        // draw did (a key, a texture section): rules read for fewer slots stay with what they were made
-        // for, and every pipeline derives its rules again for the larger set.
+        // A live plan added a draw (a key, a texture section): every profile gets its plan. The rules
+        // cover every slot (D-101), so nothing is derived again and the variants of the earlier draws
+        // keep their patches.
         {
             std::set<uint32_t> slots(material_slots.begin(), material_slots.end());
             for (const auto& draw : package.pixels) for (const auto& pixel : draw) slots.insert(pixel.slot);
-            if (slots.size() != material_slots.size()) {
-                material_slots.assign(slots.begin(), slots.end());
-                derived_for_pipeline.clear();
-            }
+            material_slots.assign(slots.begin(), slots.end());
         }
         std::set<uint32_t> counts;
         std::string reason;
         if (!prepare_character_materials(package, materials, counts, reason)) return refuse(C_MATERIAL, reason);
         for (auto& derived : derived_profiles) {
-            if (derived->slots != material_slots) continue;
             CharacterMaterialProfile profile{derived->code, derived->rules};
             if (!prepare_character_profile(package, profile, derived->plans, counts, reason)) return refuse(C_MATERIAL, reason);
         }
@@ -629,13 +629,16 @@ public:
         std::vector<efmi::gpu::SourceRegister> registers;
         if (!efmi::gpu::source_registers(code, registers, reason)) return false;
         rules.clear();
-        for (uint32_t slot : material_slots) {
+        // Every DX11 pixel slot, whatever the Mod binds today (D-101): rules that depended on the slots
+        // bound so far were derived again whenever a plan bound a new one, and the variants compiled
+        // again with them, the character flickering to the game's mesh each time (2-3 times after a
+        // switch in the character menu).
+        for (uint32_t slot = 0; slot < 128; ++slot) {
             const auto* r = efmi::gpu::find_source_register(registers, 't', slot);
             CharacterMaterialRule rule;
             rule.slot = slot;
-            // The slots are those of every draw of the Mod (RabbitFX roles among them, D-082); a slot that
-            // holds no single image in this shader (a buffer, an array) takes no file image here, as
-            // one it does not declare, and the rest of the shader's slots still do.
+            // A slot that holds no single image in this shader (nothing, a buffer, an array) takes no
+            // file image here, as one the shader does not declare, and the rest of the slots still do.
             if (!r || r->kind != efmi::gpu::SourceRegister::ImageSrv || r->count != 1) {
                 rule.kind = CharacterMaterialRule::Absent; rules.push_back(rule); continue;
             }
@@ -760,7 +763,7 @@ public:
         if (!code) return result;
         const uint32_t crc = crc32c(0, code->data(), code->size() * 4);
         for (uint32_t i = 0; i < derived_profiles.size(); ++i)
-            if (derived_profiles[i]->crc == crc && derived_profiles[i]->slots == material_slots && derived_profiles[i]->code == *code) return result = i;
+            if (derived_profiles[i]->crc == crc && derived_profiles[i]->code == *code) return result = i;
         std::string reason;
         auto created = std::make_unique<DerivedProfile>();
         if (!rule_rules(*code, created->rules, reason)) {
@@ -781,8 +784,9 @@ public:
             if (!image_counts.count(count))
                 return refuse_profile("character material: derived profile of pipeline " + std::to_string(pipe.id) + " needs " +
                                       std::to_string(count) + " images, no arena has that count", result);
-        logf("character material: fragment %08x (pipeline %u) takes %zu rules from the DX11 register rule",
-             crc, pipe.id, created->rules.size());
+        size_t images = 0;
+        for (const auto& rule : created->rules) if (rule.kind != CharacterMaterialRule::Absent) ++images;
+        logf("character material: fragment %08x (pipeline %u) takes %zu image rules from the DX11 register rule", crc, pipe.id, images);
         derived_profiles.push_back(std::move(created));
         return result = static_cast<uint32_t>(derived_profiles.size() - 1);
     }
@@ -817,7 +821,7 @@ public:
             const uint64_t gap = now > identity.last_frame ? now - identity.last_frame : identity.last_frame - now;
             const bool unseen = present - identity.last_present > kExpiryFrames;
             bool expired = false;
-            if (identity.used && unseen && clock - identity.last_us > kExpiryMicroseconds) {
+            if (identity.used && unseen && clock - identity.last_us > g_cfg.m2_identity_expiry_ms * 1000) {
                 identity.used = false; expired = true;
                 ++counters[C_IDENTITY_EXPIRED];
             }
@@ -825,15 +829,27 @@ public:
                 near_distance = distance; near_frames = gap; near_us = clock - identity.last_us; near_expired = expired;
             }
             if (!identity.used) { if (!vacant) vacant = &identity; continue; }
-            // Every component of one object has the same position within a frame: an identity
-            // already met in this frame is only the same object at the very same place. Across
-            // frames the object may have moved, by at most the radius for each frame it was not drawn in.
-            const int32_t allowed = gap ? static_cast<int32_t>(std::min<uint64_t>(uint64_t(radius) * gap, 64)) : 0;
+            // Every component of one object has the same position within a frame, to a cell: the passes
+            // of one object differ by that much (D-100; 9 of 42 new identities of a session were this).
+            // Across frames the object may have moved, by at most the radius for each frame it was not
+            // drawn in.
+            const int32_t allowed = gap ? static_cast<int32_t>(std::min<uint64_t>(uint64_t(radius) * gap, 64)) : 1;
             if (distance <= allowed && distance < best_distance) { best = &identity; best_distance = distance; }
             uint32_t bits = 0;
             for (uint32_t value = identity.seen; value; value &= value - 1) ++bits;
             if (!identity.custom && bits < weakest_seen) { weakest = &identity; weakest_seen = bits; }
             if (unseen && (!stale || identity.last_present < stale->last_present)) stale = &identity;
+        }
+        if (!best) {
+            // Farther than the radius in one frame (a dash, a camera cut, 4 to 7 metres in a frame in
+            // the game): when exactly one identified object of this package has not been drawn since
+            // the last presentation, it is that one, moved (D-100). A second instance appearing in
+            // the very frame the first is not drawn is the rarer case; it is told apart a frame later.
+            Identity* lone = nullptr;
+            uint32_t lone_count = 0;
+            for (auto& identity : identities)
+                if (identity.used && identity.custom && identity.last_present < present) { lone = &identity; ++lone_count; }
+            if (lone_count == 1) { best = lone; best_distance = 0; ++counters[C_IDENTITY_ADOPTED]; }
         }
         if (!best) {
             // Objects that merely share a mesh with the character must not keep it out: when every
@@ -852,7 +868,7 @@ public:
             std::string reason;
             if (!vacant->skeleton.configure(package.bones, 1, ranges, reason)) { note(reason); return nullptr; }
             vacant->used = true; vacant->custom = false; vacant->seen = 0;
-            vacant->first_frame = now; vacant->update_frame = 0;
+            vacant->first_frame = now; vacant->first_present = present; vacant->update_frame = 0;
             vacant->id = next_identity++; vacant->generation = 0;
             vacant->coverage.assign(package.components.size(), 0);
             best = vacant;
@@ -1120,8 +1136,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         const CharacterSection* const section = &package.sections[section_index];
         if (!activated.load(std::memory_order_relaxed)) {
             if (!memory_allows_activation()) { ++counters[C_MEMORY]; return false; }
-            activate(); return false;
+            // The package goes to the GPU now; this draw is skipped, as the Core skips a new object's
+            // first frame (D-103): the character is never the game's mesh before the Mod's.
+            activate(); ++counters[C_PREPARING]; return true;
         }
+        if (!ready.load(std::memory_order_relaxed)) { ++counters[C_PREPARING]; return true; } // mesh and arenas on their way: skipped
         ++counters[C_MATCHED];
         if (present != gate_frame) begin_gate_frame(present);
         if (section->component == kCharacterNone) {
@@ -1156,7 +1175,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             if (!gate_open) return gated();
             ++counters[C_HIDDEN]; return true;
         }
-        // The character's frame is this recording of the command buffer (see kExpiryMicroseconds).
+        // The character's frame is this recording of the command buffer (see the identity expiry).
         if (!cb->character_frame) cb->character_frame = ++device->character_recordings;
         const uint64_t now = cb->character_frame;
         // The mod's LOD variable: a section that assigns it changes it for the sections that do not.
@@ -1243,7 +1262,13 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             const uint32_t wanted = program && program->identify_components() ? program->identify_components() : kIdentifyingComponents;
             if (bits >= std::min<uint32_t>(wanted, static_cast<uint32_t>(package.components.size())) && now > identity->first_frame)
                 identity->custom = true;
-            else { ++counters[C_IDENTIFYING]; return false; }
+            else {
+                ++counters[C_IDENTIFYING];
+                // As the Core (SpatialIdentification.ini): an object's first frame is skipped, not drawn as
+                // the game's, so a character never shows the game's mesh before the Mod's (D-103); from
+                // the next frame on an object still unidentified is the game's, as there.
+                return present == identity->first_present;
+            }
         }
         list = &package.lists[component.lists[lod]];
         if (program) {
@@ -1323,7 +1348,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             std::string reason;
             if (!package.vertex_input(package.draws[list->first + i], pipe->second.recipe->vertex, vertex, reason))
                 return refuse(C_VERTEX, "character vertex declaration: " + reason);
-            const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, material_plans[i]->patch);
+            // The draw waits for a variant still building (D-103), bounded; the frame gate covers a timeout.
+            const auto result = cache->await(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, material_plans[i]->patch, std::chrono::milliseconds(4000));
             if (result.variant) { variants.push_back(result.variant); continue; }
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
             return refuse(C_VARIANT, "character variant: " + result.reason);
@@ -1445,7 +1471,7 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
     FragmentPatch patch = plans[0]->patch;
     patch.keep_vertex = true;
-    const auto result = cache->request(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, patch);
+    const auto result = cache->await(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, patch, std::chrono::milliseconds(4000));
     if (!result.variant) {
         if (result.state == VariantState::Queued || result.state == VariantState::Building) { ++counters[C_PENDING]; return false; }
         return refuse(C_VARIANT, "texture-only variant: " + result.reason);
@@ -1563,9 +1589,10 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
 
 std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkPhysicalDeviceProperties& properties,
                                                    const VkPhysicalDeviceMemoryProperties& memory,
-                                                   const std::string& path, bool lazy, TextureResidency* textures)
+                                                   const std::string& path, bool lazy, TextureResidency* textures,
+                                                   std::shared_ptr<VariantCache> variants)
 {
-    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory, path, lazy, textures);
+    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory, path, lazy, textures, std::move(variants));
     try {
         if (!backend->init()) {
             // BUG-026: a refusal can come after the INI program or its presenter were made; a refused
@@ -1596,7 +1623,6 @@ bool generation_record(CharacterGeneration& backend, CmdBuf* cb, const DrawRec& 
 
 void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
 {
-    if (backend.cache) backend.cache->retire(pipeline_id);
     std::lock_guard<std::mutex> lock(backend.mod_mx);
     backend.sites.erase(pipeline_id);
     backend.material_profiles.erase(pipeline_id);
@@ -1747,11 +1773,12 @@ public:
                 std::string reason;
                 if (!previous->program->save(reason)) {
                     auto failed = std::make_shared<CharacterGeneration>(previous->device, previous->properties, previous->memory,
-                                                                        previous->package_path, previous->lazy, previous->textures);
+                                                                        previous->package_path, previous->lazy, previous->textures,
+                                                                        previous->variants);
                     failed->note("Cannot preserve settings before reload: " + reason); return failed;
                 }
                 return generation_create(previous->device, previous->properties, previous->memory, previous->package_path,
-                                         previous->lazy, previous->textures);
+                                         previous->lazy, previous->textures, previous->variants);
             });
         }
     }
@@ -1764,9 +1791,69 @@ class CharacterBackend {
 public:
     // The device's texture residency (D-094), shared by every package; stopped after the controllers.
     std::unique_ptr<TextureResidency> textures;
+    // The device's pipeline variants (D-103), shared by every package: a game pipeline with the same
+    // vertex layout and material bindings compiles once for all of them. Stopped after the controllers.
+    std::shared_ptr<VariantCache> variants;
     std::vector<std::unique_ptr<CharacterController>> controllers;
     std::string reason; // why there is no package
     Device* device = nullptr;
+    // The variant pipeline cache every package's variants are created through (D-101), loaded from
+    // the settings folder when the backend is made and written back when it stops: the variants a
+    // character needed in one session compile from the driver's cached form in the next.
+    VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
+    PFN_vkDestroyPipelineCache destroy_pipeline_cache = nullptr;
+    PFN_vkGetPipelineCacheData pipeline_cache_data = nullptr;
+    std::filesystem::path pipeline_cache_path;
+    uint64_t pipeline_cache_loaded = 0, pipeline_cache_saved = 0;
+    void open_pipeline_cache()
+    {
+        if (!device) return;
+        const auto create = reinterpret_cast<PFN_vkCreatePipelineCache>(device->next_gdpa(device->handle, "vkCreatePipelineCache"));
+        destroy_pipeline_cache = reinterpret_cast<PFN_vkDestroyPipelineCache>(device->next_gdpa(device->handle, "vkDestroyPipelineCache"));
+        pipeline_cache_data = reinterpret_cast<PFN_vkGetPipelineCacheData>(device->next_gdpa(device->handle, "vkGetPipelineCacheData"));
+        if (!create || !destroy_pipeline_cache || !pipeline_cache_data) return;
+        char name[64];
+        snprintf(name, sizeof(name), "pipeline-cache-%04x-%04x.bin", device->physical_properties.vendorID, device->physical_properties.deviceID);
+        const auto folder = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
+        pipeline_cache_path = folder / name;
+        std::vector<char> initial;
+        {
+            std::ifstream in(pipeline_cache_path, std::ios::binary);
+            if (in) initial.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        // The driver checks the header (its UUID among it) and ignores data that is not its own.
+        VkPipelineCacheCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+        info.initialDataSize = initial.size(); info.pInitialData = initial.empty() ? nullptr : initial.data();
+        if (create(device->handle, &info, nullptr, &pipeline_cache) != VK_SUCCESS && !initial.empty()) {
+            info.initialDataSize = 0; info.pInitialData = nullptr;
+            if (create(device->handle, &info, nullptr, &pipeline_cache) != VK_SUCCESS) pipeline_cache = VK_NULL_HANDLE;
+            else initial.clear();
+        }
+        pipeline_cache_loaded = pipeline_cache ? initial.size() : 0;
+        if (pipeline_cache) logf("variant pipeline cache: %llu bytes from %s", static_cast<unsigned long long>(pipeline_cache_loaded),
+                                 pipeline_cache_path.u8string().c_str());
+    }
+    // After every generation stopped (no variant is being built): the cache written beside the settings.
+    void close_pipeline_cache()
+    {
+        if (!pipeline_cache) return;
+        size_t size = 0;
+        if (pipeline_cache_data(device->handle, pipeline_cache, &size, nullptr) == VK_SUCCESS && size) {
+            std::vector<char> data(size);
+            if (pipeline_cache_data(device->handle, pipeline_cache, &size, data.data()) == VK_SUCCESS) {
+                std::error_code error;
+                std::filesystem::create_directories(pipeline_cache_path.parent_path(), error);
+                const auto temporary = pipeline_cache_path.wstring() + L".tmp";
+                { std::ofstream out(temporary, std::ios::binary | std::ios::trunc); out.write(data.data(), static_cast<std::streamsize>(size)); }
+                std::filesystem::rename(temporary, pipeline_cache_path, error);
+                if (!error) pipeline_cache_saved = size;
+                logf("variant pipeline cache: %llu bytes written to %s%s", static_cast<unsigned long long>(size),
+                     pipeline_cache_path.u8string().c_str(), error ? " failed" : "");
+            }
+        }
+        destroy_pipeline_cache(device->handle, pipeline_cache, nullptr);
+        pipeline_cache = VK_NULL_HANDLE;
+    }
     std::atomic<bool> enabled{true};  // off through the probe: no draw is hashed or asked for
     std::atomic<uint64_t> frames{0}; // presentations with draws, for the hash tables' rehash schedule
     // The recording path's time at the device level (D-099): every indexed draw asked, and of that
@@ -1816,7 +1903,7 @@ public:
         }
         return false;
     }
-    ~CharacterBackend() { for (auto& c : controllers) c->stop(); if (textures) textures->stop(); }
+    ~CharacterBackend() { for (auto& c : controllers) c->stop(); if (textures) textures->stop(); if (variants) variants->stop(); close_pipeline_cache(); }
 };
 
 namespace {
@@ -1854,6 +1941,17 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
 {
     auto backend = std::make_shared<CharacterBackend>();
     backend->device = d;
+    backend->open_pipeline_cache();
+    {
+        VariantDispatch draw;
+#define X(n) draw.n = reinterpret_cast<PFN_vk##n>(d->next_gdpa(d->handle, "vk" #n));
+        EFVK_VARIANT_FUNCS(X)
+#undef X
+        if (draw.CreateGraphicsPipelines && draw.CreateRenderPass && draw.CmdDrawIndexed)
+            backend->variants = std::make_shared<VariantCache>(d->handle, draw, p.limits.maxBoundDescriptorSets, 4096, p.limits, backend->pipeline_cache,
+                                                               VariantCache::builders_for_device());
+        else logf("character variants unavailable: missing graphics entry");
+    }
     backend->textures = std::make_unique<TextureResidency>(d, m);
     if (!backend->textures->usable()) logf("character textures unavailable: %s", backend->textures->reason().c_str());
     std::error_code error;
@@ -1861,7 +1959,7 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     for (const auto& path : configured_packages(backend->reason)) {
         auto controller = std::make_unique<CharacterController>();
         controller->path = path; controller->lazy = directory;
-        controller->active = generation_create(d, p, m, path, directory, backend->textures.get());
+        controller->active = generation_create(d, p, m, path, directory, backend->textures.get(), backend->variants);
         backend->controllers.push_back(std::move(controller));
     }
     if (directory) logf("character packages: %zu from %s", backend->controllers.size(),
@@ -1869,7 +1967,7 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     backend->rebuild_index();
     return backend;
 }
-void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); if (b.textures) b.textures->stop(); }
+void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); if (b.textures) b.textures->stop(); if (b.variants) b.variants->stop(); b.close_pipeline_cache(); }
 // Caller holds res_mx. The index bytes of one draw, hashed once for every package of the device
 // (D-097) and then recognized by a short fingerprint; the full hash is repeated now and then because
 // mapped pools change unseen. Each recording thread keeps its own table (above).
@@ -1960,6 +2058,7 @@ bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
 }
 void character_retire(CharacterBackend& b, uint32_t id)
 {
+    if (b.variants) b.variants->retire(id);
     for (auto& c : b.controllers) {
         std::shared_lock<std::shared_mutex> lock(c->mutex);
         if (c->active) generation_retire(*c->active, id);
@@ -2041,6 +2140,9 @@ void character_status(CharacterBackend& b, JsonWriter& w)
     w.kn("full_hashes", g_hash_full.load()); w.kn("full_hash_bytes", g_hash_bytes.load());
     w.kn("full_new", g_hash_new.load()); w.kn("full_generation", g_hash_gen.load()); w.kn("full_fingerprint", g_hash_quick.load()); w.kn("full_due", g_hash_due.load());
     w.kn("fingerprint_reads", g_quick_reads.load()); w.kn("fingerprint_skipped", g_quick_skipped.load());
+    w.kb("pipeline_cache", b.pipeline_cache != VK_NULL_HANDLE); w.kn("pipeline_cache_loaded_bytes", b.pipeline_cache_loaded);
+    if (b.variants) { w.kn("variant_waits", b.variants->waits()); w.kn("variant_wait_microseconds", b.variants->wait_microseconds()); }
+    w.kb("upload_queue", b.device && b.device->upload_queue != VK_NULL_HANDLE);
     w.kn("snapshot_copy_us", g_snapshot_timing.copy_us.load()); w.kn("snapshot_descriptor_us", g_snapshot_timing.descriptor_us.load());
     w.kn("snapshot_images_us", g_snapshot_timing.images_us.load()); w.kn("snapshot_entry_us", g_snapshot_timing.entry_us.load());
     w.end_object();

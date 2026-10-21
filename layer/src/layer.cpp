@@ -982,6 +982,9 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
     PFN_vkDestroyDevice next = dev->d.DestroyDevice;
     if (!dev->passive) {
         m2_stop(dev);
+        // The application idled the device before destroying it; retired semaphores may still sit in
+        // batches of queues it did not idle (a test's second queue), so the device waits once more.
+        if (const auto wait_idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(dev->next_gdpa(device, "vkDeviceWaitIdle"))) wait_idle(device);
         destroy_retired(dev, true);
         logf("device destroyed after %llu frames", static_cast<unsigned long long>(dev->frame_no));
         dev_destroy(dev);
@@ -1203,6 +1206,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     // of the call, or in a structure of its own. Application requests stay as they are.
     const VkDeviceCreateInfo* requested = info;
     VkDeviceCreateInfo modified = *info;
+    // D-103: a queue of the layer's own for uploads; these live until the call below returns.
+    std::vector<VkDeviceQueueCreateInfo> queues(info->pQueueCreateInfos, info->pQueueCreateInfos + info->queueCreateInfoCount);
+    std::vector<float> upload_priority{1.0f}, bumped_priorities;
+    uint32_t upload_family = UINT32_MAX, upload_index = 0;
+    VkQueueFlags upload_flags = 0;
     std::vector<const char*> extensions(info->ppEnabledExtensionNames, info->ppEnabledExtensionNames + info->enabledExtensionCount);
     VkPhysicalDeviceRobustness2FeaturesEXT robust{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
     VkPhysicalDeviceShaderDrawParametersFeatures draw_parameters_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
@@ -1317,6 +1325,43 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
             else { pageable_feature.pageableDeviceLocalMemory = VK_TRUE; pageable_feature.pNext = chain; chain = &pageable_feature; }
             pageable = pageable_added = changed = true;
         }
+        // D-103: one more queue for the layer's uploads, from a transfer-capable family with a queue
+        // the application did not request: a dedicated transfer family first, then compute, then
+        // graphics. Without one, uploads go through the application's submissions as before.
+        if (const auto family_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
+                inst->gipa(inst->handle, "vkGetPhysicalDeviceQueueFamilyProperties"))) {
+            uint32_t family_count = 0;
+            family_properties(phys, &family_count, nullptr);
+            if (family_count && family_count < 64) {
+                std::vector<VkQueueFamilyProperties> families(family_count);
+                family_properties(phys, &family_count, families.data());
+                int best = -1; uint32_t best_family = 0; size_t best_request = SIZE_MAX;
+                for (uint32_t f = 0; f < family_count; ++f) {
+                    const VkQueueFlags flags = families[f].queueFlags;
+                    if (!(flags & (VK_QUEUE_TRANSFER_BIT | VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))) continue;
+                    uint32_t taken = 0; size_t request = SIZE_MAX; bool special = false;
+                    for (size_t i = 0; i < queues.size(); ++i)
+                        if (queues[i].queueFamilyIndex == f) { taken += queues[i].queueCount; request = i; special |= queues[i].flags != 0; }
+                    if (special || taken >= families[f].queueCount) continue;
+                    const int score = (flags & VK_QUEUE_GRAPHICS_BIT) ? 1 : (flags & VK_QUEUE_COMPUTE_BIT) ? 2 : 3;
+                    if (score > best) { best = score; best_family = f; best_request = request; }
+                }
+                if (best >= 0) {
+                    if (best_request == SIZE_MAX) {
+                        VkDeviceQueueCreateInfo extra{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+                        extra.queueFamilyIndex = best_family; extra.queueCount = 1; extra.pQueuePriorities = upload_priority.data();
+                        queues.push_back(extra); upload_index = 0;
+                    } else {
+                        auto& q = queues[best_request];
+                        bumped_priorities.assign(q.pQueuePriorities, q.pQueuePriorities + q.queueCount); bumped_priorities.push_back(1.0f);
+                        upload_index = q.queueCount; q.queueCount += 1; q.pQueuePriorities = bumped_priorities.data();
+                    }
+                    upload_family = best_family; upload_flags = families[best_family].queueFlags;
+                    modified.queueCreateInfoCount = static_cast<uint32_t>(queues.size()); modified.pQueueCreateInfos = queues.data();
+                    changed = true;
+                }
+            }
+        }
         if (changed) {
             modified.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
             modified.ppEnabledExtensionNames = extensions.data();
@@ -1345,6 +1390,16 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     dev->timeline_semaphores = timeline; dev->timeline_semaphores_added = timeline_added;
     dev->memory_priority = priority; dev->memory_priority_added = priority_added;
     dev->pageable_memory = pageable; dev->pageable_memory_added = pageable_added;
+    if (upload_family != UINT32_MAX) {
+        if (const auto get_queue = reinterpret_cast<PFN_vkGetDeviceQueue>(gdpa(*device, "vkGetDeviceQueue"))) {
+            get_queue(*device, upload_family, upload_index, &dev->upload_queue);
+            // A dispatchable object the loader did not hand out gets its dispatch here.
+            if (dev->upload_queue && set_loader_data) set_loader_data(*device, dev->upload_queue);
+        }
+        if (dev->upload_queue) { dev->upload_family = upload_family; dev->upload_flags = upload_flags; }
+    }
+    if (dev->upload_queue) logf("upload queue: family %u index %u, flags 0x%x (D-103)", upload_family, upload_index, upload_flags);
+    else logf("upload queue: none, uploads go through the application's submissions");
     if (inst)
         dev->app_api_version = inst->app_api_version;
     for (const HookEntry& h : g_hooks)

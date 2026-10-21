@@ -78,6 +78,7 @@ private:
         uint64_t last_bound = 0;  // frame of the last bind
         bool resident = false;    // demanded and not released: loading or Ready
         bool reduce_next = false; // the next load leaves the top level out (demoted under pressure)
+        bool failure_logged = false;
         uint32_t skip_levels = 0; // mip levels the current load leaves out
     };
     bool fits(uint64_t bytes) const { return resident_bytes_ + bytes <= target_bytes_; }
@@ -109,7 +110,8 @@ private:
     VkSemaphore timeline_ = VK_NULL_HANDLE;
     PFN_vkDestroySemaphore DestroySemaphore_ = nullptr;
     PFN_vkGetSemaphoreCounterValue GetSemaphoreCounterValue_ = nullptr;
-    uint64_t signalled_ = 0, published_ = 0;
+    std::atomic<uint64_t> signalled_{0}; // the serial the last upload took (the loaders take the next, D-103)
+    uint64_t published_ = 0;
     std::map<VkQueue, uint64_t> waited_;
     // Budget: the cap (m2_texture_budget_mb or half the heap), the reserve kept free for the game
     // (m2_reserve_mb), and the target the device's free memory allows under them.
@@ -119,6 +121,7 @@ private:
     uint64_t frame_ = 0, next_sample_ = 0, demoted_frame_ = 0;
     bool budget_known_ = false, pressure_ = false;
     uint64_t loads_ = 0, reduced_ = 0, evictions_ = 0, demotions_ = 0, budget_waits_ = 0, pending_ = 0, uploads_ = 0, waits_ = 0;
+    uint64_t waits_sync_ = 0, wait_sync_us_ = 0, wait_sync_max_us_ = 0, waits_timed_out_ = 0; // draws that waited for a texture (D-103)
 };
 
 } // namespace efvk

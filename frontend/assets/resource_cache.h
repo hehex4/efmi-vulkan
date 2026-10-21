@@ -1,5 +1,6 @@
 #pragma once
 #include "buffer_upload.h"
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -7,6 +8,7 @@
 #include <mutex>
 #include <thread>
 #include <tuple>
+#include <vector>
 
 namespace efmi::assets {
 enum class ResourceState { Dormant, Queued, Loading, Prepared, Submitting, Submitted, Ready, Failed, Stopped };
@@ -25,6 +27,7 @@ private:
     std::filesystem::path path_;
     VkBufferUsageFlags buffer_usage_=0; // Zero selects the image decoder.
     uint32_t skip_levels_=0;            // Image levels left out of the current load.
+    uint64_t busy_since_us_=0;          // When the load first waited for a budget other loads hold (D-103); 0 when not waiting.
     std::weak_ptr<const uint8_t> owner_;
     mutable std::mutex mutex_;
     ResourceSnapshot value_;
@@ -41,6 +44,14 @@ struct ResourceDevice {
     PFN_vkGetPhysicalDeviceFormatProperties format_properties=nullptr;
     PFN_vkGetPhysicalDeviceImageFormatProperties image_properties=nullptr;
     float memory_priority=-1.0f; // VK_EXT_memory_priority of image memory; negative for none
+    // The layer's upload queue and its mutex (D-103). Null: uploads wait for submit_prepared on an
+    // application queue. Images and buffers are shared between the two families.
+    VkQueue upload_queue=VK_NULL_HANDLE;
+    uint32_t upload_family=UINT32_MAX;
+    std::mutex* upload_mutex=nullptr;
+    // Publication of the uploads the workers submit: the timeline signalled and the serial taken.
+    VkSemaphore timeline=VK_NULL_HANDLE;
+    std::atomic<uint64_t>* serial=nullptr;
 };
 struct ResourceBudgets {
     std::shared_ptr<AllocationBudget> resident=std::make_shared<AllocationBudget>(512ull<<20);
@@ -56,7 +67,8 @@ struct ResourceCacheStats { uint64_t file_reads=0,submissions=0,ready=0,failed=0
 // must outlive all returned owners; one worker/one outstanding upload serves both.
 class ResourceCache {
 public:
-    ResourceCache(const ResourceDevice&,ResourceBudgets={},size_t capacity=256);
+    // `workers`: loaders running at once; one unless the device has an upload queue (D-103).
+    ResourceCache(const ResourceDevice&,ResourceBudgets={},size_t capacity=256,unsigned workers=1);
     ~ResourceCache();
     ResourceCache(const ResourceCache&)=delete;
     ResourceCache& operator=(const ResourceCache&)=delete;
@@ -106,6 +118,6 @@ private:
     std::shared_ptr<Upload> upload_;
     ResourceState phase_=ResourceState::Dormant;
     ResourceCacheStats stats_;
-    std::thread worker_;
+    std::vector<std::thread> workers_;
 };
 }

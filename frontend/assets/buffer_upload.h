@@ -26,7 +26,10 @@ public:
     BufferUpload(const BufferUpload&)=delete;
     BufferUpload& operator=(const BufferUpload&)=delete;
     bool prepare(const uint8_t*,size_t,VkBufferUsageFlags,const VkPhysicalDeviceMemoryProperties&,bool readback=false);
-    bool record(uint32_t graphics_family);
+    // `graphics`: the family records for a graphics queue; a transfer queue takes a general barrier.
+    bool record(uint32_t family,bool graphics=true);
+    // Before prepare: the buffer is shared between these two queue families when they differ (D-103).
+    void share(uint32_t a,uint32_t b){families_[0]=a;families_[1]=b;shared_=a!=b && a!=UINT32_MAX && b!=UINT32_MAX;}
     bool submit(VkQueue,VkSemaphore timeline=VK_NULL_HANDLE,uint64_t value=0);
     UploadState poll();
     UploadState state() const {return state_;}
@@ -56,6 +59,8 @@ private:
     VkFence fence_=VK_NULL_HANDLE;
     VkDeviceSize size_=0;
     VkBufferUsageFlags usage_=0;
+    uint32_t families_[2]={0,0};
+    bool shared_=false;
     bool in_flight_=false;
     struct Extents {uint32_t low=UINT32_MAX,high=0;bool valid=false;};
     Extents indices16_,indices32_;

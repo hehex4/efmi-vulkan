@@ -2,11 +2,14 @@
 #pragma once
 
 #include "pipeline_variant.h"
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <map>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 namespace efvk {
 
@@ -19,8 +22,12 @@ struct VariantResult {
 
 class VariantCache {
 public:
+    // `pipeline_cache`: the device's variant pipeline cache the variants are created through (D-101);
+    // `builders`: the threads building variants (the backend uses `builders_for_device()`).
     VariantCache(VkDevice, const VariantDispatch&, uint32_t max_sets, size_t capacity = 128,
-                 const VkPhysicalDeviceLimits& = {});
+                 const VkPhysicalDeviceLimits& = {}, VkPipelineCache pipeline_cache = VK_NULL_HANDLE, unsigned builders = 1);
+    // Half the cores, two to four: the variants a character needs when it first appears compile in parallel.
+    static unsigned builders_for_device();
     ~VariantCache();
     VariantCache(const VariantCache&) = delete;
     VariantCache& operator=(const VariantCache&) = delete;
@@ -28,6 +35,13 @@ public:
     // Recipes are owned immutable objects. The same identity must always refer to the same source.
     VariantResult request(uint64_t identity, std::shared_ptr<const GraphicsRecipe>,
                           std::shared_ptr<const PipelineLayoutInfo>, const VertexInputRecipe&, const FragmentPatch& = {});
+    // As request, then waiting (bounded) while the variant is queued or building (D-103): the draw
+    // takes longer, as a shader's creation does under DX11, and the character is never the game's
+    // mesh meanwhile. Returns the final state, or the pending one when the wait ran out.
+    VariantResult await(uint64_t identity, std::shared_ptr<const GraphicsRecipe>, std::shared_ptr<const PipelineLayoutInfo>,
+                        const VertexInputRecipe&, const FragmentPatch&, std::chrono::milliseconds timeout);
+    uint64_t waits() const { return waits_.load(); }
+    uint64_t wait_microseconds() const { return wait_us_.load(); }
     // Removes every vertex variant of an original. Existing command-buffer references keep a
     // ready variant alive; an in-progress build may finish but cannot reinsert its retired entry.
     void retire(uint64_t identity);
@@ -56,16 +70,20 @@ private:
     static Key key_for(uint64_t, const VertexInputRecipe&, const FragmentPatch&);
     void run();
     VkDevice dev_;
+    VkPipelineCache pipeline_cache_ = VK_NULL_HANDLE;
     VariantDispatch dispatch_;
     uint32_t max_sets_;
     VkPhysicalDeviceLimits limits_;
     size_t capacity_;
     std::mutex mutex_, stop_mutex_;
-    std::condition_variable wake_;
+    std::condition_variable wake_, done_;
+    std::atomic<uint64_t> waits_{0}, wait_us_{0};
     bool stopped_ = false;
     std::map<Key, std::shared_ptr<Job>> jobs_;
     std::deque<std::shared_ptr<Job>> queue_;
-    std::thread worker_;
+    // Several builders: the variants a character needs when it first appears compile in parallel,
+    // the driver compiling on each thread (D-101; one builder took 0.3-2 s per character switch).
+    std::vector<std::thread> workers_;
 };
 
 } // namespace efvk

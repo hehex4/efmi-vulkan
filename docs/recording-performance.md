@@ -72,3 +72,85 @@ of it the matched draws: plan 50 us, bones 18 us, identify 3.6, variants 3.4, sn
 - One pipeline variant cache per device instead of one per package, and a VkPipelineCache on disk:
   a character switch waits for its variants to compile (2-3 seconds in the menu).
 - Owned Present: 22 packages' Present lists per frame.
+
+## Identities that survive dashes, cuts and occlusion (1.7.0, D-100)
+
+Sixth game session (1.6.9 deployed, 2026-10-21 09:45-): 17.5 ms mean frame interval (p95 19.5 ms,
+no frame over 33 ms in ten minutes), 5.2 ms of recording work per frame, every texture resident at
+full size, no eviction. The user still saw characters at close range revert to the game's mesh for
+a moment. The status showed why: 42 identities created in ten minutes for four characters, each
+one costing a frame or two of identification and the import of every component's bones, the
+character being the game's meanwhile. Of the 42: nine were a second identity for the same object in
+the same frame, its passes a cell (12.5 cm) apart; about twenty were identities expired after half
+a second without a draw (off screen, occluded, a cut); the rest were jumps of 4 to 7 metres within
+one frame (a dash, a camera cut), beyond the radius an identity may move per frame.
+
+1.7.0, exchanged into the running game: within one recording an object's draws may differ by one
+cell; an identity expires after 10 seconds without a draw (4 presentations and 10 s), not 0.5 s;
+and when no identity lies within the radius but exactly one identified object of the package has
+not been drawn since the last presentation, that one is taken to have moved (`identities_adopted`).
+In the three minutes after the exchange the four packages created 8 identities in all, 4 of them
+the first of each package, the rest after 10 seconds without a draw (a character switched away);
+one adoption. `incomplete` draws (a merged draw whose required component had no bones imported
+yet, a consequence of every new identity) went from 19392 to 5. The tests set the expiry through
+`m2_identity_expiry_ms` (`EFMI_VK_M2_IDENTITY_EXPIRY_MS`).
+
+## Character switches in the menu (1.7.0, D-101)
+
+The user, same session: a switched character shows the game's mesh first, becomes the Mod after
+about two seconds, then flickers back two or three times, every time. The log told the story: the
+same fragment shader's derived material rules were made again and again for the same pipeline, with
+5, then 6, then 8 rules. The rules were derived for the slots the Mod had bound so far; a plan that
+bound a new slot (a texture section, a key) grew the set, every pipeline derived its rules again,
+the variants' patches changed with them, and every variant compiled again, the frame gate showing
+the game's mesh while it did: one flicker per new slot. The two seconds were the first compile of
+the twenty or so variants the menu's pipelines need, one builder thread at a time.
+
+1.7.0: the rules of a fragment shader cover every DX11 pixel slot it declares as one image, the
+others absent, derived once per shader; a plan binding a new slot changes nothing. Exchanged into
+the game: no rule derived twice, the counters of the next switches showing the first compile only.
+For the first compile: the variants are created through one VkPipelineCache per device, loaded
+from `pipeline-cache-<vendor>-<device>.bin` in the settings folder and written back when the
+backend stops, and each package's variant cache builds on several threads (half the cores, 2 to 4).
+Both need the game restarted; the saved cache helps from the second session on.
+
+## Resources ready before the draw: the layer's own upload queue (1.7.0, D-103)
+
+With the rules fixed the menu still showed the game's mesh first and flickered: the frame gate
+(D-097) closes the package's frame whenever a draw binds a texture that has not arrived or a
+pipeline variant still building, and in the menu new textures and pipelines come one after another
+as the camera and the animation go on. A placeholder image for the textures on their way was tried
+and withdrawn the same hour: grey parts are no better than the game's mesh. The user's requirement
+is the original's behaviour: the first frame of a switched character is the Mod, and nothing ever
+flickers. The original gets that by loading a resource when a draw first uses it, synchronously.
+
+1.7.0 does the same, and makes the wait short:
+
+- At device creation the layer requests one more queue of its own, from a transfer-capable family
+  with a queue the application did not take (a dedicated transfer family first, then compute, then
+  graphics; `upload queue:` in the log). Images and mesh buffers are shared between the graphics
+  family and that family; the residency's loaders (three of them) read, record and submit on it
+  themselves, signalling the device timeline, so an upload never waits for the application's next
+  submission and several load at once. Without such a queue everything is as in 1.6.9. A loader
+  that finds the staging, source or image memory budget held by the others goes again a moment
+  later, behind the rest of the queue, for up to ten seconds; every other failure (a file that is
+  no DDS, a size outside its own limit) is final at once, so a reload candidate with a broken
+  texture file is refused as before.
+- A draw whose texture is on its way waits for it (up to four seconds; `draw_waits`,
+  `draw_wait_microseconds` and `draw_wait_max_microseconds` in `textures`), the publication read
+  from the timeline's counter. A draw whose pipeline variant is still building waits for it too
+  (`variant_waits`, `variant_wait_microseconds`). The frame takes longer; the character is never the
+  game's mesh meanwhile, and the frame gate is left for failures and timeouts.
+- One variant cache per device: a game pipeline with the same vertex layout and material bindings
+  compiles once for every package instead of once per package, built on two to four threads through
+  the pipeline cache kept on disk.
+
+Identification is as the Core does it (SpatialIdentification.ini): an object's first frame is
+skipped, drawn neither as the game's nor as the Mod's, which the eye does not notice, where 1.6.9
+drew the game's mesh for that frame; from the next frame on an object still unidentified is the
+game's, as there. A package's draws are skipped the same way while it goes to the GPU (`preparing`).
+
+Verification: The full suite passed on the final source (build/next/run_all-1.7.0.out: 35 steps; character replacement 357/357, live INI rendering 76/76 with the broken-DDS candidate refused, pipeline variants 63/63, Vulkan validation 76/76, both replays clean). The upload queue, the waits, the shared variant cache, the
+pipeline cache and the first-frame skip take effect when the game is next started with 1.7.0; the
+next session's `textures.draw_waits`, `draw_wait_max_microseconds`, `variant_waits` and
+`gated_frames` say whether a switched character ever waited long or was gated.

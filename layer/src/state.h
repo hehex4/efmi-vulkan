@@ -510,6 +510,13 @@ struct Device {
     std::vector<VkQueue> material_queues;
     uint32_t material_family = 0;
     std::string material_queue_reason;
+    // The layer's own upload queue (D-103): a queue of a transfer-capable family the application
+    // did not take, requested at device creation. The characters' textures and meshes upload there,
+    // never waiting for the application's submissions, so a draw can wait for one of them.
+    VkQueue upload_queue = VK_NULL_HANDLE;
+    uint32_t upload_family = UINT32_MAX;
+    VkQueueFlags upload_flags = 0;
+    std::mutex upload_mx; // its submissions, one at a time
     bool material_bc_enabled = false;
     PFN_vkGetPhysicalDeviceFormatProperties material_format_properties = nullptr;
     PFN_vkGetPhysicalDeviceImageFormatProperties material_image_properties = nullptr;

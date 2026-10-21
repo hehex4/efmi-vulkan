@@ -126,3 +126,18 @@ under the exclusive resource lock), which the replacement never reads.
 
 Verification: Si replay (vk04) with a 200 MiB cap at 360 frames: 11 images resident (2 reduced), 184 MiB, 0 evictions (1.6.7 evicted and reloaded throughout), 1 demotion, 579 budget waits while the set came up, 63 gated frames (2353 draws) before the forward pass was fully covered, 9376 replaced draws, validation clean (`--check` passed); character replacement 357 checks, live INI rendering 76 (the broken-DDS reload candidate refused as before); full suite build/next/run_all-1.6.8.out.
 
+## The layer's own upload queue (1.7.0, D-103)
+
+The residency's uploads no longer wait for the application's next submission: at device creation
+the layer requests a queue of its own from a transfer-capable family with a queue the application
+did not take (a dedicated transfer family first, then compute, then graphics). Images and mesh
+buffers are created with concurrent sharing between the graphics family and that family; three
+loaders read, decode, record and submit on the layer's queue under its own mutex and signal the
+device timeline with the next serial, so several textures load at once and a draw can wait for one
+on its way (up to four seconds, `draw_waits` and `draw_wait_max_microseconds` in the status)
+instead of the frame gate closing the package's frame. A loader that finds a budget held by the
+others (the aggregate source, staging or image memory budget) tries again a moment later, behind
+the rest of the queue, for up to ten seconds; any other failure is final at once. Without such a
+queue (`upload_queue` false in the status) the 1.6.9 path is used: one loader, submission before
+the application's next graphics submission. The timeline semaphore is retired a few presentations
+after the residency stops, a queue possibly still waiting on it.

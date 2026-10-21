@@ -108,6 +108,16 @@ bool prepare_vertex_variant(const GraphicsRecipe& recipe, const PipelineLayoutIn
     return true;
 }
 
+namespace {
+thread_local PFN_vkCreateGraphicsPipelines t_create = nullptr;
+thread_local VkPipelineCache t_cache = VK_NULL_HANDLE;
+VKAPI_ATTR VkResult VKAPI_CALL create_through_cache(VkDevice dev, VkPipelineCache, uint32_t count, const VkGraphicsPipelineCreateInfo* infos,
+                                                   const VkAllocationCallbacks* allocator, VkPipeline* out)
+{
+    return t_create(dev, t_cache, count, infos, allocator, out);
+}
+} // namespace
+
 bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutInfo& source,
                             const VertexInputRecipe& vertex, uint32_t max_sets,
                             const FragmentPatch& patch,const VkPhysicalDeviceLimits& limits)
@@ -174,7 +184,10 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
         modules.push_back(module);
     }
     if (modules.size() == recipe.stages.size())
-        good(recipe.create(dev_, d_.CreateGraphicsPipelines, layout, pass, modules, &pipeline, &vertex), "create_variant_pipeline");
+        // The recipe takes a creation function of the Vulkan shape; the variant's pipeline cache (D-101)
+        // reaches it through this thread's slot, the recipe's signature being one host and module share.
+        t_create = d_.CreateGraphicsPipelines; t_cache = cache_;
+        good(recipe.create(dev_, &create_through_cache, layout, pass, modules, &pipeline, &vertex), "create_variant_pipeline");
     for (auto m : modules) d_.DestroyShaderModule(dev_, m, nullptr);
     d_.DestroyRenderPass(dev_, pass, nullptr);
     if (result != VK_SUCCESS) { clear(); return false; }

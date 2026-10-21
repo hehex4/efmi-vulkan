@@ -252,6 +252,15 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     // What the game draws by itself: every component at bone zero of its own palette.
     auto original=[&]{return shade_at(-.6f,-.6f)==1 && shade_at(0,-.6f)==2 && shade_at(.6f,-.6f)==1 && shade_at(.6f,-.1f)==1 && shade_at(0,.6f)==1 &&
                              shade_at(-.6f,.3f)==0 && shade_at(0,0)==0 && shade_at(.6f,.3f)==0;};
+    // A new object's first frame, as the Core's identification has it (D-103): its components are drawn
+    // neither by the application nor by the mod, and so is the other object sharing the mesh at (0,.6)
+    // in its own first frame; the unmatched neighbour at (.6,-.1) stays.
+    auto skipped=[&]{return shade_at(-.6f,-.6f)==0 && shade_at(0,-.6f)==0 && shade_at(.6f,-.6f)==0 && shade_at(.6f,-.1f)==1 && shade_at(0,.6f)==0 &&
+                            shade_at(-.6f,.3f)==0 && shade_at(0,0)==0 && shade_at(.6f,.3f)==0;};
+    // The shades at the eight places, for a failed check's report.
+    auto shades=[&](const char* what){
+        fprintf(stderr,"%s: shades %d %d %d | %d %d | %d %d %d\n",what,shade_at(-.6f,-.6f),shade_at(0,-.6f),shade_at(.6f,-.6f),
+                shade_at(.6f,-.1f),shade_at(0,.6f),shade_at(-.6f,.3f),shade_at(0,0),shade_at(.6f,.3f));};
     // The package: A's mesh on merged bone 1 moved by (0,-.3); B's on merged bone 3 and, moved by
     // (1.2,.9), on merged bone 0, which is A's; C hidden. `ax` is where A's bone zero currently is.
     const int a_shade=material?5:1,b_shade=material?6:2,cross_shade=material?7:2;
@@ -262,14 +271,14 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     // when a character appears; the scene waits for it, so that no draw meets an empty pool. A
     // package of a directory goes to the GPU on its first match, so there the character's first
     // frame comes before the wait: the application draws it, and the character is known after it.
-    if(lazy_packages){frame(false);check(original(),"first frame of a new character is drawn by the application");}
+    if(lazy_packages){frame(false);if(!skipped())shades("first frame of a new character is skipped, as the Core does");check(skipped(),"first frame of a new character is skipped, as the Core does");}
     bool prepared=false;
     for(uint32_t attempt=0;attempt<1000 && !prepared;++attempt){
         prepared=self_probe("{\"cmd\":\"status\"}","character-ready.json").find("\"ready\":true")!=std::string::npos;
         if(!prepared)Sleep(5);
     }
     check(prepared,"the backend is ready before the scene begins");
-    if(!lazy_packages){frame(false);check(original(),"first frame of a new character is drawn by the application");}
+    if(!lazy_packages){frame(false);if(!skipped())shades("first frame of a new character is skipped, as the Core does");check(skipped(),"first frame of a new character is skipped, as the Core does");}
     if(reject_late){
         bool refused=false;
         for(uint32_t attempt=0;attempt<400 && !refused;++attempt){
@@ -310,12 +319,13 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     for(uint32_t i=0;i<6;++i)self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
     frame(false);
     check(replaced(-.6f),"six frames without the character do not make it a stranger: replaced in its first frame back");
-    // After several frames and more than half a second without a draw it is forgotten: the
-    // application draws its first frame, then it is identified and replaced again.
+    // After several frames and longer than the identity expiry without a draw (the test's environment
+    // sets half a second; 10 s in the game) it is forgotten: its first frame is skipped, then it is
+    // identified and replaced again.
     Sleep(700);
     for(uint32_t i=0;i<6;++i)self_probe("{\"cmd\":\"m2\",\"advance\":1}","character-advance.json");
     frame(false);
-    check(original(),"long enough without a draw, the character is a new object and its first frame is the application's");
+    if(!skipped())shades("long enough without a draw, the character is a new object and its first frame is skipped");check(skipped(),"long enough without a draw, the character is a new object and its first frame is skipped");
     bool known=false;
     for(uint32_t attempt=0;attempt<100 && !known;++attempt){frame(false);known=replaced(-.6f);}
     check(known,"the forgotten character is identified and replaced again");

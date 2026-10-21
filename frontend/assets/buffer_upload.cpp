@@ -62,7 +62,9 @@ bool BufferUpload::prepare(const uint8_t* data,size_t size,VkBufferUsageFlags us
     memory_=memory;size_=size;usage_=usage;
     VkBufferCreateInfo ci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};ci.size=size;
     ci.usage=usage|VK_BUFFER_USAGE_TRANSFER_DST_BIT|(readback?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0);
+    if(shared_){ci.sharingMode=VK_SHARING_MODE_CONCURRENT;ci.queueFamilyIndexCount=2;ci.pQueueFamilyIndices=families_;}
     if(!result(d_.CreateBuffer(device_,&ci,nullptr,&buffer_),"create mesh buffer"))return false;
+    ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;ci.queueFamilyIndexCount=0;ci.pQueueFamilyIndices=nullptr;
     VkMemoryRequirements req{};d_.GetBufferMemoryRequirements(device_,buffer_,&req);
     memory_buffer_=allocate(req,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,resident_budget_,resident_charged_);
     if(!memory_buffer_){state_=UploadState::Failed;return false;}
@@ -90,10 +92,10 @@ bool BufferUpload::prepare(const uint8_t* data,size_t size,VkBufferUsageFlags us
     }
     state_=UploadState::Prepared;return true;
 }
-bool BufferUpload::record(uint32_t graphics_family)
+bool BufferUpload::record(uint32_t family,bool graphics)
 {
     if(state_!=UploadState::Prepared){reason_="Buffer ticket is not ready for recording";return false;}
-    VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};pool.queueFamilyIndex=graphics_family;
+    VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};pool.queueFamilyIndex=family;
     pool.flags=VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
     if(!result(d_.CreateCommandPool(device_,&pool,nullptr,&pool_),"create mesh upload pool"))return false;
     VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
@@ -107,7 +109,9 @@ bool BufferUpload::record(uint32_t graphics_family)
     barrier.dstAccessMask=((usage_&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)?VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT:0)|
                           ((usage_&VK_BUFFER_USAGE_INDEX_BUFFER_BIT)?VK_ACCESS_INDEX_READ_BIT:0);
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;barrier.buffer=buffer_;barrier.size=size_;
-    d_.CmdPipelineBarrier(command_,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,0,0,nullptr,1,&barrier,0,nullptr);
+    // A transfer queue knows no vertex input stage; the semaphore orders the consumer's queue (D-103).
+    d_.CmdPipelineBarrier(command_,VK_PIPELINE_STAGE_TRANSFER_BIT,graphics?VK_PIPELINE_STAGE_VERTEX_INPUT_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          0,0,nullptr,1,&barrier,0,nullptr);
     if(!result(d_.EndCommandBuffer(command_),"end mesh upload"))return false;
     VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     if(!result(d_.CreateFence(device_,&fi,nullptr,&fence_),"create mesh upload fence"))return false;

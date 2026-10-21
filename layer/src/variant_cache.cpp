@@ -23,11 +23,17 @@ VariantCache::Key VariantCache::key_for(uint64_t identity, const VertexInputReci
     return key;
 }
 
-VariantCache::VariantCache(VkDevice dev, const VariantDispatch& dispatch, uint32_t max_sets, size_t capacity,
-                           const VkPhysicalDeviceLimits& limits)
-    : dev_(dev), dispatch_(dispatch), max_sets_(max_sets), limits_(limits), capacity_(std::min<size_t>(capacity, 4096))
+unsigned VariantCache::builders_for_device()
 {
-    worker_ = std::thread(&VariantCache::run, this);
+    const unsigned cores = std::thread::hardware_concurrency();
+    return std::min(4u, std::max(2u, cores / 2));
+}
+
+VariantCache::VariantCache(VkDevice dev, const VariantDispatch& dispatch, uint32_t max_sets, size_t capacity,
+                           const VkPhysicalDeviceLimits& limits, VkPipelineCache pipeline_cache, unsigned builders)
+    : dev_(dev), pipeline_cache_(pipeline_cache), dispatch_(dispatch), max_sets_(max_sets), limits_(limits), capacity_(std::min<size_t>(capacity, 4096))
+{
+    for (unsigned i = 0; i < std::max(1u, builders); ++i) workers_.emplace_back(&VariantCache::run, this);
 }
 VariantCache::~VariantCache() { stop(); }
 
@@ -48,6 +54,29 @@ VariantResult VariantCache::request(uint64_t identity, std::shared_ptr<const Gra
     job->fragment=fragment;
     jobs_.emplace(job->key, job); queue_.push_back(job); wake_.notify_one();
     return job->result;
+}
+
+VariantResult VariantCache::await(uint64_t identity, std::shared_ptr<const GraphicsRecipe> recipe,
+                                  std::shared_ptr<const PipelineLayoutInfo> layout, const VertexInputRecipe& vertex,
+                                  const FragmentPatch& fragment, std::chrono::milliseconds timeout)
+{
+    auto result = request(identity, recipe, layout, vertex, fragment);
+    if (result.state != VariantState::Queued && result.state != VariantState::Building) return result;
+    const auto began = std::chrono::steady_clock::now();
+    const auto key = key_for(identity, vertex, fragment);
+    std::unique_lock<std::mutex> lock(mutex_);
+    done_.wait_for(lock, timeout, [&] {
+        if (stopped_) return true;
+        auto found = jobs_.find(key);
+        if (found == jobs_.end()) return true;
+        const auto state = found->second->result.state;
+        return state != VariantState::Queued && state != VariantState::Building;
+    });
+    auto found = jobs_.find(key);
+    result = found != jobs_.end() ? found->second->result : VariantResult{VariantState::Stopped, {}, "variant retired while waited for"};
+    lock.unlock();
+    ++waits_; wait_us_ += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count());
+    return result;
 }
 
 void VariantCache::retire(uint64_t identity)
@@ -74,7 +103,7 @@ void VariantCache::stop()
         std::lock_guard<std::mutex> lock(mutex_);
         stopped_ = true; released.swap(jobs_); queue_.clear(); wake_.notify_all();
     }
-    if (worker_.joinable()) worker_.join();
+    for (auto& worker : workers_) if (worker.joinable()) worker.join();
 }
 
 void VariantCache::run()
@@ -89,7 +118,7 @@ void VariantCache::run()
         }
         VariantResult result;
         try {
-            auto variant = std::make_shared<PipelineVariant>(dev_, dispatch_);
+            auto variant = std::make_shared<PipelineVariant>(dev_, dispatch_, pipeline_cache_);
             if (variant->build(*job->recipe, *job->layout, job->vertex, max_sets_,job->fragment,limits_))
                 result = {VariantState::Ready, std::move(variant), {}};
             else result = {VariantState::Failed, {}, variant->reason};
@@ -101,6 +130,7 @@ void VariantCache::run()
                 job->result = std::move(result);
                 job->recipe.reset(); job->layout.reset();
             }
+            done_.notify_all();
         }
         // A retired build's temporary GPU resources are destroyed outside the lock here.
     }
