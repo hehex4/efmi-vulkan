@@ -909,3 +909,5 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 - Later Vulkan sessions for other scenes (open world, combat, a second instance of the character, LOD1 at a distance): the user starts the game and says where the character is, the agent collects with `--snapshot mod --follow instance`.
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
+
+1.7.0 is unfinished and uncommitted in the worktree (CURRENT_STATE.md HANDOFF): fix the validation message of the split-queues upload path and the live INI reload failures, run run_all, commit, deploy when the game is closed.
