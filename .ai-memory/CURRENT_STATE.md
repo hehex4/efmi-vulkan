@@ -11,7 +11,7 @@ Launcher state, 2026-10-19 17:35: at the user's explicit request, switched the E
 ## The fifth game session and 1.6.9 (2026-10-21, D-099)
 
 - The user ran 1.6.8 (PID 31884, 08:06-): slow character switches, LOD1 reverts, half the baseline frame rate. Eight module exchanges in the running game fixed the texture reserve and idle threshold, the hash table and fingerprint reads, the owner churn of arenas, the tools lookup, and added stage timing; the layer gained write ranges per buffer (region generations). Measurements and the result (24.5 ms against 20.9 ms baseline) in docs/recording-performance.md.
-- Verified: each exchange by the probe's status in the game; the whole by the suite (build/next/run_all-1.6.9.out). dist still holds 1.6.8 until the game is closed; the running game uses the eighth exchanged module (build/modules).
+- Verified: each exchange by the probe's status in the game; the whole by the suite (build/next/run_all-1.6.9.out). Deployed 1.6.9 (356633d, build/next copied) to dist on 2026-10-21 at 09:42 with the game and launcher closed; the 1.6.8 files, cfg and the session's log in build/backups/before-1.6.9-20261021-094241 (the log also as session-1.6.8-*.log); the cfg comment names 1.6.9, the values are unchanged. Not yet loaded: the user starts the game with the account of their choice through the launcher's injection.
 - Next (offline, through the replay's `stage_us`): the INI dispatch (command kinds decided once), bones (GPU-side remap), one variant cache per device with a VkPipelineCache on disk, the Present lists' cost.
 
 ## After the fourth game session (candidate 1.6.8, 2026-10-21, D-097, D-098)
