@@ -16,11 +16,11 @@ inline uint64_t host_time_us()
     return ticks / frequency * 1000000 + ticks % frequency * 1000000 / frequency;
 }
 
-enum WorkKind { WK_UNMAP, WK_COPY_RECORD, WK_BUFFER_SUBMIT, WK_SUBMIT, WK_RESET, WK_DRAW, WK_COUNT };
+enum WorkKind { WK_UNMAP, WK_COPY_RECORD, WK_BUFFER_SUBMIT, WK_SUBMIT, WK_RESET, WK_DRAW, WK_PRESENT, WK_COUNT };
 inline const char* work_name(WorkKind kind)
 {
     static const char* names[] = {"buffer_unmap", "buffer_copy_record", "buffer_submit", "submit_tracking",
-                                  "command_reset", "draw_record"};
+                                  "command_reset", "draw_record", "present_work"};
     return names[kind];
 }
 

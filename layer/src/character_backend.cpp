@@ -121,7 +121,7 @@ enum Counter : uint32_t {
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
-    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_COUNT
+    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -129,7 +129,7 @@ const char* const kCounterNames[C_COUNT] = {
     "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
-    "kept_original", "owned_streams", "waiting_memory"
+    "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames"
 };
 
 struct GpuMesh {
@@ -195,6 +195,39 @@ struct IndexKeyHash {
     }
 };
 struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; };
+// Caller holds res_mx. The index bytes of one draw, hashed once for every package of the device
+// (D-097) and then recognized by a short fingerprint; the full hash is repeated now and then because
+// mapped pools change unseen. Each recording thread keeps its own table, so no draw waits for another.
+bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, uint32_t& hash)
+{
+    struct Table { std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes; std::vector<uint8_t> scratch; };
+    thread_local Table table;
+    auto ib = device->bufs.find(r.ib);
+    if (ib == device->bufs.end() || (r.index_size != 2 && r.index_size != 4)) return false;
+    const uint64_t start = uint64_t(r.first) * r.index_size, bytes = uint64_t(r.count) * r.index_size;
+    const BufInfo& info = ib->second;
+    if (r.ib_off > info.size || start > info.size - r.ib_off || bytes > info.size - r.ib_off - start || bytes > (64u << 20)) return false;
+    const uint64_t offset = r.ib_off + start;
+    uint8_t edge[128];
+    const size_t head = static_cast<size_t>(std::min<uint64_t>(bytes, 64)), tail = static_cast<size_t>(std::min<uint64_t>(bytes - head, 64));
+    if (read_buffer_locked(device, info, offset, head, edge) != SRC_MAPPED ||
+        (tail && read_buffer_locked(device, info, offset + bytes - tail, tail, edge + head) != SRC_MAPPED)) return false;
+    const uint32_t quick = crc32c(0, edge, head + tail);
+    const IndexKey key = {r.ib, offset, static_cast<uint32_t>(bytes)};
+    auto found = table.hashes.find(key);
+    if (found != table.hashes.end() && found->second.buffer_id == info.id && found->second.gen == info.gen &&
+        found->second.quick == quick && now < found->second.next_full) {
+        hash = found->second.hash;
+        return true;
+    }
+    table.scratch.resize(static_cast<size_t>(bytes));
+    if (read_buffer_locked(device, info, offset, bytes, table.scratch.data()) != SRC_MAPPED) return false;
+    hash = crc32c(0, table.scratch.data(), table.scratch.size());
+    if (table.hashes.size() >= 4096) table.hashes.clear();
+    // Regions first seen in one frame are not all hashed again in one later frame.
+    table.hashes[key] = {info.id, info.gen, now + kRehashFrames + (IndexKeyHash()(key) >> 7) % kRehashFrames, hash, quick};
+    return true;
+}
 struct BoneSite { bool ok = false; uint32_t set = 0, binding = 0; };
 using StaticMaterial = CharacterMaterial;
 // Rules of a fragment shader the package has no profile for, read off its module by the DX11
@@ -248,10 +281,6 @@ public:
     // Owned GPU work inside replaced draws (P2, D-087) stopped after its first failure.
     bool draw_work_failed = false;
     std::atomic<bool> save_requested{false};
-    std::unordered_map<uint32_t, std::vector<uint32_t>> by_count; // immutable after init
-    // Sections matched by their hash alone (any index count): hidden game meshes. Only an activated
-    // character's draws are hashed for them, every indexed draw then. Immutable after init.
-    std::vector<uint32_t> hash_only;
     std::vector<BoneComponent> ranges;
     uint32_t bone_bytes = 0;
     std::unique_ptr<VariantCache> cache;
@@ -304,9 +333,28 @@ public:
     std::array<Identity, kIdentities> identities;
     uint64_t next_identity = 1;
     uint32_t identity_logs = 0;
-    std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes;
     std::unordered_map<uint32_t, BoneSite> sites;
-    std::vector<uint8_t> scratch, current, previous;
+    std::vector<uint8_t> current, previous;
+    // The package's frame gate (D-097): a frame replaces draws only while every image and pipeline
+    // variant the package's draws needed in the frame before is in place, and the first bind that is
+    // not closes it for the rest of the frame; so the passes of one object never mix the Mod's mesh
+    // with the game's, and a texture on its way costs the package whole frames, never parts of one.
+    uint64_t gate_frame = 0;
+    bool gate_open = true, frame_variants_pending = false, last_variants_pending = false;
+    std::vector<TextureResidency::ImageId> frame_images, last_frame_images; // bound this frame, the frame before
+    void begin_gate_frame(uint64_t present)
+    {
+        gate_frame = present;
+        last_frame_images.swap(frame_images); frame_images.clear();
+        last_variants_pending = frame_variants_pending; frame_variants_pending = false;
+        gate_open = !last_variants_pending && (!textures || textures->ensure(last_frame_images));
+        if (!gate_open) ++counters[C_GATED_FRAMES];
+    }
+    void frame_image(TextureResidency::ImageId id)
+    {
+        if (std::find(frame_images.begin(), frame_images.end(), id) == frame_images.end()) frame_images.push_back(id);
+    }
+    bool gated() { ++counters[C_GATED]; return false; }
 
     // `lazy`: one of several packages (a directory). Its mesh, arenas and images go to the GPU only
     // when one of its sections first matches a draw, so characters not on screen take no memory there.
@@ -363,10 +411,6 @@ public:
         EFVK_SNAPSHOT_FUNCS(X)
 #undef X
         if (!draw.CreateGraphicsPipelines || !draw.CreateRenderPass || !draw.CmdDrawIndexed) { last_reason = "missing graphics entry"; return false; }
-        for (uint32_t i = 0; i < package.sections.size(); ++i) {
-            if (package.sections[i].match_count == kCharacterNone) hash_only.push_back(i);
-            else by_count[package.sections[i].match_count].push_back(i);
-        }
         for (const auto& c : package.components) ranges.push_back({c.first, c.count});
         bone_bytes = (MergedSkeleton::kImplicitBones + 2 * package.bones) * static_cast<uint32_t>(MergedSkeleton::kBytesPerBone);
         if (package.materials && !init_materials()) return false;
@@ -725,37 +769,6 @@ public:
         return result = static_cast<uint32_t>(derived_profiles.size() - 1);
     }
 
-    // Caller holds res_mx. The index bytes of one draw, hashed once and then recognized by a short
-    // fingerprint; the full hash is repeated now and then because mapped pools change unseen.
-    bool region_hash(const DrawRec& r, uint64_t now, uint32_t& hash)
-    {
-        auto ib = device->bufs.find(r.ib);
-        if (ib == device->bufs.end() || (r.index_size != 2 && r.index_size != 4)) return false;
-        const uint64_t start = uint64_t(r.first) * r.index_size, bytes = uint64_t(r.count) * r.index_size;
-        const BufInfo& info = ib->second;
-        if (r.ib_off > info.size || start > info.size - r.ib_off || bytes > info.size - r.ib_off - start || bytes > (64u << 20)) return false;
-        const uint64_t offset = r.ib_off + start;
-        uint8_t edge[128];
-        const size_t head = static_cast<size_t>(std::min<uint64_t>(bytes, 64)), tail = static_cast<size_t>(std::min<uint64_t>(bytes - head, 64));
-        if (read_buffer_locked(device, info, offset, head, edge) != SRC_MAPPED ||
-            (tail && read_buffer_locked(device, info, offset + bytes - tail, tail, edge + head) != SRC_MAPPED)) return false;
-        const uint32_t quick = crc32c(0, edge, head + tail);
-        const IndexKey key = {r.ib, offset, static_cast<uint32_t>(bytes)};
-        auto found = hashes.find(key);
-        if (found != hashes.end() && found->second.buffer_id == info.id && found->second.gen == info.gen &&
-            found->second.quick == quick && now < found->second.next_full) {
-            hash = found->second.hash;
-            return true;
-        }
-        scratch.resize(static_cast<size_t>(bytes));
-        if (read_buffer_locked(device, info, offset, bytes, scratch.data()) != SRC_MAPPED) return false;
-        hash = crc32c(0, scratch.data(), scratch.size());
-        if (hashes.size() >= 4096) hashes.clear();
-        // Regions first seen in one frame are not all hashed again in one later frame.
-        hashes[key] = {info.id, info.gen, now + kRehashFrames + (IndexKeyHash()(key) >> 7) % kRehashFrames, hash, quick};
-        return true;
-    }
-
     // `now`: the character's frame; `present`: counted presents.
     Identity* identify(const InstanceEntry& entry, uint64_t now, uint64_t present)
     {
@@ -879,7 +892,9 @@ public:
         return facts;
     }
 
-    bool record(CmdBuf* cb, const DrawRec& r);
+    // The draw matched `section_index` of the package (its hash, count and first index checked by the
+    // device's index): recorded as the Mod's, hidden, or left to the game.
+    bool record(CmdBuf* cb, const DrawRec& r, uint32_t section_index);
     // A replaced draw's plan with a scope for its owned GPU work (P2, D-087): recorded without a
     // queue, pending until submit_draw_work. Caller holds mod_mx.
     bool plan_draw(const efmi::frontend::RuntimeDraw& request, CharacterList& output, bool& skip, bool& added, std::string& reason,
@@ -1042,26 +1057,21 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
         for (uint32_t asset : plan->assets) {
             if (!textures || asset >= image_ids.size()) return refuse(C_IMAGE, "character texture outside the package's images");
             auto bound = textures->bind(image_ids[asset]);
+            frame_image(image_ids[asset]);
             if (bound.failed) return refuse(C_IMAGE, "character texture: " + bound.reason);
             if (!bound.view) { pending = true; continue; }
             draw_views.push_back({bound.view, bound.owner});
         }
         views.push_back(std::move(draw_views));
     }
-    if (pending) { ++counters[C_IMAGE_PENDING]; return false; }
+    // An image on its way closes the package's frame (D-097).
+    if (pending) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
     return true;
 }
 
-bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
+bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_index)
 {
     if (!enabled.load(std::memory_order_relaxed) || !cache) return false;
-    const auto candidates = by_count.find(r.count);
-    const bool by_hash = !hash_only.empty() && activated.load(std::memory_order_relaxed);
-    bool possible = by_hash;
-    if (candidates != by_count.end())
-        for (uint32_t index : candidates->second)
-            possible |= package.sections[index].match_first == kCharacterNone || package.sections[index].match_first == r.first;
-    if (!possible) return false;
 
     ThreadTrace* const trace = device->trace ? device->trace() : nullptr;
     StageMark locking(trace, "character draw (generation lock)");
@@ -1085,23 +1095,13 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
     std::vector<uint32_t> restore_offsets;
     {
         std::shared_lock<std::shared_mutex> lock(device->res_mx);
-        uint32_t hash = 0;
-        if (!region_hash(r, present, hash)) return false;
-        const CharacterSection* section = nullptr;
-        if (candidates != by_count.end())
-            for (uint32_t index : candidates->second) {
-                const auto& s = package.sections[index];
-                if (s.hash == hash && (s.match_first == kCharacterNone || s.match_first == r.first)) { section = &s; break; }
-            }
-        if (!section && by_hash)
-            for (uint32_t index : hash_only)
-                if (package.sections[index].hash == hash) { section = &package.sections[index]; break; }
-        if (!section) return false;
+        const CharacterSection* const section = &package.sections[section_index];
         if (!activated.load(std::memory_order_relaxed)) {
             if (!memory_allows_activation()) { ++counters[C_MEMORY]; return false; }
             activate(); return false;
         }
         ++counters[C_MATCHED];
+        if (present != gate_frame) begin_gate_frame(present);
         if (section->component == kCharacterNone) {
             // Exact IB-only override: no fabricated identity or bone import.
             // Live conditions still run; a changed rule may only emit an empty skip.
@@ -1130,6 +1130,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
                 }
                 if (runtime_list.count) return refuse(C_STATE, "INI hide override unexpectedly emits geometry");
             }
+            // With the package's mesh left to the game this frame, what it would hide stays as well.
+            if (!gate_open) return gated();
             ++counters[C_HIDDEN]; return true;
         }
         // The character's frame is this recording of the command buffer (see kExpiryMicroseconds).
@@ -1248,7 +1250,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             if (added && !refresh_materials()) return false;
             list = &runtime_list;
         }
-        if (!list->count) { ++counters[C_HIDDEN]; return true; }
+        if (!list->count) { if (!gate_open) return gated(); ++counters[C_HIDDEN]; return true; }
         for (uint32_t c = 0; c < package.components.size(); ++c)
             if ((list->required >> c & 1) && (identity->coverage[c] & dynamic) != dynamic) { ++counters[C_INCOMPLETE]; return false; }
         // The private set is bound right above the pipeline's own sets: slot 3 for most character
@@ -1300,7 +1302,9 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r)
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
             return refuse(C_VARIANT, "character variant: " + result.reason);
         }
-        if (pending) { ++counters[C_PENDING]; return false; }
+        if (pending) { gate_open = false; frame_variants_pending = true; ++counters[C_PENDING]; return false; }
+        // Images and variants were asked for above, so a closed frame still brings them up.
+        if (!gate_open) return gated();
         std::string reason;
         if (!identity->skeleton.patch_entry(0, entry, patched, reason)) return refuse(C_IMPORT, reason);
     }
@@ -1550,9 +1554,9 @@ std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkP
 
 void generation_stop(CharacterGeneration& backend) { backend.stop(); }
 
-bool generation_record(CharacterGeneration& backend, CmdBuf* cb, const DrawRec& r)
+bool generation_record(CharacterGeneration& backend, CmdBuf* cb, const DrawRec& r, uint32_t section)
 {
-    try { return backend.record(cb, r); }
+    try { return backend.record(cb, r, section); }
     catch (const std::exception& e) { ++backend.counters[C_STATE]; backend.note(e.what()); return false; }
 }
 
@@ -1653,9 +1657,15 @@ public:
     }
     void frame(bool had_draws, PresentWork* present)
     {
+        {
+            // The generation's Present work holds the controller shared: the submitting threads go
+            // on while it runs (BUG-034); the exchange below takes the lock exclusively.
+            std::shared_lock<std::shared_mutex> lock(mutex);
+            if (stopped || !active) return;
+            generation_frame(*active, had_draws, present);
+        }
         std::unique_lock<std::shared_mutex> lock(mutex);
         if (stopped || !active) return;
-        generation_frame(*active, had_draws, present);
         for (auto it = retiring.begin(); it != retiring.end();) {
             if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) { it->get(); it = retiring.erase(it); }
             else ++it;
@@ -1722,12 +1732,19 @@ public:
     std::unique_ptr<TextureResidency> textures;
     std::vector<std::unique_ptr<CharacterController>> controllers;
     std::string reason; // why there is no package
-    // The packages by the index counts their sections match, and those with hash-only sections
-    // (D-096): a draw looks up one count instead of asking every package. Rebuilt when a
-    // controller's generation changes (its sections may differ).
+    Device* device = nullptr;
+    std::atomic<uint64_t> frames{0}; // presentations with draws, for the hash tables' rehash schedule
+    // The packages' sections by hash (D-096, D-097): a draw's index region is hashed once for every
+    // package and looked up here, so only the packages with a section of that hash see the draw.
+    // `counts` holds every index count a section matches, to pass over draws no section can match
+    // without hashing them; a hash-only section (any count, a hidden game mesh) makes every indexed
+    // draw hashed, and acts for an activated package only. Rebuilt when a controller's generation
+    // changes (its sections may differ).
+    struct Candidate { uint32_t package, section; };
     struct Index {
-        std::unordered_map<uint32_t, std::vector<uint32_t>> by_count;
-        std::vector<uint32_t> hash_only;
+        std::unordered_map<uint32_t, std::vector<Candidate>> by_hash;
+        std::set<uint32_t> counts;
+        bool hash_only = false;
         std::vector<uint64_t> generations;
     };
     std::shared_mutex index_mx;
@@ -1740,8 +1757,12 @@ public:
             std::shared_lock<std::shared_mutex> lock(c.mutex);
             next->generations.push_back(c.generation);
             if (c.stopped || !c.active) continue;
-            for (const auto& entry : c.active->by_count) next->by_count[entry.first].push_back(i);
-            if (!c.active->hash_only.empty()) next->hash_only.push_back(i);
+            const auto& sections = c.active->package.sections;
+            for (uint32_t s = 0; s < sections.size(); ++s) {
+                next->by_hash[sections[s].hash].push_back({i, s});
+                if (sections[s].match_count == kCharacterNone) next->hash_only = true;
+                else next->counts.insert(sections[s].match_count);
+            }
         }
         std::unique_lock<std::shared_mutex> lock(index_mx);
         index = std::move(next);
@@ -1794,6 +1815,7 @@ std::vector<std::string> configured_packages(std::string& reason)
 std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m)
 {
     auto backend = std::make_shared<CharacterBackend>();
+    backend->device = d;
     backend->textures = std::make_unique<TextureResidency>(d, m);
     if (!backend->textures->usable()) logf("character textures unavailable: %s", backend->textures->reason().c_str());
     std::error_code error;
@@ -1812,22 +1834,31 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
 void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); if (b.textures) b.textures->stop(); }
 bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
 {
-    // The first package whose section matches records the draw; the others never see it. Only the
-    // packages with a section of this index count, or with hash-only sections, are asked (D-096).
+    // The first package whose section matches records the draw; the others never see it. The draw's
+    // index region is hashed once (D-097) and only the packages with a section of that hash are asked.
     std::shared_ptr<const CharacterBackend::Index> index;
     { std::shared_lock<std::shared_mutex> lock(b.index_mx); index = b.index; }
-    if (!index) return false;
-    auto record = [&](uint32_t i) {
-        auto& c = *b.controllers[i];
+    if (!index || (!index->hash_only && !index->counts.count(r.count))) return false;
+    uint32_t hash = 0;
+    {
+        std::shared_lock<std::shared_mutex> lock(b.device->res_mx);
+        if (!index_region_hash(b.device, r, b.frames.load(std::memory_order_relaxed), hash)) return false;
+    }
+    const auto found = index->by_hash.find(hash);
+    if (found == index->by_hash.end()) return false;
+    for (const auto& candidate : found->second) {
+        auto& c = *b.controllers[candidate.package];
         std::shared_lock<std::shared_mutex> lock(c.mutex);
-        return !c.stopped && c.active && generation_record(*c.active, cb, r);
-    };
-    const auto found = index->by_count.find(r.count);
-    if (found != index->by_count.end())
-        for (uint32_t i : found->second) if (record(i)) return true;
-    for (uint32_t i : index->hash_only) {
-        if (found != index->by_count.end() && std::find(found->second.begin(), found->second.end(), i) != found->second.end()) continue;
-        if (record(i)) return true;
+        // A generation exchanged since the index was built sees the draw once the index is rebuilt.
+        if (c.stopped || !c.active || c.generation != index->generations[candidate.package]) continue;
+        const auto& section = c.active->package.sections[candidate.section];
+        if (section.match_count == kCharacterNone) {
+            // Hash-only sections (hidden game meshes) act for an activated character only.
+            if (!c.active->activated.load(std::memory_order_relaxed)) continue;
+        } else if (section.match_count != r.count || (section.match_first != kCharacterNone && section.match_first != r.first)) {
+            continue;
+        }
+        if (generation_record(*c.active, cb, r, candidate.section)) return true;
     }
     return false;
 }
@@ -1854,6 +1885,7 @@ VkResult character_submit(CharacterBackend& b, VkQueue q)
 // Each package runs its Present work in turn; a presenter waits for what the one before handed on.
 void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
 {
+    if (had_draws) b.frames.fetch_add(1, std::memory_order_relaxed);
     if (b.textures) b.textures->frame();
     for (auto& c : b.controllers) c->frame(had_draws, present);
     if (b.index_stale()) b.rebuild_index();
@@ -1999,6 +2031,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kn("identities", used);
         w.kn("identities_replaced", custom);
         w.kn("lod", backend.lod);
+        w.kb("gate_open", backend.gate_open); w.kn("gate_images", backend.frame_images.size());
         w.kn("material_derived_profiles", backend.derived_profiles.size());
         w.kb("lazy", backend.lazy);
         w.kn("texture_queries", backend.texture_queries);

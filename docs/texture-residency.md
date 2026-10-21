@@ -1,6 +1,6 @@
 # Texture residency: loaded on first bind, evicted under a budget (D-094, D-095)
 
-Candidate 1.6.7, 2026-10-20. Sandbox only until the next game session.
+Candidate 1.6.7, 2026-10-20; eviction policy, frame gate and index by hash of 1.6.8 (D-097, D-098). The 1.6.7 game session is described under BUG-034.
 
 ## Why
 
@@ -24,18 +24,33 @@ generation:
   game's until it is published; the game's own mesh shows for those frames, as before while a
   character loaded. `m2_texture_preload = 1` demands every image at activation instead (the
   sandbox tests that count uploads use it).
-- **Budget and eviction.** The residency keeps the images' charged bytes under a target: the cap
-  (`m2_texture_budget_mb`, default half the device-local heap) and, read about once a second with
-  VK_EXT_memory_budget, what the device has free beyond a reserve for the game (`m2_reserve_mb`,
-  default the larger of 1 GiB and an eighth of the heap). Over the target, the least recently bound
-  images not bound in the last two frames are released; the GPU object lives on in the recordings
-  that hold it and is freed with the last of them. The next bind loads the image again.
-- **Reduced loads under pressure.** When a demand does not fit and nothing can be evicted (the
-  working set is larger than the target), the largest resident full-size texture is demoted: its
-  next load leaves the top mip level out, a quarter of its memory, and demands made under pressure
-  (or while the device's free memory is below twice the reserve) load reduced as well. Textures of
-  at least `m2_texture_reduce_mb` (default 16 MiB on disk, a 4096x4096 BC7 map) take part. One
-  demotion per frame, so the set converges without thrashing.
+- **Budget and eviction (D-097).** The residency keeps the images' charged bytes near a target: the
+  cap (`m2_texture_budget_mb`, default half the device-local heap) and, read twice a second with
+  VK_EXT_memory_budget and corrected by what was loaded since, what the device has free beyond a
+  reserve for the game (`m2_reserve_mb`, default the larger of 1 GiB and an eighth of the heap).
+  Over the target, the images no frame has bound for 120 frames are released, least recently bound
+  first; the GPU object lives on in the recordings that hold it and is freed with the last of them,
+  and the next bind loads the image again. What the frames keep binding is never evicted for the
+  target: in the 1.6.7 session that produced 574 evictions against 591 loads (the two-frame rule
+  of 1.6.7, BUG-034). A load goes ahead beyond the target as long as the cap and half the reserve
+  hold it; only beyond those does the image wait (`budget_waits`), after the images not bound in
+  the last eight frames went.
+- **Reduced loads under pressure.** While the working set is over the target, the largest resident
+  full-size texture is demoted once every 30 frames: its next load leaves the top mip level out, a
+  quarter of its memory, and demands made over the target (or while the device's free memory is
+  below twice the reserve) load reduced as well. Textures of at least `m2_texture_reduce_mb`
+  (default 16 MiB on disk, a 4096x4096 BC7 map) take part. Paced, so the frames never lose several
+  characters at once and the set converges.
+- **Frame gate (D-097).** Each package replaces draws in a frame only while every image and every
+  pipeline variant its draws needed in the frame before is in place, and the first bind in a frame
+  that finds one missing closes the frame for the package's remaining draws (hides included). The
+  passes of one object thus never mix the Mod's mesh with the game's; a texture on its way costs the
+  package whole frames (the game's own mesh shows), never parts of one. In 1.6.7 a draw whose texture
+  was pending went to the game while the other passes of the same object were already the Mod's, so
+  the depth test of the forward pass failed and the character turned black (BUG-034). Counted per
+  package as `gated` (draws) and `gated_frames`; `gate_open` and `gate_images` in the status. After an
+  F10 exchange the new generation's pipeline variants build first, so the character is the game's
+  whole for those frames, where 1.6.7 showed the draws whose variants were ready beside the game's.
 - **Publication with a timeline semaphore (D-095).** Every upload submission signals the device's
   timeline with its serial. Before an application submission on a graphics queue, the residency
   submits one prepared upload there, reads the counter (what is published) and, when the queue has
@@ -59,9 +74,10 @@ generation:
 ## Status
 
 `textures` under `replacement`: `declared`, `resident`, `resident_reduced`, `loading`, `failed`,
-`resident_bytes`, `target_bytes`, `cap_bytes`, `reserve_bytes`, `device_free_bytes`, `loads`,
-`reduced`, `evictions`, `demotions`, `budget_waits` (binds a draw lost to the budget), `pending`,
-`uploads`, `published`, `waits`, `file_reads`, `submissions`, `releases`. Per package:
+`resident_bytes`, `target_bytes`, `cap_bytes`, `reserve_bytes`, `device_free_bytes`,
+`free_estimate_bytes`, `pressure`, `idle_frames`, `protected_frames`, `loads`, `reduced`,
+`evictions`, `demotions`, `budget_waits` (binds a draw lost to the budget), `pending`, `uploads`,
+`published`, `waits`, `file_reads`, `submissions`, `releases`. Per package:
 `image_count`, `images_ready` (resident and published), `images_failed`, `image_resident_bytes`.
 
 ## Verification
@@ -89,4 +105,23 @@ generation:
   queues.
 
 Also in 1.6.7 (D-096): one index of the packages' draw counts per device, so a draw asks only the
-packages that could match it instead of all of them (22 locks and lookups per draw before).
+packages that could match it instead of all of them (22 locks and lookups per draw before). In 1.6.8
+(D-097) the index is by hash: a draw's index region is hashed once per device (each recording thread
+keeps its own fingerprint table, no lock) and only the packages with a section of that hash are
+asked; in 1.6.7 every activated package with hash-only sections took its lock and hashed the region
+itself for every indexed draw, 17 times per draw in the game session (`draw_record` 24 us per draw).
+
+## The 1.6.7 game session and the 1.6.8 changes
+
+Session 4 (22:46-22:52, BUG-034): textures thrashed (591 loads, 574 evictions, 13519 budget waits,
+target 356 MiB under a 1 GiB reserve), characters turned black now and then, frames of 24 ms mean
+and 56 ms p95, and F10 froze the game. 1.6.8: the eviction policy and frame gate above, the index by
+hash, the presenting thread never waits for the GPU (a queue change is followed only once the earlier
+submissions completed on their own, `queue_waits`), a controller is held shared during its Present
+work, and a presenter's semaphores are destroyed a few presentations after it stops (a queued
+presentation may still wait on one, D-098). For the game, `unmap_snapshot_limit = 0` in the
+configuration stops the probe's shadow copies of unmapped staging buffers (26 GB over the session,
+under the exclusive resource lock), which the replacement never reads.
+
+Verification: Si replay (vk04) with a 200 MiB cap at 360 frames: 11 images resident (2 reduced), 184 MiB, 0 evictions (1.6.7 evicted and reloaded throughout), 1 demotion, 579 budget waits while the set came up, 63 gated frames (2353 draws) before the forward pass was fully covered, 9376 replaced draws, validation clean (`--check` passed); character replacement 357 checks, live INI rendering 76 (the broken-DDS reload candidate refused as before); full suite build/next/run_all-1.6.8.out.
+

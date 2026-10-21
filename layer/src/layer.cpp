@@ -982,6 +982,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
     PFN_vkDestroyDevice next = dev->d.DestroyDevice;
     if (!dev->passive) {
         m2_stop(dev);
+        destroy_retired(dev, true);
         logf("device destroyed after %llu frames", static_cast<unsigned long long>(dev->frame_no));
         dev_destroy(dev);
     }

@@ -150,6 +150,23 @@ ThreadTrace* thread_trace()
 
 void note_presented() { g_presented_us.store(host_time_us(), std::memory_order_relaxed); }
 
+namespace {
+constexpr uint64_t kRetiredSemaphoreFrames = 8; // presentations a retired semaphore outlives
+}
+void destroy_retired(Device* dev, bool all)
+{
+    std::vector<Device::RetiredSemaphore> due;
+    {
+        std::lock_guard<std::mutex> lock(dev->retired_mx);
+        auto& list = dev->retired_semaphores;
+        for (auto it = list.begin(); it != list.end();) {
+            if (all || dev->frame_no >= it->frame + kRetiredSemaphoreFrames) { due.push_back(*it); it = list.erase(it); }
+            else ++it;
+        }
+    }
+    for (const auto& entry : due) entry.destroy(dev->handle, entry.semaphore, nullptr);
+}
+
 static void watchdog()
 {
     std::unique_lock<std::mutex> lock(g_watch_mx);
@@ -1319,13 +1336,25 @@ void on_present(Device* dev, PresentWork* present)
 {
     if (dev->passive)
         return;
+    // One presentation at a time. The frame statistics lock is held around the statistics only, so
+    // the application's submissions are tracked while the replacement's Present work runs; in the
+    // 1.6.7 session the submitting thread waited behind it every frame (BUG-034).
+    std::lock_guard<std::mutex> presenting(dev->present_mx);
+    bool had_draws = false;
+    {
+        std::lock_guard<std::mutex> lock(dev->frame_mx);
+        // Timestamp consecutive host present boundaries, including any previous driver present wait.
+        // Sample inside the lock to preserve order if several queues present on different threads.
+        const uint64_t us = host_time_us();
+        dev->pacing.observe(us, dev->frame_no, dev->image_hash_us.load(std::memory_order_relaxed), dev->cap_state == 2);
+        dev->cur.frame = dev->frame_no;
+        had_draws = dev->cur.draws != 0;
+    }
+    {
+        WorkScope work(dev->work, WK_PRESENT);
+        m2_frame(dev, had_draws, present);
+    }
     std::lock_guard<std::mutex> lock(dev->frame_mx);
-    // Timestamp consecutive host present boundaries, including any previous driver present wait.
-    // Sample inside the lock to preserve order if several queues present on different threads.
-    const uint64_t us = host_time_us();
-    dev->pacing.observe(us, dev->frame_no, dev->image_hash_us.load(std::memory_order_relaxed), dev->cap_state == 2);
-    dev->cur.frame = dev->frame_no;
-    m2_frame(dev, dev->cur.draws != 0, present);
     dev->total_draws += dev->cur.draws;
     dev->max_threads = std::max(dev->max_threads, static_cast<uint32_t>(dev->cur.threads.size()));
     dev->max_command_buffers = std::max(dev->max_command_buffers, dev->cur.command_buffers);
@@ -1365,6 +1394,7 @@ void on_present(Device* dev, PresentWork* present)
 
     dev->cur = FrameStats();
     dev->frame_no++;
+    destroy_retired(dev, false);
     g_active.store(dev, std::memory_order_release);
 }
 

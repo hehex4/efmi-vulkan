@@ -133,6 +133,11 @@ struct HookInside {
 };
 // A presentation returned to the application (the watchdog's clock).
 void note_presented();
+// A semaphore an owned presenter is done with, destroyed by destroy_retired once later
+// presentations passed (`all`: every one, at device destruction). The first is inline: the
+// replacement module calls it without a host function.
+inline void retire_semaphore(Device* dev, VkSemaphore semaphore, PFN_vkDestroySemaphore destroy);
+void destroy_retired(Device*, bool all);
 
 // Remembers a function name the application asked vkGetDeviceProcAddr for.
 void note_resolved(const char* name);
@@ -514,6 +519,12 @@ struct Device {
     // Presentation: the swap chains of this device and the window behind each.
     std::mutex swap_mx;
     std::unordered_map<VkSwapchainKHR, SwapchainInfo> swapchains;
+    // Semaphores owned presenters are done with (D-098): a presentation queued with one as its wait
+    // may still be pending when the presenter stops, so they are destroyed on the presenting thread
+    // a few presentations later.
+    struct RetiredSemaphore { VkSemaphore semaphore; PFN_vkDestroySemaphore destroy; uint64_t frame; };
+    std::mutex retired_mx;
+    std::vector<RetiredSemaphore> retired_semaphores;
 
     // Memory, buffers, pipelines. Readers of mapped memory hold the lock shared;
     // unmap, free and destroy take it exclusively before the call goes down.
@@ -558,6 +569,7 @@ struct Device {
 
     // The frame being assembled and the capture state machine.
     std::mutex frame_mx;
+    std::mutex present_mx; // the presenting threads: one presentation's work at a time (on_present)
     FrameStats cur;
     FrameStats last;
     PresentPacing pacing; // bounded host intervals; protected by frame_mx
@@ -587,6 +599,12 @@ struct Device {
     uint64_t cap_seq = 0;
     HANDLE cap_event = nullptr;
 };
+inline void retire_semaphore(Device* dev, VkSemaphore semaphore, PFN_vkDestroySemaphore destroy)
+{
+    if (!semaphore || !destroy) return;
+    std::lock_guard<std::mutex> lock(dev->retired_mx);
+    dev->retired_semaphores.push_back({semaphore, destroy, dev->frame_no});
+}
 
 // Device registry.
 Device* dev_create(VkDevice handle);

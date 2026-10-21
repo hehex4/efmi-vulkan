@@ -480,7 +480,11 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         press("1 121\n"); frame(false); press("1\n");
         bool bad_image = false;
         for (uint32_t i = 0; i < 400 && !bad_image; ++i) { frame(false); bad_image = number(status(), "ini_reload_rejected") == 1; if (!bad_image) Sleep(5); }
-        check(bad_image && number(status(), "ini_generation") == old_generation && shade_at(-.6f,.3f) == 8,
+        // The live generation draws on. Right after the exchange before, its frames may still be the
+        // game's while its pipeline variants build (the frame gate, D-097), so the pixel is waited for.
+        bool kept_green = false;
+        for (uint32_t i = 0; i < 100 && bad_image && !kept_green; ++i) { kept_green = shade_at(-.6f,.3f) == 8; if (!kept_green) { frame(false); Sleep(5); } }
+        check(bad_image && number(status(), "ini_generation") == old_generation && kept_green,
               "failed candidate DDS upload retains old Ready images and the live drawing generation");
         write_text("green.dds", texture_bytes);
         auto changed = original_text;

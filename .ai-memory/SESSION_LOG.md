@@ -2100,3 +2100,8 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 
 - Third game session: no freeze; only three characters, the rest waiting for device memory; stutter at zero free memory. The user: DX11 handles twenty Mods, this does not; study 3DMigoto, use Vulkan's features, optimize to the limit.
 - Studied CustomResource::Substantiate (load on first use) and the device's features (timeline, memory priority, pageable, sparse, ReBAR). Built the device-wide residency (D-094) with timeline publication and the enabled features (D-095); Si replays fully under a 200 MiB cap with reduced loads.
+
+## 2026-10-20: fourth game session (1.6.7) and 1.6.8
+
+- The user ran 1.6.7: characters turned black now and then, performance still poor, and F10 froze the game (BUG-034). Read: texture thrash from the two-frame eviction rule and the gap between passes of one object; 24 us of layer work per draw from per-package hashing; 26 GB of shadow copies; the F10 freeze with both threads inside the layer's stages.
+- 1.6.8: idle-only eviction with paced demotion, a frame gate per package, one index region hash per draw (D-097); the presenting thread never waits for the GPU, controllers held shared during Present work, retired semaphores destroyed later (D-098). Si replay (vk04) with a 200 MiB cap at 360 frames: 11 images resident (2 reduced), 184 MiB, 0 evictions (1.6.7 evicted and reloaded throughout), 1 demotion, 579 budget waits while the set came up, 63 gated frames (2353 draws) before the forward pass was fully covered, 9376 replaced draws, validation clean (`--check` passed); character replacement 357 checks, live INI rendering 76 (the broken-DDS reload candidate refused as before); full suite build/next/run_all-1.6.8.out.

@@ -33,7 +33,8 @@ public:
     // Owned work recorded since the last submission (replaced draws' work, D-087), on `queue`
     // before an application submission there. False with the reason when it cannot be submitted.
     bool submit_pending(VkQueue queue, std::string& reason);
-    // Waits for every submission; the device's images and semaphores are released after it.
+    // Waits for every submission; the device's images are released after it, the semaphores a few
+    // presentations later (a presentation may still wait on one, D-098).
     void stop();
     void status(JsonWriter&) const;
 
@@ -50,8 +51,10 @@ private:
     std::map<VkImage, Presented> images_;
     Presented* current_ = nullptr;
     std::deque<std::shared_ptr<efmi::gpu::ResourceSubmission>> tickets_;
-    uint64_t presents_ = 0, submitted_ = 0, failed_ = 0, unsupported_ = 0, draw_submitted_ = 0, queue_changes_ = 0;
-    void follow(VkQueue queue);
+    uint64_t presents_ = 0, submitted_ = 0, failed_ = 0, unsupported_ = 0, draw_submitted_ = 0, queue_changes_ = 0, queue_waits_ = 0;
+    // The presentation moved to another queue: the owned work follows it once every earlier
+    // submission completed. False while one is still running; nothing waits for the GPU here.
+    bool follow(VkQueue queue);
     std::string last_error_;
     std::filesystem::path readback_;
     bool stopped_ = false;

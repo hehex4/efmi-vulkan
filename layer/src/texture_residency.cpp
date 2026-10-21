@@ -6,8 +6,10 @@
 namespace efvk {
 namespace assets = efmi::assets;
 namespace {
-constexpr uint32_t kBudgetSampleFrames = 60; // the device's free memory is read about once a second
-constexpr uint64_t kRecentFrames = 2;        // an image bound this recently is not evicted
+constexpr uint32_t kBudgetSampleFrames = 30; // the device's free memory is read about twice a second
+constexpr uint64_t kIdleFrames = 120;        // an image not bound for this long goes first when the set is over the target
+constexpr uint64_t kProtectedFrames = 8;     // an image bound this recently is never evicted
+constexpr uint64_t kDemoteFrames = 30;       // at most one demotion this often while the working set is over the target
 }
 
 TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryProperties& memory)
@@ -114,16 +116,23 @@ void TextureResidency::release(Image& image)
     cache_->release(image.handle);
     image.resident = false;
     resident_bytes_ -= std::min(resident_bytes_, image.charged);
+    loaded_since_sample_ -= std::min(loaded_since_sample_, image.charged);
     image.charged = 0;
 }
 
-void TextureResidency::evict_for(uint64_t bytes)
+bool TextureResidency::loadable(uint64_t bytes) const
 {
-    // Least recently bound first, among the images not bound in the last frames and not loading.
-    while (!fits(bytes)) {
+    if (resident_bytes_ + bytes > cap_bytes_) return false;
+    return !budget_known_ || free_now() >= reserve_bytes_ / 2 + bytes;
+}
+
+void TextureResidency::evict_idle(uint64_t bytes, uint64_t idle_frames, uint64_t limit)
+{
+    // Least recently bound first, among the Ready images no frame bound for `idle_frames`.
+    while (resident_bytes_ + bytes > limit) {
         Image* victim = nullptr;
         for (auto& image : images_) {
-            if (!image.resident || image.last_bound + kRecentFrames >= frame_) continue;
+            if (!image.resident || image.last_bound + idle_frames > frame_) continue;
             if (image.handle->snapshot().state != assets::ResourceState::Ready) continue;
             if (!victim || image.last_bound < victim->last_bound) victim = &image;
         }
@@ -135,9 +144,10 @@ void TextureResidency::evict_for(uint64_t bytes)
 
 bool TextureResidency::demote_one()
 {
-    // The working set does not fit: the largest resident full-size texture loads again without its
-    // top level on its next bind, a quarter of its memory. One per frame, so the set converges.
-    if (demoted_frame_ == frame_) return false;
+    // The working set does not fit the target: the largest resident full-size texture loads again
+    // without its top level on its next bind, a quarter of its memory. Paced, so the set converges
+    // without the frames losing several characters at once.
+    if (frame_ < demoted_frame_ + kDemoteFrames) return false;
     Image* victim = nullptr;
     for (auto& image : images_) {
         if (!image.resident || image.skip_levels || !large(image)) continue;
@@ -154,19 +164,24 @@ bool TextureResidency::demote_one()
 
 void TextureResidency::demand(Image& image)
 {
-    // Memory tight, the budget under pressure, or demoted: a large texture loads without its top level,
+    // Memory tight, the set over the target, or demoted: a large texture loads without its top level,
     // a quarter of its memory (a mip chain's levels below the top hold a third of the top's bytes).
-    const bool tight = budget_known_ && free_bytes_ < reserve_bytes_ * 2;
+    const bool tight = budget_known_ && free_now() < reserve_bytes_ * 2;
     image.skip_levels = large(image) && (image.reduce_next || pressure_ || tight) ? 1 : 0;
     auto charge = [&] { return image.file_bytes >> (2 * image.skip_levels); };
-    if (!fits(charge())) evict_for(charge());
-    if (!fits(charge())) { pressure_ = true; if (demote_one() && large(image)) image.skip_levels = 1; }
-    if (!fits(charge())) { ++budget_waits_; return; }
+    // Over the target the idle images go first. What the frames keep binding stays: evicting it
+    // would load it again a frame later (D-097); the set shrinks through paced demotions instead.
+    if (!fits(charge())) evict_idle(charge(), kIdleFrames, target_bytes_);
+    if (!fits(charge())) { pressure_ = true; if (large(image) && demote_one()) image.skip_levels = 1; }
+    // The cap and half the reserve are the limits; a load within them goes ahead beyond the target.
+    if (!loadable(charge())) evict_idle(charge(), kProtectedFrames, cap_bytes_);
+    if (!loadable(charge())) { ++budget_waits_; return; }
     if (!cache_->demand(image.handle, image.skip_levels)) return;
     image.resident = true;
     image.reduce_next = false;
     image.charged = charge();
     resident_bytes_ += image.charged;
+    loaded_since_sample_ += image.charged;
     ++loads_;
     if (image.skip_levels) ++reduced_;
 }
@@ -198,6 +213,24 @@ TextureResidency::Binding TextureResidency::bind(ImageId id)
     default:
         ++pending_; return out;
     }
+}
+
+bool TextureResidency::ensure(const std::vector<ImageId>& ids)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!usable_) return ids.empty();
+    bool all = true;
+    for (ImageId id : ids) {
+        if (id >= images_.size()) { all = false; continue; }
+        Image& image = images_[id];
+        image.last_bound = frame_;
+        const auto snapshot = image.handle->snapshot();
+        if (snapshot.state == assets::ResourceState::Ready && snapshot.serial && snapshot.serial <= published_) continue;
+        if (snapshot.state == assets::ResourceState::Dormant) demand(image);
+        else if (snapshot.state == assets::ResourceState::Queued) cache_->prioritize(image.handle);
+        all = false;
+    }
+    return all;
 }
 
 void TextureResidency::preload(const std::vector<ImageId>& ids)
@@ -328,6 +361,7 @@ void TextureResidency::sample_budget()
     }
     if (!found) return;
     budget_known_ = true;
+    loaded_since_sample_ = 0;
     // What the device can hold of ours: what it holds now plus what is free beyond the reserve.
     const uint64_t headroom = free_bytes_ > reserve_bytes_ ? free_bytes_ - reserve_bytes_ : 0;
     const uint64_t allowed = free_bytes_ >= reserve_bytes_ ? resident_bytes_ + headroom
@@ -350,7 +384,12 @@ void TextureResidency::frame()
                 image.resident = false; resident_bytes_ -= std::min(resident_bytes_, image.charged); image.charged = 0;
             }
         }
-    if (resident_bytes_ > target_bytes_) evict_for(0);
+    // Over the target: the idle images go, then one demotion at a time shrinks what the frames bind.
+    if (resident_bytes_ > target_bytes_) {
+        evict_idle(0, kIdleFrames, target_bytes_);
+        if (resident_bytes_ > target_bytes_) { pressure_ = true; demote_one(); }
+    }
+    if (resident_bytes_ > cap_bytes_) evict_idle(0, kProtectedFrames, cap_bytes_);
 }
 
 void TextureResidency::status(JsonWriter& w) const
@@ -368,7 +407,9 @@ void TextureResidency::status(JsonWriter& w) const
     }
     w.kn("declared", images_.size()); w.kn("resident", resident); w.kn("resident_reduced", reduced); w.kn("loading", loading); w.kn("failed", failed);
     w.kn("resident_bytes", resident_bytes_); w.kn("target_bytes", target_bytes_); w.kn("cap_bytes", cap_bytes_);
-    w.kn("reserve_bytes", reserve_bytes_); w.kn("device_free_bytes", free_bytes_); w.kb("budget_known", budget_known_);
+    w.kn("reserve_bytes", reserve_bytes_); w.kn("device_free_bytes", free_bytes_); w.kn("free_estimate_bytes", free_now());
+    w.kb("budget_known", budget_known_); w.kb("pressure", pressure_);
+    w.kn("idle_frames", kIdleFrames); w.kn("protected_frames", kProtectedFrames);
     w.kn("loads", loads_); w.kn("reduced", reduced_); w.kn("evictions", evictions_); w.kn("demotions", demotions_);
     w.kn("budget_waits", budget_waits_); w.kn("pending", pending_); w.kn("uploads", uploads_); w.kn("published", published_); w.kn("waits", waits_);
     w.kn("activating_bytes", activating_bytes.load());

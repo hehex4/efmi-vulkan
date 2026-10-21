@@ -1,9 +1,10 @@
 // Device-wide residency of the character Mods' textures (D-094): an image is loaded on its first
-// bind, as 3DMigoto substantiates a resource on first use; what the device's free memory does not
-// hold is evicted, least recently bound first, and loaded again on its next bind, as the DX11
-// runtime pages a game's textures; under a budget the working set does not fit, large textures load
-// without their top mip level. One timeline semaphore publishes every upload to every graphics
-// queue (D-095). One object per device; every character generation declares its images into it
+// bind, as 3DMigoto substantiates a resource on first use; when the images hold more than the
+// device's free memory allows, the ones no frame has bound for a while are evicted, least recently
+// bound first, and loaded again on their next bind, as the DX11 runtime pages a game's textures;
+// what the frames keep binding stays, and a working set the target does not hold shrinks by large
+// textures loading without their top mip level (D-097). One timeline semaphore publishes every
+// upload to every graphics queue (D-095). One object per device; every character generation declares its images into it
 // under a tag of its own, so a reload reads its files again while the live generation keeps its own.
 #pragma once
 
@@ -41,6 +42,9 @@ public:
     // On the draw path: the image for a recording of this frame. Not resident: it is demanded (or
     // moved to the front of the load queue) and the view is null; the draw stays the game's.
     Binding bind(ImageId);
+    // The images a package's frame needs, counted as bound now: what is not resident is demanded,
+    // and true only when every one is published (D-097).
+    bool ensure(const std::vector<ImageId>&);
     // Every image of a package demanded at once (m2_texture_preload), within the budget.
     void preload(const std::vector<ImageId>&);
     // The images of `ids` whose path a resident image of `live` has: a reload candidate brings up
@@ -77,9 +81,16 @@ private:
         uint32_t skip_levels = 0; // mip levels the current load leaves out
     };
     bool fits(uint64_t bytes) const { return resident_bytes_ + bytes <= target_bytes_; }
+    // The cap and half the reserve are the limits a load never crosses; the target is what the set
+    // comes back under through idle eviction and demotion.
+    bool loadable(uint64_t bytes) const;
+    // The device's free memory as sampled, less what was loaded since.
+    uint64_t free_now() const { return free_bytes_ > loaded_since_sample_ ? free_bytes_ - loaded_since_sample_ : 0; }
     bool large(const Image&) const;
     void demand(Image&);
-    void evict_for(uint64_t bytes);
+    // Releases Ready images not bound for `idle_frames`, least recently bound first, until the
+    // resident bytes plus `bytes` are within `limit` or none is left.
+    void evict_idle(uint64_t bytes, uint64_t idle_frames, uint64_t limit);
     bool demote_one();
     void release(Image&);
     void sample_budget();
@@ -104,6 +115,7 @@ private:
     // (m2_reserve_mb), and the target the device's free memory allows under them.
     uint64_t heap_bytes_ = 0, cap_bytes_ = 0, reserve_bytes_ = 0, target_bytes_ = 0, free_bytes_ = 0;
     uint64_t resident_bytes_ = 0; // charged bytes of the images demanded and not released
+    uint64_t loaded_since_sample_ = 0;
     uint64_t frame_ = 0, next_sample_ = 0, demoted_frame_ = 0;
     bool budget_known_ = false, pressure_ = false;
     uint64_t loads_ = 0, reduced_ = 0, evictions_ = 0, demotions_ = 0, budget_waits_ = 0, pending_ = 0, uploads_ = 0, waits_ = 0;

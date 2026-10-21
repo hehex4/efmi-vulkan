@@ -193,8 +193,8 @@ bool OwnedPresenter::begin(PresentWork* present, std::string& reason)
         }
         if (!gpu_->scope_active()) {
             // The application presents on another queue than before (D-090): the owned work follows it
-            // once every earlier submission completed.
-            if (gpu_->queue() && gpu_->queue() != present->queue) follow(present->queue);
+            // once every earlier submission completed, skipping this presentation while one still runs.
+            if (gpu_->queue() && gpu_->queue() != present->queue && !follow(present->queue)) return false;
             gpu_->begin(present->queue);
         }
         if (format != DXGI_FORMAT_UNKNOWN && (chain.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
@@ -228,14 +228,19 @@ void OwnedPresenter::finish(PresentWork* present, bool executed, std::string& re
     current_ = nullptr;
 }
 
-void OwnedPresenter::follow(VkQueue queue)
+bool OwnedPresenter::follow(VkQueue queue)
 {
-    for (auto& ticket : tickets_) ticket->wait();
-    tickets_.clear();
+    // Waiting here would hold the presenting thread, and the locks it holds, on the GPU (BUG-034).
+    for (auto it = tickets_.begin(); it != tickets_.end();) {
+        if ((*it)->ready()) it = tickets_.erase(it);
+        else ++it;
+    }
+    if (!tickets_.empty()) { ++queue_waits_; return false; }
     gpu_->rebind(queue);
     ++queue_changes_;
     logf("owned GPU work follows the presentation to queue %p (change %llu)", static_cast<void*>(queue),
          static_cast<unsigned long long>(queue_changes_));
+    return true;
 }
 
 bool OwnedPresenter::submit_pending(VkQueue queue, std::string& reason)
@@ -278,7 +283,8 @@ void OwnedPresenter::stop()
     if (gpu_ && gpu_->scope_active()) gpu_->discard();
     for (auto& entry : images_) {
         entry.second.image.reset();
-        if (entry.second.done && DestroySemaphore_) DestroySemaphore_(device_->handle, entry.second.done, nullptr);
+        // The presentation that waits on it may still be pending: destroyed a few presentations later.
+        if (entry.second.done && DestroySemaphore_) retire_semaphore(device_, entry.second.done, DestroySemaphore_);
     }
     images_.clear();
 }
@@ -289,7 +295,7 @@ void OwnedPresenter::status(JsonWriter& w) const
     w.kn("presents", presents_); w.kn("submitted", submitted_); w.kn("failed", failed_);
     w.kn("unsupported_formats", unsupported_); w.kn("images", images_.size()); w.kn("in_flight", tickets_.size());
     w.kn("draw_work_submitted", draw_submitted_);
-    w.kn("queue_changes", queue_changes_);
+    w.kn("queue_changes", queue_changes_); w.kn("queue_waits", queue_waits_);
     w.kv("last_error", last_error_);
     w.end_object();
 }
