@@ -5,6 +5,7 @@
 #include "HackerContext.h"
 #include "Override.h"
 #include "ResourceHash.h"
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <locale>
@@ -372,8 +373,13 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
             std::vector<CommandList*> pre,post;pre.reserve(matches.size());post.reserve(matches.size());
             for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
             DrawPlan plan;
-            if (!p.adapter.execute_matches(pre,post,s,plan,why) || !p.files->compile(plan,result,why))
-                throw std::runtime_error("Original draw command refused: " + utf8(why));
+            const auto began = std::chrono::steady_clock::now();
+            const bool executed = p.adapter.execute_matches(pre,post,s,plan,why);
+            const auto ran = std::chrono::steady_clock::now();
+            const bool compiled = executed && p.files->compile(plan,result,why);
+            p.stats.draw_execute_us += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(ran - began).count());
+            p.stats.draw_compile_us += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - ran).count());
+            if (!executed || !compiled) throw std::runtime_error("Original draw command refused: " + utf8(why));
         }
         ++p.stats.draws; output = std::move(result); return true;
     } catch (const std::exception& e) {
@@ -500,6 +506,7 @@ bool IniRuntime::save(std::string& reason)
 RuntimeStatus IniRuntime::status() const
 {
     auto& p = *impl_; Scope scope(p.state); auto result = p.stats;
+    result.commands = p.adapter.command_timing();
     result.dirty = G->user_config_dirty; result.reload_requested = G->gReloadConfigPending;
     for (const auto& item : command_list_globals) result.variables[utf8(item.first)] = item.second.fval;
     return result;

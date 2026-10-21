@@ -1,5 +1,6 @@
 #pragma once
 #include "../assets/file_plan.h"
+#include <tuple>
 #include <array>
 #include <functional>
 #include <map>
@@ -94,6 +95,10 @@ struct RuntimeDraw {
 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;
+    // Microseconds the matched command lists took to run and their plans to compile, over all draws,
+    // and the calls and microseconds per command class.
+    uint64_t draw_execute_us = 0, draw_compile_us = 0;
+    std::vector<std::tuple<std::string, uint64_t, uint64_t>> commands;
     size_t bindings = 0;
     // Original warnings while this generation was parsed. The original engine reports them and
     // continues with what it could parse; so does this runtime. At most the latest 64 texts.

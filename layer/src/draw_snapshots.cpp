@@ -1,5 +1,11 @@
 #include "draw_snapshots.h"
 #include <algorithm>
+#include <chrono>
+
+namespace efvk { SnapshotTiming g_snapshot_timing; }
+namespace {
+uint64_t clock_us() { return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()); }
+}
 
 namespace efvk {
 namespace {
@@ -19,7 +25,7 @@ void DrawSnapshots::clear()
     if (memory_) d_.FreeMemory(device_, memory_, nullptr);
     pool_ = VK_NULL_HANDLE; layout_ = VK_NULL_HANDLE; buffer_ = VK_NULL_HANDLE; memory_ = VK_NULL_HANDLE;
     mapped_ = nullptr; sets_.clear(); image_owners_.clear(); bytes_ = 0; capacity_ = used_ = image_count_ = 0;
-    shared_ = false; slice_capacity_ = slices_used_ = 0; have_key_ = false;
+    shared_ = false; slice_capacity_ = slices_used_ = 0; slices_by_key_.clear();
 }
 
 bool DrawSnapshots::create(const VkPhysicalDeviceMemoryProperties& memory, const VkPhysicalDeviceLimits& limits,
@@ -101,20 +107,27 @@ bool DrawSnapshots::create_storage(const VkPhysicalDeviceMemoryProperties& memor
     }
     image_owners_.resize(size_t(capacity)*image_count);
     capacity_ = capacity; bone_bytes_ = bone_bytes; image_count_=image_count;
-    shared_ = shared; slice_capacity_ = slices; slices_used_ = 0; have_key_ = false;
+    shared_ = shared; slice_capacity_ = slices; slices_used_ = 0; slices_by_key_.clear();
     return true;
 }
 
 uint32_t host_memory_type(const VkPhysicalDeviceMemoryProperties& memory, uint32_t type_bits, bool device_local)
 {
     const VkMemoryPropertyFlags host = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    // The CPU writes the arenas (tens of kilobytes per copy): cached host memory takes the copies at
+    // memory speed, uncached write-combined memory at a fraction of it (D-099). Without the
+    // device-local request, system memory is preferred over the device's host-visible window.
+    uint32_t chosen = UINT32_MAX;
+    int best = -1;
     for (uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
         const auto flags = memory.memoryTypes[i].propertyFlags;
         if (!(type_bits & (1u << i)) || (flags & host) != host) continue;
         if (device_local && !(flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) continue;
-        return i;
+        const int score = ((flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ? 2 : 0) +
+                          ((device_local || !(flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) ? 1 : 0);
+        if (score > best) { best = score; chosen = i; }
     }
-    return UINT32_MAX;
+    return chosen;
 }
 
 bool DrawSnapshots::append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry& entry, SnapshotSlot& output)
@@ -130,20 +143,27 @@ bool DrawSnapshots::append_shared(const uint8_t* bones, size_t size, uint64_t ke
         reason = "shared snapshot is sealed, uncreated or has mismatched bone bytes"; return false;
     }
     if (used_ >= capacity_) { reason = "snapshot entries are full"; return false; }
-    const bool reuse = have_key_ && key == last_key_;
+    const auto known = slices_by_key_.find(key);
+    const bool reuse = known != slices_by_key_.end();
     if (!reuse && slices_used_ >= slice_capacity_) { reason = "snapshot bone slices are full"; return false; }
     if (!valid_images(images)) return false;
+    uint32_t slice = reuse ? known->second : slices_used_;
+    uint64_t mark = clock_us();
     if (!reuse) {
         std::memcpy(mapped_ + bone_stride_ * slices_used_, bones, size);
-        last_slice_ = slices_used_++; last_key_ = key; have_key_ = true;
+        slices_by_key_.emplace(key, slices_used_++);
+        const uint64_t now = clock_us(); g_snapshot_timing.copy_us += now - mark; mark = now;
     }
-    VkDescriptorBufferInfo info = {buffer_, bone_stride_ * last_slice_, bone_bytes_};
+    VkDescriptorBufferInfo info = {buffer_, bone_stride_ * slice, bone_bytes_};
     VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     write.dstSet = sets_[used_]; write.dstBinding = 0; write.descriptorCount = 1;
     write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; write.pBufferInfo = &info;
     d_.UpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    { const uint64_t now = clock_us(); g_snapshot_timing.descriptor_us += now - mark; mark = now; }
     write_images(images);
+    { const uint64_t now = clock_us(); g_snapshot_timing.images_us += now - mark; mark = now; }
     std::memcpy(mapped_ + entry_base_ + entry_stride_ * used_, entry.data(), entry.size());
+    g_snapshot_timing.entry_us += clock_us() - mark;
     output = {sets_[used_], static_cast<uint32_t>(entry_stride_ * used_)};
     ++used_;
     return true;

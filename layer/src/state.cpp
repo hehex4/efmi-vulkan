@@ -420,7 +420,7 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
                 work.bytes += b.size;
                 b.known.v.clear();
                 b.known.add(0, b.size);
-                b.gen++;
+                b.note_write(0, b.size);
                 dev->unmap_taken.fetch_add(1, std::memory_order_relaxed);
                 dev->unmap_taken_bytes.fetch_add(b.size, std::memory_order_relaxed);
                 continue;
@@ -429,7 +429,7 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
             // overwritten through the mapping without the layer seeing it, so it is no longer served.
             if (!b.known.v.empty()) {
                 b.known.v.clear();
-                b.gen++;
+                b.note_write(0, b.size);
                 dev->unmap_invalidated.fetch_add(1, std::memory_order_relaxed);
             }
             if (inside && small && source) {
@@ -975,7 +975,7 @@ static void apply_writes(Device* dev, CmdBuf* cb, FrameStats& stats)
             d.unknown_writes++;
             stats.unknown_writes++;
         }
-        d.gen++;
+        d.note_write(w.dst_off, w.size);
     }
 }
 

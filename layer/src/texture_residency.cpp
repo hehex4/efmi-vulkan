@@ -7,7 +7,7 @@ namespace efvk {
 namespace assets = efmi::assets;
 namespace {
 constexpr uint32_t kBudgetSampleFrames = 30; // the device's free memory is read about twice a second
-constexpr uint64_t kIdleFrames = 120;        // an image not bound for this long goes first when the set is over the target
+constexpr uint64_t kIdleFrames = 600;        // an image not bound for this long goes first when the set is over the target
 constexpr uint64_t kProtectedFrames = 8;     // an image bound this recently is never evicted
 constexpr uint64_t kDemoteFrames = 30;       // at most one demotion this often while the working set is over the target
 }
@@ -18,7 +18,7 @@ TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryP
     for (uint32_t i = 0; i < memory.memoryHeapCount; ++i)
         if (memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) heap_bytes_ = std::max<uint64_t>(heap_bytes_, memory.memoryHeaps[i].size);
     cap_bytes_ = g_cfg.m2_texture_budget_mb ? g_cfg.m2_texture_budget_mb << 20 : std::clamp<uint64_t>(heap_bytes_ / 2, 256ull << 20, 4096ull << 20);
-    reserve_bytes_ = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(1024ull << 20, heap_bytes_ / 8);
+    reserve_bytes_ = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(512ull << 20, heap_bytes_ / 16);
     target_bytes_ = cap_bytes_;
     if (!device->timeline_semaphores) { reason_ = "textures need timeline semaphores, which the device does not enable"; return; }
     if (device->material_queues.empty() || !device->material_format_properties || !device->material_image_properties) {

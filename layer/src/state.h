@@ -7,6 +7,7 @@
 #include "pacing.h"
 #include "work.h"
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -190,6 +191,32 @@ struct BufInfo {
     IntervalSet known;
     uint64_t gen = 0;
     uint32_t unknown_writes = 0;
+    // The last writes into the buffer by range (D-099): a region's generation is the newest write
+    // that overlaps it, so a copy into one part of a pool buffer does not make every region in it
+    // hash again. Writes older than the ring holds are forgotten and `gen_floor` rises to them.
+    struct WriteRange { uint64_t off = 0, size = 0, gen = 0; };
+    static constexpr uint32_t kWriteRanges = 32;
+    std::array<WriteRange, kWriteRanges> writes = {};
+    uint32_t write_count = 0, write_next = 0;
+    uint64_t gen_floor = 0;
+    void note_write(uint64_t off, uint64_t size)
+    {
+        ++gen;
+        if (write_count >= kWriteRanges) gen_floor = writes[write_next].gen;
+        writes[write_next] = {off, size, gen};
+        write_next = (write_next + 1) % kWriteRanges;
+        if (write_count < kWriteRanges) ++write_count;
+    }
+    uint64_t region_gen(uint64_t off, uint64_t size) const
+    {
+        uint64_t result = gen_floor;
+        const uint32_t count = write_count < kWriteRanges ? write_count : kWriteRanges;
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto& w = writes[i];
+            if (w.off < off + size && off < w.off + w.size && w.gen > result) result = w.gen;
+        }
+        return result;
+    }
 };
 
 struct PipeInfo {

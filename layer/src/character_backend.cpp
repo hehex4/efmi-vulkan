@@ -82,7 +82,7 @@ constexpr uint64_t kExpiryFrames = 2;
 constexpr uint64_t kExpiryMicroseconds = 500000;
 constexpr size_t kIdentities = 16;
 constexpr uint32_t kArenaEntries = 256, kArenaSlices = 64;
-constexpr uint64_t kRehashFrames = 256;
+constexpr uint64_t kRehashFrames = 1024;
 // Fragment shaders without a profile in the package whose rules are derived from the module.
 constexpr size_t kDerivedProfiles = 256;
 
@@ -121,7 +121,7 @@ enum Counter : uint32_t {
     C_STATE, C_INSTANCES, C_SET3, C_PIPELINE, C_VERTEX, C_VARIANT, C_BINDINGS,
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
-    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_COUNT
+    C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_SNAPSHOT_COPIES, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -129,8 +129,11 @@ const char* const kCounterNames[C_COUNT] = {
     "refused_bindings", "unreadable_entry", "unreadable_bones", "import_rejected", "exhausted", "identities_full",
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
-    "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames"
+    "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames", "snapshot_copies"
 };
+// Where a matched draw's time goes (D-099): microseconds per stage of record(), in the status.
+enum Stage : uint32_t { S_LOCK, S_IDENTIFY, S_BONES, S_PLAN, S_MATERIALS, S_VARIANTS, S_OWNER, S_APPEND, S_SNAPSHOT, S_EMIT, S_COUNT };
+const char* const kStageNames[S_COUNT] = {"lock", "identify", "bones", "plan", "materials", "variants", "owner", "append", "snapshot", "emit"};
 
 struct GpuMesh {
     VkDevice device;
@@ -194,40 +197,33 @@ struct IndexKeyHash {
         return std::hash<uint64_t>()(reinterpret_cast<uint64_t>(k.buffer) ^ (k.offset * 0x9E3779B97F4A7C15ull) ^ (uint64_t(k.bytes) << 40));
     }
 };
-struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; };
+struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; uint64_t seen = 0, next_quick = 0; };
 // Caller holds res_mx. The index bytes of one draw, hashed once for every package of the device
 // (D-097) and then recognized by a short fingerprint; the full hash is repeated now and then because
 // mapped pools change unseen. Each recording thread keeps its own table, so no draw waits for another.
-bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, uint32_t& hash)
-{
-    struct Table { std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes; std::vector<uint8_t> scratch; };
-    thread_local Table table;
-    auto ib = device->bufs.find(r.ib);
-    if (ib == device->bufs.end() || (r.index_size != 2 && r.index_size != 4)) return false;
-    const uint64_t start = uint64_t(r.first) * r.index_size, bytes = uint64_t(r.count) * r.index_size;
-    const BufInfo& info = ib->second;
-    if (r.ib_off > info.size || start > info.size - r.ib_off || bytes > info.size - r.ib_off - start || bytes > (64u << 20)) return false;
-    const uint64_t offset = r.ib_off + start;
-    uint8_t edge[128];
-    const size_t head = static_cast<size_t>(std::min<uint64_t>(bytes, 64)), tail = static_cast<size_t>(std::min<uint64_t>(bytes - head, 64));
-    if (read_buffer_locked(device, info, offset, head, edge) != SRC_MAPPED ||
-        (tail && read_buffer_locked(device, info, offset + bytes - tail, tail, edge + head) != SRC_MAPPED)) return false;
-    const uint32_t quick = crc32c(0, edge, head + tail);
-    const IndexKey key = {r.ib, offset, static_cast<uint32_t>(bytes)};
-    auto found = table.hashes.find(key);
-    if (found != table.hashes.end() && found->second.buffer_id == info.id && found->second.gen == info.gen &&
-        found->second.quick == quick && now < found->second.next_full) {
-        hash = found->second.hash;
-        return true;
+// The table holds every region a scene draws (the open world draws thousands per frame, D-099); when
+// it is full, the entries not seen for a while go, never the whole table: emptying it made every draw
+// hash its whole region again (20 ms per frame in the 1.6.8 session).
+constexpr size_t kHashTableEntries = 65536;
+constexpr uint64_t kHashTableIdleFrames = 8;
+// Full hashes by cause, device-wide (D-099): a region seen first, the buffer's generation changed
+// (a copy into the buffer, anywhere in it), the edge fingerprint changed, or the periodic repeat.
+std::atomic<uint64_t> g_hash_full{0}, g_hash_bytes{0}, g_hash_new{0}, g_hash_gen{0}, g_hash_quick{0}, g_hash_due{0}, g_quick_reads{0}, g_quick_skipped{0};
+struct IndexHashTable {
+    std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes;
+    std::vector<uint8_t> scratch;
+    uint64_t full_hashes = 0, trims = 0;
+    void trim(uint64_t now)
+    {
+        for (auto it = hashes.begin(); it != hashes.end();) {
+            if (it->second.seen + kHashTableIdleFrames < now) it = hashes.erase(it);
+            else ++it;
+        }
+        // Still full (one frame draws more regions than the table holds): start over.
+        if (hashes.size() >= kHashTableEntries) hashes.clear();
+        ++trims;
     }
-    table.scratch.resize(static_cast<size_t>(bytes));
-    if (read_buffer_locked(device, info, offset, bytes, table.scratch.data()) != SRC_MAPPED) return false;
-    hash = crc32c(0, table.scratch.data(), table.scratch.size());
-    if (table.hashes.size() >= 4096) table.hashes.clear();
-    // Regions first seen in one frame are not all hashed again in one later frame.
-    table.hashes[key] = {info.id, info.gen, now + kRehashFrames + (IndexKeyHash()(key) >> 7) % kRehashFrames, hash, quick};
-    return true;
-}
+};
 struct BoneSite { bool ok = false; uint32_t set = 0, binding = 0; };
 using StaticMaterial = CharacterMaterial;
 // Rules of a fragment shader the package has no profile for, read off its module by the DX11
@@ -250,8 +246,10 @@ struct CharacterCommand : CommandOwner {
     std::shared_ptr<std::atomic<uint64_t>> batches;
     // Owned GPU buffers the recording binds as vertex streams (D-087).
     std::vector<std::shared_ptr<void>> owned;
+    uint32_t idle_recordings = 0; // resets in a row that found it unused
     void reset_after_completion() override
     {
+        idle_recordings = used ? 0 : idle_recordings + 1;
         used = false; owned.clear();
         variants.clear(); snapshots->recycle_completed();
         for (auto& arena : material_snapshots) arena.second->recycle_completed();
@@ -265,6 +263,25 @@ struct CharacterCommand : CommandOwner {
         return true;
     }
 };
+// This backend's owner in a recording, as owner_for, except that another backend's owner stays while
+// that backend keeps using the recording: every reset clears `used`, so dropping the others' unused
+// owners at the first draw destroyed their arenas and had their workers make new ones for every
+// recording (D-099, arcane 142 us per draw in the 1.6.8 session). One goes after kIdleRecordings
+// resets without use (its generation was exchanged), or when it is not this code's.
+constexpr uint32_t kIdleRecordings = 8;
+template <class Make>
+std::shared_ptr<CommandOwner> character_owner_for(std::vector<std::shared_ptr<CommandOwner>>& owners, const void* backend, Make make)
+{
+    std::shared_ptr<CommandOwner> mine;
+    for (auto it = owners.begin(); it != owners.end();) {
+        if (*it && (*it)->backend == backend) { mine = *it; ++it; continue; }
+        const auto* other = *it ? dynamic_cast<const CharacterCommand*>(it->get()) : nullptr;
+        if (!*it || (other && !other->used && other->idle_recordings >= kIdleRecordings)) it = owners.erase(it);
+        else ++it;
+    }
+    if (!mine && (mine = make())) owners.push_back(mine);
+    return mine;
+}
 } // namespace
 
 class CharacterGeneration {
@@ -314,6 +331,7 @@ public:
     std::shared_ptr<std::atomic<uint64_t>> batches = std::make_shared<std::atomic<uint64_t>>(0);
     std::shared_ptr<const void> generation_key = std::make_shared<int>(0);
     std::atomic<uint64_t> counters[C_COUNT] = {};
+    std::atomic<uint64_t> stage_us[S_COUNT] = {};
     std::atomic<float> frame_seconds{1.0f / 60};
     uint64_t last_frame_us = 0;
 
@@ -469,7 +487,7 @@ public:
         next_memory_check = now + 60;
         uint64_t free_bytes = 0, heap_bytes = 0;
         if (!device_local_free(device, free_bytes, heap_bytes)) return true;
-        const uint64_t reserve = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(1024ull << 20, heap_bytes / 8);
+        const uint64_t reserve = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(512ull << 20, heap_bytes / 16);
         const uint64_t activating = textures ? textures->activating_bytes.load() : 0;
         if (free_bytes >= activation_bytes + reserve + activating) return true;
         const uint64_t clock = host_time_us();
@@ -1074,9 +1092,13 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     if (!enabled.load(std::memory_order_relaxed) || !cache) return false;
 
     ThreadTrace* const trace = device->trace ? device->trace() : nullptr;
+    const uint64_t entered_us = host_time_us();
     StageMark locking(trace, "character draw (generation lock)");
     std::lock_guard<std::mutex> mod_lock(mod_mx);
     StageMark stage(trace, "character draw (plan, variants, recording)");
+    uint64_t mark_us = host_time_us();
+    stage_us[S_LOCK] += mark_us - entered_us;
+    auto lap = [&](Stage s) { const uint64_t now_us = host_time_us(); stage_us[s] += now_us - mark_us; mark_us = now_us; };
     const uint64_t present = frame.load(std::memory_order_relaxed);
     InstanceEntry entry, patched;
     const CharacterList* list = nullptr;
@@ -1172,6 +1194,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             identity->update_frame = now;
         }
 
+        lap(S_IDENTIFY);
         // Import this component's poses into the identity's master, whatever happens to the draw.
         uint32_t offsets[2];
         std::memcpy(offsets, entry.data() + 80, 8);
@@ -1210,6 +1233,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             }
         }
 
+        lap(S_BONES);
         // As in the core: the object is the mod's once enough of its components were seen at this
         // place and a frame has passed. Until then the game draws it.
         if (!identity->custom) {
@@ -1250,6 +1274,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             if (added && !refresh_materials()) return false;
             list = &runtime_list;
         }
+        lap(S_PLAN);
         if (!list->count) { if (!gate_open) return gated(); ++counters[C_HIDDEN]; return true; }
         for (uint32_t c = 0; c < package.components.size(); ++c)
             if ((list->required >> c & 1) && (identity->coverage[c] & dynamic) != dynamic) { ++counters[C_INCOMPLETE]; return false; }
@@ -1292,6 +1317,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         bool pending = false;
         if (!material_draws(pipe->second, static_cast<uint32_t>(section - package.sections.data()), r, present, *list,
                             material_plans, material_views, material_origin)) return false;
+        lap(S_MATERIALS);
         for (uint32_t i = 0; i < list->count; ++i) {
             VertexInputRecipe vertex;
             std::string reason;
@@ -1309,15 +1335,17 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!identity->skeleton.patch_entry(0, entry, patched, reason)) return refuse(C_IMPORT, reason);
     }
 
+    lap(S_VARIANTS);
     // A recording that holds work of other replacement code keeps it to its end. What that code
     // left in a command buffer from earlier recordings gives way.
     // Every character package that replaces draws of a recording has its own owner in it.
-    const auto held = owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
+    const auto held = character_owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
     if (!held) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
     CharacterCommand* const command_owner = static_cast<CharacterCommand*>(held.get());
     command_owner->used = true;
     const auto mesh_owner = std::static_pointer_cast<const GpuMesh>(command_owner->keep);
     if (!mesh_owner) return refuse(C_EXHAUSTED, "character command owner has no mesh");
+    lap(S_OWNER);
     // Everything is decided; from here nothing can fail after a command was emitted.
     std::vector<DrawGeometry> geometry(list->count);
     std::vector<VariantDraw> items(list->count);
@@ -1328,8 +1356,12 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         SnapshotSlot slot;
         const uint32_t count = static_cast<uint32_t>(material_views[i].size());
         auto arena = count ? command_owner->material_snapshots.at(count) : command_owner->snapshots;
+        const uint32_t slices_before = arena->slices_used();
+        const uint64_t append_began = host_time_us();
         if (!arena->append_shared(master.data(), master.size(), key, patched, material_views[i], slot))
             return refuse(C_EXHAUSTED, arena->reason);
+        stage_us[S_APPEND] += host_time_us() - append_began;
+        if (arena->slices_used() != slices_before) ++counters[C_SNAPSHOT_COPIES];
         DrawGeometry& g = geometry[i];
         g = original;
         for (uint32_t s = 0; s < g.buffers.size(); ++s) {
@@ -1346,6 +1378,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         items[i] = {variants[i].get(), slot.set, slot.offset, &g, args};
     }
+    lap(S_SNAPSHOT);
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
     if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.pipeline, original))
         return refuse(C_VARIANT, "character draw transaction refused");
@@ -1354,6 +1387,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                                    static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
         ++counters[C_SET3_RESTORED];
     }
+    lap(S_EMIT);
     ++counters[C_REPLACED];
     if (material_origin) ++counters[material_origin == 1 ? C_DERIVED : C_INHERITED];
     counters[C_ITEMS] += list->count;
@@ -1417,7 +1451,7 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
         return refuse(C_VARIANT, "texture-only variant: " + result.reason);
     }
     // Every character package that replaces draws of a recording has its own owner in it.
-    const auto held = owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
+    const auto held = character_owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
     if (!held) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
     CharacterCommand* const command_owner = static_cast<CharacterCommand*>(held.get());
     command_owner->used = true;
@@ -1733,7 +1767,11 @@ public:
     std::vector<std::unique_ptr<CharacterController>> controllers;
     std::string reason; // why there is no package
     Device* device = nullptr;
+    std::atomic<bool> enabled{true};  // off through the probe: no draw is hashed or asked for
     std::atomic<uint64_t> frames{0}; // presentations with draws, for the hash tables' rehash schedule
+    // The recording path's time at the device level (D-099): every indexed draw asked, and of that
+    // the index region hashing; the packages' stages are in their own status.
+    std::atomic<uint64_t> record_calls{0}, record_us{0}, hash_calls{0}, hash_us{0}, hash_misses{0};
     // The packages' sections by hash (D-096, D-097): a draw's index region is hashed once for every
     // package and looked up here, so only the packages with a section of that hash see the draw.
     // `counts` holds every index count a section matches, to pass over draws no section can match
@@ -1832,20 +1870,78 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     return backend;
 }
 void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); if (b.textures) b.textures->stop(); }
+// Caller holds res_mx. The index bytes of one draw, hashed once for every package of the device
+// (D-097) and then recognized by a short fingerprint; the full hash is repeated now and then because
+// mapped pools change unseen. Each recording thread keeps its own table (above).
+// The fingerprint is two uncached lines read over the bus (most of a draw's cost in the 1.6.8 session,
+// D-099): it is read every draw only for a region whose hash a package acts on, where a stale hash
+// would replace the wrong object; for the others every kQuickFrames, a stale hash there delays a
+// match by that much at most.
+constexpr uint64_t kQuickFrames = 16;
+bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const CharacterBackend::Index& index, uint32_t& hash)
+{
+    thread_local IndexHashTable table;
+    auto ib = device->bufs.find(r.ib);
+    if (ib == device->bufs.end() || (r.index_size != 2 && r.index_size != 4)) return false;
+    const uint64_t start = uint64_t(r.first) * r.index_size, bytes = uint64_t(r.count) * r.index_size;
+    const BufInfo& info = ib->second;
+    if (r.ib_off > info.size || start > info.size - r.ib_off || bytes > info.size - r.ib_off - start || bytes > (64u << 20)) return false;
+    const uint64_t offset = r.ib_off + start;
+    const IndexKey key = {r.ib, offset, static_cast<uint32_t>(bytes)};
+    // The region's generation: the newest tracked write overlapping it (D-099), not the buffer's.
+    const uint64_t region_gen = info.region_gen(offset, bytes);
+    auto found = table.hashes.find(key);
+    const bool current = found != table.hashes.end() && found->second.buffer_id == info.id && found->second.gen == region_gen &&
+                         now < found->second.next_full;
+    if (current && now < found->second.next_quick && !index.by_hash.count(found->second.hash)) {
+        found->second.seen = now; hash = found->second.hash; ++g_quick_skipped;
+        return true;
+    }
+    uint8_t edge[128];
+    const size_t head = static_cast<size_t>(std::min<uint64_t>(bytes, 64)), tail = static_cast<size_t>(std::min<uint64_t>(bytes - head, 64));
+    if (read_buffer_locked(device, info, offset, head, edge) != SRC_MAPPED ||
+        (tail && read_buffer_locked(device, info, offset + bytes - tail, tail, edge + head) != SRC_MAPPED)) return false;
+    const uint32_t quick = crc32c(0, edge, head + tail);
+    ++g_quick_reads;
+    if (current && found->second.quick == quick) {
+        found->second.seen = now; found->second.next_quick = now + kQuickFrames; hash = found->second.hash;
+        return true;
+    }
+    if (found == table.hashes.end()) ++g_hash_new;
+    else if (found->second.buffer_id != info.id || found->second.gen != region_gen) ++g_hash_gen;
+    else if (found->second.quick != quick) ++g_hash_quick;
+    else ++g_hash_due;
+    table.scratch.resize(static_cast<size_t>(bytes));
+    if (read_buffer_locked(device, info, offset, bytes, table.scratch.data()) != SRC_MAPPED) return false;
+    hash = crc32c(0, table.scratch.data(), table.scratch.size());
+    ++table.full_hashes; ++g_hash_full; g_hash_bytes += bytes;
+    if (found == table.hashes.end() && table.hashes.size() >= kHashTableEntries) table.trim(now);
+    // Regions first seen in one frame are not all hashed again in one later frame.
+    table.hashes[key] = {info.id, region_gen, now + kRehashFrames + (IndexKeyHash()(key) >> 7) % kRehashFrames, hash, quick, now, now + kQuickFrames};
+    return true;
+}
+
 bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
 {
     // The first package whose section matches records the draw; the others never see it. The draw's
     // index region is hashed once (D-097) and only the packages with a section of that hash are asked.
+    if (!b.enabled.load(std::memory_order_relaxed)) return false;
+    struct Clock {
+        CharacterBackend& b; uint64_t began;
+        ~Clock() { b.record_us += host_time_us() - began; ++b.record_calls; }
+    } clock{b, host_time_us()};
     std::shared_ptr<const CharacterBackend::Index> index;
     { std::shared_lock<std::shared_mutex> lock(b.index_mx); index = b.index; }
     if (!index || (!index->hash_only && !index->counts.count(r.count))) return false;
     uint32_t hash = 0;
     {
         std::shared_lock<std::shared_mutex> lock(b.device->res_mx);
-        if (!index_region_hash(b.device, r, b.frames.load(std::memory_order_relaxed), hash)) return false;
+        const bool hashed = index_region_hash(b.device, r, b.frames.load(std::memory_order_relaxed), *index, hash);
+        b.hash_us += host_time_us() - clock.began; ++b.hash_calls;
+        if (!hashed) return false;
     }
     const auto found = index->by_hash.find(hash);
-    if (found == index->by_hash.end()) return false;
+    if (found == index->by_hash.end()) { ++b.hash_misses; return false; }
     for (const auto& candidate : found->second) {
         auto& c = *b.controllers[candidate.package];
         std::shared_lock<std::shared_mutex> lock(c.mutex);
@@ -1918,6 +2014,7 @@ bool character_ready(CharacterBackend& b)
 }
 void character_enable(CharacterBackend& b, bool enabled)
 {
+    b.enabled.store(enabled, std::memory_order_relaxed);
     for (auto& c : b.controllers) { std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->active) generation_enable(*c->active, enabled); }
 }
 static void controller_status(CharacterController& c, JsonWriter& w)
@@ -1938,6 +2035,15 @@ void character_status(CharacterBackend& b, JsonWriter& w)
     }
     if (primary) controller_status(*primary, w);
     else w.kv("package_reason", b.reason);
+    w.key("record"); w.begin_object();
+    w.kn("calls", b.record_calls.load()); w.kn("microseconds", b.record_us.load());
+    w.kn("hash_calls", b.hash_calls.load()); w.kn("hash_microseconds", b.hash_us.load()); w.kn("hash_misses", b.hash_misses.load());
+    w.kn("full_hashes", g_hash_full.load()); w.kn("full_hash_bytes", g_hash_bytes.load());
+    w.kn("full_new", g_hash_new.load()); w.kn("full_generation", g_hash_gen.load()); w.kn("full_fingerprint", g_hash_quick.load()); w.kn("full_due", g_hash_due.load());
+    w.kn("fingerprint_reads", g_quick_reads.load()); w.kn("fingerprint_skipped", g_quick_skipped.load());
+    w.kn("snapshot_copy_us", g_snapshot_timing.copy_us.load()); w.kn("snapshot_descriptor_us", g_snapshot_timing.descriptor_us.load());
+    w.kn("snapshot_images_us", g_snapshot_timing.images_us.load()); w.kn("snapshot_entry_us", g_snapshot_timing.entry_us.load());
+    w.end_object();
     if (b.textures) b.textures->status(w);
     if (b.controllers.size() > 1) {
         w.key("packages"); w.begin_array();
@@ -1971,6 +2077,17 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         const auto status = backend.program->status();
         w.key("ini"); w.begin_object();
         w.kn("draws", status.draws); w.kn("presents", status.presents); w.kn("key_events", status.key_events);
+        w.kn("draw_execute_us", status.draw_execute_us); w.kn("draw_compile_us", status.draw_compile_us);
+        {
+            auto commands = status.commands;
+            std::sort(commands.begin(), commands.end(), [](const auto& a, const auto& b) { return std::get<2>(a) > std::get<2>(b); });
+            if (commands.size() > 16) commands.resize(16);
+            w.key("commands"); w.begin_array();
+            for (const auto& c : commands) {
+                w.begin_object(); w.kv("name", std::get<0>(c)); w.kn("calls", std::get<1>(c)); w.kn("microseconds", std::get<2>(c)); w.end_object();
+            }
+            w.end_array();
+        }
         w.kn("bindings", status.bindings); w.kn("saves", status.saves); w.kb("dirty", status.dirty);
         w.kb("reload_requested", status.reload_requested);
         w.kn("diagnostics", status.diagnostics);
@@ -2032,6 +2149,9 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         w.kn("identities_replaced", custom);
         w.kn("lod", backend.lod);
         w.kb("gate_open", backend.gate_open); w.kn("gate_images", backend.frame_images.size());
+        w.key("stage_us"); w.begin_object();
+        for (uint32_t s = 0; s < S_COUNT; ++s) w.kn(kStageNames[s], backend.stage_us[s].load());
+        w.end_object();
         w.kn("material_derived_profiles", backend.derived_profiles.size());
         w.kb("lazy", backend.lazy);
         w.kn("texture_queries", backend.texture_queries);

@@ -6,17 +6,32 @@
 namespace efvk {
 namespace {
 namespace gpu = efmi::gpu;
+std::filesystem::path directory_of(HMODULE module)
+{
+    std::wstring path(32768, L'\0');
+    const DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+    if (!length || length >= path.size()) return {};
+    path.resize(length);
+    return std::filesystem::path(path).parent_path();
+}
 std::filesystem::path module_directory()
 {
     HMODULE module = nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                             reinterpret_cast<LPCWSTR>(&module_directory), &module))
         return {};
-    std::wstring path(32768, L'\0');
-    const DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
-    if (!length || length >= path.size()) return {};
-    path.resize(length);
-    return std::filesystem::path(path).parent_path();
+    return directory_of(module);
+}
+// The owned GPU tools are deployed beside the layer DLL. A replacement module exchanged into the
+// game lives in another folder, so the layer's directory is tried after the module's own (D-099).
+std::filesystem::path tools_directory()
+{
+    std::vector<std::filesystem::path> candidates{module_directory()};
+    for (const wchar_t* name : {L"efmi_vk_inject.dll", L"efmi_vk_layer.dll"})
+        if (const HMODULE host = GetModuleHandleW(name)) candidates.push_back(directory_of(host));
+    for (const auto& directory : candidates)
+        if (!directory.empty() && std::filesystem::is_regular_file(directory / L"dxcompiler.dll")) return directory;
+    return candidates.front();
 }
 // The original's get_effective_dpi: the effective DPI of the window's nearest monitor, read with the
 // thread made per-monitor aware for the call; 0 when GetDpiForMonitor is unavailable.
@@ -91,7 +106,7 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
 {
     try {
         if (!g_cfg.m2_owned) { reason = "owned GPU execution turned off (m2_owned = 0)"; return {}; }
-        const auto tools = module_directory();
+        const auto tools = tools_directory();
         const auto compiler = tools / L"dxcompiler.dll", bytecode = tools / L"efmi-vkd3d-shader.dll", validator = tools / L"SPIRV-Tools-shared.dll";
         for (const auto& tool : {compiler, bytecode, validator})
             if (!std::filesystem::is_regular_file(tool)) { reason = "owned GPU tools are not deployed beside the layer: " + tool.filename().string(); return {}; }

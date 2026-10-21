@@ -1,5 +1,6 @@
 #pragma once
 #include "CommandList.h"
+#include <tuple>
 #include <cstdint>
 #include <functional>
 namespace efmi::core {struct PaletteSnapshot;}
@@ -67,6 +68,8 @@ public:
     using PaletteSource=std::function<bool(CommandListState&,std::shared_ptr<const core::PaletteSnapshot>&,std::wstring&)>;
     void palette_source(PaletteSource);
     void adapt(CommandList& root);
+    // Calls and microseconds per command class since the adapter was made (D-099).
+    std::vector<std::tuple<std::string, uint64_t, uint64_t>> command_timing() const;
     // Preserve original RunLinkedCommandList pointer identity/type for native
     // ShaderRegex duplicate suppression and unlinking, while bounding execution.
     std::shared_ptr<RunLinkedCommandList> linked(CommandList&,const std::wstring& ini_line);

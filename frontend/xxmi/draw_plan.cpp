@@ -4,6 +4,7 @@
 #include <limits>
 #include <stdexcept>
 #include <typeinfo>
+#include <chrono>
 #include <climits>
 #include <array>
 #include "ResourceHash.h"
@@ -418,6 +419,8 @@ void validate_pool_runtime(CustomResourcePool& input)
 struct DrawPlanAdapter::Runtime {
     DrawPlan* active = nullptr;
     size_t steps = 0, draws = 0;
+    // Microseconds and calls per command class over every execution (D-099): where a draw's INI time goes.
+    std::unordered_map<std::string, std::pair<uint64_t, uint64_t>> command_timing;
     std::unordered_set<CommandList*> adapted;
     struct External {std::wstring name;DrawPlanAdapter::NativeCommand command;};
     std::unordered_map<ExplicitCommandListSection*,External> externals;
@@ -626,6 +629,15 @@ struct DrawPlanAdapter::Runtime {
 
     void run(const std::shared_ptr<CommandListCommand>& original, CommandListState* state)
     {
+        // Command timing by class (D-099) is compiled in with EFMI_COMMAND_TIMING: the measurement of
+        // the 1.6.8 session (about a hundred commands per draw) cost as much as the commands.
+#ifdef EFMI_COMMAND_TIMING
+        struct Timer {
+            Runtime& runtime; const char* name; std::chrono::steady_clock::time_point began;
+            ~Timer() { auto& t = runtime.command_timing[name]; ++t.first;
+                       t.second += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count()); }
+        } timer{*this, typeid(*original).name(), std::chrono::steady_clock::now()};
+#endif
         if (!active) refuse(L"Planner command invoked outside a transaction");
         if (++steps > max_steps) refuse(L"Plan execution budget exceeded");
         if(active_depth>=max_active_depth)refuse(L"Native command stack budget exceeded");
@@ -1136,6 +1148,12 @@ bool DrawPlanAdapter::execute(CommandList& root, CommandListState& state,
 bool DrawPlanAdapter::execute_pair(CommandList& pre,CommandList& post,CommandListState& state,DrawPlan& output,std::wstring& reason,OriginalCall between)
 {
     const std::vector<CommandList*> after={&post};return execute_impl({&pre},&after,state,output,reason,std::move(between));
+}
+std::vector<std::tuple<std::string, uint64_t, uint64_t>> DrawPlanAdapter::command_timing() const
+{
+    std::vector<std::tuple<std::string, uint64_t, uint64_t>> result;
+    for (const auto& entry : runtime_->command_timing) result.emplace_back(entry.first, entry.second.first, entry.second.second);
+    return result;
 }
 bool DrawPlanAdapter::execute_matches(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,CommandListState& state,DrawPlan& output,std::wstring& reason)
 {

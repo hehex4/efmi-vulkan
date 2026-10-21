@@ -2,6 +2,8 @@
 #pragma once
 #include "pipeline_variant.h"
 #include "merged_skeleton.h"
+#include <atomic>
+#include <unordered_map>
 
 namespace efvk {
 
@@ -18,6 +20,9 @@ struct SnapshotSlot { VkDescriptorSet set = VK_NULL_HANDLE; uint32_t offset = 0;
 // First memory type of `type_bits` the host can map coherently; with `device_local`, only one that
 // also lives on the device. UINT32_MAX when there is none.
 uint32_t host_memory_type(const VkPhysicalDeviceMemoryProperties&, uint32_t type_bits, bool device_local);
+// Where a shared append's time goes, device-wide (D-099).
+struct SnapshotTiming { std::atomic<uint64_t> copy_us{0}, descriptor_us{0}, images_us{0}, entry_us{0}; };
+extern SnapshotTiming g_snapshot_timing;
 struct SnapshotImage {
     VkImageView view = VK_NULL_HANDLE;
     // Caller supplies a ready float-sampled 2D view in SHADER_READ_ONLY_OPTIMAL,
@@ -40,7 +45,8 @@ public:
     bool create_shared(const VkPhysicalDeviceMemoryProperties&, const VkPhysicalDeviceLimits&,
                        uint32_t entries, uint32_t slices, uint32_t bone_bytes, uint32_t uniform_range = 65536,
                        uint32_t image_count = 0);
-    // `key` names the bone bytes: an append with the key of the previous one reuses its copy.
+    // `key` names the bone bytes: an append with a key the arena holds since its last recycling
+    // reuses that copy, in any order (D-099: alternating components copied on every draw before).
     // The caller changes the key whenever the bytes change. Shared storage only.
     bool append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry&, SnapshotSlot&);
     bool append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry&,
@@ -59,7 +65,7 @@ public:
     // No reset/reuse method: recorded and resubmitted command buffers retain this object until
     // reset/free after GPU completion. The caller releases all owners before device destruction.
     // Only a command owner that has completed a successful legal reset/begin may recycle it.
-    void recycle_completed() { for(auto& owner:image_owners_)owner.reset(); used_ = 0; sealed_ = false; slices_used_ = 0; have_key_ = false; }
+    void recycle_completed() { for(auto& owner:image_owners_)owner.reset(); used_ = 0; sealed_ = false; slices_used_ = 0; slices_by_key_.clear(); }
 private:
     void clear();
     bool valid_images(const std::vector<SnapshotImage>&);
@@ -77,9 +83,9 @@ private:
     std::vector<std::shared_ptr<const void>> image_owners_;
     VkDeviceSize bytes_ = 0, bone_stride_ = 0, entry_base_ = 0, entry_stride_ = 0;
     uint32_t capacity_ = 0, bone_bytes_ = 0, used_ = 0, image_count_ = 0;
-    uint32_t slice_capacity_ = 0, slices_used_ = 0, last_slice_ = 0;
-    uint64_t last_key_ = 0;
-    bool sealed_ = false, shared_ = false, have_key_ = false;
+    uint32_t slice_capacity_ = 0, slices_used_ = 0;
+    std::unordered_map<uint64_t, uint32_t> slices_by_key_; // bone copies of this recording by key
+    bool sealed_ = false, shared_ = false;
 };
 
 } // namespace efvk

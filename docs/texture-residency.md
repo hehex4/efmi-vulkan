@@ -1,6 +1,6 @@
 # Texture residency: loaded on first bind, evicted under a budget (D-094, D-095)
 
-Candidate 1.6.7, 2026-10-20; eviction policy, frame gate and index by hash of 1.6.8 (D-097, D-098). The 1.6.7 game session is described under BUG-034.
+Candidate 1.6.7, 2026-10-20; eviction policy, frame gate and index by hash of 1.6.8 (D-097, D-098); reserve, idle threshold and fingerprint policy of 1.6.9 (D-099, docs/recording-performance.md). The 1.6.7 game session is described under BUG-034, the 1.6.8 session under BUG-035.
 
 ## Why
 
@@ -27,8 +27,9 @@ generation:
 - **Budget and eviction (D-097).** The residency keeps the images' charged bytes near a target: the
   cap (`m2_texture_budget_mb`, default half the device-local heap) and, read twice a second with
   VK_EXT_memory_budget and corrected by what was loaded since, what the device has free beyond a
-  reserve for the game (`m2_reserve_mb`, default the larger of 1 GiB and an eighth of the heap).
-  Over the target, the images no frame has bound for 120 frames are released, least recently bound
+  reserve for the game (`m2_reserve_mb`, default the larger of 512 MiB and a sixteenth of the heap;
+  1 GiB and an eighth until 1.6.9, see below). Over the target, the images no frame has bound for
+  600 frames (120 until 1.6.9) are released, least recently bound
   first; the GPU object lives on in the recordings that hold it and is freed with the last of them,
   and the next bind loads the image again. What the frames keep binding is never evicted for the
   target: in the 1.6.7 session that produced 574 evictions against 591 loads (the two-frame rule
