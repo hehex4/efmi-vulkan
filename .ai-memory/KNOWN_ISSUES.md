@@ -801,6 +801,8 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 
 ## LIMIT-037: What remains of the recording cost
 
+- 2026-10-22, after D-106 (1.7.2): the INI plan of a matched draw fell from 33 to about 15 us of list execution offline; the bones (write-combined reads), the index hashing of unmatched draws and the Present lists of every package remain (docs/recording-performance.md).
+
 - After D-099, in the open world with four characters: plan 50 us and bones 18 us per matched draw, 150-180 matched draws per frame, 15.8 ms of recording work per frame over two threads, 1.6 ms of Present work. The INI dispatch and list overhead (about 0.5 us per command for a hundred commands per draw), the bone reads over the bus, one variant cache per package (a switched character waits for its variants) and 22 packages' Present lists are the items; the first two are measurable offline through the replay's `stage_us`.
 
 ## BUG-036: A Mod's key panel flickered in fullscreen

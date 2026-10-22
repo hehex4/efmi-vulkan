@@ -173,3 +173,38 @@ presentation with 22 packages. What remains of the frame cost, measured in the s
 with the replacement against 120 without; per rendered frame 3.9 ms of recording on the
 rendering thread, 2.0 ms of it the INI plan (67 us per matched draw), 0.4 ms bones, 0.65 ms
 index hashing, 0.16 ms variants, 0.3 ms snapshot and emit.
+
+## The INI plan cut offline (1.7.2, D-106)
+
+The user's bar after the seventh session: 120 fps, the frame rate without the replacement.
+Measured there: 91 fps with it, 3.9 ms of recording work per rendered frame on the rendering
+thread, 2.0 ms of it the INI plan of about 30 matched draws (67 us each, about a hundred commands
+of the Core's lists per draw), 0.4 ms bones, 0.65 ms index hashing, 0.16 ms variants.
+
+Measured offline with the perlica bundle (vk14) through two profiling builds that the build
+scripts now offer (`EFMI_VK_COMMAND_TIMING=1`: every command class timed, exclusive of its
+children, through a slot found once per bridge command; `EFMI_VK_PHASE_TIMING=1`: a dozen phase
+timers around the plan and the Present, nearly free), the commands themselves took about 6 us of
+a matched draw's 33 us of list execution: the rest was the planner's own frame around them.
+
+What 1.7.2 changed, each measured in the replay:
+
+- The command kinds decided once at adaptation (a word of bits per bridge command) instead of a
+  chain of up to fifteen `dynamic_cast`s per command per draw: list execution 33 to 21 us per
+  matched draw, a package's Present 76 to 36 us per presentation.
+- The Core extension's native handlers read the Core's variables, lists and resources through
+  pointers found once per generation instead of a string built and hashed per access.
+- The variant of a (pipeline, draw, material plan) is remembered per generation; the variant
+  cache's key building and lookup cost 5 us per replaced draw.
+- The plan item's stream or image index is found by the resource object the compiler hands out
+  for a declaration, not by a path normalized and lowered per item (10 us per matched draw).
+- A region a section acts on has its edge fingerprint read every draw until it matched 120 times
+  in a row, then every 16 frames like the others; a mismatch starts over.
+- A native command (an if, a variable assignment, a pool variable, abort, preset) whose arguments
+  the CPU evaluates stays the original's own object in the list: the bridge only budgeted it.
+
+perlica replay (vk14, 120 frames), per matched draw: list execution 33.2 to 14.5 us, the whole plan 41.5 to 22.4 us; a package's Present 76 to 36 us per presentation; the 22 packages' Present lists 0.48 ms per presentation (with the Core's GUI text of the first minute).
+
+Still there: the bones (bone matrices read from write-combined mapped memory, about 25 KB per
+component per frame), to go to the GPU with a remap table; the index hashing of the draws that
+match no section; the Present lists of every package (the Core's GUI list runs for each).

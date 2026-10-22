@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <unordered_map>
 #include <set>
 
 void HostCompileGraph(const std::wstring&, const std::vector<std::wstring>&);
@@ -29,6 +30,31 @@ class CharacterCore : public RuntimeExtension {
     std::wstring mod;
     efvk::CharacterPackage expected;
     DrawPlanAdapter* adapter = nullptr;
+    // The Core's variables this extension reads per draw, found by name once (a string built and
+    // hashed per access cost a few microseconds per matched draw); the generation's variable map is
+    // stable, its nodes stay where they are.
+    std::unordered_map<const wchar_t*, CommandListVariable*> variables_;
+    CustomResourcePool* identity_pool_ = nullptr;
+    bool identity_pool_known_ = false;
+    CustomResource* original_vs_cb_ = nullptr;
+    bool original_vs_cb_known_ = false;
+    // The Core's lists and resources the native handlers reach per draw, found by name once.
+    ExplicitCommandListSection* connect_list_ = nullptr;
+    ExplicitCommandListSection* draw_custom_list_ = nullptr;
+    CustomResource* output_skeleton_ = nullptr;
+    ExplicitCommandListSection& cached_list(ExplicitCommandListSection*& slot, const wchar_t* name)
+    {
+        if (!slot) slot = &list(name);
+        return *slot;
+    }
+    CommandListVariable& v(const wchar_t* name)
+    {
+        const auto found = variables_.find(name);
+        if (found != variables_.end()) return *found->second;
+        auto& value = var(name);
+        variables_.emplace(name, &value);
+        return value;
+    }
     RuntimeDraw current;
     bool prepared = false, attached = false;
     bool rabbit_textures = false;
@@ -148,12 +174,16 @@ class CharacterCore : public RuntimeExtension {
     BufferQueries instance_queries;
     // The original Core's identification result for instance 0 of the current draw
     // (`$PoolSpatialIdentity_IdentifiedInstances[0]`); null when the pool is absent.
-    static CommandListVariable* identified_instance(bool assignment)
+    CommandListVariable* identified_instance(bool assignment)
     {
-        const auto found = customResourcePools.find(L"pool" + core_namespace + L"spatialidentity_identifiedinstances");
-        if (found == customResourcePools.end()) return nullptr;
-        auto* value = found->second.GetVariable(0, false, false, assignment);
-        return value == found->second.variable_template.get() ? nullptr : value;
+        if (!identity_pool_known_) {
+            const auto found = customResourcePools.find(L"pool" + core_namespace + L"spatialidentity_identifiedinstances");
+            identity_pool_ = found == customResourcePools.end() ? nullptr : &found->second;
+            identity_pool_known_ = true;
+        }
+        if (!identity_pool_) return nullptr;
+        auto* value = identity_pool_->GetVariable(0, false, false, assignment);
+        return value == identity_pool_->variable_template.get() ? nullptr : value;
     }
     std::vector<std::wstring> boundaries;
     bool fail(std::wstring& reason, const wchar_t* message) { reason = message; return false; }
@@ -183,8 +213,8 @@ class CharacterCore : public RuntimeExtension {
     {
         return (current.identity && current.instances == 1 && !current.first_instance && current.component < expected.components.size() && current.lod < 2 &&
             original_components.size() == expected.components.size() &&
-            integer(var(L"component_id").fval) == original_components[current.component] && integer(var(L"lod_level").fval) == current.lod &&
-            integer(var(L"bones_count").fval) == expected.bones && var(L"gpu_posed").fval == 1 && var(L"custom_mesh_scale").fval == 1) ||
+            integer(v(L"component_id").fval) == original_components[current.component] && integer(v(L"lod_level").fval) == current.lod &&
+            integer(v(L"bones_count").fval) == expected.bones && v(L"gpu_posed").fval == 1 && v(L"custom_mesh_scale").fval == 1) ||
             fail(reason, L"Original Core request differs from the resolved native identity, bone or LOD contract");
     }
 public:
@@ -257,9 +287,9 @@ global $mod_id = -1
         };
         native(L"registermod", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
-            if (!std::isfinite(var(L"required_version").fval) || var(L"required_version").fval > 1.48f)
+            if (!std::isfinite(v(L"required_version").fval) || v(L"required_version").fval > 1.48f)
                 return fail(why, L"Mod requires a newer EFMIv1 contract");
-            var(L"mod_id").fval = 0; return true;
+            v(L"mod_id").fval = 0; return true;
         });
         native(L"initializemergedskeleton", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
@@ -270,7 +300,7 @@ global $mod_id = -1
         native(L"component_readconfig", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
             if (!contract(why)) return false;
-            var(L"instance_config_vs_cb_slot").fval = float(current.source_vs_config_slot);
+            v(L"instance_config_vs_cb_slot").fval = float(current.source_vs_config_slot);
             return true;
         });
         native(L"mergedskeleton_detectbonedatasource", [this](CommandListState&, unsigned phases, std::wstring& why) {
@@ -278,8 +308,8 @@ global $mod_id = -1
             if (!prepared || !contract(why)) return false;
             // Never invent a source slot from Vulkan descriptor coordinates.
             // Unknown input preserves the original Core's no-replacement path.
-            var(L"bones_data_source").fval = current.rolling_bone_source && current.source_vs_config_slot != -1
-                ? var(L"enum_bones_source_vs_t0").fval : 0;
+            v(L"bones_data_source").fval = current.rolling_bone_source && current.source_vs_config_slot != -1
+                ? v(L"enum_bones_source_vs_t0").fval : 0;
             return true;
         });
         native(L"spatialidentity_identifycomponentinstances", [this](CommandListState&, unsigned phases, std::wstring& why) {
@@ -288,14 +318,15 @@ global $mod_id = -1
             // Mod's, and the Core's outputs say so.
             if (!(phases & 1)) return true;
             if (!contract(why)) return false;
-            var(L"draw_call_has_modded_instance").fval = 1; var(L"draw_call_has_unknown_instance").fval = 0;
-            if (auto* status = identified_instance(true)) status->fval = var(L"enum_override_type_custom").fval;
+            v(L"draw_call_has_modded_instance").fval = 1; v(L"draw_call_has_unknown_instance").fval = 0;
+            if (auto* status = identified_instance(true)) status->fval = v(L"enum_override_type_custom").fval;
             return true;
         });
         native(L"mergedskeleton_attachcomponent", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
             if (!prepared || !contract(why)) return false;
-            const auto* output = adapter->referenced_resource(&customResources.at(L"resource" + core_namespace + L"output_mergedskeleton"));
+            if (!output_skeleton_) output_skeleton_ = &customResources.at(L"resource" + core_namespace + L"output_mergedskeleton");
+            const auto* output = adapter->referenced_resource(output_skeleton_);
             if (output != skeleton) return fail(why, L"Native bone attachment references another skeleton");
             attached = true; return true;
         });
@@ -306,13 +337,13 @@ global $mod_id = -1
             // renderer: the original instance is drawn by the application's own draw, a skipped one
             // not at all. No result in this draw leaves the renderer's identification.
             if (const auto* status = identified_instance(false)) {
-                if (status->fval == var(L"enum_override_type_original").fval) { adapter->keep_original(); return true; }
-                if (status->fval == var(L"enum_override_type_skip").fval) return true;
+                if (status->fval == v(L"enum_override_type_original").fval) { adapter->keep_original(); return true; }
+                if (status->fval == v(L"enum_override_type_skip").fval) return true;
             }
             attached = false;
-            if (!adapter->invoke(list(L"callback_mergedskeleton_connectcomponent"), state, 1, why) || !attached)
+            if (!adapter->invoke(cached_list(connect_list_, L"callback_mergedskeleton_connectcomponent"), state, 1, why) || !attached)
                 return fail(why, L"Mod did not attach its prepared merged skeleton");
-            return adapter->invoke(list(L"callback_component_drawcustom"), state, 1, why);
+            return adapter->invoke(cached_list(draw_custom_list_, L"callback_component_drawcustom"), state, 1, why);
         });
         if (!rabbit_textures) {
             // RabbitFX (D-082): SetTextures binds the Mod's maps where this draw's fragment shader samples
@@ -520,8 +551,12 @@ global $mod_id = -1
         current = draw;
         instance_queries.clear();
         if (draw.instance_entry && draw.instance_entry_size) {
-            const auto vs_cb = customResources.find(L"resource" + core_namespace + L"original_vs_cb");
-            if (vs_cb != customResources.end() && !instance_queries.bind(&vs_cb->second, draw.instance_entry, draw.instance_entry_size, why))
+            if (!original_vs_cb_known_) {
+                const auto vs_cb = customResources.find(L"resource" + core_namespace + L"original_vs_cb");
+                original_vs_cb_ = vs_cb == customResources.end() ? nullptr : &vs_cb->second;
+                original_vs_cb_known_ = true;
+            }
+            if (original_vs_cb_ && !instance_queries.bind(original_vs_cb_, draw.instance_entry, draw.instance_entry_size, why))
                 return false;
         }
         if (auto* status = identified_instance(true)) status->fval = 0;

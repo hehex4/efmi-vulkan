@@ -936,3 +936,8 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 ## D-105: Persistent INI variables are kept per Mod folder
 
 - Date: 2026-10-22 (BUG-039). Two Mods of one character declare the same namespace; the toggles the one persisted must not come up in the other when it takes its place. The settings file is named by the namespace and the Mod's folder, a departure from the original's one `d3dx_user.ini` by namespace, chosen for the user's expectation (a new Mod shows what its INI shows by default).
+
+## D-106: The recording path cut offline against the 120 fps bar
+
+- Date: 2026-10-22. The user's bar is the frame rate without the replacement (120 fps against 91 with it). Measured in the game and offline through two profiling builds (`EFMI_VK_COMMAND_TIMING`, `EFMI_VK_PHASE_TIMING`, scripts/build.py and build_xxmi_runtime.py) with the perlica replay: the INI commands themselves took a fifth of a matched draw's list execution, the planner's frame around them the rest.
+- Command kinds decided once at adaptation (bits per bridge command, `DrawPlanAdapter::Runtime::classify`); native commands with CPU arguments left unwrapped; the Core extension's variables, lists and resources found once per generation; a per-generation variant lookup; plan items' streams and images by resource object; the fingerprint of a stable region read every 16 frames after 120 matches. docs/recording-performance.md has the numbers. Not changed: what the lists do; the original's semantics of every command.

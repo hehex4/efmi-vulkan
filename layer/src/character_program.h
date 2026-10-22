@@ -4,6 +4,7 @@
 #include "../../frontend/xxmi/owned_runtime.h"
 #include <functional>
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <tuple>
 
@@ -45,6 +46,7 @@ public:
     // `textures`: when the plan leaves the application's draw (skip false) but binds textures for it in
     // its pre phase, and nothing else, `output` is a list of one texture-only draw with those pixels
     // and *textures is true (D-083). Without the pointer such a plan is just the application's draw.
+    void note_timing(const char* name, uint64_t microseconds) { if (runtime_) runtime_->note_timing(name, microseconds); }
     bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason,
               const VertexInputRecipe* vertex = nullptr, bool* textures = nullptr);
     bool present(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
@@ -63,7 +65,13 @@ private:
     std::string gpu_reason_;
     std::shared_ptr<efmi::frontend::IniRuntime> runtime_;
     std::map<std::wstring, uint32_t> streams_, images_;
-    std::map<std::string, CharacterList> lists_;
+    // The stream or image a plan item's resource names, by the resource object the compiler hands
+    // out for a declaration (stable for the generation): the path key is made once per resource,
+    // not per draw (it cost 10 us per matched draw).
+    std::unordered_map<const void*, uint32_t> stream_cache_, image_cache_;
+    uint32_t stream_index(const std::shared_ptr<const efmi::assets::FileResource>& resource);
+    uint32_t image_index(const std::shared_ptr<const efmi::assets::FileResource>& resource);
+    std::unordered_map<std::string, CharacterList> lists_;
     std::vector<std::pair<uint32_t, uint32_t>> index_bounds_;
     size_t outside_meshes_ = 0, left_to_game_ = 0;
     uint32_t identify_components_ = 0;

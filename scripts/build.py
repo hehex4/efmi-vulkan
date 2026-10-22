@@ -103,6 +103,12 @@ COMMON = [
     "/nologo", "/std:c++17", "/O2", "/MT", "/EHsc", "/W3", "/GS", "/Zi", "/DNDEBUG",
     "/DUNICODE", "/D_UNICODE", "/DNOMINMAX", "/DWIN32_LEAN_AND_MEAN", "/DVK_USE_PLATFORM_WIN32_KHR", "/D_CRT_SECURE_NO_WARNINGS",
 ]
+# EFMI_VK_COMMAND_TIMING=1: the INI runtime times every command class (D-099), for a profiling build
+# into a folder of its own; the measurement costs about as much as the commands.
+if os.environ.get("EFMI_VK_COMMAND_TIMING") == "1":
+    COMMON.append("/DEFMI_COMMAND_TIMING")
+if os.environ.get("EFMI_VK_PHASE_TIMING") == "1":
+    COMMON.append("/DEFMI_PHASE_TIMING")  # a few phase timers per draw and presentation, nearly free
 
 
 # The replacement code as a module of its own (docs/hot-swap.md): what decides and records

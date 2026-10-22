@@ -354,25 +354,38 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
     } catch (const std::exception& e) { reason = std::string(phase) + ": " + e.what(); return {}; }
 }
 
+void IniRuntime::note_timing(const char* name, uint64_t microseconds) { impl_->adapter.note_timing(name, microseconds); }
+
 bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason)
 {
     struct Completion {RuntimeExtension* extension;~Completion(){if(extension)extension->after_draw();}} completion{impl_->extension.get()};
     try {
         if(impl_->config.shader_hooks)throw std::runtime_error("Shader hook generation requires the intercepted call entry");
         if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
-        auto& p = *impl_; Scope scope(p.state);
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+        auto phase_began = std::chrono::steady_clock::now();
+        auto phase = [&](const char* name) {
+            const auto now = std::chrono::steady_clock::now();
+            impl_->adapter.note_timing(name, uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(now - phase_began).count()));
+            phase_began = now;
+        };
+#else
+        auto phase = [](const char*) {};
+#endif
+        auto& p = *impl_; Scope scope(p.state); phase("phase scope");
         struct Current {Impl& p; Current(Impl& owner, const RuntimeDraw& draw):p(owner){p.current_draw=&draw;} ~Current(){p.current_draw=nullptr;}} current(p, input);
         G->frame_no = unsigned(input.frame); G->gTime = input.seconds; G->gFrameTime = input.frame_seconds;
         // DRAW_NUMBER: the Core's identification tells a second identifier call within one draw by it.
         ++p.context.draw_number;
         DrawCallInfo call(DrawCall::DrawIndexedInstanced, 0, input.count, input.instances, uint32_t(input.base), input.first, input.first_instance, nullptr, 0);
-        TextureOverrideMatches matches; find_texture_override_for_hash(input.hash, &matches, &call);
+        TextureOverrideMatches matches; find_texture_override_for_hash(input.hash, &matches, &call); phase("phase find");
         assets::FilePlan result;
         auto s = p.command_state(); s.call_info = &call; std::wstring why;
         ResourceCopyTarget index_target;
         index_target.type = ResourceCopyTargetType::INDEX_BUFFER;
         s.this_target = &index_target;
         if (p.extension && !p.extension->before_draw(input, s, why)) throw std::runtime_error(utf8(why));
+        phase("phase before_draw");
         if(!matches.empty()){
             std::vector<CommandList*> pre,post;pre.reserve(matches.size());post.reserve(matches.size());
             for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
@@ -384,6 +397,7 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
             p.stats.draw_execute_us += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(ran - began).count());
             p.stats.draw_compile_us += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - ran).count());
             if (!executed || !compiled) throw std::runtime_error("Original draw command refused: " + utf8(why));
+            phase("phase execute+compile");
         }
         ++p.stats.draws; output = std::move(result); return true;
     } catch (const std::exception& e) {
@@ -454,7 +468,17 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
             input.resolution_width > 65536 || input.resolution_height > 65536 || !input.resolution_width != !input.resolution_height ||
             input.effective_dpi > 65536 || std::abs(int64_t(input.cursor.hotspot_x)) > 65536 || std::abs(int64_t(input.cursor.hotspot_y)) > 65536)
             throw std::runtime_error("Host window sample is invalid");
-        auto& p = *impl_; Scope scope(p.state); G->frame_no = unsigned(frame); G->gTime = seconds; G->gFrameTime = input.frame_seconds;
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+        auto phase_began = std::chrono::steady_clock::now();
+        auto phase = [&](const char* name) {
+            const auto now = std::chrono::steady_clock::now();
+            impl_->adapter.note_timing(name, uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(now - phase_began).count()));
+            phase_began = now;
+        };
+#else
+        auto phase = [](const char*) {};
+#endif
+        auto& p = *impl_; Scope scope(p.state); phase("present scope"); G->frame_no = unsigned(frame); G->gTime = seconds; G->gFrameTime = input.frame_seconds;
         p.last_input = input; p.state.sample = input;
         G->hWnd = w.present ? RuntimeWindowHandle() : nullptr;
         if (input.resolution_width) { G->mResolutionInfo.width = int(input.resolution_width); G->mResolutionInfo.height = int(input.resolution_height); }
@@ -468,6 +492,7 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         input_adapter = &p.adapter; input_context = &p.context;
         if (RuntimeDispatchInput(&p.device, sampled)) ++p.stats.key_events;
         CurrentTransition.UpdatePresets(&p.device);RuntimeUpdateTransitions(&p.device);
+        phase("present keys+presets");
         // What replay() starts from: the state after the keys, with what the frame's draws set.
         p.pre_variables.clear(); p.pre_variables.reserve(command_list_globals.size());
         for (auto& item : command_list_globals) p.pre_variables.emplace_back(&item.second, item.second.fval);
@@ -477,6 +502,7 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         if(p.config.shader_hooks)between=[&](CommandListState&,std::wstring&){++G->frame_no;p.context.ResetCallCounters();return true;};
         if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why,std::move(between)) || !ignored.items.empty())
             throw std::runtime_error("Present requires unavailable render context: " + utf8(why));
+        phase("present execute");
         ++p.stats.presents; p.replayable = true; return true;
     } catch (const std::exception& e) {
         if(impl_->extension)impl_->extension->execution_failed();

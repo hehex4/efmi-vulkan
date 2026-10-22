@@ -70,6 +70,8 @@ public:
     void adapt(CommandList& root);
     // Calls and microseconds per command class since the adapter was made (D-099).
     std::vector<std::tuple<std::string, uint64_t, uint64_t>> command_timing() const;
+    // A phase of the host's own, counted with the command classes (EFMI_COMMAND_TIMING builds).
+    void note_timing(const char* name, uint64_t microseconds);
     // Preserve original RunLinkedCommandList pointer identity/type for native
     // ShaderRegex duplicate suppression and unlinking, while bounding execution.
     std::shared_ptr<RunLinkedCommandList> linked(CommandList&,const std::wstring& ini_line);

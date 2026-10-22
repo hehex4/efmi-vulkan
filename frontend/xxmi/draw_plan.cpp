@@ -416,6 +416,9 @@ void validate_pool_runtime(CustomResourcePool& input)
     }
 }
 
+#ifdef EFMI_COMMAND_TIMING
+thread_local uint64_t g_command_children_ns = 0; // nanoseconds the children of the running command took
+#endif
 struct DrawPlanAdapter::Runtime {
     DrawPlan* active = nullptr;
     size_t steps = 0, draws = 0;
@@ -627,16 +630,88 @@ struct DrawPlanAdapter::Runtime {
         active->items.push_back(std::move(item));
     }
 
-    void run(const std::shared_ptr<CommandListCommand>& original, CommandListState* state)
+    // What a command is, as the dynamic_cast chain of run() decided it before; one word per command.
+    enum Kind : uint32_t {
+        K_AbortCommand = 1u << 0,
+        K_CheckTextureOverrideCommand = 1u << 1,
+        K_ClearViewCommand = 1u << 2,
+        K_CopyCommandListCommand = 1u << 3,
+        K_Draw3DMigotoOverlayCommand = 1u << 4,
+        K_DrawCommand = 1u << 5,
+        K_IfCommand = 1u << 6,
+        K_LayoutElementOperation = 1u << 7,
+        K_ParamOverride = 1u << 8,
+        K_PoolCopyOperation = 1u << 9,
+        K_PoolVariableOperation = 1u << 10,
+        K_PresetCommand = 1u << 11,
+        K_ResetPerFrameLimitsCommand = 1u << 12,
+        K_ResourceCopyOperation = 1u << 13,
+        K_RunCustomShaderCommand = 1u << 14,
+        K_RunExplicitCommandList = 1u << 15,
+        K_RunLinkedCommandList = 1u << 16,
+        K_ShaderResourceBatch = 1u << 17,
+        K_SkipCommand = 1u << 18,
+        K_SlotRangeCopyOperation = 1u << 19,
+        K_StoreCommand = 1u << 20,
+        K_UpscalingFlipBBCommand = 1u << 21,
+        K_VariableAssignmentExact = 1u << 22,
+        K_ResourceCopyOperationExact = 1u << 23
+    };
+    static uint32_t classify(CommandListCommand& c)
     {
+        uint32_t k = 0;
+        if (dynamic_cast<AbortCommand*>(&c)) k |= K_AbortCommand;
+        if (dynamic_cast<CheckTextureOverrideCommand*>(&c)) k |= K_CheckTextureOverrideCommand;
+        if (dynamic_cast<ClearViewCommand*>(&c)) k |= K_ClearViewCommand;
+        if (dynamic_cast<CopyCommandListCommand*>(&c)) k |= K_CopyCommandListCommand;
+        if (dynamic_cast<Draw3DMigotoOverlayCommand*>(&c)) k |= K_Draw3DMigotoOverlayCommand;
+        if (dynamic_cast<DrawCommand*>(&c)) k |= K_DrawCommand;
+        if (dynamic_cast<IfCommand*>(&c)) k |= K_IfCommand;
+        if (dynamic_cast<LayoutElementOperation*>(&c)) k |= K_LayoutElementOperation;
+        if (dynamic_cast<ParamOverride*>(&c)) k |= K_ParamOverride;
+        if (dynamic_cast<PoolCopyOperation*>(&c)) k |= K_PoolCopyOperation;
+        if (dynamic_cast<PoolVariableOperation*>(&c)) k |= K_PoolVariableOperation;
+        if (dynamic_cast<PresetCommand*>(&c)) k |= K_PresetCommand;
+        if (dynamic_cast<ResetPerFrameLimitsCommand*>(&c)) k |= K_ResetPerFrameLimitsCommand;
+        if (dynamic_cast<ResourceCopyOperation*>(&c)) k |= K_ResourceCopyOperation;
+        if (dynamic_cast<RunCustomShaderCommand*>(&c)) k |= K_RunCustomShaderCommand;
+        if (dynamic_cast<RunExplicitCommandList*>(&c)) k |= K_RunExplicitCommandList;
+        if (dynamic_cast<RunLinkedCommandList*>(&c)) k |= K_RunLinkedCommandList;
+        if (dynamic_cast<ShaderResourceBatch*>(&c)) k |= K_ShaderResourceBatch;
+        if (dynamic_cast<SkipCommand*>(&c)) k |= K_SkipCommand;
+        if (dynamic_cast<SlotRangeCopyOperation*>(&c)) k |= K_SlotRangeCopyOperation;
+        if (dynamic_cast<StoreCommand*>(&c)) k |= K_StoreCommand;
+        if (dynamic_cast<UpscalingFlipBBCommand*>(&c)) k |= K_UpscalingFlipBBCommand;
+        if (typeid(c) == typeid(VariableAssignment)) k |= K_VariableAssignmentExact;
+        if (typeid(c) == typeid(ResourceCopyOperation)) k |= K_ResourceCopyOperationExact;
+        return k;
+    }
+    template <class X> static X* as(const std::shared_ptr<CommandListCommand>& o, uint32_t kinds, uint32_t bit)
+    {
+        return (kinds & bit) ? static_cast<X*>(o.get()) : nullptr;
+    }
+    void run(const std::shared_ptr<CommandListCommand>& original, CommandListState* state, std::pair<uint64_t, uint64_t>* timing_slot = nullptr,
+             uint32_t kinds = 0)
+    {
+        // The command's kinds, decided once when the bridge command was made (a dynamic_cast chain per
+        // command, a hundred commands per matched draw, cost a third of the plan).
+        if (!kinds) kinds = classify(*original);
         // Command timing by class (D-099) is compiled in with EFMI_COMMAND_TIMING: the measurement of
         // the 1.6.8 session (about a hundred commands per draw) cost as much as the commands.
 #ifdef EFMI_COMMAND_TIMING
+        // Exclusive time per class: what a command's children (an if's branches, a called list) took
+        // goes to their own classes, not to the parent's.
+        // The slot is the bridge command's, found once at adaptation: the timer itself costs two clock reads.
         struct Timer {
-            Runtime& runtime; const char* name; std::chrono::steady_clock::time_point began;
-            ~Timer() { auto& t = runtime.command_timing[name]; ++t.first;
-                       t.second += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count()); }
-        } timer{*this, typeid(*original).name(), std::chrono::steady_clock::now()};
+            std::pair<uint64_t, uint64_t>& slot; std::chrono::steady_clock::time_point began; uint64_t children_before;
+            Timer(std::pair<uint64_t, uint64_t>& s) : slot(s), began(std::chrono::steady_clock::now()), children_before(g_command_children_ns) { g_command_children_ns = 0; }
+            ~Timer() {
+                const uint64_t elapsed = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - began).count());
+                const uint64_t own = elapsed > g_command_children_ns ? elapsed - g_command_children_ns : 0;
+                ++slot.first; slot.second += own / 1000;
+                g_command_children_ns = children_before + elapsed;
+            }
+        } timer{timing_slot ? *timing_slot : command_timing[typeid(*original).name()]};
 #endif
         if (!active) refuse(L"Planner command invoked outside a transaction");
         if (++steps > max_steps) refuse(L"Plan execution budget exceeded");
@@ -644,10 +719,10 @@ struct DrawPlanAdapter::Runtime {
         ++active_depth;struct Depth {size_t& value;~Depth(){--value;}} depth{active_depth};
         if (state->recursion >= MAX_COMMAND_LIST_RECURSION)
             refuse(L"Plan recursion budget exceeded");
-        if(auto* check=dynamic_cast<CheckTextureOverrideCommand*>(original.get())){
+        if(auto* check=as<CheckTextureOverrideCommand>(original, kinds, K_CheckTextureOverrideCommand)){
             check_texture(*check,*state);return;
         }
-        if(auto* shader=dynamic_cast<RunCustomShaderCommand*>(original.get())){
+        if(auto* shader=as<RunCustomShaderCommand>(original, kinds, K_RunCustomShaderCommand)){
             std::wstring why;
             if(shader_command && !owned() && !drawing())refuse(L"CustomShader needs the host's owned GPU scope, which replaced draws do not open");
             // In a draw's scope everything the shader's lists run is owned work (D-087).
@@ -658,7 +733,7 @@ struct DrawPlanAdapter::Runtime {
                 refuse(why.empty()?L"CustomShader requires a shader execution adapter":why);
             return;
         }
-        if(dynamic_cast<DrawCommand*>(original.get())){
+        if(as<DrawCommand>(original, kinds, K_DrawCommand)){
             if(state->call_info && state->call_info->hunting_skip)return;
             if(draw_prepare && gpu()){std::wstring why;if(!draw_prepare(*state,why))refuse(why.empty()?L"Source draw preparation refused":why);}
             // Original DrawCommand flushes even for a zero-count draw, before
@@ -668,7 +743,7 @@ struct DrawPlanAdapter::Runtime {
         // A replaced draw's scope, outside CustomShaders: a copy into a Mod resource, or a reference to
         // one with owned content, is owned work; the draw's own bindings and draws keep the plan (D-087).
         if(resource_command && drawing() && !shader_depth && !owned()){
-            if(auto* copy=dynamic_cast<ResourceCopyOperation*>(original.get()); copy && typeid(*copy)==typeid(ResourceCopyOperation)){
+            if(auto* copy=as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation); copy && (kinds & K_ResourceCopyOperationExact)){
                 auto& dst=effective_target(copy->dst,*state);
                 bool owned_source=false;
                 if(copy->src.type==ResourceCopyTargetType::CUSTOM_RESOURCE && !copy->src.custom_resource_pool &&
@@ -685,16 +760,16 @@ struct DrawPlanAdapter::Runtime {
                 }
             }
         }
-        if(resource_command && gpu() && (dynamic_cast<ResourceCopyOperation*>(original.get()) ||
-           dynamic_cast<ClearViewCommand*>(original.get()) || dynamic_cast<StoreCommand*>(original.get()) ||
-           dynamic_cast<DrawCommand*>(original.get()) || dynamic_cast<SlotRangeCopyOperation*>(original.get()))) {
+        if(resource_command && gpu() && (as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation) ||
+           as<ClearViewCommand>(original, kinds, K_ClearViewCommand) || as<StoreCommand>(original, kinds, K_StoreCommand) ||
+           as<DrawCommand>(original, kinds, K_DrawCommand) || as<SlotRangeCopyOperation>(original, kinds, K_SlotRangeCopyOperation))) {
             std::wstring why;
             if(!owned())owned_only(*original,*state);
             if(owned_gate || draw_gate){mirror_reference(*original,*state);mark_owned(*original,*state);}
             if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
             return;
         }
-        if (auto* draw = dynamic_cast<DrawCommand*>(original.get())) {
+        if (auto* draw = as<DrawCommand>(original, kinds, K_DrawCommand)) {
             if (state->call_info && state->call_info->hunting_skip) return;
             PlanItem item; item.operation = PlanOperation::DrawIndexed;
             if (draw->type == DrawCommandType::DRAW_INDEXED) {
@@ -723,7 +798,7 @@ struct DrawPlanAdapter::Runtime {
             append(std::move(item));
             return;
         }
-        if (auto* binding = dynamic_cast<ResourceCopyOperation*>(original.get())) {
+        if (auto* binding = as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation)) {
             auto& src = binding->src; auto& dst = effective_target(binding->dst,*state);
             if (typeid(*binding) != typeid(ResourceCopyOperation) ||
                 src.evaluation_mode != ResourceCopyTargetEvaluationMode::RESOURCE ||
@@ -787,7 +862,7 @@ struct DrawPlanAdapter::Runtime {
             append(std::move(item));
             return;
         }
-        if (auto* batch = dynamic_cast<ShaderResourceBatch*>(original.get())) {
+        if (auto* batch = as<ShaderResourceBatch>(original, kinds, K_ShaderResourceBatch)) {
             // A fetch of pixel slots into resources by reference keeps the application's textures
             // (application_textures); other fetches need the owned GPU adapter.
             bool application_fetch=dynamic_cast<ShaderResourceFetchBatch*>(batch) && batch->shader_type==L'p';
@@ -803,7 +878,7 @@ struct DrawPlanAdapter::Runtime {
             }
             return;
         }
-        if (auto* call = dynamic_cast<RunExplicitCommandList*>(original.get())) {
+        if (auto* call = as<RunExplicitCommandList>(original, kinds, K_RunExplicitCommandList)) {
             auto found = externals.find(call->command_list_section);
             if (found != externals.end()) {
                 PlanItem item; item.operation = PlanOperation::External; item.external = found->second.name;
@@ -830,31 +905,31 @@ struct DrawPlanAdapter::Runtime {
             }
             return;
         }
-        if (dynamic_cast<SkipCommand*>(original.get())) {
+        if (as<SkipCommand>(original, kinds, K_SkipCommand)) {
             active->skip_original = true; // Do not mutate the live caller before GPU readiness.
             return;
         }
-        if (auto* param = dynamic_cast<ParamOverride*>(original.get())) {
+        if (auto* param = as<ParamOverride>(original, kinds, K_ParamOverride)) {
             if (!G || param->param_idx < 0 || size_t(param->param_idx) >= G->iniParams.size())
                 refuse(L"INI parameter assignment exceeds generation storage");
             original->run(state); return;
         }
-        if(auto* call=dynamic_cast<RunLinkedCommandList*>(original.get())){
+        if(auto* call=as<RunLinkedCommandList>(original, kinds, K_RunLinkedCommandList)){
             if(!call->link || !adapted.count(call->link->ResolveCommandList()))refuse(L"Linked command target was not adapted");
             original->run(state);return;
         }
-        if (dynamic_cast<IfCommand*>(original.get()) || typeid(*original) == typeid(VariableAssignment) ||
-            dynamic_cast<PoolVariableOperation*>(original.get()) || dynamic_cast<AbortCommand*>(original.get()) ||
-            dynamic_cast<PresetCommand*>(original.get()) || dynamic_cast<ResetPerFrameLimitsCommand*>(original.get()) ||
-            dynamic_cast<UpscalingFlipBBCommand*>(original.get())) {
+        if (as<IfCommand>(original, kinds, K_IfCommand) || (kinds & K_VariableAssignmentExact) ||
+            as<PoolVariableOperation>(original, kinds, K_PoolVariableOperation) || as<AbortCommand>(original, kinds, K_AbortCommand) ||
+            as<PresetCommand>(original, kinds, K_PresetCommand) || as<ResetPerFrameLimitsCommand>(original, kinds, K_ResetPerFrameLimitsCommand) ||
+            as<UpscalingFlipBBCommand>(original, kinds, K_UpscalingFlipBBCommand)) {
             // The upscaling flip only clears this generation's bb_is_upscaling_bb flag.
             original->run(state);
             return;
         }
         // The original draws the 3DMigoto overlay only when the swap chain has one, and a
         // hosted generation has none; it must not reach the reference swap chain scaffolding.
-        if (dynamic_cast<Draw3DMigotoOverlayCommand*>(original.get())) return;
-        if(auto* pool=dynamic_cast<PoolCopyOperation*>(original.get())){
+        if (as<Draw3DMigotoOverlayCommand>(original, kinds, K_Draw3DMigotoOverlayCommand)) return;
+        if(auto* pool=as<PoolCopyOperation>(original, kinds, K_PoolCopyOperation)){
             if(pool->dst.type!=ResourceCopyTargetType::POOL || !pool->dst.custom_resource_pool ||
                (pool->src.type!=ResourceCopyTargetType::POOL && pool->src.type!=ResourceCopyTargetType::EMPTY) ||
                (pool->src.type==ResourceCopyTargetType::POOL && !pool->src.custom_resource_pool) ||
@@ -868,7 +943,7 @@ struct DrawPlanAdapter::Runtime {
             if(reference && destination->ResolvePool()!=source->ResolvePool())refuse(L"Pool reference did not resolve");
             return;
         }
-        if(auto* copy=dynamic_cast<CopyCommandListCommand*>(original.get())){
+        if(auto* copy=as<CopyCommandListCommand>(original, kinds, K_CopyCommandListCommand)){
             if(!copy->dst || (copy->src &&
                (!adapted.count(copy->src->command_list.ResolveCommandList()) || !adapted.count(copy->src->post_command_list.ResolveCommandList()))))
                 refuse(L"Callback source was not adapted");
@@ -876,7 +951,7 @@ struct DrawPlanAdapter::Runtime {
                             &copy->dst->post_command_list==copy->src->post_command_list.ResolveCommandList()))refuse(L"Cyclic callback reference");
             original->run(state);return;
         }
-        if (auto* layout = dynamic_cast<LayoutElementOperation*>(original.get())) {
+        if (auto* layout = as<LayoutElementOperation>(original, kinds, K_LayoutElementOperation)) {
             if (state->input_layout_overrides.size() >= 256) refuse(L"Layout operation budget exceeded");
             layout->run(state);
             return;
@@ -892,14 +967,20 @@ public:
     std::shared_ptr<CommandListCommand> original;
     std::shared_ptr<DrawPlanAdapter::Runtime> runtime;
     bool arguments_supported;
+    std::pair<uint64_t, uint64_t>* timing_slot = nullptr;
+    uint32_t kinds = 0;
     BridgeCommand(std::shared_ptr<CommandListCommand> command,
                   std::shared_ptr<DrawPlanAdapter::Runtime> owner)
         : original(std::move(command)), runtime(std::move(owner)) {
         guard_arguments(*original,runtime->queries);arguments_supported=cpu_arguments(*original);ini_line=original->ini_line;
+        kinds = DrawPlanAdapter::Runtime::classify(*original);
+#ifdef EFMI_COMMAND_TIMING
+        timing_slot = &runtime->command_timing[typeid(*original).name()];
+#endif
     }
     void run(CommandListState* state) override {
         if (!arguments_supported) refuse(L"Unadapted expression query: " + ini_line);
-        runtime->run(original, state);
+        runtime->run(original, state, timing_slot, kinds);
     }
 };
 class BridgeLinkedCommand final : public RunLinkedCommandList {
@@ -1136,6 +1217,16 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
         } else if(auto* call=dynamic_cast<RunLinkedCommandList*>(command.get())){
             if(call->link)adapt_tree(*call->link,depth+1);
         }
+        // A native command (an if, a variable assignment, a pool variable, abort, preset, the limit
+        // reset, the upscaling flip) whose arguments the CPU evaluates stays the original's own object
+        // (D-106): the bridge only budgeted it and called it, a hundred commands per matched draw.
+        {
+            const uint32_t kinds = Runtime::classify(*command);
+            constexpr uint32_t native = Runtime::K_IfCommand | Runtime::K_VariableAssignmentExact | Runtime::K_PoolVariableOperation |
+                                        Runtime::K_AbortCommand | Runtime::K_PresetCommand | Runtime::K_ResetPerFrameLimitsCommand |
+                                        Runtime::K_UpscalingFlipBBCommand;
+            if ((kinds & native) && cpu_arguments(*command)) { guard_arguments(*command, runtime_->queries); continue; }
+        }
         command = std::make_shared<BridgeCommand>(command, runtime_);
     }
 }
@@ -1155,6 +1246,10 @@ std::vector<std::tuple<std::string, uint64_t, uint64_t>> DrawPlanAdapter::comman
     for (const auto& entry : runtime_->command_timing) result.emplace_back(entry.first, entry.second.first, entry.second.second);
     return result;
 }
+void DrawPlanAdapter::note_timing(const char* name, uint64_t microseconds)
+{
+    auto& t = runtime_->command_timing[name]; ++t.first; t.second += microseconds;
+}
 bool DrawPlanAdapter::execute_matches(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,CommandListState& state,DrawPlan& output,std::wstring& reason)
 {
     return execute_impl(pre,&post,state,output,reason);
@@ -1169,11 +1264,21 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         reason = L"Planner requires an adapted root and a fresh serial execution state";
         return false;
     }
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+    auto phase_began = std::chrono::steady_clock::now();
+    auto phase = [&](const char* name) {
+        const auto now = std::chrono::steady_clock::now();
+        note_timing(name, uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(now - phase_began).count())); phase_began = now;
+    };
+#else
+    auto phase = [](const char*) {};
+#endif
     DrawPlan candidate;
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     runtime_->keep_original=false;runtime_->shader_depth=0;
     runtime_->pixel_bindings={};
+    phase("exec setup");
     try {
         auto run=[&](const auto& lists,CommandListState& phase){for(auto* root:lists){
             if(phase.aborted)break;
@@ -1185,8 +1290,10 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         }};
         if(post)state.post=false;
         run(pre,state);
+        phase("exec pre lists");
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         runtime_->flush(state);
+        phase("exec flush");
         candidate.pre_items=candidate.items.size();
         if(between){std::wstring why;if(!between(state,why))refuse(why.empty()?L"Root phase boundary refused":why);}
         if(post){
@@ -1199,10 +1306,12 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
             run(*post,after);
             if(runtime_->nested_failed)refuse(L"Nested native callback failed");
             runtime_->flush(after);
+            phase("exec post lists+flush");
         }
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         if(runtime_->keep_original)candidate.skip_original=false;
         output = std::move(candidate);
+        phase("exec output");
     } catch (const Refused& error) {
         reason = error.reason;
     } catch (const std::exception&) {

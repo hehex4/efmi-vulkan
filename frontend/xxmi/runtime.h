@@ -134,6 +134,7 @@ public:
     // Retired workers must not overwrite a newer generation's settings file.
     void suspend_persistence();
     RuntimeStatus status() const;
+    void note_timing(const char* name, uint64_t microseconds);
     std::vector<std::shared_ptr<const assets::FileResource>> resources() const;
 private:
     struct Impl;

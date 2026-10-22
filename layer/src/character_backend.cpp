@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cmath>
 #include <unordered_map>
+#include <tuple>
 #include <set>
 #include <future>
 #include <fstream>
@@ -199,7 +200,12 @@ struct IndexKeyHash {
         return std::hash<uint64_t>()(reinterpret_cast<uint64_t>(k.buffer) ^ (k.offset * 0x9E3779B97F4A7C15ull) ^ (uint64_t(k.bytes) << 40));
     }
 };
-struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; uint64_t seen = 0, next_quick = 0; };
+struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; uint64_t seen = 0, next_quick = 0; uint32_t stable = 0; };
+// A region a package acts on has its edge fingerprint read every draw (two uncached reads, most of
+// a matched draw's hashing) until it matched this many times in a row; then every kQuickFrames like
+// the others, a mismatch starting over (D-106). A static mesh never changes; a reused region is
+// seen within those frames.
+constexpr uint32_t kStableReads = 120;
 // Caller holds res_mx. The index bytes of one draw, hashed once for every package of the device
 // (D-097) and then recognized by a short fingerprint; the full hash is repeated now and then because
 // mapped pools change unseen. Each recording thread keeps its own table, so no draw waits for another.
@@ -597,8 +603,12 @@ public:
     }
 
     bool init_materials();
+    // The variant a (pipeline, draw, material plan) resolved to, kept per generation (D-106): the
+    // variant cache's key building and lookup cost 5 us per replaced draw. Cleared with the plans.
+    std::map<std::tuple<uint32_t, uint32_t, const StaticMaterial*>, std::shared_ptr<const PipelineVariant>> variant_lookup;
     bool refresh_materials()
     {
+        variant_lookup.clear();
         // A live plan added a draw (a key, a texture section): every profile gets its plan. The rules
         // cover every slot (D-101), so nothing is derived again and the variants of the earlier draws
         // keep their patches.
@@ -936,11 +946,23 @@ public:
                    const VertexInputRecipe* vertex, bool* textures)
     {
         efmi::frontend::OwnedRuntime* gpu = nullptr;
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+        auto began = std::chrono::steady_clock::now();
+        auto phase = [&](const char* name) {
+            const auto now = std::chrono::steady_clock::now();
+            program->note_timing(name, uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(now - began).count())); began = now;
+        };
+#else
+        auto phase = [](const char*) {};
+#endif
         if (presenter && !draw_work_failed && program->gpu() && !program->gpu()->scope_active()) {
             try { program->gpu()->begin_draw(); gpu = program->gpu().get(); } catch (const std::exception&) {}
         }
+        phase("phase gpu begin");
         const bool planned = program->plan(request, package, output, skip, added, reason, vertex, textures);
+        phase("phase program plan (whole)");
         if (gpu && gpu->scope_active()) { try { gpu->suspend(); } catch (const std::exception&) {} }
+        phase("phase gpu suspend");
         return planned;
     }
     // Before an application submission on a graphics queue: the owned work replaced draws recorded,
@@ -1349,13 +1371,15 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                             material_plans, material_views, material_origin)) return false;
         lap(S_MATERIALS);
         for (uint32_t i = 0; i < list->count; ++i) {
+            const auto lookup_key = std::make_tuple(pipe->second.id, list->first + i, material_plans[i]);
+            if (const auto known = variant_lookup.find(lookup_key); known != variant_lookup.end()) { variants.push_back(known->second); continue; }
             VertexInputRecipe vertex;
             std::string reason;
             if (!package.vertex_input(package.draws[list->first + i], pipe->second.recipe->vertex, vertex, reason))
                 return refuse(C_VERTEX, "character vertex declaration: " + reason);
             // The draw waits for a variant still building (D-103), bounded; the frame gate covers a timeout.
             const auto result = cache->await(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, material_plans[i]->patch, std::chrono::milliseconds(4000));
-            if (result.variant) { variants.push_back(result.variant); continue; }
+            if (result.variant) { variants.push_back(result.variant); if (variant_lookup.size() < 65536) variant_lookup.emplace(lookup_key, result.variant); continue; }
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
             return refuse(C_VARIANT, "character variant: " + result.reason);
         }
@@ -1664,6 +1688,15 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
         StageMark locking(trace, "character Present (generation lock)");
         std::lock_guard<std::mutex> lock(backend.mod_mx);
         StageMark stage(trace, "character Present (owned scope, INI Present, owned submission)");
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+        auto present_began = std::chrono::steady_clock::now();
+        auto present_phase = [&](const char* name) {
+            const auto now = std::chrono::steady_clock::now();
+            backend.program->note_timing(name, uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(now - present_began).count())); present_began = now;
+        };
+#else
+        auto present_phase = [](const char*) {};
+#endif
         std::string reason, owned_reason;
         if (!had_draws) {
             if (!backend.presenter || !backend.presenter->last_drew_backbuffer()) return;
@@ -1679,8 +1712,10 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
         }
         // With a presentation the generation's GPU commands run in a scope ordered before it.
         const bool owned = backend.presenter && backend.presenter->begin(present, owned_reason);
+        present_phase("present owned begin");
         if (!owned_reason.empty()) backend.note(owned_reason);
         const bool executed = backend.program->present(input, backend.frame.load(), ini_seconds(), reason);
+        present_phase("present ini (whole)");
         if (!executed) backend.note("INI Present: " + reason);
         // The first refusal of owned Present work ends the generation's GPU side; keep its reason.
         static std::atomic<bool> logged{false};
@@ -1690,6 +1725,7 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
             backend.presenter->finish(present, executed, submission);
             if (!submission.empty()) backend.note(submission);
         }
+        present_phase("present owned finish");
         backend.save_requested = true; backend.wake.notify_one();
     }
 }
@@ -2073,7 +2109,7 @@ bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const Cha
     auto found = table.hashes.find(key);
     const bool current = found != table.hashes.end() && found->second.buffer_id == info.id && found->second.gen == region_gen &&
                          now < found->second.next_full;
-    if (current && now < found->second.next_quick && !index.by_hash.count(found->second.hash)) {
+    if (current && now < found->second.next_quick && (found->second.stable >= kStableReads || !index.by_hash.count(found->second.hash))) {
         found->second.seen = now; hash = found->second.hash; ++g_quick_skipped;
         return true;
     }
@@ -2085,6 +2121,7 @@ bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const Cha
     ++g_quick_reads;
     if (current && found->second.quick == quick) {
         found->second.seen = now; found->second.next_quick = now + kQuickFrames; hash = found->second.hash;
+        if (found->second.stable < kStableReads) ++found->second.stable;
         return true;
     }
     if (found == table.hashes.end()) ++g_hash_new;

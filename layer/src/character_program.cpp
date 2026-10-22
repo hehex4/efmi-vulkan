@@ -1,7 +1,9 @@
 #include "character_program.h"
 #include "../../frontend/xxmi/character_core.h"
 #include "json.h"
+#include <chrono>
 #include <fstream>
+#include <optional>
 #include <algorithm>
 #include <cstring>
 #include <sstream>
@@ -304,13 +306,39 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
+uint32_t CharacterProgram::stream_index(const std::shared_ptr<const efmi::assets::FileResource>& resource)
+{
+    const auto cached = stream_cache_.find(resource.get());
+    if (cached != stream_cache_.end()) return cached->second;
+    const auto found = streams_.find(key(resource->path));
+    if (found == streams_.end()) throw std::runtime_error("INI mesh not in prepared stream profile");
+    if (stream_cache_.size() < 4096) stream_cache_.emplace(resource.get(), found->second);
+    return found->second;
+}
+uint32_t CharacterProgram::image_index(const std::shared_ptr<const efmi::assets::FileResource>& resource)
+{
+    const auto cached = image_cache_.find(resource.get());
+    if (cached != image_cache_.end()) return cached->second;
+    const auto found = images_.find(key(resource->path));
+    if (found == images_.end()) throw std::runtime_error("INI image not in prepared resource catalogue");
+    if (image_cache_.size() < 4096) image_cache_.emplace(resource.get(), found->second);
+    return found->second;
+}
 bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, CharacterPackage& package, CharacterList& output,
                             bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures)
 {
     try {
         added = false; efmi::assets::FilePlan plan;
         if (textures) *textures = false;
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+        struct Phase { CharacterProgram* p; std::chrono::steady_clock::time_point began;
+                       ~Phase() { if (p) p->note_timing("phase list", uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count())); } };
+        Phase listing{nullptr, {}};
+#endif
         if (!runtime_->draw(request, plan, reason)) return false;
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+        listing.p = this; listing.began = std::chrono::steady_clock::now();
+#endif
         skip = plan.skip_original;
         if (!skip) {
             output = {};
@@ -328,9 +356,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                         pixels.erase(item.slot); continue;
                     }
                     if (!item.resource) { pixels[item.slot] = kCharacterNone; continue; }
-                    const auto found = images_.find(key(item.resource->path));
-                    if (found == images_.end()) throw std::runtime_error("INI image not in prepared resource catalogue");
-                    pixels[item.slot] = found->second;
+                    pixels[item.slot] = image_index(item.resource);
                 } else if (item.operation != Op::External) return true;
             }
             if (pixels.empty()) return true;
@@ -357,7 +383,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         std::vector<CharacterDraw> draws;
         std::vector<std::vector<CharacterPixel>> material;
         uint32_t required = 0;
-        std::vector<uint8_t> signature;
+        std::vector<uint8_t> signature; signature.reserve(512);
         for (const auto& item : plan.items) {
             using Op = efmi::assets::FileOperation;
             if (item.operation == Op::BindPixelResource) {
@@ -366,9 +392,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     if (uint32_t(item.application_slot) != item.slot) throw std::runtime_error("An application texture moved to another pixel slot");
                     pixels.erase(item.slot);
                 } else if (item.resource) {
-                    const auto found = images_.find(key(item.resource->path));
-                    if (found == images_.end()) throw std::runtime_error("INI image not in prepared resource catalogue");
-                    pixels[item.slot] = found->second;
+                    pixels[item.slot] = image_index(item.resource);
                 } else pixels[item.slot] = kCharacterNone;
             } else if (item.operation == Op::BindIndex || item.operation == Op::BindVertex) {
                 if (item.operation == Op::BindVertex && item.slot < 4)
@@ -389,16 +413,15 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     else throw std::runtime_error("Runtime vertex slot outside profile");
                     continue;
                 }
-                const auto found = streams_.find(key(item.resource->path));
-                if (found == streams_.end()) throw std::runtime_error("INI mesh not in prepared stream profile");
-                const auto& stream = package.streams[found->second];
+                const uint32_t found_stream = stream_index(item.resource);
+                const auto& stream = package.streams[found_stream];
                 if (item.resource->stride != stream.stride) throw std::runtime_error("Runtime binding stride mismatch");
                 if (item.operation == Op::BindIndex) {
                     if (stream.kind != CharacterStream::Index) throw std::runtime_error("Runtime index kind mismatch");
-                    bound.index_stream = found->second;
+                    bound.index_stream = found_stream;
                 } else {
                     if (item.slot >= 4 || stream.kind != CharacterStream::Vertex) throw std::runtime_error("Runtime vertex binding outside profile");
-                    bound.vb[item.slot] = found->second;
+                    bound.vb[item.slot] = found_stream;
                 }
             } else if (item.operation == Op::DrawIndexed) {
                 if (draws.size() >= 64 || item.instance_count != 1 || item.first_instance || bound.index_stream == kCharacterNone)
