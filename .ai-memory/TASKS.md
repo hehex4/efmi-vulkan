@@ -910,4 +910,4 @@ The inventory found enabled `k/1.ini` and `Draw_2D.hlsl`, with two images, curso
 - Nothing about installations: what the project needs goes into `F:\vulkan` without asking (user, 2026-10-11). The validation layers are now installed; see T-015.
 - The motivation question and the scope question of plan section 10.
 
-1.7.0 finished, committed and deployed on 2026-10-21 at 13:40 (CURRENT_STATE.md). Next game session: whether a switched character is the Mod from its first frame without flicker, and the frame interval against the 1.6.9 session's 17.5 ms; then the offline items above.
+1.7.0 deployed 2026-10-21 13:40; the seventh session (2026-10-22) led to 1.7.1 (BUG-036 to BUG-039, D-104, D-105), deployed at 12:29 (CURRENT_STATE.md). Next game session: whether a switched character is the Mod from its first frame without flicker, and the frame interval against the 1.6.9 session's 17.5 ms; then the offline items above.

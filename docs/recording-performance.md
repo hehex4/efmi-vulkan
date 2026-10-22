@@ -154,3 +154,22 @@ Verification: The full suite passed on the final source (build/next/run_all-1.7.
 pipeline cache and the first-frame skip take effect when the game is next started with 1.7.0; the
 next session's `textures.draw_waits`, `draw_wait_max_microseconds`, `variant_waits` and
 `gated_frames` say whether a switched character ever waited long or was gated.
+
+## Presentations without a draw, and the input sample (1.7.1, D-104)
+
+Seventh game session (1.7.0): in fullscreen the game presented four to ten times per rendered
+frame (frame generation; a frame presented again), nothing drawn between two presentations, and
+the layer ran the Present lists and the owned Present work only after a rendered frame: a Mod's
+key panel was in one presented image of four and flickered. 1.7.1 runs the Present lists once per
+rendered frame, as the original runs them once per frame, and gives a presentation without a draw
+a replay of the last Present's drawing when that Present drew into the back buffer: the lists run
+again from the variable state the Present started from, into the new image, and every variable
+and parameter is restored. A Present that did not draw into the back buffer (Typhoeus' per-frame
+GPU work) is not replayed: the generated frames cost nothing there.
+
+The keys, the window and the cursor were sampled per package per presentation (256 key states
+each); once per presentation now, the Present work went from about 1.7 ms to about 0.5 ms per
+presentation with 22 packages. What remains of the frame cost, measured in the session: 91 fps
+with the replacement against 120 without; per rendered frame 3.9 ms of recording on the
+rendering thread, 2.0 ms of it the INI plan (67 us per matched draw), 0.4 ms bones, 0.65 ms
+index hashing, 0.16 ms variants, 0.3 ms snapshot and emit.

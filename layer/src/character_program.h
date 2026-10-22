@@ -48,6 +48,8 @@ public:
     bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason,
               const VertexInputRecipe* vertex = nullptr, bool* textures = nullptr);
     bool present(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
+    // The last Present again, for another presentation of the same frame (BUG-036).
+    bool replay(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason) { return !runtime_ || runtime_->save(reason); }
     bool take_reload_request() { return runtime_ && runtime_->take_reload_request(); }
     void suspend_persistence() { if (runtime_) runtime_->suspend_persistence(); }

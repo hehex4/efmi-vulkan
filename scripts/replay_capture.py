@@ -24,6 +24,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -41,6 +42,7 @@ from efmi_vk.source_slots import core_facts, declarations  # noqa: E402
 MODS = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Mods")
 ANY_COUNT = 0xFFFFFFFF            # a section matched by its hash alone (any index count)
 CORE = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Core\EFMI")
+SETTINGS = None  # --settings: a folder of persistent INI variable files copied into each run
 IDENTITY_BONES = 1024            # bones written as identity at each instance entry's offsets
 # The stand-in bone: the character meshes are stored Z-up and their skeleton turns them upright
 # (-90 degrees about X), so a bone that only does that shows the Mod's mesh standing in bind pose.
@@ -392,6 +394,11 @@ def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation
     from harness import layer_env
     folder = out / ("enabled" if enabled else "disabled")
     folder.mkdir(parents=True, exist_ok=True)
+    if SETTINGS is not None and SETTINGS.is_dir():
+        # Persistent INI variables to start from (a variant key's state), as the game's settings folder.
+        (folder / "settings").mkdir(exist_ok=True)
+        for item in SETTINGS.glob("*.ini"):
+            shutil.copy2(item, folder / "settings" / item.name)
     extra = dict(EFMI_VK_M2_MODS=str(MODS), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(folder / "settings"),
                  EFMI_VK_M2_ENABLED="1" if enabled else "0", EFMI_VK_M2_DIMENSION_ZERO=dimension_policy() or "off",
                  VK_LAYER_PATH=os.pathsep.join([str(dist), str(validation)]), XDG_CACHE_HOME=str(folder),
@@ -487,11 +494,13 @@ def main() -> int:
     ap.add_argument("--probe-vertices", action="store_true", help="diagnosis: the original draws get a small known shape")
     ap.add_argument("--small-images", action="store_true", help="diagnosis: 4x4 single-level textures")
     ap.add_argument("--mods", type=Path, help="another Mods folder than the installed one (a project-owned copy)")
+    ap.add_argument("--settings", type=Path, help="a folder of persistent INI variable files the Mods start from (a variant key's state)")
     ap.add_argument("--check", action="store_true", help="fail unless both runs are clean, the originals draw nothing and every "
                     "render pass with a component of the Mod shows the Mod's draws (regression suite)")
     args = ap.parse_args()
-    global MODS
+    global MODS, SETTINGS
     MODS = args.mods or MODS
+    SETTINGS = args.settings
     dist = Path(os.environ.get("EFMI_VK_DIST", ROOT / "dist"))
     validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))
     out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else ""))

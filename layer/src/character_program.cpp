@@ -234,8 +234,19 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
             mod_namespace.assign(name.begin(), name.end());
             std::transform(mod_namespace.begin(), mod_namespace.end(), mod_namespace.begin(), ::tolower);
         }
+        // The settings file is the namespace's and the Mod folder's: two Mods of one character declare
+        // the same namespace (`namespace = yvonne`), and the toggles persisted by the one must not come
+        // up in the other when it takes its place (BUG-039). The original keeps one d3dx_user.ini by
+        // namespace alone and inherits them.
         std::string settings_name = mod_namespace;
+        {
+            std::string tag;
+            for (wchar_t c : source.ini.parent_path().filename().wstring())
+                tag += c < 0x80 && (isalnum(static_cast<int>(c)) || c == L'_' || c == L'-') ? static_cast<char>(c) : '_';
+            if (!tag.empty()) settings_name += "-" + tag;
+        }
         for (char& c : settings_name) if (!isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') c = '_';
+        if (settings_name.size() > 80) settings_name.resize(80);
         auto found = std::make_shared<efmi::frontend::CharacterDiscovery>();
         if (!load(source.ini, source.core, source.settings, settings_name,
                   efmi::frontend::character_discovery(mod_namespace, found), factory, reason)) return false;
@@ -438,19 +449,22 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     throw std::runtime_error("One blend stream under two blend-index widths");
                 if (bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset == kCharacterNone) {
                     const uint32_t stride = package.streams[bound.vb[2]].stride;
-                    uint32_t indices = kCharacterNone, weights = kCharacterNone;
+                    uint32_t indices = kCharacterNone, weights = kCharacterNone, weight_bytes = 2;
                     if (vertex) {
+                        // BLENDINDICES is the pipeline's unsigned four-component element of binding 2, of
+                        // any width (BUG-038: 32-bit in Typhoeus' clothes pipeline), BLENDWEIGHT its
+                        // normalized or float one.
                         for (const auto& a : vertex->attributes) {
                             if (a.binding != 2) continue;
-                            if (a.format == VK_FORMAT_R8G8B8A8_UINT) indices = a.offset;
-                            else if (a.format == VK_FORMAT_R16G16B16A16_UNORM) weights = a.offset;
+                            if (blend_index_format(a.format)) indices = a.offset;
+                            else if (const uint32_t bytes = blend_weight_bytes(a.format)) { weights = a.offset; weight_bytes = bytes; }
                         }
                     }
                     if (indices == kCharacterNone && index_bytes == 2 && (stride == 8 || stride == 16)) {
-                        indices = stride - 8; weights = stride == 16 ? 0 : kCharacterNone;
+                        indices = stride - 8; weights = stride == 16 ? 0 : kCharacterNone; weight_bytes = 2;
                     }
                     std::string why;
-                    if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why, index_bytes))
+                    if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why, index_bytes, weight_bytes))
                         throw std::runtime_error("Blend stream refused: " + why);
                 }
                 const auto& index = package.streams[bound.index_stream];
@@ -494,5 +508,10 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
 bool CharacterProgram::present(const efmi::frontend::RuntimeInput& input, uint64_t frame, float seconds, std::string& reason)
 {
     return runtime_->present(input, frame, seconds, reason);
+}
+
+bool CharacterProgram::replay(const efmi::frontend::RuntimeInput& input, uint64_t frame, float seconds, std::string& reason)
+{
+    return runtime_->replay(input, frame, seconds, reason);
 }
 }

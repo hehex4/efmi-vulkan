@@ -10,6 +10,17 @@ constexpr uint32_t kCharacterNone = UINT32_MAX;
 // A draw's vertex slot bound to an owned GPU buffer of a live plan (CharacterDraw::owned).
 constexpr uint32_t kCharacterOwned = UINT32_MAX - 1;
 constexpr uint32_t kCharacterOvershoot = 64;
+// The formats a pipeline declares BLENDINDICES and BLENDWEIGHT with in binding 2: four unsigned
+// integers of 8, 16 or 32 bits, and four normalized 16-bit or float weights. A Mod's blend-index
+// edit names the replacement format; the game's own may be any of these (BUG-038).
+inline bool blend_index_format(VkFormat f)
+{
+    return f == VK_FORMAT_R8G8B8A8_UINT || f == VK_FORMAT_R16G16B16A16_UINT || f == VK_FORMAT_R32G32B32A32_UINT;
+}
+inline uint32_t blend_weight_bytes(VkFormat f)
+{
+    return f == VK_FORMAT_R16G16B16A16_UNORM ? 2 : f == VK_FORMAT_R32G32B32A32_SFLOAT ? 4 : 0;
+}
 
 struct CharacterStream {
     enum Kind : uint32_t { Vertex = 0, Index = 1, Remap = 2 };
@@ -19,6 +30,7 @@ struct CharacterStream {
     // when present, of four 16-bit normalized weights inside one element.
     uint32_t bone_index_offset = kCharacterNone, bone_weight_offset = kCharacterNone;
     uint32_t bone_index_bytes = 2; // width of one bone index: 2 (16-bit), or 4 under a 32-bit blend-index edit
+    uint32_t bone_weight_bytes = 2; // width of one weight: 2 (16-bit normalized) or 4 (float, BUG-038)
     uint32_t components = 0; // bit per component whose bones this stream refers to (computed at load)
 };
 struct CharacterDraw {
@@ -108,7 +120,8 @@ struct CharacterPackage {
                       std::string& reason) const;
     // A vertex stream found to carry bone indices only at run time (the live plan binds it where the
     // blend-index edit applies): the same checks as decode, then its component mask. Once per stream.
-    bool adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason, uint32_t index_bytes = 2);
+    bool adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason, uint32_t index_bytes = 2,
+                     uint32_t weight_bytes = 2);
 };
 
 // True when the file starts with the character package magic. No other validation.

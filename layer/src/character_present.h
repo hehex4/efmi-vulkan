@@ -29,7 +29,10 @@ public:
     bool begin(PresentWork*, std::string& reason);
     // After the Present lists: submit and hand the presentation this image's semaphore, or
     // discard the scope when they refused.
-    void finish(PresentWork*, bool executed, std::string& reason);
+    void finish(PresentWork*, bool executed, std::string& reason, bool replay = false);
+    // Whether the last presentation of a rendered frame drew into or copied into the back buffer:
+    // a presentation of the same frame again (frame generation) then replays the Present (BUG-036).
+    bool last_drew_backbuffer() const { return drew_backbuffer_; }
     // Owned work recorded since the last submission (replaced draws' work, D-087), on `queue`
     // before an application submission there. False with the reason when it cannot be submitted.
     bool submit_pending(VkQueue queue, std::string& reason);
@@ -52,6 +55,8 @@ private:
     Presented* current_ = nullptr;
     std::deque<std::shared_ptr<efmi::gpu::ResourceSubmission>> tickets_;
     uint64_t presents_ = 0, submitted_ = 0, failed_ = 0, unsupported_ = 0, draw_submitted_ = 0, queue_changes_ = 0, queue_waits_ = 0;
+    uint64_t replays_ = 0;
+    bool drew_backbuffer_ = false;
     // The presentation moved to another queue: the owned work follows it once every earlier
     // submission completed. False while one is still running; nothing waits for the GPU here.
     bool follow(VkQueue queue);

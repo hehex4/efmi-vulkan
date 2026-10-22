@@ -94,7 +94,7 @@ struct RuntimeDraw {
     uint32_t shader_stages = 0;
 };
 struct RuntimeStatus {
-    uint64_t draws = 0, presents = 0, key_events = 0, saves = 0, shader_calls=0;
+    uint64_t draws = 0, presents = 0, replays = 0, key_events = 0, saves = 0, shader_calls=0;
     // Microseconds the matched command lists took to run and their plans to compile, over all draws,
     // and the calls and microseconds per command class.
     uint64_t draw_execute_us = 0, draw_compile_us = 0;
@@ -122,6 +122,12 @@ public:
     bool intercept(const RuntimeShaderCall&,std::string& reason);
     // Input is supplied by the host. Tests never send input to other processes.
     bool present(const RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
+    // The last present() again for another presentation of the same frame (frame generation,
+    // a frame presented again): the Present lists run from the variable state present() started
+    // with, recording their GPU work again, and every variable and parameter is restored after.
+    // No key is dispatched and no transition advances. False with the reason, or without a
+    // presentation to replay (BUG-036).
+    bool replay(const RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason);
     bool take_reload_request();
     void inherit_persistent(const IniRuntime& previous);

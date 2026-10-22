@@ -220,10 +220,11 @@ bool OwnedPresenter::begin(PresentWork* present, std::string& reason)
     } catch (const std::exception& e) { reason = std::string("owned Present: ") + e.what(); last_error_ = reason; ++failed_; return false; }
 }
 
-void OwnedPresenter::finish(PresentWork* present, bool executed, std::string& reason)
+void OwnedPresenter::finish(PresentWork* present, bool executed, std::string& reason, bool replay)
 {
     try {
         gpu_->backbuffer(nullptr, DXGI_FORMAT_UNKNOWN, false);
+        if (!replay) drew_backbuffer_ = executed && gpu_->scope_active() && gpu_->backbuffer_targeted();
         if (!gpu_->scope_active()) { current_ = nullptr; return; }
         if (!executed) { gpu_->discard(); ++failed_; current_ = nullptr; return; }
         gpu::ResourceCommands::SubmitSync sync;
@@ -234,7 +235,7 @@ void OwnedPresenter::finish(PresentWork* present, bool executed, std::string& re
         }
         auto ticket = gpu_->finish(sync, present->queue);
         if (ticket && current_) {
-            present->waits = {current_->done}; present->replaced = true; ++submitted_;
+            present->waits = {current_->done}; present->replaced = true; ++submitted_; if (replay) ++replays_;
             tickets_.push_back(std::move(ticket));
             if (!readback_.empty() && submitted_ == 20) readback(present, *current_);
         }
@@ -309,7 +310,7 @@ void OwnedPresenter::status(JsonWriter& w) const
     w.key("owned_present"); w.begin_object();
     w.kn("presents", presents_); w.kn("submitted", submitted_); w.kn("failed", failed_);
     w.kn("unsupported_formats", unsupported_); w.kn("images", images_.size()); w.kn("in_flight", tickets_.size());
-    w.kn("draw_work_submitted", draw_submitted_);
+    w.kn("draw_work_submitted", draw_submitted_); w.kn("replays", replays_);
     w.kn("queue_changes", queue_changes_); w.kn("queue_waits", queue_waits_);
     w.kv("last_error", last_error_);
     w.end_object();

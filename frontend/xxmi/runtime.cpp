@@ -170,6 +170,10 @@ struct IniRuntime::Impl {
     RuntimeInput last_input;
     std::array<bool, 256> blocked_keys{};
     bool can_save = true;
+    // The variable and parameter state the last present() started from, for replay() (BUG-036).
+    std::vector<std::pair<CommandListVariable*, float>> pre_variables;
+    std::vector<DirectX::XMFLOAT4> pre_parameters;
+    bool replayable = false;
     std::vector<std::shared_ptr<const assets::FileResource>> resources;
     Impl() { device.mHackerContext = &context; context.mHackerDevice = &device; }
     CommandListState command_state()
@@ -464,12 +468,60 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         input_adapter = &p.adapter; input_context = &p.context;
         if (RuntimeDispatchInput(&p.device, sampled)) ++p.stats.key_events;
         CurrentTransition.UpdatePresets(&p.device);RuntimeUpdateTransitions(&p.device);
+        // What replay() starts from: the state after the keys, with what the frame's draws set.
+        p.pre_variables.clear(); p.pre_variables.reserve(command_list_globals.size());
+        for (auto& item : command_list_globals) p.pre_variables.emplace_back(&item.second, item.second.fval);
+        p.pre_parameters = G->iniParams; p.replayable = false;
         assets::FilePlan ignored; std::wstring why;
         DrawPlanAdapter::OriginalCall between;
         if(p.config.shader_hooks)between=[&](CommandListState&,std::wstring&){++G->frame_no;p.context.ResetCallCounters();return true;};
         if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why,std::move(between)) || !ignored.items.empty())
             throw std::runtime_error("Present requires unavailable render context: " + utf8(why));
-        ++p.stats.presents; return true;
+        ++p.stats.presents; p.replayable = true; return true;
+    } catch (const std::exception& e) {
+        if(impl_->extension)impl_->extension->execution_failed();
+        reason = e.what(); return false;
+    }
+}
+
+bool IniRuntime::replay(const RuntimeInput& input, uint64_t frame, float seconds, std::string& reason)
+{
+    try {
+        if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
+        const auto& w = input.window;
+        if (w.client_width < 0 || w.client_height < 0 || w.client_width > 65536 || w.client_height > 65536 ||
+            input.resolution_width > 65536 || input.resolution_height > 65536 || !input.resolution_width != !input.resolution_height ||
+            input.effective_dpi > 65536 || std::abs(int64_t(input.cursor.hotspot_x)) > 65536 || std::abs(int64_t(input.cursor.hotspot_y)) > 65536)
+            throw std::runtime_error("Host window sample is invalid");
+        auto& p = *impl_; Scope scope(p.state);
+        if (!p.replayable) throw std::runtime_error("No presentation to replay");
+        G->frame_no = unsigned(frame); G->gTime = seconds; G->gFrameTime = input.frame_seconds;
+        p.state.sample = input;
+        G->hWnd = w.present ? RuntimeWindowHandle() : nullptr;
+        if (input.resolution_width) { G->mResolutionInfo.width = int(input.resolution_width); G->mResolutionInfo.height = int(input.resolution_height); }
+        // The current state comes back whatever the lists do; the lists start from the state the
+        // last present() started from, so they draw what it drew.
+        struct Restore {
+            Impl& p; std::vector<float> now; std::vector<DirectX::XMFLOAT4> parameters;
+            Restore(Impl& impl) : p(impl), parameters(G->iniParams)
+            {
+                now.reserve(p.pre_variables.size());
+                for (auto& item : p.pre_variables) { now.push_back(item.first->fval); item.first->fval = item.second; }
+                G->iniParams = p.pre_parameters;
+            }
+            ~Restore()
+            {
+                for (size_t i = 0; i < p.pre_variables.size(); ++i) p.pre_variables[i].first->fval = now[i];
+                G->iniParams = std::move(parameters);
+            }
+        } restore(p);
+        input_adapter = &p.adapter; input_context = &p.context;
+        assets::FilePlan ignored; std::wstring why;
+        DrawPlanAdapter::OriginalCall between;
+        if(p.config.shader_hooks)between=[&](CommandListState&,std::wstring&){++G->frame_no;p.context.ResetCallCounters();return true;};
+        if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why,std::move(between)) || !ignored.items.empty())
+            throw std::runtime_error("Present replay requires unavailable render context: " + utf8(why));
+        ++p.stats.replays; return true;
     } catch (const std::exception& e) {
         if(impl_->extension)impl_->extension->execution_failed();
         reason = e.what(); return false;

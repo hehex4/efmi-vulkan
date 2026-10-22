@@ -802,3 +802,23 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 ## LIMIT-037: What remains of the recording cost
 
 - After D-099, in the open world with four characters: plan 50 us and bones 18 us per matched draw, 150-180 matched draws per frame, 15.8 ms of recording work per frame over two threads, 1.6 ms of Present work. The INI dispatch and list overhead (about 0.5 us per command for a hundred commands per draw), the bone reads over the bus, one variant cache per package (a switched character waits for its variants) and 22 packages' Present lists are the items; the first two are measurable offline through the replay's `stage_us`.
+
+## BUG-036: A Mod's key panel flickered in fullscreen
+
+- 2026-10-22, seventh game session (1.7.0, PID 20568). The panel a Mod draws at presentation time (Yvonne's `k\1.ini`) flickered in fullscreen and was steady in a window. The game presented four to ten times per rendered frame there (frame generation, frames presented again), and the layer ran the Present lists and the owned Present work only for a presentation whose interval had a draw: the panel was in one presented image of four.
+- Fixed in 1.7.1 (D-104): the Present lists run once per rendered frame as before, and a presentation without a draw replays the last Present's drawing into its image when that Present drew into the back buffer, the INI's variables and parameters restored afterwards (`replays` in `owned_present` and `ini`). Verified by module exchange in the session (the panel steady in fullscreen; the Present once per rendered frame, Typhoeus' per-frame GPU work no longer repeated on generated frames) and by the suite.
+
+## BUG-037: F10 did not take a Mod folder added or removed after the start
+
+- 2026-10-22. The user replaced Yvonne's Mod folder with another one and pressed F10: the packages found at the start reloaded their INIs, the new folder was not read, the removed one failed its reload. The original reads the whole Mods folder on F10.
+- Fixed in 1.7.1: an F10 taken by any package rescans the Mods folder on the presenting thread: a Mod added becomes a package read in the background (`character package found by F10`, `added by F10`), one whose folder is gone stops (`removed with its Mod`); the controllers list grows within a capacity reserved at creation, so a recording thread's index into it stays valid. Verified in the session (the new folder came up through a module exchange and later through F10) and by the suite.
+
+## BUG-038: Variant parts of Typhoeus' clothes hollow, spiky or invisible
+
+- 2026-10-22. Typhoeus' clothes component (its stockings, the cloth variants of Alt+5..8) drew as a hollow shell, spikes, or nothing, the body and hair fine. The game's clothes pipeline declares BLENDINDICES as R32G32B32A32_UINT at offset 16 and BLENDWEIGHT as R32G32B32A32_SFLOAT at offset 0 (stride 32); the Mod's blend-index edit narrows the indices to R16G16B16A16_UINT (its stream: four float weights, four 16-bit indices, 24 bytes). The layer replaced only an R8G8B8A8_UINT element and knew only 16-bit normalized weights, so the variant pipeline read 32-bit indices out of the 24-byte element: wrong bones for every vertex of that component. The body's pipeline has the common layout (R16G16B16A16_UNORM weights, R8G8B8A8_UINT indices, 12 bytes), hence the difference.
+- Fixed in 1.7.1: BLENDINDICES is the pipeline's unsigned four-component element of binding 2 of any width, BLENDWEIGHT its normalized or float one; the live plan's edit replaces the element whatever the game's width; float weights are read for the component mask. Reproduced and verified offline with the vk06 replay and persistent variables set through the replay's new `--settings` option (the clothes and the stockings drawn), then in the session by module exchange.
+
+## BUG-039: A Mod inherited the persisted toggles of another Mod of the same namespace
+
+- 2026-10-22. `yvonne sinicat 2.4` replaced `Yvonne Ensnared Heart 1.8`; both declare `namespace = yvonne`, and the settings file `settings/yvonne.ini` written by the old one (its cloth parts toggled off) came up in the new one: its clothes, shown by default under DX11, were hidden. The original keeps one `d3dx_user.ini` by namespace and would inherit them the same way.
+- Fixed in 1.7.1 (D-105): the settings file is named by the namespace and the Mod's folder (`yvonne-yvonne_sinicat_2_4.ini`). The files of 1.7.0 and before stay unused: every Mod starts once from its INI's defaults.

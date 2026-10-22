@@ -3,7 +3,7 @@
 Until 1.5.2 every character needed an offline package: Python scripts drove the original frontend in
 a separate host to plan one Mod in isolation (`check_mod_corpus.py`, `package_character.py`,
 `package_directory.py`) and wrote a `.bin` with a `.runtime.json` sidecar. From 1.5.3 the layer can
-take the EFMI Mods folder itself; no packaging step, and an F10 reload reads the Mod again.
+take the EFMI Mods folder itself; no packaging step, and an F10 reload reads the Mod again and the folder again: a Mod added since the start becomes a package, one whose folder is gone stops (BUG-037).
 
 ## Configuration
 
@@ -11,7 +11,7 @@ take the EFMI Mods folder itself; no packaging step, and an F10 reload reads the
 | --- | --- |
 | `m2_mods` (`EFMI_VK_M2_MODS`) | the EFMI Mods folder; replaces `m2_package` |
 | `m2_core` (`EFMI_VK_M2_CORE`) | the Core folder; default `Core\EFMI` beside the Mods folder |
-| `m2_settings` (`EFMI_VK_M2_SETTINGS`) | project-owned folder for the Mods' saved variables; default `settings` beside the replacement module |
+| `m2_settings` (`EFMI_VK_M2_SETTINGS`) | project-owned folder for the Mods' saved variables, one file per namespace and Mod folder (`<namespace>-<folder>.ini`, D-105); default `settings` beside the replacement module |
 | `m2_texture_budget_mb` | cap of the textures' device memory (D-094); 0: half the device-local heap |
 | `m2_reserve_mb` | device memory kept free for the game; 0: the larger of 512 MiB and a sixteenth of the heap (D-092, D-094, D-099) |
 | `m2_texture_reduce_mb` | textures this large on disk load without their top mip level when memory is tight; default 16, 0 never |
@@ -77,7 +77,9 @@ Known limits of those that load:
   RabbitFX, a library in another Mod folder; its references stay original warnings and its
   textures do not bind (LIMIT-004, docs/rabbitfx-assessment.md).
 - A blend stream whose element is not 8 or 16 bytes (Typhoeus' 24-byte one) takes its bone
-  offsets from the draw's pipeline; offline it keeps no bone mask.
+  offsets from the draw's pipeline: BLENDINDICES is the unsigned four-component element of binding
+  2 of any width (8, 16 or 32 bits), BLENDWEIGHT the normalized 16-bit or float one (BUG-038);
+  offline it keeps no bone mask.
 - Sections that match an index hash without an index count (`this = null`, `handling = skip` in
   chengqianyu, last rite, xaihi) are not matched by the renderer.
 

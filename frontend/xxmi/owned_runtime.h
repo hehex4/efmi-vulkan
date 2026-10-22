@@ -41,6 +41,8 @@ public:
     std::shared_ptr<gpu::ResourceSubmission> finish(const gpu::ResourceCommands::SubmitSync&, VkQueue);
     // bb, r_bb and f_bb: the host's current back buffer. Null makes them read as null.
     void backbuffer(gpu::Image, DXGI_FORMAT, bool shader_resource);
+    // Whether the scope since the last begin() drew into or copied into the back buffer (BUG-036).
+    bool backbuffer_targeted() const;
     gpu::ResourceCommands& commands();
 private:
     struct Impl;

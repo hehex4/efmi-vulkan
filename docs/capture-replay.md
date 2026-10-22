@@ -10,7 +10,7 @@ it is not a result of the game.
 
     py -B scripts/replay_capture.py --bundle "F:/efmi vulkan/captures/catalogue-20261019/vulkan/vk03"
 
-Options: `--frames N` (default 90), `--rp N` (only the draws of these recorded render pass
+Options: `--settings DIR` (a folder of persistent INI variable files the Mods start from, as the game's settings folder: a variant key's state, BUG-038), `--frames N` (default 90), `--rp N` (only the draws of these recorded render pass
 instances), and two diagnoses: `--open-tests` (no depth, stencil or culling in any replayed
 pipeline) and `--probe-vertices` (the original draws get a small known shape). Output under
 `build/replay/<bundle>[-rp...][-open][-probe]/{disabled,enabled}`: the layer log, the status, the

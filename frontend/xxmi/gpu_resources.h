@@ -71,6 +71,10 @@ public:
     // original hands out the swap chain's current buffer for all three. The host sets it before
     // each Present it executes; without one they read as null, as with no swap chain.
     void backbuffer(gpu::Image,DXGI_FORMAT,UINT bind_flags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE);
+    // Whether the scope since the last begin() bound the back buffer as a render target or an
+    // unordered access view, or copied into it: what the host may have to draw again for a
+    // presentation of the same frame (BUG-036).
+    bool backbuffer_targeted() const {return backbuffer_targeted_;}
     // Source-semantic target resolution for an adapted draw in an active scope.
     GpuResourceBinding resolve(ResourceCopyTarget&,CommandListState&);
     // Attach proven native tracking facts to an owned allocation. Reference
@@ -92,6 +96,7 @@ public:
 private:
     using Slot=std::tuple<wchar_t,ResourceCopyTargetType,unsigned>;
     GpuResourceBinding backbuffer_;
+    bool backbuffer_targeted_=false;
     bool run(CommandListCommand&,CommandListState&,std::wstring&);
     bool query(ResourceCopyTarget&,CommandListState&,float&,std::wstring&);
     bool owned_vertex(ResourceCopyTarget&,CommandListState&,PlanItem::OwnedBuffer&,std::wstring&);

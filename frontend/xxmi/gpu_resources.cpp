@@ -134,6 +134,7 @@ void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
     require(!active_ && ((queue && site==ExecutionSite::OutsideRenderPass) || (!queue && (site==ExecutionSite::Deferred || site==ExecutionSite::Draw))),
             "GPU resource execution requires an explicit outside-render-pass scope");
     require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;active_=true;site_=site;recorded_=false;
+    backbuffer_targeted_=false;
 }
 std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::ResourceCommands::SubmitSync& sync,VkQueue queue) {
     active();require(!failed_,"Cannot submit a failed GPU resource scope");
@@ -289,6 +290,7 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
 void GpuResourceRuntime::set(ResourceCopyTarget& input,CommandListState& state,const GpuResourceBinding& b) {
     auto& t=effective(input,state);
     require(t.evaluation_mode==Mode::RESOURCE && !t.IsRange(),"GPU assignment needs a single resource target");
+    if(b.image && backbuffer_ && b.image==backbuffer_.image && (t.type==Target::RENDER_TARGET || t.type==Target::UNORDERED_ACCESS_VIEW))backbuffer_targeted_=true;
     if(t.type==Target::CUSTOM_RESOURCE){auto* r=declaration(t,state,true);require(r!=nullptr,"GPU resource destination missing");
         require(resources_.size()<65536 || resources_.count(r),"GPU resource declaration budget exceeded");
         auto& cached=resources_[r];
@@ -334,6 +336,7 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
 }
 void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& dst,CommandListState& state,GpuResourceBinding source) {
     if(!source){if(!(op.options&ResourceCopyOptions::UNLESS_NULL))set(dst,state,{});return;}
+    if(swap_chain(dst.type))backbuffer_targeted_=true;
     auto* custom=dst.type==Target::CUSTOM_RESOURCE?declaration(dst,state,true):nullptr;
     const bool explicit_region=op.src.evaluation_mode==Mode::RESOURCE_REGION;
     const auto region_size=source.visible_size;

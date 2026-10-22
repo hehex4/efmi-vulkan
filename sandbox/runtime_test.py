@@ -255,7 +255,7 @@ def directory_generation(checks, validation):
         checks.equal((own["ini_generation"], own["ini_reloads"]), (2, 2), label + ": its reloads as with a package")
         variables = own.get("ini", {}).get("variables", {})
         checks.equal(variables.get("$\\runtime_fixture\\tint"), 1, label + ": the persistent variable survives F10")
-    saved = settings / "runtime_fixture.ini"
+    saved = settings / "runtime_fixture-fixture.ini" # the namespace and the Mod folder (BUG-039)
     checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(), label + ": settings saved in the configured folder")
     # The scene itself edits its mod.ini, drives its keys through keys.txt and writes its reports where
     # it runs (the fixture's folder).

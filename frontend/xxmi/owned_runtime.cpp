@@ -27,4 +27,5 @@ void OwnedRuntime::backbuffer(gpu::Image image,DXGI_FORMAT format,bool shader_re
     impl_->gpu->resources().backbuffer(std::move(image),format,D3D11_BIND_RENDER_TARGET|(shader_resource?D3D11_BIND_SHADER_RESOURCE:0));
 }
 gpu::ResourceCommands& OwnedRuntime::commands(){return impl_->gpu->resources().commands();}
+bool OwnedRuntime::backbuffer_targeted() const {return impl_->gpu->resources().backbuffer_targeted();}
 }

@@ -330,6 +330,7 @@ public:
     std::set<uint32_t> image_counts{0};
     std::atomic<bool> enabled{false}, ready{false};
     std::atomic<uint64_t> frame{1};
+    std::atomic<uint64_t> presents{0}; // every presentation, the INI's frame counter (BUG-036)
     std::shared_ptr<std::atomic<uint64_t>> batches = std::make_shared<std::atomic<uint64_t>>(0);
     std::shared_ptr<const void> generation_key = std::make_shared<int>(0);
     std::atomic<uint64_t> counters[C_COUNT] = {};
@@ -1292,7 +1293,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 return refuse(C_STATE, "INI plan: " + reason);
             if (!skip) {
                 // The Mod's lists keep the game's draw (its own identification rejected the object, D-086).
-                if (!textures) { ++counters[C_KEPT]; return false; }
+                if (!textures) {
+                    static std::mutex kept_mx; static std::set<uint32_t> kept_logged;
+                    { std::lock_guard<std::mutex> hold(kept_mx); if (kept_logged.insert(section->hash).second) logf("character draw kept the game's: section %08x (count %u)", section->hash, section->match_count); }
+                    ++counters[C_KEPT]; return false;
+                }
                 if (added && !refresh_materials()) return false;
                 return record_textures(cb, r, pipe->second, static_cast<uint32_t>(section - package.sections.data()), present, runtime_list);
             }
@@ -1631,26 +1636,47 @@ void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
     backend.source_facts.erase(pipeline_id);
 }
 
-void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork* present)
+void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& base)
 {
-    if (!had_draws) return;
+    // The Present lists run once per rendered frame, as the original's run once per frame. A
+    // presentation without a draw in its interval presents the same frame again (frame generation,
+    // a frame presented again): what the Mod drew into the back buffer at the last presentation
+    // (a key panel) is drawn into this image again by a replay of that Present, the INI's
+    // variables untouched (BUG-036). The character's frame clock, which identities, the hashing
+    // policy and the frame gate count in, advances with the rendered frames only.
     const uint64_t now = host_time_us();
-    if (backend.last_frame_us && now > backend.last_frame_us) {
-        const float seconds = static_cast<float>(now - backend.last_frame_us) * 1.0e-6f;
-        backend.frame_seconds.store(std::min(std::max(seconds, 0.001f), 0.25f), std::memory_order_relaxed);
+    if (had_draws) {
+        // The INI's frame time is the rendered frames' interval.
+        if (backend.last_frame_us && now > backend.last_frame_us) {
+            const float seconds = static_cast<float>(now - backend.last_frame_us) * 1.0e-6f;
+            backend.frame_seconds.store(std::min(std::max(seconds, 0.001f), 0.25f), std::memory_order_relaxed);
+        }
+        backend.last_frame_us = now;
+        backend.frame.fetch_add(1, std::memory_order_relaxed);
     }
-    backend.last_frame_us = now;
-    backend.frame.fetch_add(1, std::memory_order_relaxed);
+    backend.presents.fetch_add(1, std::memory_order_relaxed);
     if (backend.program) {
-        auto input = sample_ini_input();
+        // The keys, window and cursor are sampled once per presentation for every package.
+        auto input = base;
         input.frame_seconds = backend.frame_seconds.load(std::memory_order_relaxed);
         input.ticks_us = now;
-        OwnedPresenter::sample(backend.device, present, input);
         ThreadTrace* const trace = backend.device->trace ? backend.device->trace() : nullptr;
         StageMark locking(trace, "character Present (generation lock)");
         std::lock_guard<std::mutex> lock(backend.mod_mx);
         StageMark stage(trace, "character Present (owned scope, INI Present, owned submission)");
         std::string reason, owned_reason;
+        if (!had_draws) {
+            if (!backend.presenter || !backend.presenter->last_drew_backbuffer()) return;
+            const bool owned = backend.presenter->begin(present, owned_reason);
+            if (!owned_reason.empty()) backend.note(owned_reason);
+            if (!owned) return;
+            const bool executed = backend.program->replay(input, backend.frame.load(), ini_seconds(), reason);
+            if (!executed) backend.note("INI Present replay: " + reason);
+            std::string submission;
+            backend.presenter->finish(present, executed, submission, true);
+            if (!submission.empty()) backend.note(submission);
+            return;
+        }
         // With a presentation the generation's GPU commands run in a scope ordered before it.
         const bool owned = backend.presenter && backend.presenter->begin(present, owned_reason);
         if (!owned_reason.empty()) backend.note(owned_reason);
@@ -1699,6 +1725,7 @@ public:
     uint64_t generation = 0, reloads = 0, rejected = 0, staged_at = 0;
     std::string reload_error;
     bool stopped = false;
+    bool reload_taken = false; // an F10 this presentation, for the folder rescan (presenting thread)
     ~CharacterController() { stop(); }
     void retire(std::shared_ptr<CharacterGeneration> old)
     {
@@ -1715,17 +1742,28 @@ public:
         for (auto& future : retiring) future.get();
         retiring.clear(); staged.reset();
     }
-    void frame(bool had_draws, PresentWork* present)
+    void frame(bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& input)
     {
         {
             // The generation's Present work holds the controller shared: the submitting threads go
             // on while it runs (BUG-034); the exchange below takes the lock exclusively.
             std::shared_lock<std::shared_mutex> lock(mutex);
-            if (stopped || !active) return;
-            generation_frame(*active, had_draws, present);
+            if (stopped) return;
+            if (active) generation_frame(*active, had_draws, present, input);
         }
         std::unique_lock<std::shared_mutex> lock(mutex);
-        if (stopped || !active) return;
+        if (stopped) return;
+        if (!active) {
+            // A package found by an F10 rescan of the Mods folder comes up here (BUG-037), as the
+            // packages of the folder came up at the start: read in the background, taken as it is.
+            if (loading.valid() && loading.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+                auto candidate = loading.get();
+                if (!candidate) { logf("character package refused: %s", path.c_str()); stopped = true; return; }
+                active = std::move(candidate); ++generation;
+                logf("character package added by F10: %s", path.c_str());
+            }
+            return;
+        }
         for (auto it = retiring.begin(); it != retiring.end();) {
             if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) { it->get(); it = retiring.erase(it); }
             else ++it;
@@ -1767,7 +1805,8 @@ public:
                 logf("%s", reload_error.c_str()); retire(std::move(staged));
             }
         }
-        if (active->program && active->program->take_reload_request() && !loading.valid() && !staged) {
+        if (active->program && active->program->take_reload_request()) reload_taken = true;
+        if (reload_taken && !loading.valid() && !staged) {
             auto previous = active;
             loading = std::async(std::launch::async, [previous] {
                 std::string reason;
@@ -1794,9 +1833,15 @@ public:
     // The device's pipeline variants (D-103), shared by every package: a game pipeline with the same
     // vertex layout and material bindings compiles once for all of them. Stopped after the controllers.
     std::shared_ptr<VariantCache> variants;
+    // Grown only by an F10 rescan of the Mods folder (BUG-037), within the capacity reserved at
+    // creation, so a recording thread's index into it stays valid; a package whose Mod folder is
+    // gone is stopped and stays in the list.
     std::vector<std::unique_ptr<CharacterController>> controllers;
     std::string reason; // why there is no package
     Device* device = nullptr;
+    VkPhysicalDeviceProperties properties{};
+    VkPhysicalDeviceMemoryProperties memory{};
+    bool directory = false; // the packages are the Mods of a folder (D-078)
     // The variant pipeline cache every package's variants are created through (D-101), loaded from
     // the settings folder when the backend is made and written back when it stops: the variants a
     // character needed in one session compile from the driver's cached form in the next.
@@ -1908,11 +1953,12 @@ public:
 
 namespace {
 // The character Mods of an EFMI Mods folder (D-078).
+constexpr size_t kMaxPackages = 64;
 std::vector<std::string> mods_characters(std::string& reason)
 {
     std::vector<std::string> found;
     for (const auto& path : CharacterProgram::mods_characters(absolute_folder(g_cfg.m2_mods), reason)) found.push_back(path.u8string());
-    if (found.size() > 64) { found.resize(64); logf("character Mods: more than 64 in %s, the first 64 are used", g_cfg.m2_mods.c_str()); }
+    if (found.size() > kMaxPackages) { found.resize(kMaxPackages); logf("character Mods: more than 64 in %s, the first 64 are used", g_cfg.m2_mods.c_str()); }
     if (found.empty() && reason.empty()) reason = "no character Mod in " + g_cfg.m2_mods;
     return found;
 }
@@ -1956,6 +2002,8 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     if (!backend->textures->usable()) logf("character textures unavailable: %s", backend->textures->reason().c_str());
     std::error_code error;
     const bool directory = !g_cfg.m2_mods.empty() || std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package), error);
+    backend->properties = p; backend->memory = m; backend->directory = directory;
+    backend->controllers.reserve(kMaxPackages);
     for (const auto& path : configured_packages(backend->reason)) {
         auto controller = std::make_unique<CharacterController>();
         controller->path = path; controller->lazy = directory;
@@ -1968,6 +2016,40 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     return backend;
 }
 void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); if (b.textures) b.textures->stop(); if (b.variants) b.variants->stop(); b.close_pipeline_cache(); }
+
+// F10 reads the Mods folder again, as the original does (BUG-037): a Mod added since the start
+// (a new folder, a folder enabled) becomes a package, read in the background; a package whose Mod
+// is gone (folder removed, renamed, disabled) stops. The packages that stay reload their INIs
+// through their own F10 handling. Presenting thread.
+void character_rescan(CharacterBackend& b)
+{
+    std::string reason;
+    const auto paths = configured_packages(reason);
+    const std::set<std::string> present(paths.begin(), paths.end());
+    std::set<std::string> known;
+    for (auto& c : b.controllers) {
+        bool live = false;
+        { std::shared_lock<std::shared_mutex> lock(c->mutex); live = !c->stopped; }
+        if (!live) continue;
+        if (present.count(c->path)) { known.insert(c->path); continue; }
+        c->stop();
+        logf("character package removed with its Mod: %s", c->path.c_str());
+    }
+    for (const auto& path : paths) {
+        if (known.count(path)) continue;
+        if (b.controllers.size() >= kMaxPackages) { logf("character packages: no room for %s (64 at most)", path.c_str()); break; }
+        auto controller = std::make_unique<CharacterController>();
+        controller->path = path; controller->lazy = true;
+        Device* const d = b.device; const auto p = b.properties; const auto m = b.memory;
+        TextureResidency* const textures = b.textures.get(); auto variants = b.variants;
+        controller->loading = std::async(std::launch::async, [d, p, m, path, textures, variants] {
+            return generation_create(d, p, m, path, true, textures, variants);
+        });
+        logf("character package found by F10: %s", path.c_str());
+        std::unique_lock<std::shared_mutex> lock(b.index_mx);
+        b.controllers.push_back(std::move(controller));
+    }
+}
 // Caller holds res_mx. The index bytes of one draw, hashed once for every package of the device
 // (D-097) and then recognized by a short fingerprint; the full hash is repeated now and then because
 // mapped pools change unseen. Each recording thread keeps its own table (above).
@@ -2082,7 +2164,15 @@ void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
 {
     if (had_draws) b.frames.fetch_add(1, std::memory_order_relaxed);
     if (b.textures) b.textures->frame();
-    for (auto& c : b.controllers) c->frame(had_draws, present);
+    // The keys, the window and the cursor, once for every package (they cost per package before).
+    auto input = sample_ini_input();
+    OwnedPresenter::sample(b.device, present, input);
+    bool rescan = false;
+    for (auto& c : b.controllers) {
+        c->frame(had_draws, present, input);
+        if (c->reload_taken) { c->reload_taken = false; rescan = true; }
+    }
+    if (rescan && b.directory) character_rescan(b);
     if (b.index_stale()) b.rebuild_index();
 }
 bool character_usable(CharacterBackend& b, std::string& reason)
@@ -2178,7 +2268,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
     if (backend.program) {
         const auto status = backend.program->status();
         w.key("ini"); w.begin_object();
-        w.kn("draws", status.draws); w.kn("presents", status.presents); w.kn("key_events", status.key_events);
+        w.kn("draws", status.draws); w.kn("presents", status.presents); w.kn("replays", status.replays); w.kn("key_events", status.key_events);
         w.kn("draw_execute_us", status.draw_execute_us); w.kn("draw_compile_us", status.draw_compile_us);
         {
             auto commands = status.commands;
@@ -2218,7 +2308,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
     w.key("counters"); w.begin_object();
     for (uint32_t c = 0; c < C_COUNT; ++c) w.kn(kCounterNames[c], backend.counters[c].load());
     w.end_object();
-    w.kn("frame", backend.frame.load());
+    w.kn("frame", backend.frame.load()); w.kn("presents", backend.presents.load());
     w.kn("sections", backend.package.sections.size());
     w.kn("package_bytes", backend.package.payload.size());
     w.kb("materials", backend.package.materials);

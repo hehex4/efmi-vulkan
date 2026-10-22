@@ -150,26 +150,35 @@ static bool stream_bones(const std::vector<CharacterComponent>& components, uint
             if (bone >= bone_count) { reason = "bone index outside the skeleton"; return false; }
             uint32_t weight = 1;
             if (s.bone_weight_offset != kCharacterNone) {
-                weight = at<uint16_t>(element + s.bone_weight_offset + k * 2);
+                if (s.bone_weight_bytes == 4) {
+                    // Float weights (BUG-038): counted in 1/65536 as the normalized ones are.
+                    const float f = at<float>(element + s.bone_weight_offset + k * 4);
+                    if (!(f >= 0.0f && f <= 1.0f)) { reason = "bone weight outside 0..1"; return false; }
+                    weight = static_cast<uint32_t>(f * 65536.0f + 0.5f);
+                } else weight = at<uint16_t>(element + s.bone_weight_offset + k * 2);
                 total += weight;
             }
             if (weight) s.components |= 1u << component_of(bone);
         }
-        if (s.bone_weight_offset != kCharacterNone && (total < 65533 || total > 65537)) { reason = "bone weights are not normalized"; return false; }
+        if (s.bone_weight_offset != kCharacterNone && (total < 65533 - (s.bone_weight_bytes == 4 ? 64 : 0) || total > 65537 + (s.bone_weight_bytes == 4 ? 64 : 0))) {
+            reason = "bone weights are not normalized"; return false;
+        }
     }
     return true;
 }
 
-bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason, uint32_t index_bytes)
+bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason, uint32_t index_bytes,
+                                   uint32_t weight_bytes)
 {
     if (stream >= streams.size()) { reason = "bone stream out of range"; return false; }
     CharacterStream s = streams[stream];
     if (s.kind != CharacterStream::Vertex || s.bone_index_offset != kCharacterNone) { reason = "bone stream already known or not a vertex stream"; return false; }
     if (index_bytes != 2 && index_bytes != 4) { reason = "bone index width unsupported"; return false; }
-    s.bone_index_offset = index_offset; s.bone_weight_offset = weight_offset; s.bone_index_bytes = index_bytes;
-    const uint32_t element = 4 * index_bytes;
+    if (weight_bytes != 2 && weight_bytes != 4) { reason = "bone weight width unsupported"; return false; }
+    s.bone_index_offset = index_offset; s.bone_weight_offset = weight_offset; s.bone_index_bytes = index_bytes; s.bone_weight_bytes = weight_bytes;
+    const uint32_t element = 4 * index_bytes, weights = 4 * weight_bytes;
     if (uint64_t(index_offset) + element > s.stride || (weight_offset != kCharacterNone &&
-        (uint64_t(weight_offset) + 8 > s.stride || (weight_offset < index_offset + element && index_offset < weight_offset + 8)))) {
+        (uint64_t(weight_offset) + weights > s.stride || (weight_offset < index_offset + element && index_offset < weight_offset + weights)))) {
         reason = "bone elements outside the stream or overlapping"; return false;
     }
     if (s.offset + s.size > payload.size()) { reason = "bone stream outside the payload"; return false; }
@@ -336,11 +345,13 @@ bool CharacterPackage::vertex_input(const CharacterDraw& draw, const VertexInput
             if (a.binding != slot) continue;
             for (const auto& o : draw.offsets)
                 if (o.binding == slot && o.from == a.offset) { a.offset = o.to; break; }
-            for (const auto& e : edits)
-                if (e.binding == slot && e.source == a.format) {
-                    a.format = slot == 2 && draw.blend != VK_FORMAT_UNDEFINED ? draw.blend : e.format;
-                    break;
-                }
+            // A live plan's blend-index edit replaces the pipeline's BLENDINDICES element whatever width
+            // the game declares it with (8-bit mostly, 32-bit for some pipelines: BUG-038); the
+            // package's own edits name their source format.
+            if (slot == 2 && draw.blend != VK_FORMAT_UNDEFINED && blend_index_format(a.format)) a.format = draw.blend;
+            else
+                for (const auto& e : edits)
+                    if (e.binding == slot && e.source == a.format) { a.format = e.format; break; }
             const uint32_t bytes = vertex_format_bytes(a.format);
             if (!bytes) { reason = "replaced stream has an element of an unknown format"; return false; }
             if (uint64_t(a.offset) + bytes > uint64_t(stride) + kCharacterOvershoot) {
