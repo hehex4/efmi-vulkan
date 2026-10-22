@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <map>
+#include <mutex>
 #include <vector>
 
 namespace efmi::gpu {
@@ -16,7 +17,8 @@ namespace efmi::gpu {
     X(BeginCommandBuffer) X(EndCommandBuffer) X(CmdCopyBuffer) X(CmdFillBuffer) X(CmdPipelineBarrier) \
     X(CmdCopyImage) X(CmdCopyBufferToImage) X(CmdCopyImageToBuffer) \
     X(CmdClearColorImage) X(CmdClearDepthStencilImage) X(CmdResolveImage) \
-    X(CreateFence) X(DestroyFence) X(QueueSubmit) X(GetFenceStatus) X(WaitForFences)
+    X(CreateFence) X(DestroyFence) X(QueueSubmit) X(GetFenceStatus) X(WaitForFences) \
+    X(ResetCommandPool) X(ResetFences)
 struct ResourceDispatch {
     VkResult (VKAPI_PTR *SetDeviceLoaderData)(VkDevice, void*) = nullptr;
 #define X(name) PFN_vk##name name=nullptr;
@@ -130,6 +132,17 @@ private:
     VkImageUsageFlags usage_=0;
 };
 using ImageView=std::shared_ptr<ImageViewResource>;
+// The command pools (with their one command buffer) and fences of completed submissions, for the
+// next submissions of the same ResourceCommands (D-108): creating and destroying both for every
+// submission cost about 50 us per frame for a Mod with GPU work at every Present. Shared by the
+// submissions, which may outlive their ResourceCommands; what it holds goes with the last owner.
+struct SubmissionRecycler {
+    ResourceDevice device;
+    std::mutex mutex;
+    std::vector<std::pair<VkCommandPool,VkCommandBuffer>> pools;
+    std::vector<VkFence> fences;
+    ~SubmissionRecycler();
+};
 class ResourceSubmission {
 public:
     ResourceSubmission()=default;
@@ -142,6 +155,7 @@ private:
     friend class ResourceCommands;
     friend class ShaderCommands;
     ResourceDevice device_;
+    std::shared_ptr<SubmissionRecycler> recycler_;
     VkCommandPool pool_=VK_NULL_HANDLE;
     VkCommandBuffer command_=VK_NULL_HANDLE;
     VkFence fence_=VK_NULL_HANDLE;
@@ -226,6 +240,7 @@ private:
     ResourceBudgets budgets_;
     std::shared_ptr<const uint8_t> domain_=std::make_shared<const uint8_t>(0);
     std::shared_ptr<ResourceSubmission> pending_;
+    std::shared_ptr<SubmissionRecycler> recycler_;
     Buffer image_copy_scratch_;
     VkQueue queue_=VK_NULL_HANDLE;
 };

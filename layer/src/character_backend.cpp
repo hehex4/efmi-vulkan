@@ -363,6 +363,27 @@ public:
     uint32_t identity_logs = 0;
     std::unordered_map<uint32_t, BoneSite> sites;
     std::vector<uint8_t> current, previous;
+    // The per-draw containers of record(), kept for their capacity: the allocations of fresh ones
+    // were a sixth of the recording in a profile (D-108). record() holds mod_mx.
+    std::vector<std::shared_ptr<const PipelineVariant>> scratch_variants;
+    std::vector<const StaticMaterial*> scratch_material_plans;
+    std::vector<std::vector<SnapshotImage>> scratch_material_views;
+    std::vector<uint32_t> scratch_restore_offsets;
+    std::vector<BoundRange> scratch_ranges, scratch_bone_ranges;
+    std::vector<DrawGeometry> scratch_geometry;
+    std::vector<VariantDraw> scratch_items;
+    DrawGeometry scratch_original;
+    // The draw record() is in, for its texture queries (twenty per draw): its pipeline, the
+    // pipeline's fragment registers and the last descriptor set looked up. Reset when record() returns.
+    struct DrawLookups {
+        VkPipeline pipeline = VK_NULL_HANDLE; const PipeInfo* pipe = nullptr;
+        const void* registers = nullptr;
+        VkDescriptorSet set = VK_NULL_HANDLE; uint64_t set_id = 0; const DescriptorSetInfo* contents = nullptr;
+        // The answers of the pixel slot queries already made in this draw (the Core and RabbitFX ask
+        // for the same slots again): bit per slot answered, and the answer.
+        uint64_t answered[2] = {0, 0};
+        struct Answer { bool bound = false; uint32_t hash = 0; } answers[128];
+    } lookups;
     // The package's frame gate (D-097): a frame replaces draws only while every image and pipeline
     // variant the package's draws needed in the frame before is in place, and the first bind that is
     // not closes it for the rest of the frame; so the passes of one object never mix the Mod's mesh
@@ -667,27 +688,49 @@ public:
     // registers (D-076), the image from the tracked descriptor. A slot the module does not declare reads
     // nothing here; a resource whose hash cannot be known answers a bound slot without a hash, so no
     // override matches it and the draw is still replaced (counted in texture_unknown, reason noted).
-    bool pixel_texture(const DrawRec& r, unsigned slot, bool& bound, uint32_t& hash, std::string&)
+    bool pixel_texture(const DrawRec& r, unsigned slot, bool& bound, uint32_t& hash, std::string& why)
+    {
+        // Inside record(): one draw's bindings do not change while it is planned, so a slot's answer
+        // holds for the rest of the draw (D-108).
+        const bool cacheable = lookups.pipeline == r.pipeline && lookups.pipe && slot < 128;
+        if (cacheable && (lookups.answered[slot >> 6] >> (slot & 63) & 1)) {
+            ++texture_queries; bound = lookups.answers[slot].bound; hash = lookups.answers[slot].hash; return true;
+        }
+        const bool answered = pixel_texture_uncached(r, slot, bound, hash, why);
+        if (cacheable && answered) { lookups.answered[slot >> 6] |= 1ull << (slot & 63); lookups.answers[slot] = {bound, hash}; }
+        return answered;
+    }
+    bool pixel_texture_uncached(const DrawRec& r, unsigned slot, bool& bound, uint32_t& hash, std::string&)
     {
         ++texture_queries;
         bound = false; hash = 0;
         const auto unknown = [&](const char* why) { bound = true; hash = 0; ++texture_unknown; texture_reason = why; return true; };
-        const auto pipe = device->pipes.find(r.pipeline);
-        if (pipe == device->pipes.end() || !pipe->second.recipe) return unknown("unknown pipeline");
-        auto known = fragment_registers.find(pipe->second.id);
-        if (known == fragment_registers.end()) {
+        const PipeInfo* info = lookups.pipeline == r.pipeline ? lookups.pipe : nullptr;
+        if (!info) {
+            const auto pipe = device->pipes.find(r.pipeline);
+            if (pipe != device->pipes.end()) info = &pipe->second;
+        }
+        if (!info || !info->recipe) return unknown("unknown pipeline");
+        const FragmentRegisters* registers_known = lookups.pipe == info ? static_cast<const FragmentRegisters*>(lookups.registers) : nullptr;
+        auto known = fragment_registers.end();
+        if (!registers_known) known = fragment_registers.find(info->id);
+        if (!registers_known && known == fragment_registers.end()) {
             if (fragment_registers.size() >= 8192) fragment_registers.clear();
             FragmentRegisters registers;
             registers.readable = true; // a pipeline without a fragment stage reads no texture
-            for (const auto& stage : pipe->second.recipe->stages)
+            for (const auto& stage : info->recipe->stages)
                 if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) {
                     std::string why;
                     registers.readable = efmi::gpu::source_registers(stage.shader->code, registers.list, why);
                 }
-            known = fragment_registers.emplace(pipe->second.id, std::move(registers)).first;
+            known = fragment_registers.emplace(info->id, std::move(registers)).first;
         }
-        if (!known->second.readable) return unknown("the fragment module is not read by the register rule");
-        const auto* reg = efmi::gpu::find_source_register(known->second.list, 't', slot);
+        if (!registers_known) {
+            registers_known = &known->second;
+            if (lookups.pipe == info) lookups.registers = registers_known;
+        }
+        if (!registers_known->readable) return unknown("the fragment module is not read by the register rule");
+        const auto* reg = efmi::gpu::find_source_register(registers_known->list, 't', slot);
         if (!reg) return true;
         if (reg->kind != efmi::gpu::SourceRegister::ImageSrv || reg->count != 1 || reg->set >= kMaxSets)
             return unknown("a pixel slot is not a single image");
@@ -710,8 +753,12 @@ public:
         const SetBind& bind = r.sets[set_index];
         const DescriptorSetInfo* contents = bind.pushed.get();
         if (!contents && bind.id) {
-            const auto set = device->descriptor_sets.find(bind.set);
-            if (set != device->descriptor_sets.end() && set->second.id == bind.id) contents = &set->second;
+            if (lookups.pipe && lookups.set == bind.set && lookups.set_id == bind.id) contents = lookups.contents;
+            else {
+                const auto set = device->descriptor_sets.find(bind.set);
+                if (set != device->descriptor_sets.end() && set->second.id == bind.id) contents = &set->second;
+                if (lookups.pipe) { lookups.set = bind.set; lookups.set_id = bind.id; lookups.contents = contents; }
+            }
         }
         if (bind.unsupported || !contents) { why = "the descriptor set of a pixel slot is not tracked"; return nullptr; }
         const auto value = contents->values.find({binding, 0});
@@ -1144,17 +1191,24 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     const CharacterList* list = nullptr;
     CharacterList runtime_list;
     Identity* identity = nullptr;
-    std::vector<std::shared_ptr<const PipelineVariant>> variants;
-    std::vector<const StaticMaterial*> material_plans;
-    std::vector<std::vector<SnapshotImage>> material_views;
+    auto& variants = scratch_variants; variants.clear();
+    auto& material_plans = scratch_material_plans; material_plans.clear();
+    auto& material_views = scratch_material_views; material_views.clear();
     uint32_t material_origin = 0;
-    DrawGeometry original;
+    DrawGeometry& original = scratch_original;
+    original.first_binding = 0; original.buffers.clear(); original.offsets.clear();
+    original.index = VK_NULL_HANDLE; original.index_offset = 0; original.index_type = VK_INDEX_TYPE_UINT32;
+    struct LookupsReset {
+        DrawLookups& l;
+        ~LookupsReset() { l.pipeline = VK_NULL_HANDLE; l.pipe = nullptr; l.registers = nullptr; l.set = VK_NULL_HANDLE; l.set_id = 0;
+                          l.contents = nullptr; l.answered[0] = l.answered[1] = 0; }
+    } lookups_reset{lookups};
     // The application's own set 3, when it has one bound: the replacement uses that slot, so it is
     // bound again afterwards exactly as the application bound it.
     uint32_t restore_slot = 0;
     VkPipelineLayout restore_layout = VK_NULL_HANDLE;
     VkDescriptorSet restore_set = VK_NULL_HANDLE;
-    std::vector<uint32_t> restore_offsets;
+    auto& restore_offsets = scratch_restore_offsets; restore_offsets.clear();
     {
         std::shared_lock<std::shared_mutex> lock(device->res_mx);
         const CharacterSection* const section = &package.sections[section_index];
@@ -1211,9 +1265,10 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         auto pipe = device->pipes.find(r.pipeline);
         if (pipe == device->pipes.end() || !pipe->second.recipe || !pipe->second.layout)
             return refuse(C_PIPELINE, "character draw pipeline metadata missing");
+        lookups.pipeline = r.pipeline; lookups.pipe = &pipe->second;
 
         // The instance entry is at set 2 binding 0 in every pipeline of the game's characters.
-        std::vector<BoundRange> ranges_bound;
+        auto& ranges_bound = scratch_ranges; ranges_bound.clear();
         const auto& window = r.sets[2];
         if (window.dyn_count && uint64_t(window.dyn_first) + window.dyn_count > cb->dyn.size())
             return refuse(C_ENTRY, "character dynamic offsets incomplete");
@@ -1249,7 +1304,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             if (remapped) last = *std::max_element(component.remap_lod1.begin(), component.remap_lod1.end());
             const size_t needed = (size_t(last) + 2) * MergedSkeleton::kBytesPerBone;
             current.resize(needed); previous.resize(needed);
-            std::vector<BoundRange> bone_ranges;
+            auto& bone_ranges = scratch_bone_ranges; bone_ranges.clear();
             const auto& bound = r.sets[site.set];
             bool readable = !(bound.dyn_count && uint64_t(bound.dyn_first) + bound.dyn_count > cb->dyn.size());
             if (readable) collect_buffer_ranges_locked(device, bound, bound.dyn_count ? cb->dyn.data() + bound.dyn_first : nullptr, bound.dyn_count, site.set, bone_ranges);
@@ -1413,8 +1468,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     if (!mesh_owner) return refuse(C_EXHAUSTED, "character command owner has no mesh");
     lap(S_OWNER);
     // Everything is decided; from here nothing can fail after a command was emitted.
-    std::vector<DrawGeometry> geometry(list->count);
-    std::vector<VariantDraw> items(list->count);
+    auto& geometry = scratch_geometry; if (geometry.size() < list->count) geometry.resize(list->count);
+    auto& items = scratch_items; items.resize(list->count);
     const std::vector<uint8_t>& master = identity->skeleton.bytes();
     const uint64_t key = identity->id << 32 ^ identity->generation;
     for (uint32_t i = 0; i < list->count; ++i) {
@@ -1710,7 +1765,9 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
 #endif
         std::string reason, owned_reason;
         if (!had_draws) {
-            if (!backend.presenter || !backend.presenter->last_drew_backbuffer()) return;
+            // The first Present that draws into the back buffer kept nothing to replay: its frame's
+            // presentations go without (one frame, a panel opening); every later one has it.
+            if (!backend.presenter || !backend.presenter->last_drew_backbuffer() || !backend.program->replayable()) return;
             const bool owned = backend.presenter->begin(present, owned_reason);
             if (!owned_reason.empty()) backend.note(owned_reason);
             if (!owned) return;
@@ -1725,7 +1782,9 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
         const bool owned = backend.presenter && backend.presenter->begin(present, owned_reason);
         present_phase("present owned begin");
         if (!owned_reason.empty()) backend.note(owned_reason);
-        const bool executed = backend.program->present(input, backend.frame.load(), ini_seconds(), reason);
+        // What a replay needs is kept only where the last Present drew into the back buffer (D-108).
+        const bool keep_replay = backend.presenter && backend.presenter->last_drew_backbuffer();
+        const bool executed = backend.program->present(input, backend.frame.load(), ini_seconds(), reason, keep_replay);
         present_phase("present ini (whole)");
         if (!executed) backend.note("INI Present: " + reason);
         // The first refusal of owned Present work ends the generation's GPU side; keep its reason.

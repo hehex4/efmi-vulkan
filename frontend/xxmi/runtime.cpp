@@ -170,10 +170,26 @@ struct IniRuntime::Impl {
     RuntimeInput last_input;
     std::array<bool, 256> blocked_keys{};
     bool can_save = true;
-    // The variable and parameter state the last present() started from, for replay() (BUG-036).
-    std::vector<std::pair<CommandListVariable*, float>> pre_variables;
+    // The variable and parameter state the last present() started from, for replay() (BUG-036):
+    // the generation's variables, listed once (again when the table grows), and their values. A
+    // pair per variable built through the hash table every presentation cost 5% of a profile.
+    std::vector<CommandListVariable*> variable_list;
+    std::vector<float> pre_values;
     std::vector<DirectX::XMFLOAT4> pre_parameters;
     bool replayable = false;
+    // The plans of the last draw, kept for their capacity (D-108).
+    DrawPlan draw_plan;
+    assets::FilePlan draw_result;
+    TextureOverrideMatches draw_matches;
+    void snapshot_variables()
+    {
+        if (variable_list.size() != command_list_globals.size()) {
+            variable_list.clear(); variable_list.reserve(command_list_globals.size());
+            for (auto& item : command_list_globals) variable_list.push_back(&item.second);
+        }
+        pre_values.resize(variable_list.size());
+        for (size_t i = 0; i < variable_list.size(); ++i) pre_values[i] = variable_list[i]->fval;
+    }
     std::vector<std::shared_ptr<const assets::FileResource>> resources;
     Impl() { device.mHackerContext = &context; context.mHackerDevice = &device; }
     CommandListState command_state()
@@ -378,8 +394,10 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
         // DRAW_NUMBER: the Core's identification tells a second identifier call within one draw by it.
         ++p.context.draw_number;
         DrawCallInfo call(DrawCall::DrawIndexedInstanced, 0, input.count, input.instances, uint32_t(input.base), input.first, input.first_instance, nullptr, 0);
-        TextureOverrideMatches matches; find_texture_override_for_hash(input.hash, &matches, &call); phase("phase find");
-        assets::FilePlan result;
+        TextureOverrideMatches& matches = p.draw_matches; matches.clear();
+        find_texture_override_for_hash(input.hash, &matches, &call); phase("phase find");
+        assets::FilePlan& result = p.draw_result;
+        result.items.clear(); result.skip_original = false; result.pre_items = SIZE_MAX;
         auto s = p.command_state(); s.call_info = &call; std::wstring why;
         ResourceCopyTarget index_target;
         index_target.type = ResourceCopyTargetType::INDEX_BUFFER;
@@ -389,7 +407,7 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
         if(!matches.empty()){
             std::vector<CommandList*> pre,post;pre.reserve(matches.size());post.reserve(matches.size());
             for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
-            DrawPlan plan;
+            DrawPlan& plan = p.draw_plan;
             const auto began = std::chrono::steady_clock::now();
             const bool executed = p.adapter.execute_matches(pre,post,s,plan,why);
             const auto ran = std::chrono::steady_clock::now();
@@ -399,7 +417,7 @@ bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::s
             if (!executed || !compiled) throw std::runtime_error("Original draw command refused: " + utf8(why));
             phase("phase execute+compile");
         }
-        ++p.stats.draws; output = std::move(result); return true;
+        ++p.stats.draws; std::swap(output, result); return true;
     } catch (const std::exception& e) {
         if(impl_->extension)impl_->extension->execution_failed();
         reason = e.what(); return false;
@@ -459,7 +477,9 @@ void RuntimePublishTransitionParameters()
     std::wstring why;
     if(!input_adapter->flush_parameters(state,true,why))throw std::runtime_error("Parameter transition refused: "+utf8(why));
 }
-bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float seconds, std::string& reason)
+bool IniRuntime::replayable() const { return impl_->replayable; }
+
+bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float seconds, std::string& reason, bool keep_replay_state)
 {
     try {
         if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
@@ -494,16 +514,15 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         CurrentTransition.UpdatePresets(&p.device);RuntimeUpdateTransitions(&p.device);
         phase("present keys+presets");
         // What replay() starts from: the state after the keys, with what the frame's draws set.
-        p.pre_variables.clear(); p.pre_variables.reserve(command_list_globals.size());
-        for (auto& item : command_list_globals) p.pre_variables.emplace_back(&item.second, item.second.fval);
-        p.pre_parameters = G->iniParams; p.replayable = false;
+        p.replayable = false;
+        if (keep_replay_state) { p.snapshot_variables(); p.pre_parameters = G->iniParams; }
         assets::FilePlan ignored; std::wstring why;
         DrawPlanAdapter::OriginalCall between;
         if(p.config.shader_hooks)between=[&](CommandListState&,std::wstring&){++G->frame_no;p.context.ResetCallCounters();return true;};
         if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why,std::move(between)) || !ignored.items.empty())
             throw std::runtime_error("Present requires unavailable render context: " + utf8(why));
         phase("present execute");
-        ++p.stats.presents; p.replayable = true; return true;
+        ++p.stats.presents; p.replayable = keep_replay_state; return true;
     } catch (const std::exception& e) {
         if(impl_->extension)impl_->extension->execution_failed();
         reason = e.what(); return false;
@@ -527,17 +546,18 @@ bool IniRuntime::replay(const RuntimeInput& input, uint64_t frame, float seconds
         if (input.resolution_width) { G->mResolutionInfo.width = int(input.resolution_width); G->mResolutionInfo.height = int(input.resolution_height); }
         // The current state comes back whatever the lists do; the lists start from the state the
         // last present() started from, so they draw what it drew.
+        if (p.variable_list.size() != command_list_globals.size()) throw std::runtime_error("Variables changed since the presentation");
         struct Restore {
             Impl& p; std::vector<float> now; std::vector<DirectX::XMFLOAT4> parameters;
             Restore(Impl& impl) : p(impl), parameters(G->iniParams)
             {
-                now.reserve(p.pre_variables.size());
-                for (auto& item : p.pre_variables) { now.push_back(item.first->fval); item.first->fval = item.second; }
+                now.resize(p.variable_list.size());
+                for (size_t i = 0; i < p.variable_list.size(); ++i) { now[i] = p.variable_list[i]->fval; p.variable_list[i]->fval = p.pre_values[i]; }
                 G->iniParams = p.pre_parameters;
             }
             ~Restore()
             {
-                for (size_t i = 0; i < p.pre_variables.size(); ++i) p.pre_variables[i].first->fval = now[i];
+                for (size_t i = 0; i < p.variable_list.size(); ++i) p.variable_list[i]->fval = now[i];
                 G->iniParams = std::move(parameters);
             }
         } restore(p);

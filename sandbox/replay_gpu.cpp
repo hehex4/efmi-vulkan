@@ -124,15 +124,20 @@ static void init_with_window(Gpu& g,HWND window,Swap& swap){
     debug.messageSeverity=VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
     debug.messageType=VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     debug.pfnUserCallback=diagnostic;
-    VkInstanceCreateInfo info={VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};info.pApplicationInfo=&app;info.pNext=&debug;
-    info.enabledLayerCount=1;info.ppEnabledLayerNames=&layer;info.enabledExtensionCount=3;info.ppEnabledExtensionNames=exts;
+    // EFMI_VK_REPLAY_NO_VALIDATION=1: no validation layer, for profiling the layer's own CPU work (the
+    // validation layer's calls dominated a profile otherwise). The diagnostics then count nothing.
+    char no_validation[4]={};
+    const bool validated=!(GetEnvironmentVariableA("EFMI_VK_REPLAY_NO_VALIDATION",no_validation,sizeof no_validation) && no_validation[0]=='1');
+    VkInstanceCreateInfo info={VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};info.pApplicationInfo=&app;info.pNext=validated?&debug:nullptr;
+    info.enabledLayerCount=validated?1:0;info.ppEnabledLayerNames=&layer;
+    info.enabledExtensionCount=validated?3:2;info.ppEnabledExtensionNames=validated?exts:exts+1;
     CHECK_VK(create(&info,nullptr,&g.instance));
 #define X(n) p##n=reinterpret_cast<PFN_vk##n>(gi(g.instance,"vk" #n));if(!p##n)throw std::runtime_error("vk" #n);
     INSTANCE_CALLS(X)
 #undef X
     auto create_debug=reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(gi(g.instance,"vkCreateDebugUtilsMessengerEXT"));
     g.destroy_debug=reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(gi(g.instance,"vkDestroyDebugUtilsMessengerEXT"));
-    CHECK_VK(create_debug(g.instance,&debug,nullptr,&g.messenger));
+    if(validated)CHECK_VK(create_debug(g.instance,&debug,nullptr,&g.messenger));
     auto surface_create=reinterpret_cast<PFN_vkCreateWin32SurfaceKHR>(gi(g.instance,"vkCreateWin32SurfaceKHR"));
     auto supports=reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>(gi(g.instance,"vkGetPhysicalDeviceSurfaceSupportKHR"));
     auto caps_of=reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(gi(g.instance,"vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));

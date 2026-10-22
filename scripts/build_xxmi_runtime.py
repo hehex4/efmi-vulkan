@@ -32,6 +32,8 @@ def runtime_flags(out: Path) -> list[str]:
         flags.append("/DEFMI_COMMAND_TIMING")  # per-command timing (D-099), as scripts/build.py
     if os.environ.get("EFMI_VK_PHASE_TIMING") == "1":
         flags.append("/DEFMI_PHASE_TIMING")
+    if os.environ.get("EFMI_VK_COMMAND_TIMING") == "1" or os.environ.get("EFMI_VK_PHASE_TIMING") == "1":
+        flags.append("/Z7")  # debug information for scripts/sample_profile.py in a profiling build
     return flags + ["/I" + str(path) for path in includes] + ["/Fo" + str(out) + "/"]
 
 

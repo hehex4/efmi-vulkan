@@ -2,7 +2,9 @@
 #include "character_package.h"
 #include "../../frontend/xxmi/runtime.h"
 #include "../../frontend/xxmi/owned_runtime.h"
+#include <algorithm>
 #include <functional>
+#include <string>
 #include <map>
 #include <unordered_map>
 #include <set>
@@ -49,7 +51,8 @@ public:
     void note_timing(const char* name, uint64_t microseconds) { if (runtime_) runtime_->note_timing(name, microseconds); }
     bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason,
               const VertexInputRecipe* vertex = nullptr, bool* textures = nullptr);
-    bool present(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
+    bool present(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason, bool keep_replay_state = true);
+    bool replayable() const { return runtime_ && runtime_->replayable(); }
     // The last Present again, for another presentation of the same frame (BUG-036).
     bool replay(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason) { return !runtime_ || runtime_->save(reason); }
@@ -69,6 +72,34 @@ private:
     // out for a declaration (stable for the generation): the path key is made once per resource,
     // not per draw (it cost 10 us per matched draw).
     std::unordered_map<const void*, uint32_t> stream_cache_, image_cache_;
+    efmi::assets::FilePlan file_plan_; // the last draw's, kept for its capacity (D-108)
+    // A pixel slot's image (or kCharacterNone) while a plan is read: a few entries, kept sorted by
+    // slot, no node per entry as a std::map has.
+    struct PixelSlots {
+        std::vector<std::pair<uint32_t, uint32_t>> values;
+        uint32_t& operator[](uint32_t slot)
+        {
+            auto it = std::lower_bound(values.begin(), values.end(), slot, [](const auto& v, uint32_t s) { return v.first < s; });
+            if (it == values.end() || it->first != slot) it = values.insert(it, {slot, 0});
+            return it->second;
+        }
+        void erase(uint32_t slot)
+        {
+            auto it = std::lower_bound(values.begin(), values.end(), slot, [](const auto& v, uint32_t s) { return v.first < s; });
+            if (it != values.end() && it->first == slot) values.erase(it);
+        }
+        bool empty() const { return values.empty(); }
+        size_t size() const { return values.size(); }
+        void clear() { values.clear(); }
+        auto begin() const { return values.begin(); }
+        auto end() const { return values.end(); }
+    };
+    // The containers a plan is read into, kept for their capacity (D-108).
+    PixelSlots scratch_pixels_;
+    std::vector<CharacterDraw> scratch_draws_;
+    std::vector<std::vector<CharacterPixel>> scratch_material_;
+    std::vector<uint8_t> scratch_signature_;
+    std::string scratch_id_;
     uint32_t stream_index(const std::shared_ptr<const efmi::assets::FileResource>& resource);
     uint32_t image_index(const std::shared_ptr<const efmi::assets::FileResource>& resource);
     std::unordered_map<std::string, CharacterList> lists_;

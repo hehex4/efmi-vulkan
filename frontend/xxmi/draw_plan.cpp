@@ -424,6 +424,10 @@ struct DrawPlanAdapter::Runtime {
     size_t steps = 0, draws = 0;
     // Microseconds and calls per command class over every execution (D-099): where a draw's INI time goes.
     std::unordered_map<std::string, std::pair<uint64_t, uint64_t>> command_timing;
+    // The plan an execution builds, kept between executions for its capacity (D-108); an execution
+    // never nests (it refuses an active planner), so one suffices.
+    DrawPlan candidate;
+    std::unordered_map<const char*, std::pair<uint64_t, uint64_t>*> timing_slots; // note_timing's, by name pointer
     std::unordered_set<CommandList*> adapted;
     struct External {std::wstring name;DrawPlanAdapter::NativeCommand command;};
     std::unordered_map<ExplicitCommandListSection*,External> externals;
@@ -881,14 +885,15 @@ struct DrawPlanAdapter::Runtime {
         if (auto* call = as<RunExplicitCommandList>(original, kinds, K_RunExplicitCommandList)) {
             auto found = externals.find(call->command_list_section);
             if (found != externals.end()) {
-                PlanItem item; item.operation = PlanOperation::External; item.external = found->second.name;
+                PlanItem item; item.operation = PlanOperation::External;
                 item.phase_mask = call->run_pre_and_post_together ? 3 : state->post ? 2 : 1;
                 if(found->second.command){
                     std::wstring reason;
                     if(!found->second.command(*state,item.phase_mask,reason) || nested_failed)
-                        refuse(reason.empty()?L"Native command refused: "+item.external:reason);
+                        refuse(reason.empty()?L"Native command refused: "+found->second.name:reason);
                     return;
                 }
+                item.external = found->second.name; // copied only for an item that is kept (D-108)
                 append(std::move(item));
                 return;
             }
@@ -1248,7 +1253,9 @@ std::vector<std::tuple<std::string, uint64_t, uint64_t>> DrawPlanAdapter::comman
 }
 void DrawPlanAdapter::note_timing(const char* name, uint64_t microseconds)
 {
-    auto& t = runtime_->command_timing[name]; ++t.first; t.second += microseconds;
+    auto& slot = runtime_->timing_slots[name];
+    if (!slot) slot = &runtime_->command_timing[name];
+    ++slot->first; slot->second += microseconds;
 }
 bool DrawPlanAdapter::execute_matches(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,CommandListState& state,DrawPlan& output,std::wstring& reason)
 {
@@ -1273,7 +1280,8 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
 #else
     auto phase = [](const char*) {};
 #endif
-    DrawPlan candidate;
+    DrawPlan& candidate = runtime_->candidate;
+    candidate.items.clear(); candidate.skip_original = false; candidate.pre_items = SIZE_MAX;
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     runtime_->keep_original=false;runtime_->shader_depth=0;
@@ -1310,7 +1318,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         }
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         if(runtime_->keep_original)candidate.skip_original=false;
-        output = std::move(candidate);
+        std::swap(output, candidate); // both keep their capacity
         phase("exec output");
     } catch (const Refused& error) {
         reason = error.reason;

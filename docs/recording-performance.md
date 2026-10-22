@@ -208,3 +208,39 @@ perlica replay (vk14, 120 frames), per matched draw: list execution 33.2 to 14.5
 Still there: the bones (bone matrices read from write-combined mapped memory, about 25 KB per
 component per frame), to go to the GPU with a remap table; the index hashing of the draws that
 match no section; the Present lists of every package (the Core's GUI list runs for each).
+
+## A sampling profiler, and what it found (1.7.4, D-108)
+
+`scripts/sample_profile.py` samples a process of the project (the replay, a sandbox program) about
+a thousand times a second: it suspends each thread that ran in the last half second, reads its
+context, walks its stack with dbghelp and names the frames through the PDBs, then prints the
+functions by self and inclusive samples and, with `--dump`, writes every stack for later queries.
+`--delay` skips the start-up and the Core's notifications of the first minute. The replay runs
+without the validation layer with `EFMI_VK_REPLAY_NO_VALIDATION=1` (the validation layer's calls
+dominated a profile otherwise), and the profiling builds (`EFMI_VK_PHASE_TIMING=1`) compile the
+INI runtime with debug information so its frames are named. The replay's timing is only a guide
+for the CPU work; the game's numbers come from the probe in a session.
+
+What the profile of the perlica bundle showed after D-106, and what 1.7.4 does about it:
+
+- The replay snapshot of D-104 (every variable's value before the Present lists, for a
+  presentation without a draw) was taken for every package at every presentation, a pair per
+  variable through the hash table: 5% of the busy samples. It is a flat copy over a variable list
+  made once, and only for a package whose last Present drew into the back buffer.
+- Allocations were a sixth of the recording: the plan, the file plan, the program's draw list,
+  material and signature, a dozen containers of `record()`, the bone ranges. They are kept per
+  generation (or per planner) for their capacity and swapped with the caller's; the pixel slots
+  of a plan are a small sorted vector instead of a std::map; an external list's name is copied
+  only for a plan item that is kept.
+- A draw's twenty pixel slot queries looked up its pipeline, the fragment module's registers and
+  its descriptor set each time, and the same slots were asked again by the Core and RabbitFX: the
+  draw's pipeline, registers and last set are found once, and each slot's answer is kept for the
+  rest of the draw.
+- A Mod with GPU work at every Present (Typhoeus) created and destroyed a command pool and a fence
+  per submission (about 50 us per frame): completed submissions give theirs back to the next ones.
+
+Interleaved A/B against 1.7.3 on the perlica replay without validation, three rounds each, medians per frame (the machine under another game's load, so the ratios count): recording 1977 to 1621 us (0.82), the INI plan 1224 to 972 us (0.79), the 22 packages' INI Present 806 to 567 us (0.70), Typhoeus' Present GPU submission 107 to 64 us (0.60), the replay's frame interval 0.94.
+
+What the profile leaves: the INI lists themselves (each Mod's key panel runs about two hundred lines
+at every Present, as under the original; 14 us per package), the original interpreter's commands
+in the matched draws' lists, and the driver calls of the replaced draws.

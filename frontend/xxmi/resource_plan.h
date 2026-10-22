@@ -16,5 +16,6 @@ private:
         std::array<std::wstring,3> reasons;
     };
     std::unordered_map<const CustomResource*,Declaration> declarations_;
+    mutable assets::FilePlan next_; // kept for its capacity (D-108)
 };
 }

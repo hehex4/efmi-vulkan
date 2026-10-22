@@ -15,8 +15,23 @@ BufferResource::~BufferResource() {
     if(memory_)device_.dispatch.FreeMemory(device_.device,memory_,nullptr);
     if(allocation_)budget_->release(allocation_);
 }
+SubmissionRecycler::~SubmissionRecycler() {
+    for(const auto& p:pools)device.dispatch.DestroyCommandPool(device.device,p.first,nullptr);
+    for(auto f:fences)device.dispatch.DestroyFence(device.device,f,nullptr);
+}
 ResourceSubmission::~ResourceSubmission() {
     if(submitted_ && !complete_)device_.dispatch.WaitForFences(device_.device,1,&fence_,VK_TRUE,UINT64_MAX);
+    // Retained objects go first: the pool's commands referenced them, and nothing runs any more.
+    retained_.clear();shader_owners_.clear();image_layouts_.clear();
+    if(recycler_){
+        std::lock_guard<std::mutex> lock(recycler_->mutex);
+        if(pool_ && recycler_->pools.size()<8 && device_.dispatch.ResetCommandPool(device_.device,pool_,0)==VK_SUCCESS){
+            recycler_->pools.push_back({pool_,command_});pool_=VK_NULL_HANDLE;
+        }
+        if(fence_ && recycler_->fences.size()<8 && device_.dispatch.ResetFences(device_.device,1,&fence_)==VK_SUCCESS){
+            recycler_->fences.push_back(fence_);fence_=VK_NULL_HANDLE;
+        }
+    }
     if(pool_)device_.dispatch.DestroyCommandPool(device_.device,pool_,nullptr);
     if(fence_)device_.dispatch.DestroyFence(device_.device,fence_,nullptr);
 }
@@ -37,6 +52,7 @@ ResourceCommands::ResourceCommands(ResourceDevice device,ResourceBudgets budgets
 #define X(name) if(!device_.dispatch.name)throw std::runtime_error("Resource dispatch missing vk" #name);
     EFMI_RESOURCE_COMMAND_FUNCS(X)
 #undef X
+    recycler_=std::make_shared<SubmissionRecycler>();recycler_->device=device_;
 }
 ResourceCommands::~ResourceCommands()=default;
 Buffer ResourceCommands::allocate(VkDeviceSize size,VkBufferUsageFlags usage,bool staging) {
@@ -82,12 +98,18 @@ Buffer ResourceCommands::create(VkDeviceSize size,VkBufferUsageFlags usage,const
 }
 VkCommandBuffer ResourceCommands::command() {
     if(pending_)return pending_->command_;
-    auto p=std::make_shared<ResourceSubmission>();p->device_=device_;const auto& d=device_.dispatch;
-    VkCommandPoolCreateInfo ci={VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};ci.queueFamilyIndex=device_.queue_family;
-    ci.flags=VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;check(d.CreateCommandPool(device_.device,&ci,nullptr,&p->pool_),"Create resource command pool");
-    VkCommandBufferAllocateInfo ai={VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};ai.commandPool=p->pool_;ai.commandBufferCount=1;
-    check(d.AllocateCommandBuffers(device_.device,&ai,&p->command_),"Allocate resource command buffer");
-    if(d.SetDeviceLoaderData)check(d.SetDeviceLoaderData(device_.device,p->command_),"Initialize resource loader data");
+    auto p=std::make_shared<ResourceSubmission>();p->device_=device_;p->recycler_=recycler_;const auto& d=device_.dispatch;
+    {
+        std::lock_guard<std::mutex> lock(recycler_->mutex);
+        if(!recycler_->pools.empty()){p->pool_=recycler_->pools.back().first;p->command_=recycler_->pools.back().second;recycler_->pools.pop_back();}
+    }
+    if(!p->pool_){
+        VkCommandPoolCreateInfo ci={VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};ci.queueFamilyIndex=device_.queue_family;
+        ci.flags=VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;check(d.CreateCommandPool(device_.device,&ci,nullptr,&p->pool_),"Create resource command pool");
+        VkCommandBufferAllocateInfo ai={VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};ai.commandPool=p->pool_;ai.commandBufferCount=1;
+        check(d.AllocateCommandBuffers(device_.device,&ai,&p->command_),"Allocate resource command buffer");
+        if(d.SetDeviceLoaderData)check(d.SetDeviceLoaderData(device_.device,p->command_),"Initialize resource loader data");
+    }
     VkCommandBufferBeginInfo bi={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check(d.BeginCommandBuffer(p->command_,&bi),"Begin resource command buffer");pending_=std::move(p);return pending_->command_;
 }
@@ -128,7 +150,12 @@ std::shared_ptr<ResourceSubmission> ResourceCommands::submit(VkQueue queue,const
     barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
     const auto& d=device_.dispatch;auto p=std::move(pending_);
     check(d.EndCommandBuffer(p->command_),"End resource command buffer");
-    VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};check(d.CreateFence(device_.device,&fi,nullptr,&p->fence_),"Create resource fence");
+    {
+        std::lock_guard<std::mutex> lock(recycler_->mutex);
+        if(!recycler_->fences.empty()){p->fence_=recycler_->fences.back();recycler_->fences.pop_back();}
+    }
+    VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    if(!p->fence_)check(d.CreateFence(device_.device,&fi,nullptr,&p->fence_),"Create resource fence");
     VkSubmitInfo si={VK_STRUCTURE_TYPE_SUBMIT_INFO};si.commandBufferCount=1;si.pCommandBuffers=&p->command_;
     si.waitSemaphoreCount=uint32_t(sync.waits.size());si.pWaitSemaphores=sync.waits.data();si.pWaitDstStageMask=sync.stages.data();
     si.signalSemaphoreCount=uint32_t(sync.signals.size());si.pSignalSemaphores=sync.signals.data();

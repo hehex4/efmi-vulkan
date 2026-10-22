@@ -121,7 +121,10 @@ public:
     bool bind_source_shaders(const SourceShaderState&,std::string& reason);
     bool intercept(const RuntimeShaderCall&,std::string& reason);
     // Input is supplied by the host. Tests never send input to other processes.
-    bool present(const RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
+    // `keep_replay_state`: keep what replay() needs (every variable's value before the lists, D-104);
+    // the host asks for it only where it will replay, the copy of every variable costing per package.
+    bool present(const RuntimeInput&, uint64_t frame, float seconds, std::string& reason, bool keep_replay_state = true);
+    bool replayable() const;
     // The last present() again for another presentation of the same frame (frame generation,
     // a frame presented again): the Present lists run from the variable state present() started
     // with, recording their GPU work again, and every variable and parameter is restored after.

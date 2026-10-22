@@ -328,7 +328,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                             bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures)
 {
     try {
-        added = false; efmi::assets::FilePlan plan;
+        added = false; efmi::assets::FilePlan& plan = file_plan_;
         if (textures) *textures = false;
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
         struct Phase { CharacterProgram* p; std::chrono::steady_clock::time_point began;
@@ -346,7 +346,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
             // The application's draw stays, with the textures the pre phase bound for it: under DX11
             // they are bound when the game's draw runs. Geometry or draws of the Mod make it no
             // texture-only plan; post commands come after the draw.
-            std::map<uint32_t, uint32_t> pixels;
+            auto& pixels = scratch_pixels_; pixels.clear();
             for (size_t i = 0; i < plan.items.size() && i < plan.pre_items; ++i) {
                 const auto& item = plan.items[i];
                 using Op = efmi::assets::FileOperation;
@@ -360,9 +360,9 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 } else if (item.operation != Op::External) return true;
             }
             if (pixels.empty()) return true;
-            std::vector<uint8_t> signature{'T'};
+            auto& signature = scratch_signature_; signature.clear(); signature.push_back('T');
             for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
-            const std::string id(signature.begin(), signature.end());
+            auto& id = scratch_id_; id.assign(signature.begin(), signature.end());
             const auto found = lists_.find(id);
             if (found == lists_.end()) {
                 if (lists_.size() >= 1024 || package.draws.size() + 1 > 16384) throw std::runtime_error("Runtime draw-plan cache budget exceeded");
@@ -379,11 +379,11 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         }
         CharacterDraw bound;
         bound.index_stream = kCharacterNone;
-        std::map<uint32_t, uint32_t> pixels;
-        std::vector<CharacterDraw> draws;
-        std::vector<std::vector<CharacterPixel>> material;
+        auto& pixels = scratch_pixels_; pixels.clear();
+        auto& draws = scratch_draws_; draws.clear();
+        auto& material = scratch_material_; size_t material_count = 0;
         uint32_t required = 0;
-        std::vector<uint8_t> signature; signature.reserve(512);
+        auto& signature = scratch_signature_; signature.clear();
         for (const auto& item : plan.items) {
             using Op = efmi::assets::FileOperation;
             if (item.operation == Op::BindPixelResource) {
@@ -505,8 +505,10 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                         throw std::runtime_error("Runtime indexed draw exceeds vertex file bounds");
                     if (stream != kCharacterOwned) required |= package.streams[stream].components;
                 }
-                draws.push_back(bound); material.emplace_back();
-                for (const auto& pixel : pixels) material.back().push_back({pixel.first, pixel.second});
+                draws.push_back(bound);
+                if (material_count == material.size()) material.emplace_back();
+                auto& slots = material[material_count++]; slots.clear();
+                for (const auto& pixel : pixels) slots.push_back({pixel.first, pixel.second});
                 put(signature, bound.index_stream); put(signature, bound.count); put(signature, bound.first); put(signature, bound.base);
                 for (auto stream : bound.vb) put(signature, stream);
                 put(signature, uint32_t(bound.owned.size()));
@@ -518,19 +520,19 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
             } else throw std::runtime_error("Unresolved runtime native operation");
         }
-        const std::string id(signature.begin(), signature.end());
+        auto& id = scratch_id_; id.assign(signature.begin(), signature.end());
         auto found = lists_.find(id);
         if (found != lists_.end()) { output = found->second; return true; }
         if (lists_.size() >= 1024 || package.draws.size() + draws.size() > 16384) throw std::runtime_error("Runtime draw-plan cache budget exceeded");
         CharacterList result{uint32_t(package.draws.size()), uint32_t(draws.size()), required};
         package.draws.insert(package.draws.end(), draws.begin(), draws.end());
-        package.pixels.insert(package.pixels.end(), material.begin(), material.end());
+        package.pixels.insert(package.pixels.end(), material.begin(), material.begin() + material_count);
         lists_.emplace(id, result); added = !draws.empty(); output = result; return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
-bool CharacterProgram::present(const efmi::frontend::RuntimeInput& input, uint64_t frame, float seconds, std::string& reason)
+bool CharacterProgram::present(const efmi::frontend::RuntimeInput& input, uint64_t frame, float seconds, std::string& reason, bool keep_replay_state)
 {
-    return runtime_->present(input, frame, seconds, reason);
+    return runtime_->present(input, frame, seconds, reason, keep_replay_state);
 }
 
 bool CharacterProgram::replay(const efmi::frontend::RuntimeInput& input, uint64_t frame, float seconds, std::string& reason)
