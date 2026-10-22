@@ -8,6 +8,11 @@ Launcher state, 2026-10-22 10:30: at the user's request ("switch back to Vulkan 
 
 
 
+## HANDOFF: uncommitted after 1.7.2 (2026-10-22 14:30, usage limit reached)
+
+- In the worktree, uncommitted, in layer/src/character_backend.cpp: hash-only sections (chengqianyu, last rite: one each) make every indexed draw of the frame hashed only while their package is activated (the index keeps an `activated` flag per controller and is rebuilt when one changes; D-107 to be written): in the seventh session 177 hash calls a frame with 147 misses came from this; and `fingerprint_read_microseconds` in `record` for the next session's reading. A full build and suite were running when the limit hit (build/next/run_all-1.7.3a.out): if it passed, commit as 1.7.3 with a D-107 decision and docs/recording-performance.md note; if not, read the failing step first. The character replacement step has a timing flake in one scene's two texture checks (DDS uploaded once, publication reaching the queue) that passes on a rerun.
+- Next offline: the bones on the GPU (layer/src/merged_skeleton.cpp; bone matrices are read from write-combined mapped memory, 0.4 ms a frame), the Present lists per package, then measure in the game against 120 fps (`stage_us`, `record.hash_microseconds`, `fingerprint_read_microseconds`).
+
 ## The recording path cut offline (2026-10-22, 1.7.2, D-106)
 
 - Profiling builds: `EFMI_VK_COMMAND_TIMING=1 scripts/build.py --out build/timing` (every command class, exclusive) and `EFMI_VK_PHASE_TIMING=1` (phases around the plan and the Present); read through the replay's status.json `ini.commands`. draw_plan.cpp (`classify`, `as<>`, the unwrapped natives in `adapt_tree`, `note_timing`), character_core.cpp (`v()`, cached pool, lists and resources), character_backend.cpp (`variant_lookup`, `kStableReads`), character_program.cpp (`stream_index`, `image_index`, hashed `lists_`).
