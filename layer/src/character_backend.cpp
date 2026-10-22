@@ -217,6 +217,7 @@ constexpr uint64_t kHashTableIdleFrames = 8;
 // Full hashes by cause, device-wide (D-099): a region seen first, the buffer's generation changed
 // (a copy into the buffer, anywhere in it), the edge fingerprint changed, or the periodic repeat.
 std::atomic<uint64_t> g_hash_full{0}, g_hash_bytes{0}, g_hash_new{0}, g_hash_gen{0}, g_hash_quick{0}, g_hash_due{0}, g_quick_reads{0}, g_quick_skipped{0};
+std::atomic<uint64_t> g_quick_read_us{0}; // microseconds of the edge fingerprint reads (write-combined memory)
 struct IndexHashTable {
     std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes;
     std::vector<uint8_t> scratch;
@@ -1952,6 +1953,7 @@ public:
         std::set<uint32_t> counts;
         bool hash_only = false;
         std::vector<uint64_t> generations;
+        std::vector<uint8_t> activated; // per controller at the rebuild: hash-only sections count for activated packages
     };
     std::shared_mutex index_mx;
     std::shared_ptr<const Index> index;
@@ -1962,11 +1964,16 @@ public:
             auto& c = *controllers[i];
             std::shared_lock<std::shared_mutex> lock(c.mutex);
             next->generations.push_back(c.generation);
+            const bool active_now = !c.stopped && c.active && c.active->activated.load(std::memory_order_relaxed);
+            next->activated.push_back(active_now ? 1 : 0);
             if (c.stopped || !c.active) continue;
             const auto& sections = c.active->package.sections;
             for (uint32_t s = 0; s < sections.size(); ++s) {
                 next->by_hash[sections[s].hash].push_back({i, s});
-                if (sections[s].match_count == kCharacterNone) next->hash_only = true;
+                // A hash-only section (a hidden game mesh) acts for an activated package only (D-084), so
+                // only such a package makes every indexed draw hashed (D-107): two lazy packages with one
+                // each had every draw of the frame hashed, 147 misses a frame in the seventh session.
+                if (sections[s].match_count == kCharacterNone) { if (active_now) next->hash_only = true; }
                 else next->counts.insert(sections[s].match_count);
             }
         }
@@ -1981,6 +1988,9 @@ public:
         for (uint32_t i = 0; i < controllers.size(); ++i) {
             std::shared_lock<std::shared_mutex> lock(controllers[i]->mutex);
             if (controllers[i]->generation != current->generations[i]) return true;
+            const auto& c = *controllers[i];
+            const bool active_now = !c.stopped && c.active && c.active->activated.load(std::memory_order_relaxed);
+            if (active_now != (current->activated[i] != 0)) return true;
         }
         return false;
     }
@@ -2115,8 +2125,10 @@ bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const Cha
     }
     uint8_t edge[128];
     const size_t head = static_cast<size_t>(std::min<uint64_t>(bytes, 64)), tail = static_cast<size_t>(std::min<uint64_t>(bytes - head, 64));
+    const uint64_t read_began = host_time_us();
     if (read_buffer_locked(device, info, offset, head, edge) != SRC_MAPPED ||
         (tail && read_buffer_locked(device, info, offset + bytes - tail, tail, edge + head) != SRC_MAPPED)) return false;
+    g_quick_read_us += host_time_us() - read_began;
     const uint32_t quick = crc32c(0, edge, head + tail);
     ++g_quick_reads;
     if (current && found->second.quick == quick) {
@@ -2267,6 +2279,7 @@ void character_status(CharacterBackend& b, JsonWriter& w)
     w.kn("full_hashes", g_hash_full.load()); w.kn("full_hash_bytes", g_hash_bytes.load());
     w.kn("full_new", g_hash_new.load()); w.kn("full_generation", g_hash_gen.load()); w.kn("full_fingerprint", g_hash_quick.load()); w.kn("full_due", g_hash_due.load());
     w.kn("fingerprint_reads", g_quick_reads.load()); w.kn("fingerprint_skipped", g_quick_skipped.load());
+    w.kn("fingerprint_read_microseconds", g_quick_read_us.load());
     w.kb("pipeline_cache", b.pipeline_cache != VK_NULL_HANDLE); w.kn("pipeline_cache_loaded_bytes", b.pipeline_cache_loaded);
     if (b.variants) { w.kn("variant_waits", b.variants->waits()); w.kn("variant_wait_microseconds", b.variants->wait_microseconds()); }
     w.kb("upload_queue", b.device && b.device->upload_queue != VK_NULL_HANDLE);

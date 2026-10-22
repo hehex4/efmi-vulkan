@@ -8,10 +8,10 @@ Launcher state, 2026-10-22 10:30: at the user's request ("switch back to Vulkan 
 
 
 
-## HANDOFF: uncommitted after 1.7.2 (2026-10-22 14:30, usage limit reached)
+## After 1.7.2: the activated-only hashing rule (2026-10-22, D-107, committed, not deployed)
 
-- In the worktree, uncommitted, in layer/src/character_backend.cpp: hash-only sections (chengqianyu, last rite: one each) make every indexed draw of the frame hashed only while their package is activated (the index keeps an `activated` flag per controller and is rebuilt when one changes; D-107 to be written): in the seventh session 177 hash calls a frame with 147 misses came from this; and `fingerprint_read_microseconds` in `record` for the next session's reading. A full build and suite were running when the limit hit (build/next/run_all-1.7.3a.out): if it passed, commit as 1.7.3 with a D-107 decision and docs/recording-performance.md note; if not, read the failing step first. The character replacement step has a timing flake in one scene's two texture checks (DDS uploaded once, publication reaching the queue) that passes on a rerun.
-- Next offline: the bones on the GPU (layer/src/merged_skeleton.cpp; bone matrices are read from write-combined mapped memory, 0.4 ms a frame), the Present lists per package, then measure in the game against 120 fps (`stage_us`, `record.hash_microseconds`, `fingerprint_read_microseconds`).
+- layer/src/character_backend.cpp: hash-only sections make every indexed draw hashed only while their package is activated (the index's `activated` flags, rebuilt on a change); `fingerprint_read_microseconds` in `record`. Suite passed (build/next/run_all-1.7.3a.out, 35 steps). The version is still 1.7.2 and dist holds 1.7.2: bump to 1.7.3, build and deploy with the game closed at the start of the next session, then measure against 120 fps.
+- Next offline: the bones on the GPU (merged_skeleton.cpp; 0.4 ms a frame of write-combined reads), the Present lists per package. The character replacement step has a timing flake in one scene's two texture checks that passes on a rerun.
 
 ## The recording path cut offline (2026-10-22, 1.7.2, D-106)
 
