@@ -1,6 +1,6 @@
 # EFMI Vulkan - Known issues
 
-> Last updated: 2026-10-14.
+> Last updated: 2026-10-22 (BUG-040 through BUG-042 from the 1.7.4 performance review).
 
 ## LIMIT-001: Probe data and long-duration stability are not verified in the real game
 
@@ -824,3 +824,18 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 
 - 2026-10-22. `yvonne sinicat 2.4` replaced `Yvonne Ensnared Heart 1.8`; both declare `namespace = yvonne`, and the settings file `settings/yvonne.ini` written by the old one (its cloth parts toggled off) came up in the new one: its clothes, shown by default under DX11, were hidden. The original keeps one `d3dx_user.ini` by namespace and would inherit them the same way.
 - Fixed in 1.7.1 (D-105): the settings file is named by the namespace and the Mod's folder (`yvonne-yvonne_sinicat_2_4.ini`). The files of 1.7.0 and before stay unused: every Mod starts once from its INI's defaults.
+
+## BUG-040: Stable positive index matches can outlive coherent mapped writes (open, P1)
+
+- Introduced by 09c6b59, present in b5c12c3. character_backend.cpp:2191 skips the edge fingerprint of a positive Mod match after 120 stable reads until next_quick. A direct write to a coherent mapped pool need not update region_gen, so another object's same-size region can select the old Mod section. Native source-extracted probes: old version detects the change at frame 121; 1.7.4 returns the old hash through frame 135 and detects it at 136. A tracked write still invalidates immediately.
+- Fix direction: preserve validation for positive matches on memory without an independently reliable write/immutability guarantee. Cover stable same-region reuse. See docs/performance-review-1.7.4.md; build/review-performance-1.7.4/probes.json. No real-game reproduction or runtime fix in this review.
+
+## BUG-041: Fast variant lookup retains retired Vulkan objects (open, P2)
+
+- Introduced by 09c6b59, present in b5c12c3. variant_lookup stores strong PipelineVariant owners, but generation_retire clears only the other pipeline tables. Retired pipeline/layout resources survive command completion until material refresh or generation destruction. The table's 65,536-entry limit is not retirement.
+- Native ownership probe using the actual retirement function: all 256 retired variant stand-ins remain at 1.7.4 after cache/command owners release, versus zero before this lookup. Clearing it releases all. GPU bytes were not measured. Erase matching identities or use weak ownership, retaining completed/in-flight command ownership correctly; add character-backend lifetime coverage. Evidence as BUG-040. No runtime fix.
+
+## BUG-042: Persistent material scratch pins images after eviction (open, P2)
+
+- Introduced by b5c12c3. scratch_material_views owns each SnapshotImage until the next matched record() call. A character that leaves the scene after a material draw can retain those images after commands complete and the residency cache has evicted and uncharged them. Retention is limited to the last draw's images; it is empty if that draw bound no Mod images.
+- Native model of the committed SnapshotImage and storage lifetime: before 1.7.4 all three stand-in images release after command/residency release; at 1.7.4 none release until scratch clear. Not an actual GPU allocation measurement. Release resource references on all draw exit paths while retaining container capacity. Cover inactivity, completed commands and eviction. Evidence as BUG-040. No runtime fix.

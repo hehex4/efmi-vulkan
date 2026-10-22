@@ -1,10 +1,32 @@
 # EFMI Vulkan - Tasks
 
-> Last updated: 2026-10-15.
+> Last updated: 2026-10-22 (performance review). Earlier implementation checkpoints below are historical.
 
 Milestones and gates refer to `docs/plan.md`.
 
-## Current state
+## Current review and follow-up
+
+User request: review Claude's performance optimization commits. Reviewed
+b5c12c3 (1.7.4), preserving the main tree's older uncommitted 1.3.7 work.
+Review complete; production code and deployment unchanged. Findings and
+evidence: docs/performance-review-1.7.4.md.
+
+- Open BUG-040 / P1: do not skip positive-match fingerprint validation on
+  mapped regions that can change without tracked writes. Cover stable-region
+  reuse; current native reproduction returns the stale hash for 15 frames.
+- Open BUG-041 / P2: retire the per-generation variant lookup's strong owners
+  with the original pipeline. Cover character-backend create/use/retire cycles.
+- Open BUG-042 / P2: release material scratch image owners on every draw exit
+  while preserving allocation reuse. Cover character inactivity and eviction
+  after commands complete; current new member storage retains all probe images.
+- Performance acceptance remains open: resolve these findings, measure startup
+  waits and steady-state p50/p95/p99 separately under controlled offline load,
+  then compare the same game scene against 120 fps in a user-started session.
+  Existing A/B savings are real CPU-path evidence, not current game acceptance.
+
+No implementation of these follow-ups was requested or performed in the review.
+
+## Earlier Codex checkpoint (2026-10-15, historical)
 
 Candidate1.3.6 verifies exact bytecode buffer contracts and typed UAV format
 conversion in owned INI execution. Full rebuilt frozen-source run in
