@@ -1257,8 +1257,15 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             for (const auto& range : bone_ranges)
                 if (range.element == 0 && range.binding == site.binding &&
                     (range.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || range.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) bones = &range;
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+            const uint64_t bones_read_began = host_time_us();
+#endif
             readable = readable && (!(dynamic & 1) || read_range(bones, uint64_t(offsets[0]) * 16, needed, current.data())) &&
                        (!(dynamic & 2) || read_range(bones, uint64_t(offsets[1]) * 16, needed, previous.data()));
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+            if (program) program->note_timing("bones read", host_time_us() - bones_read_began);
+            const uint64_t bones_import_began = host_time_us();
+#endif
             if (!readable) {
                 ++counters[C_BONES];
             } else {
@@ -1266,6 +1273,9 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 static const std::vector<uint16_t> identity_map;
                 const auto result = identity->skeleton.import_component(0, section->component, lod, entry,
                     {current.data(), needed}, {previous.data(), needed}, remapped ? component.remap_lod1 : identity_map, 1.0f, reason);
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+                if (program) program->note_timing("bones import", host_time_us() - bones_import_began);
+#endif
                 if (result == BoneImportResult::Imported) {
                     identity->coverage[section->component] |= dynamic;
                     ++identity->generation;
