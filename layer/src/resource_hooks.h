@@ -24,6 +24,7 @@ RESOURCE_HOOKS(DescriptorSetLayout, VkDescriptorSetLayout, VkDescriptorSetLayout
                on_create_set_layout, on_destroy_set_layout)
 RESOURCE_HOOKS(PipelineLayout, VkPipelineLayout, VkPipelineLayoutCreateInfo, on_create_pipeline_layout, on_destroy_pipeline_layout)
 RESOURCE_HOOKS(RenderPass, VkRenderPass, VkRenderPassCreateInfo, on_create_render_pass, on_destroy_render_pass)
+RESOURCE_HOOKS(Framebuffer, VkFramebuffer, VkFramebufferCreateInfo, on_create_framebuffer, on_destroy_framebuffer)
 RESOURCE_HOOKS(DescriptorUpdateTemplate, VkDescriptorUpdateTemplate, VkDescriptorUpdateTemplateCreateInfo,
                on_create_descriptor_template, on_destroy_descriptor_template)
 RESOURCE_HOOKS(DescriptorUpdateTemplateKHR, VkDescriptorUpdateTemplate, VkDescriptorUpdateTemplateCreateInfo,

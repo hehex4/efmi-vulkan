@@ -134,6 +134,7 @@ def _row(d: dict) -> dict:
     ib = d.get("ib") or {}
     return {
         "n": d["n"], "kind": d["kind"], "tid": d["tid"], "cb": d["cb"], "rp": d["rp"], "pipeline": d["pipeline"],
+        "targets": d.get("targets", 0),
         "ib": ib.get("buf"), "ib_offset": ib.get("offset"), "index_size": ib.get("index_size"),
         "first": d["first"], "count": d["count"], "instances": d["instances"],
         "hash": ib.get("hash"), "hash_src": ib.get("src"),
@@ -223,6 +224,7 @@ class Session:
             "hash_sources": _tally(d["ib"]["src"] for d in indexed),
             "descriptor_bytes": result.get("descriptor_bytes"),
             "descriptors_omitted": result.get("descriptors_omitted"),
+            "render_target_contexts": len(result.get("render_targets", [])),
         }
 
     def efvk_list_draws(self, kind=None, hash=None, tid=None, cb=None, rp=None, ib=None, min_count=None,
@@ -254,6 +256,10 @@ class Session:
         if not 0 <= n < len(draws):
             raise ToolError("draw %d does not exist; the frame has %d" % (n, len(draws)))
         d = dict(draws[n])
+        targets = self.capture.get("render_targets", [])
+        index = d.get("targets", 0)
+        d["target_info"] = targets[index - 1] if type(index) is int and 0 < index <= len(targets) else {
+            "known": False, "reason": "not_recorded" if not index else "invalid_reference"}
         if d.get("pipeline"):
             try:
                 d["pipeline_info"], _ = self._request(self.capture_pid, "pipeline", id=d["pipeline"])

@@ -31,6 +31,9 @@ void shader_capabilities(const HlslProgram& program,const ShaderDevice& device){
         switch(cap){
         case SpvCapabilityMatrix:case SpvCapabilityShader:case SpvCapabilitySampled1D:case SpvCapabilityImage1D:
         case SpvCapabilitySampledBuffer:case SpvCapabilityImageBuffer:case SpvCapabilityImageQuery:
+        // DerivativeControl is core Vulkan 1.0; the validator still enforces stage/instruction rules.
+        // Cached SM5 ddx/ddy commonly translate to the coarse/fine derivative instructions.
+        case SpvCapabilityDerivativeControl:
         case SpvCapabilityImageMSArray:case SpvCapabilityAtomicStorage:supported=true;break;
         case SpvCapabilityDrawParameters:supported=device.host.shader_draw_parameters;break;
         case SpvCapabilityDenormPreserve:case SpvCapabilityDenormFlushToZero:
@@ -51,7 +54,8 @@ void shader_capabilities(const HlslProgram& program,const ShaderDevice& device){
         case SpvCapabilityImageCubeArray:case SpvCapabilitySampledCubeArray:supported=f.imageCubeArray;break;
         default:break;
         }
-        require(supported,"Shader capability is not enabled or needs another execution adapter");
+        if(!supported)throw std::runtime_error("Shader capability " + std::to_string(cap) +
+            " is not enabled or needs another execution adapter (stage " + std::to_string(program.stage) + ")");
     }
     for(size_t at=5;at<program.spirv.size();){const auto word=program.spirv[at],count=word>>16,op=word&65535;
         require(count && count<=program.spirv.size()-at,"Invalid float-control instruction boundary");

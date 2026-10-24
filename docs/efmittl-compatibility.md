@@ -124,12 +124,7 @@ under the main project.
 
 Candidate source is on `codex/efmittl-support` in `build/performance-worktree`.
 The main tree's 21 older WIP files are preserved, including an overlapping
-shader executor edit. Implementation commit: `776e22e`. After the game and
-launcher had closed, two process checks preceded deployment of all 18 tested
-files; hashes match and the cfg is unchanged. The old 1.7.6 files/config/log are
-in `build/backups/before-1.7.7-20261024-213603/`. Actual-config sandbox injection
-loaded 1.7.7 with 23 packages, captured a known attachment context and exited
-normally (`build/efmittl-smoke-1.7.7.json`). No game load is claimed. The launcher
-still reads DX11/DIRECT and was not changed. When collecting the new data, use
-the candidate's client/server code or raw `ProbeClient.capture`;
+shader executor edit. Deployed 1.7.6 and its configuration are unchanged; the
+game was running, so this candidate was not deployed or loaded. When collecting
+the new data, use the candidate's client/server code or raw `ProbeClient.capture`;
 an already-running older MCP server does not acquire the new reader automatically.

@@ -1,8 +1,6 @@
 # EFMI Vulkan - Current development state
 
-> Candidate implementation: 776e22e; deployment record: 3bb867af34d8e2c031040f0e8db5a844891f7f48. Both are on codex/efmittl-support. Main contains synchronized documentation only; implementation stays in build/performance-worktree to preserve overlapping WIP.
-
-> Active request: 2026-10-24, inspect and adapt the installed EFMITTL plugin. Implementation 776e22e is on codex/efmittl-support in build/performance-worktree; main's 21 older WIP files are preserved. Candidate 1.7.7 was deployed at 21:36 after the game and launcher had closed; the actual-config sandbox smoke passed. No game load, launcher change or module exchange was performed.
+> Active request: 2026-10-24, inspect and adapt the installed EFMITTL plugin. Work is on codex/efmittl-support in build/performance-worktree; main's 21 older WIP files are preserved. Candidate 1.7.7 is not deployed. The installed game is running; no game load, launcher change or module exchange was performed.
 
 ## EFMITTL candidate: 1.7.7
 
@@ -11,12 +9,11 @@
 - New GPU fixture executes unchanged EFMITTL 0.5.2 INI in separate cached-DXBC and source-HLSL runs: 24 cases and 356 checks each, zero validation errors/warnings. Eight cached shader-stage translations per fixture versus zero on the source path are checked. Pixels/depth cover transparency, four layers/overflow, scene depth, all mask channels/inversion, bilinear wrapping/mips, plain/fading shadows including a nonzero instance, fallback/recovery, resize and neutral screen-space mask fill. All 14 installed inputs remain unchanged.
 - The probe now captures framebuffer/attachment/subpass identities, imageless/dynamic targets and secondary inheritance, bounded and armed only during capture. MCP get_draw resolves target_info and handles older captures explicitly. Native tracker: 178/178; updated Python units: 117/117; MCP: 50/50. Historical game captures lack the attachment data needed to prove the game's compositing boundary.
 - Built in build/efmittl-next. The 36-step suite completed with 35 passing; the only failure was the old assertion that the image count excludes swapchain images. Updated it to include the reported chain image count; all 17 affected probe configurations then passed. No unresolved failure and no claim of a second all-green monolithic run. Both historical replays, resource GPU 11189, character 361, live INI 76 and Vulkan validation 76 pass. Logs: build/efmittl-run-all-1.7.7.out and build/efmittl-probe-1.7.7.out in the main project.
-- Deployed all 18 tested 1.7.7 files, with identical hashes and the unchanged configuration, after two closed-process checks. Previous 1.7.6 files/config/log: build/backups/before-1.7.7-20261024-213603/. Actual-config sandbox injection: version 1.7.7, 23 packages, replacement/profiling enabled, one known attachment context, normal exit (build/efmittl-smoke-1.7.7.json). Candidate/deployment hashes: build/efmittl-candidate-1.7.7.json.
-- Stop at the next evidence boundary: a user-started Vulkan session must establish targets/pass ordering before integration. Launcher read-only verification still shows DX11/DIRECT; only the user can authorize its next switch on the spot. Main's overlapping older WIP remains untouched. No real-game load or new game capture. Details: docs/efmittl-compatibility.md.
+- Stop at the next evidence boundary: the game must be closed before deploying the new layer, followed by a user-started Vulkan session to observe targets/pass ordering before integration. Candidate code and tests are on codex/efmittl-support; main's overlapping older WIP remains untouched. dist still matches all 18 tested 1.7.6 files and its original configuration hash. No deployment or launcher/game operation. Details: docs/efmittl-compatibility.md.
 
 > Implementation update: 2026-10-24, codex/performance-1.7.5, release 1.7.6 (offline verified; game acceptance pending). User requested the three review fixes, further optimization and complete offline testing before the next game test. The main tree's 21 pre-existing changed/untracked files are preserved; the clean implementation is in build/performance-worktree.
 
-## Previous release: 1.7.6
+## Current release: 1.7.6
 
 - 1.7.5 (491107f) fixes BUG-040/041/042: positive index fingerprints checked every draw, pipeline lookup owners retired, draw scratch owners cleared on every exit while retaining capacity. Its 35-step suite passed; build/performance-baseline-1.7.5 is the corrected A/B baseline.
 - 1.7.6 batches only selected textures and pipeline variants before waiting, wakes resource waits on completion and variant waits on retirement/shutdown, uses one bounded deadline per batch, and reuses/vectorizes two-pose bone staging (D-110). BUG-043 removes an Image vector reference across an unlocked wait. Ready-only image publication, budgets and draw atomicity remain.

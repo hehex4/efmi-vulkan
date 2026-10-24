@@ -259,7 +259,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
     exe = os.path.join(out, "efmi_vk_tracker_test.exe")
     args = COMMON + ["/I" + include, "/Fobuild\\tracker\\", "/Fdbuild\\tracker\\test_cl.pdb",
                      "/DEFVK_CHARACTER_CACHE_TESTS", "tracker_test.cpp", "../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
-                     "../layer/src/pipeline_recipe.cpp",
+                     "../layer/src/pipeline_recipe.cpp", "../layer/src/render_targets.cpp",
                      "../layer/src/pipeline_variant.cpp", "../layer/src/spirv_repoint.cpp",
                      "../frontend/gpu/fragment_images.cpp",
                      "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
@@ -292,7 +292,7 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
             sources += ["../layer/src/character_package.cpp", "../layer/src/character_materials.cpp", "../layer/src/util.cpp",
                         "../layer/src/character_program.cpp", "../layer/src/merged_skeleton.cpp"] + MATERIAL_SOURCES + runtime_link()
         if tracker:
-            sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
+            sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/render_targets.cpp", "../layer/src/util.cpp",
                         "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                         "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
                         "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/texture_residency.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link()

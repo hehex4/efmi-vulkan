@@ -126,6 +126,15 @@ def test_mcp(c: Checks) -> None:
     c.equal(session.call("efvk_find_hash", {"hash": "AAAAAAAA"})["total"], 1, "find_hash ignores the case")
     c.equal(session.call("efvk_list_draws", {"min_count": 4})["draws"][0]["n"], 1, "list_draws filters by count")
     c.equal(session.call("efvk_get_draw", {"n": 1})["kind"], "draw", "get_draw returns the draw")
+    c.equal(session.call("efvk_get_draw", {"n": 1})["target_info"], {"known": False, "reason": "not_recorded"},
+            "older captures have explicit missing attachment data")
+    session.capture["render_targets"] = [{"known": True, "subpass": 2, "colors": [{"image": 17}]}]
+    session.capture["draws"][1]["targets"] = 1
+    c.equal(session.call("efvk_get_draw", {"n": 1})["target_info"]["colors"][0]["image"], 17,
+            "draw inspection resolves its own target context")
+    session.capture["draws"][1]["targets"] = 2
+    c.equal(session.call("efvk_get_draw", {"n": 1})["target_info"], {"known": False, "reason": "invalid_reference"},
+            "out-of-range target references cannot select another attachment")
     try:
         session.call("efvk_get_draw", {"n": 9})
         c.check(False, "get_draw rejects a draw that does not exist")

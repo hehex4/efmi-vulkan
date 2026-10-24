@@ -100,6 +100,7 @@ DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
     r.cb_id = cb->id;
     r.tid = cb->tid;
     r.rp = cb->in_rp ? cb->rp_count + cb->dyn_rp_count : 0;
+    r.targets = !compute && cb->in_rp ? cb->active_targets : 0;
     if (compute) {
         r.pipeline = cb->comp_pipeline;
         for (uint32_t i = 0; i < kMaxSets; i++)
@@ -715,7 +716,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdFillBuffer(VkCommandBuffer cmd, VkBuffer dst, V
 // ---------------------------------------------------------------------------
 // Render passes
 
-void rp_begin(Device* dev, VkCommandBuffer cmd, bool dynamic)
+template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dynamic, const Info* info)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         cb->in_rp = true;
@@ -723,13 +724,16 @@ void rp_begin(Device* dev, VkCommandBuffer cmd, bool dynamic)
             cb->dyn_rp_count++;
         else
             cb->rp_count++;
+        on_begin_targets(dev, cb, info);
     }
 }
 
 void rp_end(Device* dev, VkCommandBuffer cmd)
 {
-    if (CmdBuf* cb = cb_of(dev, cmd))
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
         cb->in_rp = false;
+        cb->active_targets = 0;
+    }
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
@@ -737,7 +741,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass(VkCommandBuffer cmd, const VkRe
 {
     count_call(HI_CmdBeginRenderPass);
     Device* dev = dev_of(cmd);
-    rp_begin(dev, cmd, false);
+    rp_begin(dev, cmd, false, info);
     dev->d.CmdBeginRenderPass(cmd, info, contents);
 }
 
@@ -746,7 +750,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass2(VkCommandBuffer cmd, const VkR
 {
     count_call(HI_CmdBeginRenderPass2);
     Device* dev = dev_of(cmd);
-    rp_begin(dev, cmd, false);
+    rp_begin(dev, cmd, false, info);
     dev->d.CmdBeginRenderPass2(cmd, info, sub);
 }
 
@@ -755,7 +759,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass2KHR(VkCommandBuffer cmd, const 
 {
     count_call(HI_CmdBeginRenderPass2KHR);
     Device* dev = dev_of(cmd);
-    rp_begin(dev, cmd, false);
+    rp_begin(dev, cmd, false, info);
     dev->d.CmdBeginRenderPass2KHR(cmd, info, sub);
 }
 
@@ -787,7 +791,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRendering(VkCommandBuffer cmd, const VkRen
 {
     count_call(HI_CmdBeginRendering);
     Device* dev = dev_of(cmd);
-    rp_begin(dev, cmd, true);
+    rp_begin(dev, cmd, true, info);
     dev->d.CmdBeginRendering(cmd, info);
 }
 
@@ -795,7 +799,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderingKHR(VkCommandBuffer cmd, const Vk
 {
     count_call(HI_CmdBeginRenderingKHR);
     Device* dev = dev_of(cmd);
-    rp_begin(dev, cmd, true);
+    rp_begin(dev, cmd, true, info);
     dev->d.CmdBeginRenderingKHR(cmd, info);
 }
 
@@ -814,6 +818,22 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
     rp_end(dev, cmd);
     dev->d.CmdEndRenderingKHR(cmd);
 }
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdNextSubpass(VkCommandBuffer cmd, VkSubpassContents contents)
+{
+    count_call(HI_CmdNextSubpass); Device* dev = dev_of(cmd);
+    if (CmdBuf* cb = cb_of(dev, cmd)) on_next_targets(dev, cb);
+    dev->d.CmdNextSubpass(cmd, contents);
+}
+#define NEXT_SUBPASS2(Name) \
+    VKAPI_ATTR void VKAPI_CALL hk_##Name(VkCommandBuffer cmd, const VkSubpassBeginInfo* begin, const VkSubpassEndInfo* end) { \
+        count_call(HI_##Name); Device* dev = dev_of(cmd); \
+        if (CmdBuf* cb = cb_of(dev, cmd)) on_next_targets(dev, cb); \
+        dev->d.Name(cmd, begin, end); \
+    }
+NEXT_SUBPASS2(CmdNextSubpass2)
+NEXT_SUBPASS2(CmdNextSubpass2KHR)
+#undef NEXT_SUBPASS2
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdExecuteCommands(VkCommandBuffer cmd, uint32_t count, const VkCommandBuffer* cbs)
 {
@@ -944,6 +964,15 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, const VkSw
             s.images.clear();
         s.images.resize(s.images.empty() ? 0 : count);
     }
+    // Swapchain images have no CreateImage call. Give their views the same stable
+    // identities as ordinary attachments before the application creates views.
+    VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    image.imageType = VK_IMAGE_TYPE_2D; image.format = info->imageFormat;
+    image.extent = {info->imageExtent.width, info->imageExtent.height, 1};
+    image.mipLevels = 1; image.arrayLayers = info->imageArrayLayers;
+    image.samples = VK_SAMPLE_COUNT_1_BIT; image.usage = info->imageUsage;
+    if (info->flags & VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR) image.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    for (const auto handle : s.images) on_create_image(dev, handle, &image);
     logf("swapchain created: format=%d color_space=%d %ux%u usage=0x%x flags=0x%x images=%zu window=%s", int(s.format),
          int(s.color_space), s.extent.width, s.extent.height, unsigned(s.usage), unsigned(s.flags), s.images.size(),
          s.window ? "known" : "unknown");
@@ -959,8 +988,13 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroySwapchainKHR(VkDevice device, VkSwapchainKH
     count_call(HI_DestroySwapchainKHR);
     Device* dev = dev_of(device);
     if (!dev->passive) {
-        std::lock_guard<std::mutex> lock(dev->swap_mx);
-        dev->swapchains.erase(swapchain);
+        std::vector<VkImage> images;
+        {
+            std::lock_guard<std::mutex> lock(dev->swap_mx);
+            const auto found = dev->swapchains.find(swapchain);
+            if (found != dev->swapchains.end()) { images = std::move(found->second.images); dev->swapchains.erase(found); }
+        }
+        for (const auto image : images) on_destroy_image(dev, image);
     }
     dev->d.DestroySwapchainKHR(device, swapchain, alloc);
 }

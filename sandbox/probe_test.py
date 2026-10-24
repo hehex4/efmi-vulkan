@@ -82,6 +82,21 @@ def check_draws(c: Checks, capture: dict, expected: dict, rewritten: bool, tag: 
         c.check(got["vb"][0][0] != 0, label + " vertex buffer resolved")
         c.check(got["pipeline"] != 0, label + " pipeline resolved")
         c.check(got["rp"] == 1, label + " inside the first render pass", got["rp"])
+        contexts = capture.get("render_targets", [])
+        target_index = got.get("targets", 0)
+        c.check(0 < target_index <= len(contexts), label + " attachment context reference")
+        if 0 < target_index <= len(contexts):
+            target = contexts[target_index - 1]
+            c.check(target["known"] and not target["dynamic"], label + " classic render pass attachment context")
+            c.equal((target["snapshot"], target["subpass"], target["layers"]), ("record", 0, 1), label + " target snapshot scope")
+            c.check(target["framebuffer"] > 0 and target["render_pass"] > 0, label + " stable framebuffer and render pass identities")
+            c.equal(target["depth"], None, label + " no depth target")
+            c.equal(len(target["colors"]), 1, label + " one color attachment")
+            color = target["colors"][0]
+            c.check(color["bound"] and color["known"] and color["image"] > 0 and color["view"] > 0,
+                    label + " swapchain image and view are tracked")
+            c.equal(color["layout"], 2, label + " color attachment layout")
+            c.equal(color["extent"][:2], target["area"][2:], label + " target size matches render area")
 
 
 def check_snapshot(c: Checks, probe: ProbeClient, expected: dict) -> None:
@@ -183,6 +198,7 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
             c.equal(status["device"]["null_descriptors_added"], False, "no extension is added outside character mode")
             c.check("capture" in status["features"], "capture feature listed")
             c.check("capture_wait_draws" in status["features"], "nonempty capture feature listed")
+            c.check("render_targets" in status["features"], "attachment capture feature listed")
             c.equal(status["entry"], entry, "status entry")
             attach = status["attach"]
             c.equal(attach["devices_created"], 1, "one device seen at creation")
@@ -289,7 +305,8 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
             c.equal(counts["descriptor_sets"], 1 if pushed else 2, "only allocated live descriptor sets are counted")
             c.equal(counts["descriptor_templates"], 1 if descriptors in ("template", "push-template") else 0,
                     "only live descriptor templates are counted")
-            c.equal(counts["images"], 1, "one non-swapchain image")
+            c.equal(counts["images"], 1 + sum(chain["images"] for chain in swapchains),
+                    "one uploaded image plus every tracked swapchain image")
             c.equal(counts["samplers"], 1, "one immutable sampler")
             storage = draws[0]["sets"][1]["contents"]["bindings"][0]["elements"][0]
             _, data = probe.read_buffer(storage["buf"], offset=storage["effective_offset"], size=storage["range"])

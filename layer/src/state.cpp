@@ -303,6 +303,8 @@ void CmdBuf::reset_recording()
     for (SetBind& s : comp_sets)
         s = SetBind();
     in_rp = false;
+    active_targets = 0;
+    target_contexts.clear();
     draws.clear();
     dyn.clear();
     writes.clear();
@@ -907,12 +909,16 @@ void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkComman
             continue;
         uint32_t dyn_base = static_cast<uint32_t>(cb->dyn.size());
         uint32_t draw_base = static_cast<uint32_t>(cb->draws.size());
+        const uint32_t targets_base = uint32_t(cb->target_contexts.size());
+        const bool keep_targets = !rp && targets_base + s->target_contexts.size() <= 4096;
+        if (keep_targets) cb->target_contexts.insert(cb->target_contexts.end(), s->target_contexts.begin(), s->target_contexts.end());
         cb->dyn.insert(cb->dyn.end(), s->dyn.begin(), s->dyn.end());
         for (RecSnap rs : s->rec_snaps) {
             rs.draw += draw_base;
             cb->rec_snaps.push_back(std::move(rs));
         }
         for (DrawRec r : s->draws) {
+            r.targets = rp ? cb->active_targets : keep_targets && r.targets && r.targets <= s->target_contexts.size() ? targets_base + r.targets : 0;
             for (SetBind& sb : r.sets)
                 sb.dyn_first += dyn_base;
             if (rp)
@@ -1222,11 +1228,15 @@ static void capture_draws(Device* dev, CmdBuf* cb, Capture& cap, uint32_t submit
     std::shared_lock<std::shared_mutex> lock(dev->res_mx);
     std::vector<uint8_t> tmp;
     cap.draws.reserve(cap.draws.size() + cb->draws.size());
+    const uint32_t targets_base = uint32_t(cap.target_contexts.size());
+    const bool keep_targets = targets_base + cb->target_contexts.size() <= 16384;
+    if (keep_targets) cap.target_contexts.insert(cap.target_contexts.end(), cb->target_contexts.begin(), cb->target_contexts.end());
     size_t rec_at = 0;
     uint32_t position = 0;
     for (const DrawRec& r : cb->draws) {
         CapDraw c;
         c.r = r;
+        c.r.targets = keep_targets && r.targets && r.targets <= cb->target_contexts.size() ? targets_base + r.targets : 0;
         c.submit = submit;
         const uint32_t at = position++;
         if (r.pipeline) {
@@ -1378,6 +1388,7 @@ void on_present(Device* dev, PresentWork* present)
         dev->cap_last = dev->cap_building;
         dev->cap_building.reset();
         dev->cap_state = 0;
+        dev->capture_targets.store(false, std::memory_order_relaxed);
         dev->snap_recording.store(false, std::memory_order_relaxed);
         std::atomic_store(&dev->snap_live, std::shared_ptr<const SnapRequest>());
         SetEvent(cap_event());
@@ -1580,6 +1591,7 @@ std::string probe_status()
     w.begin_array();
     w.str("capture");
     w.str("capture_wait_draws");
+    w.str("render_targets");
     w.str("buffers");
     w.str("read_buffer");
     w.str("hash");
@@ -1758,6 +1770,9 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
         w.null();
     }
     if (with_draws) {
+        w.key("render_targets"); w.begin_array();
+        for (const auto& targets : cap.target_contexts) write_render_targets(w, targets);
+        w.end_array();
         w.key("draws");
         w.begin_array();
         uint32_t n = 0;
@@ -1770,6 +1785,7 @@ static void write_capture(JsonWriter& w, const Capture& cap, bool with_draws)
             w.kn("cb", r.cb_id);
             w.kn("tid", r.tid);
             w.kn("rp", r.rp);
+            w.kn("targets", r.targets);
             w.kn("pipeline", c.pipe_id);
             w.kn("count", r.count);
             w.kn("instances", r.instances);
@@ -1895,6 +1911,7 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
             ref.dev->cap_wait_draws = wait_draws;
             ref.dev->cap_snap = std::move(snap);
             ref.dev->cap_state = 1;
+            ref.dev->capture_targets.store(true, std::memory_order_relaxed);
         }
     }
     // The registry lock is not held while waiting, so a device can still be destroyed.
@@ -1910,6 +1927,7 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
             cap = ref.dev->cap_last;
         else {
             ref.dev->cap_state = 0;
+            ref.dev->capture_targets.store(false, std::memory_order_relaxed);
             ref.dev->cap_building.reset();
             ref.dev->snap_recording.store(false, std::memory_order_relaxed);
             std::atomic_store(&ref.dev->snap_live, std::shared_ptr<const SnapRequest>());

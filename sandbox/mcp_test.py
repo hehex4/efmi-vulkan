@@ -104,6 +104,7 @@ def main() -> int:
             c.check(not err, "efvk_capture_frame", summary)
             if not err:
                 c.equal(summary["draw_count"], 5, "capture summary: draws")
+                c.equal(summary["render_target_contexts"], 1, "capture summary: one primary attachment context")
                 c.equal(summary["stats"]["secondary_command_buffers"], 2, "capture summary: secondary command buffers")
                 c.equal(len(summary["draws_by_thread"]), 2, "capture summary: draws per thread")
                 c.equal(summary["index_buffers"], 2, "capture summary: index buffers")
@@ -123,6 +124,9 @@ def main() -> int:
             c.check(not err and draw["ib"]["offset"] == want["bind_offset"], "efvk_get_draw", draw)
             if not err:
                 c.equal(draw["pipeline_info"]["bindings"][0]["stride"], 8, "efvk_get_draw adds the vertex layout")
+                c.check(draw["target_info"]["known"] and draw["target_info"]["colors"][0]["known"],
+                        "efvk_get_draw resolves the captured color target")
+                c.equal(draw["target_info"]["snapshot"], "record", "MCP target data retains its timing")
                 c.equal(draw["sets"][0]["dyn"], [want["dyn"]], "efvk_get_draw shows the dynamic offset")
                 c.equal(draw["sets"][1]["dyn"], [1024, 256], "efvk_get_draw splits offsets between sets")
                 material = draw["sets"][1]["contents"]

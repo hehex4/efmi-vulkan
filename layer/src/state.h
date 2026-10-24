@@ -36,6 +36,7 @@ struct CharacterModule;
     X(CreateBuffer) X(DestroyBuffer) X(BindBufferMemory) X(BindBufferMemory2) X(BindBufferMemory2KHR)                  \
     X(CreateGraphicsPipelines) X(CreateComputePipelines) X(DestroyPipeline)                                            \
     X(CreateRenderPass) X(CreateRenderPass2) X(CreateRenderPass2KHR) X(DestroyRenderPass)                               \
+    X(CreateFramebuffer) X(DestroyFramebuffer)                                                                         \
     X(CreateShaderModule) X(DestroyShaderModule) X(CreateImage) X(DestroyImage)                                        \
     X(CreateImageView) X(DestroyImageView) X(CreateBufferView) X(DestroyBufferView) X(CreateSampler) X(DestroySampler) \
     X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout) X(DestroyPipelineLayout)        \
@@ -61,6 +62,7 @@ struct CharacterModule;
     X(CmdCopyBufferToImage) X(CmdCopyBufferToImage2) X(CmdCopyBufferToImage2KHR)                                       \
     X(CmdBeginRenderPass) X(CmdBeginRenderPass2) X(CmdBeginRenderPass2KHR)                                             \
     X(CmdEndRenderPass) X(CmdEndRenderPass2) X(CmdEndRenderPass2KHR)                                                   \
+    X(CmdNextSubpass) X(CmdNextSubpass2) X(CmdNextSubpass2KHR)                                                          \
     X(CmdBeginRendering) X(CmdBeginRenderingKHR) X(CmdEndRendering) X(CmdEndRenderingKHR)                              \
     X(CmdExecuteCommands)                                                                                              \
     X(QueueSubmit) X(QueueSubmit2) X(QueueSubmit2KHR)
@@ -71,8 +73,7 @@ struct CharacterModule;
 #define EFVK_COUNTED_FUNCS(X)                                                                                          \
     X(CreateDescriptorPool)                                                                                           \
     X(CmdBindDescriptorBuffersEXT) X(CmdPushConstants)                                                                 \
-    X(CreateFramebuffer)                                                                                               \
-    X(CmdCopyImageToBuffer) X(CmdBlitImage) X(CmdNextSubpass) X(FlushMappedMemoryRanges)                               \
+    X(CmdCopyImageToBuffer) X(CmdBlitImage) X(FlushMappedMemoryRanges)                                                  \
     X(CmdDrawMultiEXT) X(CmdDrawMultiIndexedEXT) X(CmdDrawMeshTasksEXT) X(CmdBindTransformFeedbackBuffersEXT)          \
     X(CmdBuildAccelerationStructuresKHR) X(CmdTraceRaysKHR)                                                           \
     X(WaitForFences) X(AcquireNextImageKHR) X(AcquireNextImage2KHR) X(QueueWaitIdle) X(DeviceWaitIdle)                 \
@@ -242,6 +243,39 @@ struct PipeInfo {
     std::shared_ptr<const GraphicsRecipe> recipe;
 };
 
+// Immutable attachment facts. Recording owns metadata only, never application Vulkan objects.
+struct TargetView {
+    bool known = false;
+    ImageViewInfo view;
+    ImageInfo image;
+};
+struct FramebufferInfo {
+    uint32_t id = 0, width = 0, height = 0, layers = 0, attachment_count = 0;
+    bool known = false, imageless = false;
+    std::vector<TargetView> views;
+};
+struct RenderTargets {
+    bool known = false, dynamic = false;
+    std::string reason;
+    VkRect2D area{};
+    uint32_t subpass = 0, layers = 0, view_mask = 0, flags = 0;
+    std::shared_ptr<const FramebufferInfo> framebuffer;
+    std::shared_ptr<const RenderPassRecipe> recipe;
+    // Imageless and dynamic attachments are supplied at Begin, not CreateFramebuffer.
+    std::vector<TargetView> views;
+    std::vector<VkRenderingAttachmentInfo> dynamic_colors;
+    VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    VkRenderingAttachmentInfo stencil{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    bool has_depth = false, has_stencil = false;
+};
+
+void on_create_framebuffer(Device*, VkFramebuffer, const VkFramebufferCreateInfo*);
+void on_destroy_framebuffer(Device*, VkFramebuffer);
+void on_begin_targets(Device*, CmdBuf*, const VkRenderPassBeginInfo*);
+void on_begin_targets(Device*, CmdBuf*, const VkRenderingInfo*);
+void on_next_targets(Device*, CmdBuf*);
+void write_render_targets(JsonWriter&, const RenderTargets&);
+
 enum DrawKind : uint8_t {
     DK_DRAW = 0,
     DK_INDEXED = 1,
@@ -289,6 +323,7 @@ struct DrawRec {
     uint32_t cb_id = 0;      // command buffer the call was recorded into
     uint32_t tid = 0;        // thread that recorded it
     uint32_t rp = 0;         // ordinal of the render pass inside the submitted command buffer, 0 when outside
+    uint32_t targets = 0;    // one-based immutable render-target context, 0 outside/unobserved
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkBuffer ib = VK_NULL_HANDLE;
     uint64_t ib_off = 0;
@@ -378,6 +413,8 @@ struct CmdBuf {
     VbBind vb[kMaxVb];
     SetBind sets[kMaxSets];
     bool in_rp = false;
+    uint32_t active_targets = 0;
+    std::vector<RenderTargets> target_contexts;
     SetBind comp_sets[kMaxSets];
 
     // What was recorded since the last begin / reset.
@@ -460,6 +497,7 @@ struct CapDraw {
 };
 
 struct Capture {
+    std::vector<RenderTargets> target_contexts;
     uint64_t seq = 0;
     bool wait_draws = false;
     uint64_t skipped_empty_intervals = 0;
@@ -569,6 +607,9 @@ struct Device {
     std::unordered_map<VkPipeline, PipeInfo> pipes;
     std::unordered_map<uint32_t, VkPipeline> pipe_by_id;
     std::unordered_map<VkRenderPass, std::shared_ptr<const RenderPassRecipe>> render_passes;
+    std::unordered_map<VkFramebuffer, std::shared_ptr<const FramebufferInfo>> framebuffers;
+    // Attachment snapshots are enabled only for a requested probe capture, not ordinary rendering.
+    std::atomic<bool> capture_targets{false};
     uint32_t next_buf_id = 1;
     uint32_t next_pipe_id = 1;
     uint32_t next_resource_id = 1;

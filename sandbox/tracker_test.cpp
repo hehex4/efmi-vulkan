@@ -860,7 +860,7 @@ static void capture_empty_intervals()
     check(cap && cap->snap_draws == 2 && cap->draws[0].snaps.size() == 2 &&
           cap->draws[0].snaps[0].rec == REC_DIFFERENT && cap->draws[1].snaps[0].rec == REC_EQUAL,
           "record/submit comparisons survive empty intervals and still notice later writes");
-    check(d.cap_state == 0 && !d.snap_recording.load() && !std::atomic_load(&d.snap_live),
+    check(d.cap_state == 0 && !d.capture_targets.load() && !d.snap_recording.load() && !std::atomic_load(&d.snap_live),
           "successful wait stops record-time snapshot work");
 
     std::thread ordinary([&] { answer = probe_capture(2000, true, 0); });
@@ -879,13 +879,15 @@ static void capture_empty_intervals()
     timeout.join();
     check(answer.find("timeout: no interval containing draws") != std::string::npos,
           "empty presents cannot turn timeout into capture success");
-    check(d.cap_state == 0 && !d.cap_building && !d.snap_recording.load() &&
+    check(d.cap_state == 0 && !d.cap_building && !d.capture_targets.load() && !d.snap_recording.load() &&
           !std::atomic_load(&d.snap_live) && d.cap_seq == completed,
           "timeout clears active snapshot work and does not publish a partial capture");
     on_present(dev);
     check(d.cap_seq == completed, "later presents cannot publish a timed-out request");
     dev_destroy(dev);
 }
+
+#include "render_target_cases.h"
 
 int main()
 {
@@ -903,6 +905,7 @@ int main()
     unmap_selection();
     character_cache_cases(check);
     capture_empty_intervals();
+    render_target_cases();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }
