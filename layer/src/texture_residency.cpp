@@ -193,69 +193,78 @@ void TextureResidency::demand(Image& image)
     if (image.skip_levels) ++reduced_;
 }
 
-TextureResidency::Binding TextureResidency::bind(ImageId id)
+void TextureResidency::bind(const std::vector<ImageId>& ids, std::vector<Binding>& bindings)
 {
-    Binding out;
+    bindings.clear(); bindings.resize(ids.size());
+    if (ids.empty()) return;
     std::unique_lock<std::mutex> lock(mutex_);
-    if (!usable_ || id >= images_.size()) { out.failed = true; out.reason = usable_ ? "unknown texture" : reason_; return out; }
-    Image& image = images_[id];
-    image.last_bound = frame_;
-    auto snapshot = image.handle->snapshot();
-    auto bound = [&](const assets::ResourceSnapshot& s) {
-        if (s.state != assets::ResourceState::Ready || !s.serial || !s.image || !s.image->view()) return false;
-        if (s.serial > published_) {
-            // Published by the layer's own queue: the counter says so without a submission of the application.
+    if (!usable_ || stopped_) {
+        for (auto& out : bindings) { out.failed = true; out.reason = stopped_ ? "texture residency stopped" : reason_; }
+        return;
+    }
+    struct Waiting { size_t slot; assets::ResourceHandle handle; };
+    std::vector<Waiting> waiting; // No allocation for an already resident draw.
+    auto accept = [&](size_t slot, const assets::ResourceSnapshot& snapshot) {
+        auto& out = bindings[slot];
+        if (stopped_) { out.failed = true; out.reason = "texture residency stopped"; return true; }
+        // Only indices and shared request handles cross the unlocked wait. declare() may grow
+        // images_ during an F10 reload, invalidating every Image reference into that vector.
+        auto& image = images_[ids[slot]];
+        if (snapshot.state == assets::ResourceState::Failed || snapshot.state == assets::ResourceState::Stopped) {
+            if (image.resident) {
+                image.resident = false; resident_bytes_ -= std::min(resident_bytes_, image.charged); image.charged = 0;
+            }
+            if (!image.failure_logged) { image.failure_logged = true; logf("texture failed: %s: %s", image.path.c_str(), snapshot.reason.c_str()); }
+            out.failed = true; out.reason = snapshot.reason; return true;
+        }
+        if (snapshot.state != assets::ResourceState::Ready || !snapshot.serial || !snapshot.image || !snapshot.image->view()) return false;
+        if (snapshot.serial > published_) {
             uint64_t value = 0;
             if (GetSemaphoreCounterValue_(device_->handle, timeline_, &value) == VK_SUCCESS && value > published_) published_ = value;
         }
-        if (s.serial > published_) return false;
-        out.view = s.image->view(); out.owner = s.image; return true;
+        if (snapshot.serial > published_) return false;
+        out.view = snapshot.image->view(); out.owner = snapshot.image; return true;
     };
-    auto failed = [&](const assets::ResourceSnapshot& s) {
-        if (image.resident) { image.resident = false; resident_bytes_ -= std::min(resident_bytes_, image.charged); image.charged = 0; }
-        out.failed = true; out.reason = s.reason; return out;
-    };
-    switch (snapshot.state) {
-    case assets::ResourceState::Ready:
-        if (bound(snapshot)) return out;
-        break;
-    case assets::ResourceState::Failed:
-    case assets::ResourceState::Stopped:
-        if (!image.failure_logged) { image.failure_logged = true; logf("texture failed: %s: %s", image.path.c_str(), snapshot.reason.c_str()); }
-        return failed(snapshot);
-    case assets::ResourceState::Dormant:
-        demand(image);
-        break;
-    case assets::ResourceState::Queued:
-        cache_->prioritize(image.handle);
-        break;
-    default:
-        break;
+    // Queue the whole selected transaction before waiting: all existing loaders can work at once.
+    // demand() still enforces the same residency, staging and source budgets. No unused variant loads.
+    for (size_t slot = 0; slot < ids.size(); ++slot) {
+        if (ids[slot] >= images_.size()) { bindings[slot].failed = true; bindings[slot].reason = "unknown texture"; continue; }
+        auto& image = images_[ids[slot]];
+        image.last_bound = frame_;
+        const auto snapshot = image.handle->snapshot();
+        if (accept(slot, snapshot)) continue;
+        if (snapshot.state == assets::ResourceState::Dormant) demand(image);
+        else if (snapshot.state == assets::ResourceState::Queued) cache_->prioritize(image.handle);
+        if (device_->upload_queue && image.resident) waiting.push_back({slot, image.handle});
+        else ++pending_;
     }
-    if (!device_->upload_queue || !image.resident) { ++pending_; return out; }
-    // The texture is on its way on the layer's own queue: the draw waits for it, as the original loads a
-    // resource when a draw first uses it (D-103). The frame takes longer; the character is never the
-    // game's mesh meanwhile. Bounded, and the mutex is free while waiting.
+    if (waiting.empty()) return;
     const uint64_t began = host_time_us();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
     lock.unlock();
-    constexpr uint64_t kWaitMicroseconds = 4000000;
-    while (true) {
-        snapshot = image.handle->snapshot();
-        if (snapshot.state == assets::ResourceState::Ready || snapshot.state == assets::ResourceState::Failed ||
-            snapshot.state == assets::ResourceState::Stopped || host_time_us() - began > kWaitMicroseconds) break;
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-    }
+    for (const auto& request : waiting) request.handle->wait_until(deadline);
     lock.lock();
-    const uint64_t waited = host_time_us() - began;
-    ++waits_sync_; wait_sync_us_ += waited; if (waited > wait_sync_max_us_) wait_sync_max_us_ = waited;
-    if (snapshot.state == assets::ResourceState::Failed || snapshot.state == assets::ResourceState::Stopped) return failed(snapshot);
-    if (snapshot.state == assets::ResourceState::Ready) {
-        // The counter may trail the fence by a moment; a bounded second look.
-        for (int i = 0; i < 50 && !bound(snapshot); ++i) { lock.unlock(); std::this_thread::sleep_for(std::chrono::microseconds(100)); lock.lock(); }
-        if (out.view) return out;
+    // Re-read under the residency lock: a concurrent release/reload may have changed the request.
+    // A fence can precede the host counter observation by a moment; one bounded second look for
+    // the whole batch preserves completed-only publication (D-091), without N separate deadlines.
+    for (unsigned retry = 0; ; ++retry) {
+        bool unpublished = false;
+        for (const auto& request : waiting) {
+            auto& out = bindings[request.slot];
+            if (out.view || out.failed) continue;
+            const auto snapshot = request.handle->snapshot();
+            if (!accept(request.slot, snapshot) && snapshot.state == assets::ResourceState::Ready) unpublished = true;
+        }
+        if (!unpublished || retry == 50) break;
+        lock.unlock(); std::this_thread::sleep_for(std::chrono::microseconds(100)); lock.lock();
     }
-    ++pending_; ++waits_timed_out_;
-    return out;
+    const uint64_t waited = host_time_us() - began;
+    ++waits_sync_; wait_images_ += waiting.size(); wait_sync_us_ += waited;
+    wait_sync_max_us_ = std::max(wait_sync_max_us_, waited);
+    bool timed_out = false;
+    for (const auto& request : waiting)
+        if (!bindings[request.slot].view && !bindings[request.slot].failed) { ++pending_; timed_out = true; }
+    if (timed_out) ++waits_timed_out_;
 }
 
 bool TextureResidency::ensure(const std::vector<ImageId>& ids)
@@ -459,7 +468,7 @@ void TextureResidency::status(JsonWriter& w) const
     w.kn("loads", loads_); w.kn("reduced", reduced_); w.kn("evictions", evictions_); w.kn("demotions", demotions_);
     w.kn("budget_waits", budget_waits_); w.kn("pending", pending_); w.kn("uploads", uploads_); w.kn("published", published_); w.kn("waits", waits_);
     w.kb("upload_queue", device_->upload_queue != VK_NULL_HANDLE);
-    w.kn("draw_waits", waits_sync_); w.kn("draw_wait_microseconds", wait_sync_us_); w.kn("draw_wait_max_microseconds", wait_sync_max_us_);
+    w.kn("draw_waits", waits_sync_); w.kn("draw_wait_images", wait_images_); w.kn("draw_wait_microseconds", wait_sync_us_); w.kn("draw_wait_max_microseconds", wait_sync_max_us_);
     w.kn("draw_waits_timed_out", waits_timed_out_);
     w.kn("activating_bytes", activating_bytes.load());
     if (cache_) {

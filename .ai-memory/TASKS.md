@@ -6,13 +6,15 @@ Milestones and gates refer to `docs/plan.md`.
 
 ## Current implementation and follow-up
 
-User request: fix all three findings, continue optimizing and finish offline tests before a game test is needed. Review: docs/performance-review-1.7.4.md. Candidate 1.7.5 is in build/performance-next; the separate worktree preserves the main tree's older uncommitted 1.3.7 work. No deployment or game load.
+User request: fix all three findings, continue optimizing and finish offline tests before a game test is needed. Review: docs/performance-review-1.7.4.md. Release 1.7.6 is in build/performance-next; the separate worktree preserves the main tree's older uncommitted 1.3.7 work. Deployed to dist with the game closed; no game load.
 
 - Implemented BUG-040 / P1: validate positive-match fingerprints every draw.
 - Implemented BUG-041 / P2: erase retired pipeline identities from the fast lookup.
 - Implemented BUG-042 / P2: release scratch owners on all exits, retaining capacity.
 - Verified: native production-path checks 158/158 and all 35 baseline regression steps. Log: build/performance-run-all-1.7.5.out.
-- Next: batch first-use texture/variant preparation; reuse and vectorize bone staging. Cover semantics before measuring cold waits and steady-state p50/p95/p99 independently.
+- Implemented in 1.7.6: batch first-use texture/variant preparation, completion notification and reused SSE2 bone staging. Complete 35-step suite passed, plus 266 standalone GPU resource/cache checks.
+- Completed: three interleaved A/B pairs in each of vk03/vk04 against corrected 1.7.5, plus vk03 against deployed 1.7.4; same final targets/coverage/residency. Deployed tested 1.7.6 with backup; actual-config sandbox smoke passed. Historical bone replay: 283/283 record results byte-exact.
+- Stop at game acceptance: launcher remains DX11/DIRECT. A launcher switch needs the user's request on the spot; only the user starts the game. Validate real frame intervals and mapped-read cost before choosing the next performance work. The 120 fps target remains unverified.
 - Game acceptance remains open: compare the same user-started game scene against 120 fps, test first appearance, switching, dashes, reload and long-session resource ownership. Offline results cannot establish these.
 
 ## Earlier Codex checkpoint (2026-10-15, historical)

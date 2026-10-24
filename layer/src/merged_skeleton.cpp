@@ -5,6 +5,7 @@
 #include <cstring>
 #include <limits>
 #include <new>
+#include <emmintrin.h>
 
 namespace efvk {
 namespace {
@@ -26,20 +27,24 @@ bool MergedSkeleton::configure(uint32_t bones, uint32_t instances,
     const uint64_t total = (uint64_t(kImplicitBones) + 2ull * bones * instances) * kBytesPerBone;
     if (total > kMaxBytes) return reject(reason, "skeleton exceeds byte budget");
     uint64_t cursor = 0;
+    uint32_t largest = 0;
     for (const auto& c : components) {
         if (!c.count || c.first != cursor || uint64_t(c.first) + c.count > bones)
             return reject(reason, "components must partition the skeleton in order");
         cursor += c.count;
+        largest = std::max(largest, c.count);
     }
     if (cursor != bones) return reject(reason, "incomplete component coverage");
     try {
         auto new_components = components;
         std::vector<Stamp> new_stamps(size_t(instances) * components.size());
         std::vector<uint8_t> new_master(static_cast<size_t>(total), 0);
+        std::vector<uint8_t> new_pending(size_t(largest) * kBytesPerBone * 2);
         const float identity[12] = {1,0,0,0, 0,1,0,0, 0,0,1,0};
         for (uint32_t i = 0; i < kImplicitBones; ++i)
             std::memcpy(new_master.data() + i * kBytesPerBone, identity, kBytesPerBone);
         components_.swap(new_components); stamps_.swap(new_stamps); master_.swap(new_master);
+        pending_.swap(new_pending);
     } catch (const std::bad_alloc&) { return reject(reason, "skeleton allocation failed"); }
     bones_ = bones; instances_ = instances; serial_ = 0; begun_ = false;
     return true;
@@ -100,20 +105,23 @@ BoneImportResult MergedSkeleton::import_component(uint32_t instance, uint32_t co
             return fail("source bone window is incomplete");
     // Staging also makes aliasing safe and prevents a failed previous pose from partially
     // changing the current one. Only exact mapped bone rows are read, never a full ring buffer.
-    std::vector<uint8_t> pending;
-    try { pending.resize(size_t(c.count) * kBytesPerBone * 2); }
-    catch (const std::bad_alloc&) { return fail("bone staging allocation failed"); }
+    const __m128 scale4 = _mm_set1_ps(scale);
+    const __m128i exponent = _mm_set1_epi32(0x7f800000);
     for (uint32_t pose = 0; pose < 2; ++pose) {
         if (!dynamic[pose]) continue;
         for (uint32_t i = 0; i < c.count; ++i) {
             const uint32_t source = remap.empty() ? i : remap[i];
             const auto* src = sources[pose].data + (size_t(source) + 1) * kBytesPerBone;
-            auto* dst = pending.data() + (size_t(pose) * c.count + i) * kBytesPerBone;
-            for (uint32_t f = 0; f < 12; ++f) {
-                float value; std::memcpy(&value, src + f * sizeof(float), sizeof(float));
-                value *= scale;
-                if (!std::isfinite(value)) return fail("nonfinite bone data after scaling");
-                std::memcpy(dst + f * sizeof(float), &value, sizeof(float));
+            auto* dst = pending_.data() + (size_t(pose) * c.count + i) * kBytesPerBone;
+            for (uint32_t row = 0; row < kRowsPerBone; ++row) {
+                // memcpy permits unaligned windows without aliasing assumptions. Packed multiply
+                // preserves scalar rounding/FTZ, even for scale 1; NaN/Inf reject the entire import.
+                __m128 value; std::memcpy(&value, src + row * 16, 16);
+                value = _mm_mul_ps(value, scale4);
+                const auto bits = _mm_and_si128(_mm_castps_si128(value), exponent);
+                if (_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpeq_epi32(bits, exponent))))
+                    return fail("nonfinite bone data after scaling");
+                std::memcpy(dst + row * 16, &value, 16);
             }
         }
     }
@@ -121,7 +129,7 @@ BoneImportResult MergedSkeleton::import_component(uint32_t instance, uint32_t co
     for (uint32_t pose = 0; pose < 2; ++pose)
         if (dynamic[pose])
             std::memcpy(master_.data() + base + (size_t(pose) * bones_ + c.first) * kBytesPerBone,
-                        pending.data() + size_t(pose) * c.count * kBytesPerBone, size_t(c.count) * kBytesPerBone);
+                        pending_.data() + size_t(pose) * c.count * kBytesPerBone, size_t(c.count) * kBytesPerBone);
     stamp = {serial_, lod, true};
     return BoneImportResult::Imported;
 }

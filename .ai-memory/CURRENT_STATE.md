@@ -1,14 +1,14 @@
 # EFMI Vulkan - Current development state
 
-> Implementation update: 2026-10-24, codex/performance-1.7.5. User requested fixes for all three review findings, further performance optimization and all offline tests before stopping at the game-test boundary. The main tree's older uncommitted 1.3.7 work is preserved; development is isolated in build/performance-worktree.
+> Implementation update: 2026-10-24, codex/performance-1.7.5, release 1.7.6 (offline verified; game acceptance pending). User requested the three review fixes, further optimization and complete offline testing before the next game test. The main tree's 21 pre-existing changed/untracked files are preserved; the clean implementation is in build/performance-worktree.
 
-## Current candidate: 1.7.5
+## Current release: 1.7.6
 
-- BUG-040: positive index matches validate the edge fingerprint on every draw again. Negative matches retain their bounded backoff. This restores the previous fingerprint policy; it does not turn fingerprints into full byte comparisons.
-- BUG-041: retirement removes all fast variant lookup entries for that pipeline identity. Commands retain their independent owners until completion.
-- BUG-042: a draw-scoped guard clears image and variant scratch owners on every return/exception, preserving inner vector capacity. An inactive character cannot keep evicted images alive through scratch storage.
-- Production-path native tests: 158/158, including 14 new hash/lifetime checks. Full candidate build completed in build/performance-next. All 35 offline steps passed (build/performance-run-all-1.7.5.out): native 158/158, character 357/357, live INI 76/76, Vulkan validation 76/76; both capture replays passed.
-- No game load, deployment or launcher change. dist remains 1.7.4 and the launcher remains in the user's DX11 configuration of 2026-10-23. Next: batch first-use preparation and optimize bone import with correctness and performance comparisons.
+- 1.7.5 (491107f) fixes BUG-040/041/042: positive index fingerprints checked every draw, pipeline lookup owners retired, draw scratch owners cleared on every exit while retaining capacity. Its 35-step suite passed; build/performance-baseline-1.7.5 is the corrected A/B baseline.
+- 1.7.6 batches only selected textures and pipeline variants before waiting, wakes resource waits on completion and variant waits on retirement/shutdown, uses one bounded deadline per batch, and reuses/vectorizes two-pose bone staging (D-110). BUG-043 removes an Image vector reference across an unlocked wait. Ready-only image publication, budgets and draw atomicity remain.
+- Complete build in build/performance-next. All 35 offline steps passed: native 158/158, bones 123, cache concurrency 34, character 361/361 including cold materials, live INI 76/76, Vulkan validation 76/76, both capture replays clean. Standalone resource/cache GPU tests: 266, zero validation errors/warnings. Logs: build/performance-build-1.7.6.log, build/performance-run-all-1.7.6.out, build/performance-resource-wait-1.7.6.log.
+- Seven interleaved CPU importer rounds against 491107f: median time reduced 86.0-89.1% for 16/64/256/1024-bone identity/remapped imports; all checksums agree. This is cached CPU memory only. Evidence: build/performance-worktree/build/bone-bench/report.json. Three paired replays per scene: recording CPU -1.5%/-2.3%, bone stage -50.7%/-36.7%, initial texture waits -7.6%/-17.0%; final pixels, steady replacement coverage and residency ledgers agree. Host p50 is essentially unchanged (FIFO replay). Against deployed 1.7.4 in vk03, recording is +12.79 us/frame (+3.1%) after restoring hash validation; no lower overall steady CPU/FPS claim. Detailed tables and report paths: docs/performance-followup-1.7.6.md.
+- Deployed 1.7.6 with the game/launcher closed (checked twice); 18 files match tested candidate hashes. Backup: build/backups/before-1.7.6-20261024-153223/. Actual-config sandbox injection smoke passes: 23 packages, version 1.7.6, replacement/profiling on, normal exit. Five historical bone frames also pass 283-record byte-exact reference replay (build/performance-bone-replay-1.7.6/report.json). No game load or launcher edit. Configuration unchanged; launcher read back as DX11/DIRECT. Stop here for a user-requested switch and user-started Vulkan session to validate real frame pacing, transitions, reload and ownership. No new capture or real-character verification this round.
 
 > Historical review update: 2026-10-22, main. User asked for an audit of Claude's performance commits, not implementation or a game test. Reviewed b5c12c3 (1.7.4) and preceding performance changes. Runtime/deployment unchanged.
 
@@ -19,7 +19,7 @@ plan -20.6%, INI Present -29.6%. Acceptance against 120 fps remains open; the
 offline host-interval median improves 6.5% under uncontrolled concurrent game
 load, without a current game comparison or tail-latency acceptance.
 
-Three open findings: BUG-040 (P1, stable positive index hashes stay stale after
+Three findings open at that review (now fixed offline): BUG-040 (P1, stable positive index hashes stay stale after
 coherent mapped reuse), BUG-041 (P2, the new fast lookup owns retired pipeline
 variants), BUG-042 (P2, persistent material scratch owns textures after eviction
 and command completion). Native source-extracted/model ownership probes compare

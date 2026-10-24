@@ -363,12 +363,15 @@ public:
     std::vector<std::shared_ptr<const PipelineVariant>> scratch_variants;
     std::vector<const StaticMaterial*> scratch_material_plans;
     std::vector<std::vector<SnapshotImage>> scratch_material_views;
+    std::vector<TextureResidency::ImageId> scratch_image_ids;
+    std::vector<TextureResidency::Binding> scratch_image_bindings;
     // Capacity may survive a draw, ownership may not (BUG-042). In-flight commands have their own
     // references. Clear on every return and exception, including partially prepared transactions.
     struct ScratchScope {
         CharacterGeneration& owner;
         ~ScratchScope() {
             owner.scratch_variants.clear();
+            owner.scratch_image_bindings.clear();
             for (auto& views : owner.scratch_material_views) views.clear();
         }
     };
@@ -1158,17 +1161,23 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
         }
         plans.push_back(plan);
     }
-    // Each image as the device's residency holds it now (D-094): a recording retains the GPU image
-    // it binds; one not resident yet is demanded, and the draw stays the game's meanwhile.
+    // Queue only this transaction's images together; the owned upload queue prepares them in
+    // parallel before the draw uses them. Recordings retain their independent GPU owners.
+    auto& selected = scratch_image_ids; selected.clear();
+    for (const auto* plan : plans) for (uint32_t asset : plan->assets) {
+        if (!textures || asset >= image_ids.size()) return refuse(C_IMAGE, "character texture outside the package's images");
+        selected.push_back(image_ids[asset]); frame_image(image_ids[asset]);
+    }
+    auto& bindings = scratch_image_bindings;
+    if (!selected.empty()) textures->bind(selected, bindings);
     bool pending = false;
+    size_t binding = 0;
     if (views.size() < plans.size()) views.resize(plans.size());
     for (size_t i = 0; i < plans.size(); ++i) {
         const auto* plan = plans[i];
         auto& draw_views = views[i]; draw_views.clear();
-        for (uint32_t asset : plan->assets) {
-            if (!textures || asset >= image_ids.size()) return refuse(C_IMAGE, "character texture outside the package's images");
-            auto bound = textures->bind(image_ids[asset]);
-            frame_image(image_ids[asset]);
+        for (size_t asset = 0; asset < plan->assets.size(); ++asset) {
+            const auto& bound = bindings[binding++];
             if (bound.failed) return refuse(C_IMAGE, "character texture: " + bound.reason);
             if (!bound.view) { pending = true; continue; }
             draw_views.push_back({bound.view, bound.owner});
@@ -1442,16 +1451,36 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!material_draws(pipe->second, static_cast<uint32_t>(section - package.sections.data()), r, present, *list,
                             material_plans, material_views, material_origin)) return false;
         lap(S_MATERIALS);
+        struct WaitingVariant { uint32_t draw; VertexInputRecipe vertex; };
+        std::vector<WaitingVariant> waiting; // Allocates only for a cold variant.
+        variants.resize(list->count);
+        auto keep_variant = [&](uint32_t i, const VariantResult& result) {
+            if (!result.variant) return false;
+            variants[i] = result.variant;
+            if (variant_lookup.size() < 65536)
+                variant_lookup.emplace(std::make_tuple(pipe->second.id, list->first + i, material_plans[i]), result.variant);
+            return true;
+        };
         for (uint32_t i = 0; i < list->count; ++i) {
             const auto lookup_key = std::make_tuple(pipe->second.id, list->first + i, material_plans[i]);
-            if (const auto known = variant_lookup.find(lookup_key); known != variant_lookup.end()) { variants.push_back(known->second); continue; }
+            if (const auto known = variant_lookup.find(lookup_key); known != variant_lookup.end()) { variants[i] = known->second; continue; }
             VertexInputRecipe vertex;
             std::string reason;
             if (!package.vertex_input(package.draws[list->first + i], pipe->second.recipe->vertex, vertex, reason))
                 return refuse(C_VERTEX, "character vertex declaration: " + reason);
-            // The draw waits for a variant still building (D-103), bounded; the frame gate covers a timeout.
-            const auto result = cache->await(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, material_plans[i]->patch, std::chrono::milliseconds(4000));
-            if (result.variant) { variants.push_back(result.variant); if (variant_lookup.size() < 65536) variant_lookup.emplace(lookup_key, result.variant); continue; }
+            // Issue all cold requests before waiting so the existing builders can run in parallel.
+            const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, material_plans[i]->patch);
+            if (keep_variant(i, result)) continue;
+            if (result.state == VariantState::Queued || result.state == VariantState::Building) { waiting.push_back({i, std::move(vertex)}); continue; }
+            return refuse(C_VARIANT, "character variant: " + result.reason);
+        }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+        for (const auto& request : waiting) {
+            const auto remaining = std::max(std::chrono::milliseconds(0),
+                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
+            const auto result = cache->await(pipe->second.id, pipe->second.recipe, pipe->second.layout,
+                request.vertex, material_plans[request.draw]->patch, remaining);
+            if (keep_variant(request.draw, result)) continue;
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
             return refuse(C_VARIANT, "character variant: " + result.reason);
         }

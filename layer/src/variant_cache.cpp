@@ -65,6 +65,7 @@ VariantResult VariantCache::await(uint64_t identity, std::shared_ptr<const Graph
     const auto began = std::chrono::steady_clock::now();
     const auto key = key_for(identity, vertex, fragment);
     std::unique_lock<std::mutex> lock(mutex_);
+    ++waits_;
     done_.wait_for(lock, timeout, [&] {
         if (stopped_) return true;
         auto found = jobs_.find(key);
@@ -75,7 +76,7 @@ VariantResult VariantCache::await(uint64_t identity, std::shared_ptr<const Graph
     auto found = jobs_.find(key);
     result = found != jobs_.end() ? found->second->result : VariantResult{VariantState::Stopped, {}, "variant retired while waited for"};
     lock.unlock();
-    ++waits_; wait_us_ += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count());
+    wait_us_ += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count());
     return result;
 }
 
@@ -91,6 +92,7 @@ void VariantCache::retire(uint64_t identity)
         }
         queue_.erase(std::remove_if(queue_.begin(), queue_.end(),
                      [identity](const auto& job) { return job->key.identity == identity; }), queue_.end());
+        done_.notify_all();
     }
 }
 
@@ -102,6 +104,7 @@ void VariantCache::stop()
     {
         std::lock_guard<std::mutex> lock(mutex_);
         stopped_ = true; released.swap(jobs_); queue_.clear(); wake_.notify_all();
+        done_.notify_all();
     }
     for (auto& worker : workers_) if (worker.joinable()) worker.join();
 }

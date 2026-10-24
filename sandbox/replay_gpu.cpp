@@ -505,6 +505,8 @@ int wmain(int argc,wchar_t** argv){
                 CHECK_VK(swap.Present(g.queue,&present));
                 CHECK_VK(pQueueWaitIdle(g.queue));
             }
+            // Optional benchmark checkpoint; normal regression runs keep their original path.
+            if(f==299 && std::getenv("EFMI_VK_REPLAY_TIMING")) self_probe("{\"cmd\":\"status\"}","warm-status.json");
         }
         // Targets and their formats for the caller to convert.
         efvk::JsonWriter index;index.begin_object();index.kn("width",W);index.kn("height",H);index.key("targets");index.begin_array();

@@ -117,9 +117,11 @@ def main():
             env = layer_env(str(folder / "layer.log")) if entry == "layer" else inject_env(str(folder / "layer.log"))
             # The scene forgets a character after 0.7 s without a draw; the game keeps one for 10 s (D-100).
             env["EFMI_VK_M2_IDENTITY_EXPIRY_MS"] = "500"
+            cold_material = queue_case == "single" and rp == 1 and not reject_late
             env.update(VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1",
                        VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0", XDG_CACHE_HOME=str(folder), TMPDIR=str(folder),
-                       TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1")
+                       TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1",
+                       EFMI_VK_M2_TEXTURE_PRELOAD="0" if cold_material else "1")
             args = [os.path.join(DIST, "efmi_vk_variant_gpu.exe"), "--character"]
             # Every full run exchanges the replacement code twice while the scene draws and has a
             # module with another header stamp refused (docs/hot-swap.md).
@@ -156,6 +158,11 @@ def main():
             c = r["counters"]
             if material:
                 textures = r.get("textures", {})
+                if cold_material:
+                    before = json.loads((folder / "character-ready.json").read_text())["result"]["replacement"]
+                    checks.equal(before.get("textures", {}).get("loads"), 0, label + " no image preloaded before first drawing")
+                    checks.check(textures.get("draw_wait_images", 0) > 0 and textures.get("draw_waits_timed_out") == 0,
+                                 label + " first-use material wait completed before emitting the checked pixels")
                 checks.check(r["materials"] and r["images_ready"] == 2 and r["images_failed"] == 0 and
                              textures.get("file_reads") == 2 and textures.get("submissions") == 2,
                              label + " each DDS decoded and uploaded once by the layer")

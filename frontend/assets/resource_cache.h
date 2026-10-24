@@ -2,6 +2,7 @@
 #include "buffer_upload.h"
 #include <atomic>
 #include <condition_variable>
+#include <chrono>
 #include <deque>
 #include <filesystem>
 #include <map>
@@ -22,6 +23,9 @@ struct ResourceSnapshot {
 class ResourceRequest {
 public:
     ResourceSnapshot snapshot() const;
+    // Wait for a final state (or release to Dormant), with a caller-owned common deadline.
+    // Does not submit work; callers must only wait where a worker can make progress independently.
+    ResourceSnapshot wait_until(std::chrono::steady_clock::time_point) const;
 private:
     friend class ResourceCache;
     std::filesystem::path path_;
@@ -30,6 +34,7 @@ private:
     uint64_t busy_since_us_=0;          // When the load first waited for a budget other loads hold (D-103); 0 when not waiting.
     std::weak_ptr<const uint8_t> owner_;
     mutable std::mutex mutex_;
+    mutable std::condition_variable changed_;
     ResourceSnapshot value_;
 };
 using ResourceHandle=std::shared_ptr<ResourceRequest>;

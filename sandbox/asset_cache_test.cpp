@@ -1,6 +1,7 @@
 // Included by the headless asset GPU fixture, sharing its actual device.
 #include "../frontend/assets/texture_cache.h"
 #include <chrono>
+#include <future>
 
 namespace {
 using Clock=std::chrono::steady_clock;
@@ -85,12 +86,21 @@ void cache_tests(Gpu& g)
     check(accepted==256 && cache.stats().file_reads==1,"concurrent duplicate demands perform one file read");
     check(prepared.state==TextureState::Prepared && !prepared.image && !cache.stats().submissions,
           "worker preparation cannot submit or expose a texture");
+    check(entry->wait_until(Clock::now()).state==TextureState::Prepared &&
+          unused->wait_until(Clock::now()).state==TextureState::Dormant,
+          "resource wait timeout preserves a pending state; dormant resources return immediately");
+    auto notified=std::async(std::launch::async,[entry]{return entry->wait_until(Clock::now()+std::chrono::seconds(10));});
     check(!budget.source->used() && budget.resident->used() && budget.staging->used(),
           "source bytes release before handoff while actual allocations remain charged");
     check(!cache.submit_prepared(VK_NULL_HANDLE) && entry->snapshot().state==TextureState::Prepared,
           "missing caller queue leaves a prepared request intact");
     write_fixture(file,fixture(98));
     auto ready=await_texture(cache,entry,g,true);
+    const bool woke=notified.wait_for(std::chrono::seconds(1))==std::future_status::ready;
+    auto notified_ready=notified.get();
+    check(woke && notified_ready.state==TextureState::Ready && notified_ready.image==ready.image,
+          "resource completion notifies a bounded waiter with the same ready owner");
+    notified_ready={};
     check(ready.state==TextureState::Ready && ready.image && ready.image->metadata().format==VK_FORMAT_BC7_SRGB_BLOCK,
           "prepared bytes survive a later source-file edit");
     check(cache.stats().submissions==1 && cache.stats().ready==1 && !budget.staging->used(),
@@ -111,6 +121,8 @@ void cache_tests(Gpu& g)
 
     TextureCache failures(device,budget);auto absent=failures.declare_image(missing,reason);failures.demand(absent);
     auto failed=await_texture(failures,absent,g,true);
+    check(absent->wait_until(Clock::now()).state==TextureState::Failed,
+          "resource failure is a terminal wait result without an image");
     check(failed.state==TextureState::Failed && !failed.reason.empty() && !failed.image,"used missing file becomes an explicit failure");
     write_fixture(missing,fixture());
     check(!failures.demand(absent) && failures.stats().failed==1 && !failures.stats().file_reads,
@@ -133,7 +145,12 @@ void cache_tests(Gpu& g)
     for(bool submitted:{false,true}){
         TextureCache cancelled(device,budget);auto request=cancelled.declare_image(file,reason);cancelled.demand(request);
         await_texture(cancelled,request,g,false);if(submitted)cancelled.submit_prepared(g.queue);
+        auto stopped=std::async(std::launch::async,[request]{return request->wait_until(Clock::now()+std::chrono::seconds(10));});
         cancelled.stop();
+        const bool stop_woke=stopped.wait_for(std::chrono::seconds(1))==std::future_status::ready;
+        const auto terminal=stopped.get().state;
+        check(stop_woke && (terminal==TextureState::Stopped || (submitted && terminal==TextureState::Ready)),
+              "resource cancellation wakes a waiter without waiting for its deadline");
         check(!budget.resident->used() && !budget.staging->used() && request->snapshot().state==TextureState::Stopped,
               "cancellation before/after submission drains owned work without publishing it");
     }

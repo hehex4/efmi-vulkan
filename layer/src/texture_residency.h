@@ -39,9 +39,10 @@ public:
         bool failed = false;
         std::string reason;
     };
-    // On the draw path: the image for a recording of this frame. Not resident: it is demanded (or
-    // moved to the front of the load queue) and the view is null; the draw stays the game's.
-    Binding bind(ImageId);
+    // Queue all selected images before waiting on the owned queue. One bounded deadline per
+    // transaction; only Ready images whose timeline publication completed can be returned.
+    // Without an independent upload queue, unresolved bindings stay null for later submissions.
+    void bind(const std::vector<ImageId>&, std::vector<Binding>&);
     // The images a package's frame needs, counted as bound now: what is not resident is demanded,
     // and true only when every one is published (D-097).
     bool ensure(const std::vector<ImageId>&);
@@ -122,6 +123,7 @@ private:
     bool budget_known_ = false, pressure_ = false;
     uint64_t loads_ = 0, reduced_ = 0, evictions_ = 0, demotions_ = 0, budget_waits_ = 0, pending_ = 0, uploads_ = 0, waits_ = 0;
     uint64_t waits_sync_ = 0, wait_sync_us_ = 0, wait_sync_max_us_ = 0, waits_timed_out_ = 0; // draws that waited for a texture (D-103)
+    uint64_t wait_images_ = 0; // images across the waiting draw batches (duplicates included)
 };
 
 } // namespace efvk

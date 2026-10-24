@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <future>
 #include <set>
 
 using namespace efvk;
@@ -185,6 +186,32 @@ int main()
               "descriptor limit includes retained original and new private image");
         cache.retire(40);cache.stop();check(a.variant->pipeline && b.variant->pipeline,"retired material variants survive through command owners");
         a.variant.reset();b.variant.reset();check(driver.count()==0,"all retired material objects release after command owners");
+    }
+    {
+        driver.pause=true; const uint32_t before=driver.started;
+        VariantCache cache(handle<VkDevice>(1),dispatch(),4,8,{},VK_NULL_HANDLE,2);
+        cache.request(50,recipe,layout,vertex); cache.request(51,recipe,layout,vertex);
+        check(driver.await_started(before+2),"a cold transaction can occupy both builders before any wait");
+        auto wait_started=[&](uint64_t count) {
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+            while(cache.waits()<count && std::chrono::steady_clock::now()<deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            return cache.waits()>=count;
+        };
+        auto retired=std::async(std::launch::async,[&]{return cache.await(50,recipe,layout,vertex,{},std::chrono::seconds(10));});
+        check(wait_started(1),"retirement waiter enters the production bounded wait");
+        cache.retire(50);
+        const bool retired_woke=retired.wait_for(std::chrono::seconds(1))==std::future_status::ready;
+        check(retired_woke && retired.get().state==VariantState::Stopped,
+              "retirement wakes a draw while the retired driver compilation is still paused");
+        auto stopped=std::async(std::launch::async,[&]{return cache.await(51,recipe,layout,vertex,{},std::chrono::seconds(10));});
+        check(wait_started(2),"shutdown waiter enters the production bounded wait");
+        auto stopper=std::async(std::launch::async,[&]{cache.stop();});
+        const bool stop_woke=stopped.wait_for(std::chrono::seconds(1))==std::future_status::ready;
+        check(stop_woke && stopped.get().state==VariantState::Stopped,
+              "shutdown notifies draws before the driver finishes its outstanding compilations");
+        driver.resume(); stopper.get();
+        check(driver.count()==0,"parallel canceled builders release all temporary GPU objects");
     }
     printf("variant cache: %d checks passed, %d failed\n",passed,failed);
     return failed?1:0;

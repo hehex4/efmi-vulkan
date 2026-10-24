@@ -7,6 +7,7 @@
 #include <fstream>
 #include <limits>
 #include <stdexcept>
+#include <xmmintrin.h>
 
 using namespace efvk;
 static int passed = 0, failed = 0;
@@ -35,6 +36,54 @@ static BoneWindow view(const std::vector<uint8_t>& bytes) { return {bytes.data()
 static float bone(const MergedSkeleton& s, uint32_t instance, uint32_t pose, uint32_t index, uint32_t f = 0)
 {
     return read<float>(s.bytes().data() + s.rows_for_instance(instance) * 16 + (pose * s.bones() + index) * 48 + f * 4);
+}
+__declspec(noinline) static float scalar_scaled(float value, float scale)
+{
+    volatile float input = value, factor = scale;
+    return input * factor; // Original scalar contract, with runtime rounding and FTZ/DAZ.
+}
+static void packed_import_tests()
+{
+    const unsigned saved_control = _mm_getcsr();
+    struct Restore { unsigned control; ~Restore() { _mm_setcsr(control); } } restore{saved_control};
+    MergedSkeleton s; std::string reason; s.configure(5, 1, {{0,5}}, reason);
+    const std::vector<uint16_t> remap{3,0,3,1,2};
+    const uint32_t patterns[] = {0, 0x80000000, 1, 0x80000001, 0x007fffff, 0x00800000,
+        0x3f800000, 0xbf800000, 0x3eaaaaab, 0x00800001, 0x7effffff, 0xfeffffff};
+    std::vector<uint8_t> bytes(3 + 5 * 48);
+    for (size_t i = 0; i < 5 * 12; ++i) write(bytes.data() + 3 + i * 4, patterns[i % 12]);
+    write(bytes.data() + 3, std::numeric_limits<float>::quiet_NaN()); // Unused implicit row.
+    const BoneWindow window{bytes.data() + 3, bytes.size() - 3};
+    uint64_t serial = 1;
+    for (unsigned rounding : {_MM_ROUND_NEAREST, _MM_ROUND_DOWN, _MM_ROUND_UP, _MM_ROUND_TOWARD_ZERO})
+        for (unsigned flush : {0u, 0x8040u}) for (float scale : {1.f, -0.f, .25f, -4.f}) {
+            _mm_setcsr((saved_control & ~0xe040u) | rounding | flush);
+            s.begin_update(serial++, reason);
+            auto expected = s.bytes(); bool finite = true;
+            for (uint32_t pose = 0; pose < 2; ++pose) for (uint32_t i = 0; i < 5; ++i)
+                for (uint32_t lane = 0; lane < 12; ++lane) {
+                    const float value = scalar_scaled(read<float>(window.data + (remap[i] + 1) * 48 + lane * 4), scale);
+                    finite &= std::isfinite(value);
+                    write(expected.data() + 1536 * 16 + (pose * 5 + i) * 48 + lane * 4, value);
+                }
+            if (!finite) expected = s.bytes();
+            const auto result = s.import_component(0,0,0,entry(),window,window,remap,scale,reason);
+            check(result == (finite ? BoneImportResult::Imported : BoneImportResult::Rejected) &&
+                  s.bytes() == expected && s.updated(0,0) == finite,
+                  "packed import agrees byte for byte with scalar rounding, subnormals, signed zero and overflow");
+        }
+    _mm_setcsr(saved_control);
+    for (uint32_t lane = 0; lane < 12; ++lane) for (bool infinity : {false,true}) {
+        auto current = source(5, 10), previous = source(5, 100);
+        write(previous.data() + 5 * 48 + lane * 4,
+              infinity ? std::numeric_limits<float>::infinity() : std::numeric_limits<float>::quiet_NaN());
+        s.begin_update(serial++, reason); const auto before = s.bytes();
+        check(s.import_component(0,0,0,entry(),view(current),view(previous),{},1,reason) == BoneImportResult::Rejected &&
+              s.bytes() == before && !s.updated(0,0), "each nonfinite lane in the late pose leaves both poses and stamps unchanged");
+        previous = source(5, 100);
+        check(s.import_component(0,0,0,entry(),view(current),view(previous),{},1,reason) == BoneImportResult::Imported &&
+              bone(s,0,1,4,11) == 191.f, "reused staging recovers completely after a failed late pose");
+    }
 }
 static void native_tests()
 {
@@ -205,6 +254,7 @@ int main(int argc, char** argv)
         if (argc == 4 && !strcmp(argv[1],"--replay")) return replay(argv[2],argv[3]);
         if (argc != 1) throw std::runtime_error("usage: bone_test [--replay input output]");
         native_tests();
+        packed_import_tests();
         printf("bone native: %d checks passed, %d failed\n",passed,failed);
         return failed ? 1 : 0;
     } catch (const std::exception& e) { printf("FAILED: %s\n", e.what()); return 1; }

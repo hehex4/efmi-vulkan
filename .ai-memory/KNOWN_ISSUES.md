@@ -1,6 +1,6 @@
 # EFMI Vulkan - Known issues
 
-> Last updated: 2026-10-24 (BUG-040 through BUG-042 fixed and verified offline in 1.7.5).
+> Last updated: 2026-10-24 (BUG-040 through BUG-043 fixed and verified offline in 1.7.5/1.7.6; game acceptance remains open).
 
 ## LIMIT-001: Probe data and long-duration stability are not verified in the real game
 
@@ -827,21 +827,26 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 
 ## BUG-040: Stable positive index matches can outlive coherent mapped writes (fixed offline in 1.7.5, P1)
 
-- 2026-10-24: The former stable-positive shortcut is removed. Native tests call the production hash path after 160 unchanged observations, then change the head and tail without a tracked write and verify immediate recognition; a tracked interior write and negative backoff are also covered. Native 158/158 and the complete 35-step suite pass. No game test or deployment this round. Earlier review evidence below is historical.
+- 2026-10-24: The former stable-positive shortcut is removed. Native tests call the production hash path after 160 unchanged observations, then change the head and tail without a tracked write and verify immediate recognition; a tracked interior write and negative backoff are also covered. Native 158/158 and the complete 35-step suite pass. No game test. The 1.7.5 baseline was not deployed; 1.7.6 was deployed after offline verification. Earlier review evidence below is historical.
 
 - Introduced by 09c6b59, present in b5c12c3. character_backend.cpp:2191 skips the edge fingerprint of a positive Mod match after 120 stable reads until next_quick. A direct write to a coherent mapped pool need not update region_gen, so another object's same-size region can select the old Mod section. Native source-extracted probes: old version detects the change at frame 121; 1.7.4 returns the old hash through frame 135 and detects it at 136. A tracked write still invalidates immediately.
 - Fix direction: preserve validation for positive matches on memory without an independently reliable write/immutability guarantee. Cover stable same-region reuse. See docs/performance-review-1.7.4.md; build/review-performance-1.7.4/probes.json. No real-game reproduction or runtime fix in this review.
 
 ## BUG-041: Fast variant lookup retains retired Vulkan objects (fixed offline in 1.7.5, P2)
 
-- 2026-10-24: Retirement erases every fast lookup key for the pipeline identity. Production retirement tests cover 256 identities with multiple keys, independent identities and a command owner surviving retirement until completion. Native 158/158 and the complete 35-step suite pass. No game test or deployment this round. Earlier review evidence below is historical.
+- 2026-10-24: Retirement erases every fast lookup key for the pipeline identity. Production retirement tests cover 256 identities with multiple keys, independent identities and a command owner surviving retirement until completion. Native 158/158 and the complete 35-step suite pass. No game test. The 1.7.5 baseline was not deployed; 1.7.6 was deployed after offline verification. Earlier review evidence below is historical.
 
 - Introduced by 09c6b59, present in b5c12c3. variant_lookup stores strong PipelineVariant owners, but generation_retire clears only the other pipeline tables. Retired pipeline/layout resources survive command completion until material refresh or generation destruction. The table's 65,536-entry limit is not retirement.
 - Native ownership probe using the actual retirement function: all 256 retired variant stand-ins remain at 1.7.4 after cache/command owners release, versus zero before this lookup. Clearing it releases all. GPU bytes were not measured. Erase matching identities or use weak ownership, retaining completed/in-flight command ownership correctly; add character-backend lifetime coverage. Evidence as BUG-040. No runtime fix.
 
 ## BUG-042: Persistent material scratch pins images after eviction (fixed offline in 1.7.5, P2)
 
-- 2026-10-24: A scope guard clears image and variant owners on all draw exits, including exceptions, while keeping inner vector capacity. Production scratch cleanup tests cover an inactive character and completed command owners. Image owners in this CPU test are stand-ins; GPU residency is not inferred from their byte counts. Native 158/158 and the complete 35-step suite pass. No game test or deployment this round. Earlier review evidence below is historical.
+- 2026-10-24: A scope guard clears image and variant owners on all draw exits, including exceptions, while keeping inner vector capacity. Production scratch cleanup tests cover an inactive character and completed command owners. Image owners in this CPU test are stand-ins; GPU residency is not inferred from their byte counts. Native 158/158 and the complete 35-step suite pass. No game test. The 1.7.5 baseline was not deployed; 1.7.6 was deployed after offline verification. Earlier review evidence below is historical.
 
 - Introduced by b5c12c3. scratch_material_views owns each SnapshotImage until the next matched record() call. A character that leaves the scene after a material draw can retain those images after commands complete and the residency cache has evicted and uncharged them. Retention is limited to the last draw's images; it is empty if that draw bound no Mod images.
 - Native model of the committed SnapshotImage and storage lifetime: before 1.7.4 all three stand-in images release after command/residency release; at 1.7.4 none release until scratch clear. Not an actual GPU allocation measurement. Release resource references on all draw exit paths while retaining container capacity. Cover inactivity, completed commands and eviction. Evidence as BUG-040. No runtime fix.
+
+## BUG-043: A texture wait held a vector element across concurrent declarations (fixed offline in 1.7.6)
+
+- Found while batching first-use texture loads: TextureResidency::bind saved an Image reference, unlocked mutex_ and then used image.handle while declare() could append and reallocate images_ (for example an F10 candidate declaring its paths on another generation's worker). This is a source-level invalidation hazard; no game crash is attributed to it.
+- The batch path keeps only ImageId indices and shared ResourceRequest handles while unlocked, and resolves Image again under the residency mutex. It also checks stopped_ before any timeline access after reacquiring the lock. Completed-only timeline publication is unchanged. The 35-step suite, including live reloads and dual-queue validation, and 266 standalone resource/cache GPU checks passed. No game verification this round.

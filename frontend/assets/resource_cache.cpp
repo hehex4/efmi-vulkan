@@ -33,6 +33,15 @@ ResourceSnapshot ResourceRequest::snapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);return value_;
 }
+ResourceSnapshot ResourceRequest::wait_until(std::chrono::steady_clock::time_point deadline) const
+{
+    std::unique_lock<std::mutex> lock(mutex_);
+    changed_.wait_until(lock, deadline, [&] {
+        return value_.state == ResourceState::Ready || value_.state == ResourceState::Failed ||
+               value_.state == ResourceState::Stopped || value_.state == ResourceState::Dormant;
+    });
+    return value_;
+}
 ResourceCache::ResourceCache(const ResourceDevice& device,ResourceBudgets budgets,size_t capacity,unsigned workers)
     :device_(device),budgets_(std::move(budgets)),capacity_(std::min<size_t>(capacity,4096))
 {
@@ -47,6 +56,7 @@ void ResourceCache::publish(const ResourceHandle& entry,ResourceState state,
 {
     std::lock_guard<std::mutex> lock(entry->mutex_);
     entry->value_={state,upload?upload->image:nullptr,upload?upload->buffer:nullptr,std::move(reason),upload?upload->serial:0};
+    entry->changed_.notify_all();
 }
 ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason,uint64_t tag)
 {

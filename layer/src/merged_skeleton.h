@@ -59,6 +59,8 @@ private:
     std::vector<BoneComponent> components_;
     std::vector<Stamp> stamps_;
     std::vector<uint8_t> master_;
+    // One component's two poses, reused across imports; never published before full validation.
+    std::vector<uint8_t> pending_;
 };
 
 } // namespace efvk
