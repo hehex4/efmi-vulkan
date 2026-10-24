@@ -226,7 +226,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             std::shared_ptr<RuntimeExtension> extension;bool complete=false;
             ~LoadGuard(){if(!complete && extension)extension->execution_failed();}
         } load_guard{p.extension};
-        if ((config.inputs.empty() && config.mods_directory.empty()) || config.inputs.size() > 128 || !config.resource_root.is_absolute() ||
+        if ((config.inputs.empty() && config.mods_directory.empty()) || config.inputs.size() > 128 || config.libraries.size() > 16 || !config.resource_root.is_absolute() ||
             !config.settings_directory.is_absolute() || config.settings_name.empty() || config.settings_name.size() > 80 ||
             config.settings_name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != std::string::npos)
             throw std::runtime_error("Invalid frontend input/settings location");
@@ -247,6 +247,10 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if (!path.is_absolute()) throw std::runtime_error("INI input path must be absolute");
             auto relative = path.lexically_relative(config.resource_root);
             read_ini(path, relative.empty() || *relative.begin() == L".." ? path.filename().wstring() : relative.wstring());
+        }
+        for (const auto& path : config.libraries) {
+            if (!path.is_absolute()) throw std::runtime_error("Library INI path must be absolute");
+            read_ini(path, path.lexically_relative(config.resource_root).wstring());
         }
         HostParseIncludes();
         // The original loader may declare user_config, but our persistence

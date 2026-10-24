@@ -497,6 +497,8 @@ def main() -> int:
     ap.add_argument("--settings", type=Path, help="a folder of persistent INI variable files the Mods start from (a variant key's state)")
     ap.add_argument("--check", action="store_true", help="fail unless both runs are clean, the originals draw nothing and every "
                     "render pass with a component of the Mod shows the Mod's draws (regression suite)")
+    ap.add_argument("--no-refusal", action="store_true", help="with --check: fail when a matched draw's plan was refused, "
+                    "as when an INI calls a library or asks a question the plan cannot answer (D-112)")
     args = ap.parse_args()
     global MODS, SETTINGS
     MODS = args.mods or MODS
@@ -557,6 +559,10 @@ def main() -> int:
     (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
     if args.check:
         problems = check(summary, draws, components)
+        if args.no_refusal:
+            refused = {k: v for k, v in summary["runs"].get("enabled", {}).get("counters", {}).items() if k.startswith("refused_") and v}
+            if refused:
+                problems.append("refused plans %s: %s" % (refused, summary["runs"]["enabled"].get("last_reason", "")))
         for line in problems:
             print("CHECK FAILED: " + line)
         if not problems:

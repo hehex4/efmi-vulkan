@@ -1,5 +1,10 @@
 # EFMI Vulkan - Known issues
 
+## BUG-045: Parts a Mod draws through EFMITTL were not drawn on Vulkan (fixed in 1.7.8)
+
+- Up to 1.7.7 a character generation held the Core and the Mod's own folder only. `run = CommandList\EFMITTL\Draw` and the `$\EFMITTL\...` assignments were unrecognised entries, so every part drawn through the library was missing on Vulkan (Yvonne's first section, TangTang's and ardelia's translucent parts); DX11 shows them translucent.
+- Fixed in 1.7.8 (D-112): the generation loads the libraries its INIs call by namespace, and a replaced draw's plan answers `ResourceX !== null` from its references (without that answer every such draw was refused and kept the game's mesh). With the game's ShaderRegex hooks inert the library's own fallback draws the parts opaque from the second frame of a generation. Replay vk01 (Yvonne, 120 frames), 1.7.7 against 1.7.8: covered texels shadow 162226 to 173968, G-buffer 85342 to 92233, forward 44179 to 71365, no refused plan (575 refusals before the declaration answer); vk02 (TangTang) replays with no refused plan.
+
 ## BUG-044: Cached transparency shaders reject core derivative capability (fixed offline in 1.7.7)
 
 - EFMITTL 0.5.2's unchanged cached alpha pixel shader translates to SPIR-V capability 51 (DerivativeControl). The executor omitted it from the core allowlist and rejected actual drawing although source HLSL compilation passed.
@@ -7,7 +12,7 @@
 
 ## LIMIT-038: EFMITTL's shared, pass-local game integration is not implemented
 
-- The installed plugin compiles and its unchanged INI executes on owned targets after BUG-044. This is not live-game support. Character generations do not include/share the external library, the game's ShaderRegex sections remain inert (LIMIT-036), and original shaders/targets plus ordered work inside application render passes are not imported (LIMIT-035).
+- The installed plugin compiles and its unchanged INI executes on owned targets after BUG-044. This is not live-game support. Since 1.7.8 each consumer generation loads the library (D-112) but its frame state is per generation, not shared; the game's ShaderRegex sections remain inert (LIMIT-036), and original shaders/targets plus ordered work inside application render passes are not imported (LIMIT-035).
 - Candidate 1.7.7 records attachment identities and subpass layouts for a user-started Vulkan capture. Existing game frames cannot prove scene-color/depth aliasing or the depth-copy/composite boundary. No per-character table or synthetic DXBC disassembly is used as a substitute. See docs/efmittl-compatibility.md and D-111.
 
 > Last updated: 2026-10-24 (BUG-040 through BUG-043 fixed and verified offline in 1.7.5/1.7.6; game acceptance remains open).

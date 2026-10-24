@@ -63,6 +63,7 @@ CharacterProgram::Source mod_source(const std::string& ini)
     source.core = g_cfg.m2_core.empty() ? mods.parent_path() / "Core" / "EFMI" : absolute_folder(g_cfg.m2_core);
     source.settings = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
     source.mod_namespace = CharacterProgram::declared_namespace(source.ini);
+    source.mods = mods;
     return source;
 }
 }
@@ -444,6 +445,7 @@ public:
                 CharacterProgram::Source source;
                 try { source = mod_source(package_path); } catch (const std::exception& e) { last_reason = e.what(); return false; }
                 if (!program->discover(source, package, last_reason, gpu)) return false;
+                for (const auto& note : program->library_notes()) logf("%s", note.c_str());
                 // The measured dimension policy, on the device it was measured on only.
                 if (g_cfg.m2_dimension_zero_vendor && g_cfg.m2_dimension_zero_vendor == properties.vendorID &&
                     g_cfg.m2_dimension_zero_device == properties.deviceID) {

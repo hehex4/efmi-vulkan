@@ -28,6 +28,8 @@ public:
     struct Source {
         std::filesystem::path ini, core, settings;
         std::string mod_namespace;
+        // The Mods folder, where the libraries the Mod calls by namespace are found (D-112); empty: none.
+        std::filesystem::path mods;
     };
     bool discover(const Source&, CharacterPackage&, std::string& reason, const GpuFactory& gpu = {});
     // The namespace an INI declares (`namespace = ...`), lower case; empty when it declares none.
@@ -35,6 +37,14 @@ public:
     // The character Mods of an EFMI Mods folder: every enabled INI (no part of its path starts with
     // DISABLED, as the original skips them) that declares the EFMIv1 merged-skeleton initializer.
     static std::vector<std::filesystem::path> mods_characters(const std::filesystem::path& mods, std::string& reason);
+    // The libraries a generation of `inputs` calls (D-112): every enabled INI of the Mods folder outside
+    // every character Mod's folder that declares a namespace the inputs reference (`CommandList\NS\...`,
+    // `$\NS\...`) and that neither an input nor `known` (the extension's own libraries) declares; then
+    // those they call. `notes` names the ones left out and why.
+    static std::vector<std::filesystem::path> libraries(const std::filesystem::path& mods, const std::vector<std::filesystem::path>& inputs,
+                                                        const std::vector<std::string>& known, std::vector<std::string>& notes);
+    // The libraries the generation loaded and those it left out (D-112), for the log.
+    const std::vector<std::string>& library_notes() const { return library_notes_; }
     const std::shared_ptr<efmi::frontend::OwnedRuntime>& gpu() const { return gpu_; }
     const std::string& gpu_reason() const { return gpu_reason_; }
     // Mesh files the generation's INIs reference that are not in the package's stream profile.
@@ -62,10 +72,12 @@ public:
     efmi::frontend::RuntimeStatus status() const { return runtime_ ? runtime_->status() : efmi::frontend::RuntimeStatus{}; }
 private:
     bool load(const std::filesystem::path& ini, const std::filesystem::path& core, const std::filesystem::path& settings,
-              const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension>, const GpuFactory&, std::string& reason);
+              const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension>, const GpuFactory&, std::string& reason,
+              const std::filesystem::path& mods = {});
     void catalogue(CharacterPackage&, const std::map<std::wstring, uint32_t>& remaps);
     std::shared_ptr<efmi::frontend::OwnedRuntime> gpu_;
     std::string gpu_reason_;
+    std::vector<std::string> library_notes_;
     std::shared_ptr<efmi::frontend::IniRuntime> runtime_;
     std::map<std::wstring, uint32_t> streams_, images_;
     // The stream or image a plan item's resource names, by the resource object the compiler hands

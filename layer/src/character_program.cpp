@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <sstream>
+#include <string_view>
 
 namespace efvk {
 namespace {
@@ -22,6 +23,36 @@ std::vector<uint8_t> read(const std::filesystem::path& path, uint64_t limit)
     std::vector<uint8_t> bytes(size_t(in.tellg())); in.seekg(0); in.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
     if (!in) throw std::runtime_error("Runtime resource read failed");
     return bytes;
+}
+// An INI's lines without comments, trimmed and in lower case (D-112).
+std::string ini_text(const std::filesystem::path& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    std::string line, text;
+    while (std::getline(in, line)) {
+        const auto start = line.find_first_not_of(" \t");
+        if (start == std::string::npos || line[start] == ';') continue;
+        text.append(line, start, std::string::npos); text += '\n';
+    }
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return char(tolower(c)); });
+    return text;
+}
+// Whether the text has a section of this name (lower case), as the original names a section: the
+// line up to its first `]`, without the spaces around.
+bool has_section(const std::string& text, const char* wanted, bool prefix = false)
+{
+    const size_t length = strlen(wanted);
+    for (size_t at = 0; at < text.size();) {
+        const auto end = text.find('\n', at);
+        const auto line = std::string_view(text).substr(at, end == std::string::npos ? std::string::npos : end - at);
+        at = end == std::string::npos ? text.size() : end + 1;
+        if (line.empty() || line[0] != '[') continue;
+        auto name = line.substr(1, line.find(']') == std::string_view::npos ? std::string_view::npos : line.find(']') - 1);
+        while (!name.empty() && (name.front() == ' ' || name.front() == '\t')) name.remove_prefix(1);
+        while (!name.empty() && (name.back() == ' ' || name.back() == '\t' || name.back() == '\r')) name.remove_suffix(1);
+        if (prefix ? name.substr(0, length) == wanted : name == wanted) return true;
+    }
+    return false;
 }
 template<class T> void put(std::vector<uint8_t>& out, T value)
 {
@@ -99,7 +130,7 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
 }
 bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesystem::path& core, const std::filesystem::path& settings_folder,
                             const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension> extension,
-                            const GpuFactory& factory, std::string& reason)
+                            const GpuFactory& factory, std::string& reason, const std::filesystem::path& mods)
 {
     {
         efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
@@ -121,6 +152,10 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
                 if (options.inputs.size() >= 64) throw std::runtime_error("The Mod folder has too many INI files for one generation");
                 options.inputs.push_back(it->path());
             }
+            // The libraries the Mod calls by namespace from elsewhere in the Mods folder (D-112), as the
+            // original, which loads the whole folder into one space, finds them.
+            library_notes_.clear();
+            if (!mods.empty()) options.libraries = libraries(mods, options.inputs, efmi::frontend::character_core_libraries(), library_notes_);
             extension = gpu_->combine(std::move(extension));
             gpu_->begin_deferred();
         }
@@ -202,23 +237,79 @@ std::vector<std::filesystem::path> CharacterProgram::mods_characters(const std::
         const auto name = it->path().filename().wstring();
         if (!_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
         if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
-        std::ifstream in(it->path(), std::ios::binary);
-        std::string line;
-        bool character = false;
-        while (!character && std::getline(in, line)) {
-            const auto start = line.find_first_not_of(" \t");
-            if (start == std::string::npos || line[start] != '[') continue;
-            const auto end = line.find(']', start);
-            if (end == std::string::npos) continue;
-            std::string section = line.substr(start + 1, end - start - 1);
-            std::transform(section.begin(), section.end(), section.begin(), ::tolower);
-            character = section == "commandlistinitializemergedskeleton";
-        }
-        if (character) found.push_back(it->path());
+        if (has_section(ini_text(it->path()), "commandlistinitializemergedskeleton")) found.push_back(it->path());
     }
     if (error) reason = "cannot read the Mods folder " + mods.u8string() + ": " + error.message();
     std::sort(found.begin(), found.end());
     return found;
+}
+std::vector<std::filesystem::path> CharacterProgram::libraries(const std::filesystem::path& mods, const std::vector<std::filesystem::path>& inputs,
+                                                              const std::vector<std::string>& known, std::vector<std::string>& notes)
+{
+    std::set<std::string> declared(known.begin(), known.end());
+    std::string calls;
+    for (const auto& input : inputs) {
+        calls += ini_text(input);
+        const auto name = declared_namespace(input);
+        if (!name.empty()) declared.insert(name);
+    }
+    // Most generations call nothing beyond their own INIs and the Core: the Mods folder is read only
+    // when a reference names a namespace no input declares (by its first part; `CommandList\NS\Name`).
+    std::set<std::string> heads;
+    for (const auto& name : declared) heads.insert(name.substr(0, name.find('\\')));
+    bool unknown = false;
+    for (const char* prefix : {"commandlist\\", "customshader\\", "resource\\", "$\\"}) {
+        const std::string p = prefix;
+        for (size_t at = calls.find(p); !unknown && at != std::string::npos; at = calls.find(p, at + 1)) {
+            const auto from = at + p.size(), end = calls.find_first_of("\\\n", from);
+            if (end != std::string::npos && calls[end] == '\\' && !heads.count(calls.substr(from, end - from))) unknown = true;
+        }
+    }
+    if (!unknown) return {};
+    // Every enabled INI of the folder: those of character Mods mark their folders, whose INIs belong to
+    // that Mod's generation; the others are libraries by their declared namespace.
+    struct Candidate { std::filesystem::path path; std::string name, text; bool done = false; };
+    std::vector<Candidate> candidates;
+    std::vector<std::filesystem::path> characters;
+    std::error_code error;
+    for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
+         it.increment(error)) {
+        if (!_wcsnicmp(it->path().filename().c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
+        if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
+        auto text = ini_text(it->path());
+        if (has_section(text, "commandlistinitializemergedskeleton")) { characters.push_back(it->path().parent_path()); continue; }
+        auto name = declared_namespace(it->path());
+        if (!name.empty() && !declared.count(name)) candidates.push_back({it->path(), std::move(name), std::move(text)});
+    }
+    if (error) { notes.push_back("libraries: cannot read the Mods folder " + mods.u8string() + ": " + error.message()); return {}; }
+    const auto inside = [](const std::filesystem::path& path, const std::filesystem::path& folder) {
+        const auto relative = path.lexically_relative(folder);
+        return !relative.empty() && *relative.begin() != "..";
+    };
+    std::vector<std::filesystem::path> taken;
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (auto& c : candidates) {
+            if (c.done || calls.find("\\" + c.name + "\\") == std::string::npos) continue;
+            c.done = true;
+            if (std::any_of(characters.begin(), characters.end(), [&](const auto& folder) { return inside(c.path, folder); })) {
+                notes.push_back("library not loaded: " + c.path.u8string() + " (namespace " + c.name + ") belongs to another character Mod");
+                continue;
+            }
+            // A section acting on the game's resources by hash would act once for every generation that
+            // loads the library, where the original acts once.
+            if (has_section(c.text, "textureoverride", true)) {
+                notes.push_back("library not loaded: " + c.path.u8string() + " (namespace " + c.name + ") acts on game resources by hash");
+                continue;
+            }
+            if (taken.size() >= 16) { notes.push_back("library not loaded: " + c.path.u8string() + ": more than 16 libraries"); continue; }
+            notes.push_back("library loaded: " + c.path.u8string() + " (namespace " + c.name + ")");
+            taken.push_back(c.path);
+            calls += c.text;
+            grew = true;
+        }
+    }
+    return taken;
 }
 bool CharacterProgram::discover(const Source& source, CharacterPackage& package, std::string& reason, const GpuFactory& factory)
 {
@@ -251,7 +342,7 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
         if (settings_name.size() > 80) settings_name.resize(80);
         auto found = std::make_shared<efmi::frontend::CharacterDiscovery>();
         if (!load(source.ini, source.core, source.settings, settings_name,
-                  efmi::frontend::character_discovery(mod_namespace, found), factory, reason)) return false;
+                  efmi::frontend::character_discovery(mod_namespace, found), factory, reason, source.mods)) return false;
         CharacterPackage made = found->contract;
         made.lists.clear();
         for (auto& c : made.components) {

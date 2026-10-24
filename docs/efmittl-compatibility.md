@@ -1,15 +1,93 @@
 # EFMITTL compatibility
 
-2026-10-24, candidate 1.7.7. The requested library is
+2026-10-24, candidate 1.7.7; library loading in 1.7.8. The requested library is
 `D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/EFMITTL`, development 0.5.2
-(`$version = 0.52`). Its installed files are read-only. This work does not
-enable transparency in the game yet.
+(`$version = 0.52`). Its installed files are read-only. Since 1.7.8 the parts a
+Mod draws through the library are drawn, opaque, by the library's own fallback;
+transparency in the game is not enabled yet.
+
+## 1.7.8: the library is loaded with its consumers (D-112, BUG-045)
+
+Up to 1.7.7 a character generation held the Core and the Mod's own folder only.
+`run = CommandList\EFMITTL\Draw` and the `$\EFMITTL\...` assignments were
+unrecognised entries, so every part a Mod draws through the library was not
+drawn at all on Vulkan (Yvonne's first section, TangTang's and ardelia's
+translucent parts), where DX11 shows them translucent.
+
+- A generation now loads the libraries its INIs call by namespace: every enabled
+  INI of the Mods folder outside every character Mod's folder that declares a
+  namespace an input references and no input declares (RabbitFX stays the
+  extension's own). A library acting on game resources by hash
+  (`[TextureOverride...]`) is not loaded: it would act once per consumer. The
+  log names each library loaded or left out.
+- A library is parsed under its path relative to the Mod folder
+  (`..\EFMITTL\translucency.ini`), so `shaders\alpha.hlsl` resolves against the
+  library's folder as the original resolves it.
+- A replaced draw's plan answers a declaration operand from the plan's own
+  references: `ResourceMask !== null` is true while the Mod's `ref` holds a
+  resource and false once `ResourceMask = null`, as the original's -0. Without
+  this every draw calling the library was refused and kept the game's mesh.
+- The game's ShaderRegex hooks stay inert, so `$vs_kind` is never 1 and the
+  library's FrameReset switches to its fallback after the first frame with a
+  forward call: the part is drawn as before (opaque, with its full shadow) in
+  every pass. The first frame of a generation (after activation or F10) leaves
+  the part out of the G-buffer and forward passes, as the library does.
+- The game's Vulkan passes match the library's DX11 tests (catalogue vk01):
+  shadow passes without colour targets, the G-buffer with five, the forward
+  lit and outline passes with two (`o0` bound, `o2` not), then the copy shader
+  `d2a457f6/4b4220a1` into an R32_SFLOAT target.
+
+Evidence: replay vk01 (Yvonne) 1.7.7 against 1.7.8, 120 frames: covered texels
+shadow 162226 to 173968, G-buffer 85342 to 92233, forward 44179 to 71365; no
+refused plan (575 refusals before the declaration answer). Original INI runtime
+488 checks (library resolution and plan answers added). Sandbox only.
+
+## Offline facts for the transparency path (paired catalogue, 2026-10-24)
+
+The paired DX11/Vulkan catalogue (captures/catalogue-20261019, `charNN` with its
+DXBC and `vkNN` with its SPIR-V and pipeline recipes) pairs the game's shaders
+through the draws' index region hashes and colour target counts:
+
+- The library's lit vertex shader 1479b2b5 pairs with a family of Vulkan vertex
+  shaders (d5e3e378 in most passes; d0a39062, 60a12bff, 6b34f773, beb7b586,
+  d15a51fd, b818ea77 in others). Their outputs are the DX11 registers o1..o9 at
+  locations 0..8 with the same widths (o1.xy is location 0, a float2: the UV that
+  `alpha.hlsl` reads as TEXCOORD0), the last one a flat uint. Some variants drop
+  an output their pixel shader does not read (d0a39062 has no location 3).
+- The shadow vertex shaders pair one to one (f11c7e1d with d29292e6, bbc56f5c with
+  c8fa3abe), but on Vulkan they output only the position (plain) or the
+  position and the UV (fading). The library's shadow pixel shaders, written for
+  the DX11 output registers, have nothing to link with; the library's own rule
+  for a shadow pass it does not recognise (the full shadow, as before) is what
+  Vulkan can give.
+- The DX11 regex groups therefore cannot be evaluated faithfully on a
+  declaration block made up from SPIR-V: the outputs a pattern names exactly are
+  pruned per pipeline, and a lit variant that a pattern misses would be left out
+  of the forward pass while another part of the same frame is captured. The
+  hooks need facts the layer has for every replaced draw (the pass's colour
+  targets and depth test, the vertex shader's output interface), not a
+  fabricated disassembly.
+- The forward lit pass (rp 24 in vk01) is one subpass in a primary command
+  buffer, colour and depth loaded and stored, initial and final layouts equal
+  (colour attachment, depth-stencil attachment). Work recorded at its end (the
+  capture draws in owned targets, then the composite into its colour image while
+  its depth is read) finds known layouts. The next pass (rp 25) is the copy
+  shader d2a457f6/4b4220a1 into an R32_SFLOAT target, the point where the library
+  composites under DX11; compositing at the end of the forward pass is the same
+  point in the frame without tracking the game's barriers.
+
+Remaining work, in order, enabled together only (recognition alone would send
+the forward pass to a capture path that does not exist yet): the library's hook
+facts from the replaced draw's pass and vertex interface; the capture and alpha
+draws recorded after the forward pass in owned targets with the game's state;
+the composite into the borrowed scene colour; one library frame state shared by
+every consumer generation.
 
 ## Actual support boundary
 
 | Part | Owned execution | Current game integration |
 | --- | --- | --- |
-| Original INI, resources, expressions and command lists | Executed unchanged by the original frontend | The character loader loads each character's folder and Core, not the external library's shared frame state |
+| Original INI, resources, expressions and command lists | Executed unchanged by the original frontend | Since 1.7.8 each consumer generation loads the library; its frame state is per generation, not shared |
 | HLSL and supplied DXBC caches | Compile/translate and execute on Vulkan; derivative capability fixed in 1.7.7 | Custom shader execution exists for owned resources |
 | Opacity, mask, shadow, front/back layers and composite | Pixel/depth tests against independent expected values | Borrowed game vertex/pixel programs, targets and ordered work inside the application's passes are not wired |
 | Four pattern-only ShaderRegex groups | Native shader hook machinery exists separately | D-089/LIMIT-036 keeps game shader hooks inert; SPIR-V is not DXBC assembly |

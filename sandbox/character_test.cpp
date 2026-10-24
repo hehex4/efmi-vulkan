@@ -445,7 +445,7 @@ int main(int argc, char** argv)
             CharacterProgram program;
             CharacterPackage package;
             CharacterProgram::Source source{std::filesystem::absolute(ini), std::filesystem::absolute(core), std::filesystem::absolute(settings),
-                                            CharacterProgram::declared_namespace(ini)};
+                                            CharacterProgram::declared_namespace(ini), std::filesystem::absolute(mods)};
             JsonWriter w; w.begin_object();
             w.kv("ini", ini.lexically_relative(mods).u8string());
             std::string why;

@@ -21,7 +21,9 @@ struct Refused : std::exception {
 [[noreturn]] void refuse(const std::wstring& text) { throw Refused{text}; }
 constexpr size_t max_steps = 65536, max_items = 4096, max_draws = 256;
 constexpr size_t max_active_depth = 64;
-struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read;DrawPlanAdapter::ShaderQuery shader,plan_shader;size_t count=0;bool general_matches=false;
+// declared: a replaced draw's plan answers a declaration operand (`ResourceX !== null`) from its own
+// references (D-112).
+struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read,declared;DrawPlanAdapter::ShaderQuery shader,plan_shader;size_t count=0;bool general_matches=false;
     DrawPlanAdapter::HostValue host;DrawPlanAdapter::RenderTargetSize rt;
     // inside: in a draw's scope, within a CustomShader (D-087); drawing: a draw's scope is open.
     std::function<bool()> gate,inside,drawing;bool open() const {return !gate || gate() || (inside && inside());}};
@@ -80,6 +82,12 @@ public:
             if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY)return 0.0f;
         }
         const bool drawing=service->drawing && service->drawing();
+        // A declaration outside an owned scope, or in a generation without owned GPU work at all.
+        if((!service->open() || !service->read) && service->declared && target.type==ResourceCopyTargetType::CUSTOM_RESOURCE && !target.custom_resource_pool &&
+           (target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE || target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY)){
+            if(!service->declared(target,*state,result,reason))refuse(reason.empty()?L"Declaration query refused":reason);
+            return result;
+        }
         if(!service->open() || (drawing && !owned_side(target))){
             // Outside an owned scope (a replaced draw's plan), or the application's bindings in a draw's
             // scope: what the host answers on the CPU. A Mod resource in a draw's scope: what the
@@ -312,7 +320,7 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
             node=std::make_shared<RenderTargetQuery>(std::move(operand),queries);return;
         }
         guard_target(operand->texture_filter_target,queries,depth+1);
-        if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && (queries->read || queries->texture || queries->plan_read))
+        if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1) && (queries->read || queries->texture || queries->plan_read || queries->declared))
             node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);
     }
     else if(auto* op=dynamic_cast<CommandListOperator*>(node.get())){
@@ -602,6 +610,21 @@ struct DrawPlanAdapter::Runtime {
         }
     }
 
+    // A declaration operand in a replaced draw's plan (D-112), what it holds as the plan's references
+    // say: -0 as a resource and 0 as an identity when it holds nothing, as the original. Holding a
+    // resource of the generation it is 0 as a resource (the original keeps no hash for what it made
+    // itself, so no TextureOverride matches it) and the holder's identity.
+    void declared(ResourceCopyTarget& target,CommandListState& state,float& result)
+    {
+        auto* declaration=target.GetCustomResource(&state);direct_resource(declaration);
+        auto* resource=referenced(declaration);
+        const bool identity=target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY;
+        if(!resource){result=identity?0.0f:-0.0f;return;}
+        // The slot may have been bound anew since the reference was taken; its texture then is not
+        // what the plan's binding of the slot says.
+        if(application_slot(resource)>=0)refuse(L"An application texture held by a declaration is not known in a replaced draw's plan");
+        result=identity?EncodeFloat30(uint32_t(HashPointer(resource))):0.0f;
+    }
     CustomResource* referenced(CustomResource* resource) const
     {
         const auto found=references.find(resource);
@@ -998,7 +1021,14 @@ public:
 };
 }
 
-DrawPlanAdapter::DrawPlanAdapter() : runtime_(std::make_shared<Runtime>()) {}
+DrawPlanAdapter::DrawPlanAdapter() : runtime_(std::make_shared<Runtime>())
+{
+    std::weak_ptr<Runtime> weak=runtime_;
+    runtime_->queries->declared=[weak](ResourceCopyTarget& target,CommandListState& state,float& result,std::wstring& reason){
+        auto owner=weak.lock();if(!owner || !owner->active){reason=L"Declaration query outside an active plan";return false;}
+        owner->declared(target,state,result);return true;
+    };
+}
 DrawPlanAdapter::~DrawPlanAdapter() = default;
 
 void DrawPlanAdapter::external(ExplicitCommandListSection& section, const std::wstring& name)

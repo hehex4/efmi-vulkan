@@ -34,4 +34,7 @@ struct CharacterDiscovery {
     std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets;
 };
 std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_namespace, std::shared_ptr<CharacterDiscovery> output);
+// The namespaces of the libraries this extension declares itself (RabbitFX, D-082), lower case: a
+// generation never loads their INIs from the Mods folder (D-112).
+std::vector<std::string> character_core_libraries();
 }

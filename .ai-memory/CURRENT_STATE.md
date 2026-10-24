@@ -1,8 +1,16 @@
 # EFMI Vulkan - Current development state
 
-> Branches merged, 2026-10-24: codex/efmittl-support (776e22e, 3bb867a) is merged into main, so main's code is the deployed candidate 1.7.7. claude/ini and codex/performance-1.7.5 were already in main and are deleted; their worktrees removed (the ini worktree's superseded uncommitted 1.7.5 attempt is kept as a patch in build/backups/branch-cleanup-20261024-214325/). Main's 21 older WIP files stay uncommitted in the main tree, as before.
+> Branches, 2026-10-24: main only. codex/efmittl-support was merged and its merge replayed as a linear history (c485787, 188e17d, 192da15, tree identical to the merge) and pushed to origin; the WIP snapshot branches codex/wip-2026-10-15 and codex/wip-on-main are archived as bundles and patches in build/backups/wip-branches-20261024/ and deleted. Earlier: codex/efmittl-support is merged into main, so main's code is the deployed candidate 1.7.7. claude/ini and codex/performance-1.7.5 were already in main and are deleted; their worktrees removed (the ini worktree's superseded uncommitted 1.7.5 attempt is kept as a patch in build/backups/branch-cleanup-20261024-214325/). Main's 21 older WIP files stay uncommitted in the main tree, as before.
 
 > Active request: 2026-10-24, inspect and adapt the installed EFMITTL plugin. Implementation 776e22e is on codex/efmittl-support in build/performance-worktree; main's 21 older WIP files are preserved. Candidate 1.7.7 was deployed at 21:36 after the game and launcher had closed; the actual-config sandbox smoke passed. No game load, launcher change or module exchange was performed.
+
+## EFMITTL consumers drawn: 1.7.8 (D-112, BUG-045)
+
+- Up to 1.7.7 every part a Mod draws through EFMITTL was missing on Vulkan: the library was in no character generation and its calls were unrecognised entries. A generation now loads the libraries its INIs call by namespace (CharacterProgram::libraries, RuntimeConfig::libraries) and a replaced draw's plan answers `ResourceX !== null` from its references (DrawPlanAdapter, QueryService::declared). The library's own fallback draws the parts opaque from the second frame of a generation; transparency stays LIMIT-038.
+- Replay vk01 (Yvonne, 120 frames), 1.7.7 against 1.7.8: covered texels shadow 162226 to 173968, G-buffer 85342 to 92233, forward 44179 to 71365, no refused plan (575 refusals before the declaration answer); vk02 (TangTang) replays with no refused plan.
+- Full suite 38/38 steps passed (build/run_all-1.7.8.out): original INI runtime 488, character 361, live INI 76, Vulkan validation 76, GPU resources 11189, EFMITTL owned 356 per path, probe 17 configurations, MCP 50; both earlier replays and the new vk01 library step pass.
+- Deployed the 18 tested 1.7.8 files at 22:46 after two closed-process checks (the game and the launcher closed); hashes match, cfg unchanged; 1.7.7 files in build/backups/before-1.7.8-20261024-224635/ (build/candidate-1.7.8.json). Actual-config sandbox injection: 1.7.8, 22 packages, the library loaded by its 3 consumers (Yvonne, TangTang, ardelia), no refusal, normal exit, clean validation, game log unchanged (build/smoke-1.7.8.json). No game load; the launcher stays on DX11.
+- New suite step: "captured frame with a library call" (vk01 with --check --no-refusal). Original INI runtime test runtime_library_cases (488 checks).
 
 ## EFMITTL candidate: 1.7.7
 

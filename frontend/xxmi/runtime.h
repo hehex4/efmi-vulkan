@@ -25,6 +25,10 @@ struct RuntimeConfig {
     // The host answers texture queries of draws (RuntimeDraw::pixel_texture): texture-hash
     // overrides, CheckTextureOverride and Core's OverrideTextures run against its answers (D-077).
     bool texture_identity=false;
+    // Libraries the inputs call by namespace, from outside the resource root (D-112). Parsed after
+    // the inputs, each under its path relative to the root (`..\EFMITTL\translucency.ini`), so the
+    // files it names resolve against its own folder as the original resolves them.
+    std::vector<std::filesystem::path> libraries;
 };
 struct RuntimeInput {
     bool foreground = false;

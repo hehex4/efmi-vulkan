@@ -7,6 +7,7 @@
 #include "globals.h"
 #include <algorithm>
 #include <cmath>
+#include <cwctype>
 #include <map>
 #include <unordered_map>
 #include <set>
@@ -580,5 +581,19 @@ std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_nam
 {
     if (!output) throw std::runtime_error("Character discovery needs its output");
     return std::make_shared<CharacterCore>(mod_namespace, std::move(output));
+}
+std::vector<std::string> character_core_libraries()
+{
+    std::vector<std::string> names;
+    for (const auto& text : {rabbitfx_library_declarations(), rabbit_texture_declarations()}) {
+        // Each unit opens with its `namespace = ...` line.
+        const auto line = text.substr(0, text.find(L'\n'));
+        const auto equals = line.find(L'=');
+        if (equals == std::wstring::npos) continue;
+        std::string name;
+        for (wchar_t c : line.substr(equals + 1)) if (c != L' ' && c != L'\t') name += char(towlower(c));
+        if (!name.empty() && std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+    }
+    return names;
 }
 }
