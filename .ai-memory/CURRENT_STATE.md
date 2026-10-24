@@ -1,5 +1,7 @@
 # EFMI Vulkan - Current development state
 
+> Branches merged, 2026-10-24: codex/efmittl-support (776e22e, 3bb867a) is merged into main, so main's code is the deployed candidate 1.7.7. claude/ini and codex/performance-1.7.5 were already in main and are deleted; their worktrees removed (the ini worktree's superseded uncommitted 1.7.5 attempt is kept as a patch in build/backups/branch-cleanup-20261024-214325/). Main's 21 older WIP files stay uncommitted in the main tree, as before.
+
 > Active request: 2026-10-24, inspect and adapt the installed EFMITTL plugin. Implementation 776e22e is on codex/efmittl-support in build/performance-worktree; main's 21 older WIP files are preserved. Candidate 1.7.7 was deployed at 21:36 after the game and launcher had closed; the actual-config sandbox smoke passed. No game load, launcher change or module exchange was performed.
 
 ## EFMITTL candidate: 1.7.7
