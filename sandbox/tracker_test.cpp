@@ -7,6 +7,7 @@
 #include <thread>
 
 using namespace efvk;
+namespace efvk { void character_cache_cases(void (*check)(bool, const char*)); }
 
 static int passed = 0, failed = 0;
 static void check(bool ok, const char* label)
@@ -900,6 +901,7 @@ int main()
     buffer_copy_paths();
     mapped_read_paths();
     unmap_selection();
+    character_cache_cases(check);
     capture_empty_intervals();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;

@@ -258,7 +258,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
     os.makedirs(scratch, exist_ok=True)
     exe = os.path.join(out, "efmi_vk_tracker_test.exe")
     args = COMMON + ["/I" + include, "/Fobuild\\tracker\\", "/Fdbuild\\tracker\\test_cl.pdb",
-                     "tracker_test.cpp", "../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
+                     "/DEFVK_CHARACTER_CACHE_TESTS", "tracker_test.cpp", "../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                      "../layer/src/pipeline_recipe.cpp",
                      "../layer/src/pipeline_variant.cpp", "../layer/src/spirv_repoint.cpp",
                      "../frontend/gpu/fragment_images.cpp",

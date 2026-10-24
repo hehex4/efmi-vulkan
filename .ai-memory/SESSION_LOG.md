@@ -2153,3 +2153,10 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 ## 2026-10-23: launcher to DX11
 
 - At the user's request (10:00) the launcher's EFMI profile was switched to DX11 (the two values only, backup and manifest in build/backups/launcher-dx11-20261023-100015); the injected library, still dist/efmi_vk_inject.dll, is the user's to set back to the EFMI MCP probe for a DX11 start.
+
+## 2026-10-24: 1.7.5 review fixes verified offline
+
+- User requested all three fixes, continued performance optimization and complete offline tests before the game boundary. Created build/performance-worktree on codex/performance-1.7.5 from fd5592b to preserve main's older uncommitted 1.3.7 work.
+- BUG-040 restores per-draw positive fingerprints; BUG-041 retires fast variant lookup owners; BUG-042 clears scratch owners on every exit and retains capacity. The native tracker fixture now calls production paths directly: 14 new checks, 158/158 total.
+- Full build into build/performance-next; all 35 sandbox/run_all.py steps passed (build/performance-run-all-1.7.5.out), including both recorded-frame replays, character 357/357, live INI 76/76 and Vulkan validation 76/76. An initial build wrapper failed printing localized compiler output; rerunning with Python UTF-8 completed. No source/compiler error was suppressed.
+- Kept build/performance-baseline-1.7.5 for the next A/B. No deployment, real-game load or launcher change. Next: batch first-use resource preparation and bone staging optimization, then remeasure and rerun all offline tests.

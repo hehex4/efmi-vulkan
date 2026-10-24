@@ -200,12 +200,7 @@ struct IndexKeyHash {
         return std::hash<uint64_t>()(reinterpret_cast<uint64_t>(k.buffer) ^ (k.offset * 0x9E3779B97F4A7C15ull) ^ (uint64_t(k.bytes) << 40));
     }
 };
-struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; uint64_t seen = 0, next_quick = 0; uint32_t stable = 0; };
-// A region a package acts on has its edge fingerprint read every draw (two uncached reads, most of
-// a matched draw's hashing) until it matched this many times in a row; then every kQuickFrames like
-// the others, a mismatch starting over (D-106). A static mesh never changes; a reused region is
-// seen within those frames.
-constexpr uint32_t kStableReads = 120;
+struct IndexHash { uint32_t buffer_id = 0; uint64_t gen = 0, next_full = 0; uint32_t hash = 0, quick = 0; uint64_t seen = 0, next_quick = 0; };
 // Caller holds res_mx. The index bytes of one draw, hashed once for every package of the device
 // (D-097) and then recognized by a short fingerprint; the full hash is repeated now and then because
 // mapped pools change unseen. Each recording thread keeps its own table, so no draw waits for another.
@@ -368,6 +363,15 @@ public:
     std::vector<std::shared_ptr<const PipelineVariant>> scratch_variants;
     std::vector<const StaticMaterial*> scratch_material_plans;
     std::vector<std::vector<SnapshotImage>> scratch_material_views;
+    // Capacity may survive a draw, ownership may not (BUG-042). In-flight commands have their own
+    // references. Clear on every return and exception, including partially prepared transactions.
+    struct ScratchScope {
+        CharacterGeneration& owner;
+        ~ScratchScope() {
+            owner.scratch_variants.clear();
+            for (auto& views : owner.scratch_material_views) views.clear();
+        }
+    };
     std::vector<uint32_t> scratch_restore_offsets;
     std::vector<BoundRange> scratch_ranges, scratch_bone_ranges;
     std::vector<DrawGeometry> scratch_geometry;
@@ -1157,8 +1161,10 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
     // Each image as the device's residency holds it now (D-094): a recording retains the GPU image
     // it binds; one not resident yet is demanded, and the draw stays the game's meanwhile.
     bool pending = false;
-    for (const auto* plan : plans) {
-        std::vector<SnapshotImage> draw_views;
+    if (views.size() < plans.size()) views.resize(plans.size());
+    for (size_t i = 0; i < plans.size(); ++i) {
+        const auto* plan = plans[i];
+        auto& draw_views = views[i]; draw_views.clear();
         for (uint32_t asset : plan->assets) {
             if (!textures || asset >= image_ids.size()) return refuse(C_IMAGE, "character texture outside the package's images");
             auto bound = textures->bind(image_ids[asset]);
@@ -1167,7 +1173,6 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
             if (!bound.view) { pending = true; continue; }
             draw_views.push_back({bound.view, bound.owner});
         }
-        views.push_back(std::move(draw_views));
     }
     // An image on its way closes the package's frame (D-097).
     if (pending) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
@@ -1182,6 +1187,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     const uint64_t entered_us = host_time_us();
     StageMark locking(trace, "character draw (generation lock)");
     std::lock_guard<std::mutex> mod_lock(mod_mx);
+    ScratchScope scratch_scope{*this};
     StageMark stage(trace, "character draw (plan, variants, recording)");
     uint64_t mark_us = host_time_us();
     stage_us[S_LOCK] += mark_us - entered_us;
@@ -1193,7 +1199,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     Identity* identity = nullptr;
     auto& variants = scratch_variants; variants.clear();
     auto& material_plans = scratch_material_plans; material_plans.clear();
-    auto& material_views = scratch_material_views; material_views.clear();
+    auto& material_views = scratch_material_views;
     uint32_t material_origin = 0;
     DrawGeometry& original = scratch_original;
     original.first_binding = 0; original.buffers.clear(); original.offsets.clear();
@@ -1719,6 +1725,12 @@ bool generation_record(CharacterGeneration& backend, CmdBuf* cb, const DrawRec& 
 void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
 {
     std::lock_guard<std::mutex> lock(backend.mod_mx);
+    // The fast lookup is another strong owner in addition to the device cache (BUG-041).
+    // Recorded commands retain their variants independently through GPU completion.
+    for (auto it = backend.variant_lookup.begin(); it != backend.variant_lookup.end();) {
+        if (std::get<0>(it->first) == pipeline_id) it = backend.variant_lookup.erase(it);
+        else ++it;
+    }
     backend.sites.erase(pipeline_id);
     backend.material_profiles.erase(pipeline_id);
     backend.derived_for_pipeline.erase(pipeline_id);
@@ -2188,7 +2200,9 @@ bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const Cha
     auto found = table.hashes.find(key);
     const bool current = found != table.hashes.end() && found->second.buffer_id == info.id && found->second.gen == region_gen &&
                          now < found->second.next_full;
-    if (current && now < found->second.next_quick && (found->second.stable >= kStableReads || !index.by_hash.count(found->second.hash))) {
+    // Stable bytes are not proof that a coherent mapped pool cannot be rewritten (BUG-040).
+    // Positive matches must still inspect the fingerprint on every draw.
+    if (current && now < found->second.next_quick && !index.by_hash.count(found->second.hash)) {
         found->second.seen = now; hash = found->second.hash; ++g_quick_skipped;
         return true;
     }
@@ -2202,7 +2216,6 @@ bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const Cha
     ++g_quick_reads;
     if (current && found->second.quick == quick) {
         found->second.seen = now; found->second.next_quick = now + kQuickFrames; hash = found->second.hash;
-        if (found->second.stable < kStableReads) ++found->second.stable;
         return true;
     }
     if (found == table.hashes.end()) ++g_hash_new;
@@ -2478,3 +2491,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
 }
 
 } // namespace efvk
+
+#if defined(EFVK_CHARACTER_CACHE_TESTS)
+#include "../../sandbox/character_cache_cases.h"
+#endif

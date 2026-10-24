@@ -1,30 +1,19 @@
 # EFMI Vulkan - Tasks
 
-> Last updated: 2026-10-22 (performance review). Earlier implementation checkpoints below are historical.
+> Last updated: 2026-10-24 (review fixes and offline performance follow-up). Earlier checkpoints below are historical.
 
 Milestones and gates refer to `docs/plan.md`.
 
-## Current review and follow-up
+## Current implementation and follow-up
 
-User request: review Claude's performance optimization commits. Reviewed
-b5c12c3 (1.7.4), preserving the main tree's older uncommitted 1.3.7 work.
-Review complete; production code and deployment unchanged. Findings and
-evidence: docs/performance-review-1.7.4.md.
+User request: fix all three findings, continue optimizing and finish offline tests before a game test is needed. Review: docs/performance-review-1.7.4.md. Candidate 1.7.5 is in build/performance-next; the separate worktree preserves the main tree's older uncommitted 1.3.7 work. No deployment or game load.
 
-- Open BUG-040 / P1: do not skip positive-match fingerprint validation on
-  mapped regions that can change without tracked writes. Cover stable-region
-  reuse; current native reproduction returns the stale hash for 15 frames.
-- Open BUG-041 / P2: retire the per-generation variant lookup's strong owners
-  with the original pipeline. Cover character-backend create/use/retire cycles.
-- Open BUG-042 / P2: release material scratch image owners on every draw exit
-  while preserving allocation reuse. Cover character inactivity and eviction
-  after commands complete; current new member storage retains all probe images.
-- Performance acceptance remains open: resolve these findings, measure startup
-  waits and steady-state p50/p95/p99 separately under controlled offline load,
-  then compare the same game scene against 120 fps in a user-started session.
-  Existing A/B savings are real CPU-path evidence, not current game acceptance.
-
-No implementation of these follow-ups was requested or performed in the review.
+- Implemented BUG-040 / P1: validate positive-match fingerprints every draw.
+- Implemented BUG-041 / P2: erase retired pipeline identities from the fast lookup.
+- Implemented BUG-042 / P2: release scratch owners on all exits, retaining capacity.
+- Verified: native production-path checks 158/158 and all 35 baseline regression steps. Log: build/performance-run-all-1.7.5.out.
+- Next: batch first-use texture/variant preparation; reuse and vectorize bone staging. Cover semantics before measuring cold waits and steady-state p50/p95/p99 independently.
+- Game acceptance remains open: compare the same user-started game scene against 120 fps, test first appearance, switching, dashes, reload and long-session resource ownership. Offline results cannot establish these.
 
 ## Earlier Codex checkpoint (2026-10-15, historical)
 

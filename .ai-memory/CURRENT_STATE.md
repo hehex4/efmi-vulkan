@@ -1,6 +1,16 @@
 # EFMI Vulkan - Current development state
 
-> Review update: 2026-10-22, main. User asked for an audit of Claude's performance commits, not implementation or a game test. Reviewed b5c12c3 (1.7.4) and preceding performance changes. Runtime/deployment unchanged.
+> Implementation update: 2026-10-24, codex/performance-1.7.5. User requested fixes for all three review findings, further performance optimization and all offline tests before stopping at the game-test boundary. The main tree's older uncommitted 1.3.7 work is preserved; development is isolated in build/performance-worktree.
+
+## Current candidate: 1.7.5
+
+- BUG-040: positive index matches validate the edge fingerprint on every draw again. Negative matches retain their bounded backoff. This restores the previous fingerprint policy; it does not turn fingerprints into full byte comparisons.
+- BUG-041: retirement removes all fast variant lookup entries for that pipeline identity. Commands retain their independent owners until completion.
+- BUG-042: a draw-scoped guard clears image and variant scratch owners on every return/exception, preserving inner vector capacity. An inactive character cannot keep evicted images alive through scratch storage.
+- Production-path native tests: 158/158, including 14 new hash/lifetime checks. Full candidate build completed in build/performance-next. All 35 offline steps passed (build/performance-run-all-1.7.5.out): native 158/158, character 357/357, live INI 76/76, Vulkan validation 76/76; both capture replays passed.
+- No game load, deployment or launcher change. dist remains 1.7.4 and the launcher remains in the user's DX11 configuration of 2026-10-23. Next: batch first-use preparation and optimize bone import with correctness and performance comparisons.
+
+> Historical review update: 2026-10-22, main. User asked for an audit of Claude's performance commits, not implementation or a game test. Reviewed b5c12c3 (1.7.4) and preceding performance changes. Runtime/deployment unchanged.
 
 ## Performance review of Claude's 1.7.4
 
