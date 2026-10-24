@@ -1,5 +1,23 @@
 # Resource inspection in layer 0.5.0 and 0.5.1
 
+## Attachment contexts added in 1.7.7
+
+The `render_targets` status feature announces record-time attachment metadata.
+Raw captures have a `render_targets` table and each draw has a one-based `targets`
+reference (zero means unavailable). `efvk_get_draw` resolves it into `target_info`;
+older frames or invalid references explicitly report unknown. Draw lists retain
+the reference, and capture summaries include `render_target_contexts`.
+
+Contexts include stable framebuffer/render-pass identities, subpass and render
+area, color/input/resolve/depth views with their image IDs, formats, dimensions,
+samples, usage, subresource ranges and declared attachment layouts. Imageless
+and dynamic rendering are supported; secondary draws retain/inherit their
+recording contexts. This metadata does not establish synchronization or import
+permission. Capture-only collection, bounds, unavailable cases and validation
+scope are described in [EFMITTL compatibility](efmittl-compatibility.md).
+
+## Historical descriptor/shader work
+
 This read-only diagnostic feature is verified in the sandbox. It has not been
 loaded into the game, does not establish G3, and does not make a mod render.
 

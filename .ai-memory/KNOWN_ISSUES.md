@@ -1,5 +1,15 @@
 # EFMI Vulkan - Known issues
 
+## BUG-044: Cached transparency shaders reject core derivative capability (fixed offline in 1.7.7)
+
+- EFMITTL 0.5.2's unchanged cached alpha pixel shader translates to SPIR-V capability 51 (DerivativeControl). The executor omitted it from the core allowlist and rejected actual drawing although source HLSL compilation passed.
+- The capability is core Vulkan 1.0 and now accepted; stage/instruction validation and optional feature checks remain. Unchanged-library owned GPU tests cover cached/source transparency, nonuniform mip masks and shadows. Full-game transparency is separate (LIMIT-038).
+
+## LIMIT-038: EFMITTL's shared, pass-local game integration is not implemented
+
+- The installed plugin compiles and its unchanged INI executes on owned targets after BUG-044. This is not live-game support. Character generations do not include/share the external library, the game's ShaderRegex sections remain inert (LIMIT-036), and original shaders/targets plus ordered work inside application render passes are not imported (LIMIT-035).
+- Candidate 1.7.7 records attachment identities and subpass layouts for a user-started Vulkan capture. Existing game frames cannot prove scene-color/depth aliasing or the depth-copy/composite boundary. No per-character table or synthetic DXBC disassembly is used as a substitute. See docs/efmittl-compatibility.md and D-111.
+
 > Last updated: 2026-10-24 (BUG-040 through BUG-043 fixed and verified offline in 1.7.5/1.7.6; game acceptance remains open).
 
 ## LIMIT-001: Probe data and long-duration stability are not verified in the real game
