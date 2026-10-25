@@ -32,6 +32,9 @@ struct CharacterDiscovery {
     // slot, upper-case semantic and index. A Mod that moves an element for its own stream and sets it
     // back names the game's offset with the second value (D-085).
     std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets;
+    // The generation loaded EFMITTL with the interface its bridge knows (D-113): the host supplies
+    // the library's shader hook facts and records its captures.
+    bool efmittl = false;
 };
 std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_namespace, std::shared_ptr<CharacterDiscovery> output);
 // The namespaces of the libraries this extension declares itself (RabbitFX, D-082), lower case: a

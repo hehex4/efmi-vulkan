@@ -45,6 +45,17 @@ public:
                                                         const std::vector<std::string>& known, std::vector<std::string>& notes);
     // The libraries the generation loaded and those it left out (D-112), for the log.
     const std::vector<std::string>& library_notes() const { return library_notes_; }
+    // The folder of the library of this namespace the generation loaded (D-112), empty without one.
+    std::filesystem::path library_folder(const std::string& name) const
+    {
+        const auto found = libraries_.find(name);
+        return found == libraries_.end() ? std::filesystem::path{} : found->second.parent_path();
+    }
+    // EFMITTL is loaded with the interface its bridge knows (D-113): the renderer supplies its hook
+    // facts and records its captures.
+    bool efmittl() const { return efmittl_; }
+    // A shader hook event of the game's frame for the generation's libraries (D-113).
+    void library_hook(efmi::frontend::LibraryHook hook) { if (runtime_) runtime_->library_hook(hook); }
     const std::shared_ptr<efmi::frontend::OwnedRuntime>& gpu() const { return gpu_; }
     const std::string& gpu_reason() const { return gpu_reason_; }
     // Mesh files the generation's INIs reference that are not in the package's stream profile.
@@ -78,6 +89,8 @@ private:
     std::shared_ptr<efmi::frontend::OwnedRuntime> gpu_;
     std::string gpu_reason_;
     std::vector<std::string> library_notes_;
+    std::map<std::string, std::filesystem::path> libraries_; // loaded libraries by namespace
+    bool efmittl_ = false;
     std::shared_ptr<efmi::frontend::IniRuntime> runtime_;
     std::map<std::wstring, uint32_t> streams_, images_;
     // The stream or image a plan item's resource names, by the resource object the compiler hands

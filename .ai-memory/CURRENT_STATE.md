@@ -4,6 +4,14 @@
 
 > Active request: 2026-10-24, inspect and adapt the installed EFMITTL plugin. Implementation 776e22e is on codex/efmittl-support in build/performance-worktree; main's 21 older WIP files are preserved. Candidate 1.7.7 was deployed at 21:36 after the game and launcher had closed; the actual-config sandbox smoke passed. No game load, launcher change or module exchange was performed.
 
+## EFMITTL translucency: 1.7.9 (D-113)
+
+- The parts Mods draw through EFMITTL are translucent: the library's INI decides, the layer supplies its hook facts from SPIR-V (lit vertex shader by output interface, copy shader by structure; shadows stay full), records its capture at the end of the forward pass into device layers and composites with the library's own shaders. docs/efmittl-transparency.md.
+- Replay vk01 (Yvonne, 120 frames, --copy-passes): 456 captures, 114 composites, the library's $fallback staying 0, Vulkan validation 0 errors (4 performance notes); against 1.7.8's opaque fallback 30265 forward-target pixels differ, the sleeves (alpha 0.2) most, the dress (0.7) less (build/replay-1.7.9/). vk02 (TangTang, translucent variant on): 114 captures, 114 composites. Hook rules on the paired catalogue: the 7 Vulkan vertex shaders pairing with 1479b2b5 lit, 57 others not; copy rule names 4b4220a1 alone. Sandbox only.
+- Full suite 39/39 steps passed (build/run_all-1.7.9.out), with the vk01 step checking translucency and the new hook rule step.
+- Deployed the 18 tested 1.7.9 files at 2026-10-25 11:21 after two closed-process checks; hashes match, cfg unchanged; 1.7.8 in build/backups/before-1.7.9-20261025-112124/ (build/candidate-1.7.9.json). The injected DLL and the module changed ABI together. Actual-config sandbox injection: 1.7.9, 22 packages, the library loaded by its 3 consumers, normal exit, clean validation (build/smoke-1.7.9.json). No game load; the launcher stays on DX11.
+- Not yet seen in the game: the real copy pass, the game's targets and frames in flight, the cost.
+
 ## EFMITTL consumers drawn: 1.7.8 (D-112, BUG-045)
 
 - Up to 1.7.7 every part a Mod draws through EFMITTL was missing on Vulkan: the library was in no character generation and its calls were unrecognised entries. A generation now loads the libraries its INIs call by namespace (CharacterProgram::libraries, RuntimeConfig::libraries) and a replaced draw's plan answers `ResourceX !== null` from its references (DrawPlanAdapter, QueryService::declared). The library's own fallback draws the parts opaque from the second frame of a generation; transparency stays LIMIT-038.

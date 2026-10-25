@@ -3,8 +3,10 @@
 2026-10-24, candidate 1.7.7; library loading in 1.7.8. The requested library is
 `D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/EFMITTL`, development 0.5.2
 (`$version = 0.52`). Its installed files are read-only. Since 1.7.8 the parts a
-Mod draws through the library are drawn, opaque, by the library's own fallback;
-transparency in the game is not enabled yet.
+Mod draws through the library are drawn, opaque, by the library's own fallback.
+Since 1.7.9 they are translucent through the library's own policy, with the
+layer supplying its hook facts and doing its capture and composite
+(docs/efmittl-transparency.md, D-113); verified offline, not yet in the game.
 
 ## 1.7.8: the library is loaded with its consumers (D-112, BUG-045)
 
@@ -89,8 +91,8 @@ every consumer generation.
 | --- | --- | --- |
 | Original INI, resources, expressions and command lists | Executed unchanged by the original frontend | Since 1.7.8 each consumer generation loads the library; its frame state is per generation, not shared |
 | HLSL and supplied DXBC caches | Compile/translate and execute on Vulkan; derivative capability fixed in 1.7.7 | Custom shader execution exists for owned resources |
-| Opacity, mask, shadow, front/back layers and composite | Pixel/depth tests against independent expected values | Borrowed game vertex/pixel programs, targets and ordered work inside the application's passes are not wired |
-| Four pattern-only ShaderRegex groups | Native shader hook machinery exists separately | D-089/LIMIT-036 keeps game shader hooks inert; SPIR-V is not DXBC assembly |
+| Opacity, mask, shadow, front/back layers and composite | Pixel/depth tests against independent expected values | Since 1.7.9 recorded by the renderer at the end of the forward pass with the game's programs and the library's shaders; shadows stay full (D-113) |
+| Four pattern-only ShaderRegex groups | Native shader hook machinery exists separately | Since 1.7.9 their meaning comes from SPIR-V rules checked on the paired catalogue (lit vertex, copy); the DXBC patterns stay inert |
 | Render target identification | Added capture metadata with native and end-to-end tests | Requires the new layer in a user-started Vulkan session; historical frames lack these facts |
 
 Do not advertise this candidate as fully supporting EFMITTL. Parsing an INI,

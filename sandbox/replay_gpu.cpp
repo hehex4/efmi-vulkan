@@ -412,7 +412,8 @@ int wmain(int argc,wchar_t** argv){
                 }
                 VkImageCreateInfo ci={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.imageType=VK_IMAGE_TYPE_2D;ci.format=a.format;ci.extent={W,H,1};
                 ci.mipLevels=ci.arrayLayers=1;ci.samples=a.samples;ci.tiling=VK_IMAGE_TILING_OPTIMAL;
-                ci.usage=(depth?VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+                // Sampled as well: the game reads its targets in later passes (the copy of the depth, D-113).
+                ci.usage=(depth?VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_SAMPLED_BIT;
                 CHECK_VK(pCreateImage(g.device,&ci,nullptr,&t.image));VkMemoryRequirements req{};pGetImageMemoryRequirements(g.device,t.image,&req);
                 t.memory=g.allocate(req,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);CHECK_VK(pBindImageMemory(g.device,t.image,t.memory,0));
                 VkImageViewCreateInfo vi={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};vi.image=t.image;vi.viewType=VK_IMAGE_VIEW_TYPE_2D;vi.format=a.format;
@@ -470,8 +471,11 @@ int wmain(int argc,wchar_t** argv){
                     pCmdBindDescriptorSets(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,p.layout,s,1,&sets[i][s],uint32_t(offsets.size()),offsets.data());
                 }
                 for(const auto& v:d.vertex){VkDeviceSize zero=0;pCmdBindVertexBuffers(cb,v.binding,1,&buffers[v.buffer].buffer,&zero);}
-                pCmdBindIndexBuffer(cb,buffers[d.index_buffer].buffer,0,d.index_type?VK_INDEX_TYPE_UINT32:VK_INDEX_TYPE_UINT16);
-                pCmdDrawIndexed(cb,d.count,d.instances,d.first,d.vertex_offset,d.first_instance);
+                if(d.index_buffer==UINT32_MAX)pCmdDraw(cb,d.count,d.instances,d.first,d.first_instance); // a full-screen pass of the game
+                else{
+                    pCmdBindIndexBuffer(cb,buffers[d.index_buffer].buffer,0,d.index_type?VK_INDEX_TYPE_UINT32:VK_INDEX_TYPE_UINT16);
+                    pCmdDrawIndexed(cb,d.count,d.instances,d.first,d.vertex_offset,d.first_instance);
+                }
                 if(f+1==frames)++drawn;
             }
             end_pass();

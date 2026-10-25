@@ -88,6 +88,19 @@ bool FilePlanCompiler::compile(const DrawPlan& source,assets::FilePlan& output,s
             own.palette=item.palette;
             for(const auto& layout:item.layout)own.layout.push_back(copy_layout(layout));
             next.items.push_back(std::move(own));continue;
+        case PlanOperation::Translucent:
+            if(!item.index_count || ++draws>256 || item.layout.size()>256)return refuse(L"Invalid translucent draw in resource plan");
+            own.operation=assets::FileOperation::Translucent;
+            own.index_count=item.index_count;own.first_index=item.first_index;own.vertex_offset=item.vertex_offset;
+            own.palette=item.palette;own.alpha=item.alpha;own.mask_channel=item.mask_channel;own.mask_invert=item.mask_invert;
+            for(const auto& layout:item.layout)own.layout.push_back(copy_layout(layout));
+            if(item.resource){
+                auto found=declarations_.find(item.resource);
+                if(found==declarations_.end())return refuse(L"Translucency mask belongs to another frontend generation");
+                own.resource=found->second.bindings[2];
+                if(!own.resource){reason=found->second.reasons[2];return false;}
+            }
+            next.items.push_back(std::move(own));continue;
         case PlanOperation::External:
             if(item.external.empty() || item.external.size()>4096 || !item.phase_mask || item.phase_mask>3)
                 return refuse(L"Invalid native boundary in resource plan");

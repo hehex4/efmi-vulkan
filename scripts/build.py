@@ -115,7 +115,7 @@ if os.environ.get("EFMI_VK_PHASE_TIMING") == "1":
 # character replacements, without hooks and tracker. The layer DLL has the same code built in.
 MODULE_DLL = "efmi_vk_backend.dll"
 MODULE_SOURCES = [
-    "module/module_main.cpp", "src/character_backend.cpp", "src/character_package.cpp", "src/character_materials.cpp",
+    "module/module_main.cpp", "src/character_backend.cpp", "src/translucency.cpp", "src/shader_hooks.cpp", "src/character_package.cpp", "src/character_materials.cpp",
     "src/character_program.cpp", "src/character_present.cpp",
     "src/merged_skeleton.cpp", "src/pipeline_variant.cpp", "src/spirv_repoint.cpp",
     "src/variant_cache.cpp", "src/draw_snapshots.cpp", "src/pipeline_recipe.cpp", "../frontend/gpu/fragment_images.cpp",
@@ -264,7 +264,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
                      "../frontend/gpu/fragment_images.cpp",
                      "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                      "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/texture_residency.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link() + [
+                     "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/translucency.cpp", "../layer/src/shader_hooks.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/texture_residency.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link() + [
                      "/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                      "/PDB:build\\tracker\\test.pdb", "user32.lib"]
     run_cl(vcvars, folder, args)
@@ -290,12 +290,12 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
             # --plan-mods runs the directory generation's planning (D-078) offline: the program and the
             # original INI runtime join the decoder.
             sources += ["../layer/src/character_package.cpp", "../layer/src/character_materials.cpp", "../layer/src/util.cpp",
-                        "../layer/src/character_program.cpp", "../layer/src/merged_skeleton.cpp"] + MATERIAL_SOURCES + runtime_link()
+                        "../layer/src/character_program.cpp", "../layer/src/merged_skeleton.cpp", "../layer/src/shader_hooks.cpp"] + MATERIAL_SOURCES + runtime_link()
         if tracker:
             sources += ["../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/render_targets.cpp", "../layer/src/util.cpp",
                         "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                         "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
-                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/texture_residency.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link()
+                        "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/translucency.cpp", "../layer/src/shader_hooks.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/texture_residency.cpp", "../layer/src/character_materials.cpp"] + MATERIAL_SOURCES + runtime_link()
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
         args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                            "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]

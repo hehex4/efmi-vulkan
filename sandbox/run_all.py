@@ -39,9 +39,12 @@ STEPS = [
     # Si Lunabelle's optional guard runs the Core's spatial identification itself (D-086).
     ("captured frame with a Mod's own identification", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                        r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check"]),
-    # Yvonne calls the EFMITTL library from its draws (D-112): the library is loaded and every plan runs.
+    # Yvonne calls the EFMITTL library from its draws (D-112): the library is loaded and every plan runs,
+    # and with the game's copy pass after the forward pass its calls are captured and composited (D-113).
     ("captured frame with a library call", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
-                                            r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk01", "--frames", "120", "--check", "--no-refusal"]),
+                                            r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk01", "--frames", "120", "--check", "--no-refusal",
+                                            "--copy-passes", "--expect-translucency"]),
+    ("EFMITTL hook rules on the paired catalogue", [os.path.join(ROOT, "scripts", "check_shader_hooks.py")]),
     ("original INI GPU resources", [os.path.join(ROOT, "scripts", "check_resource_commands.py")]),
     ("EFMITTL owned transparency", [os.path.join(ROOT, "scripts", "check_efmittl.py")]),
     ("original HLSL Vulkan compiler", [os.path.join(ROOT, "scripts", "check_shader_compiler.py")]),

@@ -3,6 +3,7 @@
 #include "skeleton_plan.h"
 #include "palette_files.h"
 #include "rabbit_textures.h"
+#include "efmittl_bridge.h"
 #include "buffer_queries.h"
 #include "globals.h"
 #include <algorithm>
@@ -58,6 +59,7 @@ class CharacterCore : public RuntimeExtension {
     }
     RuntimeDraw current;
     bool prepared = false, attached = false;
+    std::unique_ptr<EfmittlBridge> efmittl; // the library's hooks and capture, when it is loaded (D-113)
     bool rabbit_textures = false;
     bool textures = false;                 // the host answers texture queries (D-077)
     size_t outside_package = 0, texture_sections = 0;
@@ -368,6 +370,9 @@ global $mod_id = -1
                 return true;
             });
         }
+        efmittl = EfmittlBridge::install(a, boundaries);
+        if (facts) facts->efmittl = efmittl != nullptr;
+        if (discovery) discovery->efmittl = efmittl != nullptr;
         // With the host's texture identities (D-077) the original OverrideTextures runs: its
         // CheckTextureOverride on ps-t0 to ps-t22 finds texture-hash sections by the hash of what is
         // bound. Without them the generation registers mesh overrides only and refuses image-hash
@@ -561,9 +566,11 @@ global $mod_id = -1
                 return false;
         }
         if (auto* status = identified_instance(true)) status->fval = 0;
+        if (efmittl) efmittl->before_draw(draw);
         return true;
     }
-    void after_draw() noexcept override { instance_queries.clear(); }
+    void after_draw() noexcept override { instance_queries.clear(); if (efmittl) efmittl->after_draw(); }
+    void library_hook(LibraryHook hook) noexcept override { if (efmittl) efmittl->library_hook(hook); }
 };
 }
 std::shared_ptr<RuntimeExtension> character_core(const std::string& mod_namespace, const efvk::CharacterPackage& package, bool rabbit)

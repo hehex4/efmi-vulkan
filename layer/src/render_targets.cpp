@@ -9,7 +9,7 @@ TargetView view_locked(const Device* dev, VkImageView handle)
     TargetView out;
     const auto v = dev->image_views.find(handle);
     if (v == dev->image_views.end()) return out;
-    out.view = v->second;
+    out.view = v->second; out.handle = handle;
     const auto image = dev->images.find(v->second.image);
     if (image == dev->images.end() || image->second.id != v->second.image_id) return out;
     out.image = image->second; out.known = true; return out;
@@ -55,6 +55,24 @@ void on_destroy_framebuffer(Device* dev, VkFramebuffer handle)
 {
     if (dev->passive || !g_cfg.track_resources) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx); dev->framebuffers.erase(handle);
+}
+void on_begin_pass(Device* dev, CmdBuf* cb, const VkRenderPassBeginInfo* info)
+{
+    const uint32_t serial = cb->pass.serial + 1;
+    cb->pass = CmdBuf::PassInstance{};
+    cb->pass.serial = serial; cb->pass.first_draw = cb->draws.size();
+    if (!info || !info->renderPass || !info->framebuffer) return;
+    cb->pass.render_pass = info->renderPass; cb->pass.framebuffer = info->framebuffer; cb->pass.area = info->renderArea;
+    std::shared_lock<std::shared_mutex> lock(dev->res_mx);
+    const auto fb = dev->framebuffers.find(info->framebuffer);
+    const auto rp = dev->render_passes.find(info->renderPass);
+    if (fb != dev->framebuffers.end()) cb->pass.info = fb->second;
+    if (rp != dev->render_passes.end()) cb->pass.recipe = rp->second;
+}
+void on_begin_pass(Device*, CmdBuf* cb, const VkRenderingInfo*)
+{
+    const uint32_t serial = cb->pass.serial + 1;
+    cb->pass = CmdBuf::PassInstance{}; cb->pass.serial = serial;
 }
 void on_begin_targets(Device* dev, CmdBuf* cb, const VkRenderPassBeginInfo* info)
 {

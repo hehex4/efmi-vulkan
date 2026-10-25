@@ -282,10 +282,12 @@ class Replay:
                     self.omitted["descriptor type %d" % t] += 1
                     return None
                 descriptors.append(item)
-        ib = d["ib"]
-        index_size = ib["index_size"]
-        region = forge_region(d["count"] * index_size, index_size, int(ib["hash"], 16))
-        index = self.buffer(d["first"] * index_size + len(region), [(d["first"] * index_size, self.put(region), len(region))])
+        ib = d.get("ib")
+        index_size, index = 2, 0xFFFFFFFF  # a draw without indices (a full-screen pass of the game)
+        if ib:
+            index_size = ib["index_size"]
+            region = forge_region(d["count"] * index_size, index_size, int(ib["hash"], 16))
+            index = self.buffer(d["first"] * index_size + len(region), [(d["first"] * index_size, self.put(region), len(region))])
         vertex = []
         strides = {b["binding"]: b["stride"] for b in p["bindings"]}
         # Every binding the pipeline declares gets zero data (the capture names four vertex slots only).
@@ -302,7 +304,7 @@ class Replay:
         return {"pipeline": case, "group": (d["cb"], d["rp"]), "count": d["count"], "instances": d["instances"],
                 "first": d["first"], "first_instance": d["first_instance"], "vertex_offset": d["vertex_offset"],
                 "index_buffer": index, "index_type": 1 if index_size == 4 else 0, "descriptors": descriptors, "vertex": vertex,
-                "n": d["n"], "facts": facts, "key": (d["ib"]["hash"], d["count"])}
+                "n": d["n"], "facts": facts, "key": (ib["hash"], d["count"]) if ib else None}
 
 
 def probe_shape(p: dict, binding: int, stride: int, count: int) -> bytes | None:
@@ -497,6 +499,10 @@ def main() -> int:
     ap.add_argument("--settings", type=Path, help="a folder of persistent INI variable files the Mods start from (a variant key's state)")
     ap.add_argument("--check", action="store_true", help="fail unless both runs are clean, the originals draw nothing and every "
                     "render pass with a component of the Mod shows the Mod's draws (regression suite)")
+    ap.add_argument("--copy-passes", action="store_true", help="also replay the game's full-screen draws of a pass with one colour "
+                    "target and no depth right after a pass the Mod draws in (the copy after the forward pass, D-113)")
+    ap.add_argument("--expect-translucency", action="store_true", help="with --check: fail unless the layer captured translucent "
+                    "calls and composited them without an error (EFMITTL, D-113)")
     ap.add_argument("--no-refusal", action="store_true", help="with --check: fail when a matched draw's plan was refused, "
                     "as when an INI calls a library or asks a question the plan cannot answer (D-112)")
     args = ap.parse_args()
@@ -521,7 +527,22 @@ def main() -> int:
         return None
 
     draws = []
+    mod_passes = {(d["cb"], d["rp"]) for d in replay.frame["draws"] if section_of(d) and d.get("kind") == "indexed"}
+
+    def copy_pass(d: dict) -> bool:
+        if not args.copy_passes or d.get("kind") != "draw" or (d["cb"], d["rp"] - 1) not in mod_passes:
+            return False
+        recipe = replay.pipes[d["pipeline"]].get("recipe") or {}
+        subpasses = (recipe.get("render_pass") or {}).get("subpasses") or []
+        sub = subpasses[recipe.get("subpass", 0)] if subpasses else {}
+        return len(sub.get("colors", [])) == 1 and not sub.get("depth")
+
     for d in replay.frame["draws"]:
+        if copy_pass(d):
+            made = replay.draw(d)
+            if made:
+                draws.append(made)
+            continue
         if section_of(d) and d.get("kind") == "indexed" and (not args.rp or d.get("rp") in args.rp):
             made = replay.draw(d)
             if made:
@@ -555,10 +576,15 @@ def main() -> int:
                    "replay": next((l for l in r["output"].splitlines() if l.startswith("replay:")), ""),
                    "counters": {k: v for k, v in r["status"].get("result", {}).get("replacement", {}).get("counters", {}).items() if v},
                    "last_reason": r["status"].get("result", {}).get("replacement", {}).get("last_reason", ""),
+                   "translucency": r["status"].get("result", {}).get("replacement", {}).get("translucency", {}),
                    "targets": shots.get(enabled, {})} for enabled, r in results.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
     if args.check:
         problems = check(summary, draws, components)
+        if args.expect_translucency:
+            t = summary["runs"].get("enabled", {}).get("translucency") or {}
+            if not t.get("captures") or not t.get("composites") or t.get("last_error"):
+                problems.append("translucency %s" % t)
         if args.no_refusal:
             refused = {k: v for k, v in summary["runs"].get("enabled", {}).get("counters", {}).items() if k.startswith("refused_") and v}
             if refused:

@@ -124,6 +124,7 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
                   efmi::frontend::character_core(config.get("namespace"), package, facts), factory, reason)) return false;
         identify_components_ = facts->identify_components;
         element_offsets_ = facts->element_offsets;
+        efmittl_ = facts->efmittl;
         catalogue(package, remaps);
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
@@ -154,8 +155,9 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
             }
             // The libraries the Mod calls by namespace from elsewhere in the Mods folder (D-112), as the
             // original, which loads the whole folder into one space, finds them.
-            library_notes_.clear();
+            library_notes_.clear(); libraries_.clear();
             if (!mods.empty()) options.libraries = libraries(mods, options.inputs, efmi::frontend::character_core_libraries(), library_notes_);
+            for (const auto& library : options.libraries) libraries_[declared_namespace(library)] = library;
             extension = gpu_->combine(std::move(extension));
             gpu_->begin_deferred();
         }
@@ -394,6 +396,7 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
         left_to_game_ = found->left_to_game;
         identify_components_ = found->identify_components;
         element_offsets_ = found->element_offsets;
+        efmittl_ = found->efmittl;
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
@@ -514,7 +517,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     if (item.slot >= 4 || stream.kind != CharacterStream::Vertex) throw std::runtime_error("Runtime vertex binding outside profile");
                     bound.vb[item.slot] = found_stream;
                 }
-            } else if (item.operation == Op::DrawIndexed) {
+            } else if (item.operation == Op::DrawIndexed || item.operation == Op::Translucent) {
                 if (draws.size() >= 64 || item.instance_count != 1 || item.first_instance || bound.index_stream == kCharacterNone)
                     throw std::runtime_error("Runtime draw outside the single-instance contract");
                 // The blend-index widening EFMI exports use: BLENDINDICES of slot 2 as R16G16B16A16_UINT
@@ -596,6 +599,12 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                         throw std::runtime_error("Runtime indexed draw exceeds vertex file bounds");
                     if (stream != kCharacterOwned) required |= package.streams[stream].components;
                 }
+                // A translucent draw (D-113): captured into a layer at the pass end with its opacity and mask.
+                bound.translucent = item.operation == Op::Translucent;
+                bound.alpha = bound.translucent ? item.alpha : 1.0f;
+                bound.mask_image = bound.translucent && item.resource ? image_index(item.resource) : kCharacterNone;
+                bound.mask_channel = bound.translucent ? item.mask_channel : 0;
+                bound.mask_invert = bound.translucent && item.mask_invert;
                 draws.push_back(bound);
                 if (material_count == material.size()) material.emplace_back();
                 auto& slots = material[material_count++]; slots.clear();
@@ -609,6 +618,8 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 for (const auto& o : bound.offsets) { put(signature, o.binding); put(signature, o.from); put(signature, o.to); }
                 put(signature, uint32_t(pixels.size()));
                 for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
+                put(signature, uint8_t(bound.translucent));
+                if (bound.translucent) { put(signature, bound.alpha); put(signature, bound.mask_image); put(signature, bound.mask_channel); put(signature, uint8_t(bound.mask_invert)); }
             } else throw std::runtime_error("Unresolved runtime native operation");
         }
         auto& id = scratch_id_; id.assign(signature.begin(), signature.end());

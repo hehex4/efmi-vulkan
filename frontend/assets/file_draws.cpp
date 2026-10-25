@@ -6,6 +6,8 @@ FileReadiness request_file_draws(const PreparedFilePlan& plan,ResourceCache& cac
     reason.clear();
     for(const auto& item:plan.plan().items)if(item.operation==FileOperation::External){
         reason="Native Core operation must resolve before file draws";return FileReadiness::Failed;
+    }else if(item.operation==FileOperation::Translucent){
+        reason="A translucent draw needs the character renderer's layers (D-113)";return FileReadiness::Failed;
     }
     std::vector<ResourceSnapshot> owners;
     const auto readiness=request_file_plan(plan,cache,owners,reason);

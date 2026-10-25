@@ -305,6 +305,12 @@ bool m2_record(Device* device,CmdBuf* cb,const DrawRec& r){
     catch(const std::exception& e){++device->m2->unsupported;device->m2->note(e.what());return false;}
 }
 
+void m2_pass_end(Device* device,CmdBuf* cb){
+    if(!device->character_mode)return;
+    std::shared_lock<std::shared_mutex> lock(device->character_mx);
+    if(device->character && device->character_module->pass_end)device->character_module->pass_end(*device->character,cb);
+}
+
 void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const VkPhysicalDeviceMemoryProperties& memory)
 {
     if(!character_configured() || g_cfg.mode!=Mode::Probe || !g_cfg.track_resources)return;

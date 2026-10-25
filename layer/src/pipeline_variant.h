@@ -26,6 +26,9 @@ struct FragmentPatch {
     // The application's vertex stage unchanged: the variant only re-points fragment images (a
     // texture-only draw, D-083); the private set's buffers are bound but not read.
     bool keep_vertex = false;
+    // Images a replaced fragment stage of the recipe reads at private bindings 2+i after `images`
+    // (the translucent capture's opacity shader, D-113).
+    uint32_t replacement_images = 0;
 };
 std::vector<VkDescriptorSetLayoutBinding> private_draw_bindings(uint32_t image_count);
 

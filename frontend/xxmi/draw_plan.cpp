@@ -650,6 +650,20 @@ struct DrawPlanAdapter::Runtime {
         }
     }
 
+    // A planned indexed draw takes the input layout edits and the native draw data of the moment.
+    void indexed(PlanItem& item,CommandListState& state)
+    {
+        if (++draws > max_draws) refuse(L"Plan draw budget exceeded");
+        for (const auto* layout : state.input_layout_overrides) {
+            if (!layout || item.layout.size() >= 256) refuse(L"Invalid layout operation list");
+            item.layout.push_back(*layout);
+        }
+        if(palette_source){
+            std::wstring reason;
+            if(!palette_source(state,item.palette,reason))refuse(reason.empty()?L"Native draw palette unavailable":reason);
+        }
+        append(std::move(item));
+    }
     void append(PlanItem item)
     {
         if (!active) refuse(L"Planner command invoked outside a transaction");
@@ -813,16 +827,7 @@ struct DrawPlanAdapter::Runtime {
                 refuse(L"Planner supports direct indexed draws only: " + original->ini_line);
             }
             if (!item.index_count || !item.instance_count) return;
-            if (++draws > max_draws) refuse(L"Plan draw budget exceeded");
-            for (const auto* layout : state->input_layout_overrides) {
-                if (!layout || item.layout.size() >= 256) refuse(L"Invalid layout operation list");
-                item.layout.push_back(*layout);
-            }
-            if(palette_source){
-                std::wstring reason;
-                if(!palette_source(*state,item.palette,reason))refuse(reason.empty()?L"Native draw palette unavailable":reason);
-            }
-            append(std::move(item));
+            indexed(item,*state);
             return;
         }
         if (auto* binding = as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation)) {
@@ -1048,6 +1053,24 @@ void DrawPlanAdapter::after(ExplicitCommandListSection& section,NativeCommand co
         refuse(L"Register an original command observer before adaptation");
     runtime_->observers[&section]=std::move(command);
     section.command_list.runtime_populated=section.post_command_list.runtime_populated=true;
+}
+bool DrawPlanAdapter::translucent(CommandListState& state,uint32_t count,uint32_t first,float alpha,CustomResource* mask,
+                                  uint32_t channel,bool invert,std::wstring& why)
+{
+    why.clear();
+    try{
+        if(!runtime_->active)refuse(L"Translucent draw outside an active plan");
+        if(!std::isfinite(alpha) || channel>3)refuse(L"Translucent draw parameters out of range");
+        if(!count)return true;
+        PlanItem item;item.operation=PlanOperation::Translucent;item.index_count=count;item.first_index=first;
+        item.alpha=alpha;item.mask_channel=channel;item.mask_invert=invert;
+        if(mask){
+            runtime_->direct_resource(mask);item.resource=runtime_->referenced(mask);
+            if(item.resource && runtime_->application_slot(item.resource)>=0)refuse(L"A translucency mask from the application's textures");
+        }
+        runtime_->indexed(item,state);return true;
+    }catch(const Refused& e){why=e.reason;}
+    return false;
 }
 void DrawPlanAdapter::palette_source(PaletteSource source)
 {

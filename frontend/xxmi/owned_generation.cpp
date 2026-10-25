@@ -38,6 +38,7 @@ public:
     }
     void after_draw() noexcept override {native_->after_draw();gpu_->after_draw();}
     void after_dispatch() noexcept override {native_->after_dispatch();gpu_->after_dispatch();}
+    void library_hook(LibraryHook hook) noexcept override {native_->library_hook(hook);gpu_->library_hook(hook);}
     void execution_failed() noexcept override {native_->execution_failed();gpu_->execution_failed();}
 };
 }

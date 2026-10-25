@@ -140,7 +140,8 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
     size_t fs_index=recipe.stages.size();std::vector<uint32_t> fragment;
     own_set = static_cast<uint32_t>(source.sets.size());
     if(!prepare_fragment(recipe,source,patch,limits,own_set,fs_index,fragment,reason))return false;
-    image_count=static_cast<uint32_t>(patch.images.size());
+    image_count=static_cast<uint32_t>(patch.images.size()+patch.replacement_images);
+    if(image_count>32){reason="fragment_patch_budget";return false;}
     bone_set = rewritten.bone_set; bone_binding = rewritten.bone_binding;
     size_t vs_index = 0;
     while (recipe.stages[vs_index].stage != VK_SHADER_STAGE_VERTEX_BIT) ++vs_index;

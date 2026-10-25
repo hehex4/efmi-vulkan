@@ -51,6 +51,13 @@ struct CharacterDraw {
     // kCharacterOwned; the Vulkan buffer is bound as it is and `keep` holds it. Not in the file.
     struct OwnedStream { uint32_t slot = 0; uint64_t buffer = 0, offset = 0, size = 0; uint32_t stride = 0; std::shared_ptr<void> keep; };
     std::vector<OwnedStream> owned;
+    // A live plan's translucent draw (D-113): not drawn in the pass but captured into a translucency
+    // layer at its end, with this opacity, mask image (an index of the image catalogue, or
+    // kCharacterNone), channel and inversion. Not in the file.
+    bool translucent = false;
+    float alpha = 1;
+    uint32_t mask_image = kCharacterNone, mask_channel = 0;
+    bool mask_invert = false;
     const OwnedStream* owned_stream(uint32_t slot) const
     {
         for (const auto& o : owned) if (o.slot == slot) return &o;

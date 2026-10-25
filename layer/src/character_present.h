@@ -9,6 +9,9 @@
 namespace efvk {
 class JsonWriter;
 
+// Where the owned GPU tools (dxcompiler.dll and the others) are: beside the module, else the layer.
+std::filesystem::path owned_tools_directory();
+
 // Owned GPU execution of a character generation's original Present work on the game's device
 // (D-072): the tools beside the layer, the presented swap chain image as the back buffer, and
 // submissions ordered between the application's semaphores and its presentation.

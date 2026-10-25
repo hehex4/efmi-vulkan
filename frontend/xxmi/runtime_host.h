@@ -24,6 +24,8 @@ public:
     // After all matched pre/post lists, on either success or failure. Present
     // and key roots do not have the original HackerContext::AfterDraw lifetime.
     virtual void after_draw() noexcept {}
+    // A shader hook event of the game's frame (D-113), outside any draw.
+    virtual void library_hook(LibraryHook) noexcept {}
     // Native AfterDispatch does not restore an input layout edited by injected
     // commands; its lifetime continues until the corresponding outer draw end.
     virtual void after_dispatch() noexcept {}

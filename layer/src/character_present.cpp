@@ -101,6 +101,8 @@ std::filesystem::path readback_request()
 }
 } // namespace
 
+std::filesystem::path owned_tools_directory() { return tools_directory(); }
+
 std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* device, const VkPhysicalDeviceMemoryProperties& memory,
                                                                          const std::filesystem::path& working, std::string& reason)
 {

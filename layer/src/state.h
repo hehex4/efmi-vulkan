@@ -64,6 +64,7 @@ struct CharacterModule;
     X(CmdEndRenderPass) X(CmdEndRenderPass2) X(CmdEndRenderPass2KHR)                                                   \
     X(CmdNextSubpass) X(CmdNextSubpass2) X(CmdNextSubpass2KHR)                                                          \
     X(CmdBeginRendering) X(CmdBeginRenderingKHR) X(CmdEndRendering) X(CmdEndRenderingKHR)                              \
+    X(CmdSetViewport) X(CmdSetScissor)                                                                                 \
     X(CmdExecuteCommands)                                                                                              \
     X(QueueSubmit) X(QueueSubmit2) X(QueueSubmit2KHR)
 
@@ -246,6 +247,7 @@ struct PipeInfo {
 // Immutable attachment facts. Recording owns metadata only, never application Vulkan objects.
 struct TargetView {
     bool known = false;
+    VkImageView handle = VK_NULL_HANDLE; // the application's view, alive while its framebuffer is
     ImageViewInfo view;
     ImageInfo image;
 };
@@ -273,6 +275,9 @@ void on_create_framebuffer(Device*, VkFramebuffer, const VkFramebufferCreateInfo
 void on_destroy_framebuffer(Device*, VkFramebuffer);
 void on_begin_targets(Device*, CmdBuf*, const VkRenderPassBeginInfo*);
 void on_begin_targets(Device*, CmdBuf*, const VkRenderingInfo*);
+// The classic render pass instance a recording is in (CmdBuf::pass, D-113); dynamic rendering has none.
+void on_begin_pass(Device*, CmdBuf*, const VkRenderPassBeginInfo*);
+void on_begin_pass(Device*, CmdBuf*, const VkRenderingInfo*);
 void on_next_targets(Device*, CmdBuf*);
 void write_render_targets(JsonWriter&, const RenderTargets&);
 
@@ -415,6 +420,22 @@ struct CmdBuf {
     bool in_rp = false;
     uint32_t active_targets = 0;
     std::vector<RenderTargets> target_contexts;
+    // The first viewport and scissor of the dynamic state (D-113): a draw the replacement records
+    // again at the end of its render pass (a translucent capture) sets them as they were.
+    VkViewport viewport{};
+    VkRect2D scissor{};
+    bool has_viewport = false, has_scissor = false;
+    // The classic render pass instance being recorded (D-113), kept until the module's pass end call
+    // after the application's vkCmdEndRenderPass. `serial` counts the instances of this recording.
+    struct PassInstance {
+        VkRenderPass render_pass = VK_NULL_HANDLE;
+        VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        std::shared_ptr<const FramebufferInfo> info;
+        std::shared_ptr<const RenderPassRecipe> recipe;
+        VkRect2D area{};
+        uint32_t serial = 0;
+        size_t first_draw = 0; // the first of `draws` recorded inside the instance
+    } pass;
     SetBind comp_sets[kMaxSets];
 
     // What was recorded since the last begin / reset.

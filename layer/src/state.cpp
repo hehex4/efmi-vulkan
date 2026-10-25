@@ -305,6 +305,8 @@ void CmdBuf::reset_recording()
     in_rp = false;
     active_targets = 0;
     target_contexts.clear();
+    viewport = VkViewport{}; scissor = VkRect2D{}; has_viewport = has_scissor = false;
+    pass = PassInstance{};
     draws.clear();
     dyn.clear();
     writes.clear();

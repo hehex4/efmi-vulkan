@@ -725,6 +725,7 @@ template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dy
         else
             cb->rp_count++;
         on_begin_targets(dev, cb, info);
+        on_begin_pass(dev, cb, info);
     }
 }
 
@@ -734,6 +735,34 @@ void rp_end(Device* dev, VkCommandBuffer cmd)
         cb->in_rp = false;
         cb->active_targets = 0;
     }
+}
+
+// After the application's vkCmdEndRenderPass: the replacement may record work of its own that
+// belongs to the pass that ended (D-113), then the instance is forgotten.
+void rp_ended(Device* dev, VkCommandBuffer cmd)
+{
+    if (CmdBuf* cb = cb_of(dev, cmd)) {
+        if (cb->pass.render_pass) m2_pass_end(dev, cb);
+        cb->pass = CmdBuf::PassInstance{};
+    }
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetViewport(VkCommandBuffer cmd, uint32_t first, uint32_t count, const VkViewport* viewports)
+{
+    count_call(HI_CmdSetViewport);
+    Device* dev = dev_of(cmd);
+    if (first == 0 && count && viewports)
+        if (CmdBuf* cb = cb_of(dev, cmd)) { cb->viewport = viewports[0]; cb->has_viewport = true; }
+    dev->d.CmdSetViewport(cmd, first, count, viewports);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetScissor(VkCommandBuffer cmd, uint32_t first, uint32_t count, const VkRect2D* scissors)
+{
+    count_call(HI_CmdSetScissor);
+    Device* dev = dev_of(cmd);
+    if (first == 0 && count && scissors)
+        if (CmdBuf* cb = cb_of(dev, cmd)) { cb->scissor = scissors[0]; cb->has_scissor = true; }
+    dev->d.CmdSetScissor(cmd, first, count, scissors);
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
@@ -769,6 +798,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass(VkCommandBuffer cmd)
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRenderPass(cmd);
+    rp_ended(dev, cmd);
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2(VkCommandBuffer cmd, const VkSubpassEndInfo* info)
@@ -777,6 +807,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2(VkCommandBuffer cmd, const VkSub
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRenderPass2(cmd, info);
+    rp_ended(dev, cmd);
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2KHR(VkCommandBuffer cmd, const VkSubpassEndInfo* info)
@@ -785,6 +816,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderPass2KHR(VkCommandBuffer cmd, const Vk
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRenderPass2KHR(cmd, info);
+    rp_ended(dev, cmd);
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRendering(VkCommandBuffer cmd, const VkRenderingInfo* info)

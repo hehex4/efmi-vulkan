@@ -62,6 +62,9 @@ struct CharacterModule {
     void (*status)(CharacterBackend&, JsonWriter&) = nullptr;
     void (*enable)(CharacterBackend&, bool) = nullptr;
     VkResult (*submit)(CharacterBackend&, VkQueue) = nullptr;
+    // After the application's vkCmdEndRenderPass of the instance `cb->pass` names (D-113): work that
+    // belongs to that pass and needs targets of its own (the translucent captures and composite).
+    void (*pass_end)(CharacterBackend&, CmdBuf*) = nullptr;
 };
 
 // The copy this binary was built with.

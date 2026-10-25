@@ -15,6 +15,7 @@ VariantCache::Key VariantCache::key_for(uint64_t identity, const VertexInputReci
     for (const auto& b : bindings) key.vertex.insert(key.vertex.end(), {b.binding, b.stride, uint32_t(b.inputRate)});
     key.vertex.push_back(static_cast<uint32_t>(attributes.size()));
     for (const auto& a : attributes) key.vertex.insert(key.vertex.end(), {a.location, a.binding, uint32_t(a.format), a.offset});
+    key.fragment.push_back(fragment.replacement_images);
     for(const auto* list:{&fragment.images,&fragment.nulls}){
         key.fragment.push_back(static_cast<uint32_t>(list->size()));
         for(const auto& image:*list)key.fragment.insert(key.fragment.end(),{image.set,image.binding});

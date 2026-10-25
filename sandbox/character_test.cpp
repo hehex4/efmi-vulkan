@@ -6,6 +6,7 @@
 #include "../layer/src/character_package.h"
 #include "../layer/src/character_materials.h"
 #include "../layer/src/character_program.h"
+#include "../layer/src/shader_hooks.h"
 #include "../frontend/gpu/source_registers.h"
 #include "../frontend/gpu/texture_roles.h"
 #include "../layer/src/json.h"
@@ -398,6 +399,15 @@ int main(int argc, char** argv)
             w.end_array(); w.end_object();
         }
         w.end_array(); w.end_object(); printf("%s\n", w.out.c_str()); return 0;
+    }
+    if (argc >= 3 && !strcmp(argv[1], "--shader-hooks")) {
+        // EFMITTL's hook facts (D-113) of SPIR-V modules: "<file> <lit vertex 0/1> <copy fragment 0/1>".
+        for (int i = 2; i < argc; ++i) {
+            std::ifstream in(argv[i], std::ios::binary | std::ios::ate);
+            std::vector<uint32_t> code(size_t(in.tellg()) / 4); in.seekg(0); in.read(reinterpret_cast<char*>(code.data()), code.size() * 4);
+            printf("%s %d %d\n", argv[i], efvk::lit_character_vertex(code) ? 1 : 0, efvk::copy_fragment(code) ? 1 : 0);
+        }
+        return 0;
     }
     if (argc >= 3 && !strcmp(argv[1], "--core-facts")) {
         // D-079 as the backend computes it, per vertex module: "<file> <slot> <rolling> <set>.<binding>".

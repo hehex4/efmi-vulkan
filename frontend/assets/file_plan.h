@@ -4,7 +4,7 @@
 namespace efmi::core {struct PaletteSnapshot;}
 
 namespace efmi::assets {
-enum class FileOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External };
+enum class FileOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent };
 
 // Owned frontend data. The byte uploader does not infer stride/index format
 // from a filename. Neither this data nor its loader executes native Core calls.
@@ -41,6 +41,10 @@ struct FilePlanItem {
     std::wstring external;
     uint32_t phase_mask=0;
     std::shared_ptr<const core::PaletteSnapshot> palette;
+    // Translucent (D-113, PlanItem): `resource` is the opacity mask image, null without one.
+    float alpha=1;
+    uint32_t mask_channel=0;
+    bool mask_invert=false;
 };
 struct FilePlan {
     bool skip_original=false;

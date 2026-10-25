@@ -12,7 +12,7 @@ struct SourceResourceMatch;
 // the owning generation's globals installed; the original engine owns mapping.
 void validate_pool_runtime(CustomResourcePool&);
 
-enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External };
+enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent };
 
 // Resource pointers borrow declarations from a retained frontend generation.
 // This CPU plan has no GPU readiness, resource lifetime or pipeline guarantee.
@@ -34,6 +34,12 @@ struct PlanItem {
     struct OwnedBuffer { uint64_t buffer = 0, offset = 0, size = 0; uint32_t stride = 0; std::shared_ptr<void> keep; };
     std::shared_ptr<const OwnedBuffer> owned;
     std::shared_ptr<const core::PaletteSnapshot> palette; // Optional owned native Core draw data.
+    // Translucent (D-113): a DrawIndexed of the current bindings that a library captures into a
+    // translucency layer rather than drawing it in the pass, with this opacity and, when `resource`
+    // holds one, this opacity mask (channel 0-3 for R, G, B, A; inverted: white is transparent).
+    float alpha = 1;
+    uint32_t mask_channel = 0;
+    bool mask_invert = false;
 };
 
 struct DrawPlan {
@@ -105,6 +111,11 @@ public:
     // lists execute, as a native command decides when the original Core draws the original instance
     // (its explicit draw with the application's bindings).
     void keep_original();
+    // During a plan, from a native command: a translucent draw of the current bindings (D-113), as a
+    // DrawIndexed of `count` indices from `first` would be planned, with its opacity and mask (null:
+    // none). False refuses with `why`.
+    bool translucent(CommandListState&, uint32_t count, uint32_t first, float alpha, CustomResource* mask,
+                     uint32_t channel, bool invert, std::wstring& why);
     using ShaderQuery=std::function<bool(CommandListOperand&,CommandListState&,float&,std::wstring&)>;
     void shader_queries(ShaderQuery);
     // Shader operands (`vs`, `ps`) the host answers on the CPU where no owned shader facts apply (a

@@ -10,6 +10,9 @@ bool valid(const FilePlanItem& item)
 {
     if(item.layout.size()>256)return false;
     if(item.operation==FileOperation::DrawIndexed)return !item.resource && item.index_count && item.instance_count;
+    if(item.operation==FileOperation::Translucent)
+        return item.index_count && item.instance_count==1 && item.mask_channel<=3 &&
+               (!item.resource || (!item.resource->usage && !item.resource->stride && item.resource->index_type==VK_INDEX_TYPE_MAX_ENUM));
     if(item.operation==FileOperation::External)return !item.resource && !item.external.empty() && item.external.size()<=4096 &&
         item.phase_mask && item.phase_mask<=3;
     if(!binding(item.operation))return false;

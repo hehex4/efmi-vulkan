@@ -96,7 +96,13 @@ struct RuntimeDraw {
     // The shader stages of the draw's pipeline, as Vulkan stage bits (vertex 1, geometry 8,
     // fragment 16), known with the render targets (D-089).
     uint32_t shader_stages = 0;
+    // What a library's shader hooks see of this draw under DX11, from the host's Vulkan pipeline
+    // (D-113): its vertex shader has the output interface of the game's lit character vertex shader.
+    bool lit_vertex = false;
 };
+// The events of the game's frame a library's shader hooks see under DX11 and the host reports
+// (D-113): the game's copy shader drew with a single colour target.
+enum class LibraryHook : uint32_t { CopyShader = 1 };
 struct RuntimeStatus {
     uint64_t draws = 0, presents = 0, replays = 0, key_events = 0, saves = 0, shader_calls=0;
     // Microseconds the matched command lists took to run and their plans to compile, over all draws,
@@ -137,6 +143,8 @@ public:
     bool replay(const RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason);
     bool take_reload_request();
+    // A shader hook event of the game's frame (D-113), for the libraries the generation loaded.
+    void library_hook(LibraryHook);
     void inherit_persistent(const IniRuntime& previous);
     // Retired workers must not overwrite a newer generation's settings file.
     void suspend_persistence();

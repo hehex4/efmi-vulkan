@@ -617,6 +617,10 @@ std::vector<std::shared_ptr<const assets::FileResource>> IniRuntime::resources()
 {
     return impl_->resources;
 }
+void IniRuntime::library_hook(LibraryHook hook)
+{
+    Scope scope(impl_->state); if (impl_->extension) impl_->extension->library_hook(hook);
+}
 bool IniRuntime::take_reload_request()
 {
     Scope scope(impl_->state); const bool result = G->gReloadConfigPending; G->gReloadConfigPending = false; return result;
