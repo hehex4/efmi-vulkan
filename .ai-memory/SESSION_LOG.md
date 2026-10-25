@@ -2206,3 +2206,4 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - 1.8.0 built in the worktree .worktrees/fix (detached at 380ac53) with D-114 to D-116; full suite passed; actual-config sandbox smoke: 1.7.9 faults, 1.8.0 runs (build/smoke-1.8.0-candidate.json, build/smoke-1.8.0-api13.json in the worktree). The new Si Mod is refused at its skeleton (BUG-048, next).
 - Deployed 1.8.0 at 17:27 with the game and launcher closed (build/candidate-1.8.0.json); post-deployment smoke build/smoke-1.8.0.json.
 - 1.8.1 (BUG-048): skeleton components with bones between them and a 1024-image package budget; the new Si Mod configures in the actual-config sandbox at --api 1.3.
+- Deployed 1.8.1 at 18:38 with the game and launcher closed (build/candidate-1.8.1.json); post-deployment smoke build/smoke-1.8.1.json. No game load by the agent in this round.

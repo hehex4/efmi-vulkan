@@ -9,6 +9,7 @@
 ## 1.8.1: skeleton components with bones between them (2026-10-25, BUG-048)
 
 - The new Si Mod's 24 components leave bones between them, as the Core allows; the layer required a partition in five places and refused the package. 1.8.1 takes disjoint ranges in order, gaps keep their initial value, a gap bone belongs to no component; the per-package image budget is 1024 (the Mod's INIs declare 83 DDS images). Actual-config sandbox at --api 1.3: all 22 packages configure, the new Si Mod included. Tests: bone 127, character package 94, skeleton metadata 15.
+- Full suite 39/39 steps passed (build/run_all-1.8.1.out in the worktree). The shared header stamp is unchanged from 1.8.0 (0xb963e9d2a0e919ba), so 1.8.1's module would exchange into a running 1.8.0. Deployed the 18 files (f4daed7) at 18:38 after two closed-process checks; hashes match, cfg unchanged; 1.8.0 in build/backups/before-1.8.1-20261025-183837/ (build/candidate-1.8.1.json). Post-deployment smoke at --api 1.3: 1.8.1, 22 packages configured, none refused, no validation message, game log unchanged (build/smoke-1.8.1.json).
 
 ## First Vulkan game session of 1.7.9 and 1.8.0 (2026-10-25, BUG-046, BUG-047, D-114 to D-116)
 
