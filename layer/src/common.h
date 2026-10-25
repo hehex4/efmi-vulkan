@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "1.8.3"
+#define EFVK_VERSION "1.8.4"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -132,6 +132,9 @@ bool streaming_reads_available();
 void copy_buffer_bytes(void* dst, const void* src, size_t size, bool write_combined);
 // Logs a hardware fault anywhere in the process with its module, offset and stack (once installed).
 void install_crash_log();
+// The merged skeleton's import on the GPU as set now (m2_gpu_bones; the probe changes it at run time): the
+// layer answers from its settings, a module from the host's, so an exchange is not needed to compare.
+bool live_gpu_bones();
 
 void ipc_start();
 

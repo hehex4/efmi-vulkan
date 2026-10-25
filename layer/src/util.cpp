@@ -81,8 +81,8 @@ __declspec(noinline) static void copy_write_combined(void* dst, const void* src,
 
 // A hardware fault anywhere in the process is logged with its module and offset and the first
 // frames of its stack (module+offset, symbolized offline with the build's PDBs), then left to the
-// handlers the process has, as before. At most eight: an application that uses faults on purpose
-// does not fill the log. The game's crash of BUG-046 (inside DXC) would have named the module.
+// handlers the process has, as before. The first eight distinct fault addresses: an application that
+// raises the same handled fault again and again (the game does at start-up) does not use the log up. The game's crash of BUG-046 (inside DXC) would have named the module.
 namespace {
 void module_offset(const void* address, char* out, size_t size)
 {
@@ -102,8 +102,14 @@ LONG WINAPI crash_logger(EXCEPTION_POINTERS* info)
     if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_ILLEGAL_INSTRUCTION && code != EXCEPTION_STACK_OVERFLOW &&
         code != EXCEPTION_PRIV_INSTRUCTION && code != EXCEPTION_INT_DIVIDE_BY_ZERO && code != EXCEPTION_IN_PAGE_ERROR)
         return EXCEPTION_CONTINUE_SEARCH;
-    static std::atomic<int> logged{0};
-    if (logged.fetch_add(1) >= 8) return EXCEPTION_CONTINUE_SEARCH;
+    static std::mutex seen_mx;
+    static void* seen[8]; static int seen_count = 0;
+    {
+        std::lock_guard<std::mutex> lock(seen_mx);
+        for (int i = 0; i < seen_count; ++i) if (seen[i] == record.ExceptionAddress) return EXCEPTION_CONTINUE_SEARCH;
+        if (seen_count >= 8) return EXCEPTION_CONTINUE_SEARCH;
+        seen[seen_count++] = record.ExceptionAddress;
+    }
     char where[300];
     module_offset(record.ExceptionAddress, where, sizeof(where));
     if (code == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2)
@@ -116,6 +122,8 @@ LONG WINAPI crash_logger(EXCEPTION_POINTERS* info)
     return EXCEPTION_CONTINUE_SEARCH;
 }
 } // namespace
+
+bool live_gpu_bones() { return g_cfg.m2_gpu_bones; }
 
 void install_crash_log()
 {

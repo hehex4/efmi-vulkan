@@ -41,6 +41,12 @@ STEPS = [
     ("captured frame with a Mod's own identification", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                        r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
                                                        "--only-mod", "Si Lunabelle 1.4"]),
+    # The game's two graphics queues (D-119): a frame's passes on two command buffers over both queues,
+    # the queues swapping every frame, three frames in flight; the merged skeleton's import on the GPU
+    # (D-117) must give the CPU import's pictures and complete on both queues.
+    ("captured frame on two queues, bones on the GPU and the CPU", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                                   r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "120", "--check",
+                                                                   "--two-queues", "--bones-identical"]),
     # Yvonne calls the EFMITTL library from its draws (D-112): the library is loaded and every plan runs,
     # and with the game's copy pass after the forward pass its calls are captured and composited (D-113).
     ("captured frame with a library call", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",

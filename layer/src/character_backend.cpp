@@ -87,6 +87,9 @@ constexpr uint64_t kExpiryFrames = 4;
 // An object not drawn this long (off screen, a cut) is forgotten: g_cfg.m2_identity_expiry_ms, 10 s by default (0.5 s until 1.7.0, D-100).
 constexpr size_t kIdentities = 16;
 constexpr uint32_t kArenaEntries = 256, kArenaSlices = 64, kArenaMinSlices = 8;
+// Snapshot batches of a package: prepared ahead by its loader, and at most in all (frames in flight
+// times the recordings of a frame that draw it, with a margin).
+constexpr size_t kBatchesAhead = 8, kBatchesMax = 32;
 // Bone copies per arena: kArenaSlices, fewer for a large skeleton so that a batch (one arena per image
 // count) keeps its 64 MiB budget. A 1299-bone Mod needs 146 KiB per copy; with 64 copies in each of
 // nine arenas every batch was refused and the package never drew (BUG-049).
@@ -138,7 +141,7 @@ enum Counter : uint32_t {
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
     C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_SNAPSHOT_COPIES, C_IDENTITY_ADOPTED,
-    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_COUNT
+    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_BATCH_MADE, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -147,7 +150,7 @@ const char* const kCounterNames[C_COUNT] = {
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
     "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames", "snapshot_copies", "identities_adopted", "preparing",
-    "translucent", "bone_jobs", "bone_ring_busy"
+    "translucent", "bone_jobs", "bone_ring_busy", "batches_made_at_draw"
 };
 // Where a matched draw's time goes (D-099): microseconds per stage of record(), in the status.
 enum Stage : uint32_t { S_LOCK, S_IDENTIFY, S_BONES, S_PLAN, S_MATERIALS, S_VARIANTS, S_OWNER, S_APPEND, S_SNAPSHOT, S_EMIT, S_COUNT };
@@ -277,11 +280,23 @@ struct CharacterCommand : CommandOwner {
         for (const auto& held : rings) if (held.first == ring && held.second == slot) return;
         ring->hold(slot); rings.emplace_back(ring, slot);
     }
+    // The dispatches this recording needs in front of it (D-117): one per component whose bones its
+    // draws read, a later import of a component replacing the earlier (a lower LOD replacing a
+    // higher), as the CPU import does. Taken at the recording's submission; dropped with a reset.
+    std::vector<BoneJob> bone_jobs;
+    void add_bone_job(const BoneJob& job)
+    {
+        for (auto& have : bone_jobs)
+            if (have.ring == job.ring && have.slot == job.slot && have.component == job.component) { have = job; return; }
+        job.ring->pend(job.slot); bone_jobs.push_back(job);
+    }
     uint32_t idle_recordings = 0; // resets in a row that found it unused
     void reset_after_completion() override
     {
         idle_recordings = used ? 0 : idle_recordings + 1;
         used = false; owned.clear();
+        for (auto& job : bone_jobs) job.ring->unpend(job.slot);
+        bone_jobs.clear();
         for (auto& held : rings) held.first->release(held.second);
         rings.clear();
         variants.clear(); snapshots->recycle_completed();
@@ -500,9 +515,26 @@ public:
         gate_frame = present;
         last_frame_images.swap(frame_images); frame_images.clear();
         last_variants_pending = frame_variants_pending; frame_variants_pending = false;
-        gate_open = !last_variants_pending && (!textures || textures->ensure(last_frame_images));
+        gate_open = !last_variants_pending;
+        if (gate_open && textures && !textures->ensure(last_frame_images)) {
+            // A texture of the frame before is not resident (evicted, demoted, or its load refused):
+            // the recording waits for it, as 3DMigoto loads a Mod's texture when it is first bound,
+            // rather than drawing the game's mesh meanwhile (the user's bar: a loaded Mod never shows
+            // the original again). The frame goes to the game only when the wait failed.
+            auto& bindings = scratch_image_bindings;
+            textures->bind(last_frame_images, bindings);
+            gate_open = textures->ensure(last_frame_images);
+            if (!gate_open && !gate_logged) {
+                gate_logged = true;
+                std::string why;
+                for (const auto& b : bindings) if (!b.view) { why = b.failed ? b.reason : "still loading after the wait"; break; }
+                logf("character frame gated: textures of %zu images not resident (%s); the game draws this package this frame",
+                     last_frame_images.size(), why.c_str());
+            }
+        }
         if (!gate_open) ++counters[C_GATED_FRAMES];
     }
+    bool gate_logged = false;
     void frame_image(TextureResidency::ImageId id)
     {
         if (std::find(frame_images.begin(), frame_images.end(), id) == frame_images.end()) frame_images.push_back(id);
@@ -696,23 +728,11 @@ public:
                     std::unique_lock<std::mutex> lock(pool_mx);
                     all.erase(std::remove_if(all.begin(), all.end(), [](const auto& p) { return p.expired(); }), all.end());
                     if (stopped) return;
-                    if (available.size() >= 2 || all.size() >= 8) { wake.wait_for(lock, std::chrono::milliseconds(100)); continue; }
+                    if (available.size() >= 2 || all.size() >= kBatchesAhead) { wake.wait_for(lock, std::chrono::milliseconds(100)); continue; }
                 }
-                auto batch = std::make_shared<CharacterCommand>();
-                batch->generation = generation_key; batch->backend = generation_key.get(); batch->batches = batches;
-                batch->keep = created;
-                uint64_t total_bytes = 0;
-                const uint32_t slices = arena_slices(bone_bytes, image_counts.size());
-                for (uint32_t count : image_counts) {
-                    auto snapshots = std::make_shared<DrawSnapshots>(device->handle, storage);
-                    if (!snapshots->create_shared(memory, properties.limits, kArenaEntries, slices, bone_bytes, 65536, count)) {
-                        note(snapshots->reason); return;
-                    }
-                    total_bytes += snapshots->size();
-                    if (total_bytes > (64ull << 20)) { note("character material arenas exceed the batch budget"); return; }
-                    if (count) batch->material_snapshots.emplace(count, std::move(snapshots));
-                    else batch->snapshots = std::move(snapshots);
-                }
+                std::string why;
+                auto batch = make_batch(why);
+                if (!batch) { note(why); return; }
                 {
                     std::lock_guard<std::mutex> lock(pool_mx);
                     if (stopped) return;
@@ -722,13 +742,48 @@ public:
         } catch (const std::exception& e) { note(e.what()); }
     }
 
+    // A batch of snapshot arenas for one recording: one arena per image count of the package.
+    std::shared_ptr<CharacterCommand> make_batch(std::string& why)
+    {
+        auto batch = std::make_shared<CharacterCommand>();
+        batch->generation = generation_key; batch->backend = generation_key.get(); batch->batches = batches;
+        { std::lock_guard<std::mutex> lock(pool_mx); batch->keep = mesh; }
+        uint64_t total_bytes = 0;
+        const uint32_t slices = arena_slices(bone_bytes, image_counts.size());
+        for (uint32_t count : image_counts) {
+            auto snapshots = std::make_shared<DrawSnapshots>(device->handle, storage);
+            if (!snapshots->create_shared(memory, properties.limits, kArenaEntries, slices, bone_bytes, 65536, count)) { why = snapshots->reason; return {}; }
+            total_bytes += snapshots->size();
+            if (total_bytes > (64ull << 20)) { why = "character material arenas exceed the batch budget"; return {}; }
+            if (count) batch->material_snapshots.emplace(count, std::move(snapshots));
+            else batch->snapshots = std::move(snapshots);
+        }
+        return batch;
+    }
+    // The recording's batch: a prepared one, or one made here when the frames in flight used them up
+    // (as 3DMigoto creates a resource where it is first needed): the draw is the Mod's either way,
+    // never the game's mesh for want of a batch. Up to kBatchesMax per package.
     std::shared_ptr<CharacterCommand> command()
     {
+        {
+            std::lock_guard<std::mutex> lock(pool_mx);
+            if (stopped || !mesh) return {};
+            if (!available.empty()) {
+                auto cmd = available.front(); available.pop_front();
+                wake.notify_one();
+                return cmd;
+            }
+            all.erase(std::remove_if(all.begin(), all.end(), [](const auto& p) { return p.expired(); }), all.end());
+            if (all.size() >= kBatchesMax) return {};
+        }
+        std::string why;
+        auto batch = make_batch(why);
+        if (!batch) { note(why); return {}; }
+        ++counters[C_BATCH_MADE];
         std::lock_guard<std::mutex> lock(pool_mx);
-        if (stopped || available.empty() || !mesh) return {};
-        auto cmd = available.front(); available.pop_front();
-        wake.notify_one();
-        return cmd;
+        if (stopped) return {};
+        all.push_back(batch); wake.notify_one();
+        return batch;
     }
 
     bool init_materials();
@@ -1053,7 +1108,7 @@ public:
     void acquire_ring(Identity& identity)
     {
         identity.gpu_frame = false;
-        if (!bones_gpu || !bones_gpu->usable() || !g_cfg.m2_gpu_bones || bone_ring_failed) return;
+        if (!bones_gpu || !bones_gpu->usable() || !live_gpu_bones() || bone_ring_failed) return;
         if (!identity.ring) {
             std::string why;
             identity.ring = bones_gpu->ring(package.bones, why);
@@ -1073,22 +1128,24 @@ public:
         if (!bone_remaps) { bone_remaps_failed = true; note("bone remaps: " + why); }
         return bool(bone_remaps);
     }
-    // One component's import as a dispatch of the frame; false when the source cannot be bound (its
-    // bounds, alignment or remap table), and the CPU import follows.
-    bool queue_bone_job(Identity& identity, uint32_t component_index, const CharacterComponent& component, uint32_t lod, bool remapped,
-                        size_t needed, const BoundRange& bones, const uint32_t offsets[2], uint8_t dynamic)
+    // One component's import as a dispatch in front of the draw's recording (added to it with the
+    // draw, as the Core dispatches before the draw); false when the source cannot be bound (its
+    // bounds, alignment or remap table), and the CPU import follows for this draw.
+    BoneJob scratch_bone_job;
+    bool scratch_bone_job_ready = false;
+    bool prepare_bone_job(Identity& identity, uint32_t component_index, const CharacterComponent& component, bool remapped,
+                          size_t needed, const BoundRange& bones, const uint32_t offsets[2], uint8_t dynamic)
     {
         for (uint32_t p = 0; p < 2; ++p)
             if ((dynamic >> p & 1) && (uint64_t(offsets[p]) * 16 > bones.size || needed > bones.size - uint64_t(offsets[p]) * 16)) return false;
         if (bones.off % bones_gpu->alignment()) return false;
         if (remapped && !ensure_remaps()) return false;
-        identity.skeleton.note_imported(0, component_index, lod);
-        BoneJob job;
+        BoneJob& job = scratch_bone_job;
         job.ring = identity.ring; job.slot = identity.ring_slot; job.remaps = remapped ? bone_remaps : nullptr; job.component = component_index;
         job.source = bones.buffer; job.source_offset = bones.off; job.source_size = bones.size;
         job.rows[0] = offsets[0]; job.rows[1] = offsets[1];
         job.first = component.first; job.count = component.count; job.poses = dynamic; job.remap = remapped;
-        bones_gpu->queue(std::move(job));
+        scratch_bone_job_ready = true;
         ++counters[C_BONE_JOBS];
         return true;
     }
@@ -1328,14 +1385,20 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
             draw_views.push_back({bound.view, bound.owner});
         }
     }
-    // An image on its way closes the package's frame (D-097).
-    if (pending) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
+    // An image still on its way after the bind's wait (its load refused by the budget, or the wait
+    // timed out) closes the package's frame (D-097); logged once, as this shows the game's mesh.
+    if (pending) {
+        gate_open = false; ++counters[C_IMAGE_PENDING];
+        if (!gate_logged) { gate_logged = true; logf("character frame gated: a texture of the draw is not resident after the wait; the game draws this package this frame"); }
+        return false;
+    }
     return true;
 }
 
 bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_index)
 {
     if (!enabled.load(std::memory_order_relaxed) || !cache) return false;
+    bool gpu_draw = false; // this draw binds the device's merged skeleton (D-117) rather than the CPU master
 
     ThreadTrace* const trace = device->trace ? device->trace() : nullptr;
     const uint64_t entered_us = host_time_us();
@@ -1459,7 +1522,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         std::memcpy(offsets, entry.data() + 80, 8);
         const uint8_t dynamic = (offsets[0] >= MergedSkeleton::kStaticRows ? 1 : 0) | (offsets[1] >= MergedSkeleton::kStaticRows ? 2 : 0);
         const BoneSite site = site_of(pipe->second);
-        if (site.ok && dynamic && identity->skeleton.needs_import(0, section->component, lod)) {
+        // On the device (D-117) every draw needs its component's dispatch in its recording, whatever
+        // other recordings imported; on the CPU the master is imported once per frame.
+        gpu_draw = identity->gpu_frame && identity->ring;
+        scratch_bone_job_ready = false;
+        if (site.ok && dynamic && (gpu_draw || identity->skeleton.needs_import(0, section->component, lod))) {
             const bool remapped = lod == 1 && component.has_remap;
             uint32_t last = component.count - 1;
             if (remapped) last = *std::max_element(component.remap_lod1.begin(), component.remap_lod1.end());
@@ -1473,12 +1540,12 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             for (const auto& range : bone_ranges)
                 if (range.element == 0 && range.binding == site.binding &&
                     (range.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || range.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) bones = &range;
-            // On the device (D-117): a dispatch before the frame's draws copies the rows; the CPU reads none.
-            if (identity->gpu_frame && bones && readable &&
-                queue_bone_job(*identity, section->component, component, lod, remapped, needed, *bones, offsets, dynamic)) {
+            if (gpu_draw && !(bones && readable && prepare_bone_job(*identity, section->component, component, remapped, needed, *bones, offsets, dynamic)))
+                gpu_draw = false; // this draw imports on the CPU and binds the master
+            if (gpu_draw) {
                 identity->coverage[section->component] |= dynamic;
                 ++identity->generation;
-            } else {
+            } else if (identity->skeleton.needs_import(0, section->component, lod)) {
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
                 const uint64_t bones_read_began = host_time_us();
 #endif
@@ -1765,10 +1832,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     const std::vector<uint8_t>& master = identity->skeleton.bytes();
     const uint64_t key = identity->id << 32 ^ identity->generation;
     const AppendBones append_bones = [&](DrawSnapshots& arena, const std::vector<SnapshotImage>& views, SnapshotSlot& out) {
-        if (!identity->gpu_frame || !identity->ring) return arena.append_shared(master.data(), master.size(), key, patched, views, out);
+        if (!gpu_draw) return arena.append_shared(master.data(), master.size(), key, patched, views, out);
         const auto& ring = identity->ring;
         if (!arena.append_external(ring->buffer, ring->slot_stride * identity->ring_slot, ring->slot_bytes, patched, views, out)) return false;
         command_owner->hold(ring, identity->ring_slot);
+        if (scratch_bone_job_ready) command_owner->add_bone_job(scratch_bone_job);
         return true;
     };
     for (uint32_t i = 0; i < list->count; ++i) {
@@ -2652,13 +2720,31 @@ void character_pass_end(CharacterBackend& b, CmdBuf* cb)
     }
 }
 
-VkResult character_submit(CharacterBackend& b, VkQueue q)
+VkResult character_submit(CharacterBackend& b, VkQueue q, uint32_t count, CmdBuf* const* cbs)
 {
     // The textures' uploads and publication on this queue, before any package's work (D-094).
-    if (b.textures) { const auto result = b.textures->before_submit(q); if (result != VK_SUCCESS) return result; }
-    // The merged skeletons of the frame's draws (D-117), before the application's work that reads them.
-    if (b.bone_merge && b.device && std::find(b.device->material_queues.begin(), b.device->material_queues.end(), q) != b.device->material_queues.end()) {
-        const auto result = b.bone_merge->submit(q); if (result != VK_SUCCESS) return result;
+    ThreadTrace* const trace = b.device && b.device->trace ? b.device->trace() : nullptr;
+    if (b.textures) { StageMark stage(trace, "character submission: texture uploads"); const auto result = b.textures->before_submit(q); if (result != VK_SUCCESS) return result; }
+    // The merged skeletons the submitted recordings read (D-117): their dispatches on this queue, in
+    // front of them, as the Core dispatches before the draw. Nothing crosses to another queue.
+    if (b.bone_merge && b.device && count && std::find(b.device->material_queues.begin(), b.device->material_queues.end(), q) != b.device->material_queues.end()) {
+        StageMark stage(trace, "character submission: bone dispatches");
+        std::vector<const void*> keys;
+        for (auto& c : b.controllers) {
+            std::shared_lock<std::shared_mutex> lock(c->mutex);
+            if (c->active) keys.push_back(c->active->generation_key.get());
+            if (c->staged) keys.push_back(c->staged->generation_key.get());
+        }
+        std::vector<BoneJob> jobs;
+        for (uint32_t i = 0; i < count; ++i)
+            for (auto& owner : cbs[i]->owners) {
+                if (!owner || std::find(keys.begin(), keys.end(), owner->backend) == keys.end()) continue;
+                auto& mine = static_cast<CharacterCommand&>(*owner);
+                if (mine.bone_jobs.empty()) continue;
+                jobs.insert(jobs.end(), std::make_move_iterator(mine.bone_jobs.begin()), std::make_move_iterator(mine.bone_jobs.end()));
+                mine.bone_jobs.clear();
+            }
+        const auto result = b.bone_merge->submit(q, jobs); if (result != VK_SUCCESS) return result;
     }
     for (auto& c : b.controllers) {
         std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->stopped) continue;

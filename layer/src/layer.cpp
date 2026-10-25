@@ -884,9 +884,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
     count_call(HI_QueueSubmit);
     HookInside inside;
     Device* dev = dev_of(queue);
+    std::vector<VkCommandBuffer> list;
+    for (uint32_t i = 0; i < count; i++) list.insert(list.end(), submits[i].pCommandBuffers, submits[i].pCommandBuffers + submits[i].commandBufferCount);
     {
         StageMark stage(thread_trace(), "character submission work");
-        const auto result = m2_submit(dev, queue);
+        const auto result = m2_submit(dev, queue, static_cast<uint32_t>(list.size()), list.data());
         if (result != VK_SUCCESS) return result;
     }
     {
@@ -900,6 +902,14 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
     return dev->d.QueueSubmit(queue, count, submits, fence);
 }
 
+// The command buffers of the submission, in order, for the work the layer puts in front of them.
+std::vector<VkCommandBuffer> submitted2(uint32_t count, const VkSubmitInfo2* submits)
+{
+    std::vector<VkCommandBuffer> list;
+    for (uint32_t i = 0; i < count; i++)
+        for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++) list.push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
+    return list;
+}
 void track_submit2(Device* dev, uint32_t count, const VkSubmitInfo2* submits)
 {
     std::vector<VkCommandBuffer> list;
@@ -919,7 +929,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, co
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
     {
-        const auto result = m2_submit(dev, queue);
+        const auto list = submitted2(count, submits);
+        const auto result = m2_submit(dev, queue, static_cast<uint32_t>(list.size()), list.data());
         if (result != VK_SUCCESS) return result;
     }
     return dev->d.QueueSubmit2(queue, count, submits, fence);
@@ -932,7 +943,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count,
     Device* dev = dev_of(queue);
     track_submit2(dev, count, submits);
     {
-        const auto result = m2_submit(dev, queue);
+        const auto list = submitted2(count, submits);
+        const auto result = m2_submit(dev, queue, static_cast<uint32_t>(list.size()), list.data());
         if (result != VK_SUCCESS) return result;
     }
     return dev->d.QueueSubmit2KHR(queue, count, submits, fence);

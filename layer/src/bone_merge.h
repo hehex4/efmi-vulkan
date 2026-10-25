@@ -2,6 +2,10 @@
 // are copied into the identity's merged skeleton by a compute dispatch before the frame's draws,
 // as the Core's own importer does, instead of the CPU reading them from write-combined mapped
 // memory (about 30 us per matched draw in the game) and copying the master into every recording.
+//
+// The dispatches belong to the recording whose draws read them: at the application's submission
+// they go to the same queue, right before it. Nothing of this crosses the queues (D-091): no wait,
+// no shared semaphore; each queue has a timeline of its own for the slots' reuse (BUG-050, BUG-052).
 #pragma once
 
 #include "state.h"
@@ -14,6 +18,10 @@ namespace efvk {
 class BoneMerge;
 struct BoneContext;
 
+// A submission of ours as a ring slot or a command buffer remembers it: the queue it went to and
+// the value it signals on that queue's timeline.
+struct BoneSubmission { uint32_t queue = UINT32_MAX; uint64_t value = 0; };
+
 // One identity's merged skeletons on the device: `slots` copies of the master layout (the implicit
 // identity matrices, then two poses of `bones` bones), each written by one frame's dispatches and
 // read by that frame's draws; a slot is reused once its recordings completed.
@@ -22,19 +30,21 @@ struct BoneRing {
     VkDeviceMemory memory = VK_NULL_HANDLE;
     uint32_t bones = 0, slots = 0;
     VkDeviceSize slot_bytes = 0, slot_stride = 0;
-    // A slot for a new frame: free of recordings, of queued writes and of writes still running on
-    // the device; UINT32_MAX when none is.
+    // A slot for a new frame: free of recordings, of jobs not yet submitted and of writes still
+    // running on the device; UINT32_MAX when none is.
     uint32_t acquire();
     void hold(uint32_t slot);    // a recording bound the slot
     void release(uint32_t slot); // that recording completed
+    void pend(uint32_t slot);    // a job for the slot was recorded
+    void unpend(uint32_t slot);  // it was submitted or dropped
     ~BoneRing();
 private:
     friend class BoneMerge;
     std::shared_ptr<BoneContext> ctx;
     std::mutex mx;
-    std::vector<uint32_t> readers, pending; // recordings bound; jobs queued and not yet submitted
-    std::vector<uint64_t> written;          // the submission that last wrote the slot (0: none yet)
-    bool initialized = false;               // cleared and the implicit rows written, by the first submission
+    std::vector<uint32_t> readers, pending;
+    std::vector<std::vector<BoneSubmission>> written; // per slot, the last write on each queue
+    bool initialized = false;                         // cleared and the implicit rows written, by the first submission
 };
 
 // A package's LOD remap tables as the dispatches read them: every component's table in one buffer.
@@ -48,7 +58,7 @@ private:
     std::shared_ptr<BoneContext> ctx;
 };
 
-// One component's import: the dispatch of a frame.
+// One component's import: a dispatch in front of the recording that reads it.
 struct BoneJob {
     std::shared_ptr<BoneRing> ring;
     uint32_t slot = 0;
@@ -72,36 +82,29 @@ public:
     VkDeviceSize alignment() const { return storage_alignment_; }
     std::shared_ptr<BoneRing> ring(uint32_t bones, std::string& why);
     std::shared_ptr<BoneRemaps> remaps(const std::vector<std::vector<uint16_t>>& tables, std::string& why);
-    void queue(BoneJob&&);
-    bool queued() const { return queued_.load(std::memory_order_relaxed) != 0; }
-    // Before an application submission on a graphics queue: every queued job dispatched on it, after
-    // a wait for an earlier submission of ours on another queue that may still run (D-091: our
-    // submissions wait on nothing else, so the wait cannot hold the queues against each other).
-    VkResult submit(VkQueue);
+    // The jobs of the recordings an application submission on `queue` carries, dispatched there
+    // first; each job's slot is unpended. The caller passes the queue's own submission thread.
+    VkResult submit(VkQueue, std::vector<BoneJob>& jobs);
     void status(JsonWriter&);
 private:
-    struct Slot { VkCommandBuffer cb = VK_NULL_HANDLE; VkDescriptorPool pool = VK_NULL_HANDLE; uint64_t value = 0; };
+    struct Slot { VkCommandBuffer cb = VK_NULL_HANDLE; VkDescriptorPool pool = VK_NULL_HANDLE; BoneSubmission last; };
     bool make_pipeline();
-    bool record(Slot&, std::vector<BoneJob>&, size_t begin, size_t end, std::string& why);
+    bool record(Slot&, const std::vector<BoneJob>& jobs, size_t begin, size_t end, std::string& why);
     void fail(const std::string& why);
     std::shared_ptr<BoneContext> ctx_;
     VkPhysicalDeviceMemoryProperties memory_;
     VkDeviceSize storage_alignment_ = 16;
     bool usable_ = false;
     std::string reason_;
-    std::mutex mx_;
-    std::vector<BoneJob> jobs_;
-    std::atomic<uint32_t> queued_{0};
+    std::mutex mx_; // the submission path and the error text
     VkDescriptorSetLayout set_layout_ = VK_NULL_HANDLE;
     VkPipelineLayout layout_ = VK_NULL_HANDLE;
     VkPipeline pipeline_ = VK_NULL_HANDLE;
     VkCommandPool pool_ = VK_NULL_HANDLE;
     std::vector<Slot> slots_;
-    VkQueue last_queue_ = VK_NULL_HANDLE;
-    uint64_t last_value_ = 0;
-    std::vector<BoneJob> last_jobs_; // the last batch, dispatched again on the other queue while it still runs
+    uint64_t submissions_total_ = 0;
     // Status.
-    std::atomic<uint64_t> jobs_total_{0}, dispatches_{0}, submissions_{0}, rings_{0}, ring_bytes_{0}, queue_waits_{0}, redispatches_{0}, slot_waits_{0}, failures_{0};
+    std::atomic<uint64_t> jobs_{0}, dispatches_{0}, submissions_{0}, rings_{0}, ring_bytes_{0}, slot_waits_{0}, failures_{0};
     std::string error_;
 };
 

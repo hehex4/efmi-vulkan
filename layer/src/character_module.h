@@ -61,7 +61,9 @@ struct CharacterModule {
     void (*frame)(CharacterBackend&, bool had_draws, PresentWork* present) = nullptr;
     void (*status)(CharacterBackend&, JsonWriter&) = nullptr;
     void (*enable)(CharacterBackend&, bool) = nullptr;
-    VkResult (*submit)(CharacterBackend&, VkQueue) = nullptr;
+    // Before the application's submission of `cbs` on `queue`: the work those recordings need first
+    // (the texture uploads' publication, the bone dispatches of their draws, owned draw work).
+    VkResult (*submit)(CharacterBackend&, VkQueue, uint32_t count, CmdBuf* const* cbs) = nullptr;
     // After the application's vkCmdEndRenderPass of the instance `cb->pass` names (D-113): work that
     // belongs to that pass and needs targets of its own (the translucent captures and composite).
     void (*pass_end)(CharacterBackend&, CmdBuf*) = nullptr;

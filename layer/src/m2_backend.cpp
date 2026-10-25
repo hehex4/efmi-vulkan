@@ -377,16 +377,19 @@ void m2_seal(Device* device,uint32_t count,const VkCommandBuffer* buffers){
     for(uint32_t i=0;i<count;++i)if(auto* cb=cb_of(device,buffers[i]))
         for(auto& owner:cb->owners)if(owner && owner->seal() && device->m2)++device->m2->batches;
 }
-VkResult m2_submit(Device* device,VkQueue queue){
+VkResult m2_submit(Device* device,VkQueue queue,uint32_t count,const VkCommandBuffer* buffers){
     if(!device->character_mode)return VK_SUCCESS;
+    // The recordings of this submission, for the work they need in front of them (D-117).
+    std::vector<CmdBuf*> cbs;cbs.reserve(count);
+    for(uint32_t i=0;i<count;++i)if(auto* cb=cb_of(device,buffers[i]))cbs.push_back(cb);
     std::shared_lock<std::shared_mutex> lock(device->character_mx);
     if(device->character){
-        const VkResult result=device->character_module->submit(*device->character,queue);
+        const VkResult result=device->character_module->submit(*device->character,queue,uint32_t(cbs.size()),cbs.data());
         if(result!=VK_SUCCESS)return result;
     }
     // A staged backend brings its images up through the same queues before it takes over. If that
     // fails it never becomes ready and is given up; the application's submission is not its concern.
-    if(device->character_staged)device->staged_module->submit(*device->character_staged,queue);
+    if(device->character_staged)device->staged_module->submit(*device->character_staged,queue,uint32_t(cbs.size()),cbs.data());
     return VK_SUCCESS;
 }
 void m2_frame(Device* device,bool had_draws,PresentWork* present){

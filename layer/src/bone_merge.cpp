@@ -19,8 +19,17 @@ extern const size_t bone_merge_spirv_words;
     X(QueueSubmit) X(CreateSemaphore) X(DestroySemaphore) X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) \
     X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) X(MapMemory) X(UnmapMemory)
 
-// What the rings and remaps outlive the merge with: the device entry points and the timeline that
-// says which submissions completed.
+namespace {
+constexpr uint32_t kSlots = 8;           // frames a ring holds apart: the frames in flight and a margin
+constexpr uint32_t kCommandBuffers = 16; // submissions in flight (several per frame when the game submits in parts)
+constexpr uint32_t kJobsPerSubmission = 1024;
+constexpr uint32_t kQueues = 4;          // graphics queues a game may submit on
+constexpr uint32_t kImplicitBytes = MergedSkeleton::kImplicitBones * MergedSkeleton::kBytesPerBone; // 24576, within vkCmdUpdateBuffer's limit
+}
+
+// What the rings and remaps outlive the merge with: the device entry points and the timelines that
+// say which submissions completed. One timeline per queue: a timeline's signals must happen in
+// increasing order, which two queues executing independently do not keep (BUG-052).
 struct BoneContext {
 #define X(n) PFN_vk##n n = nullptr;
     EFVK_BONE_FUNCS(X)
@@ -28,21 +37,49 @@ struct BoneContext {
     PFN_vkGetSemaphoreCounterValue GetSemaphoreCounterValue = nullptr;
     PFN_vkWaitSemaphores WaitSemaphores = nullptr;
     VkDevice device = VK_NULL_HANDLE;
-    VkSemaphore timeline = VK_NULL_HANDLE;
-    std::atomic<uint64_t> submitted{0}; // the value the last submission signals
-    uint64_t completed() const
+    struct QueueTimeline { VkQueue queue = VK_NULL_HANDLE; VkSemaphore timeline = VK_NULL_HANDLE; uint64_t submitted = 0; };
+    QueueTimeline queues[kQueues];
+    std::atomic<uint32_t> queue_count{0}; // entries below are complete once counted (release)
+    // The queue's index, made on its first submission (under the merge's lock); UINT32_MAX when the
+    // device has more graphics queues than the layer follows.
+    uint32_t index_of(VkQueue queue)
     {
-        uint64_t value = 0;
-        return timeline && GetSemaphoreCounterValue(device, timeline, &value) == VK_SUCCESS ? value : 0;
+        const uint32_t count = queue_count.load(std::memory_order_acquire);
+        for (uint32_t i = 0; i < count; ++i) if (queues[i].queue == queue) return i;
+        if (count >= kQueues || !CreateSemaphore) return UINT32_MAX;
+        VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+        type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+        VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}; si.pNext = &type;
+        VkSemaphore timeline = VK_NULL_HANDLE;
+        if (CreateSemaphore(device, &si, nullptr, &timeline) != VK_SUCCESS) return UINT32_MAX;
+        queues[count].queue = queue; queues[count].timeline = timeline; queues[count].submitted = 0;
+        queue_count.store(count + 1, std::memory_order_release);
+        return count;
     }
-    ~BoneContext() { if (timeline) DestroySemaphore(device, timeline, nullptr); }
+    uint64_t completed(uint32_t index) const
+    {
+        if (index >= queue_count.load(std::memory_order_acquire)) return 0;
+        uint64_t value = 0;
+        return GetSemaphoreCounterValue(device, queues[index].timeline, &value) == VK_SUCCESS ? value : 0;
+    }
+    bool done(const BoneSubmission& s) const { return s.queue == UINT32_MAX || s.value <= completed(s.queue); }
+    // Waits on the host for a submission of ours, briefly; false when it did not complete in time.
+    bool wait(const BoneSubmission& s, uint64_t nanoseconds) const
+    {
+        if (done(s)) return true;
+        if (!WaitSemaphores) return false;
+        VkSemaphoreWaitInfo wi{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+        wi.semaphoreCount = 1; wi.pSemaphores = &queues[s.queue].timeline; wi.pValues = &s.value;
+        return WaitSemaphores(device, &wi, nanoseconds) == VK_SUCCESS;
+    }
+    ~BoneContext()
+    {
+        const uint32_t count = queue_count.load();
+        for (uint32_t i = 0; i < count; ++i) if (queues[i].timeline) DestroySemaphore(device, queues[i].timeline, nullptr);
+    }
 };
 
 namespace {
-constexpr uint32_t kSlots = 8;           // frames a ring holds apart: the frames in flight and a margin
-constexpr uint32_t kCommandBuffers = 8;  // submissions in flight
-constexpr uint32_t kJobsPerSubmission = 1024;
-constexpr uint32_t kImplicitBytes = MergedSkeleton::kImplicitBones * MergedSkeleton::kBytesPerBone; // 24576, within vkCmdUpdateBuffer's limit
 struct Push { uint32_t source_rows0, source_rows1, destination, pose_rows, first, count, flags, remap_offset; float scale; };
 
 VkDeviceSize aligned(VkDeviceSize value, VkDeviceSize alignment) { alignment = std::max<VkDeviceSize>(alignment, 1); return (value + alignment - 1) / alignment * alignment; }
@@ -67,25 +104,24 @@ const std::vector<float>& identity_rows()
 uint32_t BoneRing::acquire()
 {
     std::lock_guard<std::mutex> lock(mx);
-    const uint64_t done = ctx->completed();
-    for (uint32_t s = 0; s < slots; ++s)
-        if (!readers[s] && !pending[s] && written[s] <= done) return s;
+    for (uint32_t s = 0; s < slots; ++s) {
+        if (readers[s] || pending[s]) continue;
+        bool done = true;
+        for (const auto& w : written[s]) done = done && ctx->done(w);
+        if (done) return s;
+    }
     return UINT32_MAX;
 }
 void BoneRing::hold(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < slots) ++readers[slot]; }
 void BoneRing::release(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < slots && readers[slot]) --readers[slot]; }
+void BoneRing::pend(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < slots) ++pending[slot]; }
+void BoneRing::unpend(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < slots && pending[slot]) --pending[slot]; }
 BoneRing::~BoneRing()
 {
     if (!ctx) return;
-    // A dispatch of a frame whose draws were not recorded (the identity was still identifying, or
-    // its generation went) may still run: the ring waits for its last write before it goes.
-    uint64_t last = 0;
-    for (uint64_t value : written) last = std::max(last, value);
-    if (last && last > ctx->completed() && ctx->WaitSemaphores) {
-        VkSemaphoreWaitInfo wi{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
-        wi.semaphoreCount = 1; wi.pSemaphores = &ctx->timeline; wi.pValues = &last;
-        ctx->WaitSemaphores(ctx->device, &wi, 1000ull * 1000 * 1000);
-    }
+    // A dispatch of a recording that was never submitted, or of a generation that went, may still
+    // run: the ring waits for its last writes before it goes.
+    for (const auto& slot : written) for (const auto& w : slot) if (!ctx->done(w)) ctx->wait(w, 1000ull * 1000 * 1000);
     if (buffer) ctx->DestroyBuffer(ctx->device, buffer, nullptr);
     if (memory) ctx->FreeMemory(ctx->device, memory, nullptr);
 }
@@ -113,10 +149,6 @@ BoneMerge::BoneMerge(Device* device, const VkPhysicalDeviceProperties& propertie
     ctx_->WaitSemaphores = reinterpret_cast<PFN_vkWaitSemaphores>(device->next_gdpa(device->handle, "vkWaitSemaphores"));
     if (!ctx_->WaitSemaphores) ctx_->WaitSemaphores = reinterpret_cast<PFN_vkWaitSemaphores>(device->next_gdpa(device->handle, "vkWaitSemaphoresKHR"));
     if (!ctx_->GetSemaphoreCounterValue || !ctx_->WaitSemaphores) { reason_ = "missing timeline semaphore entry points"; return; }
-    VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
-    type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-    VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}; si.pNext = &type;
-    if (ctx_->CreateSemaphore(ctx_->device, &si, nullptr, &ctx_->timeline) != VK_SUCCESS) { reason_ = "cannot create the bone timeline"; return; }
     if (!make_pipeline()) return;
     VkCommandPoolCreateInfo pi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     pi.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; pi.queueFamilyIndex = device->material_family;
@@ -186,7 +218,7 @@ std::shared_ptr<BoneRing> BoneMerge::ring(uint32_t bones, std::string& why)
     r->ctx = ctx_; r->bones = bones; r->slots = kSlots;
     r->slot_bytes = VkDeviceSize(MergedSkeleton::kImplicitBones + 2ull * bones) * MergedSkeleton::kBytesPerBone;
     r->slot_stride = aligned(r->slot_bytes, storage_alignment_);
-    r->readers.assign(kSlots, 0); r->pending.assign(kSlots, 0); r->written.assign(kSlots, 0);
+    r->readers.assign(kSlots, 0); r->pending.assign(kSlots, 0); r->written.assign(kSlots, std::vector<BoneSubmission>(kQueues));
     VkDevice dev = ctx_->device;
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     bi.size = r->slot_stride * kSlots; bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
@@ -228,19 +260,6 @@ std::shared_ptr<BoneRemaps> BoneMerge::remaps(const std::vector<std::vector<uint
     return r;
 }
 
-void BoneMerge::queue(BoneJob&& job)
-{
-    std::lock_guard<std::mutex> lock(mx_);
-    // A later import of the same component in the same frame replaces the earlier one (a lower LOD
-    // replacing a higher), as the CPU import does; two dispatches on one range would race.
-    for (auto it = jobs_.rbegin(); it != jobs_.rend(); ++it)
-        if (it->ring == job.ring && it->slot == job.slot && it->component == job.component) { *it = std::move(job); return; }
-    { std::lock_guard<std::mutex> ring_lock(job.ring->mx); ++job.ring->pending[job.slot]; }
-    jobs_.push_back(std::move(job));
-    queued_.store(uint32_t(jobs_.size()), std::memory_order_relaxed);
-    jobs_total_.fetch_add(1, std::memory_order_relaxed);
-}
-
 void BoneMerge::fail(const std::string& why)
 {
     failures_.fetch_add(1, std::memory_order_relaxed);
@@ -248,7 +267,7 @@ void BoneMerge::fail(const std::string& why)
     error_ = why;
 }
 
-bool BoneMerge::record(Slot& slot, std::vector<BoneJob>& jobs, size_t begin, size_t end, std::string& why)
+bool BoneMerge::record(Slot& slot, const std::vector<BoneJob>& jobs, size_t begin, size_t end, std::string& why)
 {
     VkCommandBuffer cmd = slot.cb;
     if (ctx_->ResetCommandBuffer(cmd, 0) != VK_SUCCESS || ctx_->ResetDescriptorPool(ctx_->device, slot.pool, 0) != VK_SUCCESS) { why = "bone command buffer reset"; return false; }
@@ -274,6 +293,14 @@ bool BoneMerge::record(Slot& slot, std::vector<BoneJob>& jobs, size_t begin, siz
         VkMemoryBarrier m{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
         m.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; m.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
         ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+                                 0, 1, &m, 0, nullptr, 0, nullptr);
+    }
+    // Earlier dispatches of this queue into the same slot (another recording's) and the draws that
+    // read them come first.
+    {
+        VkMemoryBarrier m{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        m.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT; m.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                                  0, 1, &m, 0, nullptr, 0, nullptr);
     }
     ctx_->CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
@@ -306,7 +333,7 @@ bool BoneMerge::record(Slot& slot, std::vector<BoneJob>& jobs, size_t begin, siz
         ctx_->CmdDispatch(cmd, (job.count + 63) / 64, 1, 1);
         dispatches_.fetch_add(1, std::memory_order_relaxed);
     }
-    // The frame's draws read the rings in the application's submissions after this one.
+    // The recording's draws read the rings in the application's submission after this one.
     VkMemoryBarrier m{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     m.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; m.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -315,83 +342,57 @@ bool BoneMerge::record(Slot& slot, std::vector<BoneJob>& jobs, size_t begin, siz
     return true;
 }
 
-VkResult BoneMerge::submit(VkQueue queue)
+VkResult BoneMerge::submit(VkQueue queue, std::vector<BoneJob>& jobs)
 {
-    if (!usable_) return VK_SUCCESS;
-    std::vector<BoneJob> jobs;
-    {
-        std::lock_guard<std::mutex> lock(mx_);
-        jobs.swap(jobs_); queued_.store(0, std::memory_order_relaxed);
-    }
-    // The game alternates its two graphics queues between frames, so the draws of a frame mostly go
-    // to the other queue than the frame's dispatches did. A queue never waits for the other (D-091:
-    // the game's own semaphores between its queues made such a wait a deadlock in the 1.8.2 session,
-    // BUG-050). When the last dispatches ran on the other queue and completed, this queue takes an
-    // already satisfied wait for them (their writes made visible, as the texture uploads do); when
-    // they still run, this queue dispatches the same jobs again before its draws: both write the same
-    // rows of the same slot.
-    if (last_queue_ && last_queue_ != queue) {
-        if (last_value_ <= ctx_->completed()) {
-            VkTimelineSemaphoreSubmitInfo values{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
-            values.waitSemaphoreValueCount = 1; values.pWaitSemaphoreValues = &last_value_;
-            const VkPipelineStageFlags stage = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-            VkSubmitInfo wait{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-            wait.pNext = &values; wait.waitSemaphoreCount = 1; wait.pWaitSemaphores = &ctx_->timeline; wait.pWaitDstStageMask = &stage;
-            const VkResult result = ctx_->QueueSubmit(queue, 1, &wait, VK_NULL_HANDLE);
-            if (result != VK_SUCCESS) return result;
-            queue_waits_.fetch_add(1, std::memory_order_relaxed);
-        } else {
-            for (auto& job : last_jobs_) { std::lock_guard<std::mutex> lock(job.ring->mx); ++job.ring->pending[job.slot]; }
-            jobs.insert(jobs.begin(), last_jobs_.begin(), last_jobs_.end());
-            redispatches_.fetch_add(uint64_t(last_jobs_.size()), std::memory_order_relaxed);
-        }
-        last_queue_ = queue;
-    }
     if (jobs.empty()) return VK_SUCCESS;
-    auto drop = [&](size_t begin, size_t end) {
-        for (size_t i = begin; i < end; ++i) { std::lock_guard<std::mutex> lock(jobs[i].ring->mx); if (jobs[i].ring->pending[jobs[i].slot]) --jobs[i].ring->pending[jobs[i].slot]; }
-    };
+    std::lock_guard<std::mutex> lock(mx_);
+    auto unpend = [&](size_t begin, size_t end) { for (size_t i = begin; i < end; ++i) jobs[i].ring->unpend(jobs[i].slot); };
+    if (!usable_) { unpend(0, jobs.size()); return VK_SUCCESS; }
+    const uint32_t index = ctx_->index_of(queue);
+    if (index == UINT32_MAX) { fail("bone dispatches: more graphics queues than the layer follows"); unpend(0, jobs.size()); return VK_SUCCESS; }
+    auto& timeline = ctx_->queues[index];
     for (size_t begin = 0; begin < jobs.size(); begin += kJobsPerSubmission) {
         const size_t end = std::min(jobs.size(), begin + kJobsPerSubmission);
-        const uint64_t value = ctx_->submitted.load() + 1;
-        Slot& slot = slots_[value % kCommandBuffers];
-        if (slot.value > ctx_->completed()) {
-            // Eight submissions behind the device: wait for the oldest, briefly.
-            VkSemaphoreWaitInfo wi{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
-            wi.semaphoreCount = 1; wi.pSemaphores = &ctx_->timeline; wi.pValues = &slot.value;
+        const BoneSubmission mine{index, timeline.submitted + 1};
+        Slot& slot = slots_[submissions_total_ % kCommandBuffers];
+        if (!ctx_->done(slot.last)) {
+            // Sixteen submissions behind the device: wait for the oldest, briefly.
             slot_waits_.fetch_add(1, std::memory_order_relaxed);
-            if (ctx_->WaitSemaphores(ctx_->device, &wi, 500ull * 1000 * 1000) != VK_SUCCESS) { fail("bone submission ring stalled"); drop(begin, jobs.size()); return VK_SUCCESS; }
+            if (!ctx_->wait(slot.last, 500ull * 1000 * 1000)) { fail("bone submission ring stalled"); unpend(begin, jobs.size()); return VK_SUCCESS; }
         }
         std::string why;
-        if (!record(slot, jobs, begin, end, why)) { fail(why); drop(begin, jobs.size()); return VK_SUCCESS; }
+        if (!record(slot, jobs, begin, end, why)) { fail(why); unpend(begin, jobs.size()); return VK_SUCCESS; }
         VkTimelineSemaphoreSubmitInfo values{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
-        values.signalSemaphoreValueCount = 1; values.pSignalSemaphoreValues = &value;
+        values.signalSemaphoreValueCount = 1; values.pSignalSemaphoreValues = &mine.value;
         VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
         si.pNext = &values; si.commandBufferCount = 1; si.pCommandBuffers = &slot.cb;
-        si.signalSemaphoreCount = 1; si.pSignalSemaphores = &ctx_->timeline;
+        si.signalSemaphoreCount = 1; si.pSignalSemaphores = &timeline.timeline;
         const VkResult result = ctx_->QueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
-        if (result != VK_SUCCESS) { fail("bone submission failed"); drop(begin, jobs.size()); return result; }
-        slot.value = value; ctx_->submitted.store(value);
+        if (result != VK_SUCCESS) { fail("bone submission failed"); unpend(begin, jobs.size()); return result; }
+        timeline.submitted = mine.value; slot.last = mine; ++submissions_total_;
         for (size_t i = begin; i < end; ++i) {
-            std::lock_guard<std::mutex> lock(jobs[i].ring->mx);
-            jobs[i].ring->written[jobs[i].slot] = value;
-            if (jobs[i].ring->pending[jobs[i].slot]) --jobs[i].ring->pending[jobs[i].slot];
+            auto& ring = *jobs[i].ring;
+            { std::lock_guard<std::mutex> ring_lock(ring.mx); ring.written[jobs[i].slot][index] = mine; }
+            ring.unpend(jobs[i].slot);
         }
-        last_queue_ = queue; last_value_ = value;
+        jobs_.fetch_add(uint64_t(end - begin), std::memory_order_relaxed);
         submissions_.fetch_add(1, std::memory_order_relaxed);
     }
-    last_jobs_.assign(jobs.begin(), jobs.end());
     return VK_SUCCESS;
 }
 
 void BoneMerge::status(JsonWriter& w)
 {
     w.key("bones"); w.begin_object();
-    w.kb("gpu", g_cfg.m2_gpu_bones); w.kb("usable", usable_); w.kv("reason", reason_);
-    w.kn("jobs", jobs_total_.load()); w.kn("dispatches", dispatches_.load()); w.kn("submissions", submissions_.load());
+    w.kb("gpu", live_gpu_bones()); w.kb("usable", usable_); w.kv("reason", reason_);
+    w.kn("jobs", jobs_.load()); w.kn("dispatches", dispatches_.load()); w.kn("submissions", submissions_.load());
     w.kn("rings", rings_.load()); w.kn("ring_bytes", ring_bytes_.load());
-    w.kn("queue_waits", queue_waits_.load()); w.kn("redispatches", redispatches_.load()); w.kn("slot_waits", slot_waits_.load()); w.kn("failures", failures_.load());
-    w.kn("completed", ctx_->completed()); w.kn("submitted", ctx_->submitted.load());
+    w.kn("slot_waits", slot_waits_.load()); w.kn("failures", failures_.load());
+    const uint32_t count = ctx_->queue_count.load();
+    w.kn("queues", count);
+    uint64_t submitted = 0, completed = 0;
+    for (uint32_t i = 0; i < count; ++i) { submitted += ctx_->queues[i].submitted; completed += ctx_->completed(i); }
+    w.kn("submitted", submitted); w.kn("completed", completed);
     { std::lock_guard<std::mutex> lock(mx_); w.kv("last_error", error_); }
     w.end_object();
 }

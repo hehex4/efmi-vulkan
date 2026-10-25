@@ -12,6 +12,7 @@ constexpr uint32_t kBudgetSampleFrames = 30; // the device's free memory is read
 constexpr uint64_t kIdleFrames = 600;        // an image not bound for this long goes first when the set is over the target
 constexpr uint64_t kProtectedFrames = 8;     // an image bound this recently is never evicted
 constexpr uint64_t kDemoteFrames = 30;       // at most one demotion this often while the working set is over the target
+constexpr uint64_t kDemoteProtectedFrames = 120; // an image bound this recently is never demoted (it would show the game's mesh)
 }
 
 TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryProperties& memory)
@@ -175,6 +176,9 @@ bool TextureResidency::demote_one()
     Image* victim = nullptr;
     for (auto& image : images_) {
         if (!image.resident || image.skip_levels || !large(image)) continue;
+        // An image a frame of the last two seconds bound is on screen: reloading it reduced would show
+        // the game's mesh meanwhile (the user's bar), so demotion takes the idle ones only.
+        if (image.last_bound + kDemoteProtectedFrames > frame_) continue;
         if (image.handle->snapshot().state != assets::ResourceState::Ready) continue;
         if (!victim || image.file_bytes > victim->file_bytes) victim = &image;
     }

@@ -6,6 +6,13 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.4: bone dispatches per recording, the two-queue replay, waiting instead of the game's mesh (2026-10-25, D-117 amended, D-119, D-120, BUG-052)
+
+- The 1.8.3 session hung the GPU within two minutes (BUG-052: one timeline signalled from two queues). The deployed configuration was switched to `m2_gpu_bones = 0` (dist/efmi_vk.cfg) so the user can play on the CPU import meanwhile.
+- 1.8.4: the dispatches belong to the recording and go to its queue at its submission (the module's submit entry takes the command buffers; per-queue timelines; nothing crosses queues); the replay's two-queue mode and the GPU/CPU picture check in the suite (D-119); the frame gate waits for textures instead of drawing the game's mesh, demotion spares images on screen (D-120); the probe's `set gpu_bones` reaches the module (live_gpu_bones); the crash logger keeps the first eight distinct fault addresses; the stall watchdog names the submission sub-step.
+- Found by the new two-queue replay at once: with three frames in flight the snapshot pool ran out (36 draws refused to the game's mesh in 120 frames); a recording now makes its batch where it is needed when none is prepared (as 3DMigoto creates a resource at first use), up to 32 per package (`batches_made_at_draw`). Two-queue replay vk03: no exhaustion, pictures identical with the bones on the GPU and the CPU, 232 of 232 submissions completed on two queues, validation clean. Full suite 39/39 (build/run_all-1.8.4b.out in the worktree).
+- docs/3dmigoto-flows.md: the original's flows read from its source (the draw, resources, one space for all Mods, skinning, threads, the play path) and the order of work that follows (D-121).
+
 ## 1.8.3: no cross-queue wait for the bone dispatches; rt_width in draw lists (2026-10-25, BUG-050, BUG-051)
 
 - The 1.8.2 session deadlocked on the GPU after two minutes (BUG-050): the bone merge's cross-queue wait against the game's own queue semaphores, the rule of D-091 broken. 1.8.3 never waits across queues (an already satisfied wait, or the same jobs dispatched again on the draws' queue). The Si Mod's draws were all refused for `rt_width` in their lists (BUG-051); the draw request now carries the render pass's colour target size and the INI runtime starts the draw's state with it.

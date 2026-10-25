@@ -1,5 +1,10 @@
 # EFMI Vulkan - Known issues
 
+## BUG-052: The 1.8.3 game session hung the GPU: one timeline signalled from two queues (fixed in 1.8.4)
+
+- 2026-10-25 21:40, user-started Vulkan session (PID 35560) with 1.8.3: about two minutes in, no presentation; the stall watchdog had the game's thread inside vkWaitForFences and the submitting thread inside our "character submission work" for 18 s; then the NVIDIA driver (nvoglv64.dll) faulted and the process ended. The crash logger's budget had been used up by eight identical handled faults the game raises at start-up, so the crash itself has no stack (the logger now keeps the first eight distinct addresses).
+- Cause: the bone dispatches signalled one timeline semaphore from both graphics queues; the game alternates them, so a later signal on one queue could complete before an earlier one on the other, which the specification leaves undefined and this driver answers with a hang. Fixed in 1.8.4 by the per-recording design (D-117 amended): a dispatch goes to the queue its recording is submitted to, each queue has its own timeline, and nothing waits across queues.
+
 ## BUG-050: The 1.8.2 game session deadlocked on the GPU at a cross-queue wait (fixed in 1.8.3)
 
 - 2026-10-25 21:01, user-started Vulkan session (PID 19260) with 1.8.2: the picture froze about two minutes in; the stall watchdog showed the game's thread inside vkWaitForFences and no presentation for over 35 s; the user ended the process. Status through the probe: `bones.queue_waits` 474 of 778 submissions, `submitted` 778 against `completed` 773: five of the layer's bone submissions never finished.

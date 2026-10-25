@@ -113,7 +113,8 @@ struct Swap {
     PFN_vkAcquireNextImageKHR Acquire=nullptr;PFN_vkQueuePresentKHR Present=nullptr;PFN_vkDestroySemaphore DestroySemaphore=nullptr;
 };
 // Gpu::init of the asset fixture, with the surface and swap chain extensions and a queue that presents.
-static void init_with_window(Gpu& g,HWND window,Swap& swap){
+// two_queues: two queues of the graphics family (D-119); queues[1] stays null otherwise.
+static void init_with_window(Gpu& g,HWND window,Swap& swap,bool two_queues,VkQueue queues[2]){
     auto loader=LoadLibraryW(L"vulkan-1.dll");if(!loader)throw std::runtime_error("Vulkan loader missing");
     auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
     auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -146,7 +147,7 @@ static void init_with_window(Gpu& g,HWND window,Swap& swap){
     VkWin32SurfaceCreateInfoKHR si={VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};si.hinstance=GetModuleHandleW(nullptr);si.hwnd=window;
     CHECK_VK(surface_create(g.instance,&si,nullptr,&swap.surface));
     uint32_t count=0;CHECK_VK(pEnumeratePhysicalDevices(g.instance,&count,nullptr));std::vector<VkPhysicalDevice> devices(count);
-    CHECK_VK(pEnumeratePhysicalDevices(g.instance,&count,devices.data()));int score=-1;
+    CHECK_VK(pEnumeratePhysicalDevices(g.instance,&count,devices.data()));int score=-1;uint32_t family_queues=1;
     for(auto pd:devices){
         VkPhysicalDeviceProperties props{};pGetPhysicalDeviceProperties(pd,&props);
         uint32_t n=0;pGetPhysicalDeviceQueueFamilyProperties(pd,&n,nullptr);std::vector<VkQueueFamilyProperties> families(n);
@@ -155,7 +156,7 @@ static void init_with_window(Gpu& g,HWND window,Swap& swap){
             VkBool32 present=VK_FALSE;supports(pd,i,swap.surface,&present);
             if(!(families[i].queueFlags&VK_QUEUE_GRAPHICS_BIT) || !present)continue;
             int rank=props.deviceType==VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU?2:1;
-            if(rank>score){score=rank;g.physical=pd;g.family=i;}break;
+            if(rank>score){score=rank;g.physical=pd;g.family=i;family_queues=families[i].queueCount;}break;
         }
     }
     if(!g.physical)throw std::runtime_error("No graphics device that presents");
@@ -169,7 +170,8 @@ static void init_with_window(Gpu& g,HWND window,Swap& swap){
     enabled.shaderStorageImageWriteWithoutFormat=available.shaderStorageImageWriteWithoutFormat;
     enabled.depthClamp=available.depthClamp;enabled.depthBiasClamp=available.depthBiasClamp;
     enabled.samplerAnisotropy=available.samplerAnisotropy;
-    float priority=1;VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=g.family;q.queueCount=1;q.pQueuePriorities=&priority;
+    if(two_queues && family_queues<2)throw std::runtime_error("two-queues needs a graphics family with two queues");
+    const float priorities[2]={1,1};VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=g.family;q.queueCount=two_queues?2:1;q.pQueuePriorities=priorities;
     const char* device_ext=VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};dc.queueCreateInfoCount=1;dc.pQueueCreateInfos=&q;dc.pEnabledFeatures=&enabled;
     dc.enabledExtensionCount=1;dc.ppEnabledExtensionNames=&device_ext;
@@ -180,7 +182,8 @@ static void init_with_window(Gpu& g,HWND window,Swap& swap){
 #define X(n) g.dispatch.n=p##n;
     EFMI_IMAGE_UPLOAD_FUNCS(X)
 #undef X
-    pGetDeviceQueue(g.device,g.family,0,&g.queue);pGetPhysicalDeviceMemoryProperties(g.physical,&g.memory);
+    queues[0]=queues[1]=VK_NULL_HANDLE;pGetDeviceQueue(g.device,g.family,0,&queues[0]);if(two_queues)pGetDeviceQueue(g.device,g.family,1,&queues[1]);
+    g.queue=queues[0];pGetPhysicalDeviceMemoryProperties(g.physical,&g.memory);
     VkSurfaceCapabilitiesKHR caps{};CHECK_VK(caps_of(g.physical,swap.surface,&caps));
     uint32_t nf=0;formats_of(g.physical,swap.surface,&nf,nullptr);std::vector<VkSurfaceFormatKHR> formats(nf);formats_of(g.physical,swap.surface,&nf,formats.data());
     if(formats.empty())throw std::runtime_error("surface has no format");
@@ -251,7 +254,12 @@ int wmain(int argc,wchar_t** argv){
     unsigned drawn=0,frames=argc>2?unsigned(_wtoi(argv[2])):4;
     // Diagnosis only: "open" turns off depth, stencil and culling in every replayed pipeline, so
     // that what reaches the rasterizer shows whatever those tests would have kept of it.
-    const bool open_tests=argc>3 && std::wstring(argv[3])==L"open";
+    // "two-queues": the game's use of its two graphics queues (D-119): a frame's passes split over two
+    // command buffers submitted to the two queues with a semaphore between them, the queues swapping
+    // roles every frame, a semaphore chain from frame to frame, three frames in flight. The layer's
+    // work in front of a submission must then hold on either queue with nothing crossing them.
+    bool open_tests=false,two_queues=false;
+    for(int a=3;a<argc;++a){const std::wstring flag=argv[a];if(flag==L"open")open_tests=true;else if(flag==L"two-queues")two_queues=true;}
     const uint32_t W=960,H=600;
     try{
         if(argc<2)throw std::runtime_error("usage: replay_gpu replay.bin [frames]");
@@ -260,7 +268,8 @@ int wmain(int argc,wchar_t** argv){
         std::vector<uint8_t> payload(static_cast<size_t>(size));in.seekg(0);in.read(reinterpret_cast<char*>(payload.data()),size);
         HWND window=replay_window(640,360);
         Swap swap;
-        Gpu g;init_with_window(g,window,swap);
+        VkQueue queues[2]={};
+        Gpu g;init_with_window(g,window,swap,two_queues,queues);
 #define X(n) p##n=reinterpret_cast<PFN_vk##n>(pGetDeviceProcAddr(g.device,"vk" #n));if(!p##n)throw std::runtime_error("vk" #n);
         X(CmdSetStencilReference) X(CmdSetDepthBias) X(CmdClearColorImage) X(CmdClearDepthStencilImage)
 #undef X
@@ -438,18 +447,48 @@ int wmain(int argc,wchar_t** argv){
             VkCommandBufferAllocateInfo ai={VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};ai.commandPool=ring_pools[r];ai.commandBufferCount=1;
             CHECK_VK(pAllocateCommandBuffers(g.device,&ai,&ring[r]));
         }
+        // Two-queue mode: the groups (passes) of a frame in two command buffers, the first on queue
+        // A (frame f: f%2), the second on queue B, which waits for the first through a semaphore and
+        // for the previous frame's second half (the other queue) through the chain; fences keep three
+        // frames in flight; the presentation goes on queue B.
+        std::vector<uint32_t> group_order;for(const auto& d:draws)if(group_order.empty() || group_order.back()!=d.group)group_order.push_back(d.group);
+        const size_t split_index=group_order.size()/2;
+        auto cb_of_group=[&](uint32_t group){for(size_t k=0;k<group_order.size();++k)if(group_order[k]==group)return k<split_index?0u:1u;return 1u;};
+        VkCommandBuffer second[3]={};VkFence fences[3]={};VkSemaphore acquired[3]={},rendered[3]={},chain[3]={},halves[3]={};
+        auto fence_create=reinterpret_cast<PFN_vkCreateFence>(pGetDeviceProcAddr(g.device,"vkCreateFence"));
+        auto fence_wait=reinterpret_cast<PFN_vkWaitForFences>(pGetDeviceProcAddr(g.device,"vkWaitForFences"));
+        auto fence_reset=reinterpret_cast<PFN_vkResetFences>(pGetDeviceProcAddr(g.device,"vkResetFences"));
+        auto fence_destroy=reinterpret_cast<PFN_vkDestroyFence>(pGetDeviceProcAddr(g.device,"vkDestroyFence"));
+        auto semaphore_make=reinterpret_cast<PFN_vkCreateSemaphore>(pGetDeviceProcAddr(g.device,"vkCreateSemaphore"));
+        if(two_queues){
+            if(!fence_create || !fence_wait || !fence_reset || !fence_destroy || !semaphore_make)throw std::runtime_error("two-queues: fence and semaphore entry points");
+            for(unsigned r=0;r<3;++r){
+                VkCommandBufferAllocateInfo ai={VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};ai.commandPool=ring_pools[r];ai.commandBufferCount=1;
+                CHECK_VK(pAllocateCommandBuffers(g.device,&ai,&second[r]));
+                VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};fi.flags=VK_FENCE_CREATE_SIGNALED_BIT;CHECK_VK(fence_create(g.device,&fi,nullptr,&fences[r]));
+                VkSemaphoreCreateInfo si={VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+                CHECK_VK(semaphore_make(g.device,&si,nullptr,&acquired[r]));CHECK_VK(semaphore_make(g.device,&si,nullptr,&rendered[r]));
+                CHECK_VK(semaphore_make(g.device,&si,nullptr,&chain[r]));CHECK_VK(semaphore_make(g.device,&si,nullptr,&halves[r]));
+            }
+        }
         for(unsigned f=0;f<frames;++f){
             pump();
-            uint32_t image=0;CHECK_VK(swap.Acquire(g.device,swap.swapchain,UINT64_MAX,swap.acquired,VK_NULL_HANDLE,&image));
-            CHECK_VK(reset_pool(g.device,ring_pools[f%3],0));
-            auto cb=ring[f%3];
-            {VkCommandBufferBeginInfo bi={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};CHECK_VK(pBeginCommandBuffer(cb,&bi));}
+            const unsigned slot=f%3;
+            if(two_queues){CHECK_VK(fence_wait(g.device,1,&fences[slot],VK_TRUE,UINT64_MAX));CHECK_VK(fence_reset(g.device,1,&fences[slot]));}
+            const VkSemaphore acquire_sem=two_queues?acquired[slot]:swap.acquired,render_sem=two_queues?rendered[slot]:swap.rendered;
+            uint32_t image=0;CHECK_VK(swap.Acquire(g.device,swap.swapchain,UINT64_MAX,acquire_sem,VK_NULL_HANDLE,&image));
+            CHECK_VK(reset_pool(g.device,ring_pools[slot],0));
+            VkCommandBuffer halves_cb[2]={ring[slot],two_queues?second[slot]:ring[slot]};
+            auto cb=halves_cb[0];
+            {VkCommandBufferBeginInfo bi={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};CHECK_VK(pBeginCommandBuffer(halves_cb[0],&bi));
+             if(two_queues)CHECK_VK(pBeginCommandBuffer(halves_cb[1],&bi));}
             uint32_t current=UINT32_MAX;
             auto end_pass=[&]{if(current!=UINT32_MAX)pCmdEndRenderPass(cb);current=UINT32_MAX;};
             for(size_t i=0;i<draws.size();++i){
                 const auto& d=draws[i];auto& p=pipes[d.pipeline];
                 if(d.group!=current){
                     end_pass();current=d.group;auto& gr=groups[d.group];
+                    if(two_queues)cb=halves_cb[cb_of_group(d.group)];
                     std::vector<VkClearValue> clears(gr.targets.size());
                     for(size_t a=0;a<gr.targets.size();++a){
                         if(depth_format(gr.targets[a].format))clears[a].depthStencil={gr.reversed?0.0f:1.0f,0};
@@ -479,6 +518,7 @@ int wmain(int argc,wchar_t** argv){
                 if(f+1==frames)++drawn;
             }
             end_pass();
+            cb=halves_cb[1];
             if(f+1==frames)
                 for(auto& item:groups)for(uint32_t a=0;a<item.second.targets.size();++a){
                     auto& t=item.second.targets[a];const uint32_t bytes=texel_bytes(t.format);if(!bytes)continue;
@@ -498,20 +538,48 @@ int wmain(int argc,wchar_t** argv){
                 VkClearColorValue black{{0,0,0,1}};pCmdClearColorImage(cb,b.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&black,1,&b.subresourceRange);
                 b.oldLayout=b.newLayout;b.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;b.srcAccessMask=b.dstAccessMask;b.dstAccessMask=0;
                 pCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&b);
-                CHECK_VK(pEndCommandBuffer(cb));
-                const VkPipelineStageFlags wait=VK_PIPELINE_STAGE_TRANSFER_BIT;
-                VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.waitSemaphoreCount=1;submit.pWaitSemaphores=&swap.acquired;
-                submit.pWaitDstStageMask=&wait;submit.commandBufferCount=1;submit.pCommandBuffers=&cb;
-                submit.signalSemaphoreCount=1;submit.pSignalSemaphores=&swap.rendered;
-                CHECK_VK(pQueueSubmit(g.queue,1,&submit,VK_NULL_HANDLE));
-                VkPresentInfoKHR present={VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};present.waitSemaphoreCount=1;present.pWaitSemaphores=&swap.rendered;
-                present.swapchainCount=1;present.pSwapchains=&swap.swapchain;present.pImageIndices=&image;
-                CHECK_VK(swap.Present(g.queue,&present));
-                CHECK_VK(pQueueWaitIdle(g.queue));
+                CHECK_VK(pEndCommandBuffer(halves_cb[1]));
+                if(!two_queues){
+                    const VkPipelineStageFlags wait=VK_PIPELINE_STAGE_TRANSFER_BIT;
+                    VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.waitSemaphoreCount=1;submit.pWaitSemaphores=&swap.acquired;
+                    submit.pWaitDstStageMask=&wait;submit.commandBufferCount=1;submit.pCommandBuffers=&cb;
+                    submit.signalSemaphoreCount=1;submit.pSignalSemaphores=&swap.rendered;
+                    CHECK_VK(pQueueSubmit(g.queue,1,&submit,VK_NULL_HANDLE));
+                    VkPresentInfoKHR present={VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};present.waitSemaphoreCount=1;present.pWaitSemaphores=&swap.rendered;
+                    present.swapchainCount=1;present.pSwapchains=&swap.swapchain;present.pImageIndices=&image;
+                    CHECK_VK(swap.Present(g.queue,&present));
+                    CHECK_VK(pQueueWaitIdle(g.queue));
+                }else{
+                    CHECK_VK(pEndCommandBuffer(halves_cb[0]));
+                    VkQueue queue_a=queues[f%2],queue_b=queues[(f+1)%2];
+                    // The first half on queue A signals the halves semaphore; the second half on queue B
+                    // waits for it, for the swap chain image and (from the second frame) for the previous
+                    // frame's second half on the other queue, and signals the chain and the presentation.
+                    {
+                        VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&halves_cb[0];
+                        submit.signalSemaphoreCount=1;submit.pSignalSemaphores=&halves[slot];
+                        CHECK_VK(pQueueSubmit(queue_a,1,&submit,VK_NULL_HANDLE));
+                    }
+                    {
+                        VkSemaphore waits[3]={halves[slot],acquire_sem,chain[(f+2)%3]};
+                        const VkPipelineStageFlags stages[3]={VK_PIPELINE_STAGE_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT|VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT|VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                                                              VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_VERTEX_SHADER_BIT|VK_PIPELINE_STAGE_TRANSFER_BIT};
+                        VkSemaphore signals[2]={render_sem,chain[slot]};
+                        VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.waitSemaphoreCount=f?3u:2u;submit.pWaitSemaphores=waits;submit.pWaitDstStageMask=stages;
+                        submit.commandBufferCount=1;submit.pCommandBuffers=&halves_cb[1];submit.signalSemaphoreCount=2;submit.pSignalSemaphores=signals;
+                        CHECK_VK(pQueueSubmit(queue_b,1,&submit,fences[slot]));
+                    }
+                    VkPresentInfoKHR present={VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};present.waitSemaphoreCount=1;present.pWaitSemaphores=&render_sem;
+                    present.swapchainCount=1;present.pSwapchains=&swap.swapchain;present.pImageIndices=&image;
+                    CHECK_VK(swap.Present(queue_b,&present));
+                }
             }
             // Optional benchmark checkpoint; normal regression runs keep their original path.
             if(f==299 && std::getenv("EFMI_VK_REPLAY_TIMING")) self_probe("{\"cmd\":\"status\"}","warm-status.json");
         }
+        CHECK_VK(pDeviceWaitIdle(g.device));
+        if(two_queues)for(unsigned r=0;r<3;++r){fence_destroy(g.device,fences[r],nullptr);
+            for(auto sem:{acquired[r],rendered[r],chain[r],halves[r]})swap.DestroySemaphore(g.device,sem,nullptr);}
         // Targets and their formats for the caller to convert.
         efvk::JsonWriter index;index.begin_object();index.kn("width",W);index.kn("height",H);index.key("targets");index.begin_array();
         for(size_t i=0;i<readbacks.size();++i){

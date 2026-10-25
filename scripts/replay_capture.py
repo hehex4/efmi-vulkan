@@ -410,9 +410,10 @@ def dimension_policy() -> str:
     return "%d:%d" % tuple(hardware[0]["adapter"][:2])
 
 
-def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation: Path, open_tests: bool = False) -> dict:
+def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation: Path, open_tests: bool = False,
+        two_queues: bool = False, gpu_bones: bool | None = None, name: str | None = None) -> dict:
     from harness import layer_env
-    folder = out / ("enabled" if enabled else "disabled")
+    folder = out / (name or ("enabled" if enabled else "disabled"))
     folder.mkdir(parents=True, exist_ok=True)
     if SETTINGS is not None and SETTINGS.is_dir():
         # Persistent INI variables to start from (a variant key's state), as the game's settings folder.
@@ -423,9 +424,12 @@ def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation
                  EFMI_VK_M2_ENABLED="1" if enabled else "0", EFMI_VK_M2_DIMENSION_ZERO=dimension_policy() or "off",
                  VK_LAYER_PATH=os.pathsep.join([str(dist), str(validation)]), XDG_CACHE_HOME=str(folder),
                  TEMP=str(folder), TMP=str(folder), TMPDIR=str(folder))
+    if gpu_bones is not None:
+        extra["EFMI_VK_M2_GPU_BONES"] = "1" if gpu_bones else "0"
     env = layer_env(str(folder / "layer.log"), extra=extra)
     env["VK_LAYER_PATH"] = extra["VK_LAYER_PATH"]
-    result = subprocess.run([str(exe), str(out / "replay.bin"), str(frames)] + (["open"] if open_tests else []), cwd=folder, env=env,
+    flags = (["open"] if open_tests else []) + (["two-queues"] if two_queues else [])
+    result = subprocess.run([str(exe), str(out / "replay.bin"), str(frames)] + flags, cwd=folder, env=env,
                             capture_output=True, text=True, errors="replace", timeout=600)
     (folder / "stdout.txt").write_text((result.stdout + result.stderr).encode("ascii", "backslashreplace").decode(), encoding="ascii")
     status = json.loads((folder / "status.json").read_text()) if (folder / "status.json").is_file() else {}
@@ -525,6 +529,10 @@ def main() -> int:
                     "calls and composited them without an error (EFMITTL, D-113)")
     ap.add_argument("--no-refusal", action="store_true", help="with --check: fail when a matched draw's plan was refused, "
                     "as when an INI calls a library or asks a question the plan cannot answer (D-112)")
+    ap.add_argument("--two-queues", action="store_true", help="the game's use of its two graphics queues (D-119): a frame's passes "
+                    "split over two command buffers on the two queues, the queues swapping every frame, three frames in flight")
+    ap.add_argument("--bones-identical", action="store_true", help="also replay with the merged skeleton imported on the CPU "
+                    "(m2_gpu_bones = 0) and, with --check, fail unless its pictures equal the GPU import's (D-117)")
     args = ap.parse_args()
     global MODS, SETTINGS
     MODS = args.mods or MODS
@@ -533,7 +541,7 @@ def main() -> int:
     SETTINGS = args.settings
     dist = Path(os.environ.get("EFMI_VK_DIST", ROOT / "dist"))
     validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))
-    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else ""))
+    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else "") + ("-2q" if args.two_queues else ""))
     out.mkdir(parents=True, exist_ok=True)
     sections, components = mod_sections(dist, out)
     replay = Replay(args.bundle, out)
@@ -580,7 +588,7 @@ def main() -> int:
     exe = build(out)
     results = {}
     for enabled in (False, True):
-        r = run(exe, out, dist, args.frames, enabled, validation, args.open_tests)
+        r = run(exe, out, dist, args.frames, enabled, validation, args.open_tests, args.two_queues)
         results[enabled] = r
         rep = r["status"].get("result", {}).get("replacement", {})
         counters = {k: v for k, v in rep.get("counters", {}).items() if v} if rep else {}
@@ -601,8 +609,28 @@ def main() -> int:
                    "translucency": r["status"].get("result", {}).get("replacement", {}).get("translucency", {}),
                    "targets": shots.get(enabled, {})} for enabled, r in results.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
+    cpu_bones = None
+    if args.bones_identical:
+        cpu_bones = run(exe, out, dist, args.frames, True, validation, args.open_tests, args.two_queues, gpu_bones=False, name="enabled-cpu-bones")
+        line = next((l for l in cpu_bones["output"].splitlines() if l.startswith("replay:")), "replay: no summary")
+        gpu_shots = shots.get(True, {}); cpu_shots = pictures(cpu_bones["folder"]) if (cpu_bones["folder"] / "targets.json").is_file() else {}
+        differing = sorted(n for n in gpu_shots if cpu_shots.get(n, {}).get("raw") != gpu_shots[n].get("raw"))
+        bones = results[True]["status"].get("result", {}).get("replacement", {}).get("bones", {})
+        print("enabled, bones on the CPU: exit %d; %s; pictures %s; GPU run's bones %s" % (
+            cpu_bones["returncode"], line, "identical" if not differing and cpu_shots else "differ: %s" % differing, bones))
+        summary["runs"]["enabled-cpu-bones"] = {"returncode": cpu_bones["returncode"], "replay": line, "differing": differing}
+        (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
     if args.check:
         problems = check(summary, draws, components)
+        if args.bones_identical:
+            cpu = summary["runs"]["enabled-cpu-bones"]
+            bones = results[True]["status"].get("result", {}).get("replacement", {}).get("bones", {})
+            if cpu["returncode"] != 0 or "validation errors=0 " not in cpu["replay"]:
+                problems.append("CPU bones run: %s" % cpu["replay"])
+            if cpu["differing"] or not shots.get(True):
+                problems.append("pictures with GPU and CPU bones differ: %s" % cpu["differing"])
+            if not bones.get("jobs") or bones.get("failures") or bones.get("submitted") != bones.get("completed"):
+                problems.append("bones status %s" % bones)
         if args.expect_translucency:
             t = summary["runs"].get("enabled", {}).get("translucency") or {}
             if not t.get("captures") or not t.get("composites") or t.get("last_error"):
