@@ -2207,3 +2207,9 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - Deployed 1.8.0 at 17:27 with the game and launcher closed (build/candidate-1.8.0.json); post-deployment smoke build/smoke-1.8.0.json.
 - 1.8.1 (BUG-048): skeleton components with bones between them and a 1024-image package budget; the new Si Mod configures in the actual-config sandbox at --api 1.3.
 - Deployed 1.8.1 at 18:38 with the game and launcher closed (build/candidate-1.8.1.json); post-deployment smoke build/smoke-1.8.1.json. No game load by the agent in this round.
+
+## 2026-10-25 (evening): the 1.8.1 session, the performance analysis and 1.8.2
+
+- User-started session with 1.8.1 (PID 44092): "it stutters badly, and the Si Mod does not show". Status snapshot build/game-1.8.1-status-1.json: translucency working; the Si package refused at its arenas (BUG-049); 5 ms of layer work per frame, bones 17-33 us per matched draw from write-combined memory; the game CPU-bound (4 cores, GPU 68%). An 8 s on/off A/B was inconclusive (the scene changed). The user: think about performance as a whole, not per Mod.
+- Analysis written for the user (steady cost, hitches, memory, the game's own cost); offline measurements: footprint 565 MiB for 22 packages (ISSUE-011), replay stage costs (bones 1 us offline against 17-33 in the game: the bus). Decision D-117: the bone import on the GPU as the Core does; D-118: budgets from the Mod's declarations.
+- Built 1.8.2 in the worktree: bone_merge.cpp and the compute shader, append_external, ring slots held by recordings, one submission per frame before the game's, probe `set gpu_bones`, arena_slices (BUG-049), the crash logger. The layer-entry tests crashed in the validation layer until vkSetDeviceLoaderData was called on the bone command buffers (the crash logger named the module). Replays vk03, vk04, vk01: pictures identical with GPU and CPU bones; character 361/361; live INI 76/76.

@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.2: the merged skeleton imported on the GPU; arenas sized from the skeleton (2026-10-25, D-117, D-118, BUG-049)
+
+- The 1.8.1 session: EFMITTL translucency worked (24044 captures, 6004 composites), the new Si Mod loaded but never drew (BUG-049), and the user found the game stuttering badly. Per-stage figures of the session (build/game-1.8.1-status-1.json): 50-90 us per matched draw, bones 17-33 us (write-combined reads), plan 15-37 us, the rest about 20 us; about 5 ms of layer work per frame; the game itself CPU-bound under Vulkan (ISSUE-012).
+- 1.8.2 moves the bone import to compute dispatches before the frame's draws (D-117: bone_merge.cpp, layer/shaders/bone_merge.hlsl, rings per identity, one submission per frame, the draws bind the ring slot; `m2_gpu_bones`, probe `set gpu_bones`), sizes the arenas' bone copies from the skeleton (D-118), and logs hardware faults with module+offset (util.cpp). Offline: vk03, vk04 (--only-mod Si Lunabelle) and vk01 render identical pictures with the import on the GPU and on the CPU (scratch ab_bones.py, build/replay/*); character 361/361, live INI 76/76; validation clean. The gain shows only in the game: next session, the interleaved A/B (ab_interleaved.py --setting gpu_bones, and m2) in one scene.
+- Layer-entry tests crashed inside the validation layer until the bone command buffers got the loader's dispatch pointer (vkSetDeviceLoaderData); the crash logger found it.
+
 ## 1.8.1: skeleton components with bones between them (2026-10-25, BUG-048)
 
 - The new Si Mod's 24 components leave bones between them, as the Core allows; the layer required a partition in five places and refused the package. 1.8.1 takes disjoint ranges in order, gaps keep their initial value, a gap bone belongs to no component; the per-package image budget is 1024 (the Mod's INIs declare 83 DDS images). Actual-config sandbox at --api 1.3: all 22 packages configure, the new Si Mod included. Tests: bone 127, character package 94, skeleton metadata 15.

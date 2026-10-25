@@ -1,5 +1,23 @@
 # EFMI Vulkan - Known issues
 
+## BUG-049: A Mod with a large skeleton never drew: its arenas exceeded the batch budget (fixed in 1.8.2)
+
+- 2026-10-25, 1.8.1 session (PID 44092): the new Si Mod configured and activated but drew nothing; its package said "character material arenas exceed the batch budget". Each batch makes one arena per image count (nine for a package with runtime materials), each with 64 bone copies of the master (512 + 2 x 1299 bones x 48 bytes = 150 KiB each): 9 x 64 x 150 KiB far above the 64 MiB a batch may take. Skeletons above about 900 bones hit it.
+- Fixed in 1.8.2: the copies per arena follow from the bone count and the number of arenas (arena_slices, at least eight), and with the import on the GPU (D-117) the arenas no longer hold copies of the skeleton at all for GPU-imported identities.
+
+## ISSUE-012: The game's own frame time under Vulkan, and what of it is ours (2026-10-25, open)
+
+- 1.8.1 session, open world, four Mods active: mean frame 15.9 ms, p50 14 ms, p95 31 ms, max 192 ms; the game at four cores of CPU with the GPU at 68%. The layer's steady work: about 5 ms per frame on the recording threads (4 ms for 55 matched draws at 50-90 us, 1 ms for the unmatched draws, submissions and 22 Present lists); draw_record max 321 ms (a first-appearance texture wait, 308 ms); present_work max 176 ms and submit_tracking max 50 ms without attribution yet. An on/off A/B of 8 s each was inconclusive (the scene changed: 216 against 690 draws per frame). The user: "it stutters badly". Next: the interleaved A/B (ab_interleaved.py: 10 rounds of 3 s on and off, medians) for the replacement and for the bones (`set gpu_bones`), attribution of the two unattributed maxima (the slow-call record should carry the stage that took the time), then the INI plan (15-37 us per matched draw) by memoizing a section's result on its inputs.
+
+## ISSUE-013: A replay crashed once inside the validation layer's vkCreateGraphicsPipelines (2026-10-25, sporadic)
+
+- The suite's vk01 step (replay, 1.8.2 candidate, validation and sync validation on) ended with an access violation reading address 4 inside VkLayer_khronos_validation.dll, called from GraphicsRecipe::create on a variant builder thread (VariantCache::run); the crash logger named the frames (build/replay/vk01/enabled/layer.log, 20:24:36). The same step passed twice before and three times right after, with the bones on the GPU and on the CPU; the other replay steps passed throughout. Not seen before 1.8.2 in the suite's logs, but the crash logger is new, so an earlier silent crash would have shown only as a failed step.
+- The create info's objects are the variant's own (its render pass, layout and modules are made by the builder itself), so no other thread destroys them; what the builders share is the device's VkPipelineCache, which Vulkan synchronizes internally, and the validation layer's own state. Next: the step in a loop to see its frequency (six runs right after passed), with `m2_gpu_bones = 0` as well; if it recurs, the validation layer alone (a newer build) and one builder thread as a test.
+
+## LIMIT-040: Fixed budgets that may refuse a Mod
+
+- Constants that stand for a size a Mod declares, to be gone through by D-118: 32 components, 256 streams, 256 sections, 1024 draws, 16 layout edits per package; 64 draws per list; 128 pixel bindings; 256 profiles; 4096 bones (the Core allows 65536 merged bones); 8 image slots per runtime material; 64 INI files per generation; 4096 CustomShaders; 16 identities per package; 1024 jobs per bone submission. A Mod that crosses one is refused as a whole with a message naming it, which the status shows as `last_reason`.
+
 ## BUG-048: A Mod whose skeleton components leave bones between them is refused (fixed in 1.8.1)
 
 - The Si Mod "Si" + U+FF1A + "NightveilTrancer & Gui" declares 1299 merged-skeleton bones in 24 components with bones between them (0-25, 361-425, 1142-1261 and others), none overlapping. The Core's initializer writes the 512 implicit bones and each component writes only its own range, so bones between components keep their initial value; every Mod vertex weights only component bones. The layer required the components to partition the skeleton (palette bank, Core bridge, skeleton plan, character package, native merged skeleton) and refuses the package: "Native generation preparation refused: Skeleton components overlap or leave a gap" (actual-config sandbox at Vulkan 1.3).
@@ -18,6 +36,8 @@
 - Fixed in 1.8.0 (D-114, D-115). To be seen in the next game session: `textures.floor_bytes`, `budget_waits`, `evictions`, gated frames, `translucency.layer_bytes`.
 
 ## ISSUE-011: F10 with twenty packages ran the system's commit out (observed 2026-10-25, not measured)
+
+- Measured offline (footprint.py, actual configuration, 22 packages, none activated): the layer takes 565 MiB of private memory in the sandbox, 418 MiB of it the packages' mesh payloads held in host memory. The game's 11 GiB of private memory in the 1.8.1 session is therefore mostly the game's own; an F10 adds a second copy of the 565 MiB while the generations exchange. Next: free a package's host payload after its mesh is on the device (re-read on activation), reload only the Mod whose folder changed.
 
 - At the F10 reload of 16:08:23 (19 activated packages, one Mod folder exchanged) Windows reported the virtual memory minimum too low at 16:08:36 and grew the page file; the stall watchdog saw the submitting thread inside vkQueueSubmit for 25 s at the character draw work submission before the DXC fault ended the process. Each generation reloads its Mod and meshes while the old one still lives; how much commit that takes per package is not measured. Next: the commit and device memory per generation across an F10 in the sandbox with the installed Mods folder.
 

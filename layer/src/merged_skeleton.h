@@ -52,6 +52,8 @@ public:
     bool updated(uint32_t instance, uint32_t component) const;
     // False when import_component would answer AlreadyCurrent: the caller need not read the source.
     bool needs_import(uint32_t instance, uint32_t component, uint32_t lod) const;
+    // The stamp of an import done elsewhere (the device's merge, D-117): false when it was current.
+    bool note_imported(uint32_t instance, uint32_t component, uint32_t lod);
 
 private:
     struct Stamp { uint64_t serial = 0; uint32_t lod = 0; bool valid = false; };

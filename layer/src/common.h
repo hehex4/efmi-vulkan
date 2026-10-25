@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "1.8.1"
+#define EFVK_VERSION "1.8.2"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -59,6 +59,7 @@ struct Config {
     uint64_t m2_texture_reduce_mb = 16; // a texture file this large loads without its top mip level when memory is tight; 0: never
     bool m2_texture_preload = false;    // every image of a package demanded at its activation (tests); default on first bind
     bool m2_pageable = true;            // VK_EXT_memory_priority and VK_EXT_pageable_device_local_memory when supported (D-095)
+    bool m2_gpu_bones = true;           // the merged skeleton imported by compute dispatches, not CPU reads (D-117); the probe can switch it
     bool m2_owned = true; // owned GPU execution (Present work, GPU work in draws); m2_owned = 0 turns it off
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped
@@ -129,6 +130,8 @@ bool streaming_reads_available();
 // A write-combined source must not overlap the ordinary CPU destination. Cached shadows
 // use memmove, preserving valid self-copies. Both paths copy exactly the requested bytes.
 void copy_buffer_bytes(void* dst, const void* src, size_t size, bool write_combined);
+// Logs a hardware fault anywhere in the process with its module, offset and stack (once installed).
+void install_crash_log();
 
 void ipc_start();
 

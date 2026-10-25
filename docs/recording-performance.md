@@ -205,9 +205,26 @@ What 1.7.2 changed, each measured in the replay:
 
 perlica replay (vk14, 120 frames), per matched draw: list execution 33.2 to 14.5 us, the whole plan 41.5 to 22.4 us; a package's Present 76 to 36 us per presentation; the 22 packages' Present lists 0.48 ms per presentation (with the Core's GUI text of the first minute).
 
-Still there: the bones (bone matrices read from write-combined mapped memory, about 25 KB per
-component per frame), to go to the GPU with a remap table; the index hashing of the draws that
-match no section; the Present lists of every package (the Core's GUI list runs for each).
+Still there: the index hashing of the draws that match no section; the Present lists of every
+package (the Core's GUI list runs for each).
+
+## The bones on the GPU (1.8.2, D-117)
+
+In the 1.8.1 game session the bones were the largest single item: 17-33 us per matched draw, the
+CPU reading each component's two poses (25-60 KB) out of the game's write-combined bone buffer with
+streaming loads, then copying the master into every recording's arena; offline, with the same data
+in cached memory, the read is 1 us, so the bus is the cost and no CPU change removes it. The Core
+never reads bones on the CPU: its MergedSkeleton_BoneDataImporter compute shaders copy them on the
+GPU. The layer now does the same (layer/src/bone_merge.cpp, layer/shaders/bone_merge.hlsl): per
+identity a ring of eight merged skeletons in device memory, a slot per frame, one job per drawn
+component (the game's bone buffer as bound, the entry's row offsets, the component's range and LOD
+remap), all jobs dispatched in one submission of ours on the application's queue before its own
+(character_submit), a barrier to the vertex shaders, a timeline for completion and for the slot's
+reuse, a wait when the other graphics queue drew. The draws bind the ring slot
+(DrawSnapshots::append_external): no copy of the skeleton per recording any more. The CPU import
+stays as the fallback and for `m2_gpu_bones = 0`; the probe's `set gpu_bones=0/1` switches at run
+time, so one scene can be measured both ways (scratch ab_interleaved.py). Offline the pictures of
+vk03, vk04 and vk01 are identical either way; the gain is a game measurement.
 
 ## A sampling profiler, and what it found (1.7.4, D-108)
 

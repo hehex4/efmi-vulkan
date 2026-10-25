@@ -4,6 +4,8 @@
 
 - Done in 1.8.0 (offline verified, see CURRENT_STATE): BUG-046 (DXC fault on a Mod folder outside ASCII, fxc bytecode for sources DXC refuses, failed CustomShaders skipped as the original does), BUG-047 (texture floor, eviction for free memory, lazy and released EFMITTL layers).
 - 1.8.1: BUG-048 fixed (skeleton gaps, image budget 1024); the new Si Mod configures in the actual-config sandbox at --api 1.3. Open: LIMIT-039 (d3dx.ini built-in command lists), the Si Mod's shape keys and watch GUI in the game.
+- 1.8.2 (D-117, D-118, BUG-049): bones on the GPU, arenas sized from the skeleton, crash logger. Verified offline (pictures identical GPU/CPU on three replays; suite). Next session: interleaved A/B of the replacement and of gpu_bones in one scene (ab_interleaved.py), the Si Mod drawing, `bones` status (jobs, submissions, slot_waits, failures).
+- Performance plan (ISSUE-012), in order: attribution of present_work and submit_tracking maxima; the INI plan memoized on its inputs (15-37 us per matched draw); the per-draw bookkeeping (identify, materials, variants, append, snapshot, emit, about 20 us); host memory (ISSUE-011: payloads freed after upload, F10 reloading only the changed Mod); LIMIT-040 budgets by D-118.
 - ISSUE-011: measure commit and device memory per generation across an F10 with the installed Mods folder (twenty generations reload at once).
 - In the next user-started session: textures.floor_bytes, budget_waits, evictions and gated frames while switching characters in the open world; translucency.layer_bytes; the new Si Mod.
 

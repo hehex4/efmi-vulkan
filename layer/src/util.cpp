@@ -79,6 +79,52 @@ __declspec(noinline) static void copy_write_combined(void* dst, const void* src,
     _mm_mfence();
 }
 
+// A hardware fault anywhere in the process is logged with its module and offset and the first
+// frames of its stack (module+offset, symbolized offline with the build's PDBs), then left to the
+// handlers the process has, as before. At most eight: an application that uses faults on purpose
+// does not fill the log. The game's crash of BUG-046 (inside DXC) would have named the module.
+namespace {
+void module_offset(const void* address, char* out, size_t size)
+{
+    HMODULE module = nullptr;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(address), &module) && module) {
+        wchar_t path[MAX_PATH] = {};
+        GetModuleFileNameW(module, path, MAX_PATH);
+        const wchar_t* name = wcsrchr(path, L'\\'); name = name ? name + 1 : path;
+        snprintf(out, size, "%ls+0x%llx", name, static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(module)));
+    } else snprintf(out, size, "%p", address);
+}
+LONG WINAPI crash_logger(EXCEPTION_POINTERS* info)
+{
+    const auto& record = *info->ExceptionRecord;
+    const DWORD code = record.ExceptionCode;
+    if (code != EXCEPTION_ACCESS_VIOLATION && code != EXCEPTION_ILLEGAL_INSTRUCTION && code != EXCEPTION_STACK_OVERFLOW &&
+        code != EXCEPTION_PRIV_INSTRUCTION && code != EXCEPTION_INT_DIVIDE_BY_ZERO && code != EXCEPTION_IN_PAGE_ERROR)
+        return EXCEPTION_CONTINUE_SEARCH;
+    static std::atomic<int> logged{0};
+    if (logged.fetch_add(1) >= 8) return EXCEPTION_CONTINUE_SEARCH;
+    char where[300];
+    module_offset(record.ExceptionAddress, where, sizeof(where));
+    if (code == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2)
+        logf("crash: access violation %s address %p at %s, thread %lu", record.ExceptionInformation[0] == 1 ? "writing" : record.ExceptionInformation[0] == 8 ? "executing" : "reading",
+             reinterpret_cast<void*>(record.ExceptionInformation[1]), where, GetCurrentThreadId());
+    else logf("crash: exception 0x%08lx at %s, thread %lu", code, where, GetCurrentThreadId());
+    void* frames[24] = {};
+    const USHORT count = CaptureStackBackTrace(0, 24, frames, nullptr);
+    for (USHORT i = 0; i < count; ++i) { module_offset(frames[i], where, sizeof(where)); logf("crash: frame %u: %s", i, where); }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+} // namespace
+
+void install_crash_log()
+{
+    static bool installed = false;
+    if (installed) return;
+    installed = true;
+    AddVectoredExceptionHandler(1, crash_logger);
+}
+
 void copy_buffer_bytes(void* dst, const void* src, size_t size, bool write_combined)
 {
     if (!size) return;
@@ -292,6 +338,7 @@ void util_init(HMODULE self)
     }
     g_cfg.m2_texture_preload = setting("EFMI_VK_M2_TEXTURE_PRELOAD", "m2_texture_preload") == "1";
     g_cfg.m2_pageable = setting("EFMI_VK_M2_PAGEABLE", "m2_pageable") != "0";
+    g_cfg.m2_gpu_bones = setting("EFMI_VK_M2_GPU_BONES", "m2_gpu_bones") != "0";
     std::string m2_enabled = setting("EFMI_VK_M2_ENABLED", "m2_enabled");
     g_cfg.m2_enabled = m2_enabled == "1" || m2_enabled == "on";
 
@@ -360,6 +407,7 @@ void util_init(HMODULE self)
         log_path = g_module_dir + L"\\efmi_vk_layer.log";
     g_log = CreateFileW(log_path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    install_crash_log();
 
     logf("efmi_vk_layer %s loaded into %s, mode=%s, entry=%s, crc=%s, resources=%s, shader_budget=%llu, image_hash=%s, profile_tracker=%s, "
          "unmap_snapshot=%s up to %llu",

@@ -54,6 +54,10 @@ public:
     // A texture-only draw (D-083): the entry and images; the bone binding points at the arena's
     // first slice without copying (the pipeline does not read it). Shared arenas only.
     bool append_images(const InstanceEntry&, const std::vector<SnapshotImage>&, SnapshotSlot&);
+    // The bones of a merged skeleton the device holds (D-117): binding 0 points at that range of
+    // `bones`, nothing is copied; the entry and images as in append_shared. Shared arenas only.
+    bool append_external(VkBuffer bones, VkDeviceSize offset, VkDeviceSize size, const InstanceEntry&,
+                         const std::vector<SnapshotImage>&, SnapshotSlot&);
     uint32_t slices_used() const { return slices_used_; }
     bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, SnapshotSlot&);
     bool append(const std::vector<uint8_t>& bones, const InstanceEntry&, const std::vector<SnapshotImage>&, SnapshotSlot&);

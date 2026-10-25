@@ -187,6 +187,25 @@ bool DrawSnapshots::append_images(const InstanceEntry& entry, const std::vector<
     return true;
 }
 
+bool DrawSnapshots::append_external(VkBuffer bones, VkDeviceSize offset, VkDeviceSize size, const InstanceEntry& entry,
+                                    const std::vector<SnapshotImage>& images, SnapshotSlot& output)
+{
+    reason.clear();
+    if (!shared_ || sealed_ || !mapped_ || !bones || !size) { reason = "shared snapshot is sealed or uncreated, or no external bones"; return false; }
+    if (used_ >= capacity_) { reason = "snapshot entries are full"; return false; }
+    if (!valid_images(images)) return false;
+    VkDescriptorBufferInfo info = {bones, offset, size};
+    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    write.dstSet = sets_[used_]; write.dstBinding = 0; write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; write.pBufferInfo = &info;
+    d_.UpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    write_images(images);
+    std::memcpy(mapped_ + entry_base_ + entry_stride_ * used_, entry.data(), entry.size());
+    output = {sets_[used_], static_cast<uint32_t>(entry_stride_ * used_)};
+    ++used_;
+    return true;
+}
+
 bool DrawSnapshots::append(const std::vector<uint8_t>& bones, const InstanceEntry& entry, SnapshotSlot& output)
 {
     return append(bones,entry,{},output);

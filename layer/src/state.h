@@ -763,7 +763,7 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
                           std::shared_ptr<const SnapRequest> snap = nullptr, bool wait_draws = false);
 std::string probe_snapshot(uint64_t seq, uint32_t id, std::vector<uint8_t>& payload);
 // Changes the unmap settings of the running process; a negative value leaves a setting as it is.
-std::string probe_set(int unmap_snapshot_all, int64_t unmap_snapshot_limit);
+std::string probe_set(int unmap_snapshot_all, int64_t unmap_snapshot_limit, int gpu_bones = -1);
 std::string probe_buffers(uint32_t usage_mask, uint64_t min_size, uint32_t limit);
 std::string probe_read_buffer(uint32_t id, uint64_t off, uint64_t size, std::vector<uint8_t>& payload);
 std::string probe_hash(uint32_t id, uint64_t off, uint64_t size);

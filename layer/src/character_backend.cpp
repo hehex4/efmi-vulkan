@@ -12,6 +12,8 @@
 #include "../../frontend/gpu/texture_roles.h"
 #include "texture_identity.h"
 #include "translucency.h"
+#include "bone_merge.h"
+#include <functional>
 #include "merged_skeleton.h"
 #include "state.h"
 #include "work.h"
@@ -84,7 +86,18 @@ constexpr uint64_t kExpiryFrames = 4;
 // up only after the core's two counted presents and this much time without a draw.
 // An object not drawn this long (off screen, a cut) is forgotten: g_cfg.m2_identity_expiry_ms, 10 s by default (0.5 s until 1.7.0, D-100).
 constexpr size_t kIdentities = 16;
-constexpr uint32_t kArenaEntries = 256, kArenaSlices = 64;
+constexpr uint32_t kArenaEntries = 256, kArenaSlices = 64, kArenaMinSlices = 8;
+// Bone copies per arena: kArenaSlices, fewer for a large skeleton so that a batch (one arena per image
+// count) keeps its 64 MiB budget. A 1299-bone Mod needs 146 KiB per copy; with 64 copies in each of
+// nine arenas every batch was refused and the package never drew (BUG-049).
+uint32_t arena_slices(uint32_t bone_bytes, size_t arenas)
+{
+    const uint64_t per_arena = (64ull << 20) / std::max<size_t>(arenas, 1);
+    const uint64_t fixed = uint64_t(kArenaEntries) * 256 + 65536 + 4096; // entries, uniform range, alignment
+    const uint64_t stride = (uint64_t(bone_bytes) + 255) & ~uint64_t(255);
+    if (!stride || per_arena <= fixed) return kArenaMinSlices;
+    return static_cast<uint32_t>(std::clamp<uint64_t>((per_arena - fixed) / stride, kArenaMinSlices, kArenaSlices));
+}
 constexpr uint64_t kRehashFrames = 1024;
 // Fragment shaders without a profile in the package whose rules are derived from the module.
 constexpr size_t kDerivedProfiles = 256;
@@ -125,7 +138,7 @@ enum Counter : uint32_t {
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
     C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_SNAPSHOT_COPIES, C_IDENTITY_ADOPTED,
-    C_PREPARING, C_TRANSLUCENT, C_COUNT
+    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -134,7 +147,7 @@ const char* const kCounterNames[C_COUNT] = {
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
     "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames", "snapshot_copies", "identities_adopted", "preparing",
-    "translucent"
+    "translucent", "bone_jobs", "bone_ring_busy"
 };
 // Where a matched draw's time goes (D-099): microseconds per stage of record(), in the status.
 enum Stage : uint32_t { S_LOCK, S_IDENTIFY, S_BONES, S_PLAN, S_MATERIALS, S_VARIANTS, S_OWNER, S_APPEND, S_SNAPSHOT, S_EMIT, S_COUNT };
@@ -191,6 +204,10 @@ struct Identity {
     uint32_t seen = 0;               // components met since this identity appeared
     MergedSkeleton skeleton;
     std::vector<uint8_t> coverage;   // per component: bit 0 current pose imported, bit 1 previous
+    // The merged skeleton on the device (D-117): the ring, and the slot this frame's dispatches write.
+    std::shared_ptr<BoneRing> ring;
+    uint32_t ring_slot = UINT32_MAX;
+    bool gpu_frame = false;
 };
 
 struct IndexKey {
@@ -253,11 +270,20 @@ struct CharacterCommand : CommandOwner {
     std::shared_ptr<std::atomic<uint64_t>> batches;
     // Owned GPU buffers the recording binds as vertex streams (D-087).
     std::vector<std::shared_ptr<void>> owned;
+    // Ring slots of merged skeletons the recording reads (D-117), held until it completed.
+    std::vector<std::pair<std::shared_ptr<BoneRing>, uint32_t>> rings;
+    void hold(const std::shared_ptr<BoneRing>& ring, uint32_t slot)
+    {
+        for (const auto& held : rings) if (held.first == ring && held.second == slot) return;
+        ring->hold(slot); rings.emplace_back(ring, slot);
+    }
     uint32_t idle_recordings = 0; // resets in a row that found it unused
     void reset_after_completion() override
     {
         idle_recordings = used ? 0 : idle_recordings + 1;
         used = false; owned.clear();
+        for (auto& held : rings) held.first->release(held.second);
+        rings.clear();
         variants.clear(); snapshots->recycle_completed();
         for (auto& arena : material_snapshots) arena.second->recycle_completed();
     }
@@ -309,6 +335,9 @@ public:
     uint32_t bone_bytes = 0;
     std::shared_ptr<VariantCache> cache; // the device's (D-103), shared by every package
     TextureResidency* textures = nullptr;              // the device's (D-094)
+    BoneMerge* bones_gpu = nullptr;                    // the device's merged-skeleton dispatches (D-117)
+    std::shared_ptr<BoneRemaps> bone_remaps;           // this package's LOD remap tables on the device
+    bool bone_remaps_failed = false, bone_ring_failed = false;
     std::vector<TextureResidency::ImageId> image_ids;  // per package image
     std::vector<std::vector<StaticMaterial>> materials; // profile x package draw, prepared at setup
     std::unordered_map<uint32_t, uint32_t> material_profiles; // pipeline generation -> exact profile
@@ -350,9 +379,11 @@ public:
     // One captured call (D-113): its opacity set and parameter layer, the game's sets and dynamic
     // state of the draw (`own`: the pipeline's sets below the private one), queued after the list.
     // Caller holds the mod lock.
+    // How a draw's bones reach its private set: the CPU master copied into the arena, or the device's
+    // ring slot bound (D-117).
+    using AppendBones = std::function<bool(DrawSnapshots&, const std::vector<SnapshotImage>&, SnapshotSlot&)>;
     bool capture(CmdBuf* cb, const DrawRec& r, uint32_t own, const CharacterDraw& d, uint32_t i, const SnapshotSlot& colour,
-                 const DrawGeometry& geometry, const IndexedDraw& args, const std::vector<uint8_t>& master, uint64_t key,
-                 const InstanceEntry& patched, CharacterCommand* owner)
+                 const DrawGeometry& geometry, const IndexedDraw& args, const AppendBones& append_bones, CharacterCommand* owner)
     {
         uint32_t layer = 0;
         if (!translucency->reserve(cb, layer)) return refuse(C_STATE, "more translucent calls in one pass than the layers' parameters hold");
@@ -362,7 +393,7 @@ public:
         auto arena = owner->material_snapshots.find(2);
         if (arena == owner->material_snapshots.end()) return refuse(C_EXHAUSTED, "no two-image arena for the translucent opacity");
         TranslucentCapture c;
-        if (!arena->second->append_shared(master.data(), master.size(), key, patched, views, c.slots[1])) return refuse(C_EXHAUSTED, arena->second->reason);
+        if (!append_bones(*arena->second, views, c.slots[1])) return refuse(C_EXHAUSTED, arena->second->reason);
         c.slots[0] = colour;
         for (uint32_t k = 0; k < kCaptureKinds; ++k) { c.variants[k] = scratch_captures[k][i]; owner->variants.push_back(c.variants[k]); }
         c.geometry = geometry; c.draw = args;
@@ -482,9 +513,9 @@ public:
     // when one of its sections first matches a draw, so characters not on screen take no memory there.
     CharacterGeneration(Device* dev, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m,
                         std::string path = g_cfg.m2_package, bool deferred = false, TextureResidency* residency = nullptr,
-                        std::shared_ptr<VariantCache> variant_cache = nullptr, Translucency* layers = nullptr)
+                        std::shared_ptr<VariantCache> variant_cache = nullptr, Translucency* layers = nullptr, BoneMerge* bones = nullptr)
         : device(dev), properties(p), memory(m), translucency(layers), textures(residency), variants(std::move(variant_cache)),
-          package_path(std::move(path)), lazy(deferred) {}
+          package_path(std::move(path)), lazy(deferred) { bones_gpu = bones; }
     std::shared_ptr<VariantCache> variants; // the device's (D-103)
     std::string package_path;
     bool lazy = false;
@@ -671,9 +702,10 @@ public:
                 batch->generation = generation_key; batch->backend = generation_key.get(); batch->batches = batches;
                 batch->keep = created;
                 uint64_t total_bytes = 0;
+                const uint32_t slices = arena_slices(bone_bytes, image_counts.size());
                 for (uint32_t count : image_counts) {
                     auto snapshots = std::make_shared<DrawSnapshots>(device->handle, storage);
-                    if (!snapshots->create_shared(memory, properties.limits, kArenaEntries, kArenaSlices, bone_bytes, 65536, count)) {
+                    if (!snapshots->create_shared(memory, properties.limits, kArenaEntries, slices, bone_bytes, 65536, count)) {
                         note(snapshots->reason); return;
                     }
                     total_bytes += snapshots->size();
@@ -957,6 +989,7 @@ public:
             bool expired = false;
             if (identity.used && unseen && clock - identity.last_us > g_cfg.m2_identity_expiry_ms * 1000) {
                 identity.used = false; expired = true;
+                identity.ring.reset(); identity.gpu_frame = false;
                 ++counters[C_IDENTITY_EXPIRED];
             }
             if ((identity.used || expired) && identity.custom && distance < near_distance) {
@@ -1015,6 +1048,50 @@ public:
     }
 
     // Caller holds res_mx. Where the vertex shader of a pipeline reads its bones, found once per pipeline.
+    // The identity's merged skeleton on the device for this frame (D-117): a ring made on first use
+    // and a slot no recording reads; without one the frame imports on the CPU as before.
+    void acquire_ring(Identity& identity)
+    {
+        identity.gpu_frame = false;
+        if (!bones_gpu || !bones_gpu->usable() || !g_cfg.m2_gpu_bones || bone_ring_failed) return;
+        if (!identity.ring) {
+            std::string why;
+            identity.ring = bones_gpu->ring(package.bones, why);
+            if (!identity.ring) { bone_ring_failed = true; note("bone ring: " + why); return; }
+        }
+        const uint32_t slot = identity.ring->acquire();
+        if (slot == UINT32_MAX) { ++counters[C_BONE_RING]; return; }
+        identity.ring_slot = slot; identity.gpu_frame = true;
+    }
+    bool ensure_remaps()
+    {
+        if (bone_remaps || bone_remaps_failed) return bool(bone_remaps);
+        std::vector<std::vector<uint16_t>> tables;
+        for (const auto& c : package.components) tables.push_back(c.has_remap ? c.remap_lod1 : std::vector<uint16_t>{});
+        std::string why;
+        bone_remaps = bones_gpu->remaps(tables, why);
+        if (!bone_remaps) { bone_remaps_failed = true; note("bone remaps: " + why); }
+        return bool(bone_remaps);
+    }
+    // One component's import as a dispatch of the frame; false when the source cannot be bound (its
+    // bounds, alignment or remap table), and the CPU import follows.
+    bool queue_bone_job(Identity& identity, uint32_t component_index, const CharacterComponent& component, uint32_t lod, bool remapped,
+                        size_t needed, const BoundRange& bones, const uint32_t offsets[2], uint8_t dynamic)
+    {
+        for (uint32_t p = 0; p < 2; ++p)
+            if ((dynamic >> p & 1) && (uint64_t(offsets[p]) * 16 > bones.size || needed > bones.size - uint64_t(offsets[p]) * 16)) return false;
+        if (bones.off % bones_gpu->alignment()) return false;
+        if (remapped && !ensure_remaps()) return false;
+        identity.skeleton.note_imported(0, component_index, lod);
+        BoneJob job;
+        job.ring = identity.ring; job.slot = identity.ring_slot; job.remaps = remapped ? bone_remaps : nullptr; job.component = component_index;
+        job.source = bones.buffer; job.source_offset = bones.off; job.source_size = bones.size;
+        job.rows[0] = offsets[0]; job.rows[1] = offsets[1];
+        job.first = component.first; job.count = component.count; job.poses = dynamic; job.remap = remapped;
+        bones_gpu->queue(std::move(job));
+        ++counters[C_BONE_JOBS];
+        return true;
+    }
     BoneSite site_of(const PipeInfo& pipe)
     {
         auto found = sites.find(pipe.id);
@@ -1373,6 +1450,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             std::string reason;
             if (!identity->skeleton.begin_update(now, reason)) return refuse(C_IMPORT, reason);
             identity->update_frame = now;
+            acquire_ring(*identity); // the frame's merged skeleton on the device (D-117), or the CPU's
         }
 
         lap(S_IDENTIFY);
@@ -1395,31 +1473,38 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             for (const auto& range : bone_ranges)
                 if (range.element == 0 && range.binding == site.binding &&
                     (range.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || range.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) bones = &range;
-#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
-            const uint64_t bones_read_began = host_time_us();
-#endif
-            readable = readable && (!(dynamic & 1) || read_range(bones, uint64_t(offsets[0]) * 16, needed, current.data())) &&
-                       (!(dynamic & 2) || read_range(bones, uint64_t(offsets[1]) * 16, needed, previous.data()));
-#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
-            if (program) program->note_timing("bones read", host_time_us() - bones_read_began);
-            const uint64_t bones_import_began = host_time_us();
-#endif
-            if (!readable) {
-                ++counters[C_BONES];
+            // On the device (D-117): a dispatch before the frame's draws copies the rows; the CPU reads none.
+            if (identity->gpu_frame && bones && readable &&
+                queue_bone_job(*identity, section->component, component, lod, remapped, needed, *bones, offsets, dynamic)) {
+                identity->coverage[section->component] |= dynamic;
+                ++identity->generation;
             } else {
-                std::string reason;
-                static const std::vector<uint16_t> identity_map;
-                const auto result = identity->skeleton.import_component(0, section->component, lod, entry,
-                    {current.data(), needed}, {previous.data(), needed}, remapped ? component.remap_lod1 : identity_map, 1.0f, reason);
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
-                if (program) program->note_timing("bones import", host_time_us() - bones_import_began);
+                const uint64_t bones_read_began = host_time_us();
 #endif
-                if (result == BoneImportResult::Imported) {
-                    identity->coverage[section->component] |= dynamic;
-                    ++identity->generation;
-                } else if (result == BoneImportResult::Rejected) {
-                    ++counters[C_IMPORT];
-                    note("character bone import: " + reason);
+                readable = readable && (!(dynamic & 1) || read_range(bones, uint64_t(offsets[0]) * 16, needed, current.data())) &&
+                           (!(dynamic & 2) || read_range(bones, uint64_t(offsets[1]) * 16, needed, previous.data()));
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+                if (program) program->note_timing("bones read", host_time_us() - bones_read_began);
+                const uint64_t bones_import_began = host_time_us();
+#endif
+                if (!readable) {
+                    ++counters[C_BONES];
+                } else {
+                    std::string reason;
+                    static const std::vector<uint16_t> identity_map;
+                    const auto result = identity->skeleton.import_component(0, section->component, lod, entry,
+                        {current.data(), needed}, {previous.data(), needed}, remapped ? component.remap_lod1 : identity_map, 1.0f, reason);
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+                    if (program) program->note_timing("bones import", host_time_us() - bones_import_began);
+#endif
+                    if (result == BoneImportResult::Imported) {
+                        identity->coverage[section->component] |= dynamic;
+                        ++identity->generation;
+                    } else if (result == BoneImportResult::Rejected) {
+                        ++counters[C_IMPORT];
+                        note("character bone import: " + reason);
+                    }
                 }
             }
         }
@@ -1667,6 +1752,13 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     scratch_pending_captures.clear(); // nothing of an earlier refused draw goes to the queue
     const std::vector<uint8_t>& master = identity->skeleton.bytes();
     const uint64_t key = identity->id << 32 ^ identity->generation;
+    const AppendBones append_bones = [&](DrawSnapshots& arena, const std::vector<SnapshotImage>& views, SnapshotSlot& out) {
+        if (!identity->gpu_frame || !identity->ring) return arena.append_shared(master.data(), master.size(), key, patched, views, out);
+        const auto& ring = identity->ring;
+        if (!arena.append_external(ring->buffer, ring->slot_stride * identity->ring_slot, ring->slot_bytes, patched, views, out)) return false;
+        command_owner->hold(ring, identity->ring_slot);
+        return true;
+    };
     for (uint32_t i = 0; i < list->count; ++i) {
         const CharacterDraw& d = package.draws[list->first + i];
         SnapshotSlot slot;
@@ -1680,8 +1772,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         auto arena = count ? command_owner->material_snapshots.at(count) : command_owner->snapshots;
         const uint32_t slices_before = arena->slices_used();
         const uint64_t append_began = host_time_us();
-        if (!arena->append_shared(master.data(), master.size(), key, patched, *slot_views, slot))
-            return refuse(C_EXHAUSTED, arena->reason);
+        if (!append_bones(*arena, *slot_views, slot)) return refuse(C_EXHAUSTED, arena->reason);
         stage_us[S_APPEND] += host_time_us() - append_began;
         if (arena->slices_used() != slices_before) ++counters[C_SNAPSHOT_COPIES];
         DrawGeometry& g = geometry[i];
@@ -1699,7 +1790,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         g.index_type = index.stride == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         if (capturing[i]) {
-            if (!capture(cb, r, capture_sets, d, i, slot, g, args, master, key, patched, command_owner)) return false;
+            if (!capture(cb, r, capture_sets, d, i, slot, g, args, append_bones, command_owner)) return false;
             continue;
         }
         items.push_back({variants[i].get(), slot.set, slot.offset, &g, args});
@@ -1897,9 +1988,9 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
 std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkPhysicalDeviceProperties& properties,
                                                    const VkPhysicalDeviceMemoryProperties& memory,
                                                    const std::string& path, bool lazy, TextureResidency* textures,
-                                                   std::shared_ptr<VariantCache> variants, Translucency* translucency)
+                                                   std::shared_ptr<VariantCache> variants, Translucency* translucency, BoneMerge* bones)
 {
-    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory, path, lazy, textures, std::move(variants), translucency);
+    auto backend = std::make_shared<CharacterGeneration>(device, properties, memory, path, lazy, textures, std::move(variants), translucency, bones);
     try {
         if (!backend->init()) {
             // BUG-026: a refusal can come after the INI program or its presenter were made; a refused
@@ -2137,11 +2228,11 @@ public:
                 if (!previous->program->save(reason)) {
                     auto failed = std::make_shared<CharacterGeneration>(previous->device, previous->properties, previous->memory,
                                                                         previous->package_path, previous->lazy, previous->textures,
-                                                                        previous->variants, previous->translucency);
+                                                                        previous->variants, previous->translucency, previous->bones_gpu);
                     failed->note("Cannot preserve settings before reload: " + reason); return failed;
                 }
                 return generation_create(previous->device, previous->properties, previous->memory, previous->package_path,
-                                         previous->lazy, previous->textures, previous->variants, previous->translucency);
+                                         previous->lazy, previous->textures, previous->variants, previous->translucency, previous->bones_gpu);
             });
         }
     }
@@ -2156,6 +2247,8 @@ public:
     std::unique_ptr<TextureResidency> textures;
     // EFMITTL's layers, captures and composite (D-113), shared by every package that loaded it.
     std::unique_ptr<Translucency> translucency;
+    // The merged skeletons' import by compute dispatches (D-117), shared by every package.
+    std::unique_ptr<BoneMerge> bone_merge;
     // Which pipelines draw with the game's copy shader (the library's depth-copy hook), by identity.
     std::mutex copy_mx;
     std::unordered_map<uint32_t, bool> copy_facts;
@@ -2339,6 +2432,8 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     backend->textures = std::make_unique<TextureResidency>(d, m);
     if (!backend->textures->usable()) logf("character textures unavailable: %s", backend->textures->reason().c_str());
     backend->translucency = std::make_unique<Translucency>(d, m);
+    backend->bone_merge = std::make_unique<BoneMerge>(d, p, m);
+    if (!backend->bone_merge->usable()) logf("character bones stay on the CPU: %s", backend->bone_merge->reason().c_str());
     std::error_code error;
     const bool directory = !g_cfg.m2_mods.empty() || std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package), error);
     backend->properties = p; backend->memory = m; backend->directory = directory;
@@ -2346,7 +2441,8 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     for (const auto& path : configured_packages(backend->reason)) {
         auto controller = std::make_unique<CharacterController>();
         controller->path = path; controller->lazy = directory;
-        controller->active = generation_create(d, p, m, path, directory, backend->textures.get(), backend->variants, backend->translucency.get());
+        controller->active = generation_create(d, p, m, path, directory, backend->textures.get(), backend->variants, backend->translucency.get(),
+                                               backend->bone_merge.get());
         backend->controllers.push_back(std::move(controller));
     }
     if (directory) logf("character packages: %zu from %s", backend->controllers.size(),
@@ -2381,8 +2477,9 @@ void character_rescan(CharacterBackend& b)
         controller->path = path; controller->lazy = true;
         Device* const d = b.device; const auto p = b.properties; const auto m = b.memory;
         TextureResidency* const textures = b.textures.get(); auto variants = b.variants; Translucency* const translucency = b.translucency.get();
-        controller->loading = std::async(std::launch::async, [d, p, m, path, textures, variants, translucency] {
-            return generation_create(d, p, m, path, true, textures, variants, translucency);
+        BoneMerge* const bones = b.bone_merge.get();
+        controller->loading = std::async(std::launch::async, [d, p, m, path, textures, variants, translucency, bones] {
+            return generation_create(d, p, m, path, true, textures, variants, translucency, bones);
         });
         logf("character package found by F10: %s", path.c_str());
         std::unique_lock<std::shared_mutex> lock(b.index_mx);
@@ -2547,6 +2644,10 @@ VkResult character_submit(CharacterBackend& b, VkQueue q)
 {
     // The textures' uploads and publication on this queue, before any package's work (D-094).
     if (b.textures) { const auto result = b.textures->before_submit(q); if (result != VK_SUCCESS) return result; }
+    // The merged skeletons of the frame's draws (D-117), before the application's work that reads them.
+    if (b.bone_merge && b.device && std::find(b.device->material_queues.begin(), b.device->material_queues.end(), q) != b.device->material_queues.end()) {
+        const auto result = b.bone_merge->submit(q); if (result != VK_SUCCESS) return result;
+    }
     for (auto& c : b.controllers) {
         std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->stopped) continue;
         auto result = c->active ? generation_submit(*c->active, q) : VK_SUCCESS;
@@ -2642,6 +2743,7 @@ void character_status(CharacterBackend& b, JsonWriter& w)
         w.kn("layer_sets", layers.sets); w.kn("layers", layers.layers); w.kn("layer_bytes", layers.bytes);
         w.kv("last_error", b.translucency->last_error()); w.end_object();
     }
+    if (b.bone_merge) b.bone_merge->status(w);
     if (b.textures) b.textures->status(w);
     if (b.controllers.size() > 1) {
         w.key("packages"); w.begin_array();

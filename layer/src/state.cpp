@@ -1946,8 +1946,10 @@ std::string probe_capture(uint32_t timeout_ms, bool with_draws, uint64_t descrip
     return w.out;
 }
 
-std::string probe_set(int unmap_snapshot_all, int64_t unmap_snapshot_limit)
+std::string probe_set(int unmap_snapshot_all, int64_t unmap_snapshot_limit, int gpu_bones)
 {
+    // The bone import's place (D-117) is read per draw; a module exchange is not needed to compare.
+    if (gpu_bones >= 0) { g_cfg.m2_gpu_bones = gpu_bones != 0; logf("settings changed by the probe client: gpu_bones=%d", gpu_bones); }
     {
         // The unmap path reads these settings with the resource lock held, so they change under it.
         DeviceRef ref;
