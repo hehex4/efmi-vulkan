@@ -4,6 +4,8 @@
 
 > Active request: 2026-10-24, inspect and adapt the installed EFMITTL plugin. Implementation 776e22e is on codex/efmittl-support in build/performance-worktree; main's 21 older WIP files are preserved. Candidate 1.7.7 was deployed at 21:36 after the game and launcher had closed; the actual-config sandbox smoke passed. No game load, launcher change or module exchange was performed.
 
+> Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
+
 ## EFMITTL translucency: 1.7.9 (D-113)
 
 - The parts Mods draw through EFMITTL are translucent: the library's INI decides, the layer supplies its hook facts from SPIR-V (lit vertex shader by output interface, copy shader by structure; shadows stay full), records its capture at the end of the forward pass into device layers and composites with the library's own shaders. docs/efmittl-transparency.md.
