@@ -2560,6 +2560,7 @@ void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
 {
     if (had_draws) b.frames.fetch_add(1, std::memory_order_relaxed);
     if (b.textures) b.textures->frame();
+    if (b.translucency) b.translucency->frame();
     // The keys, the window and the cursor, once for every package (they cost per package before).
     auto input = sample_ini_input();
     OwnedPresenter::sample(b.device, present, input);
@@ -2637,6 +2638,8 @@ void character_status(CharacterBackend& b, JsonWriter& w)
         // EFMITTL's captures and composites at the ends of passes (D-113).
         w.key("translucency"); w.begin_object();
         w.kn("captures", b.translucency->captures()); w.kn("composites", b.translucency->composites());
+        const auto layers = b.translucency->memory();
+        w.kn("layer_sets", layers.sets); w.kn("layers", layers.layers); w.kn("layer_bytes", layers.bytes);
         w.kv("last_error", b.translucency->last_error()); w.end_object();
     }
     if (b.textures) b.textures->status(w);

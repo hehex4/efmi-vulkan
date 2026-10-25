@@ -11,7 +11,7 @@
 //                   [--inject DLL | --inject-late DLL | --inject-late-exports DLL]
 //                   [--descriptors ordinary|template|push|push-template]
 //                   [--draws N] [--timings FILE --warmup N --frames N]
-//                   [--validation] [--validation-canary] [--readable-swapchain]
+//                   [--validation] [--validation-canary] [--readable-swapchain] [--api 1.1|1.3]
 //
 // --inject loads a DLL before the program touches Vulkan, the way a launcher injects one at
 // process start. --inject-late loads it after the device exists, which is too late to intercept.
@@ -194,6 +194,7 @@ struct App {
     VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
     bool primary_screen = false;
     bool readable_swapchain = false; // test readback of what the layer drew into the image
+    uint32_t api_version = VK_API_VERSION_1_1; // --api 1.3: the version the game asks for, with float controls core
     std::wstring expected_path;
     std::wstring trigger_path;
     std::wstring inject_path;
@@ -374,7 +375,7 @@ static bool create_instance()
     app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app.pApplicationName = "efmi_vk_sandbox";
     app.pEngineName = "sandbox";
-    app.apiVersion = VK_API_VERSION_1_1;
+    app.apiVersion = g.api_version;
 
     const char* exts[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
                          VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
@@ -1510,6 +1511,12 @@ int wmain(int argc, wchar_t** argv)
             g.primary_screen = true;
         else if (a == L"--readable-swapchain")
             g.readable_swapchain = true;
+        else if (a == L"--api" && i + 1 < argc) {
+            std::wstring version = argv[++i];
+            if (version == L"1.1") g.api_version = VK_API_VERSION_1_1;
+            else if (version == L"1.3") g.api_version = VK_API_VERSION_1_3;
+            else { printf("unknown API version\n"); return 2; }
+        }
         else if (a == L"--inject" && i + 1 < argc)
             g.inject_path = argv[++i];
         else if (a == L"--inject-late" && i + 1 < argc) {

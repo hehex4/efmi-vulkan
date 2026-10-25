@@ -19,6 +19,9 @@ from check_ini_folder import check as inspect_ini, DEFAULT
 from check_panel_hlsl import DXC, SPIRV
 from probe_xxmi_host import ROOT, write_ascii
 
+# The bytecode translation a source DXC refuses runs through, as in the runtime.
+BYTECODE = Path("F:/vulkan/vkd3d-2.1-build/efmi-vkd3d-shader.dll")
+
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -26,7 +29,8 @@ def digest(path: Path) -> str:
 
 def compile_tool(out: Path) -> Path:
     objects = build_runtime(ROOT / "build/xxmi-runtime")
-    objects = [p for p in objects if p.endswith(".lib") or Path(p).stem in ("hlsl_compiler", "shader_reflection")]
+    objects = [p for p in objects if p.endswith(".lib") or Path(p).stem in
+               ("hlsl_compiler", "shader_reflection", "dxbc_compiler", "dxbc_float32", "dxbc_bindings")]
     executable = out / "shader_inspect.exe"
     log = io.StringIO()
     try:
@@ -51,7 +55,7 @@ def inspect_source(executable: Path, source: Path, working: Path, flags: int, st
     out.mkdir(parents=True, exist_ok=True)
     before = digest(source) if source.is_file() else None
     result = subprocess.run([str(executable), str(source), str(working), str(flags), stage,
-                             str(recursive), target, str(DXC.parent / "dxcompiler.dll"), str(out)],
+                             str(recursive), target, str(DXC.parent / "dxcompiler.dll"), str(out), str(BYTECODE)],
                             cwd=out, capture_output=True, text=True, errors="replace", timeout=60)
     write_ascii(out / "runtime.txt", result.stdout + result.stderr)
     report_file = out / "compiler.json"
@@ -127,16 +131,18 @@ def check(mods: Path, core: Path, out: Path, target: str = "1.2") -> dict:
             report["declarations"].append(row)
         report.update(ini_inputs=syntax["inputs"], source_declarations=len(declarations), inherited_stages=inherited,
                       null_stages=nulls, distinct_programs=len(seen), compiled=sum(m.get("compiled", False) for m in report["modules"]),
-                      validated=sum(m.get("valid", False) for m in report["modules"]))
+                      validated=sum(m.get("valid", False) for m in report["modules"]),
+                      bytecode_translations=sum(m.get("bytecode_translation", False) for m in report["modules"]))
         inventory = json.loads(Path(syntax["inventory"]).read_text())
         report["ini_unchanged"] = all(Path(r["path"]).is_file() and digest(Path(r["path"])) == r["sha256"] for r in inventory["files"])
         report["passed"] = report["ini_unchanged"] and all(m["passed"] for m in report["modules"])
         paths = [ROOT / "sandbox/shader_inspect.cpp", Path(__file__), ROOT / "scripts/check_ini_folder.py",
                  ROOT / "scripts/build_xxmi_runtime.py", ROOT / "sandbox/xxmi_host/folder_parse.cpp", ROOT / "frontend/xxmi/ini_module.cpp",
                  ROOT / "sandbox/hlsl_folder_test.py", ROOT / "sandbox/ini_folder_test.py", ROOT / "sandbox/run_all.py"]
-        paths += [ROOT / "frontend/gpu" / name for name in ("hlsl_compiler.cpp", "hlsl_compiler.h", "shader_reflection.cpp")]
+        paths += [ROOT / "frontend/gpu" / name for name in ("hlsl_compiler.cpp", "hlsl_compiler.h", "shader_reflection.cpp",
+                                                          "dxbc_compiler.cpp", "dxbc_compiler.h")]
         report["source_sha256"] = {str(p.relative_to(ROOT)): digest(p) for p in paths}
-        report["dependency_sha256"] = {str(p): digest(p) for p in (DXC.parent / "dxcompiler.dll", SPIRV / "spirv-val.exe")}
+        report["dependency_sha256"] = {str(p): digest(p) for p in (DXC.parent / "dxcompiler.dll", SPIRV / "spirv-val.exe", BYTECODE)}
     except Exception as error:
         report["error"] = str(error)
     write_ascii(out / "report.json", json.dumps(report, indent=2, ensure_ascii=True) + "\n")
@@ -151,7 +157,8 @@ def main() -> int:
     parser.add_argument("--target", choices=("1.1", "1.2"), default="1.2")
     args = parser.parse_args()
     report = check(args.mods, args.core, args.out, args.target)
-    concise = {k: report[k] for k in ("passed", "source_declarations", "distinct_programs", "compiled", "validated", "null_stages", "inherited_stages", "error") if k in report}
+    concise = {k: report[k] for k in ("passed", "source_declarations", "distinct_programs", "compiled", "validated", "bytecode_translations",
+                                    "null_stages", "inherited_stages", "error") if k in report}
     concise["failures"] = [dict(source=m["source"], stage=m["stage"], diagnostics=m.get("diagnostics", "")) for m in report["modules"] if not m["passed"]]
     print(json.dumps(concise, ensure_ascii=True, indent=2))
     return 0 if report["passed"] else 1

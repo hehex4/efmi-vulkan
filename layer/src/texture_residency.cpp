@@ -22,6 +22,7 @@ TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryP
     cap_bytes_ = g_cfg.m2_texture_budget_mb ? g_cfg.m2_texture_budget_mb << 20 : std::clamp<uint64_t>(heap_bytes_ / 2, 256ull << 20, 4096ull << 20);
     reserve_bytes_ = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(512ull << 20, heap_bytes_ / 16);
     target_bytes_ = cap_bytes_;
+    floor_bytes_ = device->pageable_memory ? std::min(reserve_bytes_, cap_bytes_) : 64ull << 20;
     if (!device->timeline_semaphores) { reason_ = "textures need timeline semaphores, which the device does not enable"; return; }
     if (device->material_queues.empty() || !device->material_format_properties || !device->material_image_properties) {
         reason_ = device->material_queue_reason.empty() ? "textures need a graphics queue family" : device->material_queue_reason; return;
@@ -123,14 +124,30 @@ void TextureResidency::release(Image& image)
     cache_->release(image.handle);
     image.resident = false;
     resident_bytes_ -= std::min(resident_bytes_, image.charged);
-    loaded_since_sample_ -= std::min(loaded_since_sample_, image.charged);
+    released_since_sample_ += image.charged;
     image.charged = 0;
 }
 
 bool TextureResidency::loadable(uint64_t bytes) const
 {
     if (resident_bytes_ + bytes > cap_bytes_) return false;
+    if (device_->pageable_memory && resident_bytes_ + bytes <= floor_bytes_) return true;
     return !budget_known_ || free_now() >= reserve_bytes_ / 2 + bytes;
+}
+
+void TextureResidency::evict_for(uint64_t bytes)
+{
+    while (!loadable(bytes)) {
+        Image* victim = nullptr;
+        for (auto& image : images_) {
+            if (!image.resident || image.last_bound + kProtectedFrames > frame_) continue;
+            if (image.handle->snapshot().state != assets::ResourceState::Ready) continue;
+            if (!victim || image.last_bound < victim->last_bound) victim = &image;
+        }
+        if (!victim) return;
+        release(*victim);
+        ++evictions_;
+    }
 }
 
 void TextureResidency::evict_idle(uint64_t bytes, uint64_t idle_frames, uint64_t limit)
@@ -181,7 +198,8 @@ void TextureResidency::demand(Image& image)
     if (!fits(charge())) evict_idle(charge(), kIdleFrames, target_bytes_);
     if (!fits(charge())) { pressure_ = true; if (large(image) && demote_one()) image.skip_levels = 1; }
     // The cap and half the reserve are the limits; a load within them goes ahead beyond the target.
-    if (!loadable(charge())) evict_idle(charge(), kProtectedFrames, cap_bytes_);
+    // Short of free memory, what no recent frame bound gives way (it was evicted only past the cap).
+    if (!loadable(charge())) evict_for(charge());
     if (!loadable(charge())) { ++budget_waits_; return; }
     if (!cache_->demand(image.handle, image.skip_levels)) return;
     image.resident = true;
@@ -416,12 +434,12 @@ void TextureResidency::sample_budget()
     }
     if (!found) return;
     budget_known_ = true;
-    loaded_since_sample_ = 0;
+    loaded_since_sample_ = released_since_sample_ = 0;
     // What the device can hold of ours: what it holds now plus what is free beyond the reserve.
     const uint64_t headroom = free_bytes_ > reserve_bytes_ ? free_bytes_ - reserve_bytes_ : 0;
     const uint64_t allowed = free_bytes_ >= reserve_bytes_ ? resident_bytes_ + headroom
                                                           : resident_bytes_ - std::min(resident_bytes_, reserve_bytes_ - free_bytes_);
-    target_bytes_ = std::clamp<uint64_t>(allowed, 64ull << 20, cap_bytes_);
+    target_bytes_ = std::clamp<uint64_t>(allowed, floor_bytes_, cap_bytes_);
 }
 
 void TextureResidency::frame()
@@ -462,7 +480,7 @@ void TextureResidency::status(JsonWriter& w) const
     }
     w.kn("declared", images_.size()); w.kn("resident", resident); w.kn("resident_reduced", reduced); w.kn("loading", loading); w.kn("failed", failed);
     w.kn("resident_bytes", resident_bytes_); w.kn("target_bytes", target_bytes_); w.kn("cap_bytes", cap_bytes_);
-    w.kn("reserve_bytes", reserve_bytes_); w.kn("device_free_bytes", free_bytes_); w.kn("free_estimate_bytes", free_now());
+    w.kn("reserve_bytes", reserve_bytes_); w.kn("floor_bytes", floor_bytes_); w.kn("device_free_bytes", free_bytes_); w.kn("free_estimate_bytes", free_now());
     w.kb("budget_known", budget_known_); w.kb("pressure", pressure_);
     w.kn("idle_frames", kIdleFrames); w.kn("protected_frames", kProtectedFrames);
     w.kn("loads", loads_); w.kn("reduced", reduced_); w.kn("evictions", evictions_); w.kn("demotions", demotions_);

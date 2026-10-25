@@ -64,7 +64,9 @@ public:
     ~HlslCompiler();
     HlslCompiler(const HlslCompiler&)=delete;
     HlslCompiler& operator=(const HlslCompiler&)=delete;
-    bool compile(const HlslRequest&,HlslProgram&,std::string& reason);
+    // When DXC refuses a source the original compiler took, `reference` receives that compiler's
+    // bytecode (what 3DMigoto runs) for the caller's bytecode translation; otherwise it is empty.
+    bool compile(const HlslRequest&,HlslProgram&,std::string& reason,std::vector<uint8_t>* reference=nullptr);
     static uint32_t binding(char stage,char type,uint32_t slot,bool counter=false);
 private:
     struct Impl;

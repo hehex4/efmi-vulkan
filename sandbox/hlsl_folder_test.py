@@ -58,6 +58,32 @@ class FolderShaders(unittest.TestCase):
         self.assertTrue(failed["diagnostics"])
         self.assertFalse((self.root / "failed/module.spv").exists())
 
+    def test_folder_outside_ascii_and_bytecode_translation(self):
+        # BUG-046: DXC faulted on a diagnostic naming a folder outside ASCII (it ended the game), and
+        # it refuses a structured buffer's Length, which the original compiler takes.
+        self.assertTrue(self.executable.is_file(), "Build the folder inspection compiler first")
+        folder = self.root / "mod-\u00e9\uff1a\u4e2d"
+        folder.mkdir()
+        source = folder / "shape.hlsl"
+        source.write_text('RWStructuredBuffer<float> Output:register(u5);\n'
+                          '[numthreads(4,1,1)] void main(uint3 id:SV_DispatchThreadID){uint count=Output.Length;\n'
+                          'if(id.x>=count)return;Output[id.x]+=count;}\n', encoding="ascii")
+        result = inspect_source(self.executable, source, folder, 1 << 15, "c", 0, "1.2", self.root / "translated")
+        self.assertEqual(result["returncode"], 0, result.get("diagnostics"))
+        self.assertTrue(result["passed"], result.get("diagnostics"))
+        self.assertTrue(result["bytecode_translation"])
+        self.assertIn("Length", result["diagnostics"])
+        self.assertIn("shape.hlsl", result["diagnostics"])
+        self.assertNotIn("source0.hlsl", result["diagnostics"])
+        self.assertNotIn("source.hlsl", result["diagnostics"])
+        self.assertEqual([b["slot"] for b in result["bindings"]], [5])
+        # A valid source in the same folder compiles through DXC.
+        source.write_text('RWStructuredBuffer<float> Output:register(u5);\n'
+                          '[numthreads(1,1,1)] void main(){Output[0]=1;}\n', encoding="ascii")
+        plain = inspect_source(self.executable, source, folder, 1 << 15, "c", 0, "1.2", self.root / "plain")
+        self.assertTrue(plain["passed"], plain.get("diagnostics"))
+        self.assertFalse(plain["bytecode_translation"])
+
 
 if __name__ == "__main__":
     unittest.main()

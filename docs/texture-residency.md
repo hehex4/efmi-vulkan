@@ -35,7 +35,16 @@ generation:
   target: in the 1.6.7 session that produced 574 evictions against 591 loads (the two-frame rule
   of 1.6.7, BUG-034). A load goes ahead beyond the target as long as the cap and half the reserve
   hold it; only beyond those does the image wait (`budget_waits`), after the images not bound in
-  the last eight frames went.
+  the last eight frames went, least recently bound first, until the load fits (1.8.0; before, that
+  eviction stopped at the cap and freed nothing). Released bytes count as free at once.
+- **Working-set floor (1.8.0, D-114, BUG-047).** With pageable device memory the working set up to
+  the reserve's size (`floor_bytes`, at most the cap) loads whatever the device's free memory: the
+  system pages what is used least, the layer's textures first by their low priority, as DX11's
+  residency does for 3DMigoto. The target never drops below the floor, so idle eviction starts only
+  above it. In the 1.7.9 session the game held the device at its budget, every load waited for
+  256 MiB of free memory that never came, and the textures of a party member out of view for 600
+  frames were evicted: characters reverted to the game's model and a switch back took one to two
+  seconds. Without pageable memory the floor stays 64 MiB.
 - **Reduced loads under pressure.** While the working set is over the target, the largest resident
   full-size texture is demoted once every 30 frames: its next load leaves the top mip level out, a
   quarter of its memory, and demands made over the target (or while the device's free memory is
@@ -75,7 +84,7 @@ generation:
 ## Status
 
 `textures` under `replacement`: `declared`, `resident`, `resident_reduced`, `loading`, `failed`,
-`resident_bytes`, `target_bytes`, `cap_bytes`, `reserve_bytes`, `device_free_bytes`,
+`resident_bytes`, `target_bytes`, `cap_bytes`, `reserve_bytes`, `floor_bytes`, `device_free_bytes`,
 `free_estimate_bytes`, `pressure`, `idle_frames`, `protected_frames`, `loads`, `reduced`,
 `evictions`, `demotions`, `budget_waits` (binds a draw lost to the budget), `pending`, `uploads`,
 `published`, `waits`, `file_reads`, `submissions`, `releases`. Per package:

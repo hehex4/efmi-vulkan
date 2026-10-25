@@ -1,5 +1,12 @@
 # EFMI Vulkan - Tasks
 
+## Active: the first Vulkan game session's findings (2026-10-25)
+
+- Done in 1.8.0 (offline verified, see CURRENT_STATE): BUG-046 (DXC fault on a Mod folder outside ASCII, fxc bytecode for sources DXC refuses, failed CustomShaders skipped as the original does), BUG-047 (texture floor, eviction for free memory, lazy and released EFMITTL layers).
+- Next, 1.8.1: BUG-048, merged-skeleton components with bones between them (palette bank, Core bridge, skeleton plan, package, native skeleton); then the new Si Mod at --api 1.3 in the actual-config sandbox.
+- ISSUE-011: measure commit and device memory per generation across an F10 with the installed Mods folder (twenty generations reload at once).
+- In the next user-started session: textures.floor_bytes, budget_waits, evictions and gated frames while switching characters in the open world; translucency.layer_bytes; the new Si Mod.
+
 ## Active: EFMITTL compatibility (2026-10-24)
 
 - 1.7.8 (D-112, BUG-045): consumer generations load the library; plans answer declaration operands; the parts are drawn opaque by the library's fallback instead of missing. Full suite 38/38 steps passed (build/run_all-1.7.8.out): original INI runtime 488, character 361, live INI 76, Vulkan validation 76, GPU resources 11189, EFMITTL owned 356 per path, probe 17 configurations, MCP 50; both earlier replays and the new vk01 library step pass. To check in the next user-started Vulkan session: Yvonne's, TangTang's and ardelia's library parts present from the second frame, nothing refused in their packages.

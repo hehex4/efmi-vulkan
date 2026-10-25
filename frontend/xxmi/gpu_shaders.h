@@ -35,6 +35,8 @@ public:
     // compiled here; their run commands live only in natively replaced lists. Before install.
     void exclude_shaders(std::vector<std::wstring> names);
     size_t cached_programs() const {return cached_programs_;}
+    // Sources DXC refused that run as the original compiler's bytecode (needs the translation above).
+    size_t reference_programs() const {return reference_programs_;}
     bool execute_original(CommandListState&,std::wstring&);
     void set_scissor(const D3D11_RECT& value){scissor_=value;}
     // A logical source layout retains its creation signature across VS changes.
@@ -50,8 +52,10 @@ private:
         std::array<bool,6> overrides{};
         std::array<std::shared_ptr<gpu::HlslProgram>,6> stages;
         gpu::Compute compute;
+        bool failed=false;
     };
     void compile(const RuntimeShaderDeclaration&);
+    void compile_stages(const RuntimeShaderDeclaration&);
     bool run(RunCustomShaderCommand&,CommandListState&,std::wstring&);
     bool draw(DrawCommand&,CommandListState&,std::wstring&);
     bool draw_graphics(DrawCommand&,CommandListState&);
@@ -65,7 +69,7 @@ private:
     gpu::ShaderCommands commands_;
     std::unique_ptr<gpu::DxbcCompiler> cached_compiler_;
     gpu::DxbcFloat32Mode cached_mode_=gpu::DxbcFloat32Mode::Software;
-    size_t cached_programs_=0;
+    size_t cached_programs_=0,reference_programs_=0;
     std::vector<std::wstring> excluded_;
     uint32_t api_version_;
     std::filesystem::path working_directory_;

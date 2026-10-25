@@ -122,6 +122,7 @@ def main() -> int:
                             ROOT / "sandbox/resource_regex_cases.h",
                             ROOT / "sandbox/resource_bytecode_cases.h",
                             ROOT / "sandbox/resource_bytecode_views.h",
+                            ROOT / "sandbox/resource_reference_cases.h",
                             shader, ROOT / "scripts/check_panel_hlsl.py"]
         inputs += list((ROOT / "frontend/xxmi").glob("*.cpp")) + list((ROOT / "frontend/xxmi").glob("*.h"))
         inputs += list((ROOT / "frontend/gpu").glob("*.cpp")) + list((ROOT / "frontend/gpu").glob("*.h"))

@@ -1,5 +1,25 @@
 # EFMI Vulkan - Known issues
 
+## BUG-048: A Mod whose skeleton components leave bones between them is refused (found 2026-10-25, open)
+
+- The Si Mod "Si" + U+FF1A + "NightveilTrancer & Gui" declares 1299 merged-skeleton bones in 24 components with bones between them (0-25, 361-425, 1142-1261 and others), none overlapping. The Core's initializer writes the 512 implicit bones and each component writes only its own range, so bones between components keep their initial value; every Mod vertex weights only component bones. The layer required the components to partition the skeleton (palette bank, Core bridge, skeleton plan, character package, native merged skeleton) and refuses the package: "Native generation preparation refused: Skeleton components overlap or leave a gap" (actual-config sandbox at Vulkan 1.3). Fix planned in 1.8.1.
+
+## BUG-046: A Mod folder named outside ASCII ended the game inside DXC (fixed in 1.8.0)
+
+- 2026-10-25, user-started Vulkan session (PID 19920, 1.7.9). The user installed "Si" + U+FF1A + "NightveilTrancer & Gui" (a full-width colon in the folder name) and pressed F10; the game ended at 16:08:39 with an access violation in dist/dxcompiler.dll (offset 0x561cc1). The user started the game again; it ended the same way 19 s after start (16:09:37), right after the first package configured. Windows logged "virtual memory too low" at 16:08:36 during the F10 reload (see ISSUE-011).
+- Cause, reproduced offline: the Mod's four shape-key compute shaders read `RWStructuredBuffer.Length`, which the original compiler (fxc) takes and DXC refuses; DXC faults while it reports that error for a file whose path holds any character outside ASCII (an accented letter, a full-width sign or a CJK character all fault; the same file in an ASCII path gives a clean error). The sandbox injection with the deployed 1.7.9 and the installed Mods folder ends with 0xC0000005 at the same point.
+- Fixed in 1.8.0 (D-116): DXC sees its files by ASCII aliases and its diagnostics name them again; a fault inside DXC is contained (the compile refuses, DXC takes no further work in the process); a source DXC refuses runs as the original compiler's bytecode through the translation; a CustomShader that compiles nowhere is skipped with the original's warning instead of refusing the generation. Installed Mods' HLSL: 75 of 75 programs compile and validate, 4 of them (the shape-key shaders) through the bytecode translation.
+
+## BUG-047: Characters reverted to the game's model in the open world; switching back took one to two seconds (fixed in 1.8.0)
+
+- 2026-10-25, the same 1.7.9 session, 19 packages activated, EFMITTL translucency working (27119 captures, 6701 composites, no error). The user: characters in the open world sometimes revert to the original model, and switching back to the controlled character takes one to two seconds before the Mod shows.
+- Status at frames 12290 and 25681: device free memory 188 MiB, then 0; textures resident 184 then 117 MiB against a target at its 64 MiB floor; budget_waits 44397 then 214832; evictions 195 then 317, loads 219 then 336; draw waits up to 538 ms; Yvonne and TangTang with no image resident and their gates closed (the game's mesh drawn). A load needed half the reserve free (256 MiB) besides its own bytes, so with the game at its budget nothing loaded, and every image no frame bound for 600 frames was evicted under the target: a party member out of view lost its textures and came back through the disk. The EFMITTL layer set of a target size took about 400 MiB at 2560x1600 at once, up to three sizes, never freed.
+- Fixed in 1.8.0 (D-114, D-115). To be seen in the next game session: `textures.floor_bytes`, `budget_waits`, `evictions`, gated frames, `translucency.layer_bytes`.
+
+## ISSUE-011: F10 with twenty packages ran the system's commit out (observed 2026-10-25, not measured)
+
+- At the F10 reload of 16:08:23 (19 activated packages, one Mod folder exchanged) Windows reported the virtual memory minimum too low at 16:08:36 and grew the page file; the stall watchdog saw the submitting thread inside vkQueueSubmit for 25 s at the character draw work submission before the DXC fault ended the process. Each generation reloads its Mod and meshes while the old one still lives; how much commit that takes per package is not measured. Next: the commit and device memory per generation across an F10 in the sandbox with the installed Mods folder.
+
 ## BUG-045: Parts a Mod draws through EFMITTL were not drawn on Vulkan (fixed in 1.7.8)
 
 - Up to 1.7.7 a character generation held the Core and the Mod's own folder only. `run = CommandList\EFMITTL\Draw` and the `$\EFMITTL\...` assignments were unrecognised entries, so every part drawn through the library was missing on Vulkan (Yvonne's first section, TangTang's and ardelia's translucent parts); DX11 shows them translucent.

@@ -83,16 +83,23 @@ private:
         uint32_t skip_levels = 0; // mip levels the current load leaves out
     };
     bool fits(uint64_t bytes) const { return resident_bytes_ + bytes <= target_bytes_; }
-    // The cap and half the reserve are the limits a load never crosses; the target is what the set
-    // comes back under through idle eviction and demotion.
+    // The cap and half the reserve are the limits a load never crosses, except within the floor;
+    // the target is what the set comes back under through idle eviction and demotion.
     bool loadable(uint64_t bytes) const;
-    // The device's free memory as sampled, less what was loaded since.
-    uint64_t free_now() const { return free_bytes_ > loaded_since_sample_ ? free_bytes_ - loaded_since_sample_ : 0; }
+    // The device's free memory as sampled, plus what was released and less what was loaded since.
+    uint64_t free_now() const
+    {
+        const uint64_t free = free_bytes_ + released_since_sample_;
+        return free > loaded_since_sample_ ? free - loaded_since_sample_ : 0;
+    }
     bool large(const Image&) const;
     void demand(Image&);
     // Releases Ready images not bound for `idle_frames`, least recently bound first, until the
     // resident bytes plus `bytes` are within `limit` or none is left.
     void evict_idle(uint64_t bytes, uint64_t idle_frames, uint64_t limit);
+    // Releases Ready images no recent frame bound, least recently bound first, until a load of
+    // `bytes` is loadable or none is left.
+    void evict_for(uint64_t bytes);
     bool demote_one();
     void release(Image&);
     void sample_budget();
@@ -115,10 +122,13 @@ private:
     uint64_t published_ = 0;
     std::map<VkQueue, uint64_t> waited_;
     // Budget: the cap (m2_texture_budget_mb or half the heap), the reserve kept free for the game
-    // (m2_reserve_mb), and the target the device's free memory allows under them.
-    uint64_t heap_bytes_ = 0, cap_bytes_ = 0, reserve_bytes_ = 0, target_bytes_ = 0, free_bytes_ = 0;
+    // (m2_reserve_mb), and the target the device's free memory allows under them. The floor: with
+    // pageable device memory the working set up to the reserve's size loads whatever the free memory
+    // (the system pages what is used least, our textures first by their priority, as DX11 does), so
+    // a drawn character never waits for the budget (D-114).
+    uint64_t heap_bytes_ = 0, cap_bytes_ = 0, reserve_bytes_ = 0, target_bytes_ = 0, free_bytes_ = 0, floor_bytes_ = 0;
     uint64_t resident_bytes_ = 0; // charged bytes of the images demanded and not released
-    uint64_t loaded_since_sample_ = 0;
+    uint64_t loaded_since_sample_ = 0, released_since_sample_ = 0;
     uint64_t frame_ = 0, next_sample_ = 0, demoted_frame_ = 0;
     bool budget_known_ = false, pressure_ = false;
     uint64_t loads_ = 0, reduced_ = 0, evictions_ = 0, demotions_ = 0, budget_waits_ = 0, pending_ = 0, uploads_ = 0, waits_ = 0;

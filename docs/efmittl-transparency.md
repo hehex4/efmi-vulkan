@@ -42,6 +42,12 @@ from the game under DX11 and does the GPU work of its capture and composite.
 - **One frame state.** The layers belong to the device, not to a character
   generation: every consumer's calls share them and one composite per forward
   pass blends them all, as the library's single frame state does.
+- **Layer memory (1.8.0, D-115).** A layer (both faces, RGBA16F and D32, about
+  100 MiB at 2560x1600) is made when a pass first draws into it; the composite's
+  set holds 1x1 spare images for the layers not made, which it never reads. A
+  set of a target size no pass used for 5 s is released. In the 1.7.9 game
+  session every set took its four layers at once and kept them (BUG-047).
+  Status: `translucency.layer_sets`, `layers`, `layer_bytes`.
 
 The library's shaders are compiled from its own folder; nothing of the library
 is copied into the project. A library whose capture or composite lists are not

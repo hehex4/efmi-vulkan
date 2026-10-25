@@ -260,15 +260,21 @@ post $post_root = 1
         resources.viewport().Width==4 && resources.viewport().Height==5,"CustomShader restores OM resources and viewport after abort");
     check(resources.binding(L'c',T::UNORDERED_ACCESS_VIEW,3).buffer && !resources.binding(L'c',T::SHADER_RESOURCE,8),
         "Ordinary compute UAV survives CustomShader scope; its conflicting SRV remains null");
-    // A failed candidate cannot disturb an already-working generation.
+    // As the original (ParseCustomShaderSections): a CustomShader that does not compile is skipped
+    // with a warning and the candidate loads; it cannot disturb an already-working generation.
     auto bad_root=root/"bad";std::filesystem::create_directories(bad_root/"Mods");
     write(bad_root/"Mods/mod.ini","[CustomShaderDormant]\ncs = broken.hlsl\n");write(bad_root/"Mods/broken.hlsl","this is invalid HLSL");
     auto bad=std::make_shared<frontend::GpuShaderRuntime>(d.resource,f.host,L"F:/vulkan/dxc-1.9.2609/bin/x64/dxcompiler.dll",f.budgets);
     bad->resources().begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
     frontend::RuntimeConfig config{bad_root,{},bad_root/"settings","bad",bad_root/"Mods"};std::string why;
-    check(!frontend::IniRuntime::load(config,bad,why) && why.find("compilation failed")!=std::string::npos,"Dormant invalid HLSL rejects the complete candidate");
-    refuses([&]{bad->resources().finish();},"Failed shader load poisons its GPU scope");bad->resources().discard();bad.reset();
-    f.present();check(f.variable("post_root")==1,"Prior generation remains executable after candidate compilation failure");
+    {auto candidate=frontend::IniRuntime::load(config,bad,why);
+        const auto status=candidate?candidate->status():frontend::RuntimeStatus{};
+        check(candidate && std::any_of(status.diagnostic_messages.begin(),status.diagnostic_messages.end(),[](const std::string& m){
+            return m.find("Error compiling custom shader")!=std::string::npos && m.find("compilation failed")!=std::string::npos;}),
+            "Dormant invalid HLSL is skipped with the original warning and the candidate loads");
+        if(auto ticket=bad->resources().finish())ticket->wait();candidate.reset();}
+    bad.reset();
+    f.present();check(f.variable("post_root")==1,"Prior generation remains executable beside the candidate");
     f.release();
     auto recursive_root=root/"recursive";
     ShaderFixture recursive(d,recursive_root,"namespace = compute\n[CustomShaderRecursive]\nrun = CustomShaderRecursive\n[Present]\nrun = CustomShaderRecursive\n");

@@ -5,6 +5,7 @@
 #include "../frontend/gpu/graphics_commands.h"
 #include "../frontend/xxmi/gpu_shaders.h"
 #include "../frontend/xxmi/graphics_state.h"
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -1420,6 +1421,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_panel_cases.h"
 #include "resource_owned_generation_cases.h"
 #include "resource_operand_cases.h"
+#include "resource_reference_cases.h"
 int wmain(int argc,wchar_t** argv){
     setvbuf(stdout,nullptr,_IONBF,0);
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true,true,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
@@ -1464,6 +1466,7 @@ int wmain(int argc,wchar_t** argv){
         bytecode_resources(device,root/"bytecode-software-resources",gpu::DxbcFloat32Mode::Software);
         bytecode_float32(device,root/"bytecode-float32");
         bytecode_ini_views(device,root/"bytecode-ini-views");
+        original_reference_fallback(device,root/"reference-fallback");
         {Device bytecode_device;bytecode_device.init(false,false,true,false,false,true);
             printf("Bytecode float-control device: %s\n",bytecode_device.properties.deviceName);
             bytecode_execution(bytecode_device,root/"bytecode-compute");bytecode_graphics(bytecode_device,root/"bytecode-graphics");

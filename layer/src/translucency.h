@@ -7,6 +7,7 @@
 #include "draw_snapshots.h"
 #include "pipeline_variant.h"
 #include "shader_hooks.h"
+#include <chrono>
 #include <filesystem>
 #include <mutex>
 
@@ -71,9 +72,14 @@ public:
     std::shared_ptr<const GraphicsRecipe> recipe(const PipeInfo&, CaptureKind, uint32_t own_set, std::string& why);
     void retire(uint32_t pipeline_id);
     // The layer set of a forward pass's size, made on first need and kept per size (a frame may hold
-    // passes of two sizes); null with the reason. The views a capture's private sets take of it: the
-    // neutral screen-space mask and a call's parameter layer.
+    // passes of two sizes); null with the reason. Its four full-size layers take memory only when a
+    // pass first draws into them, and a set no pass used for a few seconds goes (frame()). The views
+    // a capture's private sets take of it: the neutral screen-space mask and a call's parameter layer.
     std::shared_ptr<void> prepare(uint32_t width, uint32_t height, std::string& why);
+    // Once per presented frame: releases the idle layer sets (recordings still using one keep it).
+    void frame();
+    struct Memory { uint32_t sets = 0, layers = 0; uint64_t bytes = 0; };
+    Memory memory();
     static SnapshotImage neutral_view(const std::shared_ptr<void>& layers);
     static SnapshotImage params_view(const std::shared_ptr<void>& layers, uint32_t layer);
     static constexpr uint32_t kCalls = 64; // captured calls of one pass; the composite takes layer kCalls
@@ -94,6 +100,7 @@ private:
     struct Layers;
     struct Owner;
     Owner* owner(CmdBuf*, bool make);
+    bool allocate_layer(Layers&, uint32_t layer, std::string& why);
     bool composite_pipeline(VkFormat colour, VkImageLayout, const std::vector<VkDynamicState>&, VkPipeline&, std::string& why);
     VkImageView depth_view(VkImage, uint32_t image_id, VkFormat, std::shared_ptr<const void>& keep, uint64_t& serial, std::string& why);
     VkFramebuffer colour_framebuffer(VkImageView, uint32_t view_id, VkFormat, VkImageLayout, uint32_t width, uint32_t height,

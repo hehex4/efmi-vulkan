@@ -68,7 +68,10 @@ void efmi::frontend::RuntimeParseCustomShaders(const std::function<void(const Ru
         get_namespaced_section_path(name,&declaration.namespace_path);
         const wchar_t* keys[]={L"vs",L"hs",L"ds",L"gs",L"ps",L"cs"};
         for(unsigned i=0;i<6;++i)if(GetIniString(name,keys[i],nullptr,text,MAX_PATH))declaration.sources[i]=text;
-        compile(declaration);
+        // As the original: a CustomShader that does not compile is skipped with a warning, its
+        // command list left empty, so its runs do nothing and the rest of the Mod loads.
+        try{compile(declaration);}
+        catch(const std::exception& e){LogOverlay(LOG_WARNING,const_cast<char*>("Error compiling custom shader [%ls]: %s\n"),name,e.what());continue;}
         ParseBlendState(&shader,name);ParseDepthStencilState(&shader,name);ParseRSState(&shader,name);ParseTopology(&shader,name);ParseSamplerState(&shader,name);
         shader.max_executions_per_frame=GetIniInt(name,L"max_executions_per_frame",0,nullptr);
         ParseCommandList(name,&shader.command_list,&shader.post_command_list,CustomShaderIniKeys);

@@ -7,10 +7,13 @@
 #include <wrl/client.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstdio>
 #include <fstream>
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <string_view>
 
 namespace efmi::gpu {
 namespace {
@@ -26,6 +29,40 @@ unsigned stage_index(char key){for(unsigned i=0;i<std::size(stages);++i)if(stage
 std::string blob_text(ID3DBlob* blob){
     if(!blob)return {};auto size=blob->GetBufferSize();const auto* bytes=static_cast<const char*>(blob->GetBufferPointer());
     while(size && !bytes[size-1])--size;return {bytes,size};
+}
+// DXC faults on a diagnostic whose file name holds a character outside ASCII (a Mod folder named in
+// another script ended the game, BUG-046). It sees the preprocessed text with its #line files named
+// by ASCII aliases; its diagnostics name the files again.
+std::string line_alias(size_t index){return "source"+std::to_string(index)+".hlsl";}
+std::string aliased_lines(const char* data,size_t size,std::vector<std::string>& names){
+    std::string out;out.reserve(size+64);size_t at=0;
+    while(at<size){size_t end=at;while(end<size && data[end]!='\n')++end;
+        const std::string_view line(data+at,end-at);const auto start=line.find_first_not_of(" \t");
+        const auto open=start!=std::string_view::npos && line.substr(start,5)=="#line"?line.find('"',start+5):std::string_view::npos;
+        size_t close=open==std::string_view::npos?line.size():open+1;
+        while(close<line.size() && line[close]!='"')close+=line[close]=='\\'?2:1;
+        if(close<line.size()){const std::string name(line.substr(open+1,close-open-1));
+            auto found=std::find(names.begin(),names.end(),name);if(found==names.end())found=names.insert(names.end(),name);
+            out.append(line.substr(0,open+1));out+=line_alias(size_t(found-names.begin()));out.append(line.substr(close));}
+        else out.append(line);
+        if(end<size)out+='\n';at=end+1;}
+    return out;
+}
+std::string named_lines(std::string text,const std::vector<std::string>& names,const std::string& main){
+    auto replace=[&](const std::string& alias,const std::string& name){
+        for(size_t at=text.find(alias);at!=std::string::npos;at=text.find(alias,at+name.size()))text.replace(at,alias.size(),name);};
+    replace("source.hlsl",main);
+    for(size_t i=0;i<names.size();++i){std::string name;
+        for(size_t c=0;c<names[i].size();++c){if(names[i][c]=='\\' && c+1<names[i].size())++c;name+=names[i][c];}
+        replace(line_alias(i),name);}
+    return text;
+}
+// A fault inside DXC must not end the host process (the layer runs inside the game): the compile
+// refuses, and no later compile of this process enters DXC, its state being unknown after the fault.
+std::atomic<uint32_t> dxc_fault{0};
+HRESULT guarded_compile(IDxcCompiler3* compiler,const DxcBuffer* text,LPCWSTR* args,UINT count,IDxcResult** result,DWORD* fault){
+    __try{return compiler->Compile(text,args,count,nullptr,__uuidof(IDxcResult),reinterpret_cast<void**>(result));}
+    __except(EXCEPTION_EXECUTE_HANDLER){*fault=GetExceptionCode();return E_FAIL;}
 }
 class Includes final : public ID3DInclude {
     const HlslRequest& request_;
@@ -172,8 +209,8 @@ uint32_t HlslCompiler::binding(char stage,char type,uint32_t slot,bool counter){
     const uint32_t index=stage_index(stage),base=counter?512:type=='b'?0:type=='t'?128:type=='s'?256:type=='u'?384:UINT32_MAX;
     require(base!=UINT32_MAX && slot<128 && (!counter || type=='u'),"Invalid original shader register class");return index*1024+base+slot;
 }
-bool HlslCompiler::compile(const HlslRequest& request,HlslProgram& output,std::string& reason){
-    reason.clear();
+bool HlslCompiler::compile(const HlslRequest& request,HlslProgram& output,std::string& reason,std::vector<uint8_t>* reference){
+    reason.clear();if(reference)reference->clear();
     try{
         require(request.source.is_absolute() && request.working_directory.is_absolute(),"HLSL source and working directory must be absolute");
         require(request.vulkan_version==VK_API_VERSION_1_1 || request.vulkan_version==VK_API_VERSION_1_2,"Unsupported shader target Vulkan version");
@@ -187,7 +224,12 @@ bool HlslCompiler::compile(const HlslRequest& request,HlslProgram& output,std::s
         hr=D3DCompile(expanded->GetBufferPointer(),expanded->GetBufferSize(),name.c_str(),nullptr,nullptr,"main",model.c_str(),request.flags,0,&dxbc,&errors);
         next.diagnostics+=blob_text(errors.Get());if(FAILED(hr))throw std::runtime_error("Original shader-model-5 compilation failed: "+next.diagnostics);
         const auto* native=static_cast<const uint8_t*>(dxbc->GetBufferPointer());next.dxbc.assign(native,native+dxbc->GetBufferSize());
-        std::vector<std::wstring> args={request.source.wstring(),L"-spirv",request.vulkan_version==VK_API_VERSION_1_2?L"-fspv-target-env=vulkan1.2":L"-fspv-target-env=vulkan1.1",L"-fspv-reflect",L"-fvk-use-dx-layout",
+        auto refuse=[&](const std::string& why){if(reference)*reference=next.dxbc;throw std::runtime_error(why);};
+        if(const auto fault=dxc_fault.load()){char code[16];snprintf(code,sizeof(code),"0x%08x",fault);
+            refuse(std::string("DXC faulted earlier in this process (")+code+") and takes no further work");}
+        std::vector<std::string> files;
+        const auto text_aliased=aliased_lines(static_cast<const char*>(expanded->GetBufferPointer()),expanded->GetBufferSize(),files);
+        std::vector<std::wstring> args={L"source.hlsl",L"-spirv",request.vulkan_version==VK_API_VERSION_1_2?L"-fspv-target-env=vulkan1.2":L"-fspv-target-env=vulkan1.1",L"-fspv-reflect",L"-fvk-use-dx-layout",
             L"-fvk-stage-io-order=alpha",L"-fvk-use-dx-position-w",L"-fvk-support-nonzero-base-instance",L"-fvk-support-nonzero-base-vertex",
             L"-flegacy-resource-reservation",L"-HV",L"2016",L"-E",L"main",L"-T",std::wstring(1,wchar_t(request.stage))+L"s_6_0"};
         // Native SM5 pixel w and vertex/instance IDs differ from Vulkan's raw
@@ -209,11 +251,14 @@ bool HlslCompiler::compile(const HlslRequest& request,HlslProgram& output,std::s
         // hints. The original compiler above receives every bit. SPIR-V always
         // validates; no unsupported device feature is enabled by a source flag.
         std::vector<LPCWSTR> pointers;for(const auto& arg:args)pointers.push_back(arg.c_str());
-        DxcBuffer text{expanded->GetBufferPointer(),expanded->GetBufferSize(),DXC_CP_UTF8};ComPtr<IDxcResult> result;
-        checked(impl_->compiler->Compile(&text,pointers.data(),UINT(pointers.size()),nullptr,IID_PPV_ARGS(&result)),"Compile SPIR-V");
+        DxcBuffer text{text_aliased.data(),text_aliased.size(),DXC_CP_UTF8};ComPtr<IDxcResult> result;DWORD fault=0;
+        hr=guarded_compile(impl_->compiler.Get(),&text,pointers.data(),UINT(pointers.size()),result.ReleaseAndGetAddressOf(),&fault);
+        if(fault){dxc_fault.store(fault);result.Detach();char code[16];snprintf(code,sizeof(code),"0x%08x",fault);
+            refuse(std::string("DXC faulted (")+code+") compiling "+name+"; it takes no further work in this process");}
+        checked(hr,"Compile SPIR-V");
         ComPtr<IDxcBlobUtf8> messages;checked(result->GetOutput(DXC_OUT_ERRORS,IID_PPV_ARGS(&messages),nullptr),"Read SPIR-V diagnostics");
-        if(messages && messages->GetStringLength())next.diagnostics.append(messages->GetStringPointer(),messages->GetStringLength());
-        checked(result->GetStatus(&hr),"Read SPIR-V compile status");if(FAILED(hr))throw std::runtime_error("SPIR-V compilation failed: "+next.diagnostics);
+        if(messages && messages->GetStringLength())next.diagnostics+=named_lines(std::string(messages->GetStringPointer(),messages->GetStringLength()),files,name);
+        checked(result->GetStatus(&hr),"Read SPIR-V compile status");if(FAILED(hr))refuse("SPIR-V compilation failed: "+next.diagnostics);
         ComPtr<IDxcBlob> object;checked(result->GetOutput(DXC_OUT_OBJECT,IID_PPV_ARGS(&object),nullptr),"Read compiled SPIR-V");
         require(object && object->GetBufferSize()>=20 && object->GetBufferSize()<=(32u<<20) && object->GetBufferSize()%4==0,"Compiled SPIR-V size invalid");
         next.spirv.resize(object->GetBufferSize()/4);memcpy(next.spirv.data(),object->GetBufferPointer(),object->GetBufferSize());

@@ -108,6 +108,31 @@ struct Image {
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
 };
+// One image with its own device memory, and a view of it when it has one layer; adds the memory's
+// size to `bytes`. False with the reason.
+bool make_image(const Translucency::Dispatch& d, VkDevice dev, const VkPhysicalDeviceMemoryProperties& memory, Image& out, VkImageType type,
+                VkFormat format, VkExtent3D extent, uint32_t layers, VkImageUsageFlags usage, VkImageAspectFlags aspect, uint64_t& bytes,
+                std::string& why)
+{
+    auto good = [&](VkResult r, const char* what) { if (r == VK_SUCCESS) return true; why = std::string("EFMITTL layers: ") + what; return false; };
+    VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = type; ci.format = format; ci.extent = extent; ci.mipLevels = 1; ci.arrayLayers = layers;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT; ci.tiling = VK_IMAGE_TILING_OPTIMAL; ci.usage = usage; ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!good(d.CreateImage(dev, &ci, nullptr, &out.image), "create image")) return false;
+    VkMemoryRequirements req; d.GetImageMemoryRequirements(dev, out.image, &req);
+    VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO}; ai.allocationSize = req.size;
+    ai.memoryTypeIndex = device_memory_type(memory, req.memoryTypeBits);
+    if (ai.memoryTypeIndex == UINT32_MAX) { why = "EFMITTL layers: no memory type"; return false; }
+    if (!good(d.AllocateMemory(dev, &ai, nullptr, &out.memory), "allocate image memory") ||
+        !good(d.BindImageMemory(dev, out.image, out.memory, 0), "bind image memory")) return false;
+    bytes += req.size;
+    if (layers > 1) return true; // the parameter image's views are made per layer
+    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = out.image; vi.viewType = type == VK_IMAGE_TYPE_1D ? VK_IMAGE_VIEW_TYPE_1D : VK_IMAGE_VIEW_TYPE_2D; vi.format = format;
+    vi.subresourceRange = {aspect, 0, 1, 0, 1};
+    return good(d.CreateImageView(dev, &vi, nullptr, &out.view), "create image view");
+}
+constexpr auto kIdleLayers = std::chrono::seconds(5);
 } // namespace
 
 struct Translucency::Held {
@@ -121,15 +146,19 @@ struct Translucency::Held {
 struct Translucency::Layers {
     Translucency* t = nullptr;
     uint32_t width = 0, height = 0;
-    Image colour[4][2], depth[4][2]; // [layer][0 back, 1 front]
+    Image colour[4][2], depth[4][2]; // [layer][0 back, 1 front], made when a pass first draws into the layer
+    bool allocated[4] = {};
+    Image spare_colour, spare_depth; // 1x1, in the composite's set for the layers not made (it reads only those in use)
     Image neutral, params;
+    uint64_t bytes = 0;
+    std::chrono::steady_clock::time_point used = std::chrono::steady_clock::now();
     std::vector<VkImageView> params_views;
     VkBuffer params_buffer = VK_NULL_HANDLE;
     VkDeviceMemory params_memory = VK_NULL_HANDLE;
     VkRenderPass clear_pass = VK_NULL_HANDLE, load_pass = VK_NULL_HANDLE;
     VkFramebuffer framebuffers[4][2] = {};
     VkDescriptorPool pool = VK_NULL_HANDLE;
-    std::map<uint64_t, VkDescriptorSet> composite_sets; // by the scene depth view's serial
+    std::map<std::pair<uint64_t, uint32_t>, VkDescriptorSet> composite_sets; // by the scene depth view's serial, the layers made
     ~Layers()
     {
         if (!t) return;
@@ -144,6 +173,7 @@ struct Translucency::Layers {
         if (load_pass) d.DestroyRenderPass(dev, load_pass, nullptr);
         for (auto& l : colour) for (auto& i : l) free_image(i);
         for (auto& l : depth) for (auto& i : l) free_image(i);
+        free_image(spare_colour); free_image(spare_depth);
         for (auto v : params_views) if (v) d.DestroyImageView(dev, v, nullptr);
         free_image(neutral); free_image(params);
         if (params_buffer) d.DestroyBuffer(dev, params_buffer, nullptr);
@@ -253,29 +283,13 @@ std::shared_ptr<void> Translucency::prepare(uint32_t width, uint32_t height, std
     VkDevice dev = device_->handle;
     auto good = [&](VkResult r, const char* what) { if (r == VK_SUCCESS) return true; why = std::string("EFMITTL layers: ") + what; return false; };
     auto image = [&](Image& out, VkImageType type, VkFormat format, VkExtent3D extent, uint32_t layers, VkImageUsageFlags usage, VkImageAspectFlags aspect) {
-        VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-        ci.imageType = type; ci.format = format; ci.extent = extent; ci.mipLevels = 1; ci.arrayLayers = layers;
-        ci.samples = VK_SAMPLE_COUNT_1_BIT; ci.tiling = VK_IMAGE_TILING_OPTIMAL; ci.usage = usage; ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        if (!good(d_.CreateImage(dev, &ci, nullptr, &out.image), "create image")) return false;
-        VkMemoryRequirements req; d_.GetImageMemoryRequirements(dev, out.image, &req);
-        VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO}; ai.allocationSize = req.size;
-        ai.memoryTypeIndex = device_memory_type(memory_, req.memoryTypeBits);
-        if (ai.memoryTypeIndex == UINT32_MAX) { why = "EFMITTL layers: no memory type"; return false; }
-        if (!good(d_.AllocateMemory(dev, &ai, nullptr, &out.memory), "allocate image memory") ||
-            !good(d_.BindImageMemory(dev, out.image, out.memory, 0), "bind image memory")) return false;
-        if (layers > 1) return true; // the parameter image's views are made per layer
-        VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-        vi.image = out.image; vi.viewType = type == VK_IMAGE_TYPE_1D ? VK_IMAGE_VIEW_TYPE_1D : VK_IMAGE_VIEW_TYPE_2D; vi.format = format;
-        vi.subresourceRange = {aspect, 0, 1, 0, 1};
-        return good(d_.CreateImageView(dev, &vi, nullptr, &out.view), "create image view");
+        return make_image(d_, dev, memory_, out, type, format, extent, layers, usage, aspect, l->bytes, why);
     };
     const VkExtent3D size{width, height, 1};
-    for (uint32_t i = 0; i < 4; ++i)
-        for (uint32_t f = 0; f < 2; ++f)
-            if (!image(l->colour[i][f], VK_IMAGE_TYPE_2D, VK_FORMAT_R16G16B16A16_SFLOAT, size, 1,
-                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT) ||
-                !image(l->depth[i][f], VK_IMAGE_TYPE_2D, VK_FORMAT_D32_SFLOAT, size, 1,
-                       VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT)) return nullptr;
+    // The four layers are made by the passes that draw into them (allocate_layer).
+    if (!image(l->spare_colour, VK_IMAGE_TYPE_2D, VK_FORMAT_R16G16B16A16_SFLOAT, {1, 1, 1}, 1, VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT) ||
+        !image(l->spare_depth, VK_IMAGE_TYPE_2D, VK_FORMAT_D32_SFLOAT, {1, 1, 1}, 1, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+               VK_IMAGE_ASPECT_DEPTH_BIT)) return nullptr;
     if (!image(l->neutral, VK_IMAGE_TYPE_2D, VK_FORMAT_R8G8_UNORM, size, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                VK_IMAGE_ASPECT_COLOR_BIT) ||
         !image(l->params, VK_IMAGE_TYPE_1D, VK_FORMAT_R32G32B32A32_SFLOAT, {181, 1, 1}, kCalls + 1,
@@ -297,6 +311,7 @@ std::shared_ptr<void> Translucency::prepare(uint32_t width, uint32_t height, std
         ai.memoryTypeIndex = device_memory_type(memory_, req.memoryTypeBits);
         if (ai.memoryTypeIndex == UINT32_MAX || !good(d_.AllocateMemory(dev, &ai, nullptr, &l->params_memory), "allocate parameter memory") ||
             !good(d_.BindBufferMemory(dev, l->params_buffer, l->params_memory, 0), "bind parameter memory")) return nullptr;
+        l->bytes += req.size;
     }
     // A layer's pass: cleared when the layer is first taken in a composite cycle, loaded after.
     for (int clear = 0; clear < 2; ++clear) {
@@ -317,13 +332,6 @@ std::shared_ptr<void> Translucency::prepare(uint32_t width, uint32_t height, std
         ri.attachmentCount = 2; ri.pAttachments = a; ri.subpassCount = 1; ri.pSubpasses = &sub;
         if (!good(d_.CreateRenderPass(dev, &ri, nullptr, clear ? &l->clear_pass : &l->load_pass), "create layer pass")) return nullptr;
     }
-    for (uint32_t i = 0; i < 4; ++i)
-        for (uint32_t f = 0; f < 2; ++f) {
-            VkImageView views[2] = {l->colour[i][f].view, l->depth[i][f].view};
-            VkFramebufferCreateInfo fi = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-            fi.renderPass = l->load_pass; fi.attachmentCount = 2; fi.pAttachments = views; fi.width = width; fi.height = height; fi.layers = 1;
-            if (!good(d_.CreateFramebuffer(dev, &fi, nullptr, &l->framebuffers[i][f]), "create layer framebuffer")) return nullptr;
-        }
     {
         VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 32 * 18};
         VkDescriptorPoolCreateInfo pi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -334,6 +342,47 @@ std::shared_ptr<void> Translucency::prepare(uint32_t width, uint32_t height, std
     if (layer_sets_.size() >= 3) layer_sets_.erase(layer_sets_.begin());
     layer_sets_.emplace(std::make_pair(width, height), l);
     return l;
+}
+
+// Under mx_: layer `layer` of a set, both faces and their framebuffers, made when a pass first draws
+// into it (most Mods use one or two of the four; each is about 100 MB at 2560x1600).
+bool Translucency::allocate_layer(Layers& l, uint32_t layer, std::string& why)
+{
+    if (l.allocated[layer]) return true;
+    VkDevice dev = device_->handle;
+    const VkExtent3D size{l.width, l.height, 1};
+    for (uint32_t f = 0; f < 2; ++f) {
+        if (!make_image(d_, dev, memory_, l.colour[layer][f], VK_IMAGE_TYPE_2D, VK_FORMAT_R16G16B16A16_SFLOAT, size, 1,
+                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, l.bytes, why) ||
+            !make_image(d_, dev, memory_, l.depth[layer][f], VK_IMAGE_TYPE_2D, VK_FORMAT_D32_SFLOAT, size, 1,
+                        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, l.bytes, why)) return false;
+        VkImageView views[2] = {l.colour[layer][f].view, l.depth[layer][f].view};
+        VkFramebufferCreateInfo fi = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        fi.renderPass = l.load_pass; fi.attachmentCount = 2; fi.pAttachments = views; fi.width = l.width; fi.height = l.height; fi.layers = 1;
+        if (d_.CreateFramebuffer(dev, &fi, nullptr, &l.framebuffers[layer][f]) != VK_SUCCESS) { why = "EFMITTL layers: create layer framebuffer"; return false; }
+    }
+    l.allocated[layer] = true;
+    return true;
+}
+
+void Translucency::frame()
+{
+    std::lock_guard<std::mutex> lock(mx_);
+    if (layer_sets_.empty()) return;
+    const auto now = std::chrono::steady_clock::now();
+    for (auto it = layer_sets_.begin(); it != layer_sets_.end();)
+        it = now - it->second->used > kIdleLayers ? layer_sets_.erase(it) : std::next(it);
+}
+
+Translucency::Memory Translucency::memory()
+{
+    std::lock_guard<std::mutex> lock(mx_);
+    Memory m;
+    for (const auto& [size, l] : layer_sets_) {
+        ++m.sets; m.bytes += l->bytes;
+        for (bool a : l->allocated) m.layers += a ? 1 : 0;
+    }
+    return m;
 }
 
 SnapshotImage Translucency::neutral_view(const std::shared_ptr<void>& layers)
@@ -573,18 +622,25 @@ void Translucency::pass_end(CmdBuf* cb)
                                                                                     colour_layout, layers->width, layers->height, keep_fb, why)
                                                                : VK_NULL_HANDLE;
     if (!scene_fb) { fail(why); return; }
+    const uint32_t used = uint32_t(std::min<size_t>(captures.size(), 4));
+    for (uint32_t l = 0; l < used; ++l) if (!allocate_layer(*layers, l, why)) { fail(why); return; }
+    layers->used = std::chrono::steady_clock::now();
+    uint32_t made = 0;
+    for (uint32_t l = 0; l < 4; ++l) made |= layers->allocated[l] ? 1u << l : 0u;
     VkDescriptorSet set = VK_NULL_HANDLE;
-    if (const auto found = layers->composite_sets.find(depth_serial); found != layers->composite_sets.end()) set = found->second;
+    if (const auto found = layers->composite_sets.find({depth_serial, made}); found != layers->composite_sets.end()) set = found->second;
     else {
         VkDescriptorSetAllocateInfo ai = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         ai.descriptorPool = layers->pool; ai.descriptorSetCount = 1; ai.pSetLayouts = &composite_set_layout_;
         if (layers->composite_sets.size() >= 32 || d_.AllocateDescriptorSets(device_->handle, &ai, &set) != VK_SUCCESS) { fail("EFMITTL composite set"); return; }
         // t100-t107 colour, t108-t115 depth: layer 0 front, layer 0 back, layer 1 front, ...; t116 the scene depth; t120 IniParams.
+        // A layer not made yet is a spare 1x1 image: the composite reads only the layers in use.
         std::vector<VkDescriptorImageInfo> colours, depths;
         for (uint32_t l = 0; l < 4; ++l)
             for (uint32_t f : {1u, 0u}) {
-                colours.push_back({VK_NULL_HANDLE, layers->colour[l][f].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
-                depths.push_back({VK_NULL_HANDLE, layers->depth[l][f].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+                const bool real = layers->allocated[l];
+                colours.push_back({VK_NULL_HANDLE, real ? layers->colour[l][f].view : layers->spare_colour.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+                depths.push_back({VK_NULL_HANDLE, real ? layers->depth[l][f].view : layers->spare_depth.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
             }
         const VkDescriptorImageInfo scene_info{VK_NULL_HANDLE, scene_depth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
         const VkDescriptorImageInfo params_info{VK_NULL_HANDLE, layers->params_views[kCalls], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
@@ -596,10 +652,9 @@ void Translucency::pass_end(CmdBuf* cb)
         };
         write(100, 8, colours.data()); write(108, 8, depths.data()); write(116, 1, &scene_info); write(120, 1, &params_info);
         d_.UpdateDescriptorSets(device_->handle, uint32_t(writes.size()), writes.data(), 0, nullptr);
-        layers->composite_sets.emplace(depth_serial, set);
+        layers->composite_sets.emplace(std::make_pair(depth_serial, made), set);
     }
     VkCommandBuffer cmd = cb->handle;
-    const uint32_t used = uint32_t(std::min<size_t>(captures.size(), 4));
     // Parameters: each call's IniParams[180] at its layer, the composite's (layers in use) at kCalls.
     std::vector<float> values((kCalls + 1) * 4, 0.0f);
     for (const auto& c : captures) std::memcpy(&values[c.params_layer * 4], c.params, sizeof(c.params));
@@ -679,11 +734,18 @@ void Translucency::pass_end(CmdBuf* cb)
                               0, 1, &m, 0, nullptr, 0, nullptr);
         captures_.fetch_add(1, std::memory_order_relaxed);
     }
-    // The composite reads every layer (the unused ones hold nothing it uses) and the scene depth.
+    // The composite's set holds every layer (the unused ones hold nothing it uses) and the scene depth.
     {
         std::vector<VkImageMemoryBarrier> b;
+        if (made != 0xf) {
+            b.push_back(image_barrier(layers->spare_colour.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0,
+                                      VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT));
+            b.push_back(image_barrier(layers->spare_depth.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0,
+                                      VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT));
+        }
         for (uint32_t l = 0; l < 4; ++l)
             for (uint32_t f = 0; f < 2; ++f) {
+                if (!layers->allocated[l]) continue;
                 const bool drawn = l < used;
                 b.push_back(image_barrier(layers->colour[l][f].image, drawn ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, drawn ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : 0,

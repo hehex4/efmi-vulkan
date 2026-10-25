@@ -33,7 +33,12 @@ void GpuShaderRuntime::exclude_shaders(std::vector<std::wstring> names){
 }
 void GpuShaderRuntime::compile(const RuntimeShaderDeclaration& declaration){
     for(const auto& name:excluded_)if(!_wcsicmp(name.c_str(),declaration.name.c_str()))return;
-    require(shaders_.size()<4096,"CustomShader declaration budget exceeded");Entry entry;
+    require(shaders_.size()<4096,"CustomShader declaration budget exceeded");
+    // A declaration that fails stays known as failed: the parser skips it and its runs do nothing.
+    try{compile_stages(declaration);}catch(...){Entry failed;failed.failed=true;shaders_.emplace(declaration.shader,std::move(failed));throw;}
+}
+void GpuShaderRuntime::compile_stages(const RuntimeShaderDeclaration& declaration){
+    Entry entry;
     for(unsigned i=0;i<6;++i){const auto& file=declaration.sources[i];if(file.empty())continue;entry.overrides[i]=true;
         if(!_wcsicmp(file.c_str(),L"null"))continue;
         gpu::HlslRequest request;request.source=declaration.root+declaration.namespace_path+file;
@@ -60,7 +65,15 @@ void GpuShaderRuntime::compile(const RuntimeShaderDeclaration& declaration){
                 throw std::runtime_error("CustomShader cached bytecode translation failed: "+why);
             ++cached_programs_;entry.stages[i]=std::move(program);continue;
         }
-        if(!compiler_.compile(request,*program,why))throw std::runtime_error("CustomShader source compilation failed: "+why);
+        std::vector<uint8_t> reference;
+        if(!compiler_.compile(request,*program,why,cached_compiler_?&reference:nullptr)){
+            // DXC refused what the original compiler took (3DMigoto runs that bytecode, e.g. a
+            // structured buffer's Length): the bytecode's translation runs instead.
+            std::string translation;
+            if(reference.empty() || !cached_compiler_->compile(reference,request.stage,*program,translation,cached_mode_))
+                throw std::runtime_error("CustomShader source compilation failed: "+why+(translation.empty()?"":"; its bytecode translation: "+translation));
+            ++reference_programs_;
+        }
         entry.stages[i]=std::move(program);
     }
     shaders_.emplace(declaration.shader,std::move(entry));
@@ -89,6 +102,7 @@ bool GpuShaderRuntime::run(RunCustomShaderCommand& command,CommandListState& sta
     try{
         const auto found=shaders_.find(command.custom_shader);require(found!=shaders_.end(),"CustomShader was not compiled for this generation");
         auto& shader=*command.custom_shader;auto& entry=found->second;
+        if(entry.failed)return true;
         // Keep original counters so reset_per_frame_limits uses the same state.
         if(shader.max_executions_per_frame){
             if(shader.frame_no!=G->frame_no){shader.frame_no=G->frame_no;shader.executions_this_frame=1;}

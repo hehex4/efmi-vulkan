@@ -140,6 +140,24 @@ def forge_region(length: int, index_size: int, target: int) -> bytes:
     return bytes(data)
 
 
+def only_mod(name: str) -> Path:
+    """A Mods folder of the project holding a copy of the installed Mod `name`, whether the user has it
+    enabled or renamed to DISABLED_ (the installed folder is only read). A suite step that tests one
+    Mod's mechanism then does not depend on which Mods the user has on. Copied once."""
+    source = MODS / name if (MODS / name).is_dir() else MODS / ("DISABLED_" + name)
+    if not source.is_dir():
+        raise ValueError("no installed Mod folder named %s (enabled or DISABLED_)" % name)
+    target = ROOT / "build" / "replay-mods" / name.replace(" ", "_")
+    copy = target / name
+    files = sorted(f for f in source.rglob("*") if f.is_file())
+    stamp = "\n".join("%s %d %d" % (f.relative_to(source), f.stat().st_size, f.stat().st_mtime_ns) for f in files)
+    if not (target / "source.txt").is_file() or (target / "source.txt").read_text(encoding="utf-8") != stamp:
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(source, copy)
+        (target / "source.txt").write_text(stamp, encoding="utf-8")
+    return target
+
+
 # Capture ---------------------------------------------------------------------------------------
 def mod_sections(dist: Path, out: Path) -> tuple[dict, dict]:
     """The installed Mods' sections by (index hash, count): the INI of each, and its component (None for a hide section)."""
@@ -496,6 +514,8 @@ def main() -> int:
     ap.add_argument("--probe-vertices", action="store_true", help="diagnosis: the original draws get a small known shape")
     ap.add_argument("--small-images", action="store_true", help="diagnosis: 4x4 single-level textures")
     ap.add_argument("--mods", type=Path, help="another Mods folder than the installed one (a project-owned copy)")
+    ap.add_argument("--only-mod", help="a project-owned Mods folder with a copy of this installed Mod only, enabled or "
+                    "DISABLED_ (a suite step about one Mod's mechanism)")
     ap.add_argument("--settings", type=Path, help="a folder of persistent INI variable files the Mods start from (a variant key's state)")
     ap.add_argument("--check", action="store_true", help="fail unless both runs are clean, the originals draw nothing and every "
                     "render pass with a component of the Mod shows the Mod's draws (regression suite)")
@@ -508,6 +528,8 @@ def main() -> int:
     args = ap.parse_args()
     global MODS, SETTINGS
     MODS = args.mods or MODS
+    if args.only_mod:
+        MODS = args.mods = only_mod(args.only_mod)
     SETTINGS = args.settings
     dist = Path(os.environ.get("EFMI_VK_DIST", ROOT / "dist"))
     validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))

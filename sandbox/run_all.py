@@ -36,9 +36,11 @@ STEPS = [
     ("installed Mods offline plans", [os.path.join(ROOT, "scripts", "check_mods_dry_run.py")]),
     ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                       r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "300", "--check"]),
-    # Si Lunabelle's optional guard runs the Core's spatial identification itself (D-086).
+    # Si Lunabelle's optional guard runs the Core's spatial identification itself (D-086). A copy of that
+    # Mod alone, so the step holds whichever Si Mod the user has enabled.
     ("captured frame with a Mod's own identification", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
-                                                       r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check"]),
+                                                       r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
+                                                       "--only-mod", "Si Lunabelle 1.4"]),
     # Yvonne calls the EFMITTL library from its draws (D-112): the library is loaded and every plan runs,
     # and with the game's copy pass after the forward pass its calls are captured and composited (D-113).
     ("captured frame with a library call", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
