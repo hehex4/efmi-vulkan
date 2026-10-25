@@ -46,12 +46,13 @@ bool read_skeleton_plan(uint32_t bones,uint32_t instances,uint32_t lods,
             remap.source=RemapSource::File;remap.path=resolved->path;
         }
     }
+    // Disjoint ranges; bones between them stay as the Core's initializer left them (a Mod may declare
+    // its components with bones no component imports, BUG-048).
     std::sort(intervals.begin(),intervals.end());uint64_t cursor=0;
     for(const auto& interval:intervals){
-        if(interval.first!=cursor)return fail(L"Skeleton components overlap or leave a gap");
-        cursor+=interval.second;
+        if(interval.first<cursor)return fail(L"Skeleton components overlap");
+        cursor=uint64_t(interval.first)+interval.second;
     }
-    if(cursor!=bones)return fail(L"Skeleton components do not cover all bones");
     output=std::move(next);return true;
 }
 }

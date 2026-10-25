@@ -1,8 +1,9 @@
 # EFMI Vulkan - Known issues
 
-## BUG-048: A Mod whose skeleton components leave bones between them is refused (found 2026-10-25, open)
+## BUG-048: A Mod whose skeleton components leave bones between them is refused (fixed in 1.8.1)
 
-- The Si Mod "Si" + U+FF1A + "NightveilTrancer & Gui" declares 1299 merged-skeleton bones in 24 components with bones between them (0-25, 361-425, 1142-1261 and others), none overlapping. The Core's initializer writes the 512 implicit bones and each component writes only its own range, so bones between components keep their initial value; every Mod vertex weights only component bones. The layer required the components to partition the skeleton (palette bank, Core bridge, skeleton plan, character package, native merged skeleton) and refuses the package: "Native generation preparation refused: Skeleton components overlap or leave a gap" (actual-config sandbox at Vulkan 1.3). Fix planned in 1.8.1.
+- The Si Mod "Si" + U+FF1A + "NightveilTrancer & Gui" declares 1299 merged-skeleton bones in 24 components with bones between them (0-25, 361-425, 1142-1261 and others), none overlapping. The Core's initializer writes the 512 implicit bones and each component writes only its own range, so bones between components keep their initial value; every Mod vertex weights only component bones. The layer required the components to partition the skeleton (palette bank, Core bridge, skeleton plan, character package, native merged skeleton) and refuses the package: "Native generation preparation refused: Skeleton components overlap or leave a gap" (actual-config sandbox at Vulkan 1.3).
+- Fixed in 1.8.1: the five checks take disjoint ranges in order and leave the bones between them as initialized (zero, the implicit ones identity), as the Core does; overlaps still refuse. A bone between components belongs to no component, so no draw list waits for it (it used to count for the next component). The same Mod then stopped at "Runtime image catalogue exceeds budget": its INIs declare 83 DDS images (the folder holds 133, the watch GUI's among them) and a package held at most 64; the budget is now 1024 (kCharacterImages), images still load only when a draw binds them. Actual-config sandbox at --api 1.3: all 22 packages configure, the new Si Mod included, no validation message (build/smoke-1.8.1-api13.json in the worktree). Its watch GUI calls `BuiltInCommandListUnbindAllRenderTargets`, a command list of the installation's d3dx.ini that the runtime does not load (an unrecognised-entry warning; LIMIT-039).
 
 ## BUG-046: A Mod folder named outside ASCII ended the game inside DXC (fixed in 1.8.0)
 
@@ -29,6 +30,10 @@
 
 - EFMITTL 0.5.2's unchanged cached alpha pixel shader translates to SPIR-V capability 51 (DerivativeControl). The executor omitted it from the core allowlist and rejected actual drawing although source HLSL compilation passed.
 - The capability is core Vulkan 1.0 and now accepted; stage/instruction validation and optional feature checks remain. Unchanged-library owned GPU tests cover cached/source transparency, nonuniform mip masks and shadows. Full-game transparency is separate (LIMIT-038).
+
+## LIMIT-039: The installation's built-in command lists are not loaded
+
+- d3dx.ini of the XXMI installation defines `[BuiltInCommandList...]` sections (for example `BuiltInCommandListUnbindAllRenderTargets`) that Mods and libraries run (EFMITTL, the 2026-10-25 Si Mod's watch GUI). A generation parses the Mod's own INIs, the Core and the libraries it calls, not d3dx.ini, so such a `run` line is an unrecognised entry and is skipped. Seen as warnings only; whether a skipped unbind changes a picture is not checked. Lifting it means reading those sections from d3dx.ini read-only.
 
 ## LIMIT-038: EFMITTL's shared, pass-local game integration is not implemented (implemented offline in 1.7.9, game check open)
 

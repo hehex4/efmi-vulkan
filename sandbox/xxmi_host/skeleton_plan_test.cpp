@@ -25,7 +25,8 @@ int HostSkeletonPlanTests()
           result.components[0].lods[0].source==RemapSource::Unassigned,"unordered component ids and empty slots retain identity; absent LODs remain unassigned");
     const auto unchanged=[&](){return result.bones==2 && result.instances==3 && result.components.size()==3 && result.components[0].first==1;};
     set(offsets,0,0);check(!read() && !reason.empty() && unchanged(),"overlapping partitions reject atomically");
-    set(offsets,0,1);set(counts,1,0);check(!read() && unchanged(),"uncovered bones reject atomically");
+    set(offsets,0,1);set(counts,1,0);check(read() && unchanged() && result.components[1].count==0,
+        "bones no component covers stay as the Core initialized them (BUG-048)");
     set(counts,1,1);set(offsets,0,.5f);check(!read() && unchanged(),"fractional component offsets are not truncated");
     set(offsets,0,std::numeric_limits<float>::quiet_NaN());check(!read() && unchanged(),"nonfinite component offsets refuse");
     set(offsets,0,2);check(!read() && unchanged(),"component bounds cannot exceed the skeleton");

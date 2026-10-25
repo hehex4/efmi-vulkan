@@ -590,8 +590,12 @@ int main(int argc, char** argv)
     { auto d = valid; d.pop_back(); reject(d, "truncated file refused"); }
     { auto d = valid; d.push_back(0); reject(d, "trailing bytes refused"); }
     { auto d = valid; poke(d, 8, uint32_t(5000)); reject(d, "bone count outside limits refused"); }
-    { auto d = valid; poke(d, tables + m.component_table + 24, uint32_t(3)); reject(d, "components with a gap refused"); }
-    { auto d = valid; poke(d, tables + m.component_table + 4, uint32_t(1)); reject(d, "components that do not cover the skeleton refused"); }
+    { auto d = valid; poke(d, tables + m.component_table + 24, uint32_t(0)); reject(d, "overlapping components refused"); }
+    { auto d = valid; poke(d, tables + m.component_table + 24, uint32_t(5000)); reject(d, "a component past the skeleton refused"); }
+    { auto d = valid; poke(d, tables + m.component_table + 24, uint32_t(3)); poke(d, tables + m.component_table + 28, uint32_t(2)); seal(d);
+      CharacterPackage gap; std::string reason;
+      check(gap.decode(d, reason) && gap.components.size() == 2 && gap.components[1].first == 3 && gap.components[1].count == 2,
+            "bones between components stay as initialized, as the Core leaves them (BUG-048)"); }
     { auto d = valid; poke(d, tables + m.component_table + 12, uint32_t(9)); reject(d, "draw list index out of range refused"); }
     { auto d = valid; poke(d, tables + m.stream_table + 16, uint64_t(1) << 40); reject(d, "stream larger than the payload refused"); }
     { auto d = valid; poke(d, tables + m.stream_table + 32 + 4, uint32_t(3)); reject(d, "index stride other than 2 or 4 refused"); }

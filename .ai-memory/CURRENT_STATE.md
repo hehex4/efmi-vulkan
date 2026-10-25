@@ -6,6 +6,10 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.1: skeleton components with bones between them (2026-10-25, BUG-048)
+
+- The new Si Mod's 24 components leave bones between them, as the Core allows; the layer required a partition in five places and refused the package. 1.8.1 takes disjoint ranges in order, gaps keep their initial value, a gap bone belongs to no component; the per-package image budget is 1024 (the Mod's INIs declare 83 DDS images). Actual-config sandbox at --api 1.3: all 22 packages configure, the new Si Mod included. Tests: bone 127, character package 94, skeleton metadata 15.
+
 ## First Vulkan game session of 1.7.9 and 1.8.0 (2026-10-25, BUG-046, BUG-047, D-114 to D-116)
 
 - Game session (PID 19920, user-started, 1.7.9 injected by the launcher): EFMITTL translucency worked in the game (27119 captures, 6701 composites, no error). The user saw characters revert to the game's model in the open world and a one to two second wait when switching back (BUG-047: textures waiting for free memory with the device at its budget, idle eviction of party members out of view, 400 MiB EFMITTL layer sets kept). Then the user installed a Si Mod whose folder name holds a full-width colon and pressed F10: the game ended inside DXC; started again, it ended 19 s after start (BUG-046). Windows reported the commit limit during the F10 reload (ISSUE-011).

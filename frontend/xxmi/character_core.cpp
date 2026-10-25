@@ -474,8 +474,9 @@ global $mod_id = -1
         for (uint32_t original : order) {
             const auto& got = metadata.components[original];
             const auto& maps = palette.components[original].lods;
-            if (got.first != cursor) return fail(why, L"Original components do not partition the skeleton");
-            cursor += got.count;
+            // Bones between components stay as initialized, as the Core's merged skeleton leaves them.
+            if (got.first < cursor) return fail(why, L"Original components overlap");
+            cursor = got.first + got.count;
             if (!maps[0].available || !maps[0].indices.empty() || !maps[1].available)
                 return fail(why, L"Original component has a LOD0 remap or no LOD1 assignment");
             efvk::CharacterComponent c;
@@ -487,7 +488,7 @@ global $mod_id = -1
             dense.emplace(original, uint32_t(contract.components.size()));
             contract.components.push_back(std::move(c));
         }
-        if (cursor != metadata.bones) return fail(why, L"Original components do not cover the skeleton");
+        if (cursor > metadata.bones) return fail(why, L"Original components exceed the skeleton");
         size_t left = outside_package;
         for (const auto& s : found) {
             auto section = s.section;

@@ -29,10 +29,10 @@ bool PaletteBank::configure(PaletteDefinition input,std::string& reason)
     std::vector<efvk::BoneComponent> ordered;uint64_t cursor=0;
     for(uint32_t id:ids){
         const auto& range=input.components[id].range;
-        if(range.first!=cursor)return fail("Palette components overlap or leave a gap");
-        dense[id]=static_cast<uint32_t>(ordered.size());ordered.push_back(range);cursor+=range.count;
+        // Bones between components stay as initialized, as the Core's merged skeleton leaves them.
+        if(range.first<cursor)return fail("Palette components overlap");
+        dense[id]=static_cast<uint32_t>(ordered.size());ordered.push_back(range);cursor=uint64_t(range.first)+range.count;
     }
-    if(cursor!=input.bones)return fail("Palette components do not cover all bones");
     definition_=std::move(input);dense_=std::move(dense);ordered_=std::move(ordered);
     palettes_.clear();serial_=0;begun_=false;return true;
 }

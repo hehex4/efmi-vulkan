@@ -3,7 +3,7 @@
 ## Active: the first Vulkan game session's findings (2026-10-25)
 
 - Done in 1.8.0 (offline verified, see CURRENT_STATE): BUG-046 (DXC fault on a Mod folder outside ASCII, fxc bytecode for sources DXC refuses, failed CustomShaders skipped as the original does), BUG-047 (texture floor, eviction for free memory, lazy and released EFMITTL layers).
-- Next, 1.8.1: BUG-048, merged-skeleton components with bones between them (palette bank, Core bridge, skeleton plan, package, native skeleton); then the new Si Mod at --api 1.3 in the actual-config sandbox.
+- 1.8.1: BUG-048 fixed (skeleton gaps, image budget 1024); the new Si Mod configures in the actual-config sandbox at --api 1.3. Open: LIMIT-039 (d3dx.ini built-in command lists), the Si Mod's shape keys and watch GUI in the game.
 - ISSUE-011: measure commit and device memory per generation across an F10 with the installed Mods folder (twenty generations reload at once).
 - In the next user-started session: textures.floor_bytes, budget_waits, evictions and gated frames while switching characters in the open world; translucency.layer_bytes; the new Si Mod.
 

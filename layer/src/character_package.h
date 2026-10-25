@@ -10,6 +10,9 @@ constexpr uint32_t kCharacterNone = UINT32_MAX;
 // A draw's vertex slot bound to an owned GPU buffer of a live plan (CharacterDraw::owned).
 constexpr uint32_t kCharacterOwned = UINT32_MAX - 1;
 constexpr uint32_t kCharacterOvershoot = 64;
+// DDS images one package may declare: they load only when a draw binds them, so this is a sanity
+// budget, not memory (a Mod with a watch GUI declares 83; 64 until 1.8.1).
+constexpr uint32_t kCharacterImages = 1024;
 // The formats a pipeline declares BLENDINDICES and BLENDWEIGHT with in binding 2: four unsigned
 // integers of 8, 16 or 32 bits, and four normalized 16-bit or float weights. A Mod's blend-index
 // edit names the replacement format; the game's own may be any of these (BUG-038).
@@ -101,7 +104,7 @@ struct CharacterMaterialProfile {
 
 struct CharacterPackage {
     uint32_t bones = 0;
-    std::vector<CharacterComponent> components; // in bone order; they partition [0, bones)
+    std::vector<CharacterComponent> components; // in bone order, disjoint; bones between them belong to none
     std::vector<CharacterStream> streams;
     std::vector<CharacterSection> sections;
     std::vector<CharacterList> lists;

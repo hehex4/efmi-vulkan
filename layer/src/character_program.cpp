@@ -190,7 +190,7 @@ void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::
             } else if (_wcsicmp(file->path.extension().c_str(), L".dds")) {
                 continue; // Only owned GPU work reads other image files; a replaced draw binding one refuses.
             } else if (!images_.count(key(file->path))) {
-                if (package.images.size() >= 64) throw std::runtime_error("Runtime image catalogue exceeds budget");
+                if (package.images.size() >= kCharacterImages) throw std::runtime_error("Runtime image catalogue exceeds budget");
                 images_.emplace(key(file->path), uint32_t(package.images.size())); package.images.push_back(file->path.u8string());
             }
         }

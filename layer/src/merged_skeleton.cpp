@@ -29,12 +29,11 @@ bool MergedSkeleton::configure(uint32_t bones, uint32_t instances,
     uint64_t cursor = 0;
     uint32_t largest = 0;
     for (const auto& c : components) {
-        if (!c.count || c.first != cursor || uint64_t(c.first) + c.count > bones)
-            return reject(reason, "components must partition the skeleton in order");
-        cursor += c.count;
+        if (!c.count || c.first < cursor || uint64_t(c.first) + c.count > bones)
+            return reject(reason, "components must be disjoint ranges of the skeleton in order");
+        cursor = uint64_t(c.first) + c.count;
         largest = std::max(largest, c.count);
     }
-    if (cursor != bones) return reject(reason, "incomplete component coverage");
     try {
         auto new_components = components;
         std::vector<Stamp> new_stamps(size_t(instances) * components.size());

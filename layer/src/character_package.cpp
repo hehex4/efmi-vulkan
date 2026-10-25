@@ -44,7 +44,7 @@ bool decode_materials(const std::vector<uint8_t>& file, CharacterPackage& output
     next.material_vendor = at<uint32_t>(p + 12); next.material_device = at<uint32_t>(p + 16);
     const uint32_t policy = at<uint32_t>(p + 20); p += 24;
     // No profile is valid: the layer derives every fragment shader's rules from its module (D-076).
-    if (images > 64 || profiles > 256 || draws != next.draws.size() || policy > 1 ||
+    if (images > kCharacterImages || profiles > 256 || draws != next.draws.size() || policy > 1 ||
         (policy ? (!next.material_vendor || !next.material_device) : (next.material_vendor || next.material_device)))
         return fail("character material dimensions or policy invalid");
     for (uint32_t i = 0; i < images; ++i) {
@@ -133,9 +133,10 @@ static bool stream_bones(const std::vector<CharacterComponent>& components, uint
                          CharacterStream& s, std::string& reason)
 {
     const uint32_t component_count = static_cast<uint32_t>(components.size());
+    // A bone between components belongs to none: nothing imports it, so no draw waits for it.
     auto component_of = [&](uint32_t bone) {
         for (uint32_t i = 0; i < component_count; ++i)
-            if (bone < components[i].first + components[i].count) return i;
+            if (bone >= components[i].first && bone < components[i].first + components[i].count) return i;
         return component_count;
     };
     s.components = 0;
@@ -158,7 +159,7 @@ static bool stream_bones(const std::vector<CharacterComponent>& components, uint
                 } else weight = at<uint16_t>(element + s.bone_weight_offset + k * 2);
                 total += weight;
             }
-            if (weight) s.components |= 1u << component_of(bone);
+            if (const uint32_t c = component_of(bone); weight && c < component_count) s.components |= 1u << c;
         }
         if (s.bone_weight_offset != kCharacterNone && (total < 65533 - (s.bone_weight_bytes == 4 ? 64 : 0) || total > 65537 + (s.bone_weight_bytes == 4 ? 64 : 0))) {
             reason = "bone weights are not normalized"; return false;
@@ -215,12 +216,12 @@ bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& rea
     uint64_t cursor = 0;
     for (uint32_t i = 0; i < component_count; ++i, p += 24) {
         RawComponent c = {at<uint32_t>(p), at<uint32_t>(p + 4), at<uint32_t>(p + 8), at<uint32_t>(p + 12), at<uint32_t>(p + 16)};
-        if (!c.count || c.first != cursor || uint64_t(c.first) + c.count > bone_count) return fail("components do not partition the skeleton");
+        // Disjoint and in order; bones between components stay as initialized (BUG-048).
+        if (!c.count || c.first < cursor || uint64_t(c.first) + c.count > bone_count) return fail("components overlap or leave the skeleton");
         if (c.list0 >= list_count || c.list1 >= list_count) return fail("component draw list out of range");
-        cursor += c.count;
+        cursor = uint64_t(c.first) + c.count;
         raw_components.push_back(c);
     }
-    if (cursor != bone_count) return fail("components do not cover the skeleton");
     for (uint32_t i = 0; i < stream_count; ++i, p += 32) {
         CharacterStream s;
         s.kind = at<uint32_t>(p); s.stride = at<uint32_t>(p + 4); s.offset = at<uint64_t>(p + 8); s.size = at<uint64_t>(p + 16);
