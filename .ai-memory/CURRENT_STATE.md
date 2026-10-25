@@ -9,7 +9,7 @@
 ## 1.8.3: no cross-queue wait for the bone dispatches; rt_width in draw lists (2026-10-25, BUG-050, BUG-051)
 
 - The 1.8.2 session deadlocked on the GPU after two minutes (BUG-050): the bone merge's cross-queue wait against the game's own queue semaphores, the rule of D-091 broken. 1.8.3 never waits across queues (an already satisfied wait, or the same jobs dispatched again on the draws' queue). The Si Mod's draws were all refused for `rt_width` in their lists (BUG-051); the draw request now carries the render pass's colour target size and the INI runtime starts the draw's state with it.
-- Verification and deployment: see the session log for this round's status.
+- Full suite 38 steps passed (build/run_all-1.8.3.out in the worktree), character 361/361. Deployed the 18 files (375bc2d) at 21:26 after two closed-process checks; hashes match, cfg unchanged; 1.8.2 in build/backups/before-1.8.3-20261025-212636/ (build/candidate-1.8.3.json). Post-deployment smoke at --api 1.3: 1.8.3, 22 packages configured, none refused, no validation message (build/smoke-1.8.3.json). Game check open: no stall over a session, `bones.redispatches`/`queue_waits`, the Si Mod drawing, the interleaved A/B.
 
 ## 1.8.2: the merged skeleton imported on the GPU; arenas sized from the skeleton (2026-10-25, D-117, D-118, BUG-049)
 
