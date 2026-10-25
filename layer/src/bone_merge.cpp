@@ -323,16 +323,28 @@ VkResult BoneMerge::submit(VkQueue queue)
         std::lock_guard<std::mutex> lock(mx_);
         jobs.swap(jobs_); queued_.store(0, std::memory_order_relaxed);
     }
-    // Draws submitted on another queue than the dispatches they read wait for those dispatches.
-    if (last_queue_ && last_queue_ != queue && last_value_ > ctx_->completed()) {
-        VkTimelineSemaphoreSubmitInfo values{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
-        values.waitSemaphoreValueCount = 1; values.pWaitSemaphoreValues = &last_value_;
-        const VkPipelineStageFlags stage = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-        VkSubmitInfo wait{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        wait.pNext = &values; wait.waitSemaphoreCount = 1; wait.pWaitSemaphores = &ctx_->timeline; wait.pWaitDstStageMask = &stage;
-        const VkResult result = ctx_->QueueSubmit(queue, 1, &wait, VK_NULL_HANDLE);
-        if (result != VK_SUCCESS) return result;
-        queue_waits_.fetch_add(1, std::memory_order_relaxed);
+    // The game alternates its two graphics queues between frames, so the draws of a frame mostly go
+    // to the other queue than the frame's dispatches did. A queue never waits for the other (D-091:
+    // the game's own semaphores between its queues made such a wait a deadlock in the 1.8.2 session,
+    // BUG-050). When the last dispatches ran on the other queue and completed, this queue takes an
+    // already satisfied wait for them (their writes made visible, as the texture uploads do); when
+    // they still run, this queue dispatches the same jobs again before its draws: both write the same
+    // rows of the same slot.
+    if (last_queue_ && last_queue_ != queue) {
+        if (last_value_ <= ctx_->completed()) {
+            VkTimelineSemaphoreSubmitInfo values{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+            values.waitSemaphoreValueCount = 1; values.pWaitSemaphoreValues = &last_value_;
+            const VkPipelineStageFlags stage = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+            VkSubmitInfo wait{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            wait.pNext = &values; wait.waitSemaphoreCount = 1; wait.pWaitSemaphores = &ctx_->timeline; wait.pWaitDstStageMask = &stage;
+            const VkResult result = ctx_->QueueSubmit(queue, 1, &wait, VK_NULL_HANDLE);
+            if (result != VK_SUCCESS) return result;
+            queue_waits_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            for (auto& job : last_jobs_) { std::lock_guard<std::mutex> lock(job.ring->mx); ++job.ring->pending[job.slot]; }
+            jobs.insert(jobs.begin(), last_jobs_.begin(), last_jobs_.end());
+            redispatches_.fetch_add(uint64_t(last_jobs_.size()), std::memory_order_relaxed);
+        }
         last_queue_ = queue;
     }
     if (jobs.empty()) return VK_SUCCESS;
@@ -368,6 +380,7 @@ VkResult BoneMerge::submit(VkQueue queue)
         last_queue_ = queue; last_value_ = value;
         submissions_.fetch_add(1, std::memory_order_relaxed);
     }
+    last_jobs_.assign(jobs.begin(), jobs.end());
     return VK_SUCCESS;
 }
 
@@ -377,7 +390,7 @@ void BoneMerge::status(JsonWriter& w)
     w.kb("gpu", g_cfg.m2_gpu_bones); w.kb("usable", usable_); w.kv("reason", reason_);
     w.kn("jobs", jobs_total_.load()); w.kn("dispatches", dispatches_.load()); w.kn("submissions", submissions_.load());
     w.kn("rings", rings_.load()); w.kn("ring_bytes", ring_bytes_.load());
-    w.kn("queue_waits", queue_waits_.load()); w.kn("slot_waits", slot_waits_.load()); w.kn("failures", failures_.load());
+    w.kn("queue_waits", queue_waits_.load()); w.kn("redispatches", redispatches_.load()); w.kn("slot_waits", slot_waits_.load()); w.kn("failures", failures_.load());
     w.kn("completed", ctx_->completed()); w.kn("submitted", ctx_->submitted.load());
     { std::lock_guard<std::mutex> lock(mx_); w.kv("last_error", error_); }
     w.end_object();

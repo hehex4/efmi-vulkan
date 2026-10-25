@@ -1534,6 +1534,18 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
             request.instance_entry = entry.data(); request.instance_entry_size = entry.size();
             render_targets(pipe->second, request);
+            // The colour target's size for the list's rt_width and rt_height (the original reads them
+            // off the bound target; a Mod's GUI placement in a draw's list asks for them).
+            if (cb->pass.info && cb->pass.info->known && cb->pass.recipe && pipe->second.recipe) {
+                const uint32_t sub = pipe->second.recipe->subpass;
+                if (sub < cb->pass.recipe->subpasses.size() && !cb->pass.recipe->subpasses[sub].colors.empty()) {
+                    const uint32_t ci = cb->pass.recipe->subpasses[sub].colors[0].attachment;
+                    if (ci < cb->pass.info->views.size() && cb->pass.info->views[ci].known) {
+                        request.target_width = float(cb->pass.info->views[ci].image.extent.width);
+                        request.target_height = float(cb->pass.info->views[ci].image.extent.height);
+                    }
+                }
+            }
             // EFMITTL's lit vertex shader hook (D-113).
             if (translucency && program->efmittl()) { request.lit_vertex = lit_vertex(pipe->second); translucency->listen(); }
             request.seconds = ini_seconds();

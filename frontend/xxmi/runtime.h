@@ -99,6 +99,9 @@ struct RuntimeDraw {
     // What a library's shader hooks see of this draw under DX11, from the host's Vulkan pipeline
     // (D-113): its vertex shader has the output interface of the game's lit character vertex shader.
     bool lit_vertex = false;
+    // The size of the draw's colour target 0 as the host knows it (the original's rt_width and
+    // rt_height, read off the bound render target), -1 when the host does not know it.
+    float target_width = -1, target_height = -1;
 };
 // The events of the game's frame a library's shader hooks see under DX11 and the host reports
 // (D-113): the game's copy shader drew with a single colour target.

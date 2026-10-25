@@ -1,5 +1,16 @@
 # EFMI Vulkan - Known issues
 
+## BUG-050: The 1.8.2 game session deadlocked on the GPU at a cross-queue wait (fixed in 1.8.3)
+
+- 2026-10-25 21:01, user-started Vulkan session (PID 19260) with 1.8.2: the picture froze about two minutes in; the stall watchdog showed the game's thread inside vkWaitForFences and no presentation for over 35 s; the user ended the process. Status through the probe: `bones.queue_waits` 474 of 778 submissions, `submitted` 778 against `completed` 773: five of the layer's bone submissions never finished.
+- Cause: the game alternates its two graphics queues between frames, so a frame's dispatches (submitted on the queue of the first submission after they were queued) mostly ran on the other queue than the frame's draws. D-117's first version made the draws' queue wait for the dispatches' queue through the timeline; with the game's own semaphores between its queues that is a cycle, and the GPU stopped. D-091 had already ruled such waits out for the texture uploads; the bone merge broke the rule.
+- Fixed in 1.8.3: a queue never waits for the other. When the other queue's dispatches completed, this queue takes an already satisfied wait (visibility); when they still run, this queue dispatches the same jobs again before its draws (`bones.redispatches`); both write the same rows of the same slot.
+
+## BUG-051: A Mod whose draw lists read rt_width was refused at every draw (fixed in 1.8.3)
+
+- 2026-10-25, the same session: the new Si Mod matched 22607 draws and 22572 were refused with "Original draw command refused: Render target size needs the owned GPU domain". Its watch GUI places itself by `rt_width` and `rt_height` inside `if` blocks of its TextureOverride lists. The original caches the two off the bound render target at first use; the layer answered them only in the owned GPU domain (Present), so a draw's list that asked refused.
+- Fixed in 1.8.3: the renderer gives the draw request the size of its render pass's colour attachment 0 (RuntimeDraw::target_width/height) and the INI runtime starts the draw's state with it, as the original's cache would hold it. General: any Mod reading the render target size in a draw.
+
 ## BUG-049: A Mod with a large skeleton never drew: its arenas exceeded the batch budget (fixed in 1.8.2)
 
 - 2026-10-25, 1.8.1 session (PID 44092): the new Si Mod configured and activated but drew nothing; its package said "character material arenas exceed the batch budget". Each batch makes one arena per image count (nine for a package with runtime materials), each with 64 bone copies of the master (512 + 2 x 1299 bones x 48 bytes = 150 KiB each): 9 x 64 x 150 KiB far above the 64 MiB a batch may take. Skeletons above about 900 bones hit it.

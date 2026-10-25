@@ -6,6 +6,11 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.3: no cross-queue wait for the bone dispatches; rt_width in draw lists (2026-10-25, BUG-050, BUG-051)
+
+- The 1.8.2 session deadlocked on the GPU after two minutes (BUG-050): the bone merge's cross-queue wait against the game's own queue semaphores, the rule of D-091 broken. 1.8.3 never waits across queues (an already satisfied wait, or the same jobs dispatched again on the draws' queue). The Si Mod's draws were all refused for `rt_width` in their lists (BUG-051); the draw request now carries the render pass's colour target size and the INI runtime starts the draw's state with it.
+- Verification and deployment: see the session log for this round's status.
+
 ## 1.8.2: the merged skeleton imported on the GPU; arenas sized from the skeleton (2026-10-25, D-117, D-118, BUG-049)
 
 - The 1.8.1 session: EFMITTL translucency worked (24044 captures, 6004 composites), the new Si Mod loaded but never drew (BUG-049), and the user found the game stuttering badly. Per-stage figures of the session (build/game-1.8.1-status-1.json): 50-90 us per matched draw, bones 17-33 us (write-combined reads), plan 15-37 us, the rest about 20 us; about 5 ms of layer work per frame; the game itself CPU-bound under Vulkan (ISSUE-012).

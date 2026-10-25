@@ -194,7 +194,15 @@ struct IniRuntime::Impl {
     Impl() { device.mHackerContext = &context; context.mHackerDevice = &device; }
     CommandListState command_state()
     {
-        CommandListState s; s.mHackerContext = &context; s.mHackerDevice = &device; return s;
+        CommandListState s; s.mHackerContext = &context; s.mHackerDevice = &device;
+        // A replaced draw's colour target size as the host read it off its render pass: the original
+        // caches rt_width and rt_height in the state off OMGetRenderTargets at their first use, and a
+        // draw's list that reads them (a Mod's GUI placement) would otherwise refuse outside the owned
+        // GPU domain.
+        if (current_draw && current_draw->target_width > 0 && current_draw->target_height > 0) {
+            s.rt_width = current_draw->target_width; s.rt_height = current_draw->target_height;
+        }
+        return s;
     }
     bool execute(CommandList& pre, CommandList& post, assets::FilePlan& result, std::wstring& reason,DrawPlanAdapter::OriginalCall between={})
     {

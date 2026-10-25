@@ -99,8 +99,9 @@ private:
     std::vector<Slot> slots_;
     VkQueue last_queue_ = VK_NULL_HANDLE;
     uint64_t last_value_ = 0;
+    std::vector<BoneJob> last_jobs_; // the last batch, dispatched again on the other queue while it still runs
     // Status.
-    std::atomic<uint64_t> jobs_total_{0}, dispatches_{0}, submissions_{0}, rings_{0}, ring_bytes_{0}, queue_waits_{0}, slot_waits_{0}, failures_{0};
+    std::atomic<uint64_t> jobs_total_{0}, dispatches_{0}, submissions_{0}, rings_{0}, ring_bytes_{0}, queue_waits_{0}, redispatches_{0}, slot_waits_{0}, failures_{0};
     std::string error_;
 };
 
