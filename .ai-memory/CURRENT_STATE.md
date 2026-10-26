@@ -11,6 +11,7 @@
 - An image is the device's, keyed by its file's path, size and write time; generations count their declarations; an F10 shares every file that did not change (no second read, no second copy), a changed file is a new image, a failed load is tried again by a later generation. The submission hook no longer looks recording up per command buffer outside character mode.
 - Test that fails on 1.9.3 (all four entry and queue configurations): the live INI scene's F10 with unchanged texture files reads none again and declares no second image; on 1.9.4 the scene's reloads read 4 files instead of 8.
 - Not done (BUG-061's open part): bringing up only the packages drawn lately (tried and withdrawn), the meshes per generation.
+- Deployed 20:29 (7a6a68b, with 1.9.3's bone change) with the game and the launcher closed; backup build/backups/before-1.9.4-20261026-202937, manifest build/candidate-1.9.4.json, cfg unchanged (`m2_gpu_bones = 1`). No actual-config smoke this time (the user asked to test in the game at once). The shader cache is rebuilt on the first start (new build identity).
 - Verification: the failing-first check and the live INI rendering step (80/80, all four configurations); the whole suite was started and stopped at the user's request before deployment (the user tests in the game instead); 1.9.3's suite had passed the rest. Not yet in the game.
 
 ## 1.9.3: one persistent merged skeleton per object, our GPU work inside the game's batches (2026-10-26, BUG-060, D-127)
