@@ -10,7 +10,7 @@
 
 - Found with the outside sampler on the replay of the Si NightveilTrancer Mod (docs/recording-performance.md): every descriptor-set bind compared pipeline layouts field by field; RabbitFX's texture roles were classified at every matched draw (most of its allocations); the instance entry was found by listing every range of set 2. 1.8.7 interns layouts at creation (one comparison per check), keeps the roles per pipeline and its sets' identity and write generation, and looks binding 0 up directly.
 - Replay process CPU per frame against the deployed 1.8.6, interleaved, six pairs: 2766 to 2609 us (-5.7%, every pair faster; the driver included). Steady per matched draw before the change: about 28 us, 22 of them the plan, 18 the original interpreter.
-- Verification: replay vk04 with the Mod `--check --no-refusal` passed; full suite: see the session log.
+- Verification: replay vk04 with the Mod `--check --no-refusal` passed; full suite 41/41 (build/run_all-1.8.7.out in the worktree). Deployed the 18 files (de43c4d) on 2026-10-26 11:26 after two closed-process checks; cfg unchanged; 1.8.6 in build/backups/before-1.8.7-20261026-112646/ (build/candidate-1.8.7.json). Smoke at --api 1.3: 1.8.7, 22 packages, none refused, the Si NightveilTrancer Mod configured, no validation message (build/smoke-1.8.7.json). Not yet seen in the game.
 
 ## 1.8.6: the probe's sampler; less shared state written per hook (2026-10-26, D-121 step 4)
 
