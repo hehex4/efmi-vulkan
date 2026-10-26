@@ -393,6 +393,7 @@ public:
     std::shared_ptr<BoneRemaps> bone_remaps;           // this package's LOD remap tables on the device
     bool bone_remaps_failed = false, bone_ring_failed = false;
     std::vector<TextureResidency::ImageId> image_ids;  // per package image
+    bool images_forgotten = false;                     // the declarations given back at stop
     std::vector<std::vector<StaticMaterial>> materials; // profile x package draw, prepared at setup
     std::unordered_map<uint32_t, uint32_t> material_profiles; // pipeline generation -> exact profile
     std::vector<uint32_t> material_slots;                          // DX11 pixel slots the package binds
@@ -777,7 +778,8 @@ public:
         if (worker.joinable()) worker.join();
         if (presenter) presenter->stop();
         if (program) { std::string reason; if (!program->save(reason)) note("INI shutdown settings: " + reason); }
-        if (textures) textures->forget(image_ids);
+        // Once: an image goes when no generation declares it any more (BUG-061).
+        if (textures && !images_forgotten) { textures->forget(image_ids); images_forgotten = true; }
         std::deque<std::shared_ptr<CharacterCommand>> old;
         std::shared_ptr<const GpuMesh> old_mesh;
         { std::lock_guard<std::mutex> lock(pool_mx); old.swap(available); old_mesh.swap(mesh); ready = false; }
@@ -1446,7 +1448,7 @@ bool CharacterGeneration::init_materials()
     if (!textures || !textures->usable()) { last_reason = textures ? textures->reason() : "textures need the device's residency"; return false; }
     for (const auto& path : package.images) {
         std::string why;
-        const auto id = textures->declare(path, reinterpret_cast<uint64_t>(generation_key.get()), why);
+        const auto id = textures->declare(path, why);
         if (id == TextureResidency::kNone) { last_reason = why; return false; }
         image_ids.push_back(id);
     }
@@ -2514,7 +2516,7 @@ public:
             } else {
                 staged = std::move(candidate); staged_at = host_time_us();
                 // A lazy package already on the GPU brings its successor up at once, with the textures
-                // the live generation shows, read again from their files (D-094).
+                // the live generation shows: the same images, unless a file changed (BUG-061).
                 if (active->activated.load()) {
                     std::lock_guard<std::mutex> hold(staged->mod_mx); staged->activate();
                     if (staged->textures) staged->textures->preload_matching(staged->image_ids, active->image_ids);

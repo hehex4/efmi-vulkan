@@ -1,6 +1,11 @@
-"""Builds layer and sandbox, then runs the whole regression suite.
+"""Builds layer and sandbox, then runs the whole regression suite, or the steps a change touches.
 
-    python sandbox/run_all.py [--no-build]
+    python sandbox/run_all.py [--no-build] [--only WORDS] [--list]
+
+--only takes words separated by commas: a step runs when its name contains one of them (any case),
+or one of the groups below names it. The whole suite runs before a deployment; between, the checks
+of the area a change touches (the user, 2026-10-26: the whole suite every time takes too long).
+--list prints the steps and groups.
 
 Set EFMI_VK_DIST to build and test in another directory than dist/, for example
 while a running game holds the DLL in dist/.
@@ -111,9 +116,41 @@ STEPS = [
 ]
 
 
+# Steps by the area of the layer they check, for --only.
+GROUPS = {
+    "bones": ["bones across recordings", "bone regions reused", "two queues, bones", "CPU skeleton import"],
+    "replay": ["captured frame"],
+    "textures": ["live INI rendering", "character replacement", "full card", "Mods folder"],
+    "submission": ["two queues, bones", "bone regions reused", "probe end to end", "Vulkan validation", "live INI rendering"],
+    "ini": ["INI", "frontend host", "declarations", "registers", "Core facts", "texture roles", "offline plans"],
+    "owned": ["owned", "GPU resources", "HLSL", "Present compute"],
+}
+
+
+def selected(names: list[str], words: list[str]) -> list[str]:
+    patterns = []
+    for word in words:
+        patterns += GROUPS.get(word.lower(), [word])
+    return [n for n in names if any(p.lower() in n.lower() for p in patterns)]
+
+
 def main() -> int:
     steps = list(STEPS)
-    if "--no-build" not in sys.argv[1:]:
+    args = sys.argv[1:]
+    if "--list" in args:
+        for name, _ in STEPS:
+            print(name)
+        print("groups: " + ", ".join(sorted(GROUPS)))
+        return 0
+    if "--only" in args:
+        at = args.index("--only")
+        words = [w.strip() for w in (args[at + 1] if at + 1 < len(args) else "").split(",") if w.strip()]
+        names = selected([n for n, _ in STEPS], words)
+        if not names:
+            print("run_all: --only matched no step")
+            return 1
+        steps = [(n, a) for n, a in STEPS if n in names]
+    if "--no-build" not in args:
         build = [os.path.join(ROOT, "scripts", "build.py")]
         # A running process may hold the DLL in dist/. With EFMI_VK_DIST set, build and
         # test in that directory instead.

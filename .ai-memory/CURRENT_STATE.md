@@ -6,6 +6,13 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.9.4: one image per texture file across generations (2026-10-26, BUG-061)
+
+- An image is the device's, keyed by its file's path, size and write time; generations count their declarations; an F10 shares every file that did not change (no second read, no second copy), a changed file is a new image, a failed load is tried again by a later generation. The submission hook no longer looks recording up per command buffer outside character mode.
+- Test that fails on 1.9.3 (all four entry and queue configurations): the live INI scene's F10 with unchanged texture files reads none again and declares no second image; on 1.9.4 the scene's reloads read 4 files instead of 8.
+- Not done (BUG-061's open part): bringing up only the packages drawn lately (tried and withdrawn), the meshes per generation.
+- Verification: the failing-first check and the live INI rendering step (80/80, all four configurations); the whole suite was started and stopped at the user's request before deployment (the user tests in the game instead); 1.9.3's suite had passed the rest. Not yet in the game.
+
 ## 1.9.3: one persistent merged skeleton per object, our GPU work inside the game's batches (2026-10-26, BUG-060, D-127)
 
 - Session with 1.9.2 (PID 13144, 18:33-18:5x, user-started, DLSS Frame Generation on): Typhoeus' wings on the ground in some frames with GPU bones (BUG-060; the probe's `gpu_bones=0` at 18:45:23 was diagnosis only, the wings then stayed); after Frame Generation off and on an F10 exchange at 18:47:33 brought 20 packages up twice (BUG-061, open); stutter while switching from texture first loads. The user: the designs still have many problems, solve them at the root. docs/design-review-1.9.md names the causes and the order of work.

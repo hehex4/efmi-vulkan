@@ -480,7 +480,8 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         original_text.erase(std::remove(original_text.begin(), original_text.end(), '\r'), original_text.end());
         source.close();
         write_text("mod.ini", original_text + "\n[Present]\n$tint = (\n");
-        const auto first_generation = number(status(), "ini_generation");
+        const auto before_reload = status();
+        const auto first_generation = number(before_reload, "ini_generation");
         press("1 121\n"); frame(false); press("1\n");
         bool warned = false;
         for (uint32_t i = 0; i < 400 && !warned; ++i) { frame(false); warned = number(status(), "ini_generation") == first_generation + 1; if (!warned) Sleep(5); }
@@ -489,6 +490,10 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         const auto warned_status = status();
         check(warned && number(warned_status, "ini_reload_rejected") == 0 && number(warned_status, "diagnostics") >= 1 && shade_at(-.6f,.3f) == 8,
               "F10 with a broken line loads like the original: the line is reported and skipped, the character stays green");
+        // No texture file changed: the new generation has the live one's images, read once (BUG-061).
+        check(number(warned_status, "file_reads") == number(before_reload, "file_reads") &&
+              number(warned_status, "declared") == number(before_reload, "declared"),
+              "F10 with unchanged texture files reads none again and declares no second image");
         const auto old_generation = first_generation + 1;
         write_text("mod.ini", original_text);
         std::ifstream texture("green.dds", std::ios::binary);

@@ -911,8 +911,8 @@ template <class Each>
 SubmitWork& submit_work(Device* dev, uint32_t count, Each each)
 {
     thread_local SubmitWork work;
-    work.batches.resize(count); work.signals.clear(); work.owners.clear();
-    for (uint32_t i = 0; i < count; i++) {
+    work.batches.resize(dev->character_mode ? count : 0); work.signals.clear(); work.owners.clear();
+    for (uint32_t i = 0; i < work.batches.size(); i++) {
         auto& batch = work.batches[i]; batch.cbs.clear(); batch.prefix.clear();
         each(i, [&](VkCommandBuffer handle) { if (CmdBuf* cb = cb_of(dev, handle)) batch.cbs.push_back(cb); });
     }

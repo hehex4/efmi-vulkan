@@ -17,8 +17,11 @@ missing here.
 One `TextureResidency` per device (`layer/src/texture_residency.h`), shared by every character
 generation:
 
-- **Declaration without IO.** A generation declares its images under a tag of its own (the
-  generation's identity); equal paths under one tag share an image.
+- **Declaration without IO.** A generation declares its images; a file is one image whatever
+  generation declares it, keyed by its path, size and write time (1.9.4, BUG-061; until then each
+  generation had a tag of its own, so an F10 read every shown texture again and held it twice). A
+  file changed on disk is a new image; a load that failed is tried again by a later generation; an
+  image goes when the last generation that declared it forgot it.
 - **Load on first bind.** `material_draws` asks the residency for each image a draw binds. One not
   resident is demanded (a queued one moves to the front of the load queue) and the draw stays the
   game's until it is published; the game's own mesh shows for those frames, as before while a

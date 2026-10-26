@@ -4,8 +4,11 @@
 // bound first, and loaded again on their next bind, as the DX11 runtime pages a game's textures;
 // what the frames keep binding stays, and a working set the target does not hold shrinks by large
 // textures loading without their top mip level (D-097). One timeline semaphore publishes every
-// upload to every graphics queue (D-095). One object per device; every character generation declares its images into it
-// under a tag of its own, so a reload reads its files again while the live generation keeps its own.
+// upload to every graphics queue (D-095). One object per device; every character generation declares its images into it.
+// A file is one image whatever generation declares it, keyed by its path, size and write time: an F10
+// reload shares every file that did not change (no second read, no second copy on the device), and a
+// file that changed on disk is a new image, loaded on its first bind (BUG-061). A generation's
+// declarations are counted; an image goes when the last generation that declared it forgot it.
 #pragma once
 
 #include "state.h"
@@ -31,8 +34,9 @@ public:
     TextureResidency& operator=(const TextureResidency&) = delete;
     bool usable() const { return usable_; }
     const std::string& reason() const { return reason_; }
-    // Declaration only, no file IO; equal paths under one tag share an image. kNone with the reason.
-    ImageId declare(const std::string& utf8_path, uint64_t tag, std::string& reason);
+    // Declaration only, no file IO beyond the file's size and write time; one declaration counted for the
+    // caller. kNone with the reason.
+    ImageId declare(const std::string& utf8_path, std::string& reason);
     struct Binding {
         VkImageView view = VK_NULL_HANDLE;                      // null: not resident yet, or failed
         std::shared_ptr<const efmi::assets::ImageUpload> owner; // keeps the image alive while a recording lives
@@ -51,7 +55,8 @@ public:
     // The images of `ids` whose path a resident image of `live` has: a reload candidate brings up
     // what the live generation shows, so the exchange leaves no draw to the game.
     void preload_matching(const std::vector<ImageId>& ids, const std::vector<ImageId>& live);
-    // A generation done with its images: their GPU objects live on in the recordings that hold them.
+    // A generation done with its images (each id once per declaration): an image no generation declares
+    // any more is released; its GPU object lives on in the recordings that hold it.
     void forget(const std::vector<ImageId>&);
     bool resident(ImageId) const;
     bool failed(ImageId) const;
@@ -73,7 +78,8 @@ private:
     struct Image {
         efmi::assets::ResourceHandle handle;
         std::string path;         // normalized, for matching across generations
-        uint64_t tag = 0;
+        uint64_t tag = 0;         // the file's identity: its size and write time
+        uint32_t declared = 0;    // declarations of the generations that have not forgotten it
         uint64_t file_bytes = 0;
         uint64_t charged = 0;     // bytes counted while resident: the file's, a quarter per level left out
         uint64_t last_bound = 0;  // frame of the last bind

@@ -94,22 +94,37 @@ void TextureResidency::stop()
     timeline_ = VK_NULL_HANDLE;
 }
 
-TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, uint64_t tag, std::string& reason)
+TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason)
 {
+    const auto path = std::filesystem::u8path(utf8_path);
+    // The file's identity (BUG-061): what did not change on disk is the image the live generation holds.
+    std::error_code error;
+    const auto size = std::filesystem::file_size(path, error);
+    const uint64_t bytes = error ? 0 : static_cast<uint64_t>(size);
+    const auto written = std::filesystem::last_write_time(path, error);
+    const uint64_t stamp = error ? 0 : static_cast<uint64_t>(written.time_since_epoch().count());
+    uint64_t tag = stamp ^ (bytes * 0x9E3779B97F4A7C15ull);
+    tag ^= tag >> 31; tag *= 0xBF58476D1CE4E5B9ull; tag ^= tag >> 27;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!usable_) { reason = reason_; return kNone; }
-    const auto path = std::filesystem::u8path(utf8_path);
-    auto handle = cache_->declare_image(path, reason, tag);
-    if (!handle) return kNone;
-    const auto found = by_handle_.find(handle.get());
-    if (found != by_handle_.end()) return found->second;
+    assets::ResourceHandle handle;
+    for (uint64_t attempt = 0;; ++attempt) {
+        handle = cache_->declare_image(path, reason, tag ^ (attempt * 0x94D049BB133111EBull));
+        if (!handle) return kNone;
+        const auto found = by_handle_.find(handle.get());
+        if (found == by_handle_.end()) break;
+        // A load that failed is tried again by a later generation, as F10 loads every file again in the
+        // original; one that did not fail is shared.
+        const auto state = handle->snapshot().state;
+        if (state != assets::ResourceState::Failed && state != assets::ResourceState::Stopped) {
+            ++images_[found->second].declared; return found->second;
+        }
+    }
     if (images_.size() >= 4096) { reason = "texture declaration capacity exceeded"; return kNone; }
     Image image;
-    image.handle = handle; image.tag = tag;
-    std::error_code error;
+    image.handle = handle; image.tag = tag; image.declared = 1;
     image.path = path.lexically_normal().u8string();
-    const auto size = std::filesystem::file_size(path, error);
-    image.file_bytes = error ? 0 : static_cast<uint64_t>(size);
+    image.file_bytes = bytes;
     const ImageId id = static_cast<ImageId>(images_.size());
     images_.push_back(std::move(image));
     by_handle_.emplace(handle.get(), id);
@@ -343,8 +358,12 @@ void TextureResidency::forget(const std::vector<ImageId>& ids)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!usable_) return;
-    for (ImageId id : ids)
-        if (id < images_.size()) release(images_[id]);
+    for (ImageId id : ids) {
+        if (id >= images_.size()) continue;
+        Image& image = images_[id];
+        if (image.declared && --image.declared) continue; // another generation still declares it
+        release(image);
+    }
 }
 
 bool TextureResidency::resident(ImageId id) const
