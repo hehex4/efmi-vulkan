@@ -10,7 +10,7 @@
 
 - In the 1.8.4 session the layer's work around each of the game's draws came to about 7 us on average, matched or not, and the counters did not say where. 1.8.6 adds the probe's sampler (`profile`, layer/src/sampler.cpp, scripts/profile_game.py, docs/profiling.md) to find that out in the game.
 - Two costs every recording thread paid at every hook are gone: the hook call counters were one global atomic per hook (now each thread counts in its own slot and the probe sums them), and the threads' watchdog slots shared cache lines (now one slot per line). The draw hooks moved their record into the command buffer's list instead of copying it (two atomic counts less per bound set on control blocks all threads share).
-- Verification: probe end-to-end 17/17 configurations with the sampler checks; a 3 s sandbox profile symbolized; full suite: see the session log.
+- Verification: probe end-to-end 17/17 configurations with the sampler checks; a 3 s sandbox profile symbolized; full suite 41/41 (build/run_all-1.8.6.out in the worktree). Deployed the 18 files (2d00ea7) on 2026-10-26 10:06 after two closed-process checks; hashes match; cfg unchanged (`m2_gpu_bones = 1`); 1.8.5 in build/backups/before-1.8.6-20261026-100612/ (build/candidate-1.8.6.json). Smoke at --api 1.3: 1.8.6, 22 packages, none refused, the Si NightveilTrancer Mod configured, no validation message (build/smoke-1.8.6.json). Not yet seen in the game.
 
 ## 1.8.5: the Si NightveilTrancer Mod draws; textures as the original (2026-10-25, BUG-053, D-122)
 
