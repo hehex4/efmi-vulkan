@@ -15,13 +15,12 @@ extern const size_t bone_merge_spirv_words;
     X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateComputePipelines) X(DestroyPipeline) \
     X(CreateDescriptorPool) X(DestroyDescriptorPool) X(ResetDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) \
     X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer) X(ResetCommandBuffer) \
-    X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdPushConstants) X(CmdDispatch) X(CmdPipelineBarrier) X(CmdUpdateBuffer) X(CmdFillBuffer) \
+    X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdPushConstants) X(CmdDispatch) X(CmdPipelineBarrier) X(CmdUpdateBuffer) X(CmdFillBuffer) X(CmdCopyBuffer) \
     X(QueueSubmit) X(CreateSemaphore) X(DestroySemaphore) X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) \
     X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) X(MapMemory) X(UnmapMemory)
 
 namespace {
-constexpr uint32_t kSlots = 8;           // frames a ring holds apart: the frames in flight and a margin
-constexpr uint32_t kCommandBuffers = 16; // submissions in flight (several per frame when the game submits in parts)
+constexpr uint32_t kCommandBuffers = 32; // batches of ours in flight (several per frame when the game submits in parts)
 constexpr uint32_t kJobsPerSubmission = 1024;
 constexpr uint32_t kQueues = 4;          // graphics queues a game may submit on
 constexpr uint32_t kImplicitBytes = MergedSkeleton::kImplicitBones * MergedSkeleton::kBytesPerBone; // 24576, within vkCmdUpdateBuffer's limit
@@ -40,6 +39,7 @@ struct BoneContext {
     struct QueueTimeline { VkQueue queue = VK_NULL_HANDLE; VkSemaphore timeline = VK_NULL_HANDLE; uint64_t submitted = 0; };
     QueueTimeline queues[kQueues];
     std::atomic<uint32_t> queue_count{0}; // entries below are complete once counted (release)
+    std::atomic<uint64_t> ring_bytes{0};  // device memory of every ring, which may outlive the merge
     // The queue's index, made on its first submission (under the merge's lock); UINT32_MAX when the
     // device has more graphics queues than the layer follows.
     uint32_t index_of(VkQueue queue)
@@ -101,29 +101,57 @@ const std::vector<float>& identity_rows()
 }
 } // namespace
 
+bool BoneRing::grow()
+{
+    const uint32_t index = chunk_count.load(std::memory_order_relaxed);
+    if (index >= kChunks || !ctx || memory_type == UINT32_MAX) return false;
+    VkDevice dev = ctx->device;
+    Chunk chunk;
+    VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    bi.size = slot_stride * kSlotsPerChunk;
+    bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (ctx->CreateBuffer(dev, &bi, nullptr, &chunk.buffer) != VK_SUCCESS) return false;
+    VkMemoryRequirements req; ctx->GetBufferMemoryRequirements(dev, chunk.buffer, &req);
+    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO}; ai.allocationSize = req.size; ai.memoryTypeIndex = memory_type;
+    if (!(req.memoryTypeBits >> memory_type & 1) || ctx->AllocateMemory(dev, &ai, nullptr, &chunk.memory) != VK_SUCCESS) {
+        ctx->DestroyBuffer(dev, chunk.buffer, nullptr); return false;
+    }
+    if (ctx->BindBufferMemory(dev, chunk.buffer, chunk.memory, 0) != VK_SUCCESS) {
+        ctx->DestroyBuffer(dev, chunk.buffer, nullptr); ctx->FreeMemory(dev, chunk.memory, nullptr); return false;
+    }
+    chunks_[index] = chunk;
+    held.resize(size_t(index + 1) * kSlotsPerChunk, 0);
+    written.resize(size_t(index + 1) * kSlotsPerChunk, std::vector<BoneSubmission>(kQueues));
+    chunk_count.store(index + 1, std::memory_order_release);
+    if (bytes) bytes->fetch_add(req.size, std::memory_order_relaxed);
+    return true;
+}
 uint32_t BoneRing::acquire()
 {
     std::lock_guard<std::mutex> lock(mx);
-    for (uint32_t s = 0; s < slots; ++s) {
-        if (readers[s] || pending[s]) continue;
-        bool done = true;
-        for (const auto& w : written[s]) done = done && ctx->done(w);
-        if (done) return s;
+    for (;;) {
+        const uint32_t slots = chunk_count.load(std::memory_order_relaxed) * kSlotsPerChunk;
+        for (uint32_t s = 1; s < slots; ++s) {
+            if (held[s]) continue;
+            bool done = true;
+            for (const auto& w : written[s]) done = done && ctx->done(w);
+            if (done) { held[s] = 1; return s; }
+        }
+        if (!grow()) return UINT32_MAX;
     }
-    return UINT32_MAX;
 }
-void BoneRing::hold(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < slots) ++readers[slot]; }
-void BoneRing::release(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < slots && readers[slot]) --readers[slot]; }
-void BoneRing::pend(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < slots) ++pending[slot]; }
-void BoneRing::unpend(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < slots && pending[slot]) --pending[slot]; }
+void BoneRing::release(uint32_t slot) { std::lock_guard<std::mutex> lock(mx); if (slot < held.size()) held[slot] = 0; }
 BoneRing::~BoneRing()
 {
     if (!ctx) return;
-    // A dispatch of a recording that was never submitted, or of a generation that went, may still
-    // run: the ring waits for its last writes before it goes.
+    // A copy of a batch that was never submitted, or of a generation that went, may still run: the
+    // ring waits for its last writes before it goes.
     for (const auto& slot : written) for (const auto& w : slot) if (!ctx->done(w)) ctx->wait(w, 1000ull * 1000 * 1000);
-    if (buffer) ctx->DestroyBuffer(ctx->device, buffer, nullptr);
-    if (memory) ctx->FreeMemory(ctx->device, memory, nullptr);
+    const uint32_t count = chunk_count.load();
+    for (uint32_t i = 0; i < count; ++i) {
+        if (chunks_[i].buffer) ctx->DestroyBuffer(ctx->device, chunks_[i].buffer, nullptr);
+        if (chunks_[i].memory) ctx->FreeMemory(ctx->device, chunks_[i].memory, nullptr);
+    }
 }
 BoneRemaps::~BoneRemaps()
 {
@@ -174,6 +202,8 @@ BoneMerge::BoneMerge(Device* device, const VkPhysicalDeviceProperties& propertie
 BoneMerge::~BoneMerge()
 {
     VkDevice dev = ctx_->device;
+    // A batch of ours the device may still run (the backend went with the generation exchange).
+    for (const auto& s : slots_) if (!ctx_->done(s.last)) ctx_->wait(s.last, 1000ull * 1000 * 1000);
     for (auto& s : slots_) if (s.pool) ctx_->DestroyDescriptorPool(dev, s.pool, nullptr);
     if (pool_) ctx_->DestroyCommandPool(dev, pool_, nullptr);
     if (pipeline_) ctx_->DestroyPipeline(dev, pipeline_, nullptr);
@@ -215,20 +245,22 @@ std::shared_ptr<BoneRing> BoneMerge::ring(uint32_t bones, std::string& why)
     if (!usable_) { why = reason_; return nullptr; }
     if (!bones || bones > 65536) { why = "bone ring: invalid skeleton"; return nullptr; }
     auto r = std::make_shared<BoneRing>();
-    r->ctx = ctx_; r->bones = bones; r->slots = kSlots;
+    r->ctx = ctx_; r->bones = bones; r->bytes = &ctx_->ring_bytes;
     r->slot_bytes = VkDeviceSize(MergedSkeleton::kImplicitBones + 2ull * bones) * MergedSkeleton::kBytesPerBone;
     r->slot_stride = aligned(r->slot_bytes, storage_alignment_);
-    r->readers.assign(kSlots, 0); r->pending.assign(kSlots, 0); r->written.assign(kSlots, std::vector<BoneSubmission>(kQueues));
-    VkDevice dev = ctx_->device;
     VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    bi.size = r->slot_stride * kSlots; bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    if (ctx_->CreateBuffer(dev, &bi, nullptr, &r->buffer) != VK_SUCCESS) { why = "bone ring: create buffer"; return nullptr; }
-    VkMemoryRequirements req; ctx_->GetBufferMemoryRequirements(dev, r->buffer, &req);
-    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO}; ai.allocationSize = req.size;
-    ai.memoryTypeIndex = device_local_type(memory_, req.memoryTypeBits);
-    if (ai.memoryTypeIndex == UINT32_MAX || ctx_->AllocateMemory(dev, &ai, nullptr, &r->memory) != VK_SUCCESS) { why = "bone ring: allocate memory"; return nullptr; }
-    if (ctx_->BindBufferMemory(dev, r->buffer, r->memory, 0) != VK_SUCCESS) { why = "bone ring: bind memory"; return nullptr; }
-    rings_.fetch_add(1, std::memory_order_relaxed); ring_bytes_.fetch_add(req.size, std::memory_order_relaxed);
+    bi.size = r->slot_stride * BoneRing::kSlotsPerChunk;
+    bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    VkBuffer probe = VK_NULL_HANDLE;
+    if (ctx_->CreateBuffer(ctx_->device, &bi, nullptr, &probe) != VK_SUCCESS) { why = "bone ring: create buffer"; return nullptr; }
+    VkMemoryRequirements req; ctx_->GetBufferMemoryRequirements(ctx_->device, probe, &req);
+    ctx_->DestroyBuffer(ctx_->device, probe, nullptr);
+    r->memory_type = device_local_type(memory_, req.memoryTypeBits);
+    {
+        std::lock_guard<std::mutex> lock(r->mx);
+        if (!r->grow()) { why = "bone ring: allocate memory"; return nullptr; }
+    }
+    rings_.fetch_add(1, std::memory_order_relaxed);
     return r;
 }
 
@@ -267,127 +299,153 @@ void BoneMerge::fail(const std::string& why)
     error_ = why;
 }
 
-bool BoneMerge::record(Slot& slot, const std::vector<BoneJob>& jobs, size_t begin, size_t end, std::string& why)
+bool BoneMerge::record(Slot& slot, const BoneBatch& batch, std::string& why)
 {
     VkCommandBuffer cmd = slot.cb;
     if (ctx_->ResetCommandBuffer(cmd, 0) != VK_SUCCESS || ctx_->ResetDescriptorPool(ctx_->device, slot.pool, 0) != VK_SUCCESS) { why = "bone command buffer reset"; return false; }
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if (ctx_->BeginCommandBuffer(cmd, &bi) != VK_SUCCESS) { why = "bone command buffer begin"; return false; }
-    // A ring's first use: every slot zero (bones no component imports stay zero, as in the CPU master)
-    // and the implicit identity matrices written.
-    bool initialized_any = false;
-    std::set<BoneRing*> seen;
-    for (size_t i = begin; i < end; ++i) {
-        BoneRing& ring = *jobs[i].ring;
-        if (!seen.insert(&ring).second) continue;
-        bool fresh;
-        { std::lock_guard<std::mutex> lock(ring.mx); fresh = !ring.initialized; ring.initialized = true; }
-        if (!fresh) continue;
-        ctx_->CmdFillBuffer(cmd, ring.buffer, 0, VK_WHOLE_SIZE, 0);
-        VkMemoryBarrier fill{VK_STRUCTURE_TYPE_MEMORY_BARRIER}; fill.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; fill.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &fill, 0, nullptr, 0, nullptr);
-        for (uint32_t s = 0; s < ring.slots; ++s) ctx_->CmdUpdateBuffer(cmd, ring.buffer, ring.slot_stride * s, kImplicitBytes, identity_rows().data());
-        initialized_any = true;
-    }
-    if (initialized_any) {
-        VkMemoryBarrier m{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-        m.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; m.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-        ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-                                 0, 1, &m, 0, nullptr, 0, nullptr);
-    }
-    // Earlier dispatches of this queue into the same slot (another recording's) and the draws that
-    // read them come first.
+    // What came before on this queue (earlier batches' imports, copies and the draws that read the
+    // snapshots) and, through the batch's waits, on the other queue, comes first.
     {
         VkMemoryBarrier m{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-        m.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT; m.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-        ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        m.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        m.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+        ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &m, 0, nullptr, 0, nullptr);
+    }
+    // A persistent skeleton's first use: zero (bones no component imports stay zero, as in the CPU
+    // master) and the implicit identity matrices written.
+    bool initialized_any = false;
+    std::set<BoneRing*> seen;
+    auto initialize = [&](BoneRing& ring) {
+        if (!seen.insert(&ring).second) return;
+        bool fresh;
+        { std::lock_guard<std::mutex> lock(ring.mx); fresh = !ring.initialized; ring.initialized = true; }
+        if (!fresh) return;
+        initialized_any = true;
+        ctx_->CmdFillBuffer(cmd, ring.buffer(0), ring.offset(0), ring.slot_stride, 0);
+        VkMemoryBarrier fill{VK_STRUCTURE_TYPE_MEMORY_BARRIER}; fill.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; fill.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &fill, 0, nullptr, 0, nullptr);
+        ctx_->CmdUpdateBuffer(cmd, ring.buffer(0), ring.offset(0), kImplicitBytes, identity_rows().data());
+    };
+    for (const auto& job : batch.jobs) initialize(*job.ring);
+    for (const auto& copy : batch.copies) initialize(*copy.ring);
+    if (initialized_any) {
+        VkMemoryBarrier m{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        m.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; m.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+        ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
                                  0, 1, &m, 0, nullptr, 0, nullptr);
     }
-    ctx_->CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-    for (size_t i = begin; i < end; ++i) {
-        const BoneJob& job = jobs[i];
-        VkDescriptorSet set = VK_NULL_HANDLE;
-        VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        ai.descriptorPool = slot.pool; ai.descriptorSetCount = 1; ai.pSetLayouts = &set_layout_;
-        if (ctx_->AllocateDescriptorSets(ctx_->device, &ai, &set) != VK_SUCCESS) { why = "bone descriptor set"; return false; }
-        const VkDescriptorBufferInfo infos[3] = {
-            {job.source, job.source_offset, job.source_size},
-            {job.remaps ? job.remaps->buffer : job.ring->buffer, 0, VK_WHOLE_SIZE},
-            {job.ring->buffer, job.ring->slot_stride * job.slot, job.ring->slot_bytes}};
-        VkWriteDescriptorSet writes[3] = {};
-        for (uint32_t b = 0; b < 3; ++b) {
-            writes[b].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; writes[b].dstSet = set; writes[b].dstBinding = b;
-            writes[b].descriptorCount = 1; writes[b].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[b].pBufferInfo = &infos[b];
+    // The imports into the persistent skeletons, in the order the recordings drew them.
+    if (!batch.jobs.empty()) {
+        ctx_->CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+        for (const BoneJob& job : batch.jobs) {
+            VkDescriptorSet set = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            ai.descriptorPool = slot.pool; ai.descriptorSetCount = 1; ai.pSetLayouts = &set_layout_;
+            if (ctx_->AllocateDescriptorSets(ctx_->device, &ai, &set) != VK_SUCCESS) { why = "bone descriptor set"; return false; }
+            const VkDescriptorBufferInfo infos[3] = {
+                {job.source, job.source_offset, job.source_size},
+                {job.remaps ? job.remaps->buffer : job.ring->buffer(0), 0, VK_WHOLE_SIZE},
+                {job.ring->buffer(0), job.ring->offset(0), job.ring->slot_bytes}};
+            VkWriteDescriptorSet writes[3] = {};
+            for (uint32_t b = 0; b < 3; ++b) {
+                writes[b].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; writes[b].dstSet = set; writes[b].dstBinding = b;
+                writes[b].descriptorCount = 1; writes[b].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[b].pBufferInfo = &infos[b];
+            }
+            ctx_->UpdateDescriptorSets(ctx_->device, 3, writes, 0, nullptr);
+            Push push{};
+            push.source_rows0 = job.rows[0]; push.source_rows1 = job.rows[1];
+            push.destination = MergedSkeleton::kStaticRows; push.pose_rows = job.ring->bones * MergedSkeleton::kRowsPerBone;
+            push.first = job.first; push.count = job.count;
+            push.flags = (job.poses & 3) | (job.remap && job.remaps && job.component < job.remaps->offsets.size() &&
+                                            job.remaps->offsets[job.component] != UINT32_MAX ? 4u : 0u);
+            push.remap_offset = push.flags & 4 ? job.remaps->offsets[job.component] : 0;
+            push.scale = 1.0f;
+            ctx_->CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &set, 0, nullptr);
+            ctx_->CmdPushConstants(cmd, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+            ctx_->CmdDispatch(cmd, (job.count + 63) / 64, 1, 1);
+            dispatches_.fetch_add(1, std::memory_order_relaxed);
         }
-        ctx_->UpdateDescriptorSets(ctx_->device, 3, writes, 0, nullptr);
-        Push push{};
-        push.source_rows0 = job.rows[0]; push.source_rows1 = job.rows[1];
-        push.destination = MergedSkeleton::kStaticRows; push.pose_rows = job.ring->bones * MergedSkeleton::kRowsPerBone;
-        push.first = job.first; push.count = job.count;
-        push.flags = (job.poses & 3) | (job.remap && job.remaps && job.component < job.remaps->offsets.size() &&
-                                        job.remaps->offsets[job.component] != UINT32_MAX ? 4u : 0u);
-        push.remap_offset = push.flags & 4 ? job.remaps->offsets[job.component] : 0;
-        push.scale = 1.0f;
-        ctx_->CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout_, 0, 1, &set, 0, nullptr);
-        ctx_->CmdPushConstants(cmd, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
-        ctx_->CmdDispatch(cmd, (job.count + 63) / 64, 1, 1);
-        dispatches_.fetch_add(1, std::memory_order_relaxed);
+        VkMemoryBarrier m{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        m.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; m.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &m, 0, nullptr, 0, nullptr);
     }
-    // The recording's draws read the rings in the application's submission after this one.
+    // Each recording's snapshot of the skeletons as the batch's imports left them.
+    for (const BoneCopy& copy : batch.copies) {
+        VkBufferCopy region{copy.ring->offset(0), copy.ring->offset(copy.slot), copy.ring->slot_bytes};
+        ctx_->CmdCopyBuffer(cmd, copy.ring->buffer(0), copy.ring->buffer(copy.slot), 1, &region);
+        copies_.fetch_add(1, std::memory_order_relaxed);
+    }
+    // The recordings' draws read the snapshots in the application's command buffers after this one.
     VkMemoryBarrier m{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    m.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; m.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+    m.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT; m.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    ctx_->CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                              0, 1, &m, 0, nullptr, 0, nullptr);
     if (ctx_->EndCommandBuffer(cmd) != VK_SUCCESS) { why = "bone command buffer end"; return false; }
     return true;
 }
 
-VkResult BoneMerge::submit(VkQueue queue, std::vector<BoneJob>& jobs)
+bool BoneMerge::prepare(VkQueue queue, std::vector<BoneBatch>& batches, VkSemaphore& semaphore, uint64_t& value)
 {
-    if (jobs.empty()) return VK_SUCCESS;
+    bool any = false;
+    for (auto& batch : batches) { batch.cb = VK_NULL_HANDLE; any = any || !batch.jobs.empty() || !batch.copies.empty(); }
+    if (!any) return false;
     std::lock_guard<std::mutex> lock(mx_);
-    auto unpend = [&](size_t begin, size_t end) { for (size_t i = begin; i < end; ++i) jobs[i].ring->unpend(jobs[i].slot); };
-    if (!usable_) { unpend(0, jobs.size()); return VK_SUCCESS; }
+    if (!usable_) return false;
     const uint32_t index = ctx_->index_of(queue);
-    if (index == UINT32_MAX) { fail("bone dispatches: more graphics queues than the layer follows"); unpend(0, jobs.size()); return VK_SUCCESS; }
+    if (index == UINT32_MAX) { fail("bone dispatches: more graphics queues than the layer follows"); return false; }
     auto& timeline = ctx_->queues[index];
-    for (size_t begin = 0; begin < jobs.size(); begin += kJobsPerSubmission) {
-        const size_t end = std::min(jobs.size(), begin + kJobsPerSubmission);
-        const BoneSubmission mine{index, timeline.submitted + 1};
+    const BoneSubmission mine{index, timeline.submitted + 1};
+    bool recorded = false;
+    for (auto& batch : batches) {
+        if (batch.jobs.empty() && batch.copies.empty()) continue;
+        if (batch.jobs.size() > kJobsPerSubmission) { fail("bone dispatches: more imports in one batch than a command buffer of ours holds"); batch.jobs.resize(kJobsPerSubmission); }
         Slot& slot = slots_[submissions_total_ % kCommandBuffers];
         if (!ctx_->done(slot.last)) {
-            // Sixteen submissions behind the device: wait for the oldest, briefly.
+            // As many batches of ours behind the device as there are command buffers: wait for the oldest, briefly.
             slot_waits_.fetch_add(1, std::memory_order_relaxed);
-            if (!ctx_->wait(slot.last, 500ull * 1000 * 1000)) { fail("bone submission ring stalled"); unpend(begin, jobs.size()); return VK_SUCCESS; }
+            if (!ctx_->wait(slot.last, 500ull * 1000 * 1000)) { fail("bone submission ring stalled"); continue; }
         }
         std::string why;
-        if (!record(slot, jobs, begin, end, why)) { fail(why); unpend(begin, jobs.size()); return VK_SUCCESS; }
-        VkTimelineSemaphoreSubmitInfo values{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
-        values.signalSemaphoreValueCount = 1; values.pSignalSemaphoreValues = &mine.value;
-        VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
-        si.pNext = &values; si.commandBufferCount = 1; si.pCommandBuffers = &slot.cb;
-        si.signalSemaphoreCount = 1; si.pSignalSemaphores = &timeline.timeline;
-        const VkResult result = ctx_->QueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
-        if (result != VK_SUCCESS) { fail("bone submission failed"); unpend(begin, jobs.size()); return result; }
-        timeline.submitted = mine.value; slot.last = mine; ++submissions_total_;
-        for (size_t i = begin; i < end; ++i) {
-            auto& ring = *jobs[i].ring;
-            { std::lock_guard<std::mutex> ring_lock(ring.mx); ring.written[jobs[i].slot][index] = mine; }
-            ring.unpend(jobs[i].slot);
+        if (!record(slot, batch, why)) { fail(why); continue; }
+        slot.last = mine; ++submissions_total_;
+        batch.cb = slot.cb; recorded = true;
+        for (const auto& copy : batch.copies) {
+            std::lock_guard<std::mutex> ring_lock(copy.ring->mx);
+            if (copy.slot < copy.ring->written.size()) copy.ring->written[copy.slot][index] = mine;
         }
-        jobs_.fetch_add(uint64_t(end - begin), std::memory_order_relaxed);
+        for (const auto& job : batch.jobs) if (job.component < 64) job.ring->submitted.fetch_or(1ull << job.component, std::memory_order_acq_rel);
+        jobs_.fetch_add(batch.jobs.size(), std::memory_order_relaxed);
         submissions_.fetch_add(1, std::memory_order_relaxed);
     }
-    return VK_SUCCESS;
+    if (!recorded) return false;
+    timeline.submitted = mine.value;
+    semaphore = timeline.timeline; value = mine.value;
+    return true;
+}
+
+void BoneMerge::finish(VkQueue queue, VkSemaphore semaphore, uint64_t value, bool submitted)
+{
+    if (submitted) return;
+    std::lock_guard<std::mutex> lock(mx_);
+    const uint32_t index = ctx_->index_of(queue);
+    if (index == UINT32_MAX || ctx_->queues[index].timeline != semaphore) return;
+    failed_calls_.fetch_add(1, std::memory_order_relaxed);
+    // Nothing of the call reached the queue: its command buffers are free again and the next call takes
+    // its value. A snapshot marked with the value is reused once the next call's signal completes.
+    if (ctx_->queues[index].submitted == value) ctx_->queues[index].submitted = value - 1;
+    for (auto& slot : slots_) if (slot.last.queue == index && slot.last.value == value) slot.last = BoneSubmission{};
 }
 
 void BoneMerge::status(JsonWriter& w)
 {
     w.key("bones"); w.begin_object();
     w.kb("gpu", live_gpu_bones()); w.kb("usable", usable_); w.kv("reason", reason_);
-    w.kn("jobs", jobs_.load()); w.kn("dispatches", dispatches_.load()); w.kn("submissions", submissions_.load());
-    w.kn("rings", rings_.load()); w.kn("ring_bytes", ring_bytes_.load());
-    w.kn("slot_waits", slot_waits_.load()); w.kn("failures", failures_.load()); w.kn("components_missing", missing_.load());
+    w.kn("jobs", jobs_.load()); w.kn("dispatches", dispatches_.load()); w.kn("copies", copies_.load()); w.kn("borrowed", borrowed_.load());
+    w.kn("submissions", submissions_.load()); w.kn("rings", rings_.load()); w.kn("ring_bytes", ctx_->ring_bytes.load());
+    w.kn("slot_waits", slot_waits_.load()); w.kn("failures", failures_.load()); w.kn("failed_calls", failed_calls_.load());
     const uint32_t count = ctx_->queue_count.load();
     w.kn("queues", count);
     uint64_t submitted = 0, completed = 0;

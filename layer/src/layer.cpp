@@ -881,47 +881,212 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdExecuteCommands(VkCommandBuffer cmd, uint32_t c
 // ---------------------------------------------------------------------------
 // Submission and frame boundary
 
+// The semaphores a batch of the call signals: a later wait for one of them orders that batch after
+// work of a queue (D-127). The set forgets everything when it grows past its cap (handles of
+// destroyed semaphores); a wait it does not know keeps the application's stages.
+constexpr size_t kQueueSignalledCap = 65536;
+void note_queue_signals(Device* dev, uint32_t count, const VkSemaphore* semaphores)
+{
+    if (!count) return;
+    std::lock_guard<std::mutex> lock(dev->queue_signal_mx);
+    if (dev->queue_signalled.size() + count > kQueueSignalledCap) dev->queue_signalled.clear();
+    dev->queue_signalled.insert(semaphores, semaphores + count);
+}
+// The stages of the layer's work at the front of a batch (the bone imports and copies, D-127).
+constexpr VkPipelineStageFlags kPrefixStages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+constexpr VkPipelineStageFlags2 kPrefixStages2 = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+bool chain_has(const void* next, VkStructureType type)
+{
+    for (auto* s = static_cast<const VkBaseInStructure*>(next); s; s = s->pNext) if (s->sType == type) return true;
+    return false;
+}
+bool protected_submit(const void* next)
+{
+    for (auto* s = static_cast<const VkBaseInStructure*>(next); s; s = s->pNext)
+        if (s->sType == VK_STRUCTURE_TYPE_PROTECTED_SUBMIT_INFO && reinterpret_cast<const VkProtectedSubmitInfo*>(s)->protectedSubmit) return true;
+    return false;
+}
+// The character backends' view of a call: per batch the recordings the layer tracks.
+template <class Each>
+SubmitWork& submit_work(Device* dev, uint32_t count, Each each)
+{
+    thread_local SubmitWork work;
+    work.batches.resize(count); work.signals.clear(); work.owners.clear();
+    for (uint32_t i = 0; i < count; i++) {
+        auto& batch = work.batches[i]; batch.cbs.clear(); batch.prefix.clear();
+        each(i, [&](VkCommandBuffer handle) { if (CmdBuf* cb = cb_of(dev, handle)) batch.cbs.push_back(cb); });
+    }
+    return work;
+}
+
+// The application's call with the layer's work in it (D-127): the command buffers a backend made for a
+// batch go at its front, the batch's waits for semaphores a queue signalled cover their stages, and a
+// batch of the layer's after the application's signals the backends' timelines. A batch whose command
+// buffers carry device masks or protection gets the layer's work in a batch of its own right before it.
+VkResult submit_with_work(Device* dev, VkQueue queue, uint32_t count, const VkSubmitInfo* submits, VkFence fence, const SubmitWork& work)
+{
+    thread_local std::vector<VkSubmitInfo> infos;
+    thread_local std::vector<std::vector<VkCommandBuffer>> lists;
+    thread_local std::vector<std::vector<VkPipelineStageFlags>> masks;
+    thread_local std::vector<VkSemaphore> semaphores;
+    thread_local std::vector<uint64_t> values;
+    infos.clear();
+    if (lists.size() < count) lists.resize(count);
+    if (masks.size() < count) masks.resize(count);
+    std::unique_lock<std::mutex> known(dev->queue_signal_mx);
+    for (uint32_t i = 0; i < count; ++i) {
+        VkSubmitInfo info = submits[i];
+        const auto& prefix = work.batches[i].prefix;
+        if (!prefix.empty()) {
+            if (chain_has(info.pNext, VK_STRUCTURE_TYPE_DEVICE_GROUP_SUBMIT_INFO) || protected_submit(info.pNext)) {
+                VkSubmitInfo own{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+                own.commandBufferCount = static_cast<uint32_t>(prefix.size()); own.pCommandBuffers = prefix.data();
+                infos.push_back(own); ++dev->prefix_alone;
+            } else {
+                auto& list = lists[i];
+                list.assign(prefix.begin(), prefix.end());
+                list.insert(list.end(), info.pCommandBuffers, info.pCommandBuffers + info.commandBufferCount);
+                info.commandBufferCount = static_cast<uint32_t>(list.size()); info.pCommandBuffers = list.data();
+                if (info.waitSemaphoreCount) {
+                    auto& mask = masks[i];
+                    mask.assign(info.pWaitDstStageMask, info.pWaitDstStageMask + info.waitSemaphoreCount);
+                    for (uint32_t k = 0; k < info.waitSemaphoreCount; ++k) {
+                        if ((mask[k] & VK_PIPELINE_STAGE_ALL_COMMANDS_BIT) || (mask[k] & kPrefixStages) == kPrefixStages) continue;
+                        if (!dev->queue_signalled.count(info.pWaitSemaphores[k])) continue;
+                        mask[k] |= kPrefixStages; ++dev->widened_waits;
+                    }
+                    info.pWaitDstStageMask = mask.data();
+                }
+                ++dev->prefixed_batches;
+            }
+        }
+        infos.push_back(info);
+    }
+    known.unlock();
+    semaphores.clear(); values.clear();
+    for (const auto& signal : work.signals) { semaphores.push_back(signal.semaphore); values.push_back(signal.value); }
+    VkTimelineSemaphoreSubmitInfo timeline{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+    timeline.signalSemaphoreValueCount = static_cast<uint32_t>(values.size()); timeline.pSignalSemaphoreValues = values.data();
+    if (!semaphores.empty()) {
+        VkSubmitInfo signal{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        signal.pNext = &timeline; signal.signalSemaphoreCount = static_cast<uint32_t>(semaphores.size()); signal.pSignalSemaphores = semaphores.data();
+        infos.push_back(signal);
+    }
+    return dev->d.QueueSubmit(queue, static_cast<uint32_t>(infos.size()), infos.data(), fence);
+}
+VkResult submit2_with_work(Device* dev, VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence, const SubmitWork& work,
+                           PFN_vkQueueSubmit2 call)
+{
+    thread_local std::vector<VkSubmitInfo2> infos;
+    thread_local std::vector<std::vector<VkCommandBufferSubmitInfo>> lists;
+    thread_local std::vector<std::vector<VkSemaphoreSubmitInfo>> waits;
+    thread_local std::vector<VkCommandBufferSubmitInfo> alone;
+    thread_local std::vector<VkSemaphoreSubmitInfo> signals;
+    infos.clear(); alone.clear();
+    if (lists.size() < count) lists.resize(count);
+    if (waits.size() < count) waits.resize(count);
+    size_t alone_total = 0;
+    for (uint32_t i = 0; i < count; ++i) alone_total += work.batches[i].prefix.size();
+    alone.reserve(alone_total); // pointers into it stay valid
+    std::unique_lock<std::mutex> known(dev->queue_signal_mx);
+    for (uint32_t i = 0; i < count; ++i) {
+        VkSubmitInfo2 info = submits[i];
+        const auto& prefix = work.batches[i].prefix;
+        if (!prefix.empty()) {
+            if ((info.flags & VK_SUBMIT_PROTECTED_BIT) || chain_has(info.pNext, VK_STRUCTURE_TYPE_DEVICE_GROUP_SUBMIT_INFO)) {
+                const size_t first = alone.size();
+                for (VkCommandBuffer cb : prefix) alone.push_back({VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, cb, 0});
+                VkSubmitInfo2 own{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+                own.commandBufferInfoCount = static_cast<uint32_t>(prefix.size()); own.pCommandBufferInfos = alone.data() + first;
+                infos.push_back(own); ++dev->prefix_alone;
+            } else {
+                auto& list = lists[i];
+                list.clear();
+                for (VkCommandBuffer cb : prefix) list.push_back({VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, nullptr, cb, 0});
+                list.insert(list.end(), info.pCommandBufferInfos, info.pCommandBufferInfos + info.commandBufferInfoCount);
+                info.commandBufferInfoCount = static_cast<uint32_t>(list.size()); info.pCommandBufferInfos = list.data();
+                if (info.waitSemaphoreInfoCount) {
+                    auto& wait = waits[i];
+                    wait.assign(info.pWaitSemaphoreInfos, info.pWaitSemaphoreInfos + info.waitSemaphoreInfoCount);
+                    for (auto& w : wait) {
+                        if ((w.stageMask & VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT) || (w.stageMask & kPrefixStages2) == kPrefixStages2) continue;
+                        if (!dev->queue_signalled.count(w.semaphore)) continue;
+                        w.stageMask |= kPrefixStages2; ++dev->widened_waits;
+                    }
+                    info.pWaitSemaphoreInfos = wait.data();
+                }
+                ++dev->prefixed_batches;
+            }
+        }
+        infos.push_back(info);
+    }
+    known.unlock();
+    signals.clear();
+    for (const auto& signal : work.signals)
+        signals.push_back({VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, nullptr, signal.semaphore, signal.value, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0});
+    if (!signals.empty()) {
+        VkSubmitInfo2 signal{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+        signal.signalSemaphoreInfoCount = static_cast<uint32_t>(signals.size()); signal.pSignalSemaphoreInfos = signals.data();
+        infos.push_back(signal);
+    }
+    return call(queue, static_cast<uint32_t>(infos.size()), infos.data(), fence);
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, const VkSubmitInfo* submits, VkFence fence)
 {
     count_call(HI_QueueSubmit);
     HookInside inside;
     Device* dev = dev_of(queue);
-    std::vector<VkCommandBuffer> list;
-    for (uint32_t i = 0; i < count; i++) list.insert(list.end(), submits[i].pCommandBuffers, submits[i].pCommandBuffers + submits[i].commandBufferCount);
+    SubmitWork& work = submit_work(dev, count, [&](uint32_t i, auto add) {
+        for (uint32_t k = 0; k < submits[i].commandBufferCount; ++k) add(submits[i].pCommandBuffers[k]);
+    });
     {
         StageMark stage(thread_trace(), "character submission work");
-        const auto result = m2_submit(dev, queue, static_cast<uint32_t>(list.size()), list.data());
-        if (result != VK_SUCCESS) return result;
+        const auto result = m2_submit(dev, queue, work);
+        if (result != VK_SUCCESS) { m2_submitted(dev, queue, work, result); return result; }
     }
     {
         StageMark stage(thread_trace(), "submission tracking");
         for (uint32_t i = 0; i < count; i++) {
             m2_seal(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
             on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
+            note_queue_signals(dev, submits[i].signalSemaphoreCount, submits[i].pSignalSemaphores);
         }
     }
     StageMark stage(thread_trace(), "driver vkQueueSubmit");
-    return dev->d.QueueSubmit(queue, count, submits, fence);
+    const VkResult result = work.any_prefix() || !work.signals.empty() ? submit_with_work(dev, queue, count, submits, fence, work)
+                                                                       : dev->d.QueueSubmit(queue, count, submits, fence);
+    m2_submitted(dev, queue, work, result);
+    return result;
 }
 
-// The command buffers of the submission, in order, for the work the layer puts in front of them.
-std::vector<VkCommandBuffer> submitted2(uint32_t count, const VkSubmitInfo2* submits)
-{
-    std::vector<VkCommandBuffer> list;
-    for (uint32_t i = 0; i < count; i++)
-        for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++) list.push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
-    return list;
-}
+// The command buffers and signals of a vkQueueSubmit2 call, for tracking.
 void track_submit2(Device* dev, uint32_t count, const VkSubmitInfo2* submits)
 {
     std::vector<VkCommandBuffer> list;
+    std::vector<VkSemaphore> signalled;
     for (uint32_t i = 0; i < count; i++) {
-        list.clear();
+        list.clear(); signalled.clear();
         for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++)
             list.push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
         on_submit(dev, static_cast<uint32_t>(list.size()), list.data());
         m2_seal(dev, static_cast<uint32_t>(list.size()), list.data());
+        for (uint32_t k = 0; k < submits[i].signalSemaphoreInfoCount; k++) signalled.push_back(submits[i].pSignalSemaphoreInfos[k].semaphore);
+        note_queue_signals(dev, static_cast<uint32_t>(signalled.size()), signalled.data());
     }
+}
+VkResult queue_submit2(Device* dev, VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence, PFN_vkQueueSubmit2 call)
+{
+    SubmitWork& work = submit_work(dev, count, [&](uint32_t i, auto add) {
+        for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; ++k) add(submits[i].pCommandBufferInfos[k].commandBuffer);
+    });
+    const auto result = m2_submit(dev, queue, work);
+    if (result != VK_SUCCESS) { m2_submitted(dev, queue, work, result); return result; }
+    track_submit2(dev, count, submits);
+    const VkResult done = work.any_prefix() || !work.signals.empty() ? submit2_with_work(dev, queue, count, submits, fence, work, call)
+                                                                     : call(queue, count, submits, fence);
+    m2_submitted(dev, queue, work, done);
+    return done;
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence)
@@ -929,13 +1094,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2(VkQueue queue, uint32_t count, co
     count_call(HI_QueueSubmit2);
     HookInside inside;
     Device* dev = dev_of(queue);
-    track_submit2(dev, count, submits);
-    {
-        const auto list = submitted2(count, submits);
-        const auto result = m2_submit(dev, queue, static_cast<uint32_t>(list.size()), list.data());
-        if (result != VK_SUCCESS) return result;
-    }
-    return dev->d.QueueSubmit2(queue, count, submits, fence);
+    return queue_submit2(dev, queue, count, submits, fence, dev->d.QueueSubmit2);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence)
@@ -943,13 +1102,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count,
     count_call(HI_QueueSubmit2KHR);
     HookInside inside;
     Device* dev = dev_of(queue);
-    track_submit2(dev, count, submits);
-    {
-        const auto list = submitted2(count, submits);
-        const auto result = m2_submit(dev, queue, static_cast<uint32_t>(list.size()), list.data());
-        if (result != VK_SUCCESS) return result;
-    }
-    return dev->d.QueueSubmit2KHR(queue, count, submits, fence);
+    return queue_submit2(dev, queue, count, submits, fence, dev->d.QueueSubmit2KHR);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info)

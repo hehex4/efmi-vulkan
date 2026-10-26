@@ -6,6 +6,13 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.9.3: one persistent merged skeleton per object, our GPU work inside the game's batches (2026-10-26, BUG-060, D-127)
+
+- Session with 1.9.2 (PID 13144, 18:33-18:5x, user-started, DLSS Frame Generation on): Typhoeus' wings on the ground in some frames with GPU bones (BUG-060; the probe's `gpu_bones=0` at 18:45:23 was diagnosis only, the wings then stayed); after Frame Generation off and on an F10 exchange at 18:47:33 brought 20 packages up twice (BUG-061, open); stutter while switching from texture first loads. The user: the designs still have many problems, solve them at the root. docs/design-review-1.9.md names the causes and the order of work.
+- 1.9.3 (D-127): per object one persistent merged skeleton, written only by imports run in the batch of the recording that drew the component; per recording a snapshot copied after its batch's imports; our command buffer at the front of the application's batch, its waits on queue-signalled semaphores widened to our stages, our timeline signalled after the application's batches in the same call (vkQueueSubmit and vkQueueSubmit2). Status: `bones.copies`, `borrowed`, `failed_calls`, `replacement.submission_work`.
+- Test that fails on 1.9.2: replay vk06 with only the Typhoeus Mod, `--split-passes --rolling-bones --bones-identical --check` (pictures differ, the lower body and the hands' parts drawn down to the image's bottom as in the game); on 1.9.3 identical, validation clean, 112 of 112 batches prefixed and completed on two queues. `--animate-bones` alone: 1.9.2 differed by a pose one frame newer, 1.9.3 identical. New suite step "captured frame with the game's bone regions reused".
+- Verification: full suite 46 steps (build/run_all-1.9.3.out in the worktree): 45 passed at once, the TangTang declaration step failed only because the user had removed that Mod; replay_capture's --only-mod now keeps using the project's copy of a Mod no longer installed, and the step passed on 1.9.3 (2736 draws replaced, as before). Not yet in the game.
+
 ## 1.9.2: shader cache (2026-10-26, D-126)
 
 - The user asked for a shader cache like 3DMigoto's. Measured first (sandbox, actual configuration, 22 Mods): the CustomShaders cost 8 DXC compiles (0.59 s) and 62 translations of shipped caches (0.18 s) at every load; the status now reports this per package (`owned_present.shaders`).

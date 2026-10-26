@@ -1,5 +1,11 @@
 # EFMI Vulkan - Tasks
 
+## Active: the design review after 1.9.2 (2026-10-26, docs/design-review-1.9.md)
+
+- The user: the designs still have many problems; solve them at the root. Order: (1) D-127 for the bones, our GPU work inside the game's batches (1.9.3, BUG-060); (2) images and meshes shared by file identity, F10 loading only what changed and bringing up at once only packages drawn recently (BUG-061); (3) the texture load path measured and shortened (kept staging and command buffers, the file read straight into mapped staging, parallel loads); (4) the owned work of replaced draws and the Present work inside the game's batches (D-127; the Present shape-key compute is not ordered before the next frame's batches on the other queue); (5) per-draw work proportional to change, one generation for the Mods folder, the play configuration.
+- Each step test first: a check that fails on the version before for the reason named, then the change, the suite, a deployment with the game closed.
+- To see in the next session with 1.9.3 or later: Typhoeus' wings in place with the bones on the GPU (`bones.failures` 0, `submitted` = `completed`, `replacement.submission_work.prefixed_batches` rising, `prefix_alone` 0, the counter `bones_unavailable` 0 after the first frames); no stall.
+
 ## Active: the first Vulkan game session's findings (2026-10-25)
 
 - Done in 1.8.0 (offline verified, see CURRENT_STATE): BUG-046 (DXC fault on a Mod folder outside ASCII, fxc bytecode for sources DXC refuses, failed CustomShaders skipped as the original does), BUG-047 (texture floor, eviction for free memory, lazy and released EFMITTL layers).

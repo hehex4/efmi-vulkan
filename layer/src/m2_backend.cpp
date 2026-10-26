@@ -377,20 +377,29 @@ void m2_seal(Device* device,uint32_t count,const VkCommandBuffer* buffers){
     for(uint32_t i=0;i<count;++i)if(auto* cb=cb_of(device,buffers[i]))
         for(auto& owner:cb->owners)if(owner && owner->seal() && device->m2)++device->m2->batches;
 }
-VkResult m2_submit(Device* device,VkQueue queue,uint32_t count,const VkCommandBuffer* buffers){
+VkResult m2_submit(Device* device,VkQueue queue,SubmitWork& work){
     if(!device->character_mode)return VK_SUCCESS;
-    // The recordings of this submission, for the work they need in front of them (D-117).
-    std::vector<CmdBuf*> cbs;cbs.reserve(count);
-    for(uint32_t i=0;i<count;++i)if(auto* cb=cb_of(device,buffers[i]))cbs.push_back(cb);
     std::shared_lock<std::shared_mutex> lock(device->character_mx);
+    auto put=[&](const std::shared_ptr<CharacterBackend>& backend,const CharacterModule* module){
+        const size_t signals=work.signals.size();size_t prefixes=0;
+        for(const auto& b:work.batches)prefixes+=b.prefix.size();
+        const VkResult result=module->submit(*backend,queue,work);
+        size_t after=0;for(const auto& b:work.batches)after+=b.prefix.size();
+        if(after!=prefixes || work.signals.size()!=signals)work.owners.emplace_back(backend,module);
+        return result;
+    };
     if(device->character){
-        const VkResult result=device->character_module->submit(*device->character,queue,uint32_t(cbs.size()),cbs.data());
+        const VkResult result=put(device->character,device->character_module);
         if(result!=VK_SUCCESS)return result;
     }
     // A staged backend brings its images up through the same queues before it takes over. If that
     // fails it never becomes ready and is given up; the application's submission is not its concern.
-    if(device->character_staged)device->staged_module->submit(*device->character_staged,queue,uint32_t(cbs.size()),cbs.data());
+    if(device->character_staged)put(device->character_staged,device->staged_module);
     return VK_SUCCESS;
+}
+void m2_submitted(Device*,VkQueue queue,SubmitWork& work,VkResult result){
+    for(auto& owner:work.owners)if(owner.second && owner.second->submitted)owner.second->submitted(*owner.first,queue,work,result);
+    work.owners.clear();
 }
 void m2_frame(Device* device,bool had_draws,PresentWork* present){
     if(!device->character_mode)return;
@@ -415,6 +424,10 @@ void m2_status(Device* device,JsonWriter& w){
         if(device->character)device->character_module->status(*device->character,w);
         else{w.kv("kind","character");w.kb("configured",false);w.kb("enabled",false);w.kb("ready",false);}
         module_status(w);
+        // The layer's work inside the application's batches (D-127).
+        w.key("submission_work");w.begin_object();
+        w.kn("prefixed_batches",device->prefixed_batches.load());w.kn("widened_waits",device->widened_waits.load());
+        w.kn("prefix_alone",device->prefix_alone.load());w.end_object();
         w.end_object();return;
     }
     w.key("replacement");w.begin_object();auto backend=device?device->m2:nullptr;

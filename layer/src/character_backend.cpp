@@ -145,7 +145,7 @@ enum Counter : uint32_t {
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
     C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_SNAPSHOT_COPIES, C_IDENTITY_ADOPTED,
-    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_BATCH_MADE, C_HELD, C_ORIGINAL_FIRST, C_COUNT
+    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_BATCH_MADE, C_HELD, C_ORIGINAL_FIRST, C_BONES_UNAVAILABLE, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -154,7 +154,8 @@ const char* const kCounterNames[C_COUNT] = {
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
     "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames", "snapshot_copies", "identities_adopted", "preparing",
-    "translucent", "bone_jobs", "bone_ring_busy", "batches_made_at_draw", "held_before_shown", "original_before_shown"
+    "translucent", "bone_jobs", "bone_ring_busy", "batches_made_at_draw", "held_before_shown", "original_before_shown",
+    "bones_unavailable"
 };
 // Where a matched draw's time goes (D-099): microseconds per stage of record(), in the status.
 enum Stage : uint32_t { S_LOCK, S_IDENTIFY, S_BONES, S_PLAN, S_MATERIALS, S_VARIANTS, S_OWNER, S_APPEND, S_SNAPSHOT, S_EMIT, S_COUNT };
@@ -211,13 +212,13 @@ struct Identity {
     uint32_t seen = 0;               // components met since this identity appeared
     MergedSkeleton skeleton;
     std::vector<uint8_t> coverage;   // per component: bit 0 current pose imported, bit 1 previous
-    // The merged skeleton on the device (D-117): the ring, and the slot this frame's dispatches write.
+    // The merged skeleton on the device (D-117, D-127), and whether this recording's draws of the object
+    // import on the device.
     std::shared_ptr<BoneRing> ring;
-    uint32_t ring_slot = UINT32_MAX;
     bool gpu_frame = false;
     bool shown = false;              // a draw of this object was the Mod's (kFreshPresents)
-    // Per component, its latest import as a dispatch (the game's bone range and rows it read), with the
-    // ring it was made for; empty where the component was not imported on the device.
+    // Per component, its latest import on the device as a recording carries it (the game's bone range,
+    // the rows it read and that recording); empty where no recording carried one.
     std::vector<BoneJob> bone_sources;
 };
 
@@ -281,54 +282,53 @@ struct CharacterCommand : CommandOwner {
     std::shared_ptr<std::atomic<uint64_t>> batches;
     // Owned GPU buffers the recording binds as vertex streams (D-087).
     std::vector<std::shared_ptr<void>> owned;
-    // Ring slots of merged skeletons the recording reads (D-117), held until it completed.
+    // The snapshots of merged skeletons the recording's draws read (D-127), one per object, held until
+    // the recording was reset after completion.
     std::vector<std::pair<std::shared_ptr<BoneRing>, uint32_t>> rings;
-    void hold(const std::shared_ptr<BoneRing>& ring, uint32_t slot)
+    // The object's snapshot for this recording, taken on its first draw; UINT32_MAX when the ring has none.
+    uint32_t snapshot(const std::shared_ptr<BoneRing>& ring)
     {
-        for (const auto& held : rings) if (held.first == ring && held.second == slot) return;
-        ring->hold(slot); rings.emplace_back(ring, slot);
+        for (const auto& held : rings) if (held.first == ring) return held.second;
+        const uint32_t slot = ring->acquire();
+        if (slot != UINT32_MAX) rings.emplace_back(ring, slot);
+        return slot;
     }
-    // The dispatches this recording needs in front of it (D-117): one per component whose bones its
-    // draws read, a later import of a component replacing the earlier (a lower LOD replacing a
-    // higher), as the CPU import does. Taken at the recording's submission; dropped with a reset.
+    // The imports this recording carries in front of it (D-127): one per object and component it drew, a
+    // later import of a component replacing the earlier (a lower LOD replacing a higher), as the CPU
+    // import does; and imports it took from a recording not yet submitted, for a component its draws read
+    // that the object's skeleton never had. Kept until the recording is reset (a recording submitted again
+    // imports again); `recording` tells this recording's own from those it took.
     std::vector<BoneJob> bone_jobs;
-    // What the recording's draws read: per ring slot, the components (BUG-054).
-    struct BoneNeed { const BoneRing* ring; uint32_t slot; uint64_t components; };
-    std::vector<BoneNeed> bone_needs;
-    void need_bones(const BoneRing* ring, uint32_t slot, uint64_t components)
-    {
-        if (!components) return;
-        for (auto& need : bone_needs) if (need.ring == ring && need.slot == slot) { need.components |= components; return; }
-        bone_needs.push_back({ring, slot, components});
-    }
-    // The components the recording's draws read that none of its dispatches writes into their slot.
-    uint64_t missing_bones() const
-    {
-        uint64_t missing = 0;
-        for (const auto& need : bone_needs)
-            for (uint32_t c = 0; c < 64; ++c)
-                if ((need.components >> c & 1) && !has_bone_job(need.ring, need.slot, c)) ++missing;
-        return missing;
-    }
-    bool has_bone_job(const BoneRing* ring, uint32_t slot, uint32_t component) const
+    std::shared_ptr<BoneRecording> recording = std::make_shared<BoneRecording>();
+    bool has_bone_job(const BoneRing* ring, uint32_t component) const
     {
         for (const auto& have : bone_jobs)
-            if (have.ring.get() == ring && have.slot == slot && have.component == component) return true;
+            if (have.ring.get() == ring && have.component == component) return true;
         return false;
     }
     void add_bone_job(const BoneJob& job)
     {
         for (auto& have : bone_jobs)
-            if (have.ring == job.ring && have.slot == job.slot && have.component == job.component) { have = job; return; }
-        job.ring->pend(job.slot); bone_jobs.push_back(job);
+            if (have.ring == job.ring && have.component == job.component) {
+                // An import of the recording's own replaces any earlier one; one taken from another
+                // recording never replaces one.
+                if (job.recording == recording) have = job;
+                return;
+            }
+        bone_jobs.push_back(job);
     }
     uint32_t idle_recordings = 0; // resets in a row that found it unused
+    // A command buffer freed without a reset: nothing of its recording runs any more.
+    ~CharacterCommand() override
+    {
+        recording->next();
+        for (auto& held : rings) held.first->release(held.second);
+    }
     void reset_after_completion() override
     {
         idle_recordings = used ? 0 : idle_recordings + 1;
         used = false; owned.clear();
-        for (auto& job : bone_jobs) job.ring->unpend(job.slot);
-        bone_jobs.clear(); bone_needs.clear();
+        bone_jobs.clear(); recording->next();
         for (auto& held : rings) held.first->release(held.second);
         rings.clear();
         variants.clear(); snapshots->recycle_completed();
@@ -1231,6 +1231,8 @@ public:
             std::string reason;
             if (!vacant->skeleton.configure(package.bones, 1, ranges, reason)) { note(reason); return nullptr; }
             vacant->used = true; vacant->custom = false; vacant->shown = false; vacant->seen = 0; vacant->bone_sources.clear();
+            // Another object's skeleton on the device is not this one's (D-127).
+            vacant->ring.reset(); vacant->gpu_frame = false;
             vacant->first_frame = now; vacant->first_present = present; vacant->update_frame = 0;
             vacant->id = next_identity++; vacant->generation = 0;
             vacant->coverage.assign(package.components.size(), 0);
@@ -1243,21 +1245,22 @@ public:
         return best;
     }
 
-    // Caller holds res_mx. Where the vertex shader of a pipeline reads its bones, found once per pipeline.
-    // The identity's merged skeleton on the device for this frame (D-117): a ring made on first use
-    // and a slot no recording reads; without one the frame imports on the CPU as before.
+    // The identity's merged skeleton on the device (D-117, D-127), made on first use; without one the
+    // recording imports on the CPU as before. An object that imported on the CPU (the bones switched
+    // there in between) starts its device skeleton again: what it held is older than the master.
     void acquire_ring(Identity& identity)
     {
         identity.gpu_frame = false;
-        if (!bones_gpu || !bones_gpu->usable() || !live_gpu_bones() || bone_ring_failed) return;
+        if (!bones_gpu || !bones_gpu->usable() || !live_gpu_bones() || bone_ring_failed) {
+            if (identity.ring) { identity.ring.reset(); identity.bone_sources.clear(); }
+            return;
+        }
         if (!identity.ring) {
             std::string why;
             identity.ring = bones_gpu->ring(package.bones, why);
             if (!identity.ring) { bone_ring_failed = true; note("bone ring: " + why); return; }
         }
-        const uint32_t slot = identity.ring->acquire();
-        if (slot == UINT32_MAX) { ++counters[C_BONE_RING]; return; }
-        identity.ring_slot = slot; identity.gpu_frame = true;
+        identity.gpu_frame = true;
     }
     bool ensure_remaps()
     {
@@ -1269,26 +1272,27 @@ public:
         if (!bone_remaps) { bone_remaps_failed = true; note("bone remaps: " + why); }
         return bool(bone_remaps);
     }
-    // One component's import as a dispatch in front of the draw's recording (added to it with the
-    // draw, as the Core dispatches before the draw); false when the source cannot be bound (its
+    // One component's import as a dispatch in front of the draw's recording (D-127), whatever happens to
+    // the draw, as the Core imports in the draw's list; false when the source cannot be bound (its
     // bounds, alignment or remap table), and the CPU import follows for this draw.
     BoneJob scratch_bone_job;
-    bool scratch_bone_job_ready = false;
-    bool prepare_bone_job(Identity& identity, uint32_t component_index, const CharacterComponent& component, bool remapped,
-                          size_t needed, const BoundRange& bones, const uint32_t offsets[2], uint8_t dynamic)
+    bool prepare_bone_job(Identity& identity, CharacterCommand& owner, uint32_t component_index, const CharacterComponent& component,
+                          bool remapped, size_t needed, const BoundRange& bones, const uint32_t offsets[2], uint8_t dynamic)
     {
         for (uint32_t p = 0; p < 2; ++p)
             if ((dynamic >> p & 1) && (uint64_t(offsets[p]) * 16 > bones.size || needed > bones.size - uint64_t(offsets[p]) * 16)) return false;
         if (bones.off % bones_gpu->alignment()) return false;
         if (remapped && !ensure_remaps()) return false;
         BoneJob& job = scratch_bone_job;
-        job.ring = identity.ring; job.slot = identity.ring_slot; job.remaps = remapped ? bone_remaps : nullptr; job.component = component_index;
+        job.ring = identity.ring; job.remaps = remapped ? bone_remaps : nullptr; job.component = component_index;
         job.source = bones.buffer; job.source_id = bones.buffer_id; job.source_offset = bones.off; job.source_size = bones.size;
         job.rows[0] = offsets[0]; job.rows[1] = offsets[1];
         job.first = component.first; job.count = component.count; job.poses = dynamic; job.remap = remapped;
+        job.recording = owner.recording; job.epoch = owner.recording->epoch();
+        owner.used = true;
+        owner.add_bone_job(job);
         if (identity.bone_sources.size() < package.components.size()) identity.bone_sources.resize(package.components.size());
         identity.bone_sources[component_index] = job;
-        scratch_bone_job_ready = true;
         ++counters[C_BONE_JOBS];
         return true;
     }
@@ -1554,7 +1558,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
 {
     if (!enabled.load(std::memory_order_relaxed) || !cache) return false;
     bool gpu_draw = false; // this draw binds the device's merged skeleton (D-117) rather than the CPU master
-    uint64_t live_sources = 0; // components of the list imported on the device from a buffer the game still has (BUG-054)
+    CharacterCommand* bone_owner = nullptr; // the recording's owner, which carries the device imports (D-127)
+    uint64_t borrowed_sources = 0; // components whose import this recording takes from one not yet submitted (D-127)
 
     ThreadTrace* const trace = device->trace ? device->trace() : nullptr;
     const uint64_t entered_us = host_time_us();
@@ -1677,10 +1682,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         std::memcpy(offsets, entry.data() + 80, 8);
         const uint8_t dynamic = (offsets[0] >= MergedSkeleton::kStaticRows ? 1 : 0) | (offsets[1] >= MergedSkeleton::kStaticRows ? 2 : 0);
         const BoneSite site = site_of(pipe->second);
-        // On the device (D-117) every draw needs its component's dispatch in its recording, whatever
-        // other recordings imported; on the CPU the master is imported once per frame.
+        // On the device (D-127) every draw's component is imported in its own recording, whatever happens
+        // to the draw; on the CPU the master is imported once per frame.
         gpu_draw = identity->gpu_frame && identity->ring;
-        scratch_bone_job_ready = false;
+        if (gpu_draw) {
+            const auto held = character_owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
+            bone_owner = static_cast<CharacterCommand*>(held.get());
+            if (!bone_owner) gpu_draw = false;
+        }
         if (site.ok && dynamic && (gpu_draw || identity->skeleton.needs_import(0, section->component, lod))) {
             const bool remapped = lod == 1 && component.has_remap;
             uint32_t last = component.count - 1;
@@ -1695,7 +1704,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             for (const auto& range : bone_ranges)
                 if (range.element == 0 && range.binding == site.binding &&
                     (range.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || range.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)) bones = &range;
-            if (gpu_draw && !(bones && readable && prepare_bone_job(*identity, section->component, component, remapped, needed, *bones, offsets, dynamic)))
+            if (gpu_draw && !(bones && readable && prepare_bone_job(*identity, *bone_owner, section->component, component, remapped, needed, *bones, offsets, dynamic)))
                 gpu_draw = false; // this draw imports on the CPU and binds the master
             if (gpu_draw) {
                 identity->coverage[section->component] |= dynamic;
@@ -1842,13 +1851,22 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!list->count) { if (!gate_open) return gated(); ++counters[C_HIDDEN]; return true; }
         for (uint32_t c = 0; c < package.components.size(); ++c)
             if ((list->required >> c & 1) && (identity->coverage[c] & dynamic) != dynamic) { ++counters[C_INCOMPLETE]; return false; }
-        // Under the tracker's lock: which required components' latest device imports read a buffer the game
-        // still has (the tracker's id tells a reused handle apart), for the recording's dispatches below.
+        // Under the tracker's lock (D-127): each component the list's vertices read comes from an import
+        // this recording carries, from the object's skeleton that a submitted batch imported it into, or
+        // from a recording that drew it and is not yet submitted (its bone data valid until that recording
+        // completed; the tracker's id tells a reused buffer handle apart). A draw that would read bones no
+        // import wrote is refused rather than drawn with them.
         if (gpu_draw)
-            for (uint32_t c = 0; c < identity->bone_sources.size() && c < 64; ++c) {
-                if (!(list->required >> c & 1) || !identity->bone_sources[c].ring) continue;
-                const auto alive = device->bufs.find(identity->bone_sources[c].source);
-                if (alive != device->bufs.end() && alive->second.id == identity->bone_sources[c].source_id) live_sources |= 1ull << c;
+            for (uint32_t c = 0; c < package.components.size() && c < 64; ++c) {
+                if (!(list->required >> c & 1)) continue;
+                if (bone_owner->has_bone_job(identity->ring.get(), c)) continue;
+                if (identity->ring->submitted.load(std::memory_order_acquire) >> c & 1) continue;
+                const BoneJob* source = c < identity->bone_sources.size() && identity->bone_sources[c].ring ? &identity->bone_sources[c] : nullptr;
+                if (source && source->recording && source->recording->pending(source->epoch)) {
+                    const auto alive = device->bufs.find(source->source);
+                    if (alive != device->bufs.end() && alive->second.id == source->source_id) { borrowed_sources |= 1ull << c; continue; }
+                }
+                return refuse(C_BONES_UNAVAILABLE, "character draw reads bones of a component no device import wrote");
             }
         // The private set is bound right above the pipeline's own sets: slot 3 for most character
         // pipelines, slot 4 for the four-set ones (the game's visibility pass among them).
@@ -2029,6 +2047,12 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     command_owner->used = true;
     const auto mesh_owner = std::static_pointer_cast<const GpuMesh>(command_owner->keep);
     if (!mesh_owner) return refuse(C_EXHAUSTED, "character command owner has no mesh");
+    // The object's snapshot this recording's draws read (D-127): copied in the recording's batch.
+    uint32_t snapshot_slot = UINT32_MAX;
+    if (gpu_draw) {
+        snapshot_slot = command_owner->snapshot(identity->ring);
+        if (snapshot_slot == UINT32_MAX) return refuse(C_BONE_RING, "character bone snapshots are all taken");
+    }
     lap(S_OWNER);
     // Everything is decided; from here nothing can fail after a command was emitted.
     auto& geometry = scratch_geometry; if (geometry.size() < list->count) geometry.resize(list->count);
@@ -2039,24 +2063,16 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     const AppendBones append_bones = [&](DrawSnapshots& arena, const std::vector<SnapshotImage>& views, SnapshotSlot& out) {
         if (!gpu_draw) return arena.append_shared(master.data(), master.size(), key, patched, views, out);
         const auto& ring = identity->ring;
-        if (!arena.append_external(ring->buffer, ring->slot_stride * identity->ring_slot, ring->slot_bytes, patched, views, out)) return false;
-        command_owner->hold(ring, identity->ring_slot);
-        if (scratch_bone_job_ready) command_owner->add_bone_job(scratch_bone_job);
-        // The components whose bones the list's vertices read and that were imported on the device: the
-        // recording's dispatches must cover them by its submission (BUG-054).
-        // A component this recording does not draw (yet) gets its latest import, made by another recording
-        // or an earlier frame, as the CPU master holds it at this draw; the component's own import in this
-        // recording, when it comes, replaces it.
-        uint64_t needed = 0;
-        for (uint32_t c = 0; c < identity->bone_sources.size() && c < 64; ++c) {
-            if (!(list->required >> c & 1) || !identity->bone_sources[c].ring) continue;
-            needed |= 1ull << c;
-            if (command_owner->has_bone_job(ring.get(), identity->ring_slot, c) || !(live_sources >> c & 1)) continue;
-            BoneJob job = identity->bone_sources[c];
-            job.ring = ring; job.slot = identity->ring_slot;
-            command_owner->add_bone_job(job);
+        if (!arena.append_external(ring->buffer(snapshot_slot), ring->offset(snapshot_slot), ring->slot_bytes, patched, views, out)) return false;
+        // A component only a recording not yet submitted imported: this recording takes that import, which
+        // never replaces one of its own (D-127).
+        if (borrowed_sources) {
+            uint64_t taken = 0;
+            for (uint32_t c = 0; c < 64; ++c)
+                if (borrowed_sources >> c & 1) { command_owner->add_bone_job(identity->bone_sources[c]); ++taken; }
+            borrowed_sources = 0;
+            if (bones_gpu) bones_gpu->note_borrowed(taken);
         }
-        command_owner->need_bones(ring.get(), identity->ring_slot, needed);
         return true;
     };
     for (uint32_t i = 0; i < list->count; ++i) {
@@ -2947,33 +2963,56 @@ void character_pass_end(CharacterBackend& b, CmdBuf* cb)
     }
 }
 
-VkResult character_submit(CharacterBackend& b, VkQueue q, uint32_t count, CmdBuf* const* cbs)
+VkResult character_submit(CharacterBackend& b, VkQueue q, SubmitWork& work)
 {
     // The textures' uploads and publication on this queue, before any package's work (D-094).
     ThreadTrace* const trace = b.device && b.device->trace ? b.device->trace() : nullptr;
     if (b.textures) { StageMark stage(trace, "character submission: texture uploads"); const auto result = b.textures->before_submit(q); if (result != VK_SUCCESS) return result; }
-    // The merged skeletons the submitted recordings read (D-117): their dispatches on this queue, in
-    // front of them, as the Core dispatches before the draw. Nothing crosses to another queue.
-    if (b.bone_merge && b.device && count && std::find(b.device->material_queues.begin(), b.device->material_queues.end(), q) != b.device->material_queues.end()) {
-        StageMark stage(trace, "character submission: bone dispatches");
+    // The merged skeletons the submitted recordings read (D-127): per application batch, the imports its
+    // recordings carry and their snapshots' copies, in a command buffer of ours the host puts at the front
+    // of that batch, so the game's own waits order them on whichever queue the game chose.
+    if (b.bone_merge && b.device && !work.batches.empty() &&
+        std::find(b.device->material_queues.begin(), b.device->material_queues.end(), q) != b.device->material_queues.end()) {
+        StageMark stage(trace, "character submission: bone imports");
         std::vector<const void*> keys;
         for (auto& c : b.controllers) {
             std::shared_lock<std::shared_mutex> lock(c->mutex);
             if (c->active) keys.push_back(c->active->generation_key.get());
             if (c->staged) keys.push_back(c->staged->generation_key.get());
         }
-        std::vector<BoneJob> jobs;
-        for (uint32_t i = 0; i < count; ++i)
-            for (auto& owner : cbs[i]->owners) {
-                if (!owner || std::find(keys.begin(), keys.end(), owner->backend) == keys.end()) continue;
-                auto& mine = static_cast<CharacterCommand&>(*owner);
-                if (const uint64_t missing = mine.missing_bones()) b.bone_merge->note_missing(missing);
-                mine.bone_needs.clear();
-                if (mine.bone_jobs.empty()) continue;
-                jobs.insert(jobs.end(), std::make_move_iterator(mine.bone_jobs.begin()), std::make_move_iterator(mine.bone_jobs.end()));
-                mine.bone_jobs.clear();
-            }
-        const auto result = b.bone_merge->submit(q, jobs); if (result != VK_SUCCESS) return result;
+        thread_local std::vector<BoneBatch> batches;
+        thread_local std::vector<CharacterCommand*> mine;
+        batches.resize(work.batches.size());
+        for (size_t i = 0; i < work.batches.size(); ++i) {
+            BoneBatch& batch = batches[i]; batch.clear();
+            mine.clear();
+            for (CmdBuf* cb : work.batches[i].cbs)
+                for (auto& owner : cb->owners)
+                    if (owner && std::find(keys.begin(), keys.end(), owner->backend) != keys.end())
+                        mine.push_back(static_cast<CharacterCommand*>(owner.get()));
+            // The batch's own imports first; then an import taken from another recording, only while that
+            // recording is still not submitted (an earlier batch of this call submits it first) and no
+            // recording of this batch imports the component itself.
+            auto has = [&](const BoneRing* ring, uint32_t component) {
+                for (const auto& job : batch.jobs) if (job.ring.get() == ring && job.component == component) return true;
+                return false;
+            };
+            for (auto* owner : mine)
+                for (const auto& job : owner->bone_jobs) if (job.recording == owner->recording) batch.jobs.push_back(job);
+            for (auto* owner : mine)
+                for (const auto& job : owner->bone_jobs)
+                    if (job.recording != owner->recording && job.recording && job.recording->pending(job.epoch) && !has(job.ring.get(), job.component))
+                        batch.jobs.push_back(job);
+            for (auto* owner : mine)
+                for (const auto& held : owner->rings) batch.copies.push_back({held.first, held.second});
+            for (auto* owner : mine) owner->recording->submitted();
+        }
+        VkSemaphore timeline = VK_NULL_HANDLE; uint64_t value = 0;
+        if (b.bone_merge->prepare(q, batches, timeline, value)) {
+            for (size_t i = 0; i < batches.size(); ++i) if (batches[i].cb) work.batches[i].prefix.push_back(batches[i].cb);
+            work.signals.push_back({timeline, value});
+        }
+        for (auto& batch : batches) batch.clear(); // the rings and recordings are not kept past the call
     }
     for (auto& c : b.controllers) {
         std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->stopped) continue;
@@ -2982,6 +3021,11 @@ VkResult character_submit(CharacterBackend& b, VkQueue q, uint32_t count, CmdBuf
         if (result != VK_SUCCESS) return result;
     }
     return VK_SUCCESS;
+}
+void character_submitted(CharacterBackend& b, VkQueue q, SubmitWork& work, VkResult result)
+{
+    if (!b.bone_merge) return;
+    for (const auto& signal : work.signals) b.bone_merge->finish(q, signal.semaphore, signal.value, result == VK_SUCCESS);
 }
 // Each package runs its Present work in turn; a presenter waits for what the one before handed on.
 void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
@@ -3094,7 +3138,7 @@ const CharacterModule* builtin_character_module()
         m.size = sizeof(CharacterModule); m.abi = EFVK_ABI; m.version = EFVK_VERSION;
         m.create = character_create; m.usable = character_usable; m.ready = character_ready; m.stop = character_stop;
         m.record = character_record; m.retire = character_retire; m.frame = character_frame; m.status = character_status;
-        m.enable = character_enable; m.submit = character_submit; m.pass_end = character_pass_end;
+        m.enable = character_enable; m.submit = character_submit; m.submitted = character_submitted; m.pass_end = character_pass_end;
         return m;
     }();
     return &module;

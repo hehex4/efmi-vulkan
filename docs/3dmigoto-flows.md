@@ -85,6 +85,12 @@ per matched draw in the game). 1.8.2 moved the import to compute dispatches (D-1
 then failed on the GPU because the dispatches crossed the game's two queues (BUG-050, BUG-052). 1.8.4
 puts each dispatch in front of the recording that reads it, on that recording's queue: the
 original's order (dispatch, then draw, on one context) as far as Vulkan allows outside a render pass.
+It still went in a submission of its own, outside the game's order, with per-frame slots instead
+of a persistent skeleton; BUG-054's repair then read the game's buffer outside the time the game
+keeps it valid (BUG-060). 1.9.3 (D-127, docs/design-review-1.9.md) follows the original's model: one
+persistent merged skeleton per object, written only by imports that run in the batch of the
+recording that drew the component, at the front of the application's own batch so the game's
+waits order them; each recording's draws read a snapshot copied after its batch's imports.
 
 ## 5. Threads and contexts
 

@@ -57,6 +57,15 @@ STEPS = [
     ("captured frame with bones across recordings", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                      r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
                                                      "--two-queues", "--bones-identical", "--only-mod", "Si\uff1aNightveilTrancer & Gui"]),
+    # The game keeps a frame's bone data valid only until that frame completed, then reuses the region
+    # (BUG-060): with two copies of every bone buffer, the one of the frame before zeroed before a frame is
+    # submitted, the GPU import must read the game's data only in the batch of the recording that drew
+    # the component, and its pictures equal the CPU import's (D-127). Typhoeus' parts read bones of
+    # several components, which the split passes put in other recordings.
+    ("captured frame with the game's bone regions reused", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                           r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk06", "--frames", "60", "--check",
+                                                           "--split-passes", "--rolling-bones", "--bones-identical",
+                                                           "--only-mod", "Typhoeus\uff1aNya Tech & GUI"]),
     # Tangtang's draw lists ask the game's shaders `vs->srv_stride(0) == 16`, `ps != 1718.2`: the
     # declarations come from the pipeline's SPIR-V (D-124) and every matched draw plans.
     ("captured frame with shader declaration queries", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",

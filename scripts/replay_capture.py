@@ -144,14 +144,18 @@ def forge_region(length: int, index_size: int, target: int) -> bytes:
 def only_mod(name: str) -> Path:
     """A Mods folder of the project holding a copy of the installed Mod `name`, whether the user has it
     enabled or renamed to DISABLED_ (the installed folder is only read). A suite step that tests one
-    Mod's mechanism then does not depend on which Mods the user has on. Copied once."""
+    Mod's mechanism then does not depend on which Mods the user has on. Copied once; when the user has
+    removed the Mod since, the copy made before stays the step's data."""
     source = MODS / name if (MODS / name).is_dir() else MODS / ("DISABLED_" + name)
-    if not source.is_dir():
-        raise ValueError("no installed Mod folder named %s (enabled or DISABLED_)" % name)
     # The project's folder takes a plain name (it names the replay's output and build folders); the copy
     # inside keeps the Mod's own, whatever its characters.
     target = ROOT / "build" / "replay-mods" / "".join(c if c.isascii() and (c.isalnum() or c in "._-") else "_" for c in name)
     copy = target / name
+    if not source.is_dir():
+        if (target / "source.txt").is_file() and copy.is_dir():
+            print("only-mod: %s is no longer installed; the project's copy of it is used" % name)
+            return target
+        raise ValueError("no installed Mod folder named %s (enabled or DISABLED_) and no copy of it" % name)
     files = sorted(f for f in source.rglob("*") if f.is_file())
     stamp = "\n".join("%s %d %d" % (f.relative_to(source), f.stat().st_size, f.stat().st_mtime_ns) for f in files)
     if not (target / "source.txt").is_file() or (target / "source.txt").read_text(encoding="utf-8") != stamp:
@@ -420,7 +424,7 @@ def dimension_policy() -> str:
 
 def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation: Path, open_tests: bool = False,
         two_queues: bool = False, gpu_bones: bool | None = None, name: str | None = None, split_passes: bool = False,
-        animate_bones: bool = False) -> dict:
+        animate_bones: bool = False, rolling_bones: bool = False) -> dict:
     from harness import layer_env
     folder = out / (name or ("enabled" if enabled else "disabled"))
     folder.mkdir(parents=True, exist_ok=True)
@@ -440,7 +444,7 @@ def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation
     env = layer_env(str(folder / "layer.log"), extra=extra)
     env["VK_LAYER_PATH"] = extra["VK_LAYER_PATH"]
     flags = (["open"] if open_tests else []) + (["split-passes"] if split_passes else ["two-queues"] if two_queues else [])
-    flags += ["animate-bones"] if animate_bones else []
+    flags += ["rolling-bones"] if rolling_bones else ["animate-bones"] if animate_bones else []
     result = subprocess.run([str(exe), str(out / "replay.bin"), str(frames)] + flags, cwd=folder, env=env,
                             capture_output=True, text=True, errors="replace", timeout=600)
     (folder / "stdout.txt").write_text((result.stdout + result.stderr).encode("ascii", "backslashreplace").decode(), encoding="ascii")
@@ -549,6 +553,9 @@ def main() -> int:
                     "size it leaves no free memory, as a full card in the game (D-122: activation does not wait for it)")
     ap.add_argument("--animate-bones", action="store_true", help="the stand-in bones move every frame, written with both queues "
                     "idle (BUG-054): a draw reading another recording's older import then differs from the CPU import")
+    ap.add_argument("--rolling-bones", action="store_true", help="the stand-in bones move every frame and live in two copies, "
+                    "frame f binding copy f%%2; the copy of the frame before is zeroed before a frame is submitted, as the game "
+                    "reuses a completed frame's bone region (BUG-060): a read of another frame's bones then finds none")
     ap.add_argument("--split-passes", action="store_true", help="with two queues, every pass's draws split over the two command "
                     "buffers (BUG-054): one recording draws components whose bones another recording imported")
     ap.add_argument("--bones-identical", action="store_true", help="also replay with the merged skeleton imported on the CPU "
@@ -562,7 +569,7 @@ def main() -> int:
     SETTINGS = args.settings
     dist = Path(os.environ.get("EFMI_VK_DIST", ROOT / "dist"))
     validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))
-    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else "") + ("-split" if args.split_passes else "-2q" if args.two_queues else "") + ("-anim" if args.animate_bones else ""))
+    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else "") + ("-split" if args.split_passes else "-2q" if args.two_queues else "") + ("-roll" if args.rolling_bones else "-anim" if args.animate_bones else ""))
     out.mkdir(parents=True, exist_ok=True)
     sections, components = mod_sections(dist, out)
     replay = Replay(args.bundle, out)
@@ -610,7 +617,7 @@ def main() -> int:
     results = {}
     for enabled in (False, True):
         r = run(exe, out, dist, args.frames, enabled, validation, args.open_tests, args.two_queues, split_passes=args.split_passes,
-                animate_bones=args.animate_bones)
+                animate_bones=args.animate_bones, rolling_bones=args.rolling_bones)
         results[enabled] = r
         rep = r["status"].get("result", {}).get("replacement", {})
         counters = {k: v for k, v in rep.get("counters", {}).items() if v} if rep else {}
@@ -635,7 +642,7 @@ def main() -> int:
     cpu_bones = None
     if args.bones_identical:
         cpu_bones = run(exe, out, dist, args.frames, True, validation, args.open_tests, args.two_queues, gpu_bones=False, name="enabled-cpu-bones",
-                        split_passes=args.split_passes, animate_bones=args.animate_bones)
+                        split_passes=args.split_passes, animate_bones=args.animate_bones, rolling_bones=args.rolling_bones)
         line = next((l for l in cpu_bones["output"].splitlines() if l.startswith("replay:")), "replay: no summary")
         gpu_shots = shots.get(True, {}); cpu_shots = pictures(cpu_bones["folder"]) if (cpu_bones["folder"] / "targets.json").is_file() else {}
         differing = sorted(n for n in gpu_shots if cpu_shots.get(n, {}).get("raw") != gpu_shots[n].get("raw"))
@@ -687,10 +694,10 @@ def check(summary: dict, draws: list[dict], components: dict, mod_first: bool = 
             problems.append("%s run: %s" % (name, run.get("replay") or "no summary"))
     if not runs.get("enabled", {}).get("counters", {}).get("replaced"):
         problems.append("no draw replaced")
-    # Every component a draw's vertices read bones from has its dispatch in the draw's recording (BUG-054).
-    missing = runs.get("enabled", {}).get("bones", {}).get("components_missing", 0)
-    if missing:
-        problems.append("%d draws read bones of a component their recording does not dispatch" % missing)
+    # Every component a draw's vertices read bones from was imported on the device by then (BUG-054, D-127).
+    unavailable = runs.get("enabled", {}).get("counters", {}).get("bones_unavailable", 0)
+    if unavailable:
+        problems.append("%d draws refused for bones of a component no device import wrote" % unavailable)
     order, drawn = {}, set()
     for d in draws:
         group = order.setdefault(d["group"], len(order))

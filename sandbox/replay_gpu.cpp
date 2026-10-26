@@ -268,9 +268,15 @@ int wmain(int argc,wchar_t** argv){
     // written while every queue is idle, so the CPU import (at recording) and the GPU import (at
     // execution) read the same pose; a draw that reads another recording's older import then shows
     // a different pose than the CPU import (BUG-054).
-    bool open_tests=false,two_queues=false,split_passes=false,animate_bones=false;
+    // "rolling-bones" (with animate-bones): the game's guarantee for its bone data and no more (BUG-060).
+    // A frame's bones are valid from their write before the frame is recorded until the frame completed;
+    // then the game reuses the region for another frame. Every buffer that holds bones has a twin, frame
+    // f binds copy f%2, and before a frame is submitted the copy the frame before used is zeroed, as the
+    // game's next writes would overwrite it. A read of another frame's region then finds no bones.
+    bool open_tests=false,two_queues=false,split_passes=false,animate_bones=false,rolling_bones=false;
     for(int a=3;a<argc;++a){const std::wstring flag=argv[a];if(flag==L"open")open_tests=true;else if(flag==L"two-queues")two_queues=true;
-        else if(flag==L"split-passes")two_queues=split_passes=true;else if(flag==L"animate-bones")animate_bones=true;}
+        else if(flag==L"split-passes")two_queues=split_passes=true;else if(flag==L"animate-bones")animate_bones=true;
+        else if(flag==L"rolling-bones")animate_bones=rolling_bones=true;}
     const uint32_t W=960,H=600;
     try{
         if(argc<2)throw std::runtime_error("usage: replay_gpu replay.bin [frames]");
@@ -341,6 +347,17 @@ int wmain(int argc,wchar_t** argv){
             }
             buffers.push_back(made);
         }
+        // rolling-bones: the twin of every buffer that holds stand-in bones, bound by the odd frames.
+        std::map<uint32_t,uint32_t> twin_of;
+        if(rolling_bones)
+            for(const auto& region:replay_bones()){
+                const uint32_t b=uint32_t(region.buffer);
+                if(twin_of.count(b))continue;
+                auto made=g.buffer(size_t(specs[b].size),VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|
+                                                         VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+                memcpy(made.mapped,buffers[b].mapped,size_t(specs[b].size));
+                twin_of[b]=uint32_t(buffers.size());buffers.push_back(made);
+            }
         // Textures: zero or grey images of the recorded format, size, mip chain and view type.
         const auto image_specs=replay_images();
         std::vector<VkImageView> views;
@@ -392,15 +409,17 @@ int wmain(int argc,wchar_t** argv){
         // Descriptor sets of every draw, from its recorded contents.
         const auto draws=replay_draws();
         std::map<VkDescriptorType,uint32_t> totals;uint32_t set_total=0;
-        for(const auto& d:draws){set_total+=uint32_t(pipes[d.pipeline].sets.size());for(const auto& x:d.descriptors)++totals[static_cast<VkDescriptorType>(x.type)];}
+        const uint32_t copies=rolling_bones?2u:1u;
+        for(const auto& d:draws){set_total+=copies*uint32_t(pipes[d.pipeline].sets.size());for(const auto& x:d.descriptors)totals[static_cast<VkDescriptorType>(x.type)]+=copies;}
         std::vector<VkDescriptorPoolSize> sizes;for(const auto& t:totals)sizes.push_back({t.first,t.second});
         VkDescriptorPoolCreateInfo pi={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pi.maxSets=std::max(1u,set_total);
         pi.poolSizeCount=static_cast<uint32_t>(sizes.size());pi.pPoolSizes=sizes.data();
         VkDescriptorPool pool{};CHECK_VK(pCreateDescriptorPool(g.device,&pi,nullptr,&pool));
-        std::vector<std::vector<VkDescriptorSet>> sets(draws.size());
+        // Per copy of the bones (one without rolling-bones), every draw's sets.
+        std::vector<std::vector<VkDescriptorSet>> copy_sets[2]={std::vector<std::vector<VkDescriptorSet>>(draws.size()),std::vector<std::vector<VkDescriptorSet>>(draws.size())};
         std::vector<std::vector<uint32_t>> dynamic_counts(draws.size());
-        for(size_t i=0;i<draws.size();++i){
-            const auto& d=draws[i];auto& p=pipes[d.pipeline];
+        for(uint32_t k=0;k<copies;++k)for(size_t i=0;i<draws.size();++i){
+            const auto& d=draws[i];auto& p=pipes[d.pipeline];auto& sets=copy_sets[k];
             sets[i].resize(p.sets.size());
             VkDescriptorSetAllocateInfo ai={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};ai.descriptorPool=pool;
             ai.descriptorSetCount=static_cast<uint32_t>(p.sets.size());ai.pSetLayouts=p.sets.data();
@@ -413,7 +432,11 @@ int wmain(int argc,wchar_t** argv){
                 w.descriptorType=static_cast<VkDescriptorType>(x.type);
                 if(x.type==VK_DESCRIPTOR_TYPE_SAMPLER){images.push_back({sampler,VK_NULL_HANDLE,VK_IMAGE_LAYOUT_UNDEFINED});w.pImageInfo=&images.back();}
                 else if(x.type==VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE){images.push_back({VK_NULL_HANDLE,views[x.image],VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});w.pImageInfo=&images.back();}
-                else{infos.push_back({buffers[x.buffer].buffer,x.offset,x.range});w.pBufferInfo=&infos.back();}
+                else{
+                    const auto twin=twin_of.find(x.buffer);
+                    const uint32_t buffer=k && twin!=twin_of.end()?twin->second:x.buffer;
+                    infos.push_back({buffers[buffer].buffer,x.offset,x.range});w.pBufferInfo=&infos.back();
+                }
                 if(x.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC || x.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC)++dynamic_counts[i][x.set];
                 writes.push_back(w);
             }
@@ -507,10 +530,20 @@ int wmain(int argc,wchar_t** argv){
                 CHECK_VK(pDeviceWaitIdle(g.device));
                 const float t=float(f);
                 const float row[12]={1,0,0,0.04f*std::sin(0.7f*t), 0,0,1,0.03f*std::cos(0.5f*t), 0,-1,0,0.02f*std::sin(0.3f*t)};
-                for(const auto& region:replay_bones())
+                for(const auto& region:replay_bones()){
+                    size_t b=size_t(region.buffer);
+                    if(rolling_bones){
+                        // The frame before completed: its copy is zeroed as the game's next writes would
+                        // overwrite it, and this frame's pose goes into its own copy.
+                        const size_t twin=twin_of.at(uint32_t(b));
+                        memset(static_cast<uint8_t*>(buffers[f%2?b:twin].mapped)+region.offset,0,size_t(region.size));
+                        if(f%2)b=twin;
+                    }
                     for(uint64_t at=0;at+sizeof(row)<=region.size;at+=sizeof(row))
-                        memcpy(static_cast<uint8_t*>(buffers[size_t(region.buffer)].mapped)+region.offset+at,row,sizeof(row));
+                        memcpy(static_cast<uint8_t*>(buffers[b].mapped)+region.offset+at,row,sizeof(row));
+                }
             }
+            const auto& sets=copy_sets[rolling_bones?f%2:0];
             const VkSemaphore acquire_sem=two_queues?acquired[slot]:swap.acquired;
             uint32_t image=0;CHECK_VK(swap.Acquire(g.device,swap.swapchain,UINT64_MAX,acquire_sem,VK_NULL_HANDLE,&image));
             const VkSemaphore render_sem=two_queues?rendered[image]:swap.rendered;

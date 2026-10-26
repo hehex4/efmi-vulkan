@@ -572,6 +572,12 @@ struct Device {
     const CharacterModule* character_module = nullptr;
     const CharacterModule* staged_module = nullptr;
     uint64_t character_recordings = 0; // frames of the character, counted across backends
+    // Semaphores the application signalled from a queue submission (D-127): a batch's wait for one of
+    // them orders it after the other queue's work, so the stages of the work the layer puts at the front
+    // of that batch are added to the wait. A semaphore of an image acquisition is left as it is.
+    std::mutex queue_signal_mx;
+    std::unordered_set<VkSemaphore> queue_signalled;
+    std::atomic<uint64_t> prefixed_batches{0}, widened_waits{0}, prefix_alone{0};
     VkPhysicalDeviceProperties physical_properties = {};
     VkPhysicalDeviceMemoryProperties memory_properties = {};
     // Queues in one unprotected graphics family. Uploads use the first active queue;

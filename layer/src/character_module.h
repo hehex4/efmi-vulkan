@@ -48,6 +48,30 @@ struct PresentWork {
     bool replaced = false;
 };
 
+// One application submission call (vkQueueSubmit or vkQueueSubmit2) as the module sees it (D-127): per
+// batch the recordings the host tracks, and the command buffers of the module's that the host puts at the
+// front of that batch, after the batch's waits (whose stages it widens to cover them); the timelines the
+// host signals after the application's batches in the same call. The host fills `cbs`, the module
+// `prefix` and `signals`.
+struct CharacterModule;
+struct SubmitWork {
+    struct Batch {
+        std::vector<CmdBuf*> cbs;
+        std::vector<VkCommandBuffer> prefix;
+    };
+    struct Signal { VkSemaphore semaphore = VK_NULL_HANDLE; uint64_t value = 0; };
+    std::vector<Batch> batches;
+    std::vector<Signal> signals;
+    // The backends whose command buffers are in the call, and their code: kept by the host until it
+    // reported the call, so an exchange in between cannot free what the queue is about to run.
+    std::vector<std::pair<std::shared_ptr<CharacterBackend>, const CharacterModule*>> owners;
+    bool any_prefix() const
+    {
+        for (const auto& b : batches) if (!b.prefix.empty()) return true;
+        return false;
+    }
+};
+
 // The functions of one copy of the replacement code.
 struct CharacterModule {
     uint32_t size = 0;
@@ -64,9 +88,12 @@ struct CharacterModule {
     void (*frame)(CharacterBackend&, bool had_draws, PresentWork* present) = nullptr;
     void (*status)(CharacterBackend&, JsonWriter&) = nullptr;
     void (*enable)(CharacterBackend&, bool) = nullptr;
-    // Before the application's submission of `cbs` on `queue`: the work those recordings need first
-    // (the texture uploads' publication, the bone dispatches of their draws, owned draw work).
-    VkResult (*submit)(CharacterBackend&, VkQueue, uint32_t count, CmdBuf* const* cbs) = nullptr;
+    // Before the application's submission on `queue`: the work its recordings need first. Submitted
+    // ahead by the module: the texture uploads' publication and owned draw work; returned in `work` for
+    // the host to put into the application's batches: the bone imports and snapshots (D-127).
+    VkResult (*submit)(CharacterBackend&, VkQueue, SubmitWork& work) = nullptr;
+    // After the application's call with the module's work in it: whether it reached the queue.
+    void (*submitted)(CharacterBackend&, VkQueue, SubmitWork& work, VkResult result) = nullptr;
     // After the application's vkCmdEndRenderPass of the instance `cb->pass` names (D-113): work that
     // belongs to that pass and needs targets of its own (the translucent captures and composite).
     void (*pass_end)(CharacterBackend&, CmdBuf*) = nullptr;

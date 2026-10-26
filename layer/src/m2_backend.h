@@ -7,6 +7,7 @@
 namespace efvk {
 struct Device;
 struct PresentWork;
+struct SubmitWork;
 struct CmdBuf;
 struct DrawRec;
 class JsonWriter;
@@ -29,8 +30,11 @@ void m2_pass_end(Device*,CmdBuf*);
 void m2_seal(Device*,uint32_t,const VkCommandBuffer*);
 // Once per present; `had_draws` is false for an interval in which nothing was drawn.
 void m2_frame(Device*,bool had_draws,PresentWork* present=nullptr);
-// Before the application's submission goes down: uploads and publication of a character backend.
-VkResult m2_submit(Device*,VkQueue,uint32_t count,const VkCommandBuffer* buffers);
+// Before the application's submission goes down: uploads and publication of a character backend,
+// and in `work` the command buffers the host puts into the application's batches (D-127).
+VkResult m2_submit(Device*,VkQueue,SubmitWork& work);
+// After the application's call went down with `work` in it.
+void m2_submitted(Device*,VkQueue,SubmitWork& work,VkResult result);
 void m2_status(Device*,JsonWriter&);
 // `advance` ends a frame of the character backend, for a process that never presents (tests).
 std::string probe_m2_set(int enabled, bool advance = false);

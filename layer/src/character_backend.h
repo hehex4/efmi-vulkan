@@ -14,7 +14,6 @@ struct DrawRec;
 class JsonWriter;
 class CharacterBackend;
 void character_device_setup(Device*, const VkDeviceCreateInfo*, VkInstance, PFN_vkGetInstanceProcAddr);
-VkResult character_submit(CharacterBackend&, VkQueue);
 std::shared_ptr<CharacterBackend> character_create(Device*, const VkPhysicalDeviceProperties&,
                                                    const VkPhysicalDeviceMemoryProperties&);
 bool character_usable(CharacterBackend&, std::string& reason);
