@@ -88,18 +88,28 @@ public:
             if(!service->declared(target,*state,result,reason))refuse(reason.empty()?L"Declaration query refused":reason);
             return result;
         }
+        const bool pixel=target.type==ResourceCopyTargetType::THIS_RESOURCE ||
+            (target.type==ResourceCopyTargetType::SHADER_RESOURCE && target.shader_type==L'p');
+        const bool texture_match=(pixel || service->general_matches) && target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE && service->texture;
         if(!service->open() || (drawing && !owned_side(target))){
             // Outside an owned scope (a replaced draw's plan), or the application's bindings in a draw's
             // scope: what the host answers on the CPU. A Mod resource in a draw's scope: what the
             // owned work holds (D-087).
             if(service->plan_read && service->plan_read(target,*state,result,reason))return result;
-            if(!drawing || !owned_side(target) || !service->read)
+            if(!drawing || !owned_side(target) || !service->read){
+                // `ps-t0 == 905031` where nothing else answers: the original's FindTextureOverrides on the texture
+                // bound at that pixel slot, the filter_index of the section that matches it, from the host's
+                // texture matcher (a Mod finding which slot holds one of its textures, BUG-064).
+                if(texture_match && pixel){
+                    reason.clear();
+                    if(!service->texture(target,*state,result,reason))refuse(reason.empty()?L"Texture query refused":reason);
+                    return result;
+                }
                 refuse(reason.empty()?L"Resource query adapter is unavailable or over budget":reason);
+            }
             reason.clear();
         }
-        const bool pixel=target.type==ResourceCopyTargetType::THIS_RESOURCE ||
-            (target.type==ResourceCopyTargetType::SHADER_RESOURCE && target.shader_type==L'p');
-        const auto& read=(pixel || service->general_matches) && target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE && service->texture?service->texture:service->read;
+        const auto& read=texture_match?service->texture:service->read;
         if(!read)refuse(L"Resource query adapter is unavailable");
         if(!read(target,*state,result,reason))
             refuse(reason.empty()?L"Native resource query refused":reason);
@@ -469,6 +479,7 @@ struct DrawPlanAdapter::Runtime {
         return int(resource-application_textures.data());
     }
     std::unordered_set<CustomResource*> files;
+    std::unordered_map<CustomResource*, unsigned> file_roles; // referenced_roles
     std::function<bool()> owned_gate;
     // The owned GPU callbacks apply unless a gate says the host has no owned scope open.
     bool owned() const {return !owned_gate || owned_gate();}
@@ -520,7 +531,12 @@ struct DrawPlanAdapter::Runtime {
         if (auto* copy = dynamic_cast<ResourceCopyOperation*>(&command)) {
             if (copy->src.type == ResourceCopyTargetType::CUSTOM_RESOURCE && !copy->src.custom_resource_pool) {
                 auto* resource = copy->src.GetCustomResource(nullptr);
-                if (resource && !resource->filename.empty()) files.insert(resource);
+                if (resource && !resource->filename.empty()) {
+                    files.insert(resource);
+                    const auto type = copy->dst.type;
+                    file_roles[resource] |= type == ResourceCopyTargetType::VERTEX_BUFFER ? 1u : type == ResourceCopyTargetType::INDEX_BUFFER ? 2u :
+                                            type == ResourceCopyTargetType::SHADER_RESOURCE ? 4u : 0u;
+                }
             }
         } else if (auto* batch = dynamic_cast<ShaderResourceBindBatch*>(&command)) {
             for (const auto& copy : batch->operations) if (copy) collect_files(*copy);
@@ -1265,6 +1281,11 @@ void DrawPlanAdapter::resource_matches(ResourceMatchQuery query){
 std::vector<CustomResource*> DrawPlanAdapter::referenced_files() const
 {
     return {runtime_->files.begin(), runtime_->files.end()};
+}
+unsigned DrawPlanAdapter::referenced_roles(CustomResource* resource) const
+{
+    const auto found = runtime_->file_roles.find(resource);
+    return found == runtime_->file_roles.end() ? 0u : found->second;
 }
 
 void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)

@@ -6,6 +6,13 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.9.7: SiModGB's declarations and texture queries as the original takes them (2026-10-26, BUG-064)
+
+- Session with 1.9.6 (PID 8552, 22:0x, user-started): the F10 freeze is gone (the user: seems fine now); SiModGB drew nothing (index files with `stride = 6`, typed vertex files, `ps-tN == filter_index` in plans refused).
+- 1.9.7: index files by their format, vertex files by their stride or their format's size (the original's FillInMissingInfo), file roles from the assignments that bind them, pixel-slot texture queries in plans from the host's texture matcher.
+- Verification: run_all --only frontend host (all host checks), offline plans (SiModGB 26 of 26 sections plan), Mods folder, library call, texture filter (new: vk04 with only SiModGB, no refusal), character replacement, live INI: passed.
+- Next: the engine lock refactor (BUG-063's open part), design first.
+
 ## 1.9.6: a long else-if chain loads in bounded time (2026-10-26, BUG-063)
 
 - Session with 1.9.5 (PID 11492, 21:32-21:3x, user-started): the same F10 froze again at 21:35:51; `present_gpu_waits` stayed 0 (1.9.5's guard held). Sampled through the probe in the frozen game: the presenting thread waiting for the engine lock in an F10 exchange, the render thread for a controller lock; the engine lock held by the new Typhoeus Mod's load, which never finished. Offline the sandbox with the actual configuration hung at device creation with that Mod installed; a stack dump of the sandbox (scratch tool, our own test process only) showed `HostCompileRoots` in a deep recursion: `compile_graph` walked every body of every `if` without remembering lists, 2^n steps for the panel's else-if chain (the original shares one nested `if` between pre and post bodies).

@@ -1,5 +1,6 @@
 #include "buffer_queries.h"
 #include <cmath>
+#include <cwchar>
 #include <cstring>
 #include <climits>
 // Pinned original XXMI quantization/packing implementation in ResourceHash.cpp.
@@ -17,8 +18,13 @@ bool BufferQueries::read(ResourceCopyTarget& target,CommandListState& state,floa
 {
     reason.clear();auto fail=[&](const wchar_t* text){reason=text;return false;};
     if(target.type!=ResourceCopyTargetType::CUSTOM_RESOURCE || target.custom_resource_pool ||
-       target.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE_SPATIAL_HASH)
-        return fail(L"Unadapted original buffer query");
+       target.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE_SPATIAL_HASH){
+        // Which query, for the log: the original's target type and evaluation mode (CommandList.h).
+        wchar_t text[160];
+        swprintf(text,160,L"Unadapted original buffer query (target type %u, evaluation mode 0x%x%ls)",unsigned(target.type),
+                 unsigned(target.evaluation_mode),target.custom_resource_pool?L", a pool":L"");
+        reason=text;return false;
+    }
     const auto found=windows_.find(target.GetCustomResource(&state));
     if(found==windows_.end())return fail(L"Original buffer window unavailable");
     float args[4];

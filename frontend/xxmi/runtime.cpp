@@ -399,7 +399,15 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         // Collect every branch's reachable files, not dormant declarations.
         // Original resource copy/alias commands are included by the adapter.
         for (auto* resource : p.adapter.referenced_files()) {
+            // In the roles the lists bind it in, as the original's buffer takes the bind flags of the
+            // assignments that use it; a file only copied into other resources keeps every role its
+            // declaration allows, an index format excluding the vertex one (a typed vertex buffer binds by its
+            // stride, so `format = R16_UINT, stride = 6` would otherwise be both).
+            const unsigned roles = p.adapter.referenced_roles(resource);
+            const bool index_format = resource->override_format == DXGI_FORMAT_R16_UINT || resource->override_format == DXGI_FORMAT_R32_UINT;
             for (auto operation : {PlanOperation::BindVertex, PlanOperation::BindIndex, PlanOperation::BindPixelResource}) {
+                const unsigned bit = operation == PlanOperation::BindVertex ? 1u : operation == PlanOperation::BindIndex ? 2u : 4u;
+                if (roles ? !(roles & bit) : (operation == PlanOperation::BindVertex && index_format)) continue;
                 DrawPlan plan; PlanItem item; item.operation = operation; item.resource = resource; plan.items.push_back(item);
                 assets::FilePlan owned;
                 if (p.files->compile(plan, owned, why) && owned.items[0].resource) p.resources.push_back(owned.items[0].resource);

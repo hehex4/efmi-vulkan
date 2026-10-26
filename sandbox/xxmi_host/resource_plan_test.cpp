@@ -56,7 +56,12 @@ int HostResourcePlanTests()
     check(!compiler.compile(bad,owned,reason),"foreign frontend resource is refused without dereferencing it");
     bad=plan;bad.items[1].slot=32;check(!compiler.compile(bad,owned,reason),"out of range owned binding refuses");
     bad=plan;bad.items[0].phase_mask=0;check(!compiler.compile(bad,owned,reason),"invalid native phase cannot vanish into a no-op");
-    bad=plan;bad.items[2].operation=PlanOperation::BindVertex;check(!compiler.compile(bad,owned,reason),"index format cannot be guessed as a vertex stride");
+    // An index-format file bound as a vertex buffer: the original's FillInMissingInfo fills the missing
+    // stride from the format's size (CopyResourceToResource, before both its copy and reference paths).
+    bad=plan;bad.items[2].operation=PlanOperation::BindVertex;
+    check(compiler.compile(bad,owned,reason) && owned.items[2].resource && owned.items[2].resource->stride==2 &&
+          owned.items[2].resource->usage==VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,"an index format bound as a vertex buffer strides by its size, as the original fills it");
+    check(compiler.compile(plan,owned,reason),"the valid plan compiles again after the vertex binding");
     bad=plan;bad.items[2].slot=1;check(!compiler.compile(bad,owned,reason),"index slot is bounded independently of vertex slots");
     bad=plan;bad.items.back().instance_count=0;check(!compiler.compile(bad,owned,reason),"malformed zero draw refuses before resource preparation");
     resources.clear();plan.items.clear();
@@ -64,5 +69,36 @@ int HostResourcePlanTests()
           owned.items.back().layout[0].match.semantic_name=="BLENDINDICES",
           "owned file plan and layout survive destruction of the entire frontend declaration map");
     check(compiler.compile({},owned,reason) && owned.items.empty(),"empty plan remains a valid empty resource transaction");
+    {
+        // An index buffer declared with a stride besides its format (stride = 6, a triangle of 16-bit
+        // indices, as some packagers write it): the original binds it with IASetIndexBuffer(format) and
+        // leaves the stride to the buffer description's StructureByteStride, so the format decides.
+        CustomResources declared;
+        auto& r=declared[L"triangles"];r.name=L"triangles";r.filename=(std::filesystem::current_path()/L"triangles.buf").wstring();
+        r.override_type=CustomResourceType::BUFFER;r.override_color_space=CustomColorSpace::DEFAULT;
+        r.override_format=DXGI_FORMAT_R16_UINT;r.override_stride=6;
+        FilePlanCompiler strided(declared);DrawPlan bound;PlanItem item;item.operation=PlanOperation::BindIndex;item.slot=0;item.resource=&r;
+        bound.items.push_back(item);assets::FilePlan out;
+        check(strided.compile(bound,out,reason) && out.items.size()==1 && out.items[0].resource &&
+              out.items[0].resource->index_type==VK_INDEX_TYPE_UINT16 && out.items[0].resource->stride==2,
+              "an index buffer's stride does not change its format's index size, as IASetIndexBuffer takes the format");
+        // A vertex buffer with a typed format: the original binds it with its StructureByteStride (`stride`,
+        // else the format's size); the format is a view's, not the vertex fetch's.
+        auto vertex_declaration=[&](const wchar_t* name,int stride)->CustomResource&{
+            auto& v=declared[name];v.name=name;v.filename=(std::filesystem::current_path()/L"typed.buf").wstring();
+            v.override_type=CustomResourceType::BUFFER;v.override_color_space=CustomColorSpace::DEFAULT;
+            v.override_format=DXGI_FORMAT_R16G16B16A16_UNORM;v.override_stride=stride;return v;
+        };
+        auto& typed=vertex_declaration(L"typed",16);
+        auto& format_only=vertex_declaration(L"format_only",-1);
+        FilePlanCompiler vertices(declared);
+        for(auto* resource:{&typed,&format_only}){
+            DrawPlan vertex;PlanItem bind;bind.operation=PlanOperation::BindVertex;bind.slot=1;bind.resource=resource;vertex.items.push_back(bind);
+            const uint32_t expected=resource==&typed?16:8;
+            check(vertices.compile(vertex,out,reason) && out.items.size()==1 && out.items[0].resource &&
+                  out.items[0].resource->stride==expected && out.items[0].resource->usage==VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  "a typed vertex buffer binds with its stride, or its format's size without one");
+        }
+    }
     printf("XXMI resource planner: %d checks passed, %d failed\n",passed,failed);return failed;
 }

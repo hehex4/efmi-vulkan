@@ -1,4 +1,5 @@
 #include "resource_plan.h"
+#include "util.h"
 #include <stdexcept>
 
 namespace efmi::frontend {
@@ -32,16 +33,20 @@ std::shared_ptr<const assets::FileResource> describe(const CustomResource& r,uns
     if(flags && ((flags&~(D3D11_BIND_VERTEX_BUFFER|D3D11_BIND_INDEX_BUFFER)) || !(flags&required)))
         return refuse(L"Explicit buffer bind flags do not support this binding");
     if(role==0){
-        if(r.override_stride<=0 || r.override_stride>2048)return refuse(L"Vertex stride is not a supported explicit byte stride");
-        if(r.override_format!=DXGI_FORMAT(-1) && r.override_format!=DXGI_FORMAT_UNKNOWN)
-            return refuse(L"Typed vertex resource format requires a declaration adapter");
-        file->usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;file->stride=r.override_stride;return file;
+        // The original binds it with IASetVertexBuffers and the buffer's StructureByteStride: `stride`, or the
+        // format's size without one. The format is otherwise a view's; the input layout decides how the
+        // vertex fetch reads the elements.
+        int stride=r.override_stride;
+        if(stride==-1 && r.override_format!=DXGI_FORMAT(-1) && r.override_format!=DXGI_FORMAT_UNKNOWN)
+            stride=static_cast<int>(dxgi_format_size(r.override_format));
+        if(stride<=0 || stride>2048)return refuse(L"Vertex stride is not a supported explicit byte stride");
+        file->usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;file->stride=static_cast<uint32_t>(stride);return file;
     }
     if(r.override_format==DXGI_FORMAT_R32_UINT){file->index_type=VK_INDEX_TYPE_UINT32;file->stride=4;}
     else if(r.override_format==DXGI_FORMAT_R16_UINT){file->index_type=VK_INDEX_TYPE_UINT16;file->stride=2;}
     else return refuse(L"Index binding requires R16_UINT or R32_UINT");
-    if(r.override_stride!=-1 && r.override_stride!=static_cast<int>(file->stride))
-        return refuse(L"Index stride conflicts with its declared format");
+    // A stride beside the format (some packagers write 6, a triangle of 16-bit indices) is what the original
+    // puts into the buffer description's StructureByteStride; IASetIndexBuffer takes the format alone.
     file->usage=VK_BUFFER_USAGE_INDEX_BUFFER_BIT;return file;
 }
 assets::LayoutEdit copy_layout(const InputLayoutElementOverride& source)

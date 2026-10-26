@@ -191,6 +191,10 @@ public:
     // File declarations referenced anywhere in the adapted command graph,
     // including both branches. Unused INI declarations need not exist on disk.
     std::vector<CustomResource*> referenced_files() const;
+    // How the lists bind a referenced file (bit 0 a vertex slot, bit 1 the index buffer, bit 2 a shader
+    // slot); 0 when only copies into other resources reach it. The original's buffer takes the bind
+    // flags of the assignments that use it.
+    unsigned referenced_roles(CustomResource*) const;
 private:
     bool execute_impl(const std::vector<CommandList*>& pre,const std::vector<CommandList*>* post,CommandListState&,DrawPlan&,std::wstring&,OriginalCall between={});
     void adapt_tree(CommandList& root, size_t depth);

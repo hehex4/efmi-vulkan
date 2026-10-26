@@ -71,6 +71,12 @@ STEPS = [
                                                            r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk06", "--frames", "60", "--check",
                                                            "--split-passes", "--rolling-bones", "--bones-identical",
                                                            "--only-mod", "Typhoeus\uff1aNya Tech & GUI"]),
+    # SiModGB (BUG-064): an index buffer declared with `stride = 6` beside its format, typed vertex buffers,
+    # and `if ps-tN == <filter_index>` to find which slot holds one of its textures, all as the original
+    # takes them; every matched draw plans.
+    ("captured frame with texture filter queries", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                    r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "90", "--check",
+                                                    "--no-refusal", "--only-mod", "SiModGB"]),
     # Tangtang's draw lists ask the game's shaders `vs->srv_stride(0) == 16`, `ps != 1718.2`: the
     # declarations come from the pipeline's SPIR-V (D-124) and every matched draw plans.
     ("captured frame with shader declaration queries", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
