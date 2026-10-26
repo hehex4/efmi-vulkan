@@ -10,7 +10,7 @@
 
 - The user asked for a shader cache like 3DMigoto's. Measured first (sandbox, actual configuration, 22 Mods): the CustomShaders cost 8 DXC compiles (0.59 s) and 62 translations of shipped caches (0.18 s) at every load; the status now reports this per package (`owned_present.shaders`).
 - 1.9.2: translated stages kept in `settings/shader-cache` (D-126), the owned runtime's pipelines through the device's pipeline cache. Load of the 22 Mods with a warm file system cache: 2.40-2.43 s without, 1.65-1.67 s with the cache (35 entries, 7.4 MiB; the first load already shares one entry among the identical panels). Tests that fail without it: the owned Present test's second start (2 stages compiled again), and the compiler test's cache cases.
-- Verification: full suite 45/45 (compiler test 186 checks, owned Present 38/38). Not yet in the game.
+- Verification: full suite 45/45 (compiler test 186 checks, owned Present 38/38). Deployed 18:27 (d3f6f87), game and launcher closed, backup build/backups/before-1.9.2-20261026-182725, cfg unchanged. Two actual-config sandbox smokes clean (22 packages, no refusal, validation or fault; build/smoke-1.9.2.json); they filled dist/settings/shader-cache with 35 entries of the deployed build, which the game's next start reads. Not yet in the game (neither 1.9.1 nor 1.9.2).
 
 ## 1.9.1: no driver allocation per frame in owned work, settings saved as the original (2026-10-26, BUG-058, BUG-059, D-125)
 
