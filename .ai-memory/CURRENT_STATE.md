@@ -11,7 +11,7 @@
 - BUG-053 found offline after the session: the post phase's fresh state lacked the host's render target answer, one refusal ended the generation's GPU side, and the Mod's compute-written positions had no vertex usage. Fixed; the original's built-in sections inserted; each distinct refusal reason logged once per generation. Replay vk04 with the Mod alone: 4444 of 4568 draws replaced, none refused, Present clean, validation clean.
 - D-122 (D-121 step 1): with pageable device memory the texture working set is the whole cap; no idle eviction, demotion or reduced load below it.
 - Offline tooling: the dry run takes wide path arguments and lists the sections of a Mod whose declarations need the GPU (`declarations_only`); the replay's Mod copy has a plain folder name; a suite step replays the Mod with `--no-refusal`.
-- Verification and deployment: see the session log for this round's status.
+- Full suite 41/41 (build/run_all-1.8.5.out in the worktree; the first run caught a wrong first form of the fix, see BUG-053). Deployed the 18 files (b117cfb) on 2026-10-26 09:42 after two closed-process checks; hashes match; 1.8.4 in build/backups/before-1.8.5-20261026-094247/ (build/candidate-1.8.5.json). Then dist/efmi_vk.cfg set back to `m2_gpu_bones = 1` (the 1.8.4 session ran the GPU import about ten minutes with every submission completed and measured -2.8 ms per frame; the probe's `set gpu_bones=0` switches back in a session). Post-deployment smoke at --api 1.3: 1.8.5, 22 packages configured, none refused, the Si NightveilTrancer Mod configured, texture floor = cap (3949 MiB), no validation message (build/smoke-1.8.5.json). Not yet seen in the game.
 
 ## 1.8.4 in the game: GPU skinning measured (2026-10-25, PID 26184)
 
