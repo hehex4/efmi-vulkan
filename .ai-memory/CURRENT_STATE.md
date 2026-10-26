@@ -9,7 +9,7 @@
 ## 1.8.8: the engine lock's contention counted (2026-10-26)
 
 - Every INI call of every generation (a matched draw, a Present) takes one process-wide engine lock, because the original engine addresses its globals; the game records on several threads, so matched draws may wait for each other there, about 20 us each, which neither the sandbox nor the replay (one recording thread) shows. The replacement status now has `engine_lock` (entries, waits, wait_us). Whether to let generations run concurrently (the original's globals redirected per thread around the pinned sources) depends on what a session shows. scripts/profile_game.py also names the waits the layer makes itself.
-- Full suite 41/41 (build/run_all-1.8.8.out in the worktree).
+- Full suite 41/41 (build/run_all-1.8.8.out in the worktree). Deployed the 18 files (1ac78cf) on 2026-10-26 11:50 after two closed-process checks; cfg unchanged; 1.8.7 in build/backups/before-1.8.8-20261026-115037/ (build/candidate-1.8.8.json). Smoke at --api 1.3: 1.8.8, 22 packages, none refused, no validation message (build/smoke-1.8.8.json). Not yet seen in the game.
 
 ## 1.8.7: layouts interned, texture roles kept, the entry looked up directly (2026-10-26, D-121 step 4)
 
