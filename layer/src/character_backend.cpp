@@ -363,8 +363,29 @@ public:
     std::unordered_map<uint32_t, FragmentRegisters> fragment_registers;
     // Under the mod lock: the image samples of each pipeline's fragment module, for RabbitFX's
     // texture roles (D-082); `readable` false when the module is not read.
-    struct FragmentSamples { bool readable = false; std::vector<efmi::gpu::RoleSample> list; };
+    struct FragmentSamples { bool readable = false; std::vector<efmi::gpu::RoleSample> list; uint32_t sets = 0; };
     std::unordered_map<uint32_t, FragmentSamples> fragment_samples;
+    // Under the mod lock: the roles a pipeline's samples gave with the images of its referenced sets,
+    // by the pipeline and those sets' identity and write generation (a write changes the generation),
+    // so a draw with the same textures as an earlier one does not classify them again.
+    struct RoleKey {
+        uint32_t pipe = 0;
+        uint64_t identity[kMaxSets] = {}, generation[kMaxSets] = {};
+        bool operator==(const RoleKey& o) const
+        {
+            return pipe == o.pipe && std::equal(identity, identity + kMaxSets, o.identity) && std::equal(generation, generation + kMaxSets, o.generation);
+        }
+    };
+    struct RoleKeyHash {
+        size_t operator()(const RoleKey& k) const
+        {
+            uint64_t h = k.pipe * 0x9E3779B97F4A7C15ull;
+            for (uint32_t i = 0; i < kMaxSets; ++i) h = (h ^ k.identity[i]) * 0x100000001B3ull ^ k.generation[i];
+            return size_t(h ^ (h >> 29));
+        }
+    };
+    struct RoleAnswer { int32_t roles[3] = {-1, -1, -1}; };
+    std::unordered_map<RoleKey, RoleAnswer, RoleKeyHash> role_cache;
     // Under the mod lock: what the original Core reads off each pipeline's vertex shader (D-079):
     // the instance-config cb slot and whether the bones come from the rolling vs-t0 buffer.
     struct SourceFacts { int32_t vs_config_slot = -1; bool rolling_bones = false; };
@@ -492,7 +513,7 @@ public:
         }
     };
     std::vector<uint32_t> scratch_restore_offsets;
-    std::vector<BoundRange> scratch_ranges, scratch_bone_ranges;
+    std::vector<BoundRange> scratch_bone_ranges;
     std::vector<DrawGeometry> scratch_geometry;
     std::vector<VariantDraw> scratch_items;
     DrawGeometry scratch_original;
@@ -918,6 +939,47 @@ public:
 
     // Caller holds res_mx. The image the draw binds at element 0 of (set, binding): null with `empty`
     // for a null view, null with `why` when the layer cannot tell.
+    // Caller holds res_mx. The buffer range at `binding`, element 0, of a bound set, by the rules of
+    // collect_buffer_ranges_locked (the dynamic offset is the one of this element among the set's
+    // dynamic bindings in binding order; the range lies inside a live buffer), without listing the
+    // set's other ranges: the instance entry is binding 0 of set 2, read on every matched draw.
+    bool bound_range(const SetBind& bind, uint32_t slot, uint32_t binding, const uint32_t* dyn, uint32_t dyn_count, BoundRange& out) const
+    {
+        auto dynamic_type = [](uint32_t t) { return t == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC || t == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC; };
+        const DescriptorSetInfo* contents = bind.pushed.get();
+        if (!contents && bind.id) {
+            const auto set = device->descriptor_sets.find(bind.set);
+            if (set != device->descriptor_sets.end() && set->second.id == bind.id) contents = &set->second;
+        }
+        if (bind.unsupported || !contents || !contents->layout) return false;
+        const auto layout = contents->layout->bindings.find(binding);
+        if (layout == contents->layout->bindings.end()) return false;
+        const uint32_t type = layout->second.type;
+        if (!dynamic_type(type) && type != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER && type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER) return false;
+        uint32_t dynamic = 0;
+        for (const auto& kv : contents->layout->bindings) {
+            if (kv.first >= binding) break;
+            if (dynamic_type(kv.second.type)) {
+                const auto count = contents->counts.find(kv.first);
+                if (count == contents->counts.end()) return false;
+                dynamic += count->second;
+            }
+        }
+        const auto value = contents->values.find({binding, 0});
+        if (value == contents->values.end() || !value->second.known) return false;
+        const DescriptorElement& e = value->second;
+        const auto buffer = device->bufs.find(e.buffer);
+        if (!e.buffer_id || buffer == device->bufs.end() || buffer->second.id != e.buffer_id) return false;
+        const uint64_t offset = e.offset + (dynamic_type(type) && dynamic < dyn_count ? dyn[dynamic] : 0);
+        const uint64_t size = buffer->second.size;
+        if (offset > size) return false;
+        const uint64_t range = e.range == VK_WHOLE_SIZE ? (e.offset <= size ? size - e.offset : 0) : e.range;
+        if (range > size - offset) return false;
+        out = BoundRange{};
+        out.set = static_cast<uint8_t>(slot); out.binding = binding; out.element = 0; out.type = type;
+        out.buffer = e.buffer; out.buffer_id = e.buffer_id; out.off = offset; out.size = range;
+        return true;
+    }
     const ImageInfo* bound_image(const DrawRec& r, uint32_t set_index, uint32_t binding, bool& empty, const char*& why)
     {
         empty = false;
@@ -960,9 +1022,29 @@ public:
                     std::string why;
                     samples.readable = efmi::gpu::role_samples(stage.shader->code, samples.list, why);
                 }
+            for (const auto& sample : samples.list) if (sample.set < kMaxSets) samples.sets |= 1u << sample.set;
             known = fragment_samples.emplace(pipe->second.id, std::move(samples)).first;
         }
         if (!known->second.readable) { reason = "the fragment module is not read"; return false; }
+        RoleKey key;
+        key.pipe = pipe->second.id;
+        for (uint32_t i = 0; i < kMaxSets; ++i) {
+            if (!(known->second.sets >> i & 1)) continue;
+            const SetBind& bind = r.sets[i];
+            if (bind.pushed) {
+                key.identity[i] = uint64_t(reinterpret_cast<uintptr_t>(bind.pushed.get())); key.generation[i] = bind.pushed->generation;
+            } else if (bind.id && !bind.unsupported) {
+                key.identity[i] = uint64_t(bind.id) << 1 | 1;
+                const auto set = device->descriptor_sets.find(bind.set);
+                if (set != device->descriptor_sets.end() && set->second.id == bind.id) key.generation[i] = set->second.generation + 1;
+            }
+        }
+        ++role_queries;
+        if (const auto cached = role_cache.find(key); cached != role_cache.end()) {
+            std::copy(cached->second.roles, cached->second.roles + 3, roles);
+            if (roles[0] >= 0) ++role_draws;
+            return true;
+        }
         const auto found = efmi::gpu::texture_roles(known->second.list, [&](const efmi::gpu::RoleSample& s) {
             efmi::gpu::RoleTexture texture;
             const char* why = nullptr;
@@ -974,7 +1056,8 @@ public:
             return texture;
         });
         roles[0] = found.diffuse; roles[1] = found.lightmap; roles[2] = found.normal;
-        ++role_queries;
+        if (role_cache.size() >= 4096) role_cache.clear();
+        std::copy(roles, roles + 3, role_cache[key].roles);
         if (found.diffuse >= 0) ++role_draws;
         return true;
     }
@@ -1501,20 +1584,19 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         lookups.pipeline = r.pipeline; lookups.pipe = &pipe->second;
 
         // The instance entry is at set 2 binding 0 in every pipeline of the game's characters.
-        auto& ranges_bound = scratch_ranges; ranges_bound.clear();
         const auto& window = r.sets[2];
         if (window.dyn_count && uint64_t(window.dyn_first) + window.dyn_count > cb->dyn.size())
             return refuse(C_ENTRY, "character dynamic offsets incomplete");
-        collect_buffer_ranges_locked(device, window, window.dyn_count ? cb->dyn.data() + window.dyn_first : nullptr, window.dyn_count, 2, ranges_bound);
         auto read_range = [&](const BoundRange* range, uint64_t offset, size_t size, uint8_t* output) {
             if (!range || offset > range->size || size > range->size - offset) return false;
             auto buffer = device->bufs.find(range->buffer);
             return buffer != device->bufs.end() && read_buffer_locked(device, buffer->second, range->off + offset, size, output) == SRC_MAPPED;
         };
+        BoundRange entry_range;
         const BoundRange* instance = nullptr;
-        for (const auto& range : ranges_bound)
-            if (range.element == 0 && range.binding == 0 &&
-                (range.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || range.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)) instance = &range;
+        if (bound_range(window, 2, 0, window.dyn_count ? cb->dyn.data() + window.dyn_first : nullptr, window.dyn_count, entry_range) &&
+            (entry_range.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || entry_range.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC))
+            instance = &entry_range;
         if (!read_range(instance, 0, entry.size(), entry.data())) return refuse(C_ENTRY, "character instance entry is not mapped");
         identity = identify(entry, now, present);
         if (!identity) return refuse(C_IDENTITIES, "character position invalid or all identities in use");

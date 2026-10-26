@@ -90,6 +90,9 @@ struct DescriptorLayoutInfo {
     uint32_t id = 0, flags = 0;
     bool complete = true;
     std::map<uint32_t, DescriptorBinding> bindings;
+    // Equal contents, equal id (interned at creation), so two layouts compare in one step; 0 when
+    // the layout is not completely known.
+    uint64_t canonical = 0;
 };
 
 struct PipelineLayoutInfo {
@@ -97,6 +100,9 @@ struct PipelineLayoutInfo {
     bool complete = true;
     std::vector<std::shared_ptr<const DescriptorLayoutInfo>> sets;
     std::vector<VkPushConstantRange> pushes;
+    // Per set i, the interned id of what layout compatibility for set i compares: the flags, the push
+    // constant ranges and the canonical ids of sets 0 to i; 0 from the first unknown set on.
+    std::vector<uint64_t> prefix;
 };
 
 struct DescriptorElement {

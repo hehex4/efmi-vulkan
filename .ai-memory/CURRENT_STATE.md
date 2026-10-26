@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.7: layouts interned, texture roles kept, the entry looked up directly (2026-10-26, D-121 step 4)
+
+- Found with the outside sampler on the replay of the Si NightveilTrancer Mod (docs/recording-performance.md): every descriptor-set bind compared pipeline layouts field by field; RabbitFX's texture roles were classified at every matched draw (most of its allocations); the instance entry was found by listing every range of set 2. 1.8.7 interns layouts at creation (one comparison per check), keeps the roles per pipeline and its sets' identity and write generation, and looks binding 0 up directly.
+- Replay process CPU per frame against the deployed 1.8.6, interleaved, six pairs: 2766 to 2609 us (-5.7%, every pair faster; the driver included). Steady per matched draw before the change: about 28 us, 22 of them the plan, 18 the original interpreter.
+- Verification: replay vk04 with the Mod `--check --no-refusal` passed; full suite: see the session log.
+
 ## 1.8.6: the probe's sampler; less shared state written per hook (2026-10-26, D-121 step 4)
 
 - In the 1.8.4 session the layer's work around each of the game's draws came to about 7 us on average, matched or not, and the counters did not say where. 1.8.6 adds the probe's sampler (`profile`, layer/src/sampler.cpp, scripts/profile_game.py, docs/profiling.md) to find that out in the game.

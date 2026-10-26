@@ -261,3 +261,30 @@ Interleaved A/B against 1.7.3 on the perlica replay without validation, three ro
 What the profile leaves: the INI lists themselves (each Mod's key panel runs about two hundred lines
 at every Present, as under the original; 14 us per package), the original interpreter's commands
 in the matched draws' lists, and the driver calls of the replaced draws.
+
+## 1.8.6 and 1.8.7: the sampler, and what it found (2026-10-26)
+
+1.8.6 adds the probe's sampler for the game (docs/profiling.md); offline the replay of the Si
+NightveilTrancer Mod alone (vk04, 40 matched draws per frame, no validation) was profiled with
+scripts/sample_profile.py, and its steady per-draw costs read from a phase-timing build
+(`EFMI_VK_PHASE_TIMING=1`, the status at frame 299 against the end): about 28 us per matched draw,
+of which 22 us the plan and 18 us of that the original interpreter running the Mod's and the Core's
+lists (about 16 RunExplicitCommandList, 28 resource copies, 28 texture checks per draw).
+
+- Every vkCmdBindDescriptorSets compared pipeline layouts field by field (disturb_sets, compatible,
+  same_set_layout: map walks per lower set), also for separate layout objects of equal contents.
+  1.8.7 interns layouts at creation (equal contents, one id; a pipeline layout keeps one id per
+  compatibility prefix), so the check is one comparison. This runs at every bind of every game draw.
+- RabbitFX's texture roles were classified at every matched draw: every sample's image looked up
+  and the classification's containers allocated (most of the per-draw allocations). 1.8.7 keeps the
+  roles per pipeline and its referenced sets' identity and write generation.
+- The instance entry (set 2, binding 0) was found by listing every buffer range of the set; 1.8.7
+  looks the one binding up.
+- 1.8.6: the hook call counters per thread and the watchdog slots on cache lines of their own; the
+  draw records moved into the list instead of copied (the sandbox benchmark with 2000 draws on two
+  threads: tracker 1.383 to 1.242 ms per frame, interleaved, three rounds).
+
+Interleaved A/B of the replay process's CPU per frame (driver included) against the deployed 1.8.6,
+six pairs of 3000 frames, faster in every pair: 2766 to 2609 us (-5.7%). The interpreter's own share
+stays; the next items by the profile are the texture identity answers across draws, the PipeInfo
+look-ups repeated within a draw, and the fingerprint reads of mapped index buffers.

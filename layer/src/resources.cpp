@@ -199,6 +199,16 @@ static bool is_buffer(uint32_t type)
     return is_dynamic(type) || type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 }
 
+// Layout contents interned once at creation: equal contents get one id for the process.
+static std::mutex g_intern_mx;
+static std::unordered_map<std::string, uint64_t> g_interned;
+template <class T> static void put_key(std::string& key, const T& value) { key.append(reinterpret_cast<const char*>(&value), sizeof(value)); }
+static uint64_t intern(const std::string& key)
+{
+    std::lock_guard<std::mutex> lock(g_intern_mx);
+    return g_interned.emplace(key, uint64_t(g_interned.size() + 1)).first->second;
+}
+
 void on_create_set_layout(Device* dev, VkDescriptorSetLayout h, const VkDescriptorSetLayoutCreateInfo* info)
 {
     if (skip(dev)) return;
@@ -223,6 +233,17 @@ void on_create_set_layout(Device* dev, VkDescriptorSetLayout h, const VkDescript
             b.immutable_samplers.assign(in.pImmutableSamplers, in.pImmutableSamplers + b.count);
         layout->bindings[in.binding] = std::move(b);
     }
+    if (layout->complete) {
+        std::string key = "S";
+        put_key(key, layout->flags);
+        for (const auto& kv : layout->bindings) {
+            const auto& b = kv.second;
+            put_key(key, kv.first); put_key(key, b.type); put_key(key, b.count); put_key(key, b.stages); put_key(key, b.flags);
+            put_key(key, uint32_t(b.immutable_samplers.size()));
+            for (VkSampler sampler : b.immutable_samplers) put_key(key, sampler);
+        }
+        layout->canonical = intern(key);
+    }
     dev->set_layouts[h] = std::move(layout);
 }
 
@@ -246,22 +267,21 @@ void on_create_pipeline_layout(Device* dev, VkPipelineLayout h, const VkPipeline
         if (a.offset != b.offset) return a.offset < b.offset;
         return a.size < b.size;
     });
+    std::string key = "P";
+    put_key(key, layout->flags); put_key(key, uint32_t(layout->pushes.size()));
+    for (const auto& push : layout->pushes) { put_key(key, push.stageFlags); put_key(key, push.offset); put_key(key, push.size); }
+    bool known = layout->complete;
+    for (const auto& set : layout->sets) {
+        known = known && set && set->canonical;
+        if (known) put_key(key, set->canonical);
+        layout->prefix.push_back(known ? intern(key) : 0);
+    }
     dev->pipeline_layouts[h] = std::move(layout);
 }
 
 static bool same_set_layout(const DescriptorLayoutInfo& a, const DescriptorLayoutInfo& b)
 {
-    if (&a == &b) return true;
-    if (!a.complete || !b.complete || a.flags != b.flags || a.bindings.size() != b.bindings.size()) return false;
-    auto j = b.bindings.begin();
-    for (const auto& kv : a.bindings) {
-        const auto& x = kv.second;
-        const auto& y = j->second;
-        if (kv.first != j->first || x.type != y.type || x.count != y.count || x.stages != y.stages ||
-            x.flags != y.flags || x.immutable_samplers != y.immutable_samplers) return false;
-        ++j;
-    }
-    return true;
+    return &a == &b || (a.canonical && a.canonical == b.canonical);
 }
 
 static bool compatible(const std::shared_ptr<const PipelineLayoutInfo>& a,
@@ -269,15 +289,7 @@ static bool compatible(const std::shared_ptr<const PipelineLayoutInfo>& a,
 {
     if (!a || !b || slot >= a->sets.size() || slot >= b->sets.size()) return false;
     if (a == b) return true;
-    if (!a->complete || !b->complete || a->flags != b->flags || a->pushes.size() != b->pushes.size()) return false;
-    for (size_t i = 0; i < a->pushes.size(); i++) {
-        const auto& x = a->pushes[i];
-        const auto& y = b->pushes[i];
-        if (x.stageFlags != y.stageFlags || x.offset != y.offset || x.size != y.size) return false;
-    }
-    for (uint32_t i = 0; i <= slot; i++)
-        if (!a->sets[i] || !b->sets[i] || !same_set_layout(*a->sets[i], *b->sets[i])) return false;
-    return true;
+    return slot < a->prefix.size() && slot < b->prefix.size() && a->prefix[slot] && a->prefix[slot] == b->prefix[slot];
 }
 
 void on_allocate_sets(Device* dev, const VkDescriptorSetAllocateInfo* info, const VkDescriptorSet* sets)
