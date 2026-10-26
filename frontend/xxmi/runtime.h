@@ -122,6 +122,11 @@ struct RuntimeStatus {
     std::map<std::string, float> variables;
 };
 
+// The process-wide engine lock every generation's calls take (the original engine addresses its
+// globals): calls, calls that found it held, and the microseconds those waited.
+struct EngineLockStats { uint64_t entries = 0, waits = 0, wait_us = 0; };
+EngineLockStats engine_lock_stats();
+
 // Owns an isolated generation of the original XXMI frontend. Calls are serialized
 // across generations because the original engine addresses its globals directly.
 // Files/resources in emitted plans are owned, not pointers into this generation.

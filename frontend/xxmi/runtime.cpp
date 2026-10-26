@@ -5,6 +5,7 @@
 #include "HackerContext.h"
 #include "Override.h"
 #include "ResourceHash.h"
+#include <atomic>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
@@ -59,6 +60,9 @@ LogVerbosity gLogVerbosity = LogVerbosity::INVALID;
 namespace efmi::frontend {
 namespace {
 std::mutex engine_mutex;
+// The engine lock's contention (EngineLockStats): entries, entries that found it held, and the time
+// those waited until they held it.
+std::atomic<uint64_t> engine_entries{0}, engine_waits{0}, engine_wait_us{0};
 DrawPlanAdapter* input_adapter = nullptr;
 HackerContext* input_context = nullptr;
 
@@ -141,8 +145,16 @@ struct EngineState {
 struct Scope {
     std::unique_lock<std::mutex> lock;
     EngineState& state;
-    Scope(EngineState& s) : lock(engine_mutex), state(s)
+    Scope(EngineState& s) : lock(engine_mutex, std::try_to_lock), state(s)
     {
+        engine_entries.fetch_add(1, std::memory_order_relaxed);
+        if (!lock.owns_lock()) {
+            const auto began = std::chrono::steady_clock::now();
+            lock.lock();
+            engine_waits.fetch_add(1, std::memory_order_relaxed);
+            engine_wait_us.fetch_add(uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count()),
+                                     std::memory_order_relaxed);
+        }
         if (G) throw std::runtime_error("Nested frontend generation activation");
         G = state.globals.get(); state.swap(); RuntimeWindowSample(&state.sample);
     }
@@ -394,6 +406,11 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
 }
 
 void IniRuntime::note_timing(const char* name, uint64_t microseconds) { impl_->adapter.note_timing(name, microseconds); }
+
+EngineLockStats engine_lock_stats()
+{
+    return {engine_entries.load(std::memory_order_relaxed), engine_waits.load(std::memory_order_relaxed), engine_wait_us.load(std::memory_order_relaxed)};
+}
 
 bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason)
 {

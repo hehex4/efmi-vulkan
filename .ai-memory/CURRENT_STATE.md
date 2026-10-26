@@ -6,6 +6,11 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.8: the engine lock's contention counted (2026-10-26)
+
+- Every INI call of every generation (a matched draw, a Present) takes one process-wide engine lock, because the original engine addresses its globals; the game records on several threads, so matched draws may wait for each other there, about 20 us each, which neither the sandbox nor the replay (one recording thread) shows. The replacement status now has `engine_lock` (entries, waits, wait_us). Whether to let generations run concurrently (the original's globals redirected per thread around the pinned sources) depends on what a session shows. scripts/profile_game.py also names the waits the layer makes itself.
+- Full suite 41/41 (build/run_all-1.8.8.out in the worktree).
+
 ## 1.8.7: layouts interned, texture roles kept, the entry looked up directly (2026-10-26, D-121 step 4)
 
 - Found with the outside sampler on the replay of the Si NightveilTrancer Mod (docs/recording-performance.md): every descriptor-set bind compared pipeline layouts field by field; RabbitFX's texture roles were classified at every matched draw (most of its allocations); the instance entry was found by listing every range of set 2. 1.8.7 interns layouts at creation (one comparison per check), keeps the roles per pipeline and its sets' identity and write generation, and looks binding 0 up directly.

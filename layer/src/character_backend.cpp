@@ -2959,6 +2959,12 @@ void character_status(CharacterBackend& b, JsonWriter& w)
     }
     if (b.bone_merge) b.bone_merge->status(w);
     if (b.textures) b.textures->status(w);
+    {
+        const auto engine = efmi::frontend::engine_lock_stats();
+        w.key("engine_lock"); w.begin_object();
+        w.kn("entries", engine.entries); w.kn("waits", engine.waits); w.kn("wait_us", engine.wait_us);
+        w.end_object();
+    }
     if (b.controllers.size() > 1) {
         w.key("packages"); w.begin_array();
         for (auto& c : b.controllers) {
