@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.6: the probe's sampler; less shared state written per hook (2026-10-26, D-121 step 4)
+
+- In the 1.8.4 session the layer's work around each of the game's draws came to about 7 us on average, matched or not, and the counters did not say where. 1.8.6 adds the probe's sampler (`profile`, layer/src/sampler.cpp, scripts/profile_game.py, docs/profiling.md) to find that out in the game.
+- Two costs every recording thread paid at every hook are gone: the hook call counters were one global atomic per hook (now each thread counts in its own slot and the probe sums them), and the threads' watchdog slots shared cache lines (now one slot per line). The draw hooks moved their record into the command buffer's list instead of copying it (two atomic counts less per bound set on control blocks all threads share).
+- Verification: probe end-to-end 17/17 configurations with the sampler checks; a 3 s sandbox profile symbolized; full suite: see the session log.
+
 ## 1.8.5: the Si NightveilTrancer Mod draws; textures as the original (2026-10-25, BUG-053, D-122)
 
 - BUG-053 found offline after the session: the post phase's fresh state lacked the host's render target answer, one refusal ended the generation's GPU side, and the Mod's compute-written positions had no vertex usage. Fixed; the original's built-in sections inserted; each distinct refusal reason logged once per generation. Replay vk04 with the Mod alone: 4444 of 4568 draws replaced, none refused, Present clean, validation clean.

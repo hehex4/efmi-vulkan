@@ -101,13 +101,20 @@ extern const char* const g_api_names[HI_COUNT];
 
 // Every thread's last entry into the layer, for the stall watchdog: the hook, when, and whether the
 // thread is still inside a hook that can wait (submission, presentation, fence and idle waits).
-struct ThreadTrace {
+// Each slot on cache lines of its own: the thread writes it at every hook, and a neighbour's writes
+// to a shared line would cost both threads the line at every call.
+struct alignas(64) ThreadTrace {
     std::atomic<uint32_t> thread{0};
     std::atomic<int> hook{-1};
     std::atomic<uint64_t> since_us{0};
     std::atomic<int> inside{0};
     std::atomic<const char*> stage{nullptr}; // what the thread does inside the layer (a static text)
+    // The thread's calls per hook, written by the thread alone (no locked add, no shared line); the
+    // probe sums every slot and g_api_calls, which counts the threads without a slot.
+    std::atomic<uint64_t> calls[HI_COUNT] = {};
 };
+// Every thread's calls of a hook so far.
+uint64_t api_calls(int index);
 ThreadTrace* thread_trace(); // this thread's slot; null when every slot is taken
 // Names what the thread does from here to the end of the scope, for the stall watchdog.
 struct StageMark {
@@ -121,10 +128,13 @@ struct StageMark {
 
 inline void count_call(int index)
 {
-    g_api_calls[index].fetch_add(1, std::memory_order_relaxed);
     if (ThreadTrace* trace = thread_trace()) {
+        auto& calls = trace->calls[index];
+        calls.store(calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
         trace->hook.store(index, std::memory_order_relaxed);
         trace->since_us.store(host_time_us(), std::memory_order_relaxed);
+    } else {
+        g_api_calls[index].fetch_add(1, std::memory_order_relaxed);
     }
 }
 struct HookInside {
@@ -769,5 +779,10 @@ std::string probe_read_buffer(uint32_t id, uint64_t off, uint64_t size, std::vec
 std::string probe_hash(uint32_t id, uint64_t off, uint64_t size);
 std::string probe_pipeline(uint32_t id);
 std::string probe_api_usage();
+// Samples the threads that entered the layer for `milliseconds` at `hz` (sampler.cpp): their stacks as
+// module and offset, the most frequent first.
+std::string probe_profile(uint32_t milliseconds, uint32_t hz);
+// The ids of the threads that entered the layer (the watchdog's slots), at most `max`.
+size_t thread_trace_ids(DWORD* out, size_t max);
 
 } // namespace efvk

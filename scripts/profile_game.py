@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "server"))
 from efmi_vk.probe_client import ProbeClient  # noqa: E402
 
-LAYER_MODULES = ("efmi_vk_inject.dll", "efmi_vk_backend")  # the layer, and the replacement module (any copy)
+LAYER_MODULES = ("efmi_vk_inject.dll", "efmi_vk_layer.dll", "efmi_vk_backend")  # the layer (injected or registered), the module (any copy)
 WAITS = ("NtWaitFor", "ZwWaitFor", "NtDelayExecution", "ZwDelayExecution", "NtRemoveIoCompletion", "ZwRemoveIoCompletion",
          "NtWaitForAlertByThreadId", "ZwWaitForAlertByThreadId", "NtSignalAndWaitForSingleObject")
 
@@ -67,11 +67,14 @@ class Symbols:
         text = "%s+0x%s" % (short, offset)
         if self.loaded[index]:
             info = SYMBOL_INFOW()
-            info.SizeOfStruct = ctypes.sizeof(SYMBOL_INFOW) - ctypes.sizeof(ctypes.c_wchar) * 1024 + ctypes.sizeof(ctypes.c_wchar)
+            info.SizeOfStruct = 88  # sizeof(SYMBOL_INFOW) in C, with its one-character name
             info.MaxNameLen = 1023
             displacement = ctypes.c_uint64(0)
             if self.dbghelp.SymFromAddrW(self.process, module["base"] + int(offset, 16), ctypes.byref(displacement), ctypes.byref(info)):
                 text = "%s!%s" % (short, info.Name)
+                # Far from the symbol: a module without a PDB named by its nearest export, not its function.
+                if displacement.value > 0x1000:
+                    text += "+0x%x?" % displacement.value
         self.cache[frame] = text
         return text
 

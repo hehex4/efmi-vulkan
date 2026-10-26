@@ -133,6 +133,9 @@ std::string dispatch(const JsonRequest& req, std::vector<uint8_t>& payload)
         return probe_pipeline(static_cast<uint32_t>(req.get_u64("id", 0)));
     if (cmd == "api_usage")
         return probe_api_usage();
+    if (cmd == "profile")
+        return probe_profile(static_cast<uint32_t>(std::min<uint64_t>(req.get_u64("milliseconds", 5000), 30000)),
+                             static_cast<uint32_t>(std::min<uint64_t>(req.get_u64("hz", 250), 1000)));
     if (cmd == "shader")
         return probe_shader(static_cast<uint32_t>(req.get_u64("id", 0)), req.get_u64("code", 0) != 0, payload);
     return error_reply("unknown command");

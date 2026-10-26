@@ -328,6 +328,12 @@ def run(threads: int, entry: str, descriptors: str = "ordinary") -> int:
             c.check(calls.get("vkQueueSubmit", 0) >= 2, "submits are counted", calls.get("vkQueueSubmit"))
             c.check(calls.get("vkQueuePresentKHR", 0) >= 1, "presents are counted")
             c.equal(calls.get("vkUpdateDescriptorSets"), 2 if descriptors == "template" else 1, "ordinary updates are counted")
+            # The sampler (sampler.cpp): the threads that entered the layer, sampled with their stacks.
+            profile, _ = probe.request("profile", milliseconds=300, hz=200)
+            c.check(profile["samples"] > 0 and profile["threads"], "the profile samples the layer's threads", profile.get("threads"))
+            c.check(profile["stacks"] and all(st["n"] > 0 and st["frames"] for st in profile["stacks"]), "every sampled stack has frames")
+            c.check(any(m["path"].lower().endswith(("efmi_vk_layer.dll", "efmi_vk_inject.dll")) for m in profile["modules"]),
+                    "the layer is among the profile's modules")
             if descriptors == "template":
                 c.equal(calls.get("vkCreateDescriptorUpdateTemplate"), 2, "both update templates are counted")
                 c.equal(calls.get("vkDestroyDescriptorUpdateTemplate"), 1, "initial template was destroyed before drawing")

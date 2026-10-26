@@ -495,12 +495,12 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDraw(VkCommandBuffer cmd, uint32_t vertices, ui
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_DRAW);
-        DrawRec r = make_rec(cb, DK_DRAW, false);
+        cb->draws.push_back(make_rec(cb, DK_DRAW, false));
+        DrawRec& r = cb->draws.back();
         r.count = vertices;
         r.instances = instances;
         r.first = first_vertex;
         r.first_instance = first_instance;
-        cb->draws.push_back(r);
     }
     dev->d.CmdDraw(cmd, vertices, instances, first_vertex, first_instance);
 }
@@ -512,13 +512,15 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indic
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_DRAW);
-        DrawRec r = make_rec(cb, DK_INDEXED, false);
+        // Moved in and filled there: a copy would count every bound set's shared layout twice more.
+        // Nothing appends to the list while the replacement records this draw.
+        cb->draws.push_back(make_rec(cb, DK_INDEXED, false));
+        DrawRec& r = cb->draws.back();
         r.count = indices;
         r.instances = instances;
         r.first = first_index;
         r.vertex_offset = vertex_offset;
         r.first_instance = first_instance;
-        cb->draws.push_back(r);
         on_record_indexed(dev, cb);
         if (m2_record(dev, cb, r)) return;
     }
@@ -529,11 +531,11 @@ void track_indirect(Device* dev, VkCommandBuffer cmd, uint8_t kind, VkBuffer buf
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_DRAW);
-        DrawRec r = make_rec(cb, kind, kind == DK_DISPATCH_INDIRECT);
+        cb->draws.push_back(make_rec(cb, kind, kind == DK_DISPATCH_INDIRECT));
+        DrawRec& r = cb->draws.back();
         r.count = count;
         r.indirect = buf;
         r.indirect_off = off;
-        cb->draws.push_back(r);
     }
 }
 
@@ -599,11 +601,11 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDispatch(VkCommandBuffer cmd, uint32_t x, uint3
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_DRAW);
-        DrawRec r = make_rec(cb, DK_DISPATCH, true);
+        cb->draws.push_back(make_rec(cb, DK_DISPATCH, true));
+        DrawRec& r = cb->draws.back();
         r.count = x;
         r.instances = y;
         r.first = z;
-        cb->draws.push_back(r);
     }
     dev->d.CmdDispatch(cmd, x, y, z);
 }

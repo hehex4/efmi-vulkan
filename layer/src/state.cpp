@@ -148,6 +148,23 @@ ThreadTrace* thread_trace()
     return mine;
 }
 
+uint64_t api_calls(int index)
+{
+    uint64_t n = g_api_calls[index].load(std::memory_order_relaxed);
+    const size_t count = std::min(g_thread_trace_count.load(std::memory_order_relaxed), kThreadTraces);
+    for (size_t i = 0; i < count; ++i) n += g_thread_traces[i].calls[index].load(std::memory_order_relaxed);
+    return n;
+}
+
+size_t thread_trace_ids(DWORD* out, size_t max)
+{
+    const size_t count = std::min(std::min(g_thread_trace_count.load(std::memory_order_relaxed), kThreadTraces), max);
+    size_t n = 0;
+    for (size_t i = 0; i < count; ++i)
+        if (const DWORD id = g_thread_traces[i].thread.load(std::memory_order_relaxed)) out[n++] = id;
+    return n;
+}
+
 void note_presented() { g_presented_us.store(host_time_us(), std::memory_order_relaxed); }
 
 namespace {
@@ -2149,7 +2166,7 @@ std::string probe_api_usage()
     w.key("calls");
     w.begin_object();
     for (int i = 0; i < HI_COUNT; i++) {
-        uint64_t n = g_api_calls[i].load(std::memory_order_relaxed);
+        const uint64_t n = api_calls(i);
         if (n)
             w.kn(g_api_names[i], n);
     }
