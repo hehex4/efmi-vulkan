@@ -3,8 +3,10 @@
 #include "Override.h"
 #include "runtime_host.h"
 #include <stdexcept>
+// What the key parser collects while a load holds the load mutex (D-129).
 static std::vector<ExplicitCommandListSection*> input_dependencies;
-static bool transition_upload_pending=false;
+// A Present's transition in progress on this thread.
+static __declspec(thread) bool transition_upload_pending=false;
 static void RuntimeFinishParameterTransition()
 {
     if(!transition_upload_pending)return;

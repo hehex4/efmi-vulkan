@@ -30,6 +30,7 @@ static void write(const std::filesystem::path& path, const char* text)
 #include "runtime_regex_cases.h"
 #include "runtime_window_cases.h"
 #include "runtime_library_cases.h"
+#include "runtime_concurrency_cases.h"
 static const char* fixture = R"ini(namespace = runtime_test
 [Constants]
 global persist $dress = 0
@@ -228,6 +229,7 @@ int wmain(int argc, wchar_t** argv)
         runtime_window_cases(folder);
         runtime_library_cases(folder);
         runtime_host_value_cases(folder);
+        runtime_concurrency_cases(folder);
         const auto ini = folder / "mod.ini"; write(ini, fixture);
         const auto settings = folder / "settings";
         std::filesystem::remove(settings / "runtime.ini");

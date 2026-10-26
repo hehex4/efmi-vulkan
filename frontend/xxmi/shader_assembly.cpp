@@ -1,11 +1,15 @@
 #include "shader_assembly.h"
 #include "util.h"
+#include <mutex>
 #include <stdexcept>
 
 namespace efmi::frontend {
 namespace {
 void require_assembly(bool value,const char* text){if(!value)throw std::runtime_error(text);}
 constexpr size_t max_code=4u<<20,max_text=16u<<20;
+// The original assembler fills its opcode tables through operator[] (Assembler.cpp hackMap, insMap,
+// ldMap, codeBin): one assembly at a time across generations and threads (D-129).
+std::mutex assembler_mutex;
 }
 std::shared_ptr<const SourceShaderCode> SourceShaderCode::create(const void* bytes,size_t size){
     require_assembly(bytes && size<=max_code,"Original shader assembly bytecode exceeds budget");
@@ -21,7 +25,8 @@ std::string source_shader_disassembly(const SourceShaderCode& code,bool patch_cb
 std::vector<uint8_t> source_shader_assembly(const std::string& text,std::vector<std::string>& notices){
     require_assembly(!text.empty() && text.size()<=max_text,"Original shader assembly text exceeds budget");
     std::vector<char> input(text.begin(),text.end());std::vector<byte> output;std::vector<AssemblerParseError> errors;
-    const auto result=AssembleFluganWithSignatureParsing(&input,&output,&errors);
+    HRESULT result;
+    {std::lock_guard<std::mutex> lock(assembler_mutex);result=AssembleFluganWithSignatureParsing(&input,&output,&errors);}
     require_assembly(SUCCEEDED(result) && !output.empty() && output.size()<=max_code,"Original signature-aware shader assembly failed");
     source_shader_model(output.data(),output.size());source_shader_declarations(output.data(),output.size());
     require_assembly(errors.size()<=4096,"Original assembly diagnostic budget exceeded");

@@ -5,6 +5,7 @@
 #include "HackerContext.h"
 #include "Override.h"
 #include "ResourceHash.h"
+#include "engine_host.h"
 #include <atomic>
 #include <chrono>
 #include <fstream>
@@ -42,7 +43,6 @@ void RuntimeCompileConstants(CommandList&,CommandList&);
 void RuntimeParseParameterRegister();
 void RuntimeUpdateTransitions(HackerDevice*);
 void RuntimeValidateSections(const std::vector<std::wstring>&,bool custom_shaders,bool shader_hooks);
-void RuntimeSwapInput(std::vector<InputAction*>&);
 size_t RuntimeInputCount();
 bool RuntimeDispatchInput(HackerDevice*, const efmi::frontend::RuntimeInput&);
 void RuntimeWindowSample(const efmi::frontend::RuntimeInput*);
@@ -52,19 +52,24 @@ extern std::vector<std::shared_ptr<CommandList>> dynamically_allocated_command_l
 
 // Only this library defines these in production. The standalone old host still
 // has its own executable globals and does not link the runtime translation unit.
-Globals* G = nullptr;
+// G is the entered generation's (engine_globals.h, D-129).
+__declspec(thread) Globals* efvk_engine_g = nullptr;
 FILE* LogFile = nullptr;
 bool gLogDebug = false;
 LogVerbosity gLogVerbosity = LogVerbosity::INVALID;
 
 namespace efmi::frontend {
 namespace {
-std::mutex engine_mutex;
-// The engine lock's contention (EngineLockStats): entries, entries that found it held, and the time
-// those waited until they held it.
+// Loads one after another (D-129): what only the parser uses (its section tables, the include
+// walk, the key parser's dependencies) is shared. Taken before the generation's own lock, and only
+// by a load: no drawing, presenting or saving thread ever waits for it.
+std::mutex load_mutex;
+// The generations' locks' contention (EngineLockStats): entries, entries that found their
+// generation's lock held, and the time those waited until they held it.
 std::atomic<uint64_t> engine_entries{0}, engine_waits{0}, engine_wait_us{0};
-DrawPlanAdapter* input_adapter = nullptr;
-HackerContext* input_context = nullptr;
+// What a Present's key lists run with, on the presenting thread.
+__declspec(thread) DrawPlanAdapter* input_adapter = nullptr;
+__declspec(thread) HackerContext* input_context = nullptr;
 
 std::string utf8(const std::wstring& value)
 {
@@ -91,28 +96,35 @@ void read_ini(const std::filesystem::path& path, const std::wstring& name)
     }
     HostParseExcerpt(text.c_str(), name.empty() ? nullptr : name.c_str());
 }
+// A generation's original engine: the objects the original keeps in process globals, which
+// engine_globals.h redirects to the generation the calling thread entered (D-129). The state owns
+// them for its whole life; a scope only names it as the thread's.
 struct EngineState {
-    std::unique_ptr<Globals> globals;
+    std::unique_ptr<Globals> globals; // first: the other members' destructors may reach it
     CustomResources resources;
     CustomResourcePools pools;
     CustomShaders shaders;
     ShaderRegexGroups regex;
     std::vector<ShaderRegexGroup*> regex_index;
-    uint32_t regex_hash=0;
     ExplicitCommandListSections lists;
     CommandListVariables variables;
     std::vector<CommandListVariable*> persistent;
     std::map<std::wstring, float> unknown;
     std::vector<CommandList*> registered, post;
+    std::unordered_set<CommandList*> profiled_lists;
+    std::unordered_set<CommandListCommand*> profiled_commands;
     std::vector<std::shared_ptr<CommandList>> allocated;
     PresetOverrideMap presets;
     OverrideTransition transition;
     OverrideGlobalSave saved;
     std::vector<InputAction*> input;
+    EngineHostState host;
     // The latest host window and cursor sample; the original's window queries read it.
     efmi::frontend::RuntimeInput sample;
-    // G->user_config_dirty as every call left it, read without the engine lock (settings_dirty()).
+    // G->user_config_dirty as every call left it, read without the generation's lock (settings_dirty()).
     std::atomic<bool> dirty{false};
+    // One thread at a time in this generation, as the original's one context.
+    std::mutex mutex;
     EngineState() : globals(std::make_unique<Globals>())
     {
         // IniHandler's values when [System] screen_width and screen_height are absent; a
@@ -124,18 +136,6 @@ struct EngineState {
         static std::once_flag creation_lock;
         std::call_once(creation_lock, [] { InitializeCriticalSection(&resource_creation_mode_lock); });
     }
-    void swap()
-    {
-        customResources.swap(resources); customResourcePools.swap(pools); customShaders.swap(shaders);
-        shader_regex_groups.swap(regex);shader_regex_group_index.swap(regex_index);std::swap(shader_regex_hash,regex_hash);
-        explicitCommandListSections.swap(lists); command_list_globals.swap(variables);
-        persistent_variables.swap(persistent); unknown_variables.swap(unknown);
-        registered_command_lists.swap(registered); pending_post_command_lists.swap(post);
-        dynamically_allocated_command_lists.swap(allocated); presetOverrides.swap(presets);
-        CurrentTransition.params.swap(transition.params); CurrentTransition.vars.swap(transition.vars);
-        OverrideSave.params.swap(saved.params); OverrideSave.vars.swap(saved.vars);
-        RuntimeSwapInput(input);
-    }
     ~EngineState()
     {
         for (auto* action : input) delete action;
@@ -144,11 +144,25 @@ struct EngineState {
         DeleteCriticalSection(&globals->mResourcesLock);
     }
 };
+// The generation the calling thread entered.
+__declspec(thread) EngineState* engine_current = nullptr;
+EngineState& entered()
+{
+    if (!engine_current) throw std::runtime_error("Original engine state used outside a generation");
+    return *engine_current;
+}
+// A thread entering a generation: its lock, then its state as the thread's original engine. A load
+// takes the load mutex first.
 struct Scope {
+    std::unique_lock<std::mutex> loading;
     std::unique_lock<std::mutex> lock;
     EngineState& state;
-    Scope(EngineState& s) : lock(engine_mutex, std::try_to_lock), state(s)
+    enum Kind { Run, Load };
+    Scope(EngineState& s, Kind kind = Run) : state(s)
     {
+        if (engine_current) throw std::runtime_error("Nested frontend generation activation");
+        if (kind == Load) loading = std::unique_lock<std::mutex>(load_mutex);
+        lock = std::unique_lock<std::mutex>(state.mutex, std::try_to_lock);
         engine_entries.fetch_add(1, std::memory_order_relaxed);
         if (!lock.owns_lock()) {
             const auto began = std::chrono::steady_clock::now();
@@ -157,18 +171,41 @@ struct Scope {
             engine_wait_us.fetch_add(uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count()),
                                      std::memory_order_relaxed);
         }
-        if (G) throw std::runtime_error("Nested frontend generation activation");
-        G = state.globals.get(); state.swap(); RuntimeWindowSample(&state.sample);
+        engine_current = &state; efvk_engine_g = state.globals.get(); RuntimeWindowSample(&state.sample);
     }
     ~Scope()
     {
         state.dirty.store(G->user_config_dirty, std::memory_order_relaxed);
         input_adapter = nullptr; input_context = nullptr; RuntimeWindowSample(nullptr);
-        clear_command_list_profiling(); state.swap(); G = nullptr;
+        clear_command_list_profiling(); engine_current = nullptr; efvk_engine_g = nullptr;
     }
 };
 void f10(HackerDevice*, void*) { G->gReloadConfigPending = true; }
 }
+}
+
+// The accessors engine_globals.h names, with the original's declared types.
+CustomResources* efvk_engine_customResources() { return &efmi::frontend::entered().resources; }
+CustomResourcePools* efvk_engine_customResourcePools() { return &efmi::frontend::entered().pools; }
+CustomShaders* efvk_engine_customShaders() { return &efmi::frontend::entered().shaders; }
+ShaderRegexGroups* efvk_engine_shader_regex_groups() { return &efmi::frontend::entered().regex; }
+std::vector<ShaderRegexGroup*>* efvk_engine_shader_regex_group_index() { return &efmi::frontend::entered().regex_index; }
+ExplicitCommandListSections* efvk_engine_explicitCommandListSections() { return &efmi::frontend::entered().lists; }
+CommandListVariables* efvk_engine_command_list_globals() { return &efmi::frontend::entered().variables; }
+std::vector<CommandListVariable*>* efvk_engine_persistent_variables() { return &efmi::frontend::entered().persistent; }
+std::map<std::wstring, float>* efvk_engine_unknown_variables() { return &efmi::frontend::entered().unknown; }
+std::vector<CommandList*>* efvk_engine_registered_command_lists() { return &efmi::frontend::entered().registered; }
+std::unordered_set<CommandList*>* efvk_engine_command_lists_profiling() { return &efmi::frontend::entered().profiled_lists; }
+std::unordered_set<CommandListCommand*>* efvk_engine_command_lists_cmd_profiling() { return &efmi::frontend::entered().profiled_commands; }
+std::vector<std::shared_ptr<CommandList>>* efvk_engine_dynamically_allocated_command_lists() { return &efmi::frontend::entered().allocated; }
+std::vector<CommandList*>* efvk_engine_pending_post_command_lists() { return &efmi::frontend::entered().post; }
+PresetOverrideMap* efvk_engine_presetOverrides() { return &efmi::frontend::entered().presets; }
+OverrideTransition* efvk_engine_CurrentTransition() { return &efmi::frontend::entered().transition; }
+OverrideGlobalSave* efvk_engine_OverrideSave() { return &efmi::frontend::entered().saved; }
+std::vector<InputAction*>* RuntimeInputActions() { return &efmi::frontend::entered().input; }
+EngineHostState* EngineHost() { auto* state = efmi::frontend::engine_current; return state ? &state->host : nullptr; }
+
+namespace efmi::frontend {
 
 struct IniRuntime::Impl {
     const RuntimeDraw* current_draw = nullptr; // during draw(): the host's texture identities
@@ -238,14 +275,13 @@ struct IniRuntime::Impl {
 IniRuntime::IniRuntime() : impl_(std::make_unique<Impl>()) {}
 IniRuntime::~IniRuntime()
 {
-    // Original command/resource destructors share frontend infrastructure too.
-    // Do not let teardown race a candidate parsing or the active draw evaluator.
-    std::lock_guard<std::mutex> lock(engine_mutex);
-    // Original destructors may write through G (~UpscalingFlipBBCommand clears a flag), so
-    // they address this generation's globals, which outlive every other member of the state.
-    G = impl_->state.globals.get();
+    // Nothing else holds this generation now. Original destructors may write through G
+    // (~UpscalingFlipBBCommand clears a flag) and reach the original's containers, so they address
+    // this generation's, whose Globals outlive every other member of the state.
+    auto* const outer_state = engine_current; auto* const outer_globals = efvk_engine_g;
+    engine_current = &impl_->state; efvk_engine_g = impl_->state.globals.get();
     impl_.reset();
-    G = nullptr;
+    engine_current = outer_state; efvk_engine_g = outer_globals;
 }
 
 std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::shared_ptr<RuntimeExtension> extension, std::string& reason)
@@ -263,7 +299,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             config.settings_name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != std::string::npos)
             throw std::runtime_error("Invalid frontend input/settings location");
         p.settings = config.settings_directory / (config.settings_name + ".ini");
-        Scope scope(p.state); RuntimeResetParser(); RuntimeResetInputDependencies();
+        Scope scope(p.state, Scope::Load); RuntimeResetParser(); RuntimeResetInputDependencies();
         const auto diagnostics = HostDiagnosticCount();
         HostResourceRoot(config.resource_root.wstring());
         if (!config.mods_directory.empty()) {

@@ -2,16 +2,21 @@
 // Replace only the OS polling source with the host's one coherent input sample.
 #include "Input.h"
 #include "runtime.h"
-static const efmi::frontend::RuntimeInput* runtime_input = nullptr;
+// The dispatching thread's sample; each thread dispatches the generation it entered (D-129).
+static __declspec(thread) const efmi::frontend::RuntimeInput* runtime_input = nullptr;
 static SHORT WINAPI RuntimeGetAsyncKeyState(int key)
 {
     return runtime_input && key >= 0 && key < 256 && runtime_input->keys[key] ? SHORT(0x8000) : 0;
 }
+// The original's key actions are the entered generation's (engine_globals.h for the shared names;
+// this one is local to input.cpp, whose `static` declaration becomes the accessor's).
+std::vector<InputAction*>* RuntimeInputActions();
 #define GetAsyncKeyState RuntimeGetAsyncKeyState
+#define actions (*efvk_engine_actions())
 #include "input.cpp"
 #undef GetAsyncKeyState
+static std::vector<InputAction*>* efvk_engine_actions() { return RuntimeInputActions(); }
 
-void RuntimeSwapInput(std::vector<InputAction*>& other) { actions.swap(other); }
 size_t RuntimeInputCount() { return actions.size(); }
 bool RuntimeDispatchInput(HackerDevice* device, const efmi::frontend::RuntimeInput& input)
 {

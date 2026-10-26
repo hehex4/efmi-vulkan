@@ -27,7 +27,9 @@ def runtime_flags(out: Path) -> list[str]:
              "/DUNICODE", "/D_UNICODE", "/D_HAS_STD_BYTE=0", "/DMIGOTO_DX=11",
              "/DPCRE2_CODE_UNIT_WIDTH=8", "/DPCRE2_STATIC", "/DCRC32C_STATIC", "/D_CRT_SECURE_NO_WARNINGS",
              "/D_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING", "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1",
-             "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_COUNT=1", "/FI" + str(port / "port_compat.h")]
+             "/D_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_COUNT=1", "/FI" + str(port / "port_compat.h"),
+             # The original's configuration globals belong to the entered generation (D-129).
+             "/FI" + str(ROOT / "frontend/xxmi/engine_globals.h")]
     if os.environ.get("EFMI_VK_COMMAND_TIMING") == "1":
         flags.append("/DEFMI_COMMAND_TIMING")  # per-command timing (D-099), as scripts/build.py
     if os.environ.get("EFMI_VK_PHASE_TIMING") == "1":

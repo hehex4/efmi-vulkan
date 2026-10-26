@@ -7,38 +7,41 @@
 #include "Hunting.h"
 #include "Overlay.h"
 #include "runtime.h"
+#include "engine_host.h"
 #include <cstdarg>
 #include <cstdio>
 #include <stdexcept>
 #include <deque>
 
 [[noreturn]] static void unsupported(const char* call) { throw std::runtime_error(call); }
-HINSTANCE migoto_handle=nullptr;
+// Only the reference's local GetModuleFileName adapter reads this token.
+HINSTANCE migoto_handle=reinterpret_cast<HINSTANCE>(1);
 CRITICAL_SECTION resource_creation_mode_lock;
 DWORD tls_idx=TLS_OUT_OF_INDEXES;
-static std::wstring resource_root;
-std::wstring HostResourceDirectory(){return resource_root;}
-static size_t diagnostic_count=0;
-// The latest original warnings, for the generation that produced them. The original engine
-// shows them on its overlay and carries on; so does the runtime (D-067).
-static std::deque<std::pair<size_t, std::string>> diagnostics;
-size_t HostDiagnosticCount() { return diagnostic_count; }
+// The resource root and the original warnings are the entered generation's (D-129): a load and
+// another generation's execution run at the same time, and each keeps its own.
+std::wstring HostResourceDirectory(){auto* host=EngineHost();return host?host->resource_root:std::wstring();}
+size_t HostDiagnosticCount() { auto* host=EngineHost(); return host?host->diagnostic_count:0; }
 static void diagnostic(std::string text)
 {
+    // The original engine shows its warnings on its overlay and carries on; so does the runtime
+    // (D-067). A warning outside every generation has no generation to report it to.
+    auto* host=EngineHost();
+    if (!host) return;
     while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.pop_back();
-    diagnostics.emplace_back(++diagnostic_count, std::move(text));
-    if (diagnostics.size() > 64) diagnostics.pop_front();
+    host->diagnostics.emplace_back(++host->diagnostic_count, std::move(text));
+    if (host->diagnostics.size() > 64) host->diagnostics.pop_front();
 }
 std::vector<std::string> HostDiagnosticListSince(size_t count)
 {
     std::vector<std::string> result;
-    for (const auto& entry : diagnostics) if (entry.first > count) result.push_back(entry.second);
+    if (auto* host=EngineHost()) for (const auto& entry : host->diagnostics) if (entry.first > count) result.push_back(entry.second);
     return result;
 }
 std::string HostDiagnosticsSince(size_t count)
 {
     std::string result;
-    for (const auto& entry : diagnostics) if (entry.first > count) {
+    if (auto* host=EngineHost()) for (const auto& entry : host->diagnostics) if (entry.first > count) {
         if (!result.empty()) result += " | ";
         result += entry.second;
     }
@@ -46,16 +49,17 @@ std::string HostDiagnosticsSince(size_t count)
 }
 void HostResourceRoot(const std::wstring& root)
 {
+    auto* host=EngineHost();
+    if(!host)unsupported("resource root outside a generation");
     if(root.empty() || root.size()+12>=MAX_PATH)unsupported("prototype resource root too long");
-    resource_root=root;
-    if(resource_root.back()!=L'\\')resource_root+=L'\\';
-    // Only the reference's local GetModuleFileName adapter reads this token.
-    migoto_handle=reinterpret_cast<HINSTANCE>(1);
+    host->resource_root=root;
+    if(host->resource_root.back()!=L'\\')host->resource_root+=L'\\';
 }
 namespace MigotoPort {
 void MigotoDir(wchar_t* out,unsigned long size) {
-    if(resource_root.empty() || resource_root.size()+1>size)unsupported("prototype module directory adapter");
-    wcscpy_s(out,size,resource_root.c_str());
+    const auto root=HostResourceDirectory();
+    if(root.empty() || root.size()+1>size)unsupported("prototype module directory adapter");
+    wcscpy_s(out,size,root.c_str());
 }
 Dx12Context* Context() { unsupported("prototype graphics context adapter"); }
 Dx12Device* Device() { unsupported("prototype graphics device adapter"); }
@@ -96,7 +100,7 @@ HRESULT MigotoIncludeHandler::Open(D3D_INCLUDE_TYPE,LPCSTR,LPCVOID,LPCVOID*,UINT
 HRESULT MigotoIncludeHandler::Close(LPCVOID) { unsupported("prototype HLSL close"); }
 // The original calls these on G->hWnd. A generation answers them from the host's window and
 // cursor sample (RuntimeInput) and never touches a real window; its hWnd is only a token.
-static const efmi::frontend::RuntimeInput* window_sample = nullptr;
+static __declspec(thread) const efmi::frontend::RuntimeInput* window_sample = nullptr;
 void RuntimeWindowSample(const efmi::frontend::RuntimeInput* sample) { window_sample = sample; }
 HWND RuntimeWindowHandle() { return reinterpret_cast<HWND>(uintptr_t(0x45464d49)); }
 int CursorUpscalingBypass_GetClientRect(HWND h,LPRECT r)
