@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / "server"))
 from efmi_vk.probe_client import ProbeClient  # noqa: E402
 
 LAYER_MODULES = ("efmi_vk_inject.dll", "efmi_vk_layer.dll", "efmi_vk_backend")  # the layer (injected or registered), the module (any copy)
+DRIVERS = ("nvoglv64", "nvgpucomp", "vulkan-1", "amdvlk", "igvk", "nvwgf2um", "win32u", "gdi32")
 WAITS = ("NtWaitFor", "ZwWaitFor", "NtDelayExecution", "ZwDelayExecution", "NtRemoveIoCompletion", "ZwRemoveIoCompletion",
          "NtWaitForAlertByThreadId", "ZwWaitForAlertByThreadId", "NtSignalAndWaitForSingleObject")
 
@@ -108,8 +109,8 @@ def main() -> int:
     total = result["samples"]
     print("%d samples over %d ms at %d Hz, %d threads, %d distinct stacks" % (
         total, result["milliseconds"], result["hz"], len(result["threads"]), result["distinct_stacks"]))
-    per_thread = defaultdict(lambda: {"samples": 0, "waiting": 0, "layer": 0, "exclusive": Counter(), "inclusive": Counter()})
-    overall_ex, overall_in = Counter(), Counter()
+    per_thread = defaultdict(lambda: {"samples": 0, "waiting": 0, "layer": 0, "layer_waits": 0, "exclusive": Counter(), "inclusive": Counter()})
+    overall_ex, overall_in, lock_waits = Counter(), Counter(), Counter()
     for stack in result["stacks"]:
         n, thread = stack["n"], stack["thread"]
         names = [symbols.name(f) for f in stack["frames"]]
@@ -118,6 +119,13 @@ def main() -> int:
         top = names[0] if names else "?"
         if any(w in top for w in WAITS):
             t["waiting"] += n
+            # A wait the layer itself makes (a lock, a fence of its own): the innermost layer frame with
+            # no driver or loader frame between it and the wait; a wait forwarded to the driver through a
+            # hook (present, the application's fence waits) is the application's.
+            at = next((i for i, x in enumerate(names) if in_layer(x)), None)
+            if at is not None and not any(x.lower().startswith(DRIVERS) for x in names[:at]):
+                t["layer_waits"] += n
+                lock_waits[names[at]] += n
             continue
         if any(in_layer(x) for x in names):
             t["layer"] += n
@@ -134,9 +142,14 @@ def main() -> int:
         busy = t["samples"] - t["waiting"]
         if not busy:
             continue
-        print("\nthread %d: %d samples, busy %d, in the layer %d (%.0f%% of busy)" % (thread, t["samples"], busy, t["layer"], 100.0 * t["layer"] / busy))
+        print("\nthread %d: %d samples, busy %d, in the layer %d (%.0f%% of busy), waiting inside the layer %d" % (
+            thread, t["samples"], busy, t["layer"], 100.0 * t["layer"] / busy, t["layer_waits"]))
         for name, n in t["exclusive"].most_common(12):
             print("   excl %5.1f%%  %s" % (100.0 * n / busy, name))
+    if lock_waits:
+        print("\nwaits inside the layer, by the innermost layer frame (all samples):")
+        for name, n in lock_waits.most_common(15):
+            print("  %5.1f%%  %s" % (100.0 * n / max(total, 1), name))
     print("\noverall exclusive (busy samples):")
     for name, n in overall_ex.most_common(args.top):
         print("  %5.1f%%  %s" % (100.0 * n / max(busy_total, 1), name))
