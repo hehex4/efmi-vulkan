@@ -12,6 +12,7 @@
 - 1.9.6: every command list visited once, as the original walks its lists flat. Test that fails on 1.9.5: owned_present_test's 40-option else-if chain in a second INI's [Present] (the device never came up); 6/6 on 1.9.6. Actual-config sandbox with the installed Mods folder: 20 packages configured, the new Typhoeus Mod among them, none refused, validation clean (build/smoke-1.9.6.json).
 - Verification: run_all --only frontend host, live INI, owned Present: all passed (80 and 54 checks).
 - Open: background loads still hold the global engine lock for a whole INI load (BUG-063's open part).
+- Deployed 21:59 (b13d595) with the game and the launcher closed; backup build/backups/before-1.9.6-20261026-215940, manifest build/candidate-1.9.6.json, cfg unchanged.
 
 ## 1.9.5: nothing waits for the GPU in Present (2026-10-26, BUG-062, D-128)
 
