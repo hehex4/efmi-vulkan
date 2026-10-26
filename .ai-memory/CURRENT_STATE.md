@@ -11,6 +11,8 @@
 - Session with 1.9.6 (PID 8552, 22:0x, user-started): the F10 freeze is gone (the user: seems fine now); SiModGB drew nothing (index files with `stride = 6`, typed vertex files, `ps-tN == filter_index` in plans refused).
 - 1.9.7: index files by their format, vertex files by their stride or their format's size (the original's FillInMissingInfo), file roles from the assignments that bind them, pixel-slot texture queries in plans from the host's texture matcher.
 - Verification: run_all --only frontend host (all host checks), offline plans (SiModGB 26 of 26 sections plan), Mods folder, library call, texture filter (new: vk04 with only SiModGB, no refusal), character replacement, live INI: passed.
+- Deployed 23:09 (b84ac88) with the game and the launcher closed; backup build/backups/before-1.9.7-20261026-230904, manifest build/candidate-1.9.7.json, cfg unchanged. Actual-config sandbox at --api 1.3: 20 packages configured, none refused, validation clean (build/smoke-1.9.7.json in the worktree). Not yet in the game.
+- main not fast-forwarded: the main checkout holds uncommitted work of another session in draw_plan.cpp/h and runtime.cpp, which this commit also changes; the commits are on branch `engine-work` (worktree .worktrees/fix).
 - Next: the engine lock refactor (BUG-063's open part), design first.
 
 ## 1.9.6: a long else-if chain loads in bounded time (2026-10-26, BUG-063)
