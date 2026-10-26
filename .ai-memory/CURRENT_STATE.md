@@ -11,7 +11,8 @@
 - The original's configuration globals are redirected by a forced include (frontend/xxmi/engine_globals.h) to the generation the calling thread entered; a scope takes only its generation's lock; a load also the load mutex, which no drawing, presenting or saving thread takes; the assembler's tables under their own mutex; the resource root and warnings per generation (docs/engine-generations.md).
 - Test that fails on 1.9.7: runtime_concurrency_cases ("a running generation presents and draws while another generation's load holds its scope"); on 1.9.8 the runtime's 499 checks pass. New suite step "INI runtime globals classified" (scripts/check_engine_globals.py): 911 writable globals in 52 objects, all classified (constant 820, load 11, lock 14, once 22, present 2, statistics 42).
 - Verification: the whole suite (49 steps) passed (build/run_all-1.9.8.out in the worktree), the change being in the runtime core every area runs through. Offline A/B against the deployed 1.9.7, replay vk03 (22 Mods), three interleaved pairs of 2600 frames: recording work 463 to 456 us per frame, plan 222 to 219, host frame p50 5555 to 5560 us; final targets, replacement and residency identical (build/performance-ab/20261026-234325).
-- Not yet in the game. To see: an F10 or a newly added Mod while playing without a stall for the load's length.
+- Deployed 23:45 (604d147) with the game and the launcher closed; backup build/backups/before-1.9.8-20261026-234556, manifest build/candidate-1.9.8.json, cfg unchanged. Actual-config sandbox at --api 1.3: 20 packages configured, none refused, validation clean, the same exit as 1.9.6 and 1.9.7 (build/smoke-1.9.8.json in the worktree).
+- Not yet in the game. To see: an F10 or a newly added Mod while playing without a stall for the load's length; SiModGB (1.9.7).
 
 ## 1.9.7: SiModGB's declarations and texture queries as the original takes them (2026-10-26, BUG-064)
 
