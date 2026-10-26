@@ -38,7 +38,9 @@ int HostPlanTests()
                      L"[CommandListGPUQuery]\ndrawindexed = rt_width, 0, 0\n"
                      L"[CommandListStateQuery]\n$choice = rt_width\n"
                      L"[CommandListSlotQuery]\nps-t[rt_width] = ResourceImage\n"
-                     L"[CommandListRecursion]\nrun = CommandListRecursion\n",
+                     L"[CommandListRecursion]\nrun = CommandListRecursion\n"
+                     L"[CommandListVertexCopy]\nib = ResourceIndex\nvb0 = ref ResourceVertices\nvb3 = vb0\nvb0 = null\ndrawindexed = 3, 0, 0\n"
+                     L"[CommandListApplicationVertex]\nvb3 = vb1\ndrawindexed = 3, 0, 0\n",
                      L"planner.ini");
     std::wstring budget=L"namespace = planner\n[CommandListBudget]\n";
     for(int i=0;i<257;++i)budget+=L"drawindexed = 3, 0, 0\n";
@@ -46,7 +48,8 @@ int HostPlanTests()
     HostEnumerateLists();HostParseConstants();HostParseResources();
     DrawPlanAdapter adapter;
     adapter.external(explicitCommandListSections.at(L"commandlist\\planner\\native"),L"test/native");
-    const wchar_t* names[]={L"draw",L"fail",L"empty",L"unset",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget"};
+    const wchar_t* names[]={L"draw",L"fail",L"empty",L"unset",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget",
+                            L"vertexcopy",L"applicationvertex"};
     for(auto* name:names)HostCompileNamedList((L"commandlist\\planner\\"+std::wstring(name)).c_str());
     optimise_command_lists(nullptr);
     for(auto* name:names)adapter.adapt(explicitCommandListSections.at(L"commandlist\\planner\\"+std::wstring(name)).command_list);
@@ -78,11 +81,18 @@ int HostPlanTests()
           "same compiled list reevaluates branches and instanced arguments");
     check(plan.items.back().layout[0].match.semantic_index==0,"later layout execution cannot mutate the earlier plan");
     const size_t retained=plan.items.size();
-    for(auto* name:{L"fail",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget"}) {
+    for(auto* name:{L"fail",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget",L"applicationvertex"}) {
         check(!run(name,plan,reason) && !reason.empty() && plan.items.size()==retained &&
               plan.items.back().vertex_offset==-2 && plan.items.back().layout[0].match.semantic_index==0,
               "late unsupported/invalid/recursive command rejects the complete output");
     }
+    check(!run(L"applicationvertex",plan,reason) && reason.find(L"application's vertex buffer")!=std::wstring::npos,
+          "the application's own vertex buffer moved to another slot refuses");
+    DrawPlan copied;
+    check(run(L"vertexcopy",copied,reason) && copied.items.size()==5 && copied.items[1].operation==PlanOperation::BindVertex &&
+          copied.items[2].operation==PlanOperation::BindVertex && copied.items[2].slot==3 && copied.items[2].resource &&
+          copied.items[2].resource==copied.items[1].resource && copied.items[3].slot==0 && !copied.items[3].resource,
+          "vb3 = vb0 binds the buffer bound at vb0 by reference; a later change of vb0 leaves vb3");
     check(run(L"empty",plan,reason) && plan.skip_original && plan.items.empty(),"empty hidden component is a deliberate skip");
     check(run(L"unset",plan,reason) && plan.items.size()==1 && !plan.items[0].resource,
           "unassigned empty resource declaration resolves to null without a file adapter");

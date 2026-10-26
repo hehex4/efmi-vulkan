@@ -65,6 +65,7 @@ struct BoneJob {
     std::shared_ptr<BoneRemaps> remaps; // null without a remap
     uint32_t component = 0;
     VkBuffer source = VK_NULL_HANDLE;  // the game's bone buffer as bound at the draw
+    uint32_t source_id = 0;            // the tracker's id of that buffer (a handle may be reused)
     VkDeviceSize source_offset = 0, source_size = 0;
     uint32_t rows[2] = {0, 0};        // the entry's offsets, rows into the source range
     uint32_t first = 0, count = 0;    // the component's merged range
@@ -85,6 +86,8 @@ public:
     // The jobs of the recordings an application submission on `queue` carries, dispatched there
     // first; each job's slot is unpended. The caller passes the queue's own submission thread.
     VkResult submit(VkQueue, std::vector<BoneJob>& jobs);
+    // Components a submitted recording's draws read in a slot that none of its dispatches wrote (BUG-054).
+    void note_missing(uint64_t components) { missing_.fetch_add(components, std::memory_order_relaxed); }
     void status(JsonWriter&);
 private:
     struct Slot { VkCommandBuffer cb = VK_NULL_HANDLE; VkDescriptorPool pool = VK_NULL_HANDLE; BoneSubmission last; };
@@ -104,7 +107,7 @@ private:
     std::vector<Slot> slots_;
     uint64_t submissions_total_ = 0;
     // Status.
-    std::atomic<uint64_t> jobs_{0}, dispatches_{0}, submissions_{0}, rings_{0}, ring_bytes_{0}, slot_waits_{0}, failures_{0};
+    std::atomic<uint64_t> jobs_{0}, dispatches_{0}, submissions_{0}, rings_{0}, ring_bytes_{0}, slot_waits_{0}, failures_{0}, missing_{0};
     std::string error_;
 };
 

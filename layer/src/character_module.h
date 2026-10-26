@@ -32,6 +32,9 @@ struct HostApi {
     uint8_t (*read_buffer_locked)(Device*, const BufInfo&, uint64_t off, uint64_t size, uint8_t* out) = nullptr;
     void (*collect_buffer_ranges_locked)(Device*, const SetBind&, const uint32_t* dyn, uint32_t dyn_count, uint32_t slot,
                                          std::vector<BoundRange>& out) = nullptr;
+    // The settings the probe changes in a running process (`set`), read live: the module's copy of the
+    // configuration is the one its entry made (BUG-055).
+    bool (*gpu_bones)() = nullptr;
 };
 
 // The presentation a frame ends with, when the host saw one (vkQueuePresentKHR on `queue`). The

@@ -1,5 +1,26 @@
 # EFMI Vulkan - Known issues
 
+## BUG-057: A newly installed Mod (Tangtang) was refused at every draw (fixed in 1.9.0)
+
+- Found by the suite's offline plans on 2026-10-26: `Tangtang - Uniform NSFW`, installed by the user, refused all 12 sections. Three things the planner did not take, each the original's behaviour: `if vs->srv_stride(0) == 16` (a declaration query, D-124); `vb3 = vb0` (a vertex slot given the buffer bound at another, by reference, the original's default between two slots of one kind); `vb2->ElementFormat(BLENDINDICES, 0)` given twice before a draw (once in the skeleton callback, once in the draw list; the original applies both, the same change, while the character program took exactly one blend edit).
+- Each with a check that fails without it: the TangTang replay with only this Mod (`--only-mod`, vk02; 3420 refusals on 1.9.0's first build, then 2736, then none and 2736 draws replaced), the planner's host test (`vb3 = vb0` and the application's own buffer at another slot refusing), the pixel-checked runtime fixture (repeated edit and `vb3 = vb0` in its lists: refused before, 76/76 after), the DXBC comparison of the declarations. New suite steps: `DX11 declarations from SPIR-V`, `captured frame with shader declaration queries`.
+- Not changed (D-089): `ps != 1718.2` (RabbitFX's shadow filter) and `ps != 203 && vs != 203` (the Mod's outline ShaderOverrides) read a game shader named by no ShaderOverride, so the Mod binds its RabbitFX textures in the shadow pass too and, with its key 3 on, draws one part in the outline pass too.
+
+## BUG-054: With the bones on the GPU a Mod's parts lost the bones of other components (fixed in 1.9.0)
+
+- 2026-10-26, session PID 45144 with 1.8.9: the Si NightveilTrancer Mod drawn without its legs (the shadow too); switching the bones to the CPU through the probe brought them back.
+- Cause: a recording's ring slot got dispatches only for the components the recording itself drew, but an EFMI part's vertices read bones of several components (Si: 6dc25c11 reads 2, 3, 4 and 10; c345bccf reads 2, 3 and 13). The game records one character over several command buffers, so a slot held those other components from whichever recording last wrote it, possibly many frames old, and the legs were drawn where the character had been. The CPU master never had this: it accumulates every component and each draw copies it whole.
+- The replay could not show it: one command buffer per frame, and static stand-in bones, under which a stale slot holds the right values. New: every component's latest import is kept per object, and each draw adds, for every component its list reads that the recording does not dispatch yet, that import into its slot (from a buffer the game still has; the component's own import in the recording replaces it). The invariant is counted at submission (`bones.components_missing`) and the replay's --check fails on it: on two queues 113 before the fix, 0 after; GPU and CPU pictures identical in one queue, two queues and --split-passes. Replay modes added on the way: --split-passes (a pass's draws alternating between two command buffers recorded whole one after the other), --animate-bones (stand-ins moving every frame; GPU and CPU then legitimately differ by the original's one-frame lag of components imported later in the frame, so it is no equality test).
+
+## BUG-055: The probe's bone switch did not reach a swapped-in module (fixed in 1.9.0)
+
+- The module read the host's configuration only while its entry ran and kept its own copy, so `set gpu_bones` after an exchange changed nothing (seen in PID 36252). The host API gives the live value (HostApi::gpu_bones); the character test now switches the module's bones both ways after its exchanges (it failed before the fix).
+
+## BUG-056: On a full card the Mods waited for device memory and showed the game's mesh (fixed in 1.9.0)
+
+- Same session: in the character screen many Mods did not show and others turned from the game's model into the Mod. The device had 27 to 60 MiB free (the game uses most of the 8 GiB); the activation gate of D-092 waited for free memory beyond the reserve, and meanwhile the game's mesh was drawn (Typhoeus 340760 draws). With pageable device memory (D-122) the gate no longer waits, as 3DMigoto creates resources whatever the free memory. Replay step `--reserve-mb 1000000`: 1.8.9 replaced nothing (`waiting_memory` 4800), 1.9.0 replaces.
+- The rest of the "original first": the Core's identification after an object's first frame and an EFMI Mod's registration (`$mod_enabled` turns on at the Present after `$object_detected`, the game recording frames ahead) kept the game's mesh for a few frames at every new appearance. D-123: such draws are skipped until one draw of the object was the Mod's, for 30 presents at most (`held_before_shown`; `original_before_shown` past that). Replay check --mod-first: 1.8.9 drew the game's mesh 12 times in vk03, 1.9.0 none.
+
 ## BUG-053: The Si NightveilTrancer Mod was refused at every draw in the game (fixed in 1.8.5)
 
 - 2026-10-25, session PID 26184 with 1.8.4 and two module exchanges: Si's 500657 matched draws were all refused, the status showing only the Present's later error (`CustomShader needs the host's owned GPU scope`), which hid the first one.

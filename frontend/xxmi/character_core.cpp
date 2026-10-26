@@ -274,16 +274,35 @@ global $mod_id = -1
         });
         // `vs`, `ps` in a replaced draw's plan (D-089): a game shader has no DX11 identity here and no
         // ShaderOverride is active, so a bound stage reads 0 and an absent one -0, as the original reads
-        // a shader no section names. Declaration queries on the game's shaders refuse.
-        a.plan_shader_queries([this](CommandListOperand& operand, CommandListState&, float& value, std::wstring& why) {
+        // a shader no section names. Its declarations as the original's process_shader_filter reads them
+        // (D-124): t registers from the host (RuntimeDraw::source_srv), the masks 0 as the original
+        // answers them; constant buffer declarations are not known from SPIR-V and refuse.
+        a.plan_shader_queries([this](CommandListOperand& operand, CommandListState& state, float& value, std::wstring& why) {
             const auto& t = operand.shader_target;
-            if (t.evaluation_mode != ShaderTargetEvaluationMode::SHADER) return fail(why, L"The declarations of the game's shaders are not known");
-            if (!current.targets_known) return fail(why, L"The replaced draw's shader stages are not known");
+            if (!current.shader_stages) return fail(why, L"The replaced draw's shader stages are not known");
             const uint32_t bit = t.shader_type == L'v' ? 0x1u : t.shader_type == L'h' ? 0x2u : t.shader_type == L'd' ? 0x4u :
                                  t.shader_type == L'g' ? 0x8u : t.shader_type == L'p' ? 0x10u : 0u;
             if (!bit) return fail(why, L"A draw has no compute shader");
-            value = current.shader_stages & bit ? 0.0f : -0.0f;
-            return true;
+            // No shader bound: -0 whatever is asked.
+            if (!(current.shader_stages & bit)) { value = -0.0f; return true; }
+            switch (t.evaluation_mode) {
+            case ShaderTargetEvaluationMode::SHADER: case ShaderTargetEvaluationMode::DCL_CB_MASK: case ShaderTargetEvaluationMode::DCL_SRV_MASK:
+                value = 0.0f; return true;
+            case ShaderTargetEvaluationMode::DCL_SRV_TYPE: case ShaderTargetEvaluationMode::DCL_SRV_STRIDE: case ShaderTargetEvaluationMode::DCL_SRV_DIMENSION: {
+                // The slot as the original takes it; its guard keeps it within the 128 registers.
+                const unsigned slot = unsigned(operand.shader_target.member_args[0].GetValue(&state));
+                uint32_t type = 0, dimension = 0, stride = 0; std::string reason;
+                if (!current.source_srv || !current.source_srv(t.shader_type, slot, type, dimension, stride, reason)) {
+                    why = L"The declaration of the game's shader resource is not known: ";
+                    why.append(reason.begin(), reason.end());
+                    return false;
+                }
+                value = float(t.evaluation_mode == ShaderTargetEvaluationMode::DCL_SRV_TYPE ? type :
+                              t.evaluation_mode == ShaderTargetEvaluationMode::DCL_SRV_STRIDE ? stride : dimension);
+                return true;
+            }
+            default: return fail(why, L"The constant buffer declarations of the game's shaders are not known");
+            }
         });
         auto native = [&](const wchar_t* name, DrawPlanAdapter::NativeCommand callback) {
             boundaries.push_back(command(name)); a.native(list(name), command(name), std::move(callback));
@@ -572,7 +591,12 @@ global $mod_id = -1
         if (efmittl) efmittl->before_draw(draw);
         return true;
     }
-    void after_draw() noexcept override { instance_queries.clear(); if (efmittl) efmittl->after_draw(); }
+    void after_draw() noexcept override
+    {
+        // The host's answers refer to its draw: none of them outlives it.
+        current.pixel_texture = nullptr; current.texture_roles = nullptr; current.source_srv = nullptr;
+        instance_queries.clear(); if (efmittl) efmittl->after_draw();
+    }
     void library_hook(LibraryHook hook) noexcept override { if (efmittl) efmittl->library_hook(hook); }
 };
 }

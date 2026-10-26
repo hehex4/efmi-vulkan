@@ -457,6 +457,10 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::TextureQuery texture_query;
     DrawPlanAdapter::ResourceMatchQuery resource_match;
     std::array<DrawPlanAdapter::PixelBinding,128> pixel_bindings;
+    // The vertex buffers this plan bound, by DX11 slot, for `vb3 = vb0`; not planned where the
+    // application's own buffer is still bound.
+    struct VertexBinding {bool planned=false;CustomResource* resource=nullptr;std::shared_ptr<const PlanItem::OwnedBuffer> owned;};
+    std::array<VertexBinding,32> vertex_bindings;
     // `ResourceX = ref ps-tN` in a matched draw's plan: X refers to the application's texture at
     // pixel slot N of that draw. One stand-in per slot marks it; it never reaches a file plan.
     std::array<CustomResource,128> application_textures;
@@ -888,6 +892,16 @@ struct DrawPlanAdapter::Runtime {
                     if(!owned_binding(src,*state,buffer,why))refuse(why.empty()?L"Owned vertex buffer unavailable: "+original->ini_line:why);
                     item.owned=std::make_shared<const PlanItem::OwnedBuffer>(std::move(buffer));item.resource=nullptr;
                 }
+            } else if (src.type == ResourceCopyTargetType::VERTEX_BUFFER && item.operation == PlanOperation::BindVertex &&
+                       binding->options == ResourceCopyOptions::REFERENCE) {
+                // `vb3 = vb0`: the buffer at that slot as it is bound there (between two slots of one kind
+                // the original's default is a reference). What this plan bound; the application's own
+                // buffer at another slot is not a binding the host makes.
+                const unsigned from = src.ResolveSlot(state);
+                if (from >= vertex_bindings.size()) refuse(L"Binding slot out of range: " + original->ini_line);
+                const auto& bound = vertex_bindings[from];
+                if (!bound.planned) refuse(L"The application's vertex buffer bound at another slot: " + original->ini_line);
+                item.resource = bound.resource; item.owned = bound.owned;
             } else if (src.type != ResourceCopyTargetType::EMPTY ||
                        (binding->options != ResourceCopyOptions::REFERENCE &&
                         binding->options != ResourceCopyOptions::COPY)) {
@@ -895,6 +909,7 @@ struct DrawPlanAdapter::Runtime {
             }
             if(item.operation==PlanOperation::BindPixelResource)
                 pixel_bindings[item.slot]=item.application_slot==int(item.slot)?PixelBinding{}:PixelBinding{false,item.resource};
+            if(item.operation==PlanOperation::BindVertex)vertex_bindings[item.slot]={true,item.resource,item.owned};
             append(std::move(item));
             return;
         }
@@ -1346,7 +1361,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     runtime_->keep_original=false;runtime_->shader_depth=0;
-    runtime_->pixel_bindings={};
+    runtime_->pixel_bindings={};runtime_->vertex_bindings={};
     phase("exec setup");
     try {
         auto run=[&](const auto& lists,CommandListState& phase){for(auto* root:lists){
@@ -1404,7 +1419,8 @@ bool DrawPlanAdapter::execute_intercepted(const std::vector<CommandList*>& pre,c
     }
     DrawPlan candidate;candidate.skip_original=state.call_info->skip;
     runtime_->active=&candidate;runtime_->steps=runtime_->draws=runtime_->queries->count=0;
-    runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};runtime_->keep_original=false;runtime_->shader_depth=0;
+    runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};runtime_->vertex_bindings={};runtime_->keep_original=false;
+    runtime_->shader_depth=0;
     try{
         auto fresh=[&](CommandListState& root,bool after){root.mHackerDevice=state.mHackerDevice;root.mHackerContext=state.mHackerContext;
             root.mOrigDevice1=state.mOrigDevice1;root.mOrigContext1=state.mOrigContext1;root.call_info=state.call_info;root.post=after;

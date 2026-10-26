@@ -473,6 +473,7 @@ std::string probe_m2_module(const std::string& path,const std::string& package){
     if(!package.empty())config.m2_package=package;
     api.size=sizeof(HostApi);api.abi=EFVK_ABI;api.config=&config;api.log=host_log;api.crc32c=crc32c;
     api.read_buffer_locked=host_read_buffer;api.collect_buffer_ranges_locked=collect_buffer_ranges_locked;
+    api.gpu_bones=[]{return g_cfg.m2_gpu_bones;};
     const CharacterModule* module=entry?entry(&api):nullptr;
     api.config=nullptr;
     if(!module || module->size!=sizeof(CharacterModule) || module->abi!=EFVK_ABI){

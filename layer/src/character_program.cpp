@@ -533,10 +533,22 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 const efmi::assets::LayoutEdit* blend = nullptr;
                 bound.offsets.clear();
                 bool understood = true;
-                for (const auto& edit : item.layout) {
+                auto same = [](const efmi::assets::LayoutEdit& a, const efmi::assets::LayoutEdit& b) {
+                    const auto &x = a.match, &y = b.match; const auto &p = a.replace, &q = b.replace;
+                    return x.semantic_name == y.semantic_name && x.semantic_index == y.semantic_index && x.input_slot == y.input_slot &&
+                           x.format == y.format && x.format_byte_size == y.format_byte_size && x.aligned_byte_offset == y.aligned_byte_offset &&
+                           p.semantic_name == q.semantic_name && p.semantic_index == q.semantic_index && p.format == q.format &&
+                           p.aligned_byte_offset == q.aligned_byte_offset;
+                };
+                for (size_t e = 0; e < item.layout.size(); ++e) {
+                    const auto& edit = item.layout[e];
                     const auto& m = edit.match; const auto& r = edit.replace;
                     const bool plain_match = !m.format && m.format_byte_size == UINT32_MAX && m.aligned_byte_offset == UINT32_MAX &&
                                              r.semantic_name.empty() && r.semantic_index == UINT32_MAX;
+                    // The original applies every override in order to each element it matches; a plain one
+                    // (by slot and semantic, keeping the semantic) given again later changes nothing more.
+                    if (plain_match && std::any_of(item.layout.begin() + e + 1, item.layout.end(), [&](const auto& later) { return same(later, edit); }))
+                        continue;
                     if (!blend && plain_match && m.input_slot == 2 && m.semantic_name == "BLENDINDICES" && (r.format == 12 || r.format == 3) &&
                         r.aligned_byte_offset == UINT32_MAX) { blend = &edit; continue; }
                     if (plain_match && !r.format && r.aligned_byte_offset != UINT32_MAX && m.input_slot < 4 && m.semantic_index != UINT32_MAX) {

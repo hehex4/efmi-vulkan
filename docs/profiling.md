@@ -34,6 +34,10 @@ waiting. It prints per thread and overall the functions most often on top (exclu
 functions anywhere in the stacks (inclusive), and how much of the busy time had a layer frame.
 `--input FILE` reads a saved reply again.
 
+`scripts/profile_callers.py PROFILE.json NAME...` reads such a saved profile and lists, for each
+function name, the samples that hold it and the frames above it most often (`--thread ID` for one
+thread), to find who calls a hot spot.
+
 ## Checked
 
 - The probe end-to-end test asks for a 300 ms profile in every configuration and checks samples,

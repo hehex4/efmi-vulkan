@@ -23,7 +23,7 @@ void logf(const char* fmt, ...)
 }
 
 uint32_t crc32c(uint32_t seed, const void* data, size_t size) { return g_host->crc32c(seed, data, size); }
-bool live_gpu_bones() { return g_host && g_host->config ? g_host->config->m2_gpu_bones : g_cfg.m2_gpu_bones; }
+bool live_gpu_bones() { return g_host && g_host->gpu_bones ? g_host->gpu_bones() : g_cfg.m2_gpu_bones; }
 
 ReadSrc read_buffer_locked(Device* dev, const BufInfo& b, uint64_t off, uint64_t size, uint8_t* out)
 {

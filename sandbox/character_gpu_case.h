@@ -445,6 +445,14 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         bool module_again=false;
         for(uint32_t attempt=0;attempt<100 && !module_again;++attempt){frame(false);module_again=replaced(-.6f);}
         check(module_again,"and so does runtime enable");
+        // The probe's bone switch reaches the module's backend as it reaches the built-in one: the module
+        // asks the host for the live value (BUG-055; it kept the copy its entry made).
+        self_probe("{\"cmd\":\"set\",\"gpu_bones\":0}","character-module-cpu-bones-set.json");
+        check(self_probe("{\"cmd\":\"status\"}","character-module-cpu-bones.json").find("\"bones\":{\"gpu\":false")!=std::string::npos,
+              "the probe switches the module's bone import to the CPU");
+        self_probe("{\"cmd\":\"set\",\"gpu_bones\":1}","character-module-gpu-bones-set.json");
+        check(self_probe("{\"cmd\":\"status\"}","character-module-gpu-bones.json").find("\"bones\":{\"gpu\":true")!=std::string::npos,
+              "and back to the device");
         VK(vkResetCommandPool(g.device,g.pool,0));
         frame(false);
         check(replaced(-.6f),"command-pool reset recycles the module's snapshots");

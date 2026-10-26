@@ -387,7 +387,7 @@ void BoneMerge::status(JsonWriter& w)
     w.kb("gpu", live_gpu_bones()); w.kb("usable", usable_); w.kv("reason", reason_);
     w.kn("jobs", jobs_.load()); w.kn("dispatches", dispatches_.load()); w.kn("submissions", submissions_.load());
     w.kn("rings", rings_.load()); w.kn("ring_bytes", ring_bytes_.load());
-    w.kn("slot_waits", slot_waits_.load()); w.kn("failures", failures_.load());
+    w.kn("slot_waits", slot_waits_.load()); w.kn("failures", failures_.load()); w.kn("components_missing", missing_.load());
     const uint32_t count = ctx_->queue_count.load();
     w.kn("queues", count);
     uint64_t submitted = 0, completed = 0;

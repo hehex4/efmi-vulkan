@@ -31,11 +31,15 @@ STEPS = [
     ("source-defined INI evaluation", [os.path.join(ROOT, "scripts", "check_ini_evaluation.py")]),
     ("INI execution matrix", [os.path.join(ROOT, "scripts", "check_ini_execution_matrix.py")]),
     ("DX11 registers from SPIR-V", [os.path.join(ROOT, "scripts", "check_source_slots.py")]),
+    ("DX11 declarations from SPIR-V", [os.path.join(ROOT, "scripts", "check_source_declarations.py")]),
     ("Core facts from SPIR-V", [os.path.join(ROOT, "scripts", "check_core_facts.py")]),
     ("RabbitFX texture roles", [os.path.join(ROOT, "scripts", "check_texture_roles.py")]),
     ("installed Mods offline plans", [os.path.join(ROOT, "scripts", "check_mods_dry_run.py")]),
+    # --mod-first: no matched draw shows the game's mesh, not even while a new object is identified or
+    # an EFMI Mod registers with the Core's API (the user's bar; held instead, 2026-10-26).
     ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
-                                                      r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "300", "--check"]),
+                                                      r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "300", "--check",
+                                                      "--mod-first"]),
     # Si Lunabelle's optional guard runs the Core's spatial identification itself (D-086). A copy of that
     # Mod alone, so the step holds whichever Si Mod the user has enabled.
     ("captured frame with a Mod's own identification", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
@@ -47,6 +51,22 @@ STEPS = [
     ("captured frame with Present compute and owned vertex streams", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                                      r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
                                                                      "--no-refusal", "--only-mod", "Si\uff1aNightveilTrancer & Gui"]),
+    # The same Mod's parts read bones of several components; on two queues a recording draws parts whose
+    # other components another recording imports: every recording dispatches all of them (BUG-054), and
+    # the pictures with the bones on the GPU equal those with the CPU's master.
+    ("captured frame with bones across recordings", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                     r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
+                                                     "--two-queues", "--bones-identical", "--only-mod", "Si\uff1aNightveilTrancer & Gui"]),
+    # Tangtang's draw lists ask the game's shaders `vs->srv_stride(0) == 16`, `ps != 1718.2`: the
+    # declarations come from the pipeline's SPIR-V (D-124) and every matched draw plans.
+    ("captured frame with shader declaration queries", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                        r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk02", "--frames", "120", "--check",
+                                                        "--no-refusal", "--only-mod", "Tangtang - Uniform NSFW"]),
+    # A full card (the game leaves almost no device memory free): with pageable device memory the Mod
+    # still activates at its first match, as 3DMigoto creates resources whatever the free memory (D-122).
+    ("captured frame on a full card", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                       r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
+                                       "--reserve-mb", "1000000", "--only-mod", "Si\uff1aNightveilTrancer & Gui"]),
     # The game's two graphics queues (D-119): a frame's passes on two command buffers over both queues,
     # the queues swapping every frame, three frames in flight; the merged skeleton's import on the GPU
     # (D-117) must give the CPU import's pictures and complete on both queues.

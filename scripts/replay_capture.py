@@ -43,6 +43,7 @@ MODS = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Mods")
 ANY_COUNT = 0xFFFFFFFF            # a section matched by its hash alone (any index count)
 CORE = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Core\EFMI")
 SETTINGS = None  # --settings: a folder of persistent INI variable files copied into each run
+RESERVE_MB = None  # --reserve-mb: m2_reserve_mb for every run
 IDENTITY_BONES = 1024            # bones written as identity at each instance entry's offsets
 # The stand-in bone: the character meshes are stored Z-up and their skeleton turns them upright
 # (-90 degrees about X), so a bone that only does that shows the Mod's mesh standing in bind pose.
@@ -188,6 +189,7 @@ class Replay:
         self.snapshot_bytes = (bundle / "snapshots.bin").read_bytes()
         self.data = bytearray()
         self.buffers, self.images, self.cases, self.case_of = [], [], [], {}
+        self.bone_regions = []  # (buffer, offset, bytes) of the stand-in bones, for --animate-bones
         self.image_of, self.shared = {}, {}
         self.omitted = Counter()
         self.probe_vertices = False  # diagnosis: the original draws get a small known shape
@@ -298,6 +300,7 @@ class Replay:
                             room = max(0, min(len(identity), size - dst))
                             if room:
                                 self.buffers[item["buffer"]]["fills"].append((dst, src, room))
+                                self.bone_regions.append((item["buffer"], dst, room))
                 else:
                     self.omitted["descriptor type %d" % t] += 1
                     return None
@@ -358,6 +361,9 @@ def emit(replay: Replay, draws: list[dict]) -> str:
         fills = ",".join("{%du,%du,%du}" % f for f in b["fills"])
         lines.append("b.push_back({%du,{%s}});" % (b["size"], fills))
     lines.append("return b;}")
+    lines.append("static std::vector<ReplayBones> replay_bones(){return {")
+    lines += ["{%du,%du,%du}," % r for r in sorted(set(replay.bone_regions))]
+    lines.append("};}")
     lines.append("static std::vector<ReplayImage> replay_images(){return {")
     lines += ["{%du,%du,%du,%du,%du,%du,%du,%du}," % (i["format"], i["view_format"], i["type"], i["view_type"], i["layers"],
                                                      i["width"], i["height"], i["mips"]) for i in replay.images]
@@ -413,7 +419,8 @@ def dimension_policy() -> str:
 
 
 def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation: Path, open_tests: bool = False,
-        two_queues: bool = False, gpu_bones: bool | None = None, name: str | None = None) -> dict:
+        two_queues: bool = False, gpu_bones: bool | None = None, name: str | None = None, split_passes: bool = False,
+        animate_bones: bool = False) -> dict:
     from harness import layer_env
     folder = out / (name or ("enabled" if enabled else "disabled"))
     folder.mkdir(parents=True, exist_ok=True)
@@ -428,9 +435,12 @@ def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation
                  TEMP=str(folder), TMP=str(folder), TMPDIR=str(folder))
     if gpu_bones is not None:
         extra["EFMI_VK_M2_GPU_BONES"] = "1" if gpu_bones else "0"
+    if RESERVE_MB is not None:
+        extra["EFMI_VK_M2_RESERVE_MB"] = str(RESERVE_MB)
     env = layer_env(str(folder / "layer.log"), extra=extra)
     env["VK_LAYER_PATH"] = extra["VK_LAYER_PATH"]
-    flags = (["open"] if open_tests else []) + (["two-queues"] if two_queues else [])
+    flags = (["open"] if open_tests else []) + (["split-passes"] if split_passes else ["two-queues"] if two_queues else [])
+    flags += ["animate-bones"] if animate_bones else []
     result = subprocess.run([str(exe), str(out / "replay.bin"), str(frames)] + flags, cwd=folder, env=env,
                             capture_output=True, text=True, errors="replace", timeout=600)
     (folder / "stdout.txt").write_text((result.stdout + result.stderr).encode("ascii", "backslashreplace").decode(), encoding="ascii")
@@ -533,17 +543,26 @@ def main() -> int:
                     "as when an INI calls a library or asks a question the plan cannot answer (D-112)")
     ap.add_argument("--two-queues", action="store_true", help="the game's use of its two graphics queues (D-119): a frame's passes "
                     "split over two command buffers on the two queues, the queues swapping every frame, three frames in flight")
+    ap.add_argument("--mod-first", action="store_true", help="with --check: fail when a matched draw drew the game's mesh "
+                    "(kept by the Mod's lists, or before the object was the Mod's): the Mod is the first thing shown")
+    ap.add_argument("--reserve-mb", type=int, help="device memory the layer keeps free for the game (m2_reserve_mb); beyond the device's "
+                    "size it leaves no free memory, as a full card in the game (D-122: activation does not wait for it)")
+    ap.add_argument("--animate-bones", action="store_true", help="the stand-in bones move every frame, written with both queues "
+                    "idle (BUG-054): a draw reading another recording's older import then differs from the CPU import")
+    ap.add_argument("--split-passes", action="store_true", help="with two queues, every pass's draws split over the two command "
+                    "buffers (BUG-054): one recording draws components whose bones another recording imported")
     ap.add_argument("--bones-identical", action="store_true", help="also replay with the merged skeleton imported on the CPU "
                     "(m2_gpu_bones = 0) and, with --check, fail unless its pictures equal the GPU import's (D-117)")
     args = ap.parse_args()
-    global MODS, SETTINGS
+    global MODS, SETTINGS, RESERVE_MB
     MODS = args.mods or MODS
+    RESERVE_MB = args.reserve_mb
     if args.only_mod:
         MODS = args.mods = only_mod(args.only_mod)
     SETTINGS = args.settings
     dist = Path(os.environ.get("EFMI_VK_DIST", ROOT / "dist"))
     validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))
-    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else "") + ("-2q" if args.two_queues else ""))
+    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else "") + ("-split" if args.split_passes else "-2q" if args.two_queues else "") + ("-anim" if args.animate_bones else ""))
     out.mkdir(parents=True, exist_ok=True)
     sections, components = mod_sections(dist, out)
     replay = Replay(args.bundle, out)
@@ -590,7 +609,8 @@ def main() -> int:
     exe = build(out)
     results = {}
     for enabled in (False, True):
-        r = run(exe, out, dist, args.frames, enabled, validation, args.open_tests, args.two_queues)
+        r = run(exe, out, dist, args.frames, enabled, validation, args.open_tests, args.two_queues, split_passes=args.split_passes,
+                animate_bones=args.animate_bones)
         results[enabled] = r
         rep = r["status"].get("result", {}).get("replacement", {})
         counters = {k: v for k, v in rep.get("counters", {}).items() if v} if rep else {}
@@ -609,11 +629,13 @@ def main() -> int:
                    "counters": {k: v for k, v in r["status"].get("result", {}).get("replacement", {}).get("counters", {}).items() if v},
                    "last_reason": r["status"].get("result", {}).get("replacement", {}).get("last_reason", ""),
                    "translucency": r["status"].get("result", {}).get("replacement", {}).get("translucency", {}),
+                   "bones": r["status"].get("result", {}).get("replacement", {}).get("bones", {}),
                    "targets": shots.get(enabled, {})} for enabled, r in results.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
     cpu_bones = None
     if args.bones_identical:
-        cpu_bones = run(exe, out, dist, args.frames, True, validation, args.open_tests, args.two_queues, gpu_bones=False, name="enabled-cpu-bones")
+        cpu_bones = run(exe, out, dist, args.frames, True, validation, args.open_tests, args.two_queues, gpu_bones=False, name="enabled-cpu-bones",
+                        split_passes=args.split_passes, animate_bones=args.animate_bones)
         line = next((l for l in cpu_bones["output"].splitlines() if l.startswith("replay:")), "replay: no summary")
         gpu_shots = shots.get(True, {}); cpu_shots = pictures(cpu_bones["folder"]) if (cpu_bones["folder"] / "targets.json").is_file() else {}
         differing = sorted(n for n in gpu_shots if cpu_shots.get(n, {}).get("raw") != gpu_shots[n].get("raw"))
@@ -623,7 +645,7 @@ def main() -> int:
         summary["runs"]["enabled-cpu-bones"] = {"returncode": cpu_bones["returncode"], "replay": line, "differing": differing}
         (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
     if args.check:
-        problems = check(summary, draws, components)
+        problems = check(summary, draws, components, args.mod_first)
         if args.bones_identical:
             cpu = summary["runs"]["enabled-cpu-bones"]
             bones = results[True]["status"].get("result", {}).get("replacement", {}).get("bones", {})
@@ -649,9 +671,14 @@ def main() -> int:
     return 0 if all(r["returncode"] == 0 for r in results.values()) else 1
 
 
-def check(summary: dict, draws: list[dict], components: dict) -> list[str]:
+def check(summary: dict, draws: list[dict], components: dict, mod_first: bool = False) -> list[str]:
     problems = []
     runs = summary["runs"]
+    if mod_first:
+        counters = runs.get("enabled", {}).get("counters", {})
+        for name in ("kept_original", "original_before_shown"):
+            if counters.get(name):
+                problems.append("%d draws drew the game's mesh (%s)" % (counters[name], name))
     for name in ("disabled", "enabled"):
         run = runs.get(name, {})
         if run.get("returncode") != 0:
@@ -660,6 +687,10 @@ def check(summary: dict, draws: list[dict], components: dict) -> list[str]:
             problems.append("%s run: %s" % (name, run.get("replay") or "no summary"))
     if not runs.get("enabled", {}).get("counters", {}).get("replaced"):
         problems.append("no draw replaced")
+    # Every component a draw's vertices read bones from has its dispatch in the draw's recording (BUG-054).
+    missing = runs.get("enabled", {}).get("bones", {}).get("components_missing", 0)
+    if missing:
+        problems.append("%d draws read bones of a component their recording does not dispatch" % missing)
     order, drawn = {}, set()
     for d in draws:
         group = order.setdefault(d["group"], len(order))

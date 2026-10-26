@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <cmath>
 #include <map>
 #include <dbghelp.h>
 
@@ -29,6 +30,7 @@ static std::shared_ptr<efvk::ShaderInfo> shader_file(const char* path,uint32_t i
     if(!file)throw std::runtime_error("Archived shader read failed");return shader;
 }
 struct ReplayFill{uint64_t dst,src,size;};
+struct ReplayBones{uint64_t buffer,offset,size;}; // a stand-in bone region (animate-bones)
 struct ReplayBuffer{uint64_t size;std::vector<ReplayFill> fills;};
 struct ReplayImage{uint32_t format,view_format,type,view_type,layers,width,height,mips;};
 struct ReplayDescriptor{uint32_t set,binding,type,buffer,offset,range,image;};
@@ -214,7 +216,7 @@ static PFN_vkCmdClearDepthStencilImage pCmdClearDepthStencilImage=nullptr;
 struct Pipe {
     HistoricalCase c;
     std::vector<VkDescriptorSetLayout> sets;
-    VkPipelineLayout layout{};VkRenderPass pass{},replay{},keep{};VkPipeline pipeline{};
+    VkPipelineLayout layout{};VkRenderPass pass{},replay{},keep{},cont{};VkPipeline pipeline{};
     std::vector<VkShaderModule> modules;
     bool reversed_depth=false;
 };
@@ -258,8 +260,17 @@ int wmain(int argc,wchar_t** argv){
     // command buffers submitted to the two queues with a semaphore between them, the queues swapping
     // roles every frame, a semaphore chain from frame to frame, three frames in flight. The layer's
     // work in front of a submission must then hold on either queue with nothing crossing them.
-    bool open_tests=false,two_queues=false;
-    for(int a=3;a<argc;++a){const std::wstring flag=argv[a];if(flag==L"open")open_tests=true;else if(flag==L"two-queues")two_queues=true;}
+    // "split-passes" (with two queues): every pass's draws alternate between the two command buffers, the
+    // first command buffer's part of each pass where the pass begins, the second's in a pass instance that
+    // loads every attachment; a recording then draws components whose bones only the other recording
+    // imports, as the game records one character over several command buffers (BUG-054).
+    // "animate-bones": the stand-in bones move every frame (a translation that changes with the frame),
+    // written while every queue is idle, so the CPU import (at recording) and the GPU import (at
+    // execution) read the same pose; a draw that reads another recording's older import then shows
+    // a different pose than the CPU import (BUG-054).
+    bool open_tests=false,two_queues=false,split_passes=false,animate_bones=false;
+    for(int a=3;a<argc;++a){const std::wstring flag=argv[a];if(flag==L"open")open_tests=true;else if(flag==L"two-queues")two_queues=true;
+        else if(flag==L"split-passes")two_queues=split_passes=true;else if(flag==L"animate-bones")animate_bones=true;}
     const uint32_t W=960,H=600;
     try{
         if(argc<2)throw std::runtime_error("usage: replay_gpu replay.bin [frames]");
@@ -303,6 +314,9 @@ int wmain(int argc,wchar_t** argv){
                 a.loadOp=a.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_LOAD;a.initialLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             }
             CHECK_VK(replay.create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.keep));
+            // A pass continued in another command buffer: every attachment as the first part left it.
+            for(auto& a:replay.attachments){a.loadOp=a.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_LOAD;a.initialLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;}
+            CHECK_VK(replay.create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.cont));
             for(const auto& s:p.c.recipe.stages){
                 VkShaderModuleCreateInfo ci={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};ci.codeSize=s.shader->code.size()*4;ci.pCode=s.shader->code.data();
                 VkShaderModule m{};CHECK_VK(pCreateShaderModule(g.device,&ci,nullptr,&m));p.modules.push_back(m);
@@ -454,7 +468,19 @@ int wmain(int argc,wchar_t** argv){
         std::vector<uint32_t> group_order;for(const auto& d:draws)if(group_order.empty() || group_order.back()!=d.group)group_order.push_back(d.group);
         const size_t split_index=group_order.size()/2;
         auto cb_of_group=[&](uint32_t group){for(size_t k=0;k<group_order.size();++k)if(group_order[k]==group)return k<split_index?0u:1u;return 1u;};
-        VkCommandBuffer second[3]={};VkFence fences[3]={};VkSemaphore acquired[3]={},rendered[3]={},chain[3]={},halves[3]={};
+        // split-passes: each draw's half of its pass (0 the first half of the pass's draws, 1 the rest).
+        std::vector<uint32_t> part_of(draws.size(),0);
+        if(split_passes){std::map<uint32_t,std::vector<size_t>> members;for(size_t i=0;i<draws.size();++i)members[draws[i].group].push_back(i);
+            for(const auto& m:members)for(size_t k=0;k<m.second.size();++k)part_of[m.second[k]]=uint32_t(k%2);}
+        // The recording order: with split passes, the first command buffer is recorded whole before the
+        // second, as each of the game's threads records its own command buffer through.
+        std::vector<size_t> record_order;
+        for(uint32_t part=0;part<(split_passes?2u:1u);++part)
+            for(size_t i=0;i<draws.size();++i)if(!split_passes || part_of[i]==part)record_order.push_back(i);
+        VkCommandBuffer second[3]={};VkFence fences[3]={};VkSemaphore acquired[3]={},chain[3]={},halves[3]={};
+        // The presentation's semaphore per swap chain image: a presentation may still hold the one a frame
+        // slot would reuse.
+        std::vector<VkSemaphore> rendered(swap.images.size(),VK_NULL_HANDLE);
         auto fence_create=reinterpret_cast<PFN_vkCreateFence>(pGetDeviceProcAddr(g.device,"vkCreateFence"));
         auto fence_wait=reinterpret_cast<PFN_vkWaitForFences>(pGetDeviceProcAddr(g.device,"vkWaitForFences"));
         auto fence_reset=reinterpret_cast<PFN_vkResetFences>(pGetDeviceProcAddr(g.device,"vkResetFences"));
@@ -467,34 +493,47 @@ int wmain(int argc,wchar_t** argv){
                 CHECK_VK(pAllocateCommandBuffers(g.device,&ai,&second[r]));
                 VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};fi.flags=VK_FENCE_CREATE_SIGNALED_BIT;CHECK_VK(fence_create(g.device,&fi,nullptr,&fences[r]));
                 VkSemaphoreCreateInfo si={VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-                CHECK_VK(semaphore_make(g.device,&si,nullptr,&acquired[r]));CHECK_VK(semaphore_make(g.device,&si,nullptr,&rendered[r]));
+                CHECK_VK(semaphore_make(g.device,&si,nullptr,&acquired[r]));
                 CHECK_VK(semaphore_make(g.device,&si,nullptr,&chain[r]));CHECK_VK(semaphore_make(g.device,&si,nullptr,&halves[r]));
             }
+            VkSemaphoreCreateInfo si={VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+            for(auto& sem:rendered)CHECK_VK(semaphore_make(g.device,&si,nullptr,&sem));
         }
         for(unsigned f=0;f<frames;++f){
             pump();
             const unsigned slot=f%3;
             if(two_queues){CHECK_VK(fence_wait(g.device,1,&fences[slot],VK_TRUE,UINT64_MAX));CHECK_VK(fence_reset(g.device,1,&fences[slot]));}
-            const VkSemaphore acquire_sem=two_queues?acquired[slot]:swap.acquired,render_sem=two_queues?rendered[slot]:swap.rendered;
+            if(animate_bones){
+                CHECK_VK(pDeviceWaitIdle(g.device));
+                const float t=float(f);
+                const float row[12]={1,0,0,0.04f*std::sin(0.7f*t), 0,0,1,0.03f*std::cos(0.5f*t), 0,-1,0,0.02f*std::sin(0.3f*t)};
+                for(const auto& region:replay_bones())
+                    for(uint64_t at=0;at+sizeof(row)<=region.size;at+=sizeof(row))
+                        memcpy(static_cast<uint8_t*>(buffers[size_t(region.buffer)].mapped)+region.offset+at,row,sizeof(row));
+            }
+            const VkSemaphore acquire_sem=two_queues?acquired[slot]:swap.acquired;
             uint32_t image=0;CHECK_VK(swap.Acquire(g.device,swap.swapchain,UINT64_MAX,acquire_sem,VK_NULL_HANDLE,&image));
+            const VkSemaphore render_sem=two_queues?rendered[image]:swap.rendered;
             CHECK_VK(reset_pool(g.device,ring_pools[slot],0));
             VkCommandBuffer halves_cb[2]={ring[slot],two_queues?second[slot]:ring[slot]};
             auto cb=halves_cb[0];
             {VkCommandBufferBeginInfo bi={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};CHECK_VK(pBeginCommandBuffer(halves_cb[0],&bi));
              if(two_queues)CHECK_VK(pBeginCommandBuffer(halves_cb[1],&bi));}
-            uint32_t current=UINT32_MAX;
-            auto end_pass=[&]{if(current!=UINT32_MAX)pCmdEndRenderPass(cb);current=UINT32_MAX;};
-            for(size_t i=0;i<draws.size();++i){
+            uint32_t current=UINT32_MAX,current_part=UINT32_MAX;
+            auto end_pass=[&]{if(current!=UINT32_MAX)pCmdEndRenderPass(cb);current=current_part=UINT32_MAX;};
+            for(const size_t i:record_order){
                 const auto& d=draws[i];auto& p=pipes[d.pipeline];
-                if(d.group!=current){
-                    end_pass();current=d.group;auto& gr=groups[d.group];
-                    if(two_queues)cb=halves_cb[cb_of_group(d.group)];
+                if(d.group!=current || part_of[i]!=current_part){
+                    end_pass();current=d.group;current_part=part_of[i];auto& gr=groups[d.group];
+                    if(split_passes)cb=halves_cb[current_part];
+                    else if(two_queues)cb=halves_cb[cb_of_group(d.group)];
                     std::vector<VkClearValue> clears(gr.targets.size());
                     for(size_t a=0;a<gr.targets.size();++a){
                         if(depth_format(gr.targets[a].format))clears[a].depthStencil={gr.reversed?0.0f:1.0f,0};
                         else clears[a].color={{0,0,0,0}};
                     }
-                    VkRenderPassBeginInfo bi={VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};bi.renderPass=gr.keep?pipes[gr.pipe].keep:pipes[gr.pipe].replay;bi.framebuffer=gr.framebuffer;
+                    VkRenderPassBeginInfo bi={VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+                    bi.renderPass=current_part==1?pipes[gr.pipe].cont:gr.keep?pipes[gr.pipe].keep:pipes[gr.pipe].replay;bi.framebuffer=gr.framebuffer;
                     bi.renderArea.extent={W,H};bi.clearValueCount=static_cast<uint32_t>(clears.size());bi.pClearValues=clears.data();
                     pCmdBeginRenderPass(cb,&bi,VK_SUBPASS_CONTENTS_INLINE);
                 }
@@ -579,7 +618,8 @@ int wmain(int argc,wchar_t** argv){
         }
         CHECK_VK(pDeviceWaitIdle(g.device));
         if(two_queues)for(unsigned r=0;r<3;++r){fence_destroy(g.device,fences[r],nullptr);
-            for(auto sem:{acquired[r],rendered[r],chain[r],halves[r]})swap.DestroySemaphore(g.device,sem,nullptr);}
+            for(auto sem:{acquired[r],chain[r],halves[r]})swap.DestroySemaphore(g.device,sem,nullptr);}
+        for(auto sem:rendered)if(sem)swap.DestroySemaphore(g.device,sem,nullptr);
         // Targets and their formats for the caller to convert.
         efvk::JsonWriter index;index.begin_object();index.kn("width",W);index.kn("height",H);index.key("targets");index.begin_array();
         for(size_t i=0;i<readbacks.size();++i){
@@ -599,7 +639,7 @@ int wmain(int argc,wchar_t** argv){
         pDestroyDescriptorPool(g.device,pool,nullptr);pDestroySampler(g.device,sampler,nullptr);
         for(auto v:views)pDestroyImageView(g.device,v,nullptr);
         for(auto& p:pipes){pDestroyPipeline(g.device,p.pipeline,nullptr);for(auto m:p.modules)pDestroyShaderModule(g.device,m,nullptr);
-            pDestroyRenderPass(g.device,p.pass,nullptr);pDestroyRenderPass(g.device,p.replay,nullptr);pDestroyRenderPass(g.device,p.keep,nullptr);pDestroyPipelineLayout(g.device,p.layout,nullptr);
+            pDestroyRenderPass(g.device,p.pass,nullptr);pDestroyRenderPass(g.device,p.replay,nullptr);pDestroyRenderPass(g.device,p.keep,nullptr);pDestroyRenderPass(g.device,p.cont,nullptr);pDestroyPipelineLayout(g.device,p.layout,nullptr);
             for(auto s:p.sets)pDestroyDescriptorSetLayout(g.device,s,nullptr);}
         swap.DestroySemaphore(g.device,swap.acquired,nullptr);swap.DestroySemaphore(g.device,swap.rendered,nullptr);
         swap.DestroySwapchain(g.device,swap.swapchain,nullptr);swap.DestroySurface(g.instance,swap.surface,nullptr);

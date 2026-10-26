@@ -76,6 +76,10 @@ namespace {
 constexpr float kCellSize = 0.125f;
 constexpr float kBaseRadius = 3.0f;
 constexpr uint32_t kIdentifyingComponents = 4;
+// A new object's draws that would be the game's mesh before any of them was the Mod's are skipped for
+// at most this many presents (half a second at 60): the Core's identification and a Mod's registration
+// with the Core's API take frames the original shows nothing of, the game recording frames ahead.
+constexpr uint64_t kFreshPresents = 30;
 constexpr uint64_t kExpiryFrames = 4;
 // Two clocks. The character's frame is one recording of the command buffer its draws are in: the
 // game records all draws of a character for one frame into one command buffer, and it starts on
@@ -141,7 +145,7 @@ enum Counter : uint32_t {
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
     C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_SNAPSHOT_COPIES, C_IDENTITY_ADOPTED,
-    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_BATCH_MADE, C_COUNT
+    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_BATCH_MADE, C_HELD, C_ORIGINAL_FIRST, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -150,7 +154,7 @@ const char* const kCounterNames[C_COUNT] = {
     "restored_set3", "refused_material", "refused_image", "image_pending", "material_items", "dimension_zero_items",
     "material_derived", "material_inherited", "identities_created", "identities_expired", "textured",
     "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames", "snapshot_copies", "identities_adopted", "preparing",
-    "translucent", "bone_jobs", "bone_ring_busy", "batches_made_at_draw"
+    "translucent", "bone_jobs", "bone_ring_busy", "batches_made_at_draw", "held_before_shown", "original_before_shown"
 };
 // Where a matched draw's time goes (D-099): microseconds per stage of record(), in the status.
 enum Stage : uint32_t { S_LOCK, S_IDENTIFY, S_BONES, S_PLAN, S_MATERIALS, S_VARIANTS, S_OWNER, S_APPEND, S_SNAPSHOT, S_EMIT, S_COUNT };
@@ -211,6 +215,10 @@ struct Identity {
     std::shared_ptr<BoneRing> ring;
     uint32_t ring_slot = UINT32_MAX;
     bool gpu_frame = false;
+    bool shown = false;              // a draw of this object was the Mod's (kFreshPresents)
+    // Per component, its latest import as a dispatch (the game's bone range and rows it read), with the
+    // ring it was made for; empty where the component was not imported on the device.
+    std::vector<BoneJob> bone_sources;
 };
 
 struct IndexKey {
@@ -284,6 +292,30 @@ struct CharacterCommand : CommandOwner {
     // draws read, a later import of a component replacing the earlier (a lower LOD replacing a
     // higher), as the CPU import does. Taken at the recording's submission; dropped with a reset.
     std::vector<BoneJob> bone_jobs;
+    // What the recording's draws read: per ring slot, the components (BUG-054).
+    struct BoneNeed { const BoneRing* ring; uint32_t slot; uint64_t components; };
+    std::vector<BoneNeed> bone_needs;
+    void need_bones(const BoneRing* ring, uint32_t slot, uint64_t components)
+    {
+        if (!components) return;
+        for (auto& need : bone_needs) if (need.ring == ring && need.slot == slot) { need.components |= components; return; }
+        bone_needs.push_back({ring, slot, components});
+    }
+    // The components the recording's draws read that none of its dispatches writes into their slot.
+    uint64_t missing_bones() const
+    {
+        uint64_t missing = 0;
+        for (const auto& need : bone_needs)
+            for (uint32_t c = 0; c < 64; ++c)
+                if ((need.components >> c & 1) && !has_bone_job(need.ring, need.slot, c)) ++missing;
+        return missing;
+    }
+    bool has_bone_job(const BoneRing* ring, uint32_t slot, uint32_t component) const
+    {
+        for (const auto& have : bone_jobs)
+            if (have.ring.get() == ring && have.slot == slot && have.component == component) return true;
+        return false;
+    }
     void add_bone_job(const BoneJob& job)
     {
         for (auto& have : bone_jobs)
@@ -296,7 +328,7 @@ struct CharacterCommand : CommandOwner {
         idle_recordings = used ? 0 : idle_recordings + 1;
         used = false; owned.clear();
         for (auto& job : bone_jobs) job.ring->unpend(job.slot);
-        bone_jobs.clear();
+        bone_jobs.clear(); bone_needs.clear();
         for (auto& held : rings) held.first->release(held.second);
         rings.clear();
         variants.clear(); snapshots->recycle_completed();
@@ -387,8 +419,13 @@ public:
     struct RoleAnswer { int32_t roles[3] = {-1, -1, -1}; };
     std::unordered_map<RoleKey, RoleAnswer, RoleKeyHash> role_cache;
     // Under the mod lock: what the original Core reads off each pipeline's vertex shader (D-079):
-    // the instance-config cb slot and whether the bones come from the rolling vs-t0 buffer.
-    struct SourceFacts { int32_t vs_config_slot = -1; bool rolling_bones = false; };
+    // the instance-config cb slot and whether the bones come from the rolling vs-t0 buffer; and the
+    // DX11 registers of each graphics stage (vertex, hull, domain, geometry, pixel) for a Mod's
+    // declaration queries (D-124), null where the stage is absent or the rule refused its SPIR-V.
+    struct SourceFacts {
+        int32_t vs_config_slot = -1; bool rolling_bones = false;
+        std::array<std::shared_ptr<const std::vector<efmi::gpu::SourceRegister>>, 5> registers;
+    };
     std::unordered_map<uint32_t, SourceFacts> source_facts;
     uint64_t facts_unknown = 0;
     uint64_t texture_queries = 0, texture_unknown = 0;
@@ -688,6 +725,10 @@ public:
         const uint64_t now = frame.load(std::memory_order_relaxed);
         if (now < next_memory_check) return false;
         next_memory_check = now + 60;
+        // With pageable device memory the system pages what is used least, ours first by priority, as
+        // WDDM does for 3DMigoto, whose resources are created at first use whatever the free memory:
+        // a character waiting here stayed the game's mesh, or appeared late (D-122).
+        if (device->pageable_memory) return true;
         uint64_t free_bytes = 0, heap_bytes = 0;
         if (!device_local_free(device, free_bytes, heap_bytes)) return true;
         const uint64_t reserve = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(512ull << 20, heap_bytes / 16);
@@ -1137,7 +1178,7 @@ public:
             bool expired = false;
             if (identity.used && unseen && clock - identity.last_us > g_cfg.m2_identity_expiry_ms * 1000) {
                 identity.used = false; expired = true;
-                identity.ring.reset(); identity.gpu_frame = false;
+                identity.ring.reset(); identity.gpu_frame = false; identity.bone_sources.clear();
                 ++counters[C_IDENTITY_EXPIRED];
             }
             if ((identity.used || expired) && identity.custom && distance < near_distance) {
@@ -1182,7 +1223,7 @@ public:
             }
             std::string reason;
             if (!vacant->skeleton.configure(package.bones, 1, ranges, reason)) { note(reason); return nullptr; }
-            vacant->used = true; vacant->custom = false; vacant->seen = 0;
+            vacant->used = true; vacant->custom = false; vacant->shown = false; vacant->seen = 0; vacant->bone_sources.clear();
             vacant->first_frame = now; vacant->first_present = present; vacant->update_frame = 0;
             vacant->id = next_identity++; vacant->generation = 0;
             vacant->coverage.assign(package.components.size(), 0);
@@ -1235,9 +1276,11 @@ public:
         if (remapped && !ensure_remaps()) return false;
         BoneJob& job = scratch_bone_job;
         job.ring = identity.ring; job.slot = identity.ring_slot; job.remaps = remapped ? bone_remaps : nullptr; job.component = component_index;
-        job.source = bones.buffer; job.source_offset = bones.off; job.source_size = bones.size;
+        job.source = bones.buffer; job.source_id = bones.buffer_id; job.source_offset = bones.off; job.source_size = bones.size;
         job.rows[0] = offsets[0]; job.rows[1] = offsets[1];
         job.first = component.first; job.count = component.count; job.poses = dynamic; job.remap = remapped;
+        if (identity.bone_sources.size() < package.components.size()) identity.bone_sources.resize(package.components.size());
+        identity.bone_sources[component_index] = job;
         scratch_bone_job_ready = true;
         ++counters[C_BONE_JOBS];
         return true;
@@ -1264,7 +1307,8 @@ public:
     // registers (D-076), kept only where they name what the renderer itself reads: the window at
     // set 2, binding 0 (the instance entry) and the bone buffer the bone site found. Otherwise none,
     // and the original Core leaves the mesh to the game.
-    SourceFacts facts_of(const PipeInfo& pipe, const BoneSite& site)
+    // The reference stays valid until the next call.
+    const SourceFacts& facts_of(const PipeInfo& pipe, const BoneSite& site)
     {
         const auto known = source_facts.find(pipe.id);
         if (known != source_facts.end()) return known->second;
@@ -1272,19 +1316,23 @@ public:
         SourceFacts facts;
         if (pipe.recipe)
             for (const auto& stage : pipe.recipe->stages) {
-                if (stage.stage != VK_SHADER_STAGE_VERTEX_BIT || !stage.shader) continue;
-                std::vector<efmi::gpu::SourceRegister> registers;
+                static const VkShaderStageFlagBits order[] = {VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+                    VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, VK_SHADER_STAGE_GEOMETRY_BIT, VK_SHADER_STAGE_FRAGMENT_BIT};
+                const auto at = std::find(std::begin(order), std::end(order), stage.stage);
+                if (at == std::end(order) || !stage.shader) continue;
+                auto registers = std::make_shared<std::vector<efmi::gpu::SourceRegister>>();
                 std::string why;
-                if (!efmi::gpu::source_registers(stage.shader->code, registers, why)) break;
-                const auto core = efmi::gpu::core_source_facts(registers);
+                if (!efmi::gpu::source_registers(stage.shader->code, *registers, why)) continue;
+                facts.registers[size_t(at - std::begin(order))] = registers;
+                if (stage.stage != VK_SHADER_STAGE_VERTEX_BIT) continue;
+                const auto core = efmi::gpu::core_source_facts(*registers);
                 if (core.config && core.config->set == 2 && core.config->binding == 0) {
                     facts.vs_config_slot = core.vs_config_slot;
                     facts.rolling_bones = core.rolling_bones && site.ok && core.bones->set == site.set && core.bones->binding == site.binding;
                 }
             }
         if (!facts.rolling_bones) ++facts_unknown;
-        source_facts[pipe.id] = facts;
-        return facts;
+        return source_facts[pipe.id] = std::move(facts);
     }
 
     // The draw matched `section_index` of the package (its hash, count and first index checked by the
@@ -1330,10 +1378,14 @@ public:
             logf("owned GPU work of replaced draws stopped: %s", reason.c_str());
         }
     }
-    // The draw's render targets for `@oN` (D-087), from its pipeline's subpass.
+    // The draw's render targets for `@oN` (D-087), from its pipeline's subpass, and its shader stages
+    // for `vs` and `ps` (D-089).
     static void render_targets(const PipeInfo& pipe, efmi::frontend::RuntimeDraw& request)
     {
-        if (!pipe.recipe || !pipe.recipe->render_pass || pipe.recipe->subpass >= pipe.recipe->render_pass->subpasses.size()) return;
+        if (!pipe.recipe) return;
+        request.shader_stages = 0;
+        for (const auto& stage : pipe.recipe->stages) request.shader_stages |= uint32_t(stage.stage);
+        if (!pipe.recipe->render_pass || pipe.recipe->subpass >= pipe.recipe->render_pass->subpasses.size()) return;
         const auto& sub = pipe.recipe->render_pass->subpasses[pipe.recipe->subpass];
         uint32_t mask = 0;
         for (size_t i = 0; i < sub.colors.size() && i < 8; ++i)
@@ -1341,8 +1393,6 @@ public:
         if (sub.has_depth && sub.depth.attachment != VK_ATTACHMENT_UNUSED) mask |= 1u << 8;
         request.targets_known = true; request.render_targets = mask;
         request.render_pass = uint64_t(pipe.recipe->render_pass->id) << 8 | pipe.recipe->subpass;
-        request.shader_stages = 0;
-        for (const auto& stage : pipe.recipe->stages) request.shader_stages |= uint32_t(stage.stage);
     }
     // The application's draw made again with the Mod's textures (D-083). Caller holds res_mx and
     // mod_mx; `list` is a texture-only list of the program.
@@ -1492,6 +1542,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
 {
     if (!enabled.load(std::memory_order_relaxed) || !cache) return false;
     bool gpu_draw = false; // this draw binds the device's merged skeleton (D-117) rather than the CPU master
+    uint64_t live_sources = 0; // components of the list imported on the device from a buffer the game still has (BUG-054)
 
     ThreadTrace* const trace = device->trace ? device->trace() : nullptr;
     const uint64_t entered_us = host_time_us();
@@ -1682,8 +1733,12 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 ++counters[C_IDENTIFYING];
                 // As the Core (SpatialIdentification.ini): an object's first frame is skipped, not drawn as
                 // the game's, so a character never shows the game's mesh before the Mod's (D-103); from
-                // the next frame on an object still unidentified is the game's, as there.
-                return present == identity->first_present;
+                // the next frame on an object still unidentified is the game's, as there, except while a
+                // new object was never the Mod's yet (kFreshPresents).
+                if (present == identity->first_present) return true;
+                if (!identity->shown && present - identity->first_present < kFreshPresents) { ++counters[C_HELD]; return true; }
+                if (!identity->shown) ++counters[C_ORIGINAL_FIRST];
+                return false;
             }
         }
         list = &package.lists[component.lists[lod]];
@@ -1736,11 +1791,19 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
                 return pixel_texture(r, slot, bound, value, why); };
             request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
-            {
-                const SourceFacts facts = facts_of(pipe->second, site);
-                request.source_vs_config_slot = facts.vs_config_slot;
-                request.rolling_bone_source = facts.rolling_bones;
-            }
+            const SourceFacts& facts = facts_of(pipe->second, site);
+            request.source_vs_config_slot = facts.vs_config_slot;
+            request.rolling_bone_source = facts.rolling_bones;
+            request.source_srv = [&facts](wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& why) {
+                const wchar_t* names = L"vhdgp";
+                const wchar_t* at = stage ? wcschr(names, stage) : nullptr;
+                const auto* registers = at ? facts.registers[size_t(at - names)].get() : nullptr;
+                if (!registers) { why = "the stage's SPIR-V registers are not known"; return false; }
+                efmi::gpu::SourceSrvDeclaration declaration;
+                if (!efmi::gpu::source_srv_declaration(*registers, slot, declaration, why)) return false;
+                type = declaration.type; dimension = declaration.dimension; stride = declaration.stride;
+                return true;
+            };
             bool skip = false, added = false, textures = false; std::string reason;
             if (!plan_draw(request, runtime_list, skip, added, reason, &pipe->second.recipe->vertex, &textures))
                 return refuse(C_STATE, "INI plan: " + reason);
@@ -1749,10 +1812,16 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 if (!textures) {
                     static std::mutex kept_mx; static std::set<uint32_t> kept_logged;
                     { std::lock_guard<std::mutex> hold(kept_mx); if (kept_logged.insert(section->hash).second) logf("character draw kept the game's: section %08x (count %u)", section->hash, section->match_count); }
+                    // A new object the Mod has not drawn yet (its registration with the Core takes a
+                    // Present): skipped rather than the game's mesh, for kFreshPresents at most.
+                    if (!identity->shown && present - identity->first_present < kFreshPresents) { ++counters[C_HELD]; return true; }
+                    if (!identity->shown) ++counters[C_ORIGINAL_FIRST];
                     ++counters[C_KEPT]; return false;
                 }
                 if (added && !refresh_materials()) return false;
-                return record_textures(cb, r, pipe->second, static_cast<uint32_t>(section - package.sections.data()), present, runtime_list);
+                const bool textured = record_textures(cb, r, pipe->second, static_cast<uint32_t>(section - package.sections.data()), present, runtime_list);
+                if (textured) identity->shown = true;
+                return textured;
             }
             if (added && !refresh_materials()) return false;
             list = &runtime_list;
@@ -1761,6 +1830,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!list->count) { if (!gate_open) return gated(); ++counters[C_HIDDEN]; return true; }
         for (uint32_t c = 0; c < package.components.size(); ++c)
             if ((list->required >> c & 1) && (identity->coverage[c] & dynamic) != dynamic) { ++counters[C_INCOMPLETE]; return false; }
+        // Under the tracker's lock: which required components' latest device imports read a buffer the game
+        // still has (the tracker's id tells a reused handle apart), for the recording's dispatches below.
+        if (gpu_draw)
+            for (uint32_t c = 0; c < identity->bone_sources.size() && c < 64; ++c) {
+                if (!(list->required >> c & 1) || !identity->bone_sources[c].ring) continue;
+                const auto alive = device->bufs.find(identity->bone_sources[c].source);
+                if (alive != device->bufs.end() && alive->second.id == identity->bone_sources[c].source_id) live_sources |= 1ull << c;
+            }
         // The private set is bound right above the pipeline's own sets: slot 3 for most character
         // pipelines, slot 4 for the four-set ones (the game's visibility pass among them).
         const uint32_t own = static_cast<uint32_t>(pipe->second.layout->sets.size());
@@ -1953,6 +2030,21 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!arena.append_external(ring->buffer, ring->slot_stride * identity->ring_slot, ring->slot_bytes, patched, views, out)) return false;
         command_owner->hold(ring, identity->ring_slot);
         if (scratch_bone_job_ready) command_owner->add_bone_job(scratch_bone_job);
+        // The components whose bones the list's vertices read and that were imported on the device: the
+        // recording's dispatches must cover them by its submission (BUG-054).
+        // A component this recording does not draw (yet) gets its latest import, made by another recording
+        // or an earlier frame, as the CPU master holds it at this draw; the component's own import in this
+        // recording, when it comes, replaces it.
+        uint64_t needed = 0;
+        for (uint32_t c = 0; c < identity->bone_sources.size() && c < 64; ++c) {
+            if (!(list->required >> c & 1) || !identity->bone_sources[c].ring) continue;
+            needed |= 1ull << c;
+            if (command_owner->has_bone_job(ring.get(), identity->ring_slot, c) || !(live_sources >> c & 1)) continue;
+            BoneJob job = identity->bone_sources[c];
+            job.ring = ring; job.slot = identity->ring_slot;
+            command_owner->add_bone_job(job);
+        }
+        command_owner->need_bones(ring.get(), identity->ring_slot, needed);
         return true;
     };
     for (uint32_t i = 0; i < list->count; ++i) {
@@ -2009,6 +2101,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     }
     lap(S_EMIT);
     ++counters[C_REPLACED];
+    if (identity) identity->shown = true;
     if (material_origin) ++counters[material_origin == 1 ? C_DERIVED : C_INHERITED];
     counters[C_ITEMS] += list->count;
     for (const auto* plan : material_plans) {
@@ -2858,6 +2951,8 @@ VkResult character_submit(CharacterBackend& b, VkQueue q, uint32_t count, CmdBuf
             for (auto& owner : cbs[i]->owners) {
                 if (!owner || std::find(keys.begin(), keys.end(), owner->backend) == keys.end()) continue;
                 auto& mine = static_cast<CharacterCommand&>(*owner);
+                if (const uint64_t missing = mine.missing_bones()) b.bone_merge->note_missing(missing);
+                mine.bone_needs.clear();
                 if (mine.bone_jobs.empty()) continue;
                 jobs.insert(jobs.end(), std::make_move_iterator(mine.bone_jobs.begin()), std::make_move_iterator(mine.bone_jobs.end()));
                 mine.bone_jobs.clear();

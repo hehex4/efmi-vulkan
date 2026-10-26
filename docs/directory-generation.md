@@ -173,7 +173,8 @@ their hash alone.
   cannot see: inert`), and the rest of the Mod loads.
 - Consistently, `vs` and `ps` in a replaced draw's plan read the game's shaders as named by no
   ShaderOverride: 0 for a stage the pipeline has, -0 for one it has not. Declaration queries on
-  the game's shaders still refuse. `oN` reads -0 for a location the subpass leaves unused and 0
+  the game's shaders answer t registers from the SPIR-V where it decides them and refuse
+  otherwise (D-124, docs/source-slots.md). `oN` reads -0 for a location the subpass leaves unused and 0
   for a bound one. `null` reads as the original finds it, no resource (-0, identity 0), so
   `X === null` no longer refuses a plan.
 - Effect: Xaihi's two skipped pixel shaders draw as the game draws them; Yvonne's translucent part

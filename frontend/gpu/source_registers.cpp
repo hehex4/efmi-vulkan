@@ -140,6 +140,10 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
                     if (last != types.end() && (last->second.op == OpTypeRuntimeArray || last->second.op == OpTypeArray)) {
                         const auto stride = array_strides.find(a.back());
                         if (stride != array_strides.end()) r.stride = stride->second;
+                        const auto element = last->second.operands.empty() ? types.end() : types.find(last->second.operands[0]);
+                        // DXC compiles a byte address buffer as an array of uint, as a structured buffer of uint.
+                        r.words = element != types.end() && element->second.op == OpTypeInt && element->second.operands.size() >= 2 &&
+                                  element->second.operands[0] == 32 && element->second.operands[1] == 0;
                     }
                 }
             } else if (v.storage == StorageUniform) {
@@ -180,6 +184,27 @@ const SourceRegister* find_source_register(const std::vector<SourceRegister>& re
     for (const auto& r : registers)
         if (r.letter == letter && index >= r.index && index - r.index < r.count) return &r;
     return nullptr;
+}
+
+bool source_srv_declaration(const std::vector<SourceRegister>& registers, uint32_t slot, SourceSrvDeclaration& out, std::string& reason)
+{
+    const auto* r = find_source_register(registers, 't', slot);
+    if (!r) { reason = "no t register in the SPIR-V (a DX11 build may declare more)"; return false; }
+    out = {};
+    if (r->kind == SourceRegister::TexelSrv) { out.type = 1; out.dimension = 1; return true; }
+    if (r->kind == SourceRegister::BufferSrv) {
+        if (r->words || !r->stride) { reason = "a buffer of 32-bit words: raw or structured is not decided"; return false; }
+        out.type = 2; out.dimension = 1; out.stride = r->stride; return true;
+    }
+    // SPIR-V Dim 0 1D, 1 2D, 2 3D, 3 cube; arrayed and multisampled as DX11's view dimensions.
+    static const struct { uint32_t dim; bool arrayed, multisampled; uint32_t dimension; } views[] = {
+        {0, false, false, 2}, {0, true, false, 3}, {1, false, false, 4}, {1, true, false, 5}, {1, false, true, 6}, {1, true, true, 7},
+        {2, false, false, 8}, {3, false, false, 9}, {3, true, false, 10}};
+    for (const auto& v : views)
+        if (r->kind == SourceRegister::ImageSrv && v.dim == r->dim && v.arrayed == r->arrayed && v.multisampled == r->multisampled) {
+            out.type = 1; out.dimension = v.dimension; return true;
+        }
+    reason = "an image of a kind DX11 has no view for"; return false;
 }
 
 CoreSourceFacts core_source_facts(const std::vector<SourceRegister>& registers)

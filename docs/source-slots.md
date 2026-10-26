@@ -37,11 +37,39 @@ file from catalogues and their capture bundles.
 Unit tests compile an own HLSL fixture with DXC and check kinds, order, array counts and register
 numbers of the parser.
 
+## Declarations (D-124)
+
+`vs->srv_type(n)`, `srv_stride(n)` and `srv_dimension(n)` read the declaration of register tN as
+the original's ByteCodeReader takes it off the shader's DXBC. The register above gives it:
+
+- an image: typed (1), its view dimension from Dim, Arrayed and MS (2D 4, 2D array 5, 3D 8, cube 9,
+  cube array 10, ...);
+- a texel buffer: typed (1), dimension buffer (1);
+- a read-only storage buffer: structured (2), dimension buffer (1), stride its array stride; except
+  an array of 32-bit unsigned words, which DXC makes of a ByteAddressBuffer and of a
+  StructuredBuffer<uint> alike: not decided;
+- a slot without a register: not decided.
+
+`frontend/gpu/source_registers.cpp` (`source_srv_declaration`); `efmi_vk_character_test
+--srv-declarations` prints it per module. `scripts/check_source_declarations.py` (suite step)
+compares every answer with the DXBC of the paired catalogue (2026-10-19, 180 shader pairs: 59
+vertex, 121 pixel): all 1555 answers equal the DX11 declaration. Of the 146 undecided word
+buffers DX11 declares 74 structured and 72 raw, so neither answer would be right. The DX11 builds
+of the pixel shaders declare 554 registers their SPIR-V lacks, in 87 pairs (from t60 upward in
+84, from t3 in 3), which is why a slot without a register is not taken as undeclared. 5 registers only
+the SPIR-V build has (a vertex t0 in two pairs of one DX11 shader, a pixel t12 or t13 in three) read
+as declared where DX11 would answer none.
+
+Constant buffer declarations are not answered: FXC declares the highest vector a shader reads
+(smaller than the SPIR-V block for 641 of 968 paired buffers, larger for 10), and the cb numbering
+is checked by size only.
+
 ## Limits
 
 - A shader whose DX11 build declares a resource the SPIR-V does not (or the other way round)
-  would shift the following registers. None was seen in 258 shaders; the check would show it as a
-  wrong register.
-- An explicit `register()` in the game's source would override the order. None was seen.
+  would shift the following registers. The DXBC comparison above found such registers only after
+  the SPIR-V's last one or where DX11 leaves a gap, never shifting a later register.
+- The DX11 builds use explicit `register()` assignments for some textures (t60 and up, the gaps at
+  t12 and t13); the SPIR-V builds do not declare those textures.
 - Constant buffer member layouts differ (the Vulkan blocks are padded), so byte offsets inside a
   window still need translation where a Mod reads game constants.

@@ -82,6 +82,11 @@ struct RuntimeDraw {
     // lightmap and the normal map its fragment shader samples, -1 for a role it has not. False:
     // not known, and the RabbitFX library binds nothing.
     std::function<bool(int32_t roles[3], std::string& reason)> texture_roles;
+    // The DX11 declaration of t register `slot` of the draw's shader at `stage` (L'v', L'h', L'd',
+    // L'g', L'p') as the original reads it off DXBC, for `vs->srv_type(n)`, `srv_stride` and
+    // `srv_dimension` (D-124): the original's ShaderResourceType, D3D_SRV_DIMENSION and stride.
+    // False: not known, and the query refuses.
+    std::function<bool(wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& reason)> source_srv;
     // The renderer's instance entry of this single-instance draw (the 64 floats per instance the
     // original Core reads from `Original_VS_CB`, its translation at floats 12 to 14), valid during the
     // call; a Mod that runs the Core's spatial identification itself reads it (D-086). Null: none.
@@ -94,7 +99,7 @@ struct RuntimeDraw {
     uint32_t render_targets = 0;
     uint64_t render_pass = 0;
     // The shader stages of the draw's pipeline, as Vulkan stage bits (vertex 1, geometry 8,
-    // fragment 16), known with the render targets (D-089).
+    // fragment 16) (D-089); 0 when not known.
     uint32_t shader_stages = 0;
     // What a library's shader hooks see of this draw under DX11, from the host's Vulkan pipeline
     // (D-113): its vertex shader has the output interface of the game's lit character vertex shader.

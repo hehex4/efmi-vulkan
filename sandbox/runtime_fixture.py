@@ -128,8 +128,11 @@ filename = missing-unused.dds
 """
     text += "\n".join(declarations) + "\n"
 
-    def draw(position, blend):
-        return f"vb0 = ResourceS{position}\nvb1 = ResourceS2\nvb2 = ResourceS{blend}\nvb3 = ResourceS{position}\ndrawindexed = 3,0,0\n"
+    # `vb3 = vb0` takes the buffer bound at vb0 by reference (the original's default between two vertex
+    # slots), as Tangtang's lists do; the picture is the same as with vb3 named directly.
+    def draw(position, blend, copy=False):
+        vb3 = "vb0" if copy else f"ResourceS{position}"
+        return f"vb0 = ResourceS{position}\nvb1 = ResourceS2\nvb2 = ResourceS{blend}\nvb3 = {vb3}\ndrawindexed = 3,0,0\n"
 
     text += r"""
 [CommandListDraw0]
@@ -141,13 +144,14 @@ else
  ps-t1 = ResourceGreen
 endif
 ps-t18 = ResourceGreen
+vb2->ElementFormat(BLENDINDICES, 0) = R16G16B16A16_UINT
 """ + draw(3, 4)
     text += r"""
 [CommandListDraw1]
 run = CommandList\EFMIv1\OverrideTextures
 ib = ResourceS1
 ps-t1 = ResourceGreen
-""" + draw(5, 6) + "ps-t1 = null\n" + draw(7, 8)
+""" + draw(5, 6) + "ps-t1 = null\n" + draw(7, 8, copy=True)
     text += "\n[CommandListDraw2]\nrun = CommandList\\EFMIv1\\OverrideTextures\n"
     (folder / "mod.ini").write_text(text, encoding="ascii")
     (folder / "keys.txt").write_text("1\n", encoding="ascii")

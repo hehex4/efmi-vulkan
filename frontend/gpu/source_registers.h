@@ -22,6 +22,7 @@ struct SourceRegister {
     bool arrayed = false, multisampled = false;
     uint32_t bytes = 0;     // a constant buffer: its block's size (last member's offset plus its size)
     uint32_t stride = 0;    // a buffer view: the array stride of its block's last member, 0 when none
+    bool words = false;     // a buffer view whose elements are single 32-bit unsigned integers
 };
 
 // Every resource variable with a binding, numbered by the rule. False (output unchanged) for input
@@ -31,6 +32,19 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
 // The resource that holds a register, or nullptr. A register inside an array returns the array;
 // the caller decides whether it can address one element.
 const SourceRegister* find_source_register(const std::vector<SourceRegister>& registers, char letter, uint32_t index);
+
+// The DX11 declaration of t register `slot` as the original reads it off the shader's DXBC
+// (ByteCodeReader: dcl_resource, dcl_resource_raw, dcl_resource_structured) for `vs->srv_type(n)`,
+// `srv_stride` and `srv_dimension` (D-124), decided by the register above, in the original's values:
+// type 1 typed, 2 structured, 3 raw (ShaderResourceType); dimension a D3D_SRV_DIMENSION (1 buffer,
+// 2 1D, 3 1D array, 4 2D, 5 2D array, 6 2D MS, 7 2D MS array, 8 3D, 9 cube, 10 cube array); stride
+// for a structured buffer, else 0. Checked against the DXBC of the paired catalogue
+// (scripts/check_source_declarations.py). False where SPIR-V does not decide it: a slot without a
+// register (the DX11 builds of the game's pixel shaders declare registers their SPIR-V lacks, t60 and
+// up), a buffer of 32-bit words (a byte address buffer and a structured buffer of uint compile
+// alike), an image of a kind DX11 has no view for.
+struct SourceSrvDeclaration { uint32_t type = 0, dimension = 0, stride = 0; };
+bool source_srv_declaration(const std::vector<SourceRegister>& registers, uint32_t slot, SourceSrvDeclaration& out, std::string& reason);
 
 // What the original EFMIv1 Core reads off a draw's vertex shader before it touches a mesh (D-079),
 // decided by its own rules on the registers above: Component_ReadConfig takes the first of vs-cb2,

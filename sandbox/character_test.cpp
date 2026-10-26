@@ -11,6 +11,7 @@
 #include "../frontend/gpu/texture_roles.h"
 #include "../layer/src/json.h"
 #include "variant_fixture.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -32,6 +33,26 @@ static std::filesystem::path path_argument(int index)
 }
 static int passed = 0, failed = 0;
 static void check(bool ok, const char* text) { if (ok) ++passed; else { ++failed; printf("FAIL: %s\n", text); } }
+// The game's common character vertex shader by the register rule (D-079): constant buffers at
+// vs-cb0 to vs-cb3 with the instance window at vs-cb2 (set 2, binding 0), the rolling bones at vs-t0.
+static std::vector<efmi::gpu::SourceRegister> common_vertex_registers()
+{
+    using efmi::gpu::SourceRegister;
+    auto cb = [](uint32_t index, uint32_t bytes, uint32_t set, uint32_t binding) {
+        SourceRegister r; r.kind = SourceRegister::ConstantBuffer; r.letter = 'b'; r.index = index; r.bytes = bytes; r.set = set; r.binding = binding; return r;
+    };
+    SourceRegister bones; bones.kind = SourceRegister::BufferSrv; bones.letter = 't'; bones.index = 0; bones.stride = 16; bones.binding = 17;
+    return {cb(0, 1312, 0, 11), cb(1, 3328, 0, 15), cb(2, 65536, 2, 0), cb(3, 448, 1, 0), bones};
+}
+// RuntimeDraw::source_srv over a stage's registers, as the backend answers it (D-124).
+static bool srv_of(const std::vector<efmi::gpu::SourceRegister>& registers, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride,
+                   std::string& why)
+{
+    efmi::gpu::SourceSrvDeclaration declaration;
+    if (!efmi::gpu::source_srv_declaration(registers, slot, declaration, why)) return false;
+    type = declaration.type; dimension = declaration.dimension; stride = declaration.stride;
+    return true;
+}
 template <class T> static void put(std::vector<uint8_t>& data, T value)
 {
     const auto* p = reinterpret_cast<const uint8_t*>(&value);
@@ -435,6 +456,28 @@ int main(int argc, char** argv)
         }
         return 0;
     }
+    if (argc >= 3 && !strcmp(argv[1], "--srv-declarations")) {
+        // D-124 as the backend answers it, per module: "<file> <t registers> <slot>:<type>.<dimension>.<stride>"
+        // for each t register, "<slot>:-" where the SPIR-V does not decide it.
+        for (int i = 2; i < argc; ++i) {
+            std::ifstream in(argv[i], std::ios::binary | std::ios::ate);
+            std::vector<uint32_t> code(in ? size_t(in.tellg()) / 4 : 0);
+            if (in) { in.seekg(0); in.read(reinterpret_cast<char*>(code.data()), code.size() * 4); }
+            std::vector<efmi::gpu::SourceRegister> registers; std::string reason;
+            if (!efmi::gpu::source_registers(code, registers, reason)) { printf("%s refused %s\n", argv[i], reason.c_str()); continue; }
+            uint32_t count = 0;
+            for (const auto& r : registers) if (r.letter == 't') count = std::max(count, r.index + r.count);
+            std::string line;
+            for (uint32_t slot = 0; slot < count; ++slot) {
+                uint32_t type = 0, dimension = 0, stride = 0; char item[48];
+                if (srv_of(registers, slot, type, dimension, stride, reason)) snprintf(item, sizeof(item), " %u:%u.%u.%u", slot, type, dimension, stride);
+                else snprintf(item, sizeof(item), " %u:-", slot);
+                line += item;
+            }
+            printf("%s %u%s\n", argv[i], count, line.c_str());
+        }
+        return 0;
+    }
     if (argc >= 3 && !strcmp(argv[1], "--texture-roles")) {
         // D-082 as the backend reads a fragment module: "<file> t.set.binding.decoded.at ..." per sample.
         for (int i = 2; i < argc; ++i) {
@@ -460,6 +503,7 @@ int main(int argc, char** argv)
         // CustomShader sections are not part of these generations. What a replaced draw would bind.
         const std::filesystem::path mods = path_argument(2), core = path_argument(3), settings = path_argument(4);
         std::string reason;
+        const auto vertex = common_vertex_registers();
         const auto inis = CharacterProgram::mods_characters(mods, reason);
         if (inis.empty()) { fprintf(stderr, "no character Mod: %s\n", reason.c_str()); return 1; }
         for (const auto& ini : inis) {
@@ -509,6 +553,13 @@ int main(int argc, char** argv)
                     // Offline there is no pipeline: the facts the backend reads off each vertex module
                     // (D-079) are taken as the game's common ones, the rolling vs-t0 bones and vs-cb2.
                     if (s.component != kCharacterNone) { request.rolling_bone_source = true; request.source_vs_config_slot = 2; }
+                    // So are the stages, a vertex and a pixel shader, and the vertex shader's declarations
+                    // (D-124); the pixel shader's are not known.
+                    request.shader_stages = 0x1 | 0x10;
+                    request.source_srv = [&vertex](wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& why) {
+                        if (stage != L'v') { why = "offline the pixel shader's declarations are not known"; return false; }
+                        return srv_of(vertex, slot, type, dimension, stride, why);
+                    };
                     // Offline no game texture is known: every pixel slot is bound without a hash, as the
                     // backend answers for a resource whose hash it cannot know.
                     request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
@@ -560,11 +611,7 @@ int main(int argc, char** argv)
     {
         // D-079: the original Core's rules on a vertex module's registers.
         using efmi::gpu::SourceRegister;
-        auto cb = [](uint32_t index, uint32_t bytes, uint32_t set, uint32_t binding) {
-            SourceRegister r; r.kind = SourceRegister::ConstantBuffer; r.letter = 'b'; r.index = index; r.bytes = bytes; r.set = set; r.binding = binding; return r;
-        };
-        SourceRegister bones; bones.kind = SourceRegister::BufferSrv; bones.letter = 't'; bones.index = 0; bones.stride = 16; bones.binding = 17;
-        std::vector<SourceRegister> game = {cb(0, 1312, 0, 11), cb(1, 3328, 0, 15), cb(2, 65536, 2, 0), cb(3, 448, 1, 0), bones};
+        std::vector<SourceRegister> game = common_vertex_registers();
         auto facts = efmi::gpu::core_source_facts(game);
         check(facts.vs_config_slot == 2 && facts.rolling_bones && facts.config && facts.config->set == 2 && facts.bones->binding == 17,
               "the game's common vertex layout: the instance window at vs-cb2, the rolling bones at vs-t0");
@@ -579,6 +626,35 @@ int main(int argc, char** argv)
         check(facts.vs_config_slot == 1 && !facts.rolling_bones, "vs-t0 of another element size is not the rolling bone buffer");
         game[4].stride = 16; game[4].kind = SourceRegister::ImageSrv;
         check(!efmi::gpu::core_source_facts(game).rolling_bones, "an image at vs-t0 is not the rolling bone buffer");
+    }
+    {
+        // D-124: the DX11 declaration of a t register, as the original's ByteCodeReader reads it.
+        using efmi::gpu::SourceRegister;
+        auto t = [](uint32_t index, SourceRegister::Kind kind, uint32_t count = 1) {
+            SourceRegister r; r.kind = kind; r.letter = 't'; r.index = index; r.count = count; return r;
+        };
+        std::vector<SourceRegister> shader = {t(0, SourceRegister::BufferSrv), t(1, SourceRegister::BufferSrv), t(2, SourceRegister::TexelSrv),
+                                              t(3, SourceRegister::ImageSrv, 2), t(5, SourceRegister::ImageSrv), t(6, SourceRegister::ImageSrv),
+                                              t(7, SourceRegister::ImageSrv), t(8, SourceRegister::ImageSrv)};
+        shader[0].stride = 16;
+        shader[1].stride = 4; shader[1].words = true;
+        shader[3].dim = 1;
+        shader[4].dim = 3; shader[4].arrayed = true;
+        shader[5].dim = 1; shader[5].arrayed = true; shader[5].multisampled = true;
+        shader[6].dim = 2;
+        shader[7].dim = 2; shader[7].arrayed = true;
+        auto is = [&](unsigned slot, uint32_t type, uint32_t dimension, uint32_t stride) {
+            uint32_t a = 0, b = 0, c = 0; std::string why;
+            return srv_of(shader, slot, a, b, c, why) && a == type && b == dimension && c == stride;
+        };
+        auto unknown = [&](unsigned slot) { uint32_t a = 0, b = 0, c = 0; std::string why; return !srv_of(shader, slot, a, b, c, why) && !why.empty(); };
+        check(is(0, 2, 1, 16), "a read-only buffer of 16-byte elements is dcl_resource_structured with its stride (vs->srv_stride(0) == 16)");
+        check(unknown(1), "a buffer of uint words is a byte address buffer or a structured buffer of uint: not decided");
+        check(is(2, 1, 1, 0), "a texel buffer is a typed buffer view");
+        check(is(3, 1, 4, 0) && is(4, 1, 4, 0), "each element of an image array declares its own typed 2D register");
+        check(is(5, 1, 10, 0) && is(6, 1, 7, 0) && is(7, 1, 8, 0), "cube arrays, multisampled 2D arrays and 3D images by their view dimensions");
+        check(unknown(8), "an arrayed 3D image has no DX11 view");
+        check(unknown(9) && unknown(127), "a slot without a register is not known: a DX11 build may declare more than its SPIR-V");
     }
     Model m;
     const auto valid = package(&m);
