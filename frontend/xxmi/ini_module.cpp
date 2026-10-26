@@ -107,8 +107,15 @@ static void compile_graph(std::vector<ExplicitCommandListSection*> pending,const
     std::unordered_map<ExplicitCommandListSection*,std::wstring> names;
     for(auto& pair:explicitCommandListSections)names.emplace(&pair.second,pair.first);
     std::unordered_set<ExplicitCommandListSection*> compiled;
+    // Every list once (BUG-063). The original puts one nested `if` into both the pre and the post body of
+    // the `if` around it and nests each `else if` in the else before it, so a walk of every body of every
+    // `if` reaches the n-th branch of an else-if chain 2^n times: a key panel's 40 options never finished
+    // loading, and the engine lock it held froze the game. The original itself walks its lists flat
+    // (optimise_command_lists over registered_command_lists) and runs only the branch taken.
+    std::unordered_set<const CommandList*> seen;
     std::function<void(CommandList&,size_t)> visit=[&](CommandList& list,size_t depth){
         if(depth>256)throw std::runtime_error("Original command graph nesting budget exceeded");
+        if(!seen.insert(&list).second)return;
         for(auto& command:list.commands){
             if(auto* call=dynamic_cast<RunExplicitCommandList*>(command.get())){
                 if(call->command_list_section)pending.push_back(call->command_list_section);

@@ -6,6 +6,13 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.9.6: a long else-if chain loads in bounded time (2026-10-26, BUG-063)
+
+- Session with 1.9.5 (PID 11492, 21:32-21:3x, user-started): the same F10 froze again at 21:35:51; `present_gpu_waits` stayed 0 (1.9.5's guard held). Sampled through the probe in the frozen game: the presenting thread waiting for the engine lock in an F10 exchange, the render thread for a controller lock; the engine lock held by the new Typhoeus Mod's load, which never finished. Offline the sandbox with the actual configuration hung at device creation with that Mod installed; a stack dump of the sandbox (scratch tool, our own test process only) showed `HostCompileRoots` in a deep recursion: `compile_graph` walked every body of every `if` without remembering lists, 2^n steps for the panel's else-if chain (the original shares one nested `if` between pre and post bodies).
+- 1.9.6: every command list visited once, as the original walks its lists flat. Test that fails on 1.9.5: owned_present_test's 40-option else-if chain in a second INI's [Present] (the device never came up); 6/6 on 1.9.6. Actual-config sandbox with the installed Mods folder: 20 packages configured, the new Typhoeus Mod among them, none refused, validation clean (build/smoke-1.9.6.json).
+- Verification: run_all --only frontend host, live INI, owned Present: all passed (80 and 54 checks).
+- Open: background loads still hold the global engine lock for a whole INI load (BUG-063's open part).
+
 ## 1.9.5: nothing waits for the GPU in Present (2026-10-26, BUG-062, D-128)
 
 - Session with 1.9.4 (PID 14500, 20:30-20:5x, user-started): Typhoeus' wings stayed in place with GPU bones (BUG-060 confirmed fixed in the game; `bones` 1835 submissions, 0 failures, `submission_work.prefixed_batches` 1836, `prefix_alone` 0); an F10 at 20:39:35 shared every texture (`reload candidate demands 0 of 21 images`). The user replaced Typhoeus' Mod and pressed F10 at 20:46:26: the game froze (BUG-062). The new Mod named \u6d01\u5c14\u914d\u5854 (Gilberta) is not an EFMI merged-skeleton Mod (per-IB replacement, cross-IB bones by DX11 vertex shader hashes): the layer does not load it; the user: no cross-IB support for now, F10 first.

@@ -15,6 +15,11 @@ shader cache in the settings folder, none is compiled again, and the picture is 
 F10 after the Mod's folder went (BUG-062): the package with Present work is taken out without any wait
 for the GPU inside vkQueuePresentKHR (in the game such a wait held work that could complete only after
 the presentation went: the game froze). 3DMigoto's reload never waits for the GPU in Present.
+
+A Mod whose Present list holds a long `else if` chain (a key panel's options, BUG-063) loads at the
+start: the original nests each `else if` in the else of the one before and shares a nested `if` between
+its pre and post bodies, so a load that walks every body of every `if` without remembering the lists it
+saw takes 2^n steps for n options; the layer then held the engine lock for good and the game froze.
 """
 import json
 import shutil
@@ -108,8 +113,45 @@ def removed_with_present_work(checks, entry):
         print("artifacts:", root)
 
 
+ELIF_OPTIONS = 40
+
+
+def elif_chain_ini(options):
+    lines = ["[Constants]", "global $choice = 0", "global $out = 0", "[Present]", "if $choice == 0", "  $out = 100"]
+    for k in range(1, options):
+        lines += ["else if $choice == %d" % k, "  $out = %d" % (100 + k)]
+    lines += ["endif", ""]
+    return "\n".join(lines)
+
+
+def long_elif_chain(checks, entry):
+    """BUG-063: a Present list with a 40-option else-if chain loads in bounded time."""
+    folder = Path(test_dir("owned-present-elif-"))
+    package = fixture(folder)
+    (folder / "chain.ini").write_text(elif_chain_ini(ELIF_OPTIONS), encoding="ascii")
+    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_SETTINGS=str(folder / "settings"))
+    label = entry + ", a %d-option else-if chain in Present:" % ELIF_OPTIONS
+    status, started, error = {}, False, ""
+    try:
+        with Sandbox(seconds=4, env_extra=extra, entry=entry, validation=True) as sandbox:
+            started = True
+            with ProbeClient(sandbox.pid) as probe:
+                time.sleep(1.5)
+                status = probe.status().get("replacement", {})
+            sandbox.proc.wait(timeout=90)
+            code = sandbox.proc.returncode
+    except Exception as e:  # the sandbox did not become ready: the load never finished
+        error, code = str(e)[-600:], None
+    checks.check(started, label + " the device came up (the load finished)", error)
+    variables = status.get("ini", {}).get("variables", {})
+    checks.equal(variables.get("$\\chain.ini\\out"), 100.0, label + " the chain ran in Present and took its first branch")
+    checks.equal(code, 0, label + " the sandbox ran and ended normally")
+
+
 def main():
     checks = Checks("owned Present on a swap chain")
+    for entry in ("layer", "inject"):
+        long_elif_chain(checks, entry)
     for entry in ("layer", "inject"):
         removed_with_present_work(checks, entry)
     for entry in ("layer", "inject"):
