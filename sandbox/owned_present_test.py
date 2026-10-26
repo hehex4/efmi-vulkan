@@ -11,13 +11,17 @@ descriptor pool (BUG-058; each allocation under the game's locks could wait for 
 
 The same folder runs a second time, as the next start of the game: the panel's stages come from the
 shader cache in the settings folder, none is compiled again, and the picture is the same (D-126).
+
+F10 after the Mod's folder went (BUG-062): the package with Present work is taken out without any wait
+for the GPU inside vkQueuePresentKHR (in the game such a wait held work that could complete only after
+the presentation went: the game froze). 3DMigoto's reload never waits for the GPU in Present.
 """
 import json
 import shutil
 import time
 from pathlib import Path
 from harness import Checks, Sandbox, test_dir
-from runtime_fixture import fixture
+from runtime_fixture import fixture, CORE
 from efmi_vk.probe_client import ProbeClient
 
 PANEL_HLSL = r"""struct V{float4 position:SV_Position;};
@@ -60,8 +64,54 @@ def near(a, b):
     return all(abs(p - q) <= 1 for p, q in zip(a, b))
 
 
+def removed_with_present_work(checks, entry):
+    """BUG-062: an F10 that finds a Mod with Present work gone must not wait for that work in Present.
+    3DMigoto's reload (ReloadConfig, run in Present) only releases objects and never waits for the GPU;
+    the layer counts every wait of its own made inside vkQueuePresentKHR (`present_gpu_waits`)."""
+    root = Path(test_dir("owned-present-removed-"))
+    mods = root / "Mods"
+    folder = mods / "fixture"
+    folder.mkdir(parents=True)
+    fixture(folder)
+    (folder / "panel.hlsl").write_text(PANEL_HLSL, encoding="ascii")
+    (folder / "panel.ini").write_text(PANEL_INI, encoding="ascii")
+    shutil.copy2(folder / "red.dds", folder / "panel.dds")
+    keys = root / "keys.txt"
+    keys.write_text("1\n", encoding="ascii")
+    extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(root / "settings"),
+                 EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys))
+    label = entry + ", F10 with the Mod gone:"
+    before, after, panel = {}, {}, {}
+    with Sandbox(seconds=6, env_extra=extra, entry=entry, validation=True) as sandbox:
+        with ProbeClient(sandbox.pid) as probe:
+            time.sleep(1.5)
+            before = probe.status().get("replacement", {})
+            # One package: its fields are at the top of the status (more: under "packages").
+            panel = before.get("owned_present") or next(
+                (p.get("owned_present", {}) for p in before.get("packages", []) if "fixture" in p.get("path", "")), {})
+            (mods / "fixture").rename(mods / "DISABLED_fixture")
+            keys.write_text("1 121\n", encoding="ascii")  # F10, the original's reload key
+            time.sleep(0.4)
+            keys.write_text("1\n", encoding="ascii")
+            time.sleep(1.0)
+            after = probe.status().get("replacement", {})
+        sandbox.proc.wait(timeout=90)
+        output = sandbox.output()
+        log = Path(sandbox.log_path).read_text(errors="replace") if Path(sandbox.log_path).is_file() else ""
+    checks.check(panel.get("submitted", 0) > 10, label + " the Mod's Present work ran before (the case under test)", panel)
+    checks.check("character package removed with its Mod" in log, label + " the F10 found the Mod gone", log[-2000:])
+    checks.equal((before.get("present_gpu_waits"), after.get("present_gpu_waits")), (0, 0),
+                 label + " the layer never waited for the GPU inside vkQueuePresentKHR, as 3DMigoto's reload never does")
+    checks.equal(sandbox.proc.returncode, 0, label + " the sandbox ran on and ended normally")
+    checks.check("validation: errors=0 warnings=0" in output, label + " clean core and synchronization validation", output[-2000:])
+    if sandbox.proc.returncode or after.get("present_gpu_waits"):
+        print("artifacts:", root)
+
+
 def main():
     checks = Checks("owned Present on a swap chain")
+    for entry in ("layer", "inject"):
+        removed_with_present_work(checks, entry)
     for entry in ("layer", "inject"):
         folder = Path(test_dir("owned-present-"))
         package = fixture(folder)

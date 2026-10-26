@@ -194,7 +194,7 @@ struct Translucency::Owner : CommandOwner {
 
 Translucency::Translucency(Device* device, const VkPhysicalDeviceMemoryProperties& memory) : device_(device), memory_(memory)
 {
-#define X(n) d_.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n));
+#define X(n) d_.n = reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle, "vk" #n));
     EFVK_TRANSLUCENCY_FUNCS(X)
 #undef X
 }

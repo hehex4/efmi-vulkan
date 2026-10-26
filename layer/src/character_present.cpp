@@ -120,7 +120,7 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
         gpu::ResourceDevice resource;
         resource.device = device->handle; resource.memory = memory; resource.queue_family = device->material_family;
         resource.dispatch.SetDeviceLoaderData = device->set_loader_data;
-#define X(n) resource.dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
+#define X(n) resource.dispatch.n = reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle, "vk" #n)); \
         if (!resource.dispatch.n) { reason = "missing owned vk" #n; return {}; }
         EFMI_RESOURCE_COMMAND_FUNCS(X)
 #undef X
@@ -177,8 +177,8 @@ void OwnedPresenter::sample(Device* device, const PresentWork* present, efmi::fr
 OwnedPresenter::OwnedPresenter(Device* device, std::shared_ptr<efmi::frontend::OwnedRuntime> gpu)
     : device_(device), gpu_(std::move(gpu)), readback_(readback_request())
 {
-    CreateSemaphore_ = reinterpret_cast<PFN_vkCreateSemaphore>(device_->next_gdpa(device_->handle, "vkCreateSemaphore"));
-    DestroySemaphore_ = reinterpret_cast<PFN_vkDestroySemaphore>(device_->next_gdpa(device_->handle, "vkDestroySemaphore"));
+    CreateSemaphore_ = reinterpret_cast<PFN_vkCreateSemaphore>(device_->owned_gdpa(device_->handle, "vkCreateSemaphore"));
+    DestroySemaphore_ = reinterpret_cast<PFN_vkDestroySemaphore>(device_->owned_gdpa(device_->handle, "vkDestroySemaphore"));
 }
 
 OwnedPresenter::~OwnedPresenter() { stop(); }

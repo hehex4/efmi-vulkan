@@ -137,6 +137,12 @@ inline void count_call(int index)
         g_api_calls[index].fetch_add(1, std::memory_order_relaxed);
     }
 }
+// This thread is inside the application's vkQueuePresentKHR (BUG-062).
+inline bool in_presentation()
+{
+    ThreadTrace* const t = thread_trace();
+    return t && t->inside.load(std::memory_order_relaxed) > 0 && t->hook.load(std::memory_order_relaxed) == HI_QueuePresentKHR;
+}
 struct HookInside {
     ThreadTrace* trace = thread_trace();
     HookInside() { if (trace) trace->inside.fetch_add(1, std::memory_order_relaxed); }
@@ -559,6 +565,13 @@ struct Device {
     // forwarded through the original exports and nothing is tracked.
     bool passive = false;
     PFN_vkGetDeviceProcAddr next_gdpa = nullptr;
+    // What the layer's own code (owned GPU work, uploads, bones, translucency, the replacement module) gets
+    // its device functions from: the next layer's, except the waits for the GPU, which count a wait made
+    // inside vkQueuePresentKHR (BUG-062). 3DMigoto never waits for the GPU in Present (its F10 only
+    // releases objects, the D3D11 runtime destroys them once the GPU is done); neither may the layer: work
+    // a queue holds behind the presentation can complete only after it went.
+    PFN_vkGetDeviceProcAddr owned_gdpa = nullptr;
+    std::atomic<uint64_t> present_waits{0};
     PFN_vkSetDeviceLoaderData set_loader_data = nullptr;
     DeviceDispatch d;
     std::shared_ptr<M2Backend> m2;

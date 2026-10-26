@@ -41,18 +41,18 @@ TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryP
     resource.memory_priority = device->memory_priority ? 0.25f : -1.0f;
     // The layer's upload queue (D-103): the loaders submit there themselves and publish through the timeline.
     resource.upload_queue = device->upload_queue; resource.upload_family = device->upload_family; resource.upload_mutex = &device->upload_mx;
-#define X(n) resource.dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
+#define X(n) resource.dispatch.n = reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle, "vk" #n)); \
     if (!resource.dispatch.n) { reason_ = "missing texture vk" #n; return; }
     EFMI_IMAGE_UPLOAD_FUNCS(X)
 #undef X
-#define X(n) resource.buffer_dispatch.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n));
+#define X(n) resource.buffer_dispatch.n = reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle, "vk" #n));
     EFMI_BUFFER_UPLOAD_FUNCS(X)
 #undef X
-    const auto CreateSemaphore = reinterpret_cast<PFN_vkCreateSemaphore>(device->next_gdpa(device->handle, "vkCreateSemaphore"));
-    DestroySemaphore_ = reinterpret_cast<PFN_vkDestroySemaphore>(device->next_gdpa(device->handle, "vkDestroySemaphore"));
-    GetSemaphoreCounterValue_ = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(device->next_gdpa(device->handle, "vkGetSemaphoreCounterValue"));
+    const auto CreateSemaphore = reinterpret_cast<PFN_vkCreateSemaphore>(device->owned_gdpa(device->handle, "vkCreateSemaphore"));
+    DestroySemaphore_ = reinterpret_cast<PFN_vkDestroySemaphore>(device->owned_gdpa(device->handle, "vkDestroySemaphore"));
+    GetSemaphoreCounterValue_ = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(device->owned_gdpa(device->handle, "vkGetSemaphoreCounterValue"));
     if (!GetSemaphoreCounterValue_)
-        GetSemaphoreCounterValue_ = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(device->next_gdpa(device->handle, "vkGetSemaphoreCounterValueKHR"));
+        GetSemaphoreCounterValue_ = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(device->owned_gdpa(device->handle, "vkGetSemaphoreCounterValueKHR"));
     if (!CreateSemaphore || !DestroySemaphore_ || !GetSemaphoreCounterValue_) { reason_ = "missing timeline semaphore entry points"; return; }
     VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
     type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE; type.initialValue = 0;

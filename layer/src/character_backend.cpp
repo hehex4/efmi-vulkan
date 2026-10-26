@@ -123,7 +123,8 @@ efmi::frontend::RuntimeInput sample_ini_input()
     static const std::filesystem::path fixture = [] {
         wchar_t executable[32768] = {}, path[32768] = {};
         GetModuleFileNameW(nullptr, executable, 32768);
-        if (_wcsicmp(std::filesystem::path(executable).filename().c_str(), L"efmi_vk_variant_gpu.exe")) return std::filesystem::path{};
+        const auto name = std::filesystem::path(executable).filename();
+        if (_wcsicmp(name.c_str(), L"efmi_vk_variant_gpu.exe") && _wcsicmp(name.c_str(), L"efmi_vk_sandbox.exe")) return std::filesystem::path{};
         const DWORD length = GetEnvironmentVariableW(L"EFMI_VK_TEST_KEYS", path, 32768);
         return length && length < 32768 ? std::filesystem::path(path) : std::filesystem::path{};
     }();
@@ -668,10 +669,10 @@ public:
                 for (const auto& text : loaded.diagnostic_messages) logf("INI warning: %s", text.c_str());
             }
         }
-#define X(n) draw.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n));
+#define X(n) draw.n = reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle, "vk" #n));
         EFVK_VARIANT_FUNCS(X)
 #undef X
-#define X(n) storage.n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); \
+#define X(n) storage.n = reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle, "vk" #n)); \
         if (!storage.n) { last_reason = "missing vk" #n; return false; }
         EFVK_SNAPSHOT_FUNCS(X)
 #undef X
@@ -2227,7 +2228,7 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
     device->material_queue_reason = "material queue discovery unavailable";
     if (!gipa) return;
     const auto families = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(gipa(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
-    const auto get_queue = reinterpret_cast<PFN_vkGetDeviceQueue>(device->next_gdpa(device->handle, "vkGetDeviceQueue"));
+    const auto get_queue = reinterpret_cast<PFN_vkGetDeviceQueue>(device->owned_gdpa(device->handle, "vkGetDeviceQueue"));
     if (!families || !get_queue) return;
     uint32_t count = 0; families(device->phys, &count, nullptr);
     if (!count || count > 256) return;
@@ -2466,20 +2467,42 @@ public:
     std::string reload_error;
     bool stopped = false;
     bool reload_taken = false; // an F10 this presentation, for the folder rescan (presenting thread)
+    std::future<void> stopping; // stop_later's work, which stop() and the destructor wait for
     ~CharacterController() { stop(); }
     void retire(std::shared_ptr<CharacterGeneration> old)
     {
         if (old) retiring.push_back(std::async(std::launch::async, [old = std::move(old)] { old->stop(); }));
     }
+    // Device teardown: everything stops here, waiting for what it must.
     void stop()
     {
         std::unique_lock<std::shared_mutex> lock(mutex);
-        if (stopped) return;
+        if (stopped) { if (stopping.valid()) stopping.get(); return; }
         stopped = true;
         if (loading.valid()) { auto candidate = loading.get(); if (candidate) candidate->stop(); }
         if (staged) staged->stop();
         if (active) active->stop();
         for (auto& future : retiring) future.get();
+        retiring.clear(); staged.reset();
+    }
+    // The package's Mod went from the folder (an F10 rescan, BUG-062). 3DMigoto's ReloadConfig, which runs
+    // in Present, only releases what the new configuration no longer has and leaves the destruction to
+    // the D3D11 runtime once the GPU is done with it: it never waits there. Here the presenting thread only
+    // takes the package out (no draw or Present reaches it once `stopped` is set); its generations stop on
+    // a thread of their own, where waiting for their GPU work (the Present work submitted this very frame,
+    // which completes only after this presentation went) holds nothing that work depends on.
+    void stop_later()
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        if (stopped) return;
+        stopped = true;
+        stopping = std::async(std::launch::async, [loading = std::move(loading), staged = staged, active = active,
+                                                   retiring = std::move(retiring)]() mutable {
+            if (loading.valid()) { auto candidate = loading.get(); if (candidate) candidate->stop(); }
+            if (staged) staged->stop();
+            if (active) active->stop();
+            for (auto& future : retiring) future.get();
+        });
         retiring.clear(); staged.reset();
     }
     void frame(bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& input)
@@ -2600,9 +2623,9 @@ public:
     void open_pipeline_cache()
     {
         if (!device) return;
-        const auto create = reinterpret_cast<PFN_vkCreatePipelineCache>(device->next_gdpa(device->handle, "vkCreatePipelineCache"));
-        destroy_pipeline_cache = reinterpret_cast<PFN_vkDestroyPipelineCache>(device->next_gdpa(device->handle, "vkDestroyPipelineCache"));
-        pipeline_cache_data = reinterpret_cast<PFN_vkGetPipelineCacheData>(device->next_gdpa(device->handle, "vkGetPipelineCacheData"));
+        const auto create = reinterpret_cast<PFN_vkCreatePipelineCache>(device->owned_gdpa(device->handle, "vkCreatePipelineCache"));
+        destroy_pipeline_cache = reinterpret_cast<PFN_vkDestroyPipelineCache>(device->owned_gdpa(device->handle, "vkDestroyPipelineCache"));
+        pipeline_cache_data = reinterpret_cast<PFN_vkGetPipelineCacheData>(device->owned_gdpa(device->handle, "vkGetPipelineCacheData"));
         if (!create || !destroy_pipeline_cache || !pipeline_cache_data) return;
         char name[64];
         snprintf(name, sizeof(name), "pipeline-cache-%04x-%04x.bin", device->physical_properties.vendorID, device->physical_properties.deviceID);
@@ -2746,7 +2769,7 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     backend->open_pipeline_cache();
     {
         VariantDispatch draw;
-#define X(n) draw.n = reinterpret_cast<PFN_vk##n>(d->next_gdpa(d->handle, "vk" #n));
+#define X(n) draw.n = reinterpret_cast<PFN_vk##n>(d->owned_gdpa(d->handle, "vk" #n));
         EFVK_VARIANT_FUNCS(X)
 #undef X
         if (draw.CreateGraphicsPipelines && draw.CreateRenderPass && draw.CmdDrawIndexed)
@@ -2792,7 +2815,7 @@ void character_rescan(CharacterBackend& b)
         { std::shared_lock<std::shared_mutex> lock(c->mutex); live = !c->stopped; }
         if (!live) continue;
         if (present.count(c->path)) { known.insert(c->path); continue; }
-        c->stop();
+        c->stop_later();
         logf("character package removed with its Mod: %s", c->path.c_str());
     }
     for (const auto& path : paths) {

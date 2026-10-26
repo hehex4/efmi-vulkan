@@ -166,16 +166,16 @@ BoneMerge::BoneMerge(Device* device, const VkPhysicalDeviceProperties& propertie
     ctx_->device = device->handle;
     storage_alignment_ = std::max<VkDeviceSize>(properties.limits.minStorageBufferOffsetAlignment, 16);
     bool missing = false;
-#define X(n) ctx_->n = reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle, "vk" #n)); missing |= !ctx_->n;
+#define X(n) ctx_->n = reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle, "vk" #n)); missing |= !ctx_->n;
     EFVK_BONE_FUNCS(X)
 #undef X
     if (missing) { reason_ = "missing a device entry point"; return; }
     if (!device->timeline_semaphores) { reason_ = "the device has no timeline semaphores"; return; }
-    ctx_->GetSemaphoreCounterValue = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(device->next_gdpa(device->handle, "vkGetSemaphoreCounterValue"));
+    ctx_->GetSemaphoreCounterValue = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(device->owned_gdpa(device->handle, "vkGetSemaphoreCounterValue"));
     if (!ctx_->GetSemaphoreCounterValue)
-        ctx_->GetSemaphoreCounterValue = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(device->next_gdpa(device->handle, "vkGetSemaphoreCounterValueKHR"));
-    ctx_->WaitSemaphores = reinterpret_cast<PFN_vkWaitSemaphores>(device->next_gdpa(device->handle, "vkWaitSemaphores"));
-    if (!ctx_->WaitSemaphores) ctx_->WaitSemaphores = reinterpret_cast<PFN_vkWaitSemaphores>(device->next_gdpa(device->handle, "vkWaitSemaphoresKHR"));
+        ctx_->GetSemaphoreCounterValue = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(device->owned_gdpa(device->handle, "vkGetSemaphoreCounterValueKHR"));
+    ctx_->WaitSemaphores = reinterpret_cast<PFN_vkWaitSemaphores>(device->owned_gdpa(device->handle, "vkWaitSemaphores"));
+    if (!ctx_->WaitSemaphores) ctx_->WaitSemaphores = reinterpret_cast<PFN_vkWaitSemaphores>(device->owned_gdpa(device->handle, "vkWaitSemaphoresKHR"));
     if (!ctx_->GetSemaphoreCounterValue || !ctx_->WaitSemaphores) { reason_ = "missing timeline semaphore entry points"; return; }
     if (!make_pipeline()) return;
     VkCommandPoolCreateInfo pi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};

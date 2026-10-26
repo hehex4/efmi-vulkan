@@ -1105,6 +1105,53 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit2KHR(VkQueue queue, uint32_t count,
     return queue_submit2(dev, queue, count, submits, fence, dev->d.QueueSubmit2KHR);
 }
 
+// The layer's own waits for the GPU (Device::owned_gdpa): one made inside vkQueuePresentKHR is counted and
+// logged with what the thread was doing, the first few times (BUG-062).
+void note_owned_wait(Device* dev, const char* what)
+{
+    if (!dev || !in_presentation()) return;
+    if (dev->present_waits.fetch_add(1, std::memory_order_relaxed) < 8) {
+        ThreadTrace* const t = thread_trace();
+        const char* const stage = t ? t->stage.load(std::memory_order_relaxed) : nullptr;
+        logf("the layer waited for the GPU inside vkQueuePresentKHR (%s) at: %s", what, stage ? stage : "?");
+    }
+}
+VKAPI_ATTR VkResult VKAPI_CALL owned_WaitForFences(VkDevice device, uint32_t count, const VkFence* fences, VkBool32 all, uint64_t timeout)
+{
+    Device* dev = dev_of(device);
+    note_owned_wait(dev, "vkWaitForFences");
+    return dev->d.WaitForFences(device, count, fences, all, timeout);
+}
+VKAPI_ATTR VkResult VKAPI_CALL owned_WaitSemaphores(VkDevice device, const VkSemaphoreWaitInfo* info, uint64_t timeout)
+{
+    Device* dev = dev_of(device);
+    note_owned_wait(dev, "vkWaitSemaphores");
+    return (dev->d.WaitSemaphores ? dev->d.WaitSemaphores : dev->d.WaitSemaphoresKHR)(device, info, timeout);
+}
+VKAPI_ATTR VkResult VKAPI_CALL owned_QueueWaitIdle(VkQueue queue)
+{
+    Device* dev = dev_of(queue);
+    note_owned_wait(dev, "vkQueueWaitIdle");
+    return dev->d.QueueWaitIdle(queue);
+}
+VKAPI_ATTR VkResult VKAPI_CALL owned_DeviceWaitIdle(VkDevice device)
+{
+    Device* dev = dev_of(device);
+    note_owned_wait(dev, "vkDeviceWaitIdle");
+    return dev->d.DeviceWaitIdle(device);
+}
+VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL owned_gdpa(VkDevice device, const char* name)
+{
+    Device* dev = dev_of(device);
+    if (!dev || !dev->next_gdpa) return nullptr;
+    if (!strcmp(name, "vkWaitForFences") && dev->d.WaitForFences) return reinterpret_cast<PFN_vkVoidFunction>(&owned_WaitForFences);
+    if ((!strcmp(name, "vkWaitSemaphores") || !strcmp(name, "vkWaitSemaphoresKHR")) && (dev->d.WaitSemaphores || dev->d.WaitSemaphoresKHR))
+        return reinterpret_cast<PFN_vkVoidFunction>(&owned_WaitSemaphores);
+    if (!strcmp(name, "vkQueueWaitIdle") && dev->d.QueueWaitIdle) return reinterpret_cast<PFN_vkVoidFunction>(&owned_QueueWaitIdle);
+    if (!strcmp(name, "vkDeviceWaitIdle") && dev->d.DeviceWaitIdle) return reinterpret_cast<PFN_vkVoidFunction>(&owned_DeviceWaitIdle);
+    return dev->next_gdpa(device, name);
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* info)
 {
     count_call(HI_QueuePresentKHR);
@@ -1615,6 +1662,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     Device* dev = dev_create(*device);
     dev->phys = phys;
     dev->next_gdpa = gdpa;
+    dev->owned_gdpa = owned_gdpa;
     dev->set_loader_data = set_loader_data;
     dev->null_descriptors = null_descriptors;
     dev->null_descriptors_added = null_descriptors_added;

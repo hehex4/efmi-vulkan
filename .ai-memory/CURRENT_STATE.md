@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.9.5: nothing waits for the GPU in Present (2026-10-26, BUG-062, D-128)
+
+- Session with 1.9.4 (PID 14500, 20:30-20:5x, user-started): Typhoeus' wings stayed in place with GPU bones (BUG-060 confirmed fixed in the game; `bones` 1835 submissions, 0 failures, `submission_work.prefixed_batches` 1836, `prefix_alone` 0); an F10 at 20:39:35 shared every texture (`reload candidate demands 0 of 21 images`). The user replaced Typhoeus' Mod and pressed F10 at 20:46:26: the game froze (BUG-062). The new Mod named \u6d01\u5c14\u914d\u5854 (Gilberta) is not an EFMI merged-skeleton Mod (per-IB replacement, cross-IB bones by DX11 vertex shader hashes): the layer does not load it; the user: no cross-IB support for now, F10 first.
+- 1.9.5 (D-128, as 3DMigoto's reload, which only releases and never waits for the GPU in Present): a package whose Mod went stops on a thread of its own (`stop_later`); the layer's own GPU waits count one made inside vkQueuePresentKHR (`replacement.present_gpu_waits`). Test that fails on 1.9.4 (with the counting and the sandbox's test keys): owned_present_test's F10 with the Mod gone (1 wait in Present, logged at "presentation work (frame, character Present)", the place the game froze); on 1.9.5 0 in both entries.
+- Verification: the touched areas (run_all --only owned Present, live INI, character replacement, two queues): all passed (48, 80, 361 checks, replay). The whole suite not run (the user: keep regressions short).
+
 ## 1.9.4: one image per texture file across generations (2026-10-26, BUG-061)
 
 - An image is the device's, keyed by its file's path, size and write time; generations count their declarations; an F10 shares every file that did not change (no second read, no second copy), a changed file is a new image, a failed load is tried again by a later generation. The submission hook no longer looks recording up per command buffer outside character mode.

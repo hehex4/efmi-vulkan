@@ -75,10 +75,10 @@ public:
     void note(const std::string& reason){std::lock_guard<std::mutex> lock(mutex);last_reason=reason;}
     bool init(){
         if(!profile.load(g_cfg.m2_package,last_reason))return false;
-#define X(n) draw.n=reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle,"vk" #n));
+#define X(n) draw.n=reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle,"vk" #n));
         EFVK_VARIANT_FUNCS(X)
 #undef X
-#define X(n) storage.n=reinterpret_cast<PFN_vk##n>(device->next_gdpa(device->handle,"vk" #n));if(!storage.n){last_reason="missing vk" #n;return false;}
+#define X(n) storage.n=reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle,"vk" #n));if(!storage.n){last_reason="missing vk" #n;return false;}
         EFVK_SNAPSHOT_FUNCS(X)
 #undef X
         // RenderPass2 is optional; the recipe builder rejects it if the actual function is absent.
@@ -428,6 +428,7 @@ void m2_status(Device* device,JsonWriter& w){
         w.key("submission_work");w.begin_object();
         w.kn("prefixed_batches",device->prefixed_batches.load());w.kn("widened_waits",device->widened_waits.load());
         w.kn("prefix_alone",device->prefix_alone.load());w.end_object();
+        w.kn("present_gpu_waits",device->present_waits.load()); // BUG-062: stays 0
         w.end_object();return;
     }
     w.key("replacement");w.begin_object();auto backend=device?device->m2:nullptr;
