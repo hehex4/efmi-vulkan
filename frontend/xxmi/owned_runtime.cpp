@@ -8,6 +8,9 @@ struct OwnedRuntime::Impl {
 OwnedRuntime::OwnedRuntime(gpu::ResourceDevice device,gpu::ShaderHost host,const Tools& tools,std::filesystem::path working):impl_(std::make_unique<Impl>()){
     impl_->gpu=std::make_shared<GpuShaderRuntime>(device,std::move(host),tools.compiler,gpu::ResourceBudgets{},std::move(working));
     impl_->gpu->enable_cached_bytecode(tools.bytecode,tools.mode);
+    // Without its tools' identity the cache stays off; the generation compiles as before.
+    if(!tools.cache.empty())try{impl_->gpu->enable_cache(std::make_shared<gpu::ShaderCache>(tools.cache,std::vector<std::filesystem::path>{tools.compiler,tools.bytecode}));}
+    catch(const std::exception&){}
 }
 OwnedRuntime::~OwnedRuntime()=default;
 std::shared_ptr<RuntimeExtension> OwnedRuntime::combine(std::shared_ptr<RuntimeExtension> native){return owned_generation(std::move(native),impl_->gpu);}
@@ -27,5 +30,8 @@ void OwnedRuntime::backbuffer(gpu::Image image,DXGI_FORMAT format,bool shader_re
     impl_->gpu->resources().backbuffer(std::move(image),format,D3D11_BIND_RENDER_TARGET|(shader_resource?D3D11_BIND_SHADER_RESOURCE:0));
 }
 gpu::ResourceCommands& OwnedRuntime::commands(){return impl_->gpu->resources().commands();}
+OwnedRuntime::ShaderStats OwnedRuntime::shader_stats() const{
+    const auto& s=impl_->gpu->shader_stats();return {s.compiled,s.translated,s.compile_us,s.translate_us,s.cached};
+}
 bool OwnedRuntime::backbuffer_targeted() const {return impl_->gpu->resources().backbuffer_targeted();}
 }

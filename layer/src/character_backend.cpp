@@ -642,7 +642,7 @@ public:
         if (discovered || CharacterProgram::configured(package_path)) {
             program = std::make_unique<CharacterProgram>();
             const auto gpu = [this](const std::filesystem::path& working, std::string& why) {
-                return OwnedPresenter::runtime(device, memory, working, why);
+                return OwnedPresenter::runtime(device, memory, working, why, variants ? variants->pipeline_cache() : VK_NULL_HANDLE);
             };
             if (discovered) {
                 // The Mod's INI itself: the package is made from what the generation declares (D-078).

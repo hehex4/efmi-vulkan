@@ -104,7 +104,8 @@ std::filesystem::path readback_request()
 std::filesystem::path owned_tools_directory() { return tools_directory(); }
 
 std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* device, const VkPhysicalDeviceMemoryProperties& memory,
-                                                                         const std::filesystem::path& working, std::string& reason)
+                                                                         const std::filesystem::path& working, std::string& reason,
+                                                                         VkPipelineCache pipeline_cache)
 {
     try {
         if (!g_cfg.m2_owned) { reason = "owned GPU execution turned off (m2_owned = 0)"; return {}; }
@@ -136,11 +137,15 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
         host.float_controls = device->float_controls; host.float_properties = device->float_properties;
         host.null_descriptors = device->null_descriptors;
         host.shader_draw_parameters = device->draw_parameters;
+        host.pipeline_cache = pipeline_cache;
         // The shipped CustomShader caches run through the exact translation (D-070). Without
         // denormal flushing the translation lowers it in software.
         efmi::frontend::OwnedRuntime::Tools owned;
         owned.compiler = compiler; owned.bytecode = bytecode;
         owned.mode = device->float_properties.shaderDenormFlushToZeroFloat32 ? gpu::DxbcFloat32Mode::Hardware : gpu::DxbcFloat32Mode::Software;
+        // Beside the settings and the variant pipeline cache (D-126).
+        if (g_cfg.shader_cache)
+            owned.cache = (g_cfg.m2_settings.empty() ? tools / L"settings" : std::filesystem::absolute(std::filesystem::u8path(g_cfg.m2_settings))) / L"shader-cache";
         return std::make_shared<efmi::frontend::OwnedRuntime>(resource, host, owned, working);
     } catch (const std::exception& e) { reason = std::string("owned GPU runtime: ") + e.what(); return {}; }
 }
@@ -318,6 +323,12 @@ void OwnedPresenter::status(JsonWriter& w) const
     const auto& stats = gpu_->commands().stats();
     w.kn("allocations", stats.allocations.load()); w.kn("descriptor_pools", stats.descriptor_pools.load());
     w.kn("staging_reused", stats.staging_reused.load()); w.kn("sets_reused", stats.sets_reused.load());
+    // What its CustomShaders cost at load: compiled from HLSL, translated from shipped caches.
+    const auto shaders = gpu_->shader_stats();
+    w.key("shaders"); w.begin_object();
+    w.kn("compiled", shaders.compiled); w.kn("compile_us", shaders.compile_us);
+    w.kn("translated", shaders.translated); w.kn("translate_us", shaders.translate_us); w.kn("cached", shaders.cached);
+    w.end_object();
     w.kv("last_error", last_error_);
     w.end_object();
 }

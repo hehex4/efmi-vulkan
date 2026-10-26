@@ -8,6 +8,9 @@ copy of the 20th owned presentation (efmi_vk_sandbox.exe only) gives the pixels.
 Like a Mod's key panel, the list changes an INI parameter and binds a file image every frame: once
 the first frames made what the draw needs, a frame allocates no device memory and creates no
 descriptor pool (BUG-058; each allocation under the game's locks could wait for the GPU).
+
+The same folder runs a second time, as the next start of the game: the panel's stages come from the
+shader cache in the settings folder, none is compiled again, and the picture is the same (D-126).
 """
 import json
 import shutil
@@ -67,7 +70,8 @@ def main():
         (folder / "panel/panel.ini").write_text(PANEL_INI, encoding="ascii")
         shutil.copy2(folder / "red.dds", folder / "panel/panel.dds")
         readback = folder / "present.raw"
-        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_PRESENT_READBACK=str(readback))
+        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_PRESENT_READBACK=str(readback),
+                     EFMI_VK_M2_SETTINGS=str(folder / "settings"))
         owned = []
         with Sandbox(seconds=5, env_extra=extra, entry=entry, extra_args=["--readable-swapchain"], validation=True) as sandbox:
             # Two looks a second and a half apart, after the first frames made what the panel needs.
@@ -108,6 +112,30 @@ def main():
         for x, y in ((3 * width // 4, height // 4), (width // 4, 3 * height // 4), (3 * width // 4, 3 * height // 4)):
             outside = pixel(data, width, x, y)
             checks.check(not near(outside, expected), label + " the application's own picture remains outside the quarter", (x, y, outside))
+        first_shaders = owned[0].get("shaders", {}) if owned else {}
+        checks.check(first_shaders.get("compiled", 0) == 2 and not first_shaders.get("cached"), label + " the first start compiles the panel's two stages",
+                     first_shaders)
+        # The next start of the game, the same Mods and settings folder (D-126).
+        readback_again = folder / "present-again.raw"
+        extra.update(EFMI_VK_TEST_PRESENT_READBACK=str(readback_again))
+        shaders = {}
+        with Sandbox(seconds=4, env_extra=extra, entry=entry, extra_args=["--readable-swapchain"], validation=True) as sandbox:
+            with ProbeClient(sandbox.pid) as probe:
+                time.sleep(1.5)
+                shaders = probe.status().get("replacement", {}).get("owned_present", {}).get("shaders", {})
+            sandbox.proc.wait(timeout=90)
+            output = sandbox.output()
+        checks.equal(sandbox.proc.returncode, 0, label + " the second start exits normally")
+        checks.check("validation: errors=0 warnings=0" in output, label + " the second start validates clean", output[-3000:])
+        checks.check(shaders.get("cached") == 2 and not shaders.get("compiled") and not shaders.get("translated"),
+                     label + " the second start reads both stages from the shader cache and compiles nothing", shaders)
+        if readback_again.is_file():
+            meta = json.loads(Path(str(readback_again) + ".json").read_text())
+            again = readback_again.read_bytes()
+            checks.check(near(pixel(again, meta["width"], meta["width"] // 4, meta["height"] // 4), expected),
+                         label + " the cached stages draw the same quarter")
+        else:
+            checks.check(False, label + " the second start's presentation was copied")
     return checks.finish()
 
 

@@ -19,7 +19,7 @@ def main() -> int:
     report = {"scope": "original HLSL signatures, Vulkan compilation and graphics linking; no INI graphics or game", "passed": False}
     try:
         objects = build_runtime(ROOT / "build/xxmi-runtime")
-        objects = [p for p in objects if p.endswith(".lib") or Path(p).stem in ("hlsl_compiler", "graphics_link", "shader_reflection")]
+        objects = [p for p in objects if p.endswith(".lib") or Path(p).stem in ("hlsl_compiler", "shader_cache", "graphics_link", "shader_reflection")]
         executable = out / "shader_compile.exe"
         log = io.StringIO()
         try:
@@ -52,6 +52,7 @@ def main() -> int:
             if validation.returncode:
                 raise RuntimeError("SPIR-V validation failed: " + validation.stderr)
         inputs = [ROOT / "frontend/gpu/hlsl_compiler.cpp", ROOT / "frontend/gpu/hlsl_compiler.h", ROOT / "frontend/gpu/shader_reflection.cpp",
+                  ROOT / "frontend/gpu/shader_cache.cpp", ROOT / "frontend/gpu/shader_cache.h",
                   ROOT / "frontend/gpu/graphics_link.cpp", ROOT / "frontend/gpu/graphics_link.h", ROOT / "sandbox/shader_link_cases.h",
                   ROOT / "sandbox/shader_compile.cpp", ROOT / "scripts/build_xxmi_runtime.py", Path(__file__)]
         report["source_sha256"] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}

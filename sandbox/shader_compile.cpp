@@ -1,4 +1,5 @@
 #include "../frontend/gpu/hlsl_compiler.h"
+#include "../frontend/gpu/shader_cache.h"
 #include "../frontend/gpu/graphics_link.h"
 #include <d3dcompiler.h>
 #include <wrl/client.h>
@@ -28,6 +29,53 @@ static HlslProgram compile(HlslCompiler& compiler,HlslRequest request,const std:
     check(bool(file),"Export shader for independent SPIR-V validation");return program;
 }
 #include "shader_link_cases.h"
+// D-126: a translated stage on disk, read back whole and only while its inputs are unchanged.
+static void shader_cache(HlslCompiler& compiler,const std::filesystem::path& root,const std::filesystem::path& dxc){
+    HlslRequest request;request.working_directory=root/"cached";request.stage='p';
+    request.source=root/"cached"/"panel.hlsl";
+    write(root/"cached"/"tint.hlsli","float4 tint(){return float4(0.25,0.5,0.75,1);}\n");
+    write(request.source,"#include \"tint.hlsli\"\nTexture2D<float4> image:register(t100);\n"
+                         "float4 main(float4 p:SV_Position):SV_Target{return tint()+image.Load(int3(p.xy,0))*0.001;}\n");
+    auto program=compile(compiler,request,root);
+    const auto bytes=serialize_program(program);HlslProgram round;
+    check(deserialize_program(bytes.data(),bytes.size(),round) && serialize_program(round)==bytes && round.spirv==program.spirv &&
+          round.bindings.size()==program.bindings.size() && round.dependencies.size()==2,"A program serializes whole and reads back unchanged");
+    HlslProgram untouched=round;
+    check(!deserialize_program(bytes.data(),bytes.size()-1,untouched) && serialize_program(untouched)==bytes,"A truncated program is refused and leaves the output");
+    ShaderCache cache(root/"cache",{dxc});
+    const auto key=cache.hlsl_key(request);HlslProgram loaded;
+    check(key.size()==64 && !cache.load(key,loaded) && cache.stats().misses==1,"An empty cache misses");
+    cache.store(key,program);
+    check(cache.load(key,loaded) && serialize_program(loaded)==bytes && cache.stats().hits==1 && cache.stats().stored==1,
+          "A stored stage reads back as the compiler made it");
+    ShaderCache again(root/"cache",{dxc});
+    check(again.hlsl_key(request)==key && again.load(key,loaded),"Another cache of the same tools and folder finds it (the next load of the game)");
+    auto flagged=request;flagged.flags|=1u<<12;
+    check(again.hlsl_key(flagged)!=key,"Other compile flags are another key");
+    write(root/"cached"/"tint.hlsli","float4 tint(){return float4(1,0,0,1);}\n");
+    check(again.hlsl_key(request)==key && !again.load(key,loaded) && again.stats().stale==1,"A changed include makes the entry stale");
+    write(request.source,"#include \"tint.hlsli\"\nfloat4 main():SV_Target{return tint();}\n");
+    check(again.hlsl_key(request)!=key,"A changed source is another key");
+    std::filesystem::path entry=root/"cache"/(key+".efvkshader");
+    {std::ofstream damaged(entry,std::ios::binary|std::ios::trunc);damaged<<"EFVKSHD1 damaged";}
+    check(!again.load(key,loaded),"A damaged entry misses");
+    {
+        // An entry of another build: the next process to open the folder removes it, and keeps its own.
+        std::ofstream other(root/"cache"/(std::string(64,'0')+".efvkshader"),std::ios::binary);
+        other<<"EFVKSHD1"<<std::string("\x01\0\0\0",4)<<std::string(64,'f')<<std::string(64,'0');
+    }
+    again.store(key,program);
+    check(std::filesystem::exists(root/"cache"/(std::string(64,'0')+".efvkshader")),"A cache already open on the folder leaves other entries");
+    std::filesystem::create_directories(root/"cache-other");
+    std::filesystem::copy_file(root/"cache"/(std::string(64,'0')+".efvkshader"),root/"cache-other"/(std::string(64,'0')+".efvkshader"));
+    std::filesystem::copy_file(root/"cache"/(key+".efvkshader"),root/"cache-other"/(key+".efvkshader"));
+    ShaderCache fresh(root/"cache-other",{dxc});
+    check(!std::filesystem::exists(root/"cache-other"/(std::string(64,'0')+".efvkshader")) && fresh.stats().removed==1 &&
+          std::filesystem::exists(root/"cache-other"/(key+".efvkshader")),"Opening a folder removes another build's entries and keeps its own");
+    const std::vector<uint8_t> dxbc={'D','X','B','C',1,2,3,4};
+    check(again.bytecode_key(dxbc,'p',0)!=again.bytecode_key(dxbc,'p',1) && again.bytecode_key(dxbc,'p',0)!=again.bytecode_key(dxbc,'v',0),
+          "Shipped bytecode keys by its bytes, stage and float mode");
+}
 int wmain(int argc,wchar_t** argv){try{
     check(argc==3,"Shader fixture and compiler locations supplied");const auto root=std::filesystem::absolute(argv[1]);std::filesystem::create_directories(root);
     HlslCompiler compiler(argv[2]);HlslRequest request;request.source=root/"compute.hlsl";request.working_directory=root;
@@ -137,5 +185,6 @@ RWStructuredBuffer<float4> Out : register(u1);
     check(!compiler.compile(request,program,why) && why.find("warning")!=std::string::npos && why.find("-Gec is not supported with -spirv")!=std::string::npos,
           "A native warning cannot hide the following SPIR-V error behind a NUL terminator");
     original_graphics_link(compiler,root);
+    shader_cache(compiler,root,argv[2]);
     printf("shader_compile: %u checks passed; %u modules emitted\n",checks,compiled);return 0;
 }catch(const std::exception& e){printf("FAIL after %u checks, %u modules: %s\n",checks,compiled,e.what());return 1;}}

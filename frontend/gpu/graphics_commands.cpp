@@ -158,7 +158,7 @@ Graphics ShaderCommands::compile_graphics(const std::vector<HlslProgram>& progra
     VkGraphicsPipelineCreateInfo pipeline={VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};pipeline.stageCount=uint32_t(stages.size());pipeline.pStages=stages.data();
     pipeline.pVertexInputState=&inputs;pipeline.pInputAssemblyState=&assembly;pipeline.pViewportState=&viewport;pipeline.pRasterizationState=&state.raster;
     pipeline.pMultisampleState=&samples;pipeline.pDepthStencilState=&state.depth;pipeline.pColorBlendState=&blend;pipeline.pDynamicState=&dynamic;pipeline.layout=result->layout;pipeline.renderPass=result->pass;
-    checked(d->CreateGraphicsPipelines(dev,VK_NULL_HANDLE,1,&pipeline,nullptr,&result->pipeline),"Create owned graphics pipeline");
+    checked(d->CreateGraphicsPipelines(dev,d->host.pipeline_cache,1,&pipeline,nullptr,&result->pipeline),"Create owned graphics pipeline");
     return std::make_shared<GraphicsPipeline>(std::move(result));
 }
 void ShaderCommands::draw(const Graphics& pipeline,const std::vector<ShaderDescriptor>& bindings,const GraphicsDraw& draw){

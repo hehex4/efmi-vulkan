@@ -12,6 +12,8 @@ class GraphicsPipeline;
 using Graphics=std::shared_ptr<GraphicsPipeline>;
 struct ShaderHost {
     PFN_vkGetDeviceProcAddr get_device_proc=nullptr;
+    // The host's pipeline cache (kept on disk by the host) for the pipelines made here; null: none.
+    VkPipelineCache pipeline_cache=VK_NULL_HANDLE;
     // Actual properties of the ResourceCommands physical device.
     VkPhysicalDeviceProperties properties{};
     std::filesystem::path validator;

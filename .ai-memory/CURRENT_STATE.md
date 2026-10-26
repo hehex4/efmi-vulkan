@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.9.2: shader cache (2026-10-26, D-126)
+
+- The user asked for a shader cache like 3DMigoto's. Measured first (sandbox, actual configuration, 22 Mods): the CustomShaders cost 8 DXC compiles (0.59 s) and 62 translations of shipped caches (0.18 s) at every load; the status now reports this per package (`owned_present.shaders`).
+- 1.9.2: translated stages kept in `settings/shader-cache` (D-126), the owned runtime's pipelines through the device's pipeline cache. Load of the 22 Mods with a warm file system cache: 2.40-2.43 s without, 1.65-1.67 s with the cache (35 entries, 7.4 MiB; the first load already shares one entry among the identical panels). Tests that fail without it: the owned Present test's second start (2 stages compiled again), and the compiler test's cache cases.
+- Verification: full suite 45/45 (compiler test 186 checks, owned Present 38/38). Not yet in the game.
+
 ## 1.9.1: no driver allocation per frame in owned work, settings saved as the original (2026-10-26, BUG-058, BUG-059, D-125)
 
 - Session with 1.9.0 (PID 20392, 16:16-16:37, user-started, DLSS Frame Generation on). Data captured in the real game before the freeze: Si NightveilTrancer 361633 of 382408 matches replaced, Tangtang 155970, Yvonne, arcane; `bones.components_missing` 0; `held_before_shown` 47, `original_before_shown` 0, `waiting_memory` 0. The user found the Mods' Ctrl+K key panels stuttering when opened and while switching options; then the game froze (BUG-058). Measured: the panel's per-frame settings saves under the engine lock (BUG-059), texture first-use waits up to 263 ms for 64 MiB 8192x8192 BC7 maps (reading one alone takes 30-70 ms), and single frames of 0.6-0.9 s while switching that neither explains (not yet attributed; the profile windows missed them before the freeze).

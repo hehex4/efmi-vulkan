@@ -18,9 +18,11 @@ std::filesystem::path owned_tools_directory();
 class OwnedPresenter {
 public:
     // A GPU runtime for one generation on this device, or null with the reason when owned
-    // execution is unavailable (tools not deployed beside the layer, device below Vulkan 1.1).
+    // execution is unavailable (tools not deployed beside the layer, device below Vulkan 1.1). Its
+    // pipelines go through `pipeline_cache`, the device's variant pipeline cache (D-126).
     static std::shared_ptr<efmi::frontend::OwnedRuntime> runtime(Device*, const VkPhysicalDeviceMemoryProperties&,
-                                                                      const std::filesystem::path& working, std::string& reason);
+                                                                      const std::filesystem::path& working, std::string& reason,
+                                                                      VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
     // The window, cursor and swap chain size of the presented swap chain, for the INI.
     static void sample(Device*, const PresentWork*, efmi::frontend::RuntimeInput&);
 

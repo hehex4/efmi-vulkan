@@ -112,7 +112,7 @@ Compute ShaderCommands::compile(const HlslProgram& program){
     checked(d->CreateShaderModule(dev,&module,nullptr,&result->module),"Create compute shader module");
     VkComputePipelineCreateInfo pipeline={VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};pipeline.layout=result->layout;
     pipeline.stage.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;pipeline.stage.stage=VK_SHADER_STAGE_COMPUTE_BIT;pipeline.stage.module=result->module;pipeline.stage.pName="main";
-    checked(d->CreateComputePipelines(dev,VK_NULL_HANDLE,1,&pipeline,nullptr,&result->pipeline),"Create compute pipeline");
+    checked(d->CreateComputePipelines(dev,d->host.pipeline_cache,1,&pipeline,nullptr,&result->pipeline),"Create compute pipeline");
     return std::make_shared<ComputePipeline>(std::move(result));
 }
 void ShaderCommands::layout(ShaderPipelineState& result){

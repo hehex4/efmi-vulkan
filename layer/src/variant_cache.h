@@ -48,6 +48,8 @@ public:
     // Call before destroying the device. Also release every command-buffer/GPU owner before
     // vkDestroyDevice. Stop joins the worker; it is not for the draw or submit hot path.
     void stop();
+    // The device's pipeline cache the variants are made through, for the owned runtime's pipelines too.
+    VkPipelineCache pipeline_cache() const { return pipeline_cache_; }
 
 private:
     struct Key {

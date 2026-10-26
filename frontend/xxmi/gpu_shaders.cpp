@@ -1,6 +1,7 @@
 #include "gpu_shaders.h"
 #include "image_formats.h"
 #include "globals.h"
+#include <chrono>
 #include <cmath>
 #include <cfloat>
 #include <fstream>
@@ -30,6 +31,11 @@ void GpuShaderRuntime::enable_cached_bytecode(const std::filesystem::path& libra
 }
 void GpuShaderRuntime::exclude_shaders(std::vector<std::wstring> names){
     require(!adapter_,"Excluded CustomShaders are set before installation");excluded_=std::move(names);
+}
+namespace {
+uint64_t elapsed_us(std::chrono::steady_clock::time_point began){
+    return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now()-began).count());
+}
 }
 void GpuShaderRuntime::compile(const RuntimeShaderDeclaration& declaration){
     for(const auto& name:excluded_)if(!_wcsicmp(name.c_str(),declaration.name.c_str()))return;
@@ -61,11 +67,22 @@ void GpuShaderRuntime::compile_stages(const RuntimeShaderDeclaration& declaratio
             require(size>0 && size<=(4u<<20),"Original cached shader bytecode is outside its budget");
             std::vector<uint8_t> bytes(static_cast<size_t>(size));std::ifstream in(cache,std::ios::binary);
             in.read(reinterpret_cast<char*>(bytes.data()),std::streamsize(bytes.size()));require(bool(in),"Original cached shader bytecode read failed");
+            const auto key=cache_?cache_->bytecode_key(bytes,request.stage,uint32_t(cached_mode_)):std::string();
+            if(!key.empty() && cache_->load(key,*program)){++shader_stats_.cached;++cached_programs_;entry.stages[i]=std::move(program);continue;}
+            const auto translating=std::chrono::steady_clock::now();
             if(!cached_compiler_->compile(bytes,request.stage,*program,why,cached_mode_))
                 throw std::runtime_error("CustomShader cached bytecode translation failed: "+why);
+            ++shader_stats_.translated;shader_stats_.translate_us+=elapsed_us(translating);
+            if(!key.empty())cache_->store(key,*program);
             ++cached_programs_;entry.stages[i]=std::move(program);continue;
         }
+        // The program a load of the same source, includes, flags and tools made before (D-126).
+        const auto key=cache_?cache_->hlsl_key(request):std::string();
+        if(!key.empty() && cache_->load(key,*program)){++shader_stats_.cached;entry.stages[i]=std::move(program);continue;}
         std::vector<uint8_t> reference;
+        const auto compiling=std::chrono::steady_clock::now();
+        struct Timed {ShaderStats& stats;std::chrono::steady_clock::time_point began;
+            ~Timed(){++stats.compiled;stats.compile_us+=elapsed_us(began);}} timed{shader_stats_,compiling};
         if(!compiler_.compile(request,*program,why,cached_compiler_?&reference:nullptr)){
             // DXC refused what the original compiler took (3DMigoto runs that bytecode, e.g. a
             // structured buffer's Length): the bytecode's translation runs instead.
@@ -74,6 +91,7 @@ void GpuShaderRuntime::compile_stages(const RuntimeShaderDeclaration& declaratio
                 throw std::runtime_error("CustomShader source compilation failed: "+why+(translation.empty()?"":"; its bytecode translation: "+translation));
             ++reference_programs_;
         }
+        if(!key.empty())cache_->store(key,*program);
         entry.stages[i]=std::move(program);
     }
     shaders_.emplace(declaration.shader,std::move(entry));

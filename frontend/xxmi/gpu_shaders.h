@@ -2,6 +2,7 @@
 #include "gpu_resources.h"
 #include "graphics_state.h"
 #include "input_layout.h"
+#include "../gpu/shader_cache.h"
 #include "../gpu/graphics_commands.h"
 #include "../gpu/dxbc_compiler.h"
 
@@ -37,6 +38,12 @@ public:
     size_t cached_programs() const {return cached_programs_;}
     // Sources DXC refused that run as the original compiler's bytecode (needs the translation above).
     size_t reference_programs() const {return reference_programs_;}
+    // The CustomShader stages this generation made at load: compiled from HLSL (DXC), translated from
+    // a shipped cache (vkd3d-shader), and the microseconds each took.
+    struct ShaderStats {uint64_t compiled=0,translated=0,compile_us=0,translate_us=0,cached=0;};
+    const ShaderStats& shader_stats() const {return shader_stats_;}
+    // Stages read from the shader cache (D-126) instead of compiled or translated; before installation.
+    void enable_cache(std::shared_ptr<gpu::ShaderCache> cache){cache_=std::move(cache);}
     bool execute_original(CommandListState&,std::wstring&);
     void set_scissor(const D3D11_RECT& value){scissor_=value;}
     // A logical source layout retains its creation signature across VS changes.
@@ -70,6 +77,8 @@ private:
     std::unique_ptr<gpu::DxbcCompiler> cached_compiler_;
     gpu::DxbcFloat32Mode cached_mode_=gpu::DxbcFloat32Mode::Software;
     size_t cached_programs_=0,reference_programs_=0;
+    ShaderStats shader_stats_;
+    std::shared_ptr<gpu::ShaderCache> cache_;
     std::vector<std::wstring> excluded_;
     uint32_t api_version_;
     std::filesystem::path working_directory_;

@@ -16,6 +16,7 @@ public:
         std::filesystem::path compiler;  // DXC, for CustomShader HLSL
         std::filesystem::path bytecode;  // vkd3d-shader, for the shipped shader caches (D-070)
         gpu::DxbcFloat32Mode mode = gpu::DxbcFloat32Mode::Software;
+        std::filesystem::path cache; // the shader cache's folder (D-126); empty: none
     };
     OwnedRuntime(gpu::ResourceDevice, gpu::ShaderHost, const Tools&, std::filesystem::path working);
     ~OwnedRuntime();
@@ -44,6 +45,9 @@ public:
     // Whether the scope since the last begin() drew into or copied into the back buffer (BUG-036).
     bool backbuffer_targeted() const;
     gpu::ResourceCommands& commands();
+    // What the CustomShaders of this generation cost at load (GpuShaderRuntime::ShaderStats).
+    struct ShaderStats {uint64_t compiled=0,translated=0,compile_us=0,translate_us=0,cached=0;};
+    ShaderStats shader_stats() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

@@ -61,10 +61,13 @@ The game gets the DLL through the XXMI launcher: the EFMI profile in its Vulkan 
 | `m2_enabled` | replacement on (1) or the probe alone (0) |
 | `m2_gpu_bones` | merged skeleton imported on the GPU (1) or on the CPU (0) |
 | `settings_save_seconds` | how often changed persistent variables are saved, as `settings_auto_save_interval` (60) |
+| `shader_cache` | keep translated CustomShader stages in `settings\shader-cache\` (1, the default) or compile them at every load (0) |
 | `mode = passthrough` | forward every call untouched, no tracking, no pipe |
 
 Persistent Mod variables are kept per Mod folder in `dist\settings\`, never next to a Mod; the
-installation and the Mods stay read-only. F10 reloads the Mods folder as in XXMI. The layer's log is
+installation and the Mods stay read-only. The same folder holds the layer's caches: the pipeline
+cache of the replaced draws and the [shader cache](docs/shader-cache.md), the layer's counterpart of
+3DMigoto's compiled `.bin` shaders (a new build starts it afresh). F10 reloads the Mods folder as in XXMI. The layer's log is
 `dist\efmi_vk_layer.log`; a stall watchdog in it names the threads that hold up a presentation.
 
 ## Layout

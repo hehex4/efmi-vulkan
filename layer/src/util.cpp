@@ -340,6 +340,7 @@ void util_init(HMODULE self)
         if (!expiry.empty()) g_cfg.m2_identity_expiry_ms = strtoull(expiry.c_str(), nullptr, 10);
         const std::string save = setting("EFMI_VK_SETTINGS_SAVE_SECONDS", "settings_save_seconds");
         if (!save.empty()) g_cfg.settings_save_seconds = strtoull(save.c_str(), nullptr, 10);
+        g_cfg.shader_cache = setting("EFMI_VK_SHADER_CACHE", "shader_cache") != "0";
     }
     g_cfg.m2_texture_budget_mb = strtoull(setting("EFMI_VK_M2_TEXTURE_BUDGET_MB", "m2_texture_budget_mb").c_str(), nullptr, 10);
     {

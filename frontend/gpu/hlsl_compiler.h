@@ -41,6 +41,7 @@ struct ShaderSignature {
     uint32_t index=0,register_index=0,component_type=0,system_value=0,stream=0;
     uint32_t mask=0,read_write_mask=0;
 };
+// serialize_program (shader_cache.cpp) stores every field: a new field goes there too, with kFormat bumped.
 struct HlslProgram {
     VkShaderStageFlagBits stage=VK_SHADER_STAGE_COMPUTE_BIT;
     uint32_t vulkan_version=VK_API_VERSION_1_1;
