@@ -9,7 +9,7 @@
 ## 1.8.9: settings saved only when dirty (2026-10-26)
 
 - The 22-Mod replay (vk03) showed the engine lock contended even with one recording thread: 1338 waits, 43 ms over 900 frames, because every Present woke each generation's worker to save, and save() took the lock to find nothing dirty. The worker is now woken only when the persistent variables changed (noted under the lock the calls hold anyway): 0 waits. Replay CPU per frame against 1.8.8, six pairs: 2781 to 2699 us. Present of all 22 generations: 226 us per frame (docs/recording-performance.md).
-- Verification: full suite, see the session log.
+- Full suite 41/41 (build/run_all-1.8.9.out in the worktree). Deployed the 18 files (3731999) on 2026-10-26 12:26 after two closed-process checks; cfg unchanged; 1.8.8 in build/backups/before-1.8.9-20261026-122640/ (build/candidate-1.8.9.json). Smoke at --api 1.3: 1.8.9, 22 packages, none refused, no validation message (build/smoke-1.8.9.json). Not yet seen in the game.
 
 ## 1.8.8: the engine lock's contention counted (2026-10-26)
 
