@@ -106,12 +106,14 @@ identities for hash conditions) stays; the rest belongs to a diagnostic configur
 ## Order of work
 
 1. Resources as the original (2.): first-bind load with a wait, no eviction of used textures under
-   pageable memory, no texture gate. Small, and it ends the visible reverts.
+   pageable memory, no texture gate. Small, and it ends the visible reverts. Done in 1.8.5 (D-122,
+   with the wait of D-120); the gate remains only for a load that failed or outlasted the wait.
 2. The GPU skinning of 1.8.4 verified in a session (4.), then measured with `scripts/ab_game.py`.
 3. One generation for the Mods folder (3.): the largest change; memory, Present cost and F10.
 4. Per-draw work proportional to change (1.): the translated draw list and its materials and
    variants kept per section and input state, rebuilt only when the list's result differs.
-5. A play configuration without the probe's diagnostics (6.), measured against the current one.
+5. A play configuration without the probe's diagnostics (6.), measured against the current one. The
+   user, 2026-10-25: this waits until everything else is done.
 
 Each step is measured in the game against the one before with the interleaved A/B, not in the
 sandbox alone (D-119): the sandbox has the game's queues now, but not its scene.

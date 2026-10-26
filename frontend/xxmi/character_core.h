@@ -35,8 +35,15 @@ struct CharacterDiscovery {
     // The generation loaded EFMITTL with the interface its bridge knows (D-113): the host supplies
     // the library's shader hook facts and records its captures.
     bool efmittl = false;
+    // The Mod's mesh and hide sections as the override registry declares them, with the Core's own
+    // component ids; known once the overrides are parsed, before any declaration runs (the offline
+    // dry run lists them for a Mod whose declarations need the GPU).
+    std::vector<efvk::CharacterSection> declared;
 };
 std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_namespace, std::shared_ptr<CharacterDiscovery> output);
+// Offline, without a GPU (the dry run): `inner` with the Mod's CustomShader sections declared, so a Mod
+// that has them loads and its sections plan; the lists that run them refuse outside the owned domain.
+std::shared_ptr<RuntimeExtension> declarations_only(std::shared_ptr<RuntimeExtension> inner);
 // The namespaces of the libraries this extension declares itself (RabbitFX, D-082), lower case: a
 // generation never loads their INIs from the Mods folder (D-112).
 std::vector<std::string> character_core_libraries();

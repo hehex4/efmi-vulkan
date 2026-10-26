@@ -13,7 +13,29 @@ struct MatchReferenceExtension final : efmi::frontend::RuntimeExtension {
     void after_dispatch() noexcept override {++dispatched;}
     void execution_failed() noexcept override {++failed;}
 };
+struct HostTargetExtension final : efmi::frontend::RuntimeExtension {
+    std::vector<std::wstring> install(efmi::frontend::DrawPlanAdapter&) override {return {};}
+};
+// BUG-053: the host's answer for a replaced draw's render target (RuntimeDraw::target_width) reaches the
+// post root, whose state is fresh as the original's RunCommandListComplete makes it; the original asks
+// OMGetRenderTargets again there and gets the same target. -2 is the host's "none bound" (-1 to the list).
+static void runtime_host_target_cases(const std::filesystem::path& folder){
+    using namespace efmi::frontend;const auto root=std::filesystem::absolute(folder/"host-target");std::filesystem::create_directories(root);
+    const auto path=root/"target.ini";
+    write(path,"namespace = host_target\n[Constants]\nglobal $pre = 0\nglobal $post = 0\n[TextureOverrideA]\nhash = 12345678\n"
+               "if rt_width != 0\n$pre = rt_width\npost $post = rt_height\nendif\n");
+    RuntimeConfig config{root,{path},root/"settings","target"};std::string why;
+    auto runtime=IniRuntime::load(config,std::make_shared<HostTargetExtension>(),why);if(!runtime)throw std::runtime_error(why);
+    auto value=[&](const char* name){return runtime->status().variables.at(std::string("$\\host_target\\")+name);};
+    RuntimeDraw draw;draw.hash=0x12345678;draw.count=30;draw.target_width=1920;draw.target_height=1080;efmi::assets::FilePlan output;
+    check(runtime->draw(draw,output,why) && value("pre")==1920 && value("post")==1080,"The host's render target size answers the pre and the fresh post root");
+    draw.target_width=draw.target_height=-2;
+    check(runtime->draw(draw,output,why) && value("pre")==-1 && value("post")==-1,"No colour target bound answers -1 in both roots, as the original");
+    draw.target_width=draw.target_height=-1;
+    check(!runtime->draw(draw,output,why) && why.find("Render target size")!=std::string::npos,"An unknown target outside the owned domain still refuses");
+}
 static void runtime_match_cases(const std::filesystem::path& folder){
+    runtime_host_target_cases(folder);
     using namespace efmi::frontend;const auto root=std::filesystem::absolute(folder/"match-phases");std::filesystem::create_directories(root);
     for(unsigned mode=0;mode<8;++mode){const auto path=root/(std::to_string(mode)+".ini");
         std::string text="namespace = match_phase\n[Constants]\nglobal $trace = 0\nglobal $peek = 0\nglobal $stop = "+std::to_string(mode)+R"ini(

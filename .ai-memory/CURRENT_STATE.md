@@ -6,6 +6,18 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.5: the Si NightveilTrancer Mod draws; textures as the original (2026-10-25, BUG-053, D-122)
+
+- BUG-053 found offline after the session: the post phase's fresh state lacked the host's render target answer, one refusal ended the generation's GPU side, and the Mod's compute-written positions had no vertex usage. Fixed; the original's built-in sections inserted; each distinct refusal reason logged once per generation. Replay vk04 with the Mod alone: 4444 of 4568 draws replaced, none refused, Present clean, validation clean.
+- D-122 (D-121 step 1): with pageable device memory the texture working set is the whole cap; no idle eviction, demotion or reduced load below it.
+- Offline tooling: the dry run takes wide path arguments and lists the sections of a Mod whose declarations need the GPU (`declarations_only`); the replay's Mod copy has a plain folder name; a suite step replays the Mod with `--no-refusal`.
+- Verification and deployment: see the session log for this round's status.
+
+## 1.8.4 in the game: GPU skinning measured (2026-10-25, PID 26184)
+
+- User-started session with 1.8.4 (CPU bones by the configuration). The bones were switched to the GPU through the probe and watched for 60 s: 3915 submissions, all completed, no failure, no slot wait (build/game-1.8.4-gpu-bones-watch.json). Interleaved A/B in one scene (scripts/ab_game.py --setting gpu_bones, 10 rounds of 3 s, medians; 1044 against 1047 draws per present): mean frame 13.8 ms on the GPU against 16.6 ms on the CPU (-2.8 ms, 17%), layer recording work 4.96 against 7.60 ms per present, frames over 16 ms 18.5 against 97 per window (build/game-1.8.4-ab-gpu-bones.json). The GPU stays on in this session. The first in-game measurement of a performance change that is not confounded by the scene (ISSUE-012).
+- The Si Mod was still refused at every draw for rt_width: a depth-only pass (no colour target) left the query unanswered, and the -2 marker re-asked the owned domain. The module now answers -1 for "none bound" (marker -3) and a bound target's size from the framebuffer or the pass's render area; exchanged into the running game.
+
 ## 1.8.4: bone dispatches per recording, the two-queue replay, waiting instead of the game's mesh (2026-10-25, D-117 amended, D-119, D-120, BUG-052)
 
 - The 1.8.3 session hung the GPU within two minutes (BUG-052: one timeline signalled from two queues). The deployed configuration was switched to `m2_gpu_bones = 0` (dist/efmi_vk.cfg) so the user can play on the CPU import meanwhile.

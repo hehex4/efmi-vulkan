@@ -139,7 +139,8 @@ public:
 };
 // The original's ProcessParamRTSize caches the size of o0 in the state once a 2D view is bound
 // and asks again while the cache stays -1. The owned domain answers for o0; -2 marks "asked,
-// nothing bound" for the window heuristic, so the reference context is never queried.
+// nothing bound" for the window heuristic, so the reference context is never queried; -3 is the
+// host's answer for a replaced draw whose pass binds no colour target (the original's -1 there).
 void fill_render_target(CommandListState& state,QueryService& service)
 {
     if(state.rt_width!=-1 && state.rt_width!=-2)return;
@@ -157,7 +158,7 @@ public:
         if(!state)refuse(L"Render target size needs a command list state");
         fill_render_target(*state,*service);
         const float value=source->type==ParamOverrideType::RT_WIDTH?state->rt_width:state->rt_height;
-        return value==-2?-1.0f:value;
+        return value==-2 || value==-3?-1.0f:value;
     }
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
     bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
@@ -316,7 +317,9 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
         }
         if(window_heuristic(operand->type)){node=std::make_shared<HostWindowQuery>(std::move(operand),queries);return;}
         if(host_value(operand->type) && queries->host){node=std::make_shared<HostValueQuery>(std::move(operand),queries);return;}
-        if((operand->type==ParamOverrideType::RT_WIDTH || operand->type==ParamOverrideType::RT_HEIGHT) && queries->rt){
+        // Always: a replaced draw's state carries the host's answer (RuntimeDraw::target_width), with or
+        // without an owned domain to ask; without either the query refuses with that reason.
+        if(operand->type==ParamOverrideType::RT_WIDTH || operand->type==ParamOverrideType::RT_HEIGHT){
             node=std::make_shared<RenderTargetQuery>(std::move(operand),queries);return;
         }
         guard_target(operand->texture_filter_target,queries,depth+1);
@@ -442,6 +445,7 @@ struct DrawPlanAdapter::Runtime {
     std::unordered_map<ExplicitCommandListSection*,DrawPlanAdapter::NativeCommand> observers;
     std::unordered_map<CustomResource*,CustomResource*> references;
     std::shared_ptr<QueryService> queries=std::make_shared<QueryService>();
+    DrawPlanAdapter::FreshState fresh;
     DrawPlanAdapter::PaletteSource palette_source;
     DrawPlanAdapter::ResourceCommand resource_command;
     DrawPlanAdapter::ParameterFlush parameter_flush;
@@ -1142,6 +1146,10 @@ void DrawPlanAdapter::host_values(HostValue values){
     if(runtime_->active || !runtime_->adapted.empty() || !values)refuse(L"Install host values before adapting command lists");
     runtime_->queries->host=std::move(values);
 }
+void DrawPlanAdapter::fresh_state(FreshState initialize){
+    if(runtime_->active || !runtime_->adapted.empty() || !initialize)refuse(L"Install the fresh state before adapting command lists");
+    runtime_->fresh=std::move(initialize);
+}
 void DrawPlanAdapter::render_target_size(RenderTargetSize query){
     if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install the render target size before adapting command lists");
     runtime_->queries->rt=std::move(query);
@@ -1364,6 +1372,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
             CommandListState after;after.mHackerDevice=state.mHackerDevice;after.mHackerContext=state.mHackerContext;
             after.mOrigDevice1=state.mOrigDevice1;after.mOrigContext1=state.mOrigContext1;after.call_info=state.call_info;
             after.this_target=state.this_target;after.resource=state.resource;after.view=state.view;after.post=true;
+            if(runtime_->fresh)runtime_->fresh(after);
             run(*post,after);
             if(runtime_->nested_failed)refuse(L"Nested native callback failed");
             runtime_->flush(after);
@@ -1398,7 +1407,8 @@ bool DrawPlanAdapter::execute_intercepted(const std::vector<CommandList*>& pre,c
     runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};runtime_->keep_original=false;runtime_->shader_depth=0;
     try{
         auto fresh=[&](CommandListState& root,bool after){root.mHackerDevice=state.mHackerDevice;root.mHackerContext=state.mHackerContext;
-            root.mOrigDevice1=state.mOrigDevice1;root.mOrigContext1=state.mOrigContext1;root.call_info=state.call_info;root.post=after;};
+            root.mOrigDevice1=state.mOrigDevice1;root.mOrigContext1=state.mOrigContext1;root.call_info=state.call_info;root.post=after;
+            if(runtime_->fresh)runtime_->fresh(root);};
         auto run=[&](const auto& lists,bool after){for(auto* list:lists){CommandListState root;fresh(root,after);
             auto* resolved=list->ResolveCommandList();
             if(!runtime_->adapted.count(resolved))refuse(L"Shader root callback alias was not adapted");

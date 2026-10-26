@@ -37,6 +37,11 @@ VkBufferUsageFlags usage(const D3D11_BUFFER_DESC& d) {
     if(d.BindFlags&D3D11_BIND_SHADER_RESOURCE)result|=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
     if(d.BindFlags&D3D11_BIND_UNORDERED_ACCESS)result|=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
     if(d.MiscFlags&D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS)result|=VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+    // DX11 without its debug layer draws from a buffer referenced into a vertex or index slot it was
+    // not created for (a shape-key Mod's compute output, `cs-u5 = copy ...` then `vb0 = ref`); Vulkan
+    // needs the usage at creation, where an extra usage costs nothing.
+    if(result&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT))
+        result|=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     require(!(d.BindFlags&~(D3D11_BIND_VERTEX_BUFFER|D3D11_BIND_INDEX_BUFFER|D3D11_BIND_CONSTANT_BUFFER|D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS)),"GPU buffer bind flags need another adapter");
     return result;
 }

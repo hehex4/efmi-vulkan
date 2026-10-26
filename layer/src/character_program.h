@@ -30,6 +30,9 @@ public:
         std::string mod_namespace;
         // The Mods folder, where the libraries the Mod calls by namespace are found (D-112); empty: none.
         std::filesystem::path mods;
+        // Offline, without a GPU: a Mod with CustomShader sections loads with them declared, so its
+        // sections and draw plans are known; the lists that run them refuse as outside the owned domain.
+        bool declarations_only = false;
     };
     bool discover(const Source&, CharacterPackage&, std::string& reason, const GpuFactory& gpu = {});
     // The namespace an INI declares (`namespace = ...`), lower case; empty when it declares none.
@@ -84,7 +87,7 @@ public:
 private:
     bool load(const std::filesystem::path& ini, const std::filesystem::path& core, const std::filesystem::path& settings,
               const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension>, const GpuFactory&, std::string& reason,
-              const std::filesystem::path& mods = {});
+              const std::filesystem::path& mods = {}, bool declarations_only = false);
     void catalogue(CharacterPackage&, const std::map<std::wstring, uint32_t>& remaps);
     std::shared_ptr<efmi::frontend::OwnedRuntime> gpu_;
     std::string gpu_reason_;

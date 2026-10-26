@@ -455,6 +455,8 @@ global $mod_id = -1
             }
         }
         if (found.size() > 256) return fail(why, L"More mesh sections than one character contract holds");
+        discovery->declared.clear();
+        for (const auto& s : found) { auto section = s.section; section.component = s.original; discovery->declared.push_back(section); }
         return true;
     }
     // Discovery: the active components in bone order, their LOD remaps, and the sections mapped to
@@ -603,5 +605,29 @@ std::vector<std::string> character_core_libraries()
         if (!name.empty() && std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
     }
     return names;
+}
+namespace {
+class DeclarationsOnly final : public RuntimeExtension {
+    std::shared_ptr<RuntimeExtension> inner_;
+public:
+    explicit DeclarationsOnly(std::shared_ptr<RuntimeExtension> inner) : inner_(std::move(inner)) {}
+    std::wstring declarations() override { return inner_->declarations(); }
+    std::vector<std::wstring> declaration_units() override { return inner_->declaration_units(); }
+    std::vector<std::wstring> native_shaders() override { return inner_->native_shaders(); }
+    bool custom_shader_execution() const override { return true; }
+    std::vector<std::wstring> install(DrawPlanAdapter& adapter) override { return inner_->install(adapter); }
+    bool initialize_parameters(CommandListState& state, std::wstring& why) override { return inner_->initialize_parameters(state, why); }
+    bool prepare(DrawPlanAdapter& adapter, CommandListState& state, std::wstring& why) override { return inner_->prepare(adapter, state, why); }
+    bool validate_overrides(std::wstring& why) override { return inner_->validate_overrides(why); }
+    bool before_draw(const RuntimeDraw& draw, CommandListState& state, std::wstring& why) override { return inner_->before_draw(draw, state, why); }
+    void after_draw() noexcept override { inner_->after_draw(); }
+    void library_hook(LibraryHook hook) noexcept override { inner_->library_hook(hook); }
+    void after_dispatch() noexcept override { inner_->after_dispatch(); }
+    void execution_failed() noexcept override { inner_->execution_failed(); }
+};
+}
+std::shared_ptr<RuntimeExtension> declarations_only(std::shared_ptr<RuntimeExtension> inner)
+{
+    return std::make_shared<DeclarationsOnly>(std::move(inner));
 }
 }

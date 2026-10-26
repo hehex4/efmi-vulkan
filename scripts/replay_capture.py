@@ -147,7 +147,9 @@ def only_mod(name: str) -> Path:
     source = MODS / name if (MODS / name).is_dir() else MODS / ("DISABLED_" + name)
     if not source.is_dir():
         raise ValueError("no installed Mod folder named %s (enabled or DISABLED_)" % name)
-    target = ROOT / "build" / "replay-mods" / name.replace(" ", "_")
+    # The project's folder takes a plain name (it names the replay's output and build folders); the copy
+    # inside keeps the Mod's own, whatever its characters.
+    target = ROOT / "build" / "replay-mods" / "".join(c if c.isascii() and (c.isalnum() or c in "._-") else "_" for c in name)
     copy = target / name
     files = sorted(f for f in source.rglob("*") if f.is_file())
     stamp = "\n".join("%s %d %d" % (f.relative_to(source), f.stat().st_size, f.stat().st_mtime_ns) for f in files)

@@ -23,7 +23,10 @@ TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryP
     cap_bytes_ = g_cfg.m2_texture_budget_mb ? g_cfg.m2_texture_budget_mb << 20 : std::clamp<uint64_t>(heap_bytes_ / 2, 256ull << 20, 4096ull << 20);
     reserve_bytes_ = g_cfg.m2_reserve_mb ? g_cfg.m2_reserve_mb << 20 : std::max<uint64_t>(512ull << 20, heap_bytes_ / 16);
     target_bytes_ = cap_bytes_;
-    floor_bytes_ = device->pageable_memory ? std::min(reserve_bytes_, cap_bytes_) : 64ull << 20;
+    // As the original (CustomResource::Substantiate: loaded at first use, never unloaded, WDDM pages):
+    // with pageable device memory the whole cap is the working set, so below it nothing is evicted,
+    // demoted or loaded reduced; the system pages what is used least, ours first by priority (D-122).
+    floor_bytes_ = device->pageable_memory ? cap_bytes_ : 64ull << 20;
     if (!device->timeline_semaphores) { reason_ = "textures need timeline semaphores, which the device does not enable"; return; }
     if (device->material_queues.empty() || !device->material_format_properties || !device->material_image_properties) {
         reason_ = device->material_queue_reason.empty() ? "textures need a graphics queue family" : device->material_queue_reason; return;
@@ -194,7 +197,7 @@ void TextureResidency::demand(Image& image)
 {
     // Memory tight, the set over the target, or demoted: a large texture loads without its top level,
     // a quarter of its memory (a mip chain's levels below the top hold a third of the top's bytes).
-    const bool tight = budget_known_ && free_now() < reserve_bytes_ * 2;
+    const bool tight = budget_known_ && !device_->pageable_memory && free_now() < reserve_bytes_ * 2;
     image.skip_levels = large(image) && (image.reduce_next || pressure_ || tight) ? 1 : 0;
     auto charge = [&] { return image.file_bytes >> (2 * image.skip_levels); };
     // Over the target the idle images go first. What the frames keep binding stays: evicting it

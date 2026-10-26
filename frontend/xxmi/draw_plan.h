@@ -129,6 +129,11 @@ public:
     // there is none (the original then leaves its -1). Install before adaptation.
     using RenderTargetSize=std::function<bool(CommandListState&,bool& bound,float& width,float& height,std::wstring&)>;
     void render_target_size(RenderTargetSize);
+    // What the host gives every fresh state of a draw's execution as the original's context would
+    // answer it (the post root's, RunCommandListComplete; an intercepted call's roots): the draw's
+    // render target size. Install before adaptation.
+    using FreshState=std::function<void(CommandListState&)>;
+    void fresh_state(FreshState);
     using ResourceCommand=std::function<bool(CommandListCommand&,CommandListState&,std::wstring&)>;
     // An opt-in execution backend owns resource state, GPU synchronization and
     // feedback. Without one, the existing immutable file-plan path is retained.

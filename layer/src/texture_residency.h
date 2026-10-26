@@ -123,9 +123,9 @@ private:
     std::map<VkQueue, uint64_t> waited_;
     // Budget: the cap (m2_texture_budget_mb or half the heap), the reserve kept free for the game
     // (m2_reserve_mb), and the target the device's free memory allows under them. The floor: with
-    // pageable device memory the working set up to the reserve's size loads whatever the free memory
-    // (the system pages what is used least, our textures first by their priority, as DX11 does), so
-    // a drawn character never waits for the budget (D-114).
+    // pageable device memory the whole cap, loaded whatever the free memory (the system pages what
+    // is used least, our textures first by their priority, as DX11 does for 3DMigoto), so a drawn
+    // character never waits for the budget and nothing it used is evicted below the cap (D-114, D-122).
     uint64_t heap_bytes_ = 0, cap_bytes_ = 0, reserve_bytes_ = 0, target_bytes_ = 0, free_bytes_ = 0, floor_bytes_ = 0;
     uint64_t resident_bytes_ = 0; // charged bytes of the images demanded and not released
     uint64_t loaded_since_sample_ = 0, released_since_sample_ = 0;

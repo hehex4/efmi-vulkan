@@ -16,8 +16,20 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <shellapi.h>
+#pragma comment(lib, "shell32.lib")
 
 using namespace efvk;
+// A path argument as the process received it: argv holds the ANSI code page, which cannot carry
+// every folder name a Mod has (a full-width colon, D-116's non-ASCII paths).
+static std::filesystem::path path_argument(int index)
+{
+    int count = 0;
+    LPWSTR* args = CommandLineToArgvW(GetCommandLineW(), &count);
+    std::filesystem::path out = args && index < count ? std::filesystem::path(args[index]) : std::filesystem::path();
+    LocalFree(args);
+    return out;
+}
 static int passed = 0, failed = 0;
 static void check(bool ok, const char* text) { if (ok) ++passed; else { ++failed; printf("FAIL: %s\n", text); } }
 template <class T> static void put(std::vector<uint8_t>& data, T value)
@@ -446,8 +458,7 @@ int main(int argc, char** argv)
         // read as the layer reads it, then the live plan of each of its sections in package order,
         // with the LOD the backend would pass. No GPU, so no owned runtime: the Mod's other INIs and
         // CustomShader sections are not part of these generations. What a replaced draw would bind.
-        const std::filesystem::path mods = std::filesystem::u8path(argv[2]), core = std::filesystem::u8path(argv[3]),
-                                    settings = std::filesystem::u8path(argv[4]);
+        const std::filesystem::path mods = path_argument(2), core = path_argument(3), settings = path_argument(4);
         std::string reason;
         const auto inis = CharacterProgram::mods_characters(mods, reason);
         if (inis.empty()) { fprintf(stderr, "no character Mod: %s\n", reason.c_str()); return 1; }
@@ -455,13 +466,25 @@ int main(int argc, char** argv)
             CharacterProgram program;
             CharacterPackage package;
             CharacterProgram::Source source{std::filesystem::absolute(ini), std::filesystem::absolute(core), std::filesystem::absolute(settings),
-                                            CharacterProgram::declared_namespace(ini), std::filesystem::absolute(mods)};
+                                            CharacterProgram::declared_namespace(ini), std::filesystem::absolute(mods), true};
             JsonWriter w; w.begin_object();
             w.kv("ini", ini.lexically_relative(mods).u8string());
             std::string why;
             const bool loaded = program.discover(source, package, why);
             w.kb("loaded", loaded);
-            if (!loaded) { w.kv("reason", why); w.end_object(); printf("%s\n", w.out.c_str()); continue; }
+            if (!loaded) {
+                w.kv("reason", why);
+                // What the generation discovered before it refused (a declaration that needs the GPU).
+                w.key("sections"); w.begin_array();
+                for (const auto& s : package.sections) {
+                    char hash[16]; snprintf(hash, sizeof(hash), "%08x", s.hash);
+                    w.begin_object(); w.kv("hash", hash); w.kn("count", s.match_count);
+                    if (s.component != kCharacterNone) w.kn("component", s.component);
+                    w.kb("planned", false); w.end_object();
+                }
+                w.end_array();
+                w.end_object(); printf("%s\n", w.out.c_str()); continue;
+            }
             const auto status = program.status();
             w.kn("warnings", status.diagnostics);
             w.kn("streams", package.streams.size()); w.kn("images", package.images.size());

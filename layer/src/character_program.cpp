@@ -131,7 +131,7 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
 }
 bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesystem::path& core, const std::filesystem::path& settings_folder,
                             const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension> extension,
-                            const GpuFactory& factory, std::string& reason, const std::filesystem::path& mods)
+                            const GpuFactory& factory, std::string& reason, const std::filesystem::path& mods, bool declarations_only)
 {
     {
         efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
@@ -160,6 +160,8 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
             for (const auto& library : options.libraries) libraries_[declared_namespace(library)] = library;
             extension = gpu_->combine(std::move(extension));
             gpu_->begin_deferred();
+        } else if (declarations_only) {
+            extension = efmi::frontend::declarations_only(std::move(extension));
         }
         runtime_ = efmi::frontend::IniRuntime::load(options, extension, reason);
         if (gpu_) {
@@ -344,7 +346,12 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
         if (settings_name.size() > 80) settings_name.resize(80);
         auto found = std::make_shared<efmi::frontend::CharacterDiscovery>();
         if (!load(source.ini, source.core, source.settings, settings_name,
-                  efmi::frontend::character_discovery(mod_namespace, found), factory, reason, source.mods)) return false;
+                  efmi::frontend::character_discovery(mod_namespace, found), factory, reason, source.mods, source.declarations_only)) {
+            // Offline the sections are known before a declaration that needs the GPU refuses: kept for
+            // the dry run's listing (the capture replay builds its draws from them).
+            if (source.declarations_only) { package = {}; package.sections = found->declared; }
+            return false;
+        }
         CharacterPackage made = found->contract;
         made.lists.clear();
         for (auto& c : made.components) {

@@ -461,6 +461,10 @@ public:
     std::deque<std::shared_ptr<CharacterCommand>> available;
     std::vector<std::weak_ptr<CharacterCommand>> all;
     std::string last_reason;
+    // The distinct reasons this generation logged (bounded): the status keeps only the latest, which
+    // a refusal repeated every frame hides the first one behind.
+    std::vector<std::string> logged_reasons;
+    bool target_size_logged = false;
 
     // The mod's state, under the mod lock: one matched draw at a time.
     std::mutex mod_mx;
@@ -554,7 +558,13 @@ public:
     std::atomic<bool> activated{false};
     ~CharacterGeneration() { stop(); }
 
-    void note(const std::string& reason) { std::lock_guard<std::mutex> lock(pool_mx); last_reason = reason; }
+    void note(const std::string& reason)
+    {
+        std::lock_guard<std::mutex> lock(pool_mx); last_reason = reason;
+        if (logged_reasons.size() >= 16 || std::find(logged_reasons.begin(), logged_reasons.end(), reason) != logged_reasons.end()) return;
+        logged_reasons.push_back(reason);
+        logf("character package %s: %s", package_path.c_str(), reason.c_str());
+    }
     // A fragment shader without a profile of its own keeps the application's images; logged once per
     // pipeline and slot set (derive caches the answer).
     uint32_t refuse_profile(const std::string& reason, uint32_t result) { note(reason); logf("%s", reason.c_str()); return result; }
@@ -1601,17 +1611,41 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
             request.instance_entry = entry.data(); request.instance_entry_size = entry.size();
             render_targets(pipe->second, request);
-            // The colour target's size for the list's rt_width and rt_height (the original reads them
-            // off the bound target; a Mod's GUI placement in a draw's list asks for them).
-            if (cb->pass.info && cb->pass.info->known && cb->pass.recipe && pipe->second.recipe) {
-                const uint32_t sub = pipe->second.recipe->subpass;
-                if (sub < cb->pass.recipe->subpasses.size() && !cb->pass.recipe->subpasses[sub].colors.empty()) {
-                    const uint32_t ci = cb->pass.recipe->subpasses[sub].colors[0].attachment;
-                    if (ci < cb->pass.info->views.size() && cb->pass.info->views[ci].known) {
-                        request.target_width = float(cb->pass.info->views[ci].image.extent.width);
-                        request.target_height = float(cb->pass.info->views[ci].image.extent.height);
+            // The size of colour target 0 for the list's rt_width and rt_height, as the original reads
+            // them off the bound target (ProcessParamRTSize): none bound (a depth-only pass) answers -1,
+            // as there; a bound one its image's size, or the pass's render area when the framebuffer's
+            // views are not known (a Mod's `if rt_width != 0` guards every draw).
+            if (request.targets_known && !(request.render_targets & 1)) {
+                request.target_width = request.target_height = -2; // asked, nothing bound
+            } else if (request.targets_known) {
+                bool sized = false;
+                if (cb->pass.info && cb->pass.info->known && cb->pass.recipe && pipe->second.recipe) {
+                    const uint32_t sub = pipe->second.recipe->subpass;
+                    if (sub < cb->pass.recipe->subpasses.size() && !cb->pass.recipe->subpasses[sub].colors.empty()) {
+                        const uint32_t ci = cb->pass.recipe->subpasses[sub].colors[0].attachment;
+                        if (ci < cb->pass.info->views.size() && cb->pass.info->views[ci].known) {
+                            request.target_width = float(cb->pass.info->views[ci].image.extent.width);
+                            request.target_height = float(cb->pass.info->views[ci].image.extent.height);
+                            sized = true;
+                        }
                     }
                 }
+                // The framebuffer's size (its attachments' at least), then the pass's render area.
+                if (!sized && cb->pass.info && cb->pass.info->width && cb->pass.info->height) {
+                    request.target_width = float(cb->pass.info->width); request.target_height = float(cb->pass.info->height);
+                    sized = true;
+                }
+                if (!sized && cb->pass.area.extent.width && cb->pass.area.extent.height) {
+                    request.target_width = float(cb->pass.area.offset.x + int32_t(cb->pass.area.extent.width));
+                    request.target_height = float(cb->pass.area.offset.y + int32_t(cb->pass.area.extent.height));
+                }
+            }
+            if (request.target_width == -1 && !target_size_logged) {
+                target_size_logged = true;
+                logf("character draw without a render target size: targets %s (mask 0x%x), pipeline recipe %s, render pass %s, "
+                     "framebuffer %s, area %ux%u", request.targets_known ? "known" : "unknown", request.render_targets,
+                     pipe->second.recipe ? "yes" : "no", pipe->second.recipe && pipe->second.recipe->render_pass ? "yes" : "no",
+                     cb->pass.info ? "known" : "unknown", cb->pass.area.extent.width, cb->pass.area.extent.height);
             }
             // EFMITTL's lit vertex shader hook (D-113).
             if (translucency && program->efmittl()) { request.lit_vertex = lit_vertex(pipe->second); translucency->listen(); }

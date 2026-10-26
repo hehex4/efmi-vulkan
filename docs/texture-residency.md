@@ -45,6 +45,11 @@ generation:
   256 MiB of free memory that never came, and the textures of a party member out of view for 600
   frames were evicted: characters reverted to the game's model and a switch back took one to two
   seconds. Without pageable memory the floor stays 64 MiB.
+- **As the original under pageable memory (1.8.5, D-122).** With pageable device memory the floor is
+  the whole cap: below it no image is evicted for being idle, none is demoted and none loads reduced,
+  as 3DMigoto keeps every resource it substantiated and leaves paging to WDDM. The paragraphs on idle
+  eviction, demotion and reduced loads below apply beyond the cap, or on a device without pageable
+  memory.
 - **Reduced loads under pressure.** While the working set is over the target, the largest resident
   full-size texture is demoted once every 30 frames: its next load leaves the top mip level out, a
   quarter of its memory, and demands made over the target (or while the device's free memory is

@@ -41,6 +41,12 @@ STEPS = [
     ("captured frame with a Mod's own identification", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                        r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
                                                        "--only-mod", "Si Lunabelle 1.4"]),
+    # Si NightveilTrancer drives shape keys from its Present (a compute pass writes the mesh's positions,
+    # which its draws bind by reference as vb0) and guards every draw with `if rt_width != 0`, which the
+    # original evaluates again in the post phase's fresh state (BUG-053). Every matched draw must plan.
+    ("captured frame with Present compute and owned vertex streams", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                                     r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
+                                                                     "--no-refusal", "--only-mod", "Si\uff1aNightveilTrancer & Gui"]),
     # The game's two graphics queues (D-119): a frame's passes on two command buffers over both queues,
     # the queues swapping every frame, three frames in flight; the merged skeleton's import on the GPU
     # (D-117) must give the CPU import's pictures and complete on both queues.

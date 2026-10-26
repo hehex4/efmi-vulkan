@@ -16,6 +16,7 @@
 
 void HostParseExcerpt(const wchar_t*, const wchar_t*);
 void HostParseIncludes();
+void HostInsertBuiltins();
 void HostCompileRemainingLists(const std::vector<std::wstring>&);
 void HostCompileEntries(const std::vector<ExplicitCommandListSection*>&, const std::vector<std::wstring>&);
 const std::vector<ExplicitCommandListSection*>& RuntimeInputDependencies();
@@ -192,16 +193,22 @@ struct IniRuntime::Impl {
     }
     std::vector<std::shared_ptr<const assets::FileResource>> resources;
     Impl() { device.mHackerContext = &context; context.mHackerDevice = &device; }
+    // A replaced draw's colour target size as the host read it off its render pass: the original
+    // caches rt_width and rt_height in the state off OMGetRenderTargets at their first use, and a
+    // draw's list that reads them (a Mod's GUI placement, a guard on every draw) would otherwise
+    // refuse outside the owned GPU domain. The same for the draw's fresh states (the post root).
+    void host_draw_state(CommandListState& s) const
+    {
+        if (current_draw && current_draw->target_width > 0 && current_draw->target_height > 0) {
+            s.rt_width = current_draw->target_width; s.rt_height = current_draw->target_height;
+        } else if (current_draw && current_draw->target_width == -2) {
+            s.rt_width = s.rt_height = -3; // the host's "nothing bound": the queries answer -1 as the original
+        }
+    }
     CommandListState command_state()
     {
         CommandListState s; s.mHackerContext = &context; s.mHackerDevice = &device;
-        // A replaced draw's colour target size as the host read it off its render pass: the original
-        // caches rt_width and rt_height in the state off OMGetRenderTargets at their first use, and a
-        // draw's list that reads them (a Mod's GUI placement) would otherwise refuse outside the owned
-        // GPU domain.
-        if (current_draw && current_draw->target_width > 0 && current_draw->target_height > 0) {
-            s.rt_width = current_draw->target_width; s.rt_height = current_draw->target_height;
-        }
+        host_draw_state(s);
         return s;
     }
     bool execute(CommandList& pre, CommandList& post, assets::FilePlan& result, std::wstring& reason,DrawPlanAdapter::OriginalCall between={})
@@ -260,6 +267,9 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if (!path.is_absolute()) throw std::runtime_error("Library INI path must be absolute");
             read_ini(path, path.lexically_relative(config.resource_root).wstring());
         }
+        // The original inserts its built-in sections (BuiltInCommandListUnbindAllRenderTargets and the
+        // scissor custom shaders) after d3dx.ini and before the included files; Mods run them by name.
+        HostInsertBuiltins();
         HostParseIncludes();
         // The original loader may declare user_config, but our persistence
         // destination is always the explicit project-owned generation path.
@@ -284,6 +294,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if(config.initial_shaders)p.source_shaders.install(*config.initial_shaders,p.context);
             p.adapter.shader_queries([&p](auto& operand,auto& state,auto& value,auto& why){return p.source_shaders.query(operand,state,value,why);});
         }else if(config.initial_shaders)throw std::runtime_error("Source shader facts require shader hook opt-in");
+        p.adapter.fresh_state([&p](CommandListState& s){p.host_draw_state(s);});
         p.adapter.host_values([&p](ParamOverrideType type,float& value){
             const auto& sample=p.state.sample;
             if(type==ParamOverrideType::EFFECTIVE_DPI){value=(std::max)(float(sample.effective_dpi),96.0f);return true;}
