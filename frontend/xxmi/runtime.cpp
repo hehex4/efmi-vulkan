@@ -111,6 +111,8 @@ struct EngineState {
     std::vector<InputAction*> input;
     // The latest host window and cursor sample; the original's window queries read it.
     efmi::frontend::RuntimeInput sample;
+    // G->user_config_dirty as every call left it, read without the engine lock (settings_dirty()).
+    std::atomic<bool> dirty{false};
     EngineState() : globals(std::make_unique<Globals>())
     {
         // IniHandler's values when [System] screen_width and screen_height are absent; a
@@ -160,6 +162,7 @@ struct Scope {
     }
     ~Scope()
     {
+        state.dirty.store(G->user_config_dirty, std::memory_order_relaxed);
         input_adapter = nullptr; input_context = nullptr; RuntimeWindowSample(nullptr);
         clear_command_list_profiling(); state.swap(); G = nullptr;
     }
@@ -518,6 +521,7 @@ void RuntimePublishTransitionParameters()
     if(!input_adapter->flush_parameters(state,true,why))throw std::runtime_error("Parameter transition refused: "+utf8(why));
 }
 bool IniRuntime::replayable() const { return impl_->replayable; }
+bool IniRuntime::settings_dirty() const { return impl_->state.dirty.load(std::memory_order_relaxed); }
 
 bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float seconds, std::string& reason, bool keep_replay_state)
 {

@@ -2301,7 +2301,9 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
             if (!submission.empty()) backend.note(submission);
         }
         present_phase("present owned finish");
-        backend.save_requested = true; backend.wake.notify_one();
+        // The worker saves only what changed (the original writes its user config when it is dirty);
+        // waking it every frame to find nothing took the engine lock once per package per frame.
+        if (backend.program->settings_dirty()) { backend.save_requested = true; backend.wake.notify_one(); }
     }
 }
 

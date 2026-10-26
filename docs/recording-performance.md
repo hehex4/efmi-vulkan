@@ -288,3 +288,20 @@ Interleaved A/B of the replay process's CPU per frame (driver included) against 
 six pairs of 3000 frames, faster in every pair: 2766 to 2609 us (-5.7%). The interpreter's own share
 stays; the next items by the profile are the texture identity answers across draws, the PipeInfo
 look-ups repeated within a draw, and the fingerprint reads of mapped index buffers.
+
+## 1.8.8 and 1.8.9: the engine lock (2026-10-26)
+
+Every INI call of every generation takes one process-wide engine lock (the original engine addresses
+its globals, swapped in per generation). 1.8.8 counts its contention (`engine_lock` in the
+replacement status: entries, waits, wait_us). The replay of vk03 with all 22 installed Mods, one
+recording thread, showed 1338 waits and 43 ms waited over 900 frames: after every Present each
+generation's worker was woken to save its settings, and save() took the lock to find nothing dirty,
+22 entries and wake-ups per frame from other threads. 1.8.9 notes the dirty state under the lock the
+calls hold anyway and wakes the worker only when there is something to save, as the original writes
+its user config when it changed: the same replay waits 0 times. CPU per frame of the replay process
+against 1.8.8, six interleaved pairs of 2000 frames: 2781 to 2699 us (5 of 6 pairs faster); the gain
+that matters is on the recording threads, which no longer queue behind the workers.
+
+The same replay puts the Present of all 22 generations at 226 us per frame (3 to 25 us each, the
+Core's share in every one of them; one Mod on screen). One space for the Mods folder (D-121 step 3)
+would run the Core's part once.

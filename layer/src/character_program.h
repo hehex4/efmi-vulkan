@@ -80,6 +80,7 @@ public:
     // The last Present again, for another presentation of the same frame (BUG-036).
     bool replay(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason) { return !runtime_ || runtime_->save(reason); }
+    bool settings_dirty() const { return runtime_ && runtime_->settings_dirty(); }
     bool take_reload_request() { return runtime_ && runtime_->take_reload_request(); }
     void suspend_persistence() { if (runtime_) runtime_->suspend_persistence(); }
     void inherit_persistent(const CharacterProgram& previous) { runtime_->inherit_persistent(*previous.runtime_); }

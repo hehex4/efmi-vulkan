@@ -6,6 +6,11 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.8.9: settings saved only when dirty (2026-10-26)
+
+- The 22-Mod replay (vk03) showed the engine lock contended even with one recording thread: 1338 waits, 43 ms over 900 frames, because every Present woke each generation's worker to save, and save() took the lock to find nothing dirty. The worker is now woken only when the persistent variables changed (noted under the lock the calls hold anyway): 0 waits. Replay CPU per frame against 1.8.8, six pairs: 2781 to 2699 us. Present of all 22 generations: 226 us per frame (docs/recording-performance.md).
+- Verification: full suite, see the session log.
+
 ## 1.8.8: the engine lock's contention counted (2026-10-26)
 
 - Every INI call of every generation (a matched draw, a Present) takes one process-wide engine lock, because the original engine addresses its globals; the game records on several threads, so matched draws may wait for each other there, about 20 us each, which neither the sandbox nor the replay (one recording thread) shows. The replacement status now has `engine_lock` (entries, waits, wait_us). Whether to let generations run concurrently (the original's globals redirected per thread around the pinned sources) depends on what a session shows. scripts/profile_game.py also names the waits the layer makes itself.

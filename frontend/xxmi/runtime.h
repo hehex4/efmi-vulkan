@@ -151,6 +151,9 @@ public:
     // presentation to replay (BUG-036).
     bool replay(const RuntimeInput&, uint64_t frame, float seconds, std::string& reason);
     bool save(std::string& reason);
+    // Whether the persistent variables changed since the last save, as the last call left them; read
+    // without the engine lock, so the host asks for a save only when there is one to make.
+    bool settings_dirty() const;
     bool take_reload_request();
     // A shader hook event of the game's frame (D-113), for the libraries the generation loaded.
     void library_hook(LibraryHook);
