@@ -314,6 +314,10 @@ void OwnedPresenter::status(JsonWriter& w) const
     w.kn("unsupported_formats", unsupported_); w.kn("images", images_.size()); w.kn("in_flight", tickets_.size());
     w.kn("draw_work_submitted", draw_submitted_); w.kn("replays", replays_);
     w.kn("queue_changes", queue_changes_); w.kn("queue_waits", queue_waits_);
+    // What the owned work allocated from the driver, and reused instead (BUG-058).
+    const auto& stats = gpu_->commands().stats();
+    w.kn("allocations", stats.allocations.load()); w.kn("descriptor_pools", stats.descriptor_pools.load());
+    w.kn("staging_reused", stats.staging_reused.load()); w.kn("sets_reused", stats.sets_reused.load());
     w.kv("last_error", last_error_);
     w.end_object();
 }

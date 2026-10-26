@@ -4,20 +4,33 @@ The sandbox program presents to a window; the character generation of the synthe
 carries a second INI in its Mod folder whose Present list runs a CustomShader into bb. The layer
 must draw it into the presented image, ordered by semaphores, with clean validation. A test-only
 copy of the 20th owned presentation (efmi_vk_sandbox.exe only) gives the pixels.
+
+Like a Mod's key panel, the list changes an INI parameter and binds a file image every frame: once
+the first frames made what the draw needs, a frame allocates no device memory and creates no
+descriptor pool (BUG-058; each allocation under the game's locks could wait for the GPU).
 """
 import json
+import shutil
+import time
 from pathlib import Path
 from harness import Checks, Sandbox, test_dir
 from runtime_fixture import fixture
+from efmi_vk.probe_client import ProbeClient
 
 PANEL_HLSL = r"""struct V{float4 position:SV_Position;};
 #ifdef VERTEX_SHADER
 V main(uint id:SV_VertexID){V v;v.position=float4(id&1?0.0:-1.0,id&2?0.0:1.0,0,1);return v;}
 #else
-float4 main(V v):SV_Target{return float4(0.25,0.5,0.75,1);}
+Texture2D<float4> image:register(t100);
+Texture1D<float4> IniParams:register(t120);
+float4 main(V v):SV_Target{if(IniParams.Load(int2(87,0)).x<0)return image.Load(int3(0,0,0));return float4(0.25,0.5,0.75,1);}
 #endif
 """
-PANEL_INI = """[CustomShaderOwnedPanel]
+PANEL_INI = """[Constants]
+global $frame = 0
+[ResourcePanelImage]
+filename = panel.dds
+[CustomShaderOwnedPanel]
 vs = panel.hlsl
 ps = panel.hlsl
 cull = none
@@ -25,6 +38,9 @@ topology = triangle_strip
 o0 = set_viewport bb
 draw = 4, 0
 [Present]
+$frame = $frame + 1
+x87 = $frame
+ps-t100 = ResourcePanelImage
 run = CustomShaderOwnedPanel
 """
 # float4(0.25, 0.5, 0.75, 1) in a B8G8R8A8 or R8G8B8A8 UNORM image.
@@ -49,9 +65,16 @@ def main():
         (folder / "panel").mkdir()
         (folder / "panel/panel.hlsl").write_text(PANEL_HLSL, encoding="ascii")
         (folder / "panel/panel.ini").write_text(PANEL_INI, encoding="ascii")
+        shutil.copy2(folder / "red.dds", folder / "panel/panel.dds")
         readback = folder / "present.raw"
         extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_PRESENT_READBACK=str(readback))
+        owned = []
         with Sandbox(seconds=5, env_extra=extra, entry=entry, extra_args=["--readable-swapchain"], validation=True) as sandbox:
+            # Two looks a second and a half apart, after the first frames made what the panel needs.
+            with ProbeClient(sandbox.pid) as probe:
+                for _ in range(2):
+                    time.sleep(1.5)
+                    owned.append(probe.status().get("replacement", {}).get("owned_present", {}))
             sandbox.proc.wait(timeout=90)
             output = sandbox.output()
             log = Path(sandbox.log_path).read_text(errors="replace") if Path(sandbox.log_path).is_file() else ""
@@ -60,6 +83,18 @@ def main():
         checks.check("validation: errors=0 warnings=0" in output, label + " clean core and synchronization validation", output[-3000:])
         checks.check("null descriptors added" in log or "null descriptors enabled" in log, label + " null descriptors are on in character mode")
         checks.check("owned GPU work unavailable" not in log, label + " the owned GPU tools are deployed beside the layer")
+        if len(owned) == 2:
+            first, second = owned
+            keys = ("submitted", "allocations", "descriptor_pools", "staging_reused", "sets_reused")
+            checks.check(all(k in first and k in second for k in keys), label + " the presenter reports its driver allocations", first)
+            checks.check(second.get("submitted", 0) > first.get("submitted", 0) + 20, label + " the panel kept drawing between the looks",
+                         {k: (first.get(k), second.get(k)) for k in keys})
+            checks.equal((second.get("allocations"), second.get("descriptor_pools")), (first.get("allocations"), first.get("descriptor_pools")),
+                         label + " a frame of the panel allocates no device memory and creates no descriptor pool (BUG-058)")
+            checks.check(second.get("staging_reused", 0) > first.get("staging_reused", 0) and second.get("sets_reused", 0) > first.get("sets_reused", 0),
+                         label + " the panel's parameter uploads and descriptor sets are reused", {k: (first.get(k), second.get(k)) for k in keys})
+        else:
+            checks.check(False, label + " the probe answered twice during the run", owned)
         checks.check(readback.is_file() and Path(str(readback) + ".json").is_file(), label + " the 20th owned presentation was copied", log[-3000:])
         if not readback.is_file():
             print("artifacts:", folder)

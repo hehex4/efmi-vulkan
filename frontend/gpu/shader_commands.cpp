@@ -262,11 +262,24 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
             require(properties.optimalTilingFeatures&VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT,"Sampled image does not support the bound linear sampler");}
         require(!info.compareEnable || image->range().aspectMask==VK_IMAGE_ASPECT_DEPTH_BIT,"Comparison sampler requires a depth view");
     }
-    std::vector<VkDescriptorPoolSize> sizes;for(const auto& count:pipeline->counts)sizes.push_back({count.first,count.second});
-    VkDescriptorPoolCreateInfo pool={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pool.maxSets=1;pool.poolSizeCount=uint32_t(sizes.size());pool.pPoolSizes=sizes.data();
-    checked(d->CreateDescriptorPool(d->resource.device,&pool,nullptr,&invocation->pool),"Create dispatch descriptor pool");
-    VkDescriptorSetAllocateInfo allocate={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};allocate.descriptorPool=invocation->pool;allocate.descriptorSetCount=1;allocate.pSetLayouts=&pipeline->descriptors;
-    checked(d->AllocateDescriptorSets(d->resource.device,&allocate,&invocation->set),"Allocate dispatch descriptor set");
+    {
+        // A set a completed submission returned, else one of the newest pool, else a new pool.
+        auto& sets=pipeline->sets;std::lock_guard<std::mutex> lock(sets.mutex);
+        if(!sets.free.empty()){invocation->set=sets.free.back();sets.free.pop_back();++commands.stats_.sets_reused;}
+        else{
+            if(!sets.left){
+                std::vector<VkDescriptorPoolSize> sizes;
+                for(const auto& count:pipeline->counts)sizes.push_back({count.first,count.second*ShaderPipelineState::kSetsPerPool});
+                VkDescriptorPoolCreateInfo pool={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pool.maxSets=ShaderPipelineState::kSetsPerPool;
+                pool.poolSizeCount=uint32_t(sizes.size());pool.pPoolSizes=sizes.data();VkDescriptorPool handle=VK_NULL_HANDLE;
+                checked(d->CreateDescriptorPool(d->resource.device,&pool,nullptr,&handle),"Create dispatch descriptor pool");
+                sets.pools.push_back(handle);sets.left=ShaderPipelineState::kSetsPerPool;++commands.stats_.descriptor_pools;
+            }
+            VkDescriptorSetAllocateInfo allocate={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};allocate.descriptorPool=sets.pools.back();
+            allocate.descriptorSetCount=1;allocate.pSetLayouts=&pipeline->descriptors;
+            checked(d->AllocateDescriptorSets(d->resource.device,&allocate,&invocation->set),"Allocate dispatch descriptor set");--sets.left;
+        }
+    }
     for(auto& write:writes)write.dstSet=invocation->set;d->UpdateDescriptorSets(d->resource.device,uint32_t(writes.size()),writes.data(),0,nullptr);
     return invocation;
 }

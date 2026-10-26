@@ -60,6 +60,24 @@ Only in character mode, and only what the application did not enable:
 The status reports each of these (`null_descriptors_added`, `draw_parameters_added`, per swap
 chain `usage_added`), and the swap chains' formats and sizes.
 
+## What a frame makes, and what it reuses (D-125)
+
+The owned work runs on the presentation's thread inside the engine lock and the generation's lock.
+With DLSS Frame Generation that thread is Streamline's, running beside the game's render thread,
+which needs the same locks to record and submit. A driver allocation there can wait for the GPU
+while the GPU waits for the game: the 1.9.0 session froze that way in `vkAllocateDescriptorSets`
+(BUG-058). So a frame that repeats the last one makes nothing new:
+
+- descriptor sets: each pipeline layout keeps the sets its invocations returned once their
+  submission completed, in pools of 16; a new pool only when none is free;
+- uploads (INI parameters, a panel's constants, small buffer and image writes): upload buffers up to
+  1 MiB come back from completed submissions (32 MiB kept, not charged to the staging budget while
+  idle); larger uploads, a first use, allocate as before.
+
+The presenter's status counts `allocations`, `descriptor_pools`, `staging_reused` and `sets_reused`.
+What a Present list makes the first time (an image it loads, the first pool of a layout) still runs
+under the locks: the open part of BUG-058.
+
 ## Tools beside the layer
 
 `scripts/build.py` copies DXC (`dxcompiler.dll`, `dxil.dll`), the exact DXBC translation
@@ -73,7 +91,9 @@ program with a real swap chain in both entries, the synthetic character fixture 
 INI whose Present list draws an opaque quarter through a CustomShader into `bb`. A test-only
 copy of the 20th owned presentation (`EFMI_VK_TEST_PRESENT_READBACK`, honoured only by
 `efmi_vk_sandbox.exe`, with `--readable-swapchain`) shows the quarter drawn and the
-application's own picture elsewhere; core and synchronization validation are clean.
+application's own picture elsewhere; core and synchronization validation are clean. Its panel
+changes an INI parameter and binds a file image every frame, and two status reads 1.5 s apart show
+neither allocations nor descriptor pools growing while uploads and sets are reused (D-125).
 
 Not yet verified in the game: the game's swap chain format and usage, its device features,
 and the installed panel there. Those need a Vulkan session, which only the user starts.

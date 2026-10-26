@@ -1,5 +1,6 @@
 """Keys, live INI conditions, persistence and transactional F10 through Vulkan hooks."""
 import json
+import time
 import os
 from pathlib import Path
 import re
@@ -91,6 +92,32 @@ def shader_sections(checks):
                      label + (": the log names it as inert" if named else ": nothing is named as inert"))
 
 
+def save_cadence(checks):
+    """A persistent variable changed every frame (a key panel's animation) is saved as the original
+    saves it: every settings_auto_save_interval seconds (60) and when the program ends, not at each
+    change (BUG-058: each save held the engine lock through a flush to disk)."""
+    folder = Path(test_dir("runtime-save-"))
+    package = fixture(folder)
+    (folder / "persist.ini").write_text("[Constants]\nglobal persist $counter = 0\n[Present]\n$counter = $counter + 1\n", encoding="ascii")
+    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1")
+    status = {}
+    with Sandbox(seconds=4, env_extra=extra, entry="layer") as sb:
+        time.sleep(2.5)
+        with ProbeClient(sb.pid) as probe:
+            status = probe.status().get("replacement", {})
+        sb.proc.wait(timeout=60)
+        code = sb.proc.returncode
+    ini = status.get("ini", {})
+    counter = ini.get("variables", {}).get("$\\persist.ini\\counter", 0)
+    label = "a persistent variable changed every frame"
+    checks.equal(code, 0, label + ": the application runs and exits normally")
+    checks.check(counter > 30, label + ": it changed every frame", counter)
+    checks.equal(ini.get("saves"), 0, label + ": nothing is saved before the interval passed")
+    saved = [p for p in folder.rglob("*.ini") if p.parent.name == "settings"]
+    values = [float(line.split("=")[1]) for p in saved for line in p.read_text().splitlines() if line.startswith("$\\persist.ini\\counter")]
+    checks.check(bool(values) and max(values) >= counter, label + ": the program's end saved its latest value", (saved, values, counter))
+
+
 def main():
     checks = Checks("live INI rendering")
     validation = os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
@@ -135,6 +162,7 @@ def main():
             refused = {k: v for k, v in status["counters"].items() if k.startswith(("refused_", "unreadable_", "import_", "exhausted")) and v}
             checks.equal(refused, {}, label + " no refused drawing after successful reload")
     refused_package(checks)
+    save_cadence(checks)
     outside_mesh(checks)
     shader_sections(checks)
     several_packages(checks, validation)

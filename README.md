@@ -1,36 +1,95 @@
 # EFMI Vulkan
 
-Work in progress. The goal is to run existing EFMI mods of Arknights: Endfield on the game's native Vulkan renderer, through a Vulkan layer of our own.
+Runs the installed EFMI (XXMI) Mods of Arknights: Endfield on the game's native Vulkan renderer,
+through a Vulkan layer of our own, instead of 3DMigoto on the DX11 renderer. The bar is 3DMigoto's
+experience: the first frame shows the Mod, nothing flickers or stands in, and the frame rate does
+not drop.
 
-The read-only probe has captured real character data and resolved the sample's texture slots.
-Earlier 0.7.2 timings correlated open-world spikes with expensive copies at unmap and lock contention.
-Layer 0.7.3 made those copies eleven times faster by reading write-combined memory with streaming
-loads; in the game, with 0.7.4, three of 87,005 present intervals exceeded 33 ms and the user reports
-the stutter gone. A review that blamed the game's mesh pools instead was wrong and is corrected.
-Layer 0.9.0 adds an opt-in [single-component replacement](docs/m2-component-hook.md)
-through the actual draw hook, verified in the GPU sandbox; 0.9.1 corrects its bone offsets. Layer 0.10.0 replaces a
-[whole character](docs/character-backend.md) from a static package, meshes and bones with the game's textures,
-verified in the sandbox and against saved frames. Full mod rendering and real-character
-replacement are not yet verified. See the [current state](.ai-memory/CURRENT_STATE.md)
-for the deployed package, next-launch configuration and evidence boundaries.
+Work in progress. The [current state](.ai-memory/CURRENT_STATE.md) records the deployed version, what
+was verified where (build, sandbox, captured frames, the game) and what is open; the
+[known issues](.ai-memory/KNOWN_ISSUES.md) and the [tasks](.ai-memory/TASKS.md) go with it.
+
+## State (1.9.1, 2026-10-26)
+
+- The layer reads the EFMI Mods folder and Core itself (read-only) and runs every character Mod's
+  INIs through the original XXMI engine. In game sessions of 2026-10-26 it replaced Si
+  NightveilTrancer, Tangtang, Yvonne, arcane and others with their meshes, textures and bones, ran
+  their key bindings, key panels and persistent settings, and drew no game mesh before a Mod's (the
+  layer's counters from the game and what the user saw there).
+- Open: the game froze once with the Mods' Ctrl+K key panels under DLSS Frame Generation (BUG-058);
+  1.9.1 removes the per-frame driver allocations behind it, and what a panel creates the first time
+  still runs under the engine's locks. A Mod's first use of very large textures (64 MiB 8192x8192
+  maps) holds its draw while they load. The layer's share of the render thread is still being
+  reduced (D-121).
+
+## How it works
+
+- **Interception.** One DLL, loaded either by the Vulkan loader as a layer (`efmi_vk_layer.dll`) or
+  injected by the XXMI launcher (`efmi_vk_inject.dll`, redirecting the exports of `vulkan-1.dll`).
+  It tracks every Vulkan object the game creates and computes the index-region hash XXMI matches
+  on (CRC-32C of the draw's index range).
+- **The original engine.** The pinned XXMI source (parser, expressions, command lists, pools,
+  texture-override matching, keys, F10 reload) is compiled into the layer; each Mod folder is a
+  generation of it. A matched draw's command lists are planned into Vulkan draws of the Mod's
+  meshes with the game's own pipelines (variants for the Mod's vertex layouts). The EFMIv1 Core's
+  native lists (merged skeleton, spatial identification) run on the renderer with the Core's
+  semantics. DX11 facts a Mod asks of the game's shaders come from their SPIR-V by one register
+  rule, checked against paired DX11/Vulkan captures ([source slots](docs/source-slots.md)).
+- **Owned GPU work.** CustomShaders, Present lists (the key panels), resource copies and compute
+  run on an owned runtime on the game's device: HLSL through DXC, shipped DXBC caches through
+  vkd3d-shader, ordered against the game's work by semaphores ([owned Present](docs/owned-present.md)).
+- **Assets.** Meshes in device memory per package, textures loaded on first bind and kept as the
+  original keeps them ([texture residency](docs/texture-residency.md)), bones imported on the GPU.
+  EFMITTL translucency and RabbitFX texture roles are supported as libraries.
+- **Exchangeable module.** The replacement logic is a module the loaded layer can exchange while
+  the game runs ([hot swap](docs/hot-swap.md)); the hooks and the tracker stay.
+- **Probe.** Status, frame capture and an in-layer sampler over the named pipe
+  `\\.\pipe\efmi-vk-<PID>`, with a command-line client and an MCP server.
+
+[How 3DMigoto does it](docs/3dmigoto-flows.md) compares each flow of the original with the
+layer's; [the plan](docs/plan.md) has the gates, decisions and evidence history.
+
+## Using it in the game
+
+The game gets the DLL through the XXMI launcher: the EFMI profile in its Vulkan configuration, with
+`dist\efmi_vk_inject.dll` as the injected library. Both are the user's settings in the launcher.
+`dist\efmi_vk.cfg` configures the layer:
+
+| Setting | Meaning |
+| --- | --- |
+| `m2_mods`, `m2_core` | the EFMI Mods folder and Core (`...\EFMI\Mods`, `...\EFMI\Core\EFMI`) |
+| `m2_enabled` | replacement on (1) or the probe alone (0) |
+| `m2_gpu_bones` | merged skeleton imported on the GPU (1) or on the CPU (0) |
+| `settings_save_seconds` | how often changed persistent variables are saved, as `settings_auto_save_interval` (60) |
+| `mode = passthrough` | forward every call untouched, no tracking, no pipe |
+
+Persistent Mod variables are kept per Mod folder in `dist\settings\`, never next to a Mod; the
+installation and the Mods stay read-only. F10 reloads the Mods folder as in XXMI. The layer's log is
+`dist\efmi_vk_layer.log`; a stall watchdog in it names the threads that hold up a presentation.
 
 ## Layout
 
 | Path | Content |
 | --- | --- |
-| `docs/plan.md` | The implementation plan: verified facts, design decisions, gates, milestones, risks |
-| `layer/` | The Vulkan layer (C++17, MSVC x64): interception, tracked state, frame capture, named-pipe probe |
-| `sandbox/` | A deterministic Vulkan test program and the regression scripts |
-| `server/` | Python client for the probe, a command-line tool and an MCP server |
-| `scripts/` | Build, dependency fetch, repository checks, offline analysis |
+| `layer/` | The Vulkan layer (C++17, MSVC x64): hooks, tracker, character backend, owned presenter, probe; `layer/module/` the exchangeable module |
+| `frontend/xxmi/` | The original XXMI engine's host: generations, draw plans, owned GPU runtime, Core natives |
+| `frontend/gpu/`, `frontend/assets/` | Vulkan resource and shader commands, register rules, DXBC/HLSL compilers; DDS/PNG and the resource cache |
+| `sandbox/` | A Vulkan test program, the replay of captured frames and the regression suite (`run_all.py`) |
+| `server/` | Python probe client, command-line tool and MCP server |
+| `scripts/` | Build, checks against captures and the installed Mods, profiling, deployment helpers |
+| `docs/` | Design documents and evidence |
 | `.ai-memory/` | Project memory for agents; `AGENTS.md` is the working agreement |
+
+Captures (`captures/`), build output (`build/`, `dist/`) and game assets are not in the repository.
 
 ## Requirements
 
-- Windows x64, MSVC build tools (found through `vswhere`, or set `VCVARS` to the full path of `vcvars64.bat`).
-- Vulkan headers. `scripts/fetch_vulkan_headers.ps1` clones the pinned tag of `KhronosGroup/Vulkan-Headers` into `F:\vulkan\Vulkan-Headers`. A Vulkan SDK is used instead when `VULKAN_SDK` is set or one is installed in `F:\vulkan`.
-- Khronos validation layers for the full regression suite: `scripts/build_validation.py` builds the pinned source under `F:/vulkan` using MSVC/CMake/Ninja. See [validation](docs/validation.md).
-- Python 3.12 for the build script, the client, the MCP server and the tests; standard library only.
+- Windows x64 with the MSVC build tools (found through `vswhere`, or `VCVARS` set to `vcvars64.bat`).
+- Python 3.12, standard library only.
+- Under `F:\vulkan` (`EFMI_VK_VULKAN_ROOT`): Vulkan headers (`scripts/fetch_vulkan_headers.ps1`), the
+  pinned `XXMI-Libs-Package` source, DXC 1.9.2609, vkd3d-shader 2.1 built by
+  `scripts/build_bytecode_compiler.py`, SPIRV-Reflect, and the Khronos validation layers built by
+  `scripts/build_validation.py` ([validation](docs/validation.md)).
 
 ## Build and test
 
@@ -39,58 +98,28 @@ python scripts\build.py
 python sandbox\run_all.py
 ```
 
-`build.py` writes `efmi_vk_layer.dll`, its manifest `efmi_vk_layer.json`, the copy `efmi_vk_inject.dll` and `efmi_vk_sandbox.exe` to `dist\`. `run_all.py` builds, then runs the text check, the offline tests and the end-to-end tests against the sandbox. The layer is enabled only inside the child processes the tests start (`VK_LAYER_PATH`, `VK_INSTANCE_LAYERS`); nothing is registered system-wide.
+`build.py` builds the layer, the module, the sandbox program and the test tools into `dist\`
+(`--out DIR` for another folder while a running game holds `dist\`). `run_all.py` builds and runs the
+suite: text and language checks, the original engine's tests, the installed Mods' offline plans,
+captured frames replayed through the layer with real game pipelines and real Mods
+([capture replay](docs/capture-replay.md)), the owned GPU runtime, the sandbox end-to-end tests and
+Vulkan validation. The layer is enabled only inside the child processes the tests start; nothing is
+registered system-wide.
 
-## The probe
-
-With the experimental M2 package disabled (the default), probe mode forwards every
-Vulkan call unchanged and records what it sees:
-
-- memory maps, buffers, pipelines, command buffers, submits and presents;
-- ordinary/template descriptor set contents, dynamic buffer ranges and recorded push descriptors; image/view/sampler metadata; retained shader SPIR-V;
-- for index buffers a CPU shadow fed from staging copies, so that the CRC-32C hash of the index range of a draw can be computed. This is the hash XXMI calls the region hash and that mod INIs match on;
-- per frame: every draw with its bindings, recording thread, command buffer and render pass.
-
-It serves this over the named pipe `\\.\pipe\efmi-vk-<PID>`. `EFMI_VK_MODE=passthrough` switches the tracking and the pipe off.
-
-The DLL gets in front of the Vulkan calls in one of two ways, selected by its file name:
-
-- `efmi_vk_layer.dll` is loaded by the Vulkan loader as a layer, through the manifest.
-- `efmi_vk_inject.dll` is loaded with `LoadLibrary` by whatever injects libraries into the process, and redirects the exports of `vulkan-1.dll` in memory. It has to arrive before the application resolves its Vulkan functions; the status says whether it did.
-
-Settings can also be given in `efmi_vk.cfg` next to the DLL (`mode = passthrough`, `log = ...`), for processes that cannot be given environment variables. Two of them bound the probe in a large process: `shader_budget` (bytes of SPIR-V kept, default 512 MiB) and `resources = 0`, which keeps draws, buffers and hashes but no descriptor, image or shader metadata.
-
-Command line, one or more tools sharing a session:
+## Diagnosing a running game
 
 ```bat
 python server\efvk.py status
-python server\efvk.py capture_frame -- list_draws kind=indexed limit=20
-python server\efvk.py capture_frame -- match_mod path="D:\path\to\a mod"
+python scripts\profile_game.py <PID> --seconds 30
+python scripts\symbolize_crash.py dist\efmi_vk_layer.log dist layer\build layer\build\module
+python scripts\hot_swap.py --pid <PID> --out build\next
 ```
 
-MCP server for agents: `python server\run_server.py` (registered for this workspace in `.mcp.json`). Tools: `efvk_status`, `efvk_capture_frame`, `efvk_list_draws`, `efvk_get_draw`, `efvk_find_hash`, `efvk_list_buffers`, `efvk_read_buffer`, `efvk_pipeline`, `efvk_shader`, `efvk_api_usage`, `efvk_match_mod`.
-
-See [resource inspection](docs/probe-resources.md) for the descriptor snapshot schema, SPIR-V export, verified paths and remaining limits. Ordinary set values resolve at submit; push values are retained when recorded. Resource visibility remains a submit-time observation, not evidence of record-time buffer availability.
-
-The layer also reports bounded [host present intervals](docs/frame-pacing.md), including tail
-latency and capture/upload tags. The [resource-off and passthrough comparisons](docs/pacing-resources-off-session.md)
-narrow the reported stutter to probe-only work as a group. Layer 0.7.2's optional
-[tracker timings](docs/tracker-work.md), enabled by `profile_tracker = 1`, measure selected paths
-without treating host intervals as displayed-frame timings. The [latest session and 0.7.3 candidate](docs/pacing-tracker-session.md)
-identify expensive snapshot reads as a contributor and verify a local copy optimization. [The copy
-at unmap](docs/unmap-snapshots.md) has the game result that confirms it, the first open-world frames,
-and the record of a wrong attribution made in between.
-
-`scripts/collect_probe.py` saves a complete frame observation and bounded pipeline/shader exports
-from an explicitly selected running probe. See [the first probe session](docs/first-probe-session.md)
-for evidence boundaries and the next game-data step. It never launches or injects a process.
-
-## Offline analysis
-
-`python scripts\verify_region_hash.py <FrameAnalysis folder>` checks the region hash rule against an XXMI frame dump: for every indexed draw it recomputes the CRC-32C of the index range and compares it with the hash in the dump's file name.
-
-See [the compatibility inventory](docs/compatibility-inventory.md) for the pinned sample/Core/source inputs, and [probe performance](docs/probe-performance.md) for synthetic measurements. `scripts/inventory_compat.py --check-snapshot docs/compatibility-inputs.json` verifies the saved local input metadata.
+`status` reports the replacement counters, texture residency, bone import, owned work and the
+engine lock; `profile_game.py` samples the threads that call into the layer and names where their
+time goes ([profiling](docs/profiling.md)). MCP for agents: `python server\run_server.py`
+(registered in `.mcp.json`).
 
 ## Licence
 
-GPL-3.0. Later milestones reuse code from XXMI / 3Dmigoto, which is under that licence.
+GPL-3.0. The layer compiles the XXMI / 3DMigoto source, which is under that licence.

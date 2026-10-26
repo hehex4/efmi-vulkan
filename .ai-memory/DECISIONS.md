@@ -1038,3 +1038,8 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - `srv_mask` and `cb_mask` read 0 as in the original (its evaluation has no case for them); without a shader every query reads -0. `cb_type` and `cb_size` still refuse (FXC declares the highest vector used, not the block).
 - A draw's stages are known from its pipeline whatever its render pass (RuntimeDraw::shader_stages, 0 unknown). The dry run takes the game's common character draw: a vertex and a pixel shader, the common vertex registers.
 - Amends D-089 ("Declaration queries still refuse").
+
+## D-125: The owned runtime makes no driver allocation in a frame that repeats the last one
+
+- Date: 2026-10-26 (1.9.1, BUG-058). The owned runtime runs on the presentation's thread (with frame generation another thread than the game's) inside the engine lock and the generation's lock, which the game's own draws and submissions need. A driver allocation there can wait for the GPU (a full card, pageable memory) while the GPU waits for the game: a deadlock, and a stall each frame short of one. So what a frame repeats is reused, not made again: descriptor sets per pipeline layout and upload buffers return when the submission that used them completed (the submission's fence wait already gated their owners); only what a frame makes for the first time is allocated. The presenter counts allocations and pools; the owned Present test holds them flat over a panel's frames.
+- An application submission takes a generation's lock only when that generation's replaced draws left owned work to submit.

@@ -377,6 +377,13 @@ public:
     std::unique_ptr<OwnedPresenter> presenter;
     // Owned GPU work inside replaced draws (P2, D-087) stopped after its first failure.
     bool draw_work_failed = false;
+    // Owned work of replaced draws waits for the application's submission (set under mod_mx). Only
+    // then does the submission take mod_mx (BUG-058): the Present path holds it while the driver
+    // may wait for the GPU, and the GPU may wait for this very submission.
+    std::atomic<bool> draw_work_waiting{false};
+    // When the Present last looked for changed persistent variables (under mod_mx), as the original's
+    // gSettingsSaveTime: the first save comes an interval after the generation started.
+    uint64_t save_checked_us = host_time_us();
     std::atomic<bool> save_requested{false};
     std::vector<BoneComponent> ranges;
     uint32_t bone_bytes = 0;
@@ -1360,6 +1367,7 @@ public:
         const bool planned = program->plan(request, package, output, skip, added, reason, vertex, textures);
         phase("phase program plan (whole)");
         if (gpu && gpu->scope_active()) { try { gpu->suspend(); } catch (const std::exception&) {} }
+        if (gpu && gpu->pending()) draw_work_waiting.store(true, std::memory_order_release);
         phase("phase gpu suspend");
         return planned;
     }
@@ -1367,8 +1375,11 @@ public:
     // on the queue the generation's owned work belongs to (its first submission fixes it).
     void submit_draw_work(VkQueue queue)
     {
+        if (!draw_work_waiting.load(std::memory_order_acquire)) return;
         std::lock_guard<std::mutex> lock(mod_mx);
-        if (!presenter || !program || !program->gpu() || draw_work_failed || !program->gpu()->pending()) return;
+        if (!presenter || !program || !program->gpu() || draw_work_failed || !program->gpu()->pending()) {
+            draw_work_waiting.store(false, std::memory_order_relaxed); return;
+        }
         if (std::find(device->material_queues.begin(), device->material_queues.end(), queue) == device->material_queues.end()) return;
         const VkQueue bound = program->gpu()->queue();
         if (bound && bound != queue) return;
@@ -1377,6 +1388,7 @@ public:
             draw_work_failed = true; note(reason);
             logf("owned GPU work of replaced draws stopped: %s", reason.c_str());
         }
+        draw_work_waiting.store(!draw_work_failed && program->gpu()->pending(), std::memory_order_relaxed);
     }
     // The draw's render targets for `@oN` (D-087), from its pipeline's subpass, and its shader stages
     // for `vs` and `ps` (D-089).
@@ -2394,9 +2406,13 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
             if (!submission.empty()) backend.note(submission);
         }
         present_phase("present owned finish");
-        // The worker saves only what changed (the original writes its user config when it is dirty);
-        // waking it every frame to find nothing took the engine lock once per package per frame.
-        if (backend.program->settings_dirty()) { backend.save_requested = true; backend.wake.notify_one(); }
+        // As the original's Present: every settings_auto_save_interval seconds the persistent variables
+        // are saved if they changed (BUG-058: a panel animating persist variables had them saved every
+        // frame). Reloads and the shutdown save at once.
+        if (now - backend.save_checked_us >= g_cfg.settings_save_seconds * 1000000) {
+            backend.save_checked_us = now;
+            if (backend.program->settings_dirty()) { backend.save_requested = true; backend.wake.notify_one(); }
+        }
     }
 }
 

@@ -318,7 +318,7 @@ void ResourceCommands::write(const Image& image,VkBufferImageCopy r,const void* 
             if(!(value>=0 && value<=1))throw std::runtime_error("Float depth upload outside [0,1] requires enabled VK_EXT_depth_range_unrestricted");
         }
     }
-    auto stage=allocate(required,VK_BUFFER_USAGE_TRANSFER_SRC_BIT,true);write_stage(stage,bytes,size);copy(stage,image,r);
+    auto stage=this->stage(required);write_stage(stage,bytes,size);copy(stage,image,r);
 }
 std::vector<uint8_t> ResourceCommands::readback(VkQueue queue,const Image& image,VkBufferImageCopy r) {
     if(r.bufferOffset)throw std::runtime_error("Host image readback requires zero buffer offset");

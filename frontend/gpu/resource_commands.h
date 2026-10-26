@@ -3,6 +3,7 @@
 #include <vulkan/vulkan.h>
 #include <memory>
 #include <map>
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -63,12 +64,14 @@ public:
     VkBufferUsageFlags usage() const {return usage_;}
 private:
     friend class ResourceCommands;
+    friend class ResourceSubmission;
     ResourceDevice device_;
     std::shared_ptr<const uint8_t> domain_;
     std::shared_ptr<assets::AllocationBudget> budget_;
     VkBuffer buffer_=VK_NULL_HANDLE;
     VkDeviceMemory memory_=VK_NULL_HANDLE;
-    VkDeviceSize size_=0,allocation_=0;
+    // allocation_ is charged to the budget; a kept upload buffer is not (idle_ holds its size).
+    VkDeviceSize size_=0,allocation_=0,idle_=0;
     VkBufferUsageFlags usage_=0;
     bool coherent_=false;
 };
@@ -141,6 +144,11 @@ struct SubmissionRecycler {
     std::mutex mutex;
     std::vector<std::pair<VkCommandPool,VkCommandBuffer>> pools;
     std::vector<VkFence> fences;
+    // Host-visible upload buffers of completed submissions, for the next writes: a scope that writes
+    // what it wrote last frame (INI parameters, a panel's constants) allocates no memory (BUG-058).
+    // While kept they are not charged to the staging budget, which counts uploads in flight.
+    std::vector<Buffer> staging;
+    VkDeviceSize staging_bytes=0;
     ~SubmissionRecycler();
 };
 class ResourceSubmission {
@@ -161,6 +169,7 @@ private:
     VkFence fence_=VK_NULL_HANDLE;
     bool submitted_=false,complete_=false;
     std::vector<Buffer> retained_;
+    std::vector<Buffer> staging_; // upload buffers handed back to the recycler once complete
     // Descriptor sets, pipelines, views and their owners share fence lifetime.
     std::vector<std::shared_ptr<void>> shader_owners_;
     std::map<Image,VkImageLayout,std::owner_less<Image>> image_layouts_;
@@ -223,9 +232,15 @@ public:
     // owning queue synchronization may call this; never an implicit draw wait.
     std::vector<uint8_t> readback(VkQueue,const Buffer&,VkDeviceSize offset,VkDeviceSize size);
     void discard();
+    // Driver allocations this domain made, and what it reused instead (BUG-058): device memory
+    // allocations, descriptor pools, and upload buffers and descriptor sets taken again.
+    struct Stats {std::atomic<uint64_t> allocations{0},descriptor_pools{0},staging_reused{0},sets_reused{0};};
+    const Stats& stats() const {return stats_;}
 private:
     friend class ShaderCommands;
     Buffer allocate(VkDeviceSize,VkBufferUsageFlags,bool staging);
+    // An upload buffer of at least the size for the pending submission: a recycled one when one fits.
+    Buffer stage(VkDeviceSize);
     void validate(const Buffer&,VkDeviceSize,VkDeviceSize) const;
     void validate(const Image&) const;
     VkImageSubresourceRange range(const Image&,VkImageSubresourceRange) const;
@@ -243,5 +258,6 @@ private:
     std::shared_ptr<SubmissionRecycler> recycler_;
     Buffer image_copy_scratch_;
     VkQueue queue_=VK_NULL_HANDLE;
+    Stats stats_;
 };
 }

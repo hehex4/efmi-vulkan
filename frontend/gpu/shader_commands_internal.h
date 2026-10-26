@@ -3,6 +3,7 @@
 #include "shader_usage.h"
 #include <spirv-tools/libspirv.h>
 #include <windows.h>
+#include <mutex>
 #include <stdexcept>
 
 namespace efmi::gpu {
@@ -66,8 +67,14 @@ struct ShaderPipelineState {
     VkPipelineLayout layout=VK_NULL_HANDLE;
     VkPipeline pipeline=VK_NULL_HANDLE;
     std::map<VkDescriptorType,uint32_t> counts;
+    // Descriptor sets of this layout: an invocation returns its set once its submission completed,
+    // and the next invocation updates and binds it again. Pools of kSetsPerPool sets are made only
+    // when none is free (BUG-058: a draw each frame creates no pool and allocates no set).
+    static constexpr uint32_t kSetsPerPool=16;
+    struct Sets {std::mutex mutex;std::vector<VkDescriptorPool> pools;std::vector<VkDescriptorSet> free;uint32_t left=0;} sets;
     explicit ShaderPipelineState(std::shared_ptr<ShaderDevice> d):device(std::move(d)),lease(device){}
     ~ShaderPipelineState(){const auto& d=*device;const auto dev=d.resource.device;
+        for(auto pool:sets.pools)d.DestroyDescriptorPool(dev,pool,nullptr);
         if(pipeline)d.DestroyPipeline(dev,pipeline,nullptr);if(layout)d.DestroyPipelineLayout(dev,layout,nullptr);
         for(auto handle:modules)d.DestroyShaderModule(dev,handle,nullptr);if(pass)d.DestroyRenderPass(dev,pass,nullptr);
         if(descriptors)d.DestroyDescriptorSetLayout(dev,descriptors,nullptr);if(module)d.DestroyShaderModule(dev,module,nullptr);}
@@ -89,8 +96,7 @@ struct ShaderCommands::Impl {
 struct ShaderInvocation {
     std::shared_ptr<ShaderPipelineState> pipeline;
     ObjectLease lease;
-    VkDescriptorPool pool=VK_NULL_HANDLE;
-    VkDescriptorSet set=VK_NULL_HANDLE;
+    VkDescriptorSet set=VK_NULL_HANDLE; // the pipeline's, returned to it here
     VkFramebuffer framebuffer=VK_NULL_HANDLE;
     std::vector<VkBufferView> views;
     std::vector<ShaderDescriptor> owners;
@@ -99,7 +105,8 @@ struct ShaderInvocation {
     explicit ShaderInvocation(std::shared_ptr<ShaderPipelineState> p):pipeline(std::move(p)),lease(pipeline->device){}
     ~ShaderInvocation(){const auto& d=*pipeline->device;const auto dev=d.resource.device;
         if(framebuffer)d.DestroyFramebuffer(dev,framebuffer,nullptr);
-        if(pool)d.DestroyDescriptorPool(dev,pool,nullptr);for(auto view:views)d.DestroyBufferView(dev,view,nullptr);}
+        if(set){std::lock_guard<std::mutex> lock(pipeline->sets.mutex);pipeline->sets.free.push_back(set);}
+        for(auto view:views)d.DestroyBufferView(dev,view,nullptr);}
 };
 void shader_capabilities(const HlslProgram&,const ShaderDevice&);
 }

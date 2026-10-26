@@ -12,6 +12,7 @@ take the EFMI Mods folder itself; no packaging step, and an F10 reload reads the
 | `m2_mods` (`EFMI_VK_M2_MODS`) | the EFMI Mods folder; replaces `m2_package` |
 | `m2_core` (`EFMI_VK_M2_CORE`) | the Core folder; default `Core\EFMI` beside the Mods folder |
 | `m2_settings` (`EFMI_VK_M2_SETTINGS`) | project-owned folder for the Mods' saved variables, one file per namespace and Mod folder (`<namespace>-<folder>.ini`, D-105); default `settings` beside the replacement module |
+| `settings_save_seconds` (`EFMI_VK_SETTINGS_SAVE_SECONDS`) | changed variables are saved this often, as the original's `settings_auto_save_interval` (60), and at reloads and exit; the file is written outside the engine lock (BUG-059) |
 | `m2_texture_budget_mb` | cap of the textures' device memory (D-094); 0: half the device-local heap |
 | `m2_reserve_mb` | device memory kept free for the game; 0: the larger of 512 MiB and a sixteenth of the heap (D-092, D-094, D-099) |
 | `m2_texture_reduce_mb` | textures this large on disk load without their top mip level when memory is tight; default 16, 0 never |

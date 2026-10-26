@@ -9,6 +9,8 @@ namespace {
 void check(VkResult result,const char* operation) {
     if(result!=VK_SUCCESS)throw std::runtime_error(std::string(operation)+": "+std::to_string(result));
 }
+// Upload buffers up to this size are kept for reuse, at most this many bytes of them.
+constexpr VkDeviceSize kRecycledStaging=1ull<<20,kRecycledStagingTotal=32ull<<20;
 }
 BufferResource::~BufferResource() {
     if(buffer_)device_.dispatch.DestroyBuffer(device_.device,buffer_,nullptr);
@@ -25,6 +27,11 @@ ResourceSubmission::~ResourceSubmission() {
     retained_.clear();shader_owners_.clear();image_layouts_.clear();
     if(recycler_){
         std::lock_guard<std::mutex> lock(recycler_->mutex);
+        for(auto& stage:staging_)if(recycler_->staging_bytes+stage->size()<=kRecycledStagingTotal){
+            stage->budget_->release(stage->allocation_);stage->idle_=stage->allocation_;stage->allocation_=0;
+            recycler_->staging_bytes+=stage->size();recycler_->staging.push_back(std::move(stage));
+        }
+        staging_.clear();
         if(pool_ && recycler_->pools.size()<8 && device_.dispatch.ResetCommandPool(device_.device,pool_,0)==VK_SUCCESS){
             recycler_->pools.push_back({pool_,command_});pool_=VK_NULL_HANDLE;
         }
@@ -72,6 +79,7 @@ Buffer ResourceCommands::allocate(VkDeviceSize size,VkBufferUsageFlags usage,boo
     }
     if(chosen==UINT32_MAX)throw std::runtime_error("Resource memory type unavailable");
     if(!result->budget_->acquire(req.size))throw std::runtime_error("Resource allocation budget exhausted");
+    ++stats_.allocations;
     result->allocation_=req.size;result->coherent_=bool(device_.memory.memoryTypes[chosen].propertyFlags&VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     VkMemoryAllocateInfo ai={VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};ai.allocationSize=req.size;ai.memoryTypeIndex=chosen;
     check(d.AllocateMemory(device_.device,&ai,nullptr,&result->memory_),"Allocate resource memory");
@@ -129,12 +137,37 @@ void ResourceCommands::fill(const Buffer& buffer,VkDeviceSize offset,VkDeviceSiz
     if(offset%4 || size%4 || !(buffer->usage_&VK_BUFFER_USAGE_TRANSFER_DST_BIT))throw std::runtime_error("Resource fill requires an aligned transfer destination");
     barrier();device_.dispatch.CmdFillBuffer(command(),buffer->buffer_,offset,size,word);pending_->retained_.push_back(buffer);
 }
+Buffer ResourceCommands::stage(VkDeviceSize size) {
+    command();
+    if(size<=kRecycledStaging){
+        // The smallest kept buffer that holds the bytes, if it is not more than twice as large.
+        std::lock_guard<std::mutex> lock(recycler_->mutex);
+        auto& kept=recycler_->staging;size_t best=kept.size();
+        for(size_t i=0;i<kept.size();++i)
+            if(kept[i]->size_>=size && kept[i]->size_<=size*2 && (best==kept.size() || kept[i]->size_<kept[best]->size_))best=i;
+        if(best!=kept.size()){
+            auto found=std::move(kept[best]);kept.erase(kept.begin()+best);recycler_->staging_bytes-=found->size_;
+            // Charged again while it carries this upload; short of budget it is freed instead.
+            if(found->budget_->acquire(found->idle_)){
+                found->allocation_=found->idle_;found->idle_=0;
+                ++stats_.staging_reused;pending_->staging_.push_back(found);return found;
+            }
+        }
+    }
+    // Sizes kept for reuse round up to a power of two, so the next frame's write of the same size fits.
+    VkDeviceSize allocation=size;
+    if(size<=kRecycledStaging){allocation=256;while(allocation<size)allocation<<=1;}
+    auto result=allocate(allocation,VK_BUFFER_USAGE_TRANSFER_SRC_BIT,true);
+    if(size<=kRecycledStaging)pending_->staging_.push_back(result);
+    return result;
+}
 void ResourceCommands::write(const Buffer& buffer,VkDeviceSize offset,const void* bytes,size_t size) {
     validate(buffer,offset,size);if(!bytes)throw std::runtime_error("Resource write source missing");
-    auto stage=allocate(size,VK_BUFFER_USAGE_TRANSFER_SRC_BIT,true);write_stage(stage,bytes,size);copy(stage,0,buffer,offset,size);
+    auto stage=this->stage(size);write_stage(stage,bytes,size);copy(stage,0,buffer,offset,size);
 }
 void ResourceCommands::write_stage(const Buffer& stage,const void* bytes,size_t size) {
     void* mapped=nullptr;
+    if(size>stage->size_)throw std::runtime_error("Resource upload exceeds its staging buffer");
     check(device_.dispatch.MapMemory(device_.device,stage->memory_,0,VK_WHOLE_SIZE,0,&mapped),"Map resource upload");memcpy(mapped,bytes,size);
     VkMappedMemoryRange range={VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};range.memory=stage->memory_;range.size=VK_WHOLE_SIZE;
     const auto status=stage->coherent_?VK_SUCCESS:device_.dispatch.FlushMappedMemoryRanges(device_.device,1,&range);

@@ -186,6 +186,8 @@ struct IniRuntime::Impl {
     RuntimeInput last_input;
     std::array<bool, 256> blocked_keys{};
     bool can_save = true;
+    // Saves in the order their texts were taken; the file is written without the engine lock.
+    std::mutex save_mx;
     // The variable and parameter state the last present() started from, for replay() (BUG-036):
     // the generation's variables, listed once (again when the table grows), and their values. A
     // pair per variable built through the hash table every presentation cost 5% of a profile.
@@ -621,28 +623,42 @@ bool IniRuntime::replay(const RuntimeInput& input, uint64_t frame, float seconds
 bool IniRuntime::save(std::string& reason)
 {
     try {
-        auto& p = *impl_; Scope scope(p.state);
-        if (!p.can_save || !G->user_config_dirty) return true;
-        std::ostringstream text; text.imbue(std::locale::classic());
-        text << "; EFMI Vulkan persistent original INI variables\n[Constants]\n" << std::setprecision(9);
-        for (const auto* value : persistent_variables) {
-            if (!std::isfinite(value->fval)) throw std::runtime_error("Non-finite persistent value");
-            // Keep project text ASCII even if an original namespace is not.
-            auto name = utf8(value->name);
-            if (std::any_of(name.begin(), name.end(), [](unsigned char c) { return c >= 128; }))
-                throw std::runtime_error("Persistent variable name is not ASCII");
-            text << name << " = " << value->fval << '\n';
+        auto& p = *impl_;
+        // The file is written outside the engine lock, which every draw and presentation of every
+        // generation takes: a flush to disk under it held the game's threads (BUG-058).
+        std::lock_guard<std::mutex> saving(p.save_mx);
+        std::string bytes;
+        {
+            Scope scope(p.state);
+            if (!p.can_save || !G->user_config_dirty) return true;
+            std::ostringstream text; text.imbue(std::locale::classic());
+            text << "; EFMI Vulkan persistent original INI variables\n[Constants]\n" << std::setprecision(9);
+            for (const auto* value : persistent_variables) {
+                if (!std::isfinite(value->fval)) throw std::runtime_error("Non-finite persistent value");
+                // Keep project text ASCII even if an original namespace is not.
+                auto name = utf8(value->name);
+                if (std::any_of(name.begin(), name.end(), [](unsigned char c) { return c >= 128; }))
+                    throw std::runtime_error("Persistent variable name is not ASCII");
+                text << name << " = " << value->fval << '\n';
+            }
+            bytes = text.str();
+            // Clean from this text on; a change after it marks the variables dirty again.
+            G->user_config_dirty = false;
         }
-        std::filesystem::create_directories(p.config.settings_directory);
-        const auto temp = p.settings.wstring() + L".tmp";
-        HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot create settings temporary file");
-        const auto bytes = text.str(); DWORD written = 0;
-        const bool ok = WriteFile(file, bytes.data(), DWORD(bytes.size()), &written, nullptr) && written == bytes.size() && FlushFileBuffers(file);
-        CloseHandle(file);
-        if (!ok || !MoveFileExW(temp.c_str(), p.settings.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-            throw std::runtime_error("Cannot atomically publish settings; previous file retained");
-        G->user_config_dirty = false; ++p.stats.saves; return true;
+        auto write = [&] {
+            std::filesystem::create_directories(p.config.settings_directory);
+            const auto temp = p.settings.wstring() + L".tmp";
+            HANDLE file = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file == INVALID_HANDLE_VALUE) throw std::runtime_error("Cannot create settings temporary file");
+            DWORD written = 0;
+            const bool ok = WriteFile(file, bytes.data(), DWORD(bytes.size()), &written, nullptr) && written == bytes.size() && FlushFileBuffers(file);
+            CloseHandle(file);
+            if (!ok || !MoveFileExW(temp.c_str(), p.settings.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+                throw std::runtime_error("Cannot atomically publish settings; previous file retained");
+        };
+        try { write(); }
+        catch (...) { Scope scope(p.state); G->user_config_dirty = true; throw; }
+        Scope scope(p.state); ++p.stats.saves; return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 RuntimeStatus IniRuntime::status() const
@@ -667,6 +683,8 @@ bool IniRuntime::take_reload_request()
 }
 void IniRuntime::suspend_persistence()
 {
+    // After a write in progress: the generation that follows saves last.
+    std::lock_guard<std::mutex> saving(impl_->save_mx);
     Scope scope(impl_->state); impl_->can_save = false;
 }
 void IniRuntime::inherit_persistent(const IniRuntime& previous)

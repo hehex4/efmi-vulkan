@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "1.9.0"
+#define EFVK_VERSION "1.9.1"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -55,6 +55,9 @@ struct Config {
     bool m2_enabled = false;
     uint64_t m2_reserve_mb = 0; // device-local memory kept free for the application; 0: automatic (D-092, D-094)
     uint64_t m2_identity_expiry_ms = 10000; // an object not drawn this long is forgotten (D-100); tests shorten it
+    // Persistent INI variables are saved at most this often while they change, as the original's
+    // settings_auto_save_interval ([System] of d3dx.ini, 60 by default and in the installation).
+    uint64_t settings_save_seconds = 60;
     uint64_t m2_texture_budget_mb = 0; // cap of the textures' device memory; 0: half the device-local heap (D-094)
     uint64_t m2_texture_reduce_mb = 16; // a texture file this large loads without its top mip level when memory is tight; 0: never
     bool m2_texture_preload = false;    // every image of a package demanded at its activation (tests); default on first bind
