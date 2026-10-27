@@ -70,6 +70,9 @@ struct RuntimeDraw {
     // and imported the component's source bones. No original-resource queries.
     uint32_t component = UINT32_MAX, lod = UINT32_MAX;
     uint64_t identity = 0;
+    // A folder generation (D-131): the Mod the identity resolved the draw to, by its index among the
+    // generation's character Mods; UINT32_MAX in a generation of one Mod.
+    uint32_t mod = UINT32_MAX;
     // Optional source-API facts from a verified shader contract. A Vulkan
     // binding number alone does not establish the original DX11 constant slot.
     bool rolling_bone_source = false;
@@ -87,6 +90,10 @@ struct RuntimeDraw {
     // `srv_dimension` (D-124): the original's ShaderResourceType, D3D_SRV_DIMENSION and stride.
     // False: not known, and the query refuses.
     std::function<bool(wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& reason)> source_srv;
+    // `vbN->stride` in a replaced draw's plan: the stride of the game's vertex buffer at DX11 input slot N
+    // (the Vulkan binding of that number), as the original's IAGetVertexBuffers gives it; 0 when none is
+    // bound. False with the reason when it is not known (a dynamic stride).
+    std::function<bool(unsigned slot, uint32_t& stride, std::string& reason)> vertex_stride;
     // The renderer's instance entry of this single-instance draw (the 64 floats per instance the
     // original Core reads from `Original_VS_CB`, its translation at floats 12 to 14), valid during the
     // call; a Mod that runs the Core's spatial identification itself reads it (D-086). Null: none.

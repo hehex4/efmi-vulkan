@@ -353,6 +353,92 @@ static void register_tests()
           "a truncated or foreign module is refused and the output stays");
 }
 
+// The live plan of each section of a discovered Mod in package order, with the LOD the backend would
+// pass, written as the dry run's JSON (D-078). `presenter` runs the generation's Present before each
+// plan: the Mod's own program, or one program of a folder generation (D-131), whose Present is shared.
+static void write_plans(JsonWriter& w, CharacterProgram& program, CharacterProgram& presenter, CharacterPackage& package,
+                        const std::vector<efmi::gpu::SourceRegister>& vertex, uint64_t& frame)
+{
+    w.kn("streams", package.streams.size()); w.kn("images", package.images.size());
+    w.kn("components", package.components.size()); w.kn("bones", package.bones);
+    w.kn("left_to_game", program.left_to_game());
+    w.kn("identify_components", program.identify_components());
+    // The streams and images by file name, which a folder generation must give each Mod as its own does.
+    w.key("image_files"); w.begin_array();
+    for (const auto& image : package.images) w.str(std::filesystem::u8path(image).filename().u8string());
+    w.end_array();
+    w.key("sections"); w.begin_array();
+    uint32_t current_lod = 0; // as the backend: a section that assigns the LOD changes it for those that do not
+    for (const auto& s : package.sections) {
+        if (s.lod != kCharacterNone) current_lod = s.lod;
+        for (uint32_t lod : {s.component == kCharacterNone ? kCharacterNone : current_lod}) {
+            efmi::frontend::RuntimeInput input;
+            ++frame;
+            std::string presented;
+            const bool present_ok = presenter.present(input, frame, float(frame) / 60.0f, presented);
+            efmi::frontend::RuntimeDraw request;
+            request.hash = s.hash; request.count = s.match_count == kCharacterNone ? 0 : s.match_count;
+            request.first = s.match_first == kCharacterNone ? 0 : s.match_first;
+            request.frame = frame; request.seconds = float(frame) / 60.0f;
+            request.mod = program.folder_index();
+            if (s.component != kCharacterNone) { request.component = s.component; request.lod = lod; request.identity = 1; }
+            // Offline there is no pipeline: the facts the backend reads off each vertex module
+            // (D-079) are taken as the game's common ones, the rolling vs-t0 bones and vs-cb2.
+            if (s.component != kCharacterNone) { request.rolling_bone_source = true; request.source_vs_config_slot = 2; }
+            // So are the stages, a vertex and a pixel shader, and the vertex shader's declarations
+            // (D-124); the pixel shader's are not known.
+            request.shader_stages = 0x1 | 0x10;
+            request.source_srv = [&vertex](wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& why) {
+                if (stage != L'v') { why = "offline the pixel shader's declarations are not known"; return false; }
+                return srv_of(vertex, slot, type, dimension, stride, why);
+            };
+            // Offline no game texture is known: every pixel slot is bound without a hash, as the
+            // backend answers for a resource whose hash it cannot know.
+            request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
+            // Nor are its vertex buffers: a list that tells LODs apart by `vbN->stride` is refused here.
+            request.vertex_stride = [](unsigned, uint32_t&, std::string& why) { why = "offline the game's vertex buffers are not known"; return false; };
+            CharacterList list; bool skip = false, added = false, textures = false; std::string refused;
+            const bool ok = program.plan(request, package, list, skip, added, refused, nullptr, &textures);
+            // A list that tells LODs apart by `vbN->stride` plans once the host answers it, as the game's
+            // pipeline does: the strides of the game's vertex layouts with which it plans.
+            std::vector<uint32_t> strides;
+            if (!ok && refused.find("vertex buffers are not known") != std::string::npos)
+                for (uint32_t stride : {4u, 8u, 12u, 16u, 20u, 24u, 28u, 32u, 40u, 48u, 64u}) {
+                    request.vertex_stride = [stride](unsigned, uint32_t& value, std::string&) { value = stride; return true; };
+                    ++frame;
+                    std::string ignored;
+                    presenter.present(input, frame, float(frame) / 60.0f, ignored);
+                    request.frame = frame; request.seconds = float(frame) / 60.0f;
+                    CharacterList probe; bool probe_skip = false, probe_added = false, probe_textures = false; std::string why;
+                    if (program.plan(request, package, probe, probe_skip, probe_added, why, nullptr, &probe_textures)) strides.push_back(stride);
+                }
+            w.begin_object();
+            char hash[16]; snprintf(hash, sizeof(hash), "%08x", s.hash);
+            w.kv("hash", hash); w.kn("count", s.match_count);
+            if (s.component != kCharacterNone) { w.kn("component", s.component); w.kn("lod", lod); }
+            if (!present_ok) w.kv("present_refused", presented);
+            w.kb("planned", ok);
+            if (!ok) w.kv("reason", refused);
+            if (!strides.empty()) { w.key("planned_with_vertex_strides"); w.begin_array(); for (uint32_t v : strides) w.num(v); w.end_array(); }
+            else {
+                w.kb("skip", skip); w.kn("draws", list.count); w.kn("required", list.required);
+                if (textures) w.kb("textures", true); // the application's draw with the Mod's textures (D-083)
+                std::set<uint32_t> slots;
+                std::set<std::string> files;
+                for (uint32_t i = 0; i < list.count; ++i)
+                    for (const auto& pixel : package.pixels[list.first + i]) {
+                        slots.insert(pixel.slot);
+                        if (pixel.asset != kCharacterNone) files.insert(std::filesystem::u8path(package.images[pixel.asset]).filename().u8string());
+                    }
+                w.key("pixel_slots"); w.begin_array(); for (uint32_t slot : slots) w.num(slot); w.end_array();
+                w.kn("images_bound", files.size());
+                w.key("bound_files"); w.begin_array(); for (const auto& f : files) w.str(f); w.end_array();
+            }
+            w.end_object();
+        }
+    }
+    w.end_array();
+}
 int main(int argc, char** argv)
 {
     SetEnvironmentVariableW(L"EFMI_VK_LOG", L"character-test.log");
@@ -529,65 +615,9 @@ int main(int argc, char** argv)
                 w.end_array();
                 w.end_object(); printf("%s\n", w.out.c_str()); continue;
             }
-            const auto status = program.status();
-            w.kn("warnings", status.diagnostics);
-            w.kn("streams", package.streams.size()); w.kn("images", package.images.size());
-            w.kn("components", package.components.size()); w.kn("bones", package.bones);
-            w.kn("left_to_game", program.left_to_game());
-            w.kn("identify_components", program.identify_components());
-            w.key("sections"); w.begin_array();
+            w.kn("warnings", program.status().diagnostics);
             uint64_t frame = 0;
-            uint32_t current_lod = 0; // as the backend: a section that assigns the LOD changes it for those that do not
-            for (const auto& s : package.sections) {
-                if (s.lod != kCharacterNone) current_lod = s.lod;
-                for (uint32_t lod : {s.component == kCharacterNone ? kCharacterNone : current_lod}) {
-                    efmi::frontend::RuntimeInput input;
-                    ++frame;
-                    std::string presented;
-                    const bool present_ok = program.present(input, frame, float(frame) / 60.0f, presented);
-                    efmi::frontend::RuntimeDraw request;
-                    request.hash = s.hash; request.count = s.match_count == kCharacterNone ? 0 : s.match_count;
-                    request.first = s.match_first == kCharacterNone ? 0 : s.match_first;
-                    request.frame = frame; request.seconds = float(frame) / 60.0f;
-                    if (s.component != kCharacterNone) { request.component = s.component; request.lod = lod; request.identity = 1; }
-                    // Offline there is no pipeline: the facts the backend reads off each vertex module
-                    // (D-079) are taken as the game's common ones, the rolling vs-t0 bones and vs-cb2.
-                    if (s.component != kCharacterNone) { request.rolling_bone_source = true; request.source_vs_config_slot = 2; }
-                    // So are the stages, a vertex and a pixel shader, and the vertex shader's declarations
-                    // (D-124); the pixel shader's are not known.
-                    request.shader_stages = 0x1 | 0x10;
-                    request.source_srv = [&vertex](wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& why) {
-                        if (stage != L'v') { why = "offline the pixel shader's declarations are not known"; return false; }
-                        return srv_of(vertex, slot, type, dimension, stride, why);
-                    };
-                    // Offline no game texture is known: every pixel slot is bound without a hash, as the
-                    // backend answers for a resource whose hash it cannot know.
-                    request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
-                    CharacterList list; bool skip = false, added = false, textures = false; std::string refused;
-                    const bool ok = program.plan(request, package, list, skip, added, refused, nullptr, &textures);
-                    w.begin_object();
-                    char hash[16]; snprintf(hash, sizeof(hash), "%08x", s.hash);
-                    w.kv("hash", hash); w.kn("count", s.match_count);
-                    if (s.component != kCharacterNone) { w.kn("component", s.component); w.kn("lod", lod); }
-                    if (!present_ok) w.kv("present_refused", presented);
-                    w.kb("planned", ok);
-                    if (!ok) w.kv("reason", refused);
-                    else {
-                        w.kb("skip", skip); w.kn("draws", list.count); w.kn("required", list.required);
-                        if (textures) w.kb("textures", true); // the application's draw with the Mod's textures (D-083)
-                        std::set<uint32_t> slots, files;
-                        for (uint32_t i = 0; i < list.count; ++i)
-                            for (const auto& pixel : package.pixels[list.first + i]) {
-                                slots.insert(pixel.slot);
-                                if (pixel.asset != kCharacterNone) files.insert(pixel.asset);
-                            }
-                        w.key("pixel_slots"); w.begin_array(); for (uint32_t slot : slots) w.num(slot); w.end_array();
-                        w.kn("images_bound", files.size());
-                    }
-                    w.end_object();
-                }
-            }
-            w.end_array();
+            write_plans(w, program, program, package, vertex, frame);
             // The Mod's own enable state after the run (EFMI exports register at a Present and draw after).
             w.key("variables"); w.begin_object();
             for (const auto& v : program.status().variables)
@@ -599,6 +629,49 @@ int main(int argc, char** argv)
             printf("%s\n", w.out.c_str());
         }
         return 0;
+    }
+    if (argc == 5 && !strcmp(argv[1], "--plan-folder")) {
+        // The same dry run through one generation for the whole Mods folder (D-131): every character
+        // Mod in it, each planned through the shared generation with the draw naming its Mod.
+        const std::filesystem::path mods = path_argument(2), core = path_argument(3), settings = path_argument(4);
+        const auto vertex = common_vertex_registers();
+        CharacterProgram::FolderSource source{std::filesystem::absolute(mods), std::filesystem::absolute(core), std::filesystem::absolute(settings)};
+        source.declarations_only = true;
+        std::vector<CharacterProgram::FolderMod> found;
+        std::string reason;
+        const bool loaded = CharacterProgram::discover_folder(source, found, reason);
+        if (!loaded) fprintf(stderr, "folder generation refused: %s\n", reason.c_str());
+        CharacterProgram* presenter = nullptr;
+        for (auto& m : found) if (m.program) { presenter = m.program.get(); break; }
+        uint64_t frame = 0;
+        for (auto& m : found) {
+            JsonWriter w; w.begin_object();
+            w.kv("ini", m.ini.lexically_relative(mods).u8string());
+            w.kb("loaded", loaded && m.program != nullptr);
+            if (!loaded || !m.program) {
+                w.kv("reason", loaded ? m.reason : reason);
+                w.key("sections"); w.begin_array();
+                for (const auto& s : m.package.sections) {
+                    char hash[16]; snprintf(hash, sizeof(hash), "%08x", s.hash);
+                    w.begin_object(); w.kv("hash", hash); w.kn("count", s.match_count);
+                    if (s.component != kCharacterNone) w.kn("component", s.component);
+                    w.kb("planned", false); w.end_object();
+                }
+                w.end_array();
+                w.end_object(); printf("%s\n", w.out.c_str()); continue;
+            }
+            w.kn("warnings", m.program->status().diagnostics);
+            write_plans(w, *m.program, *presenter, m.package, vertex, frame);
+            w.key("variables"); w.begin_object();
+            for (const auto& v : m.program->status().variables)
+                if (v.first.find("mod_enabled") != std::string::npos || v.first.find("object_detected") != std::string::npos ||
+                    v.first.find("mod_id") != std::string::npos)
+                    w.kv(v.first.c_str(), std::to_string(v.second));
+            w.end_object();
+            w.end_object();
+            printf("%s\n", w.out.c_str());
+        }
+        return loaded ? 0 : 1;
     }
     if (argc == 3 && !strcmp(argv[1], "--inspect")) {
         if (!p.load(argv[2], why)) { fprintf(stderr, "package rejected: %s\n", why.c_str()); return 1; }

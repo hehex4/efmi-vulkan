@@ -46,6 +46,8 @@ STEPS = [
     ("Core facts from SPIR-V", [os.path.join(ROOT, "scripts", "check_core_facts.py")]),
     ("RabbitFX texture roles", [os.path.join(ROOT, "scripts", "check_texture_roles.py")]),
     ("installed Mods offline plans", [os.path.join(ROOT, "scripts", "check_mods_dry_run.py")]),
+    # D-131: the whole Mods folder in one generation gives every character Mod what its own does.
+    ("installed Mods offline plans in one folder generation", [os.path.join(ROOT, "scripts", "check_folder_generation.py")]),
     # --mod-first: no matched draw shows the game's mesh, not even while a new object is identified or
     # an EFMI Mod registers with the Core's API (the user's bar; held instead, 2026-10-26).
     ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",

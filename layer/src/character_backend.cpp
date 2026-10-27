@@ -1349,6 +1349,17 @@ public:
         return source_facts[pipe.id] = std::move(facts);
     }
 
+    // `vbN->stride` of a replaced draw (RuntimeDraw::vertex_stride): the pipeline's binding N, as DX11's
+    // input slot N the layer takes it elsewhere too (the blend-index stream at vb2); none bound is 0.
+    static bool vertex_stride(const PipeInfo& pipe, unsigned slot, uint32_t& stride, std::string& why)
+    {
+        if (std::find(pipe.dynamic_states.begin(), pipe.dynamic_states.end(), uint32_t(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE)) != pipe.dynamic_states.end()) {
+            why = "the pipeline sets its vertex strides at recording"; return false;
+        }
+        stride = 0;
+        for (const auto& b : pipe.bindings) if (b.binding == slot) { stride = b.stride; break; }
+        return true;
+    }
     // The draw matched `section_index` of the package (its hash, count and first index checked by the
     // device's index): recorded as the Mod's, hidden, or left to the game.
     bool record(CmdBuf* cb, const DrawRec& r, uint32_t section_index);
@@ -1620,9 +1631,10 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
                     return pixel_texture(r, slot, bound, value, why); };
                 request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
-                {
-                    const auto found = device->pipes.find(r.pipeline);
-                    if (found != device->pipes.end()) render_targets(found->second, request);
+                const auto found = device->pipes.find(r.pipeline);
+                if (found != device->pipes.end()) {
+                    render_targets(found->second, request);
+                    request.vertex_stride = [&found](unsigned slot, uint32_t& stride, std::string& why) { return vertex_stride(found->second, slot, stride, why); };
                 }
                 bool skip = false, added = false, textures = false; std::string reason;
                 if (!plan_draw(request, runtime_list, skip, added, reason, nullptr, &textures)) return refuse(C_STATE, "INI hide: " + reason);
@@ -1815,6 +1827,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
                 return pixel_texture(r, slot, bound, value, why); };
             request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
+            request.vertex_stride = [&pipe](unsigned slot, uint32_t& stride, std::string& why) { return vertex_stride(pipe->second, slot, stride, why); };
             const SourceFacts& facts = facts_of(pipe->second, site);
             request.source_vs_config_slot = facts.vs_config_slot;
             request.rolling_bone_source = facts.rolling_bones;

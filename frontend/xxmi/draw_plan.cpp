@@ -110,7 +110,12 @@ public:
             reason.clear();
         }
         const auto& read=texture_match?service->texture:service->read;
-        if(!read)refuse(L"Resource query adapter is unavailable");
+        if(!read){
+            // No owned GPU work in this generation (the offline dry run, a CPU generation): what the host
+            // answers on the CPU, as a replaced draw's plan outside an owned scope.
+            if(service->plan_read && service->plan_read(target,*state,result,reason))return result;
+            refuse(reason.empty()?L"Resource query adapter is unavailable":reason);
+        }
         if(!read(target,*state,result,reason))
             refuse(reason.empty()?L"Native resource query refused":reason);
         return result;
@@ -463,6 +468,7 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::ShaderCommand shader_command;
     bool nested_failed=false;
     bool keep_original=false; // a native kept the application's draw (DrawPlanAdapter::keep_original)
+    const CommandList* root=nullptr; // the matched root whose commands run (DrawPlanAdapter::current_root)
     size_t active_depth=0;
     DrawPlanAdapter::TextureQuery texture_query;
     DrawPlanAdapter::ResourceMatchQuery resource_match;
@@ -1168,6 +1174,7 @@ void DrawPlanAdapter::plan_resource_queries(ResourceQuery query)
     if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install plan resource queries before adapting command lists");
     runtime_->queries->plan_read=std::move(query);
 }
+const CommandList* DrawPlanAdapter::current_root() const { return runtime_->root; }
 void DrawPlanAdapter::keep_original()
 {
     if(!runtime_->active)refuse(L"Keeping the original draw needs an active plan");
@@ -1390,7 +1397,9 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
             auto* resolved=root->ResolveCommandList();
             // An earlier source command can change a later list's alias.
             if(!runtime_->adapted.count(resolved))refuse(L"Matched root callback target was not adapted");
+            runtime_->root=root;
             for(auto& command:resolved->commands){if(phase.aborted)break;command->run(&phase);}
+            runtime_->root=nullptr;
             if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         }};
         if(post)state.post=false;
@@ -1423,7 +1432,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
     } catch (const std::exception&) {
         reason = L"Frontend raised an exception while planning";
     }
-    runtime_->active = nullptr;
+    runtime_->active = nullptr; runtime_->root = nullptr;
     state.input_layout_overrides = std::move(saved_layout);state.post=saved_post;
     // The state is throwaway, but leave nesting counters usable for diagnostics.
     state.recursion = state.extra_indent = 0;state.aborted=false;

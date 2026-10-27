@@ -111,6 +111,9 @@ public:
     // lists execute, as a native command decides when the original Core draws the original instance
     // (its explicit draw with the application's bindings).
     void keep_original();
+    // During an execution: the matched root whose commands run (a TextureOverride's list, or a
+    // shader hook's), else null. A folder generation's natives tell the calling Mod by it (D-131).
+    const CommandList* current_root() const;
     // During a plan, from a native command: a translucent draw of the current bindings (D-113), as a
     // DrawIndexed of `count` indices from `first` would be planned, with its opacity and mask (null:
     // none). False refuses with `why`.

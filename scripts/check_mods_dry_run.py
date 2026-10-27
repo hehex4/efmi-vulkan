@@ -24,7 +24,8 @@ MODS = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Mods")
 CORE = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Core\EFMI")
 # Limits recorded in docs/directory-generation.md; any other refusal is a regression.
 KNOWN = ("validated blend-index contract",          # layout edits beyond the blend-index widening and restorable offsets
-         "Shader resource fetch requires a GPU resource adapter")  # GPU work inside a matched draw (P2)
+         "Shader resource fetch requires a GPU resource adapter",  # GPU work inside a matched draw (P2)
+         "offline the game's vertex buffers are not known")       # `vbN->stride`, which the game's pipeline answers
 
 
 def main() -> int:
@@ -57,6 +58,10 @@ def main() -> int:
                 totals["refused"] += 1
                 if not any(k in s["reason"] for k in KNOWN):
                     problems.append("%s %s: %s" % (mod["ini"], s["hash"], s["reason"]))
+                # Refused offline for the game's vertex buffer: the answer reaches the list, whose branches
+                # then plan with some strides and not with others (the dry run probes eleven).
+                if "vertex buffers are not known" in s["reason"] and not 0 < len(s.get("planned_with_vertex_strides", [])) < 11:
+                    problems.append("%s %s: the vertex stride answered does not reach the list" % (mod["ini"], s["hash"]))
             elif s.get("textures"):
                 totals["texture-only"] += 1
             elif "component" not in s:

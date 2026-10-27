@@ -1,0 +1,71 @@
+# One generation for the Mods folder (D-131, docs/3dmigoto-flows.md section 3)
+
+## What the original does
+
+3DMigoto parses d3dx.ini, the Core (Core\EFMI\main.ini and what it includes) and every enabled INI of
+the Mods folder (`include_recursive = Mods`, `exclude_recursive = DISABLED*`) into one global state:
+one variable table (`$\namespace\name`), one set of resources, lists and overrides, one `[Present]`
+list with every file's `[Present]` appended, one IniParams. A draw runs every TextureOverride whose
+hash it matches, in the order the original's matcher gives, whichever Mod declared it. F10 parses
+all of it again and swaps it in at once.
+
+The Core keeps no per-Mod identity: `CommandListRegisterMod` only sets `$mod_id` to 1, or -1 when the
+versions are incompatible. A Mod calls the Core's lists after pointing the Core's resources at its
+own (`ResourceMergedSkeleton = ref ...`) and setting the Core's variables (component id, LOD); the
+Core's own variables are scratch that every call sets again.
+
+A section the original cannot use (a typo, an unknown key) is a warning on its overlay; the rest of
+that file and every other Mod load.
+
+## What the layer does today
+
+A generation per character Mod (an enabled INI with `[CommandListInitializeMergedSkeleton]`, D-078):
+the four Core files, the Mod's INI, the other enabled INIs of its folder, and the libraries it calls
+(D-112). With 22 Mods that is 22 parses of the Core, 22 variable spaces, 22 owned GPU runtimes and 22
+Present lists per frame (226 us in the vk03 replay, the Core's share in each), and an F10 that loads
+22 generations one after another. Mods that are not character Mods are not loaded at all. A
+candidate the layer cannot execute is refused as a whole; that is one Mod.
+
+## The design
+
+One INI generation for the folder, as the original; per character Mod the device-side package as
+today, carved out of it.
+
+- **The folder program.** One `IniRuntime` with the Core's files, every enabled INI of the Mods folder
+  (the original's include rules) and nothing else; one owned GPU runtime; one Present list per
+  frame; one settings save. Its loads follow D-129 (a background load, an exchange at a Present).
+- **The Core bridge serves every Mod.** Discovery yields one contract per character Mod namespace
+  (the sections, components and LOD remaps that `discover` finds today, from the same original
+  registry). Per draw the layer's `RuntimeDraw` names the package the device index resolved, as it
+  already carries its component, LOD and identity; the native Core handlers take that Mod's
+  contract and prepared skeleton. `RegisterMod` sets `$mod_id` as the installed Core does.
+- **Packages stay per Mod.** Meshes, the image catalogue, bone ranges, materials, identities and
+  variants are the Mod's, made from its contract as now; a draw is planned by the folder program
+  (every matching section of every Mod, in the original's order) and recorded by the package whose
+  section the device index resolved.
+- **A bad Mod drops only itself.** What the layer refuses today for a whole candidate is decided per
+  Mod: the Mod's sections are left to the game and its package is not made; the other Mods load. A
+  refused Mod is named with its reason, as the original names its warnings.
+- **F10 and a changed folder.** One load of the folder; when it is ready every package switches at
+  the same Present (no frame with some Mods old and some new, none with the game's mesh between);
+  meshes and images whose files did not change are shared (BUG-061's file identity, extended to
+  meshes).
+
+## Order of work, each step test first
+
+1. The Core bridge for several Mods in one runtime (frontend): the installed Mods folder loaded as
+   one generation gives, per character Mod, the same contract as its own generation today; a
+   captured frame plans the same draws through it. Fails today: there is no folder discovery.
+2. The layer on one folder program: packages carved from it; one Present list per frame; the
+   replays' pictures identical to the per-Mod generations'; the Present cost per frame measured.
+3. Isolation: a folder with one Mod the layer refuses loads every other Mod (test: a Mod with an
+   unadapted section beside two good ones).
+4. F10 and folder changes: every package switches at one Present; unchanged mesh files are not
+   read again.
+5. Memory and the payloads (ISSUE-011): mesh payloads freed once on the device, read again from the
+   file when a package needs them (re-upload, the first plan's bone stream).
+
+Non-character Mods load into the folder generation from step 1 on, as in the original; their
+sections act on the game's draws only through the paths the layer has (a hide of an index buffer
+the device index routes). That a texture replacement or a non-character draw list acts as the
+original's is a separate step after these.

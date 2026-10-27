@@ -6,6 +6,13 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.0 (in progress): one generation for the Mods folder, step 1 (2026-10-27, D-131)
+
+- docs/folder-generation.md. Step 1, offline and in the frontend: the native Core bridge serves several Mods in one generation (per Mod its contract, discovery and skeleton; a native answers the Mod whose TextureOverride runs and holds only the draw's own Mod to the contract); `CharacterProgram::discover_folder` loads the Mods folder in the original's include order and gives each character Mod its package; a Mod the folder cannot take is left out with its own reason.
+- Check failing before (no folder generation): scripts/check_folder_generation.py, now a suite step: every character Mod loads, discovers and plans the same alone and in the folder (19 of 20 on the installed folder; Typhoeus refuses alone offline and is left out of the folder).
+- Changed for the per-Mod generations too: discovered sections in one order (hash, count, first index); a plan's `vbN->stride` answered from the draw's pipeline; a generation without owned reads answers resource queries from the host's CPU answers. Found: LIMIT-041 (avywenna's stride-selected component keeps the game's mesh).
+- Verification: run_all --only ini, replay, character replacement, live INI: passed. The layer does not use the folder generation yet (step 2). Not deployed.
+
 ## 1.9.9: texture loads at least as fast as the original's (2026-10-27, D-130, cause C)
 
 - An image's load reads the file straight into a staging arena the loaders keep, with each worker's own command buffer and fence (docs/design-review-1.9.md cause C). Benchmark against the original's DirectXTK load on D3D11, the installed Mods' ten largest maps (661 MiB, file cache warm): one 64 MiB map 43 ms on 1.9.8, 20 ms on 1.9.9, 28 ms for the original; the ten together 245 ms, 99 ms, and 297 ms for the original one after another (build/texture-bench/report.json in the worktree).

@@ -10,6 +10,8 @@
 #include <set>
 #include <tuple>
 
+namespace efmi::frontend { struct CharacterDiscovery; }
+
 namespace efvk {
 // A parsed original INI generation and its file-to-renderer resource catalogue.
 // A missing sidecar keeps the existing static/sandbox package behavior.
@@ -35,6 +37,26 @@ public:
         bool declarations_only = false;
     };
     bool discover(const Source&, CharacterPackage&, std::string& reason, const GpuFactory& gpu = {});
+    // A folder generation (D-131, docs/folder-generation.md): the Mods folder's character Mods in one
+    // generation, as the original loads the whole folder into one space. Per character Mod (in the
+    // order of `mods_characters`) a program that shares the generation, made from its discovery as
+    // `discover` makes one, or the reason it has none. False with `reason` when the generation does not
+    // load. `settings_name` names the generation's settings file in `settings`.
+    struct FolderSource {
+        std::filesystem::path mods, core, settings;
+        std::string settings_name = "mods";
+        bool declarations_only = false;
+    };
+    struct FolderMod {
+        std::filesystem::path ini;
+        std::string mod_namespace;                 // declared, else the original's implicit one (the INI's path)
+        std::unique_ptr<CharacterProgram> program; // null when the Mod has no package
+        CharacterPackage package;
+        std::string reason;
+    };
+    static bool discover_folder(const FolderSource&, std::vector<FolderMod>&, std::string& reason, const GpuFactory& gpu = {});
+    // The Mod's index in its folder generation (RuntimeDraw::mod); UINT32_MAX in a generation of one Mod.
+    uint32_t folder_index() const { return folder_index_; }
     // The namespace an INI declares (`namespace = ...`), lower case; empty when it declares none.
     static std::string declared_namespace(const std::filesystem::path& ini);
     // The character Mods of an EFMI Mods folder: every enabled INI (no part of its path starts with
@@ -86,6 +108,15 @@ public:
     void inherit_persistent(const CharacterProgram& previous) { runtime_->inherit_persistent(*previous.runtime_); }
     efmi::frontend::RuntimeStatus status() const { return runtime_ ? runtime_->status() : efmi::frontend::RuntimeStatus{}; }
 private:
+    // The generation from `options` and `extension`: the owned runtime's part when there is one, the
+    // declarations of CustomShaders only otherwise when `declarations_only`.
+    bool start(efmi::frontend::RuntimeConfig& options, std::shared_ptr<efmi::frontend::RuntimeExtension>, bool declarations_only, std::string& reason);
+    // The package of a discovered Mod: its contract, every mesh file it declares as a stream, its DDS
+    // files as the image catalogue (a folder Mod's: the files under its folders only).
+    bool adopt(efmi::frontend::CharacterDiscovery& found, CharacterPackage&, std::string& reason);
+    bool owns(const std::filesystem::path& file) const;
+    uint32_t folder_index_ = UINT32_MAX;
+    std::vector<std::wstring> folders_; // a folder Mod's: its folder, the Core's, the libraries it calls (lower case, with a separator)
     bool load(const std::filesystem::path& ini, const std::filesystem::path& core, const std::filesystem::path& settings,
               const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension>, const GpuFactory&, std::string& reason,
               const std::filesystem::path& mods = {}, bool declarations_only = false);

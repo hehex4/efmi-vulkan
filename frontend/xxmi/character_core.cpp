@@ -12,6 +12,7 @@
 #include <map>
 #include <unordered_map>
 #include <set>
+#include <unordered_set>
 
 void HostCompileGraph(const std::wstring&, const std::vector<std::wstring>&);
 // Pinned original resource identity encoding in ResourceHash.cpp.
@@ -29,8 +30,70 @@ uint32_t integer(float value)
     return uint32_t(value);
 }
 class CharacterCore : public RuntimeExtension {
-    std::wstring mod;
-    efvk::CharacterPackage expected;
+    struct FoundSection { efvk::CharacterSection section; uint32_t original = efvk::kCharacterNone; };
+    // One character Mod of the generation (D-131): its contract, what discovery found of it and what
+    // its preparation made. A generation of one Mod has one, a folder generation one per character Mod.
+    struct Mod {
+        std::wstring mod; // `\namespace\`
+        efvk::CharacterPackage expected;
+        // Discovery (D-078): the Mod's mesh sections as the registry holds them, with the original
+        // component id and LOD they assign; the contract is completed once the skeleton is known.
+        std::shared_ptr<CharacterDiscovery> discovery, facts;
+        std::vector<FoundSection> found;
+        size_t outside_package = 0;
+        std::vector<uint32_t> original_components;
+        CustomResource* skeleton = nullptr;
+        bool prepared = false;
+        std::unordered_set<const CommandList*> roots; // its TextureOverrides' lists (DrawPlanAdapter::current_root)
+    };
+    std::vector<Mod> mods_;
+    // A folder generation (D-131): several Mods, a draw names the one its identity resolved to.
+    bool folder_ = false;
+    Mod* preparing_ = nullptr; // the Mod whose initializer prepare() runs
+    // The Mod a section belongs to, by its name's namespace (the longest that matches); null for none.
+    Mod* mod_of(const std::wstring& section, const wchar_t* kind)
+    {
+        Mod* best = nullptr; size_t length = 0;
+        const size_t prefix = wcslen(kind);
+        for (auto& m : mods_)
+            if (m.mod.size() > length && section.size() >= prefix + m.mod.size() && !_wcsnicmp(section.c_str(), kind, prefix) &&
+                !_wcsnicmp(section.c_str() + prefix, m.mod.c_str(), m.mod.size())) { best = &m; length = m.mod.size(); }
+        return best;
+    }
+    // The Mod whose draw this is: the one the renderer's identity resolved it to.
+    Mod* owner()
+    {
+        if (!folder_) return &mods_[0];
+        return current.mod < mods_.size() ? &mods_[current.mod] : nullptr;
+    }
+    // The Mod whose list calls the Core: in a generation of one Mod that Mod; in a folder generation the
+    // Mod whose initializer is prepared, else the one whose TextureOverride's list runs.
+    Mod* caller()
+    {
+        if (!folder_) return &mods_[0];
+        if (preparing_) return preparing_;
+        const CommandList* root = adapter ? adapter->current_root() : nullptr;
+        if (!root) return nullptr;
+        for (auto& m : mods_) if (m.roots.count(root)) return &m;
+        return nullptr;
+    }
+    void add(const std::string& name, const efvk::CharacterPackage& package)
+    {
+        // A declared namespace, or the name the runtime parses an INI without one under (its path
+        // relative to the Mod folder, as the original names such a file by its path; in a folder
+        // generation the path from the root, with its separators): printable ASCII in lower case,
+        // without the brackets of section names.
+        const bool folder = folder_;
+        if (name.empty() || name.size() > 260 || std::any_of(name.begin(), name.end(), [folder](char c) {
+                return c < 0x20 || c > 0x7e || (c == '\\' && !folder) || c == '[' || c == ']' || (c >= 'A' && c <= 'Z'); }))
+            throw std::runtime_error("Mod namespace must be lower-case printable ASCII without separators");
+        Mod m;
+        m.mod = L"\\" + std::wstring(name.begin(), name.end()) + L"\\";
+        m.expected = package;
+        // Only contracts are needed here; do not duplicate the mesh payload.
+        m.expected.payload.clear(); m.expected.payload.shrink_to_fit();
+        mods_.push_back(std::move(m));
+    }
     DrawPlanAdapter* adapter = nullptr;
     // The Core's variables this extension reads per draw, found by name once (a string built and
     // hashed per access cost a few microseconds per matched draw); the generation's variable map is
@@ -58,16 +121,11 @@ class CharacterCore : public RuntimeExtension {
         return value;
     }
     RuntimeDraw current;
-    bool prepared = false, attached = false;
+    bool attached = false;
     std::unique_ptr<EfmittlBridge> efmittl; // the library's hooks and capture, when it is loaded (D-113)
     bool rabbit_textures = false;
     bool textures = false;                 // the host answers texture queries (D-077)
-    size_t outside_package = 0, texture_sections = 0;
-    // Discovery (D-078): the mod's mesh sections as the registry holds them, with the original
-    // component id and LOD they assign; the contract is completed once the skeleton is known.
-    std::shared_ptr<CharacterDiscovery> discovery, facts;
-    struct FoundSection { efvk::CharacterSection section; uint32_t original = efvk::kCharacterNone; };
-    std::vector<FoundSection> found;
+    size_t texture_sections = 0;
     // The constant a section's command list assigns to `name`, at its top level or inside its `if`
     // branches (EFMI exports guard the assignments with `if $mod_enabled && DRAW_TYPE == 4`): one
     // value when every assignment found gives the same constant, none when there is none, one that is
@@ -94,10 +152,10 @@ class CharacterCore : public RuntimeExtension {
     }
     // Constant values assigned to `name` anywhere in the mod's command lists (a restore from a saved
     // variable is not a value of its own).
-    uint32_t identification_threshold() const
+    uint32_t identification_threshold(const Mod& m) const
     {
         const std::wstring name = L"$" + core_namespace + L"identification_min_components";
-        const std::wstring prefix = L"commandlist" + mod;
+        const std::wstring prefix = L"commandlist" + m.mod;
         std::set<uint32_t> values;
         for (const auto& section : explicitCommandListSections) {
             if (_wcsnicmp(section.first.c_str(), prefix.c_str(), prefix.size())) continue;
@@ -141,10 +199,10 @@ class CharacterCore : public RuntimeExtension {
             out[{edit->override.match.input_slot, edit->override.match.semantic_name, uint32_t(index)}].insert(edit->override.replace.aligned_byte_offset);
         }
     }
-    std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets() const
+    std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets(const Mod& m) const
     {
         std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> out;
-        const std::wstring lists = L"commandlist" + mod, overrides = L"textureoverride" + mod;
+        const std::wstring lists = L"commandlist" + m.mod, overrides = L"textureoverride" + m.mod;
         for (const auto& section : explicitCommandListSections)
             if (!_wcsnicmp(section.first.c_str(), lists.c_str(), lists.size())) {
                 element_edits(&section.second.command_list, out);
@@ -171,8 +229,6 @@ class CharacterCore : public RuntimeExtension {
             f.mask != UINT32_MAX || f.numerator != 1 || f.denominator != 1) return false;
         value = f.val; return true;
     }
-    std::vector<uint32_t> original_components;
-    CustomResource* skeleton = nullptr;
     // The instance entry of the current draw as the original Core's `Original_VS_CB` (D-086).
     BufferQueries instance_queries;
     // The original Core's identification result for instance 0 of the current draw
@@ -212,29 +268,29 @@ class CharacterCore : public RuntimeExtension {
         value = EncodeFloat30(uint32_t(mixed ^ mixed >> 32) | 1u);
         return true;
     }
-    bool contract(std::wstring& reason)
+    bool contract(const Mod& m, std::wstring& reason)
     {
+        const auto& expected = m.expected;
         return (current.identity && current.instances == 1 && !current.first_instance && current.component < expected.components.size() && current.lod < 2 &&
-            original_components.size() == expected.components.size() &&
-            integer(v(L"component_id").fval) == original_components[current.component] && integer(v(L"lod_level").fval) == current.lod &&
+            m.original_components.size() == expected.components.size() &&
+            integer(v(L"component_id").fval) == m.original_components[current.component] && integer(v(L"lod_level").fval) == current.lod &&
             integer(v(L"bones_count").fval) == expected.bones && v(L"gpu_posed").fval == 1 && v(L"custom_mesh_scale").fval == 1) ||
             fail(reason, L"Original Core request differs from the resolved native identity, bone or LOD contract");
     }
 public:
-    void set_facts(std::shared_ptr<CharacterDiscovery> out) { facts = std::move(out); }
+    void set_facts(std::shared_ptr<CharacterDiscovery> out) { mods_[0].facts = std::move(out); }
     CharacterCore(const std::string& name, std::shared_ptr<CharacterDiscovery> output)
-        : CharacterCore(name, efvk::CharacterPackage{}, false) { discovery = std::move(output); }
-    CharacterCore(const std::string& name, const efvk::CharacterPackage& package, bool rabbit) : expected(package), rabbit_textures(rabbit)
+        : CharacterCore(name, efvk::CharacterPackage{}, false) { mods_[0].discovery = std::move(output); }
+    CharacterCore(const std::string& name, const efvk::CharacterPackage& package, bool rabbit) : rabbit_textures(rabbit) { add(name, package); }
+    // A folder generation (D-131): every character Mod of the Mods folder with its discovery output, in
+    // the order the draws name them (RuntimeDraw::mod).
+    explicit CharacterCore(const std::vector<std::pair<std::string, std::shared_ptr<CharacterDiscovery>>>& mods) : folder_(true)
     {
-        // A declared namespace, or the name the runtime parses an INI without one under (its path
-        // relative to the Mod folder, as the original names such a file by its path): printable
-        // ASCII in lower case, without the separators of section names.
-        if (name.empty() || name.size() > 260 || std::any_of(name.begin(), name.end(), [](char c) {
-                return c < 0x20 || c > 0x7e || c == '\\' || c == '[' || c == ']' || (c >= 'A' && c <= 'Z'); }))
-            throw std::runtime_error("Mod namespace must be lower-case printable ASCII without separators");
-        mod = L"\\" + std::wstring(name.begin(), name.end()) + L"\\";
-        // Only contracts are needed here; do not duplicate the mesh payload.
-        expected.payload.clear(); expected.payload.shrink_to_fit();
+        if (mods.empty() || mods.size() > 256) throw std::runtime_error("A folder generation holds one to 256 character Mods");
+        for (const auto& m : mods) {
+            if (!m.second) throw std::runtime_error("Character discovery needs its output");
+            add(m.first, {}); mods_.back().discovery = m.second;
+        }
     }
     std::wstring declarations() override
     {
@@ -270,6 +326,18 @@ global $mod_id = -1
         a.plan_resource_queries([this](ResourceCopyTarget& target, CommandListState& state, float& value, std::wstring& why) {
             if (target.type == ResourceCopyTargetType::RENDER_TARGET || target.type == ResourceCopyTargetType::DEPTH_STENCIL_TARGET)
                 return render_target(target, state, value, why);
+            // `vbN->stride` (an EFMI export telling a component's LODs apart by it): the game's vertex
+            // buffer at that slot, from the host, as the original reads it off IAGetVertexBuffers.
+            if (target.type == ResourceCopyTargetType::VERTEX_BUFFER && target.evaluation_mode == ResourceCopyTargetEvaluationMode::RESOURCE_STRIDE &&
+                !target.custom_resource_pool) {
+                uint32_t stride = 0; std::string reason;
+                if (!current.vertex_stride || !current.vertex_stride(target.ResolveSlot(&state), stride, reason)) {
+                    why = L"The game's vertex buffer stride is not known";
+                    if (!reason.empty()) { why += L": "; why.append(reason.begin(), reason.end()); }
+                    return false;
+                }
+                value = float(stride); return true;
+            }
             return instance_queries.read(target, state, value, why);
         });
         // `vs`, `ps` in a replaced draw's plan (D-089): a game shader has no DX11 identity here and no
@@ -315,19 +383,26 @@ global $mod_id = -1
         });
         native(L"initializemergedskeleton", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
+            Mod* m = caller();
+            if (!m) return fail(why, L"Native skeleton initialization outside a character Mod");
             auto* target = adapter->referenced_resource(&customResources.at(L"resource" + core_namespace + L"outputmergedskeleton_template"));
-            if (!target || (prepared && target != skeleton)) return fail(why, L"Unprepared native skeleton output");
-            skeleton = target; return true;
+            if (!target || (m->prepared && target != m->skeleton)) return fail(why, L"Unprepared native skeleton output");
+            m->skeleton = target; return true;
         });
         native(L"component_readconfig", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
-            if (!contract(why)) return false;
+            Mod* m = caller();
+            if (!m) return fail(why, L"Original Core configuration read outside a character Mod");
+            // Another Mod's list on this draw reads the configuration as the original does; only the
+            // draw's own Mod is held to the renderer's contract.
+            if (m == owner() && !contract(*m, why)) return false;
             v(L"instance_config_vs_cb_slot").fval = float(current.source_vs_config_slot);
             return true;
         });
         native(L"mergedskeleton_detectbonedatasource", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
-            if (!prepared || !contract(why)) return false;
+            Mod* m = caller();
+            if (!m || !m->prepared || (m == owner() && !contract(*m, why))) return false;
             // Never invent a source slot from Vulkan descriptor coordinates.
             // Unknown input preserves the original Core's no-replacement path.
             v(L"bones_data_source").fval = current.rolling_bone_source && current.source_vs_config_slot != -1
@@ -339,22 +414,33 @@ global $mod_id = -1
             // implementation, already supplied before this original callback: the instance is the
             // Mod's, and the Core's outputs say so.
             if (!(phases & 1)) return true;
-            if (!contract(why)) return false;
+            Mod* m = caller();
+            if (!m) return fail(why, L"Original Core identification outside a character Mod");
+            // The instance is another Mod's (D-131): as the original Core's identification answers that
+            // Mod, it has neither a modded nor an unknown instance here.
+            if (m != owner()) { v(L"draw_call_has_modded_instance").fval = 0; v(L"draw_call_has_unknown_instance").fval = 0; return true; }
+            if (!contract(*m, why)) return false;
             v(L"draw_call_has_modded_instance").fval = 1; v(L"draw_call_has_unknown_instance").fval = 0;
             if (auto* status = identified_instance(true)) status->fval = v(L"enum_override_type_custom").fval;
             return true;
         });
         native(L"mergedskeleton_attachcomponent", [this](CommandListState&, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
-            if (!prepared || !contract(why)) return false;
+            Mod* m = caller();
+            if (!m || m != owner()) return fail(why, L"Native bone attachment outside the draw's Mod");
+            if (!m->prepared || !contract(*m, why)) return false;
             if (!output_skeleton_) output_skeleton_ = &customResources.at(L"resource" + core_namespace + L"output_mergedskeleton");
             const auto* output = adapter->referenced_resource(output_skeleton_);
-            if (output != skeleton) return fail(why, L"Native bone attachment references another skeleton");
+            if (output != m->skeleton) return fail(why, L"Native bone attachment references another skeleton");
             attached = true; return true;
         });
         native(L"component_drawinstances", [this](CommandListState& state, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
-            if (!prepared || !contract(why)) return false;
+            Mod* m = caller();
+            if (!m) return fail(why, L"Original Core instance draw outside a character Mod");
+            // Another Mod's instance (D-131): this Mod draws nothing of it and keeps nothing of the game's.
+            if (m != owner()) return true;
+            if (!m->prepared || !contract(*m, why)) return false;
             // A Mod that runs the Core's identification itself (D-086) may decide otherwise than the
             // renderer: the original instance is drawn by the application's own draw, a skipped one
             // not at all. No result in this draw leaves the renderer's identification.
@@ -390,8 +476,10 @@ global $mod_id = -1
             });
         }
         efmittl = EfmittlBridge::install(a, boundaries);
-        if (facts) facts->efmittl = efmittl != nullptr;
-        if (discovery) discovery->efmittl = efmittl != nullptr;
+        for (auto& m : mods_) {
+            if (m.facts) m.facts->efmittl = efmittl != nullptr;
+            if (m.discovery) m.discovery->efmittl = efmittl != nullptr;
+        }
         // With the host's texture identities (D-077) the original OverrideTextures runs: its
         // CheckTextureOverride on ps-t0 to ps-t22 finds texture-hash sections by the hash of what is
         // bound. Without them the generation registers mesh overrides only and refuses image-hash
@@ -399,18 +487,18 @@ global $mod_id = -1
         textures = a.has_texture_queries();
         if (!textures)
             native(L"overridetextures", [this](CommandListState&, unsigned phases, std::wstring& why) {
-                return !(phases & 1) || prepared || fail(why, L"Texture registry is not prepared");
+                return !(phases & 1) || std::all_of(mods_.begin(), mods_.end(), [](const Mod& m) { return m.prepared; }) ||
+                       fail(why, L"Texture registry is not prepared");
             });
         // Preparation executes the original mod's bone declarations, including
         // its exact LOD1 file references. Runtime connection executes them too.
-        HostCompileGraph(L"commandlist" + mod + L"initializemergedskeleton", boundaries);
+        for (const auto& m : mods_) HostCompileGraph(L"commandlist" + m.mod + L"initializemergedskeleton", boundaries);
         return boundaries;
     }
     bool validate_overrides(std::wstring& why) override
     {
         if (!G->mFuzzyTextureOverrides.empty()) return fail(why, L"Fuzzy/image overrides require a source-image identity provider");
-        if (discovery) return discover_sections(why);
-        std::vector<bool> seen(expected.sections.size(), false);
+        if (std::any_of(mods_.begin(), mods_.end(), [](const Mod& m) { return m.discovery != nullptr; })) return discover_sections(why);
         auto matches = [](const FuzzyMatch& f, uint32_t value, bool) {
             // None: any value (an optional first index, a hash-only section's index count).
             if (value == efvk::kCharacterNone) return f.op == FuzzyMatchOp::ALWAYS;
@@ -418,70 +506,90 @@ global $mod_id = -1
                 f.rhs_type2 == FuzzyMatchOperandType::VALUE && f.val == value && f.mask == UINT32_MAX &&
                 f.numerator == 1 && f.denominator == 1;
         };
+        std::vector<std::vector<bool>> seen;
+        for (const auto& m : mods_) seen.emplace_back(m.expected.sections.size(), false);
         for (const auto& hashed : G->mTextureOverrideMap) {
             for (const auto& entry : hashed.second) {
-                const std::wstring prefix = L"textureoverride" + mod;
-                size_t index = 0;
-                for (; index < expected.sections.size(); ++index) {
-                    const auto& s = expected.sections[index];
-                    if (s.hash == hashed.first && matches(entry.match_index_count, s.match_count, false) &&
-                        matches(entry.match_first_index, s.match_first, true)) break;
-                }
                 const bool mesh = entry.match_index_count.op != FuzzyMatchOp::ALWAYS;
-                if (index < expected.sections.size() && !seen[index] && !_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size())) {
-                    seen[index] = true; continue;
-                }
-                // A mesh section the renderer has no part for (a LOD beyond its scope) stays the
-                // game's; an image-hash section runs against the host's texture identities.
-                if (mesh) { ++outside_package; continue; }
+                // In a generation of one Mod every section is checked against it, as before.
+                Mod* m = folder_ ? mod_of(entry.ini_section, L"textureoverride") : &mods_[0];
+                if (m) {
+                    const auto& expected = m->expected;
+                    auto& own_seen = seen[size_t(m - mods_.data())];
+                    size_t index = 0;
+                    for (; index < expected.sections.size(); ++index) {
+                        const auto& s = expected.sections[index];
+                        if (s.hash == hashed.first && matches(entry.match_index_count, s.match_count, false) &&
+                            matches(entry.match_first_index, s.match_first, true)) break;
+                    }
+                    const std::wstring prefix = L"textureoverride" + m->mod;
+                    if (index < expected.sections.size() && !own_seen[index] && !_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size())) {
+                        own_seen[index] = true; continue;
+                    }
+                    // A mesh section the renderer has no part for (a LOD beyond its scope) stays the
+                    // game's; an image-hash section runs against the host's texture identities.
+                    if (mesh) { ++m->outside_package; continue; }
+                } else if (mesh) continue;
                 if (!textures) return fail(why, L"Generation contains an unprofiled override; source-image identity is unavailable");
                 ++texture_sections;
             }
         }
-        return std::all_of(seen.begin(), seen.end(), [](bool v) { return v; }) || fail(why, L"Original mesh override registry differs from its profile");
+        for (const auto& own_seen : seen)
+            if (!std::all_of(own_seen.begin(), own_seen.end(), [](bool v) { return v; })) return fail(why, L"Original mesh override registry differs from its profile");
+        return true;
     }
-    // Discovery: a mesh section of this mod (a constant index count, an optional constant first
-    // index) is part of the contract; the component it assigns decides what it draws, none makes it
-    // a candidate to hide the game's mesh, which the live plan decides. Everything else stays the
-    // game's or, with texture identities, runs against them, as for a package.
+    // Discovery: a mesh section of a Mod (a constant index count, an optional constant first index) is
+    // part of its contract; the component it assigns decides what it draws, none makes it a candidate
+    // to hide the game's mesh, which the live plan decides. Everything else stays the game's or, with
+    // texture identities, runs against them, as for a package.
     bool discover_sections(std::wstring& why)
     {
-        const std::wstring prefix = L"textureoverride" + mod;
-        const std::wstring component_id = L"$" + core_namespace + L"component_id", lod_level = L"$" + mod + L"lod_level";
+        const std::wstring component_id = L"$" + core_namespace + L"component_id";
         for (const auto& hashed : G->mTextureOverrideMap) {
             for (const auto& entry : hashed.second) {
                 const bool mesh = entry.match_index_count.op != FuzzyMatchOp::ALWAYS;
+                // A generation of one Mod: its own sections by its prefix, every other one beside them.
+                Mod* m = folder_ ? mod_of(entry.ini_section, L"textureoverride") : &mods_[0];
+                const bool own = m && !_wcsnicmp(entry.ini_section.c_str(), (L"textureoverride" + m->mod).c_str(), m->mod.size() + 15);
                 FoundSection s;
                 s.section.hash = hashed.first;
-                const bool own = !_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size());
                 const bool first_ok = entry.match_first_index.op == FuzzyMatchOp::ALWAYS || constant(entry.match_first_index, s.section.match_first);
-                if (own && mesh && constant(entry.match_index_count, s.section.match_count) && s.section.match_count && first_ok) {
+                if (own && m->discovery && mesh && constant(entry.match_index_count, s.section.match_count) && s.section.match_count && first_ok) {
                     s.original = assigned(entry.command_list, component_id);
-                    s.section.lod = assigned(entry.command_list, lod_level);
-                    found.push_back(s);
+                    s.section.lod = assigned(entry.command_list, L"$" + m->mod + L"lod_level");
+                    m->found.push_back(s);
                     continue;
                 }
                 // A hash alone that skips the draw hides a game mesh by its index region's hash,
                 // whatever its index count (as the original matches it); it is never a component.
-                if (own && !mesh && entry.match_first_index.op == FuzzyMatchOp::ALWAYS && skips(&entry.command_list)) {
+                if (own && m->discovery && !mesh && entry.match_first_index.op == FuzzyMatchOp::ALWAYS && skips(&entry.command_list)) {
                     s.section.match_count = efvk::kCharacterNone; s.section.match_first = efvk::kCharacterNone;
-                    found.push_back(s);
+                    m->found.push_back(s);
                     continue;
                 }
-                if (mesh) { ++outside_package; continue; }
+                if (mesh) { if (m) ++m->outside_package; continue; }
                 if (!textures) return fail(why, L"Generation contains an unprofiled override; source-image identity is unavailable");
                 ++texture_sections;
             }
         }
-        if (found.size() > 256) return fail(why, L"More mesh sections than one character contract holds");
-        discovery->declared.clear();
-        for (const auto& s : found) { auto section = s.section; section.component = s.original; discovery->declared.push_back(section); }
+        for (auto& m : mods_) {
+            if (!m.discovery) continue;
+            if (m.found.size() > 256) return fail(why, L"More mesh sections than one character contract holds");
+            // In one order whatever else the generation holds: the registry is a hash table, whose order
+            // changes with the other Mods' sections in it (D-131).
+            std::stable_sort(m.found.begin(), m.found.end(), [](const FoundSection& a, const FoundSection& b) {
+                return std::tie(a.section.hash, a.section.match_count, a.section.match_first) <
+                       std::tie(b.section.hash, b.section.match_count, b.section.match_first);
+            });
+            m.discovery->declared.clear();
+            for (const auto& f : m.found) { auto section = f.section; section.component = f.original; m.discovery->declared.push_back(section); }
+        }
         return true;
     }
     // Discovery: the active components in bone order, their LOD remaps, and the sections mapped to
     // them. A section on an inactive component or a LOD beyond 1 stays the game's (the renderer's
     // scope is LOD0 and LOD1, as for a package).
-    bool discover_contract(const SkeletonFilePlan& metadata, const core::PaletteDefinition& palette, std::wstring& why)
+    bool discover_contract(Mod& m, const SkeletonFilePlan& metadata, const core::PaletteDefinition& palette, std::wstring& why)
     {
         std::vector<uint32_t> order;
         for (uint32_t i = 0; i < metadata.components.size(); ++i) if (metadata.components[i].count) order.push_back(i);
@@ -510,8 +618,8 @@ global $mod_id = -1
             contract.components.push_back(std::move(c));
         }
         if (cursor > metadata.bones) return fail(why, L"Original components exceed the skeleton");
-        size_t left = outside_package;
-        for (const auto& s : found) {
+        size_t left = m.outside_package;
+        for (const auto& s : m.found) {
             auto section = s.section;
             if (section.lod != efvk::kCharacterNone && section.lod > 1) { ++left; continue; }
             if (s.original == efvk::kCharacterNone) {
@@ -524,36 +632,55 @@ global $mod_id = -1
             contract.sections.push_back(section);
         }
         if (contract.sections.empty()) return fail(why, L"The mod declares no mesh section the renderer can take");
-        expected = contract;
-        discovery->contract = std::move(contract);
-        discovery->remap_files = std::move(remaps);
-        discovery->left_to_game = left;
+        m.expected = contract;
+        m.discovery->contract = std::move(contract);
+        m.discovery->remap_files = std::move(remaps);
+        m.discovery->left_to_game = left;
         return true;
     }
     bool prepare(DrawPlanAdapter& a, CommandListState& state, std::wstring& why) override
     {
-        auto& init = explicitCommandListSections.at(L"commandlist" + mod + L"initializemergedskeleton");
+        // The lists of each Mod's TextureOverrides: a native tells its caller by the root that runs.
+        for (auto& m : mods_) m.roots.clear();
+        if (folder_)
+            for (const auto& hashed : G->mTextureOverrideMap)
+                for (const auto& entry : hashed.second)
+                    if (Mod* m = mod_of(entry.ini_section, L"textureoverride")) { m->roots.insert(&entry.command_list); m->roots.insert(&entry.post_command_list); }
+        struct Preparing { Mod*& slot; ~Preparing() { slot = nullptr; } } preparing{preparing_};
+        for (auto& m : mods_) {
+            preparing_ = &m;
+            if (!prepare_mod(a, m, state, why)) {
+                if (folder_) why = L"[" + m.mod + L"] " + why;
+                return false;
+            }
+        }
+        return true;
+    }
+    bool prepare_mod(DrawPlanAdapter& a, Mod& m, CommandListState& state, std::wstring& why)
+    {
+        auto& init = explicitCommandListSections.at(L"commandlist" + m.mod + L"initializemergedskeleton");
         a.adapt(init.command_list); a.adapt(init.post_command_list);
         DrawPlan plan;
-        if (!a.execute_pair(init.command_list, init.post_command_list, state, plan, why) || !skeleton || !plan.items.empty()) return false;
-        const auto pools = L"pool" + mod + L"_mergedskeleton_component_";
+        if (!a.execute_pair(init.command_list, init.post_command_list, state, plan, why) || !m.skeleton || !plan.items.empty()) return false;
+        const auto pools = L"pool" + m.mod + L"_mergedskeleton_component_";
         SkeletonFilePlan metadata; FilePlanCompiler files(customResources);
-        if (!read_skeleton_plan(integer(command_list_globals.at(L"$" + mod + L"bones_count").fval),
-            integer(command_list_globals.at(L"$" + mod + L"max_instance_count").fval), integer(var(L"cfg_ms_max_lod_level_count").fval),
+        if (!read_skeleton_plan(integer(command_list_globals.at(L"$" + m.mod + L"bones_count").fval),
+            integer(command_list_globals.at(L"$" + m.mod + L"max_instance_count").fval), integer(var(L"cfg_ms_max_lod_level_count").fval),
             customResourcePools.at(pools + L"vertexgroupoffsets"), customResourcePools.at(pools + L"vertexgroupcounts"),
             customResourcePools.at(pools + L"lodremaps"), a, files, metadata, why)) return false;
         core::PaletteDefinition palette; std::string error;
         if (!load_palette_files(metadata, palette, error)) { why.assign(error.begin(), error.end()); return false; }
-        if (discovery && !discover_contract(metadata, palette, why)) return false;
+        if (m.discovery && !discover_contract(m, metadata, palette, why)) return false;
+        const auto& expected = m.expected;
         if (metadata.bones != expected.bones || metadata.components.size() < expected.components.size())
             return fail(why, L"Original skeleton dimensions changed");
-        original_components.assign(expected.components.size(), UINT32_MAX);
+        m.original_components.assign(expected.components.size(), UINT32_MAX);
         for (size_t i = 0; i < metadata.components.size(); ++i) {
             const auto& got = metadata.components[i];
             if (!got.count) continue;
             size_t dense = 0;
             while (dense < expected.components.size() && expected.components[dense].first != got.first) ++dense;
-            if (dense == expected.components.size() || original_components[dense] != UINT32_MAX)
+            if (dense == expected.components.size() || m.original_components[dense] != UINT32_MAX)
                 return fail(why, L"Unprofiled or overlapping active component");
             const auto& want = expected.components[dense];
             const auto& maps = palette.components[i].lods;
@@ -561,19 +688,20 @@ global $mod_id = -1
                 !maps[0].available || !maps[0].indices.empty() || !maps[1].available ||
                 maps[1].indices != want.remap_lod1)
                 return fail(why, L"Original bone ranges or LOD1 remaps differ from the renderer profile");
-            original_components[dense] = uint32_t(i);
+            m.original_components[dense] = uint32_t(i);
         }
-        if (std::find(original_components.begin(), original_components.end(), UINT32_MAX) != original_components.end())
+        if (std::find(m.original_components.begin(), m.original_components.end(), UINT32_MAX) != m.original_components.end())
             return fail(why, L"Profiled component is absent from original skeleton");
-        prepared = true;
-        if (const auto out = discovery ? discovery : facts) {
-            out->identify_components = identification_threshold();
-            out->element_offsets = element_offsets();
+        m.prepared = true;
+        if (const auto out = m.discovery ? m.discovery : m.facts) {
+            out->identify_components = identification_threshold(m);
+            out->element_offsets = element_offsets(m);
         }
         return true;
     }
     bool before_draw(const RuntimeDraw& draw, CommandListState&, std::wstring& why) override
     {
+        if (folder_ && draw.mod != UINT32_MAX && draw.mod >= mods_.size()) return fail(why, L"The draw names no Mod of the generation");
         if (draw.source_vs_config_slot != -1 && (draw.source_vs_config_slot < 1 || draw.source_vs_config_slot > 3))
             return fail(why, L"Unsupported original Core instance-config constant slot");
         current = draw;
@@ -615,6 +743,10 @@ std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_nam
 {
     if (!output) throw std::runtime_error("Character discovery needs its output");
     return std::make_shared<CharacterCore>(mod_namespace, std::move(output));
+}
+std::shared_ptr<RuntimeExtension> character_folder(const std::vector<std::pair<std::string, std::shared_ptr<CharacterDiscovery>>>& mods)
+{
+    return std::make_shared<CharacterCore>(mods);
 }
 std::vector<std::string> character_core_libraries()
 {

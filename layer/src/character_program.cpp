@@ -133,50 +133,62 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
                             const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension> extension,
                             const GpuFactory& factory, std::string& reason, const std::filesystem::path& mods, bool declarations_only)
 {
-    {
-        efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
-                                             settings_folder, settings_name};
-        // The layer answers texture queries of replaced draws (D-077).
-        options.texture_identity = true;
-        if (factory) gpu_ = factory(core.parent_path().parent_path(), gpu_reason_);
-        if (gpu_) {
-            // The original loads every enabled INI of the Mod folder (DISABLED names excluded).
-            const auto folder = ini.parent_path();
-            std::error_code error;
-            for (auto it = std::filesystem::recursive_directory_iterator(folder, error); !error && it != std::filesystem::recursive_directory_iterator();
-                 it.increment(error)) {
-                const auto name = it->path().filename().wstring();
-                // The generation's own settings are never a Mod input, wherever they are kept.
-                const bool settings = it->is_directory() && std::filesystem::equivalent(it->path(), options.settings_directory, error);
-                if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
-                if (!it->is_regular_file() || _wcsicmp(it->path().extension().c_str(), L".ini") || std::filesystem::equivalent(it->path(), ini, error)) continue;
-                if (options.inputs.size() >= 64) throw std::runtime_error("The Mod folder has too many INI files for one generation");
-                options.inputs.push_back(it->path());
-            }
-            // The libraries the Mod calls by namespace from elsewhere in the Mods folder (D-112), as the
-            // original, which loads the whole folder into one space, finds them.
-            library_notes_.clear(); libraries_.clear();
-            if (!mods.empty()) options.libraries = libraries(mods, options.inputs, efmi::frontend::character_core_libraries(), library_notes_);
-            for (const auto& library : options.libraries) libraries_[declared_namespace(library)] = library;
-            extension = gpu_->combine(std::move(extension));
-            gpu_->begin_deferred();
-        } else if (declarations_only) {
-            extension = efmi::frontend::declarations_only(std::move(extension));
+    efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
+                                         settings_folder, settings_name};
+    if (factory) gpu_ = factory(core.parent_path().parent_path(), gpu_reason_);
+    if (gpu_) {
+        // The original loads every enabled INI of the Mod folder (DISABLED names excluded).
+        const auto folder = ini.parent_path();
+        std::error_code error;
+        for (auto it = std::filesystem::recursive_directory_iterator(folder, error); !error && it != std::filesystem::recursive_directory_iterator();
+             it.increment(error)) {
+            const auto name = it->path().filename().wstring();
+            // The generation's own settings are never a Mod input, wherever they are kept.
+            const bool settings = it->is_directory() && std::filesystem::equivalent(it->path(), options.settings_directory, error);
+            if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
+            if (!it->is_regular_file() || _wcsicmp(it->path().extension().c_str(), L".ini") || std::filesystem::equivalent(it->path(), ini, error)) continue;
+            if (options.inputs.size() >= 64) throw std::runtime_error("The Mod folder has too many INI files for one generation");
+            options.inputs.push_back(it->path());
         }
-        runtime_ = efmi::frontend::IniRuntime::load(options, extension, reason);
-        if (gpu_) {
-            if (!runtime_ && gpu_->scope_active()) gpu_->discard();
-            // Recorded work stays pending; replaced draws keep the plan until the first Present.
-            if (runtime_ && gpu_->scope_active()) gpu_->suspend();
-        }
-        return bool(runtime_);
+        // The libraries the Mod calls by namespace from elsewhere in the Mods folder (D-112), as the
+        // original, which loads the whole folder into one space, finds them.
+        library_notes_.clear(); libraries_.clear();
+        if (!mods.empty()) options.libraries = libraries(mods, options.inputs, efmi::frontend::character_core_libraries(), library_notes_);
+        for (const auto& library : options.libraries) libraries_[declared_namespace(library)] = library;
     }
+    return start(options, std::move(extension), declarations_only, reason);
+}
+bool CharacterProgram::start(efmi::frontend::RuntimeConfig& options, std::shared_ptr<efmi::frontend::RuntimeExtension> extension,
+                             bool declarations_only, std::string& reason)
+{
+    // The layer answers texture queries of replaced draws (D-077).
+    options.texture_identity = true;
+    if (gpu_) {
+        extension = gpu_->combine(std::move(extension));
+        gpu_->begin_deferred();
+    } else if (declarations_only) {
+        extension = efmi::frontend::declarations_only(std::move(extension));
+    }
+    runtime_ = efmi::frontend::IniRuntime::load(options, extension, reason);
+    if (gpu_) {
+        if (!runtime_ && gpu_->scope_active()) gpu_->discard();
+        // Recorded work stays pending; replaced draws keep the plan until the first Present.
+        if (runtime_ && gpu_->scope_active()) gpu_->suspend();
+    }
+    return bool(runtime_);
+}
+bool CharacterProgram::owns(const std::filesystem::path& file) const
+{
+    if (folders_.empty()) return true;
+    const auto name = key(file);
+    return std::any_of(folders_.begin(), folders_.end(), [&](const std::wstring& folder) { return !name.compare(0, folder.size(), folder); });
 }
 void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::wstring, uint32_t>& remaps)
 {
     {
         for (uint32_t i = 0; i < package.images.size(); ++i) images_.emplace(key(std::filesystem::u8path(package.images[i])), i);
         for (const auto& file : runtime_->resources()) {
+            if (!owns(file->path)) continue; // another Mod's of a folder generation
             if (file->usage) {
                 const auto found = streams_.find(key(file->path));
                 if (found == streams_.end()) {
@@ -352,7 +364,13 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
             if (source.declarations_only) { package = {}; package.sections = found->declared; }
             return false;
         }
-        CharacterPackage made = found->contract;
+        return adopt(*found, package, reason);
+    } catch (const std::exception& e) { reason = e.what(); return false; }
+}
+bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, CharacterPackage& package, std::string& reason)
+{
+    try {
+        CharacterPackage made = found.contract;
         made.lists.clear();
         for (auto& c : made.components) {
             c.lists[0] = uint32_t(made.lists.size()); made.lists.push_back({});
@@ -375,16 +393,16 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
             return uint32_t(made.streams.size() - 1);
         };
         for (size_t i = 0; i < made.components.size(); ++i)
-            if (!found->remap_files[i].empty()) {
-                const auto k = key(found->remap_files[i]);
+            if (!found.remap_files[i].empty()) {
+                const auto k = key(found.remap_files[i]);
                 auto it = remaps.find(k);
-                if (it == remaps.end()) it = remaps.emplace(k, add(found->remap_files[i], CharacterStream::Remap, 2)).first;
+                if (it == remaps.end()) it = remaps.emplace(k, add(found.remap_files[i], CharacterStream::Remap, 2)).first;
                 made.components[i].remap_stream = it->second;
             }
-        // Every mesh file the generation declares; those of sections the renderer has no part for
-        // are never bound by a replaced draw.
+        // Every mesh file the generation declares (a folder Mod: under its folders); those of sections
+        // the renderer has no part for are never bound by a replaced draw.
         for (const auto& file : runtime_->resources()) {
-            if (!file->usage || remaps.count(key(file->path))) continue;
+            if (!file->usage || remaps.count(key(file->path)) || !owns(file->path)) continue;
             const uint32_t kind = file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT ? CharacterStream::Index : CharacterStream::Vertex;
             const auto known = meshes.find(key(file->path));
             if (known != meshes.end()) {
@@ -400,11 +418,131 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
         package = std::move(made);
         for (const auto& mesh : meshes) streams_.emplace(mesh.first, mesh.second);
         catalogue(package, remaps);
-        left_to_game_ = found->left_to_game;
-        identify_components_ = found->identify_components;
-        element_offsets_ = found->element_offsets;
-        efmittl_ = found->efmittl;
+        left_to_game_ = found.left_to_game;
+        identify_components_ = found.identify_components;
+        element_offsets_ = found.element_offsets;
+        efmittl_ = found.efmittl;
         return true;
+    } catch (const std::exception& e) { reason = e.what(); return false; }
+}
+namespace {
+// The original's include order (IniHandler.cpp ParseIniFilesRecursive): in each folder its `.ini`
+// files by name, then its folders by name, both in ordinal order; names starting with DISABLED and
+// desktop.ini left out (d3dx.ini's exclude_recursive). `wanted` keys select the files kept.
+void include_order(const std::filesystem::path& folder, const std::set<std::wstring>& wanted, std::vector<std::filesystem::path>& out, unsigned depth = 0)
+{
+    if (depth > 32) return;
+    std::set<std::wstring> files, folders;
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(folder, error)) {
+        const auto name = entry.path().filename().wstring();
+        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8) || !_wcsicmp(name.c_str(), L"desktop.ini")) continue;
+        if (entry.is_directory(error)) folders.insert(name);
+        else if (name.size() > 4 && !wcscmp(name.c_str() + name.size() - 4, L".ini")) files.insert(name);
+    }
+    for (const auto& name : files) if (wanted.count(key(folder / name))) out.push_back(folder / name);
+    for (const auto& name : folders) include_order(folder / name, wanted, out, depth + 1);
+}
+std::wstring folder_key(const std::filesystem::path& folder)
+{
+    auto name = key(folder);
+    if (!name.empty() && name.back() != L'\\') name += L'\\';
+    return name;
+}
+}
+bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<FolderMod>& out, std::string& reason, const GpuFactory& factory)
+{
+    try {
+        out.clear();
+        if (!source.mods.is_absolute() || !source.core.is_absolute() || !source.settings.is_absolute())
+            throw std::runtime_error("Folder generation paths must be absolute");
+        // The original's root: d3dx.ini's folder, the Mods folder's parent; every INI is named by its path from it.
+        const auto root = source.mods.parent_path();
+        const auto inis = mods_characters(source.mods, reason);
+        if (inis.empty()) return false;
+        // Per character Mod: its namespace (declared, else the original's implicit one, the INI's path from
+        // the root), its INIs and the libraries it calls.
+        std::vector<std::vector<std::filesystem::path>> mod_inputs(inis.size());
+        std::vector<std::map<std::string, std::filesystem::path>> called(inis.size());
+        std::vector<std::vector<std::string>> notes(inis.size());
+        const bool gpu = bool(factory);
+        for (size_t i = 0; i < inis.size(); ++i) {
+            FolderMod m; m.ini = inis[i]; m.mod_namespace = declared_namespace(inis[i]);
+            if (m.mod_namespace.empty()) {
+                const auto relative = inis[i].lexically_relative(root).wstring();
+                if (std::any_of(relative.begin(), relative.end(), [](wchar_t c) { return c < 0x20 || c > 0x7e; }))
+                    throw std::runtime_error("A character INI without a namespace has a path that is not ASCII: " + inis[i].u8string());
+                m.mod_namespace.assign(relative.begin(), relative.end());
+                std::transform(m.mod_namespace.begin(), m.mod_namespace.end(), m.mod_namespace.begin(), ::tolower);
+            }
+            mod_inputs[i].push_back(inis[i]);
+            if (gpu) {
+                // As a generation of one Mod: with the owned runtime the Mod folder's other enabled INIs
+                // join, and the libraries it calls by namespace (D-112).
+                std::error_code error;
+                const auto folder = inis[i].parent_path();
+                for (auto it = std::filesystem::recursive_directory_iterator(folder, error); !error && it != std::filesystem::recursive_directory_iterator();
+                     it.increment(error)) {
+                    const auto name = it->path().filename().wstring();
+                    const bool settings = it->is_directory() && std::filesystem::equivalent(it->path(), source.settings, error);
+                    if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
+                    if (!it->is_regular_file() || _wcsicmp(it->path().extension().c_str(), L".ini") || std::filesystem::equivalent(it->path(), inis[i], error)) continue;
+                    mod_inputs[i].push_back(it->path());
+                }
+                for (const auto& library : libraries(source.mods, mod_inputs[i], efmi::frontend::character_core_libraries(), notes[i]))
+                    called[i][declared_namespace(library)] = library;
+            }
+            out.push_back(std::move(m));
+        }
+        // A Mod the generation cannot take drops only itself (D-131): when the folder refuses, the Mods
+        // that refuse in a generation of their own are left out with their reasons and the rest load again.
+        std::vector<bool> left_out(inis.size(), false);
+        for (int attempt = 0;; ++attempt) {
+            std::vector<std::pair<std::string, std::shared_ptr<efmi::frontend::CharacterDiscovery>>> mods;
+            std::vector<size_t> members;
+            std::set<std::wstring> wanted;
+            for (size_t i = 0; i < inis.size(); ++i) {
+                if (left_out[i]) continue;
+                members.push_back(i);
+                mods.push_back({out[i].mod_namespace, std::make_shared<efmi::frontend::CharacterDiscovery>()});
+                for (const auto& input : mod_inputs[i]) wanted.insert(key(input));
+                for (const auto& library : called[i]) wanted.insert(key(library.second));
+            }
+            if (members.empty()) { reason = "every character Mod of the folder refused"; return false; }
+            efmi::frontend::RuntimeConfig options{root, {source.core / "API.ini", source.core / "MergedSkeleton.ini", source.core / "SpatialIdentification.ini",
+                                                         source.core / "Helpers.ini"}, source.settings, source.settings_name};
+            std::vector<std::filesystem::path> ordered;
+            include_order(source.mods, wanted, ordered);
+            if (ordered.size() + options.inputs.size() > 128) throw std::runtime_error("The Mods folder has more INI files than one generation takes");
+            options.inputs.insert(options.inputs.end(), ordered.begin(), ordered.end());
+            CharacterProgram loader;
+            if (gpu) loader.gpu_ = factory(source.core.parent_path().parent_path(), loader.gpu_reason_);
+            if (loader.start(options, efmi::frontend::character_folder(mods), source.declarations_only, reason)) {
+                for (size_t k = 0; k < members.size(); ++k) {
+                    const size_t i = members[k];
+                    auto program = std::make_unique<CharacterProgram>();
+                    program->runtime_ = loader.runtime_; program->gpu_ = loader.gpu_; program->gpu_reason_ = loader.gpu_reason_;
+                    program->folder_index_ = uint32_t(k);
+                    program->libraries_ = called[i]; program->library_notes_ = notes[i];
+                    program->folders_ = {folder_key(out[i].ini.parent_path()), folder_key(source.core)};
+                    for (const auto& library : called[i]) program->folders_.push_back(folder_key(library.second.parent_path()));
+                    out[i].reason.clear();
+                    if (program->adopt(*mods[k].second, out[i].package, out[i].reason)) out[i].program = std::move(program);
+                }
+                return true;
+            }
+            if (attempt) return false;
+            const std::string folder_reason = reason;
+            bool any = false;
+            for (size_t i : members) {
+                CharacterProgram alone; CharacterPackage package; std::string why;
+                Source own{inis[i], source.core, source.settings, declared_namespace(inis[i]), source.mods, source.declarations_only};
+                if (alone.discover(own, package, why, factory)) continue;
+                left_out[i] = true; any = true;
+                out[i].reason = why; out[i].package = std::move(package); // the sections, for the dry run's listing
+            }
+            if (!any) { reason = folder_reason; return false; }
+        }
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 uint32_t CharacterProgram::stream_index(const std::shared_ptr<const efmi::assets::FileResource>& resource)
