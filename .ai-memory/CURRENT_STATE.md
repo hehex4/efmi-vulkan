@@ -9,6 +9,7 @@
 ## 2.0.5: panel settings adopted under the folder's names (2026-10-27, BUG-066)
 
 - Settings of a Mod's INI without a namespace (`k\1.ini` panels) are adopted under the folder generation's names; a folder file adopted by 2.0.0 to 2.0.3 is adopted again once. Verification: the failing scene checks (93/93 now), the vk03 replay, owned Present.
+- Deployed 2026-10-27 16:16 (81a422f) with the game and the launcher closed; 2.0.4 was deployed at 16:06 (229a801). The settings folder was copied to build/backups/settings-before-2.0.5-* first. The actual-config smoke (20 Mods, none refused, validation clean, game log unchanged) migrated dist/settings/mods-folder.ini: no old panel names left, 85 lines under the folder's names, no settings warning.
 
 ## 2.0.4: a LOD the Core holds from another Mod (2026-10-27, BUG-065)
 
