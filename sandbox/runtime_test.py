@@ -249,6 +249,13 @@ def directory_generation(checks, validation):
     folder.mkdir()
     fixture(mods / "other", salt=0x5A5A5A5A, settings="other", name="other.bin", namespace="runtime_other")
     fixture(folder)
+    # D-131: a third character Mod the layer cannot take (an export whose TextureOverride sections are
+    # missing, so the Core's contract has no mesh section): the folder generation leaves out that Mod
+    # alone, with its reason, and the others behave as before.
+    (mods / "broken").mkdir()
+    fixture(mods / "broken", salt=0x3C3C3C3C, settings="broken", name="broken.bin", namespace="runtime_broken")
+    broken_ini = mods / "broken" / "mod.ini"
+    broken_ini.write_text(broken_ini.read_text(encoding="ascii").replace("[TextureOverride", "[CommandListUnused"), encoding="ascii")
     (mods / "DISABLED old").mkdir()
     (mods / "DISABLED old" / "mod.ini").write_text((folder / "mod.ini").read_text(encoding="ascii"), encoding="ascii")
     settings = root / "settings"
@@ -274,6 +281,9 @@ def directory_generation(checks, validation):
     packages = status.get("packages", [])
     names = [Path(p.get("path", "")).parent.name for p in packages]
     checks.equal(names, ["fixture", "other"], label + ": both character INIs found, the DISABLED folder skipped")
+    left_out = status.get("folder_generation", {}).get("left_out", [])
+    checks.equal([Path(m.get("ini", "")).parent.name for m in left_out], ["broken"],
+                 label + ": the Mod the layer cannot take is left out alone, with its reason " + str([m.get("reason", "") for m in left_out]))
     if len(packages) == 2:
         own, other = packages
         checks.equal((other["lazy"], other["activated"], other.get("images_ready", 0), other["counters"].get("replaced", 0)),
@@ -283,7 +293,9 @@ def directory_generation(checks, validation):
         checks.equal((own["ini_generation"], own["ini_reloads"]), (2, 2), label + ": its reloads as with a package")
         variables = own.get("ini", {}).get("variables", {})
         checks.equal(variables.get("$\\runtime_fixture\\tint"), 1, label + ": the persistent variable survives F10")
-    saved = settings / "runtime_fixture-fixture.ini" # the namespace and the Mod folder (BUG-039)
+    # One generation for the folder (D-131) keeps one settings file for every Mod, as the original's
+    # d3dx_user.ini; a generation per Mod kept the namespace and the Mod folder (BUG-039).
+    saved = settings / "mods-folder.ini"
     checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(), label + ": settings saved in the configured folder")
     # The scene itself edits its mod.ini, drives its keys through keys.txt and writes its reports where
     # it runs (the fixture's folder).
@@ -293,7 +305,7 @@ def directory_generation(checks, validation):
              not (p.parent == folder and re.fullmatch(r"(character|runtime)-[\w-]+\.json|pixels\.rgba|stdout\.txt", p.name))]
     checks.equal((changed, added), ([], []), label + ": the layer writes nothing into the Mods folder")
     log = (root / "layer.log").read_text(encoding="utf-8", errors="replace")
-    checks.check(log.count("character Mod read from its INI") >= 2, label + ": every package was made from its INI")
+    checks.check(log.count("character Mod of the folder generation") >= 2, label + ": every package was made from its INI in the folder generation")
 
 
 if __name__ == "__main__":

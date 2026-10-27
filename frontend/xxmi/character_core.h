@@ -42,10 +42,10 @@ struct CharacterDiscovery {
 };
 std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_namespace, std::shared_ptr<CharacterDiscovery> output);
 // A folder generation (D-131, docs/folder-generation.md): every character Mod of the Mods folder in
-// one generation, each discovered into its output as above, in the order the draws name them
+// one generation, by its namespace as the parser names it (lower case), each discovered into its output as above, in the order the draws name them
 // (RuntimeDraw::mod). A native Core call answers the Mod whose list runs; another Mod's list on a draw
 // finds the instance not its own, as the original Core's identification tells it.
-std::shared_ptr<RuntimeExtension> character_folder(const std::vector<std::pair<std::string, std::shared_ptr<CharacterDiscovery>>>& mods);
+std::shared_ptr<RuntimeExtension> character_folder(const std::vector<std::pair<std::wstring, std::shared_ptr<CharacterDiscovery>>>& mods);
 // Offline, without a GPU (the dry run): `inner` with the Mod's CustomShader sections declared, so a Mod
 // that has them loads and its sections plan; the lists that run them refuse outside the owned domain.
 std::shared_ptr<RuntimeExtension> declarations_only(std::shared_ptr<RuntimeExtension> inner);

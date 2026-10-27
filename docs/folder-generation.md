@@ -69,3 +69,12 @@ Non-character Mods load into the folder generation from step 1 on, as in the ori
 sections act on the game's draws only through the paths the layer has (a hide of an index buffer
 the device index routes). That a texture replacement or a non-character draw list acts as the
 original's is a separate step after these.
+
+## Status (2026-10-27, 2.0.0)
+
+Steps 1 to 4 are in 2.0.0: the bridge (scripts/check_folder_generation.py), the layer on one folder
+generation (`folder_create`, `folder_frame`, `folder_frame_and_exchange`), isolation (a Mod that refuses
+alone is left out, the live INI scene's third Mod) and the exchange of every package at one
+presentation. Measured on the vk03 replay with the 20 installed Mods (same build, `m2_folder_generation`
+off and on): presentation work 221 to 146 us per frame, recording 410 to 420 us, final targets
+identical. Step 5 (payloads) remains.

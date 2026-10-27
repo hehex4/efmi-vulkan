@@ -49,6 +49,7 @@ class CharacterCore : public RuntimeExtension {
     std::vector<Mod> mods_;
     // A folder generation (D-131): several Mods, a draw names the one its identity resolved to.
     bool folder_ = false;
+    std::unordered_map<const CommandList*, Mod*> root_mods_; // a TextureOverride's list to its Mod
     Mod* preparing_ = nullptr; // the Mod whose initializer prepare() runs
     // The Mod a section belongs to, by its name's namespace (the longest that matches); null for none.
     Mod* mod_of(const std::wstring& section, const wchar_t* kind)
@@ -74,21 +75,25 @@ class CharacterCore : public RuntimeExtension {
         if (preparing_) return preparing_;
         const CommandList* root = adapter ? adapter->current_root() : nullptr;
         if (!root) return nullptr;
-        for (auto& m : mods_) if (m.roots.count(root)) return &m;
-        return nullptr;
+        const auto found = root_mods_.find(root);
+        return found == root_mods_.end() ? nullptr : found->second;
     }
-    void add(const std::string& name, const efvk::CharacterPackage& package)
+    void add(const std::string& name, const efvk::CharacterPackage& package) { add(std::wstring(name.begin(), name.end()), package, name); }
+    void add(const std::wstring& name, const efvk::CharacterPackage& package, const std::string& narrow = {})
     {
         // A declared namespace, or the name the runtime parses an INI without one under (its path
         // relative to the Mod folder, as the original names such a file by its path; in a folder
         // generation the path from the root, with its separators): printable ASCII in lower case,
         // without the brackets of section names.
+        // A folder generation's names are the parser's own (the INI's path, any script, lower case as it
+        // lowers them); a generation of one Mod keeps the narrow rule.
         const bool folder = folder_;
-        if (name.empty() || name.size() > 260 || std::any_of(name.begin(), name.end(), [folder](char c) {
-                return c < 0x20 || c > 0x7e || (c == '\\' && !folder) || c == '[' || c == ']' || (c >= 'A' && c <= 'Z'); }))
+        if (name.empty() || name.size() > 260 || std::any_of(name.begin(), name.end(), [folder](wchar_t c) {
+                return c < 0x20 || c == L'[' || c == L']' || (!folder && (c > 0x7e || c == L'\\' || (c >= L'A' && c <= L'Z'))); }))
             throw std::runtime_error("Mod namespace must be lower-case printable ASCII without separators");
+        (void)narrow;
         Mod m;
-        m.mod = L"\\" + std::wstring(name.begin(), name.end()) + L"\\";
+        m.mod = L"\\" + name + L"\\";
         m.expected = package;
         // Only contracts are needed here; do not duplicate the mesh payload.
         m.expected.payload.clear(); m.expected.payload.shrink_to_fit();
@@ -284,7 +289,7 @@ public:
     CharacterCore(const std::string& name, const efvk::CharacterPackage& package, bool rabbit) : rabbit_textures(rabbit) { add(name, package); }
     // A folder generation (D-131): every character Mod of the Mods folder with its discovery output, in
     // the order the draws name them (RuntimeDraw::mod).
-    explicit CharacterCore(const std::vector<std::pair<std::string, std::shared_ptr<CharacterDiscovery>>>& mods) : folder_(true)
+    explicit CharacterCore(const std::vector<std::pair<std::wstring, std::shared_ptr<CharacterDiscovery>>>& mods) : folder_(true)
     {
         if (mods.empty() || mods.size() > 256) throw std::runtime_error("A folder generation holds one to 256 character Mods");
         for (const auto& m : mods) {
@@ -642,10 +647,14 @@ global $mod_id = -1
     {
         // The lists of each Mod's TextureOverrides: a native tells its caller by the root that runs.
         for (auto& m : mods_) m.roots.clear();
+        root_mods_.clear();
         if (folder_)
             for (const auto& hashed : G->mTextureOverrideMap)
                 for (const auto& entry : hashed.second)
-                    if (Mod* m = mod_of(entry.ini_section, L"textureoverride")) { m->roots.insert(&entry.command_list); m->roots.insert(&entry.post_command_list); }
+                    if (Mod* m = mod_of(entry.ini_section, L"textureoverride")) {
+                        m->roots.insert(&entry.command_list); m->roots.insert(&entry.post_command_list);
+                        root_mods_[&entry.command_list] = m; root_mods_[&entry.post_command_list] = m;
+                    }
         struct Preparing { Mod*& slot; ~Preparing() { slot = nullptr; } } preparing{preparing_};
         for (auto& m : mods_) {
             preparing_ = &m;
@@ -744,7 +753,7 @@ std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_nam
     if (!output) throw std::runtime_error("Character discovery needs its output");
     return std::make_shared<CharacterCore>(mod_namespace, std::move(output));
 }
-std::shared_ptr<RuntimeExtension> character_folder(const std::vector<std::pair<std::string, std::shared_ptr<CharacterDiscovery>>>& mods)
+std::shared_ptr<RuntimeExtension> character_folder(const std::vector<std::pair<std::wstring, std::shared_ptr<CharacterDiscovery>>>& mods)
 {
     return std::make_shared<CharacterCore>(mods);
 }

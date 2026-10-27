@@ -25,6 +25,8 @@ def main() -> int:
     parser.add_argument("--scene", action="append", required=True)
     parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument("--frames", type=int, default=2600)
+    parser.add_argument("--baseline-env", action="append", default=[], help="KEY=VALUE for the baseline's runs only")
+    parser.add_argument("--candidate-env", action="append", default=[], help="KEY=VALUE for the candidate's runs only")
     args = parser.parse_args()
     if args.rounds < 3 or args.frames < 2400:
         parser.error("require at least three pairs and 2400 frames (warmup plus the full 2048-interval window)")
@@ -55,7 +57,16 @@ def main() -> int:
                 folder = out / scene / (str(pair) + "-" + name)
                 folder.mkdir(parents=True)
                 shutil.copy2(source / "replay.bin", folder / "replay.bin")
-                result = replay.run(exe, folder, builds[name], args.frames, True, validation)
+                # A setting of one build's runs (the same binaries with a switch off and on).
+                overrides = dict(item.split("=", 1) for item in (args.baseline_env if name == "baseline" else args.candidate_env))
+                saved = {k: os.environ.get(k) for k in overrides}
+                os.environ.update(overrides)
+                try:
+                    result = replay.run(exe, folder, builds[name], args.frames, True, validation)
+                finally:
+                    for k, v in saved.items():
+                        if v is None: os.environ.pop(k, None)
+                        else: os.environ[k] = v
                 if result["returncode"] or " 0 failed;" not in result["output"]:
                     raise RuntimeError("replay failed: " + result["output"][-2000:])
                 final = result["status"]["result"]
@@ -69,6 +80,9 @@ def main() -> int:
                 stage, previous = total_stages(r), total_stages(w)
                 metrics = {"host_" + p: recent[p + "_us"] for p in ("p50", "p95", "p99")}
                 metrics["record_us_per_frame"] = (r["record"]["microseconds"] - w["record"]["microseconds"]) / frames
+                if "frame_microseconds" in r["record"] and "frame_microseconds" in w["record"]:
+                    # The presentation's work (character_frame): every package's Present, or the folder's once (D-131).
+                    metrics["present_us_per_frame"] = (r["record"]["frame_microseconds"] - w["record"]["frame_microseconds"]) / frames
                 metrics.update({key + "_us_per_frame": (value - previous.get(key, 0)) / frames for key, value in stage.items()})
                 metrics["startup_texture_wait_us"] = w["textures"]["draw_wait_microseconds"]
                 metrics["startup_variant_wait_us"] = w["record"]["variant_wait_microseconds"]

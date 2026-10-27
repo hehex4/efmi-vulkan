@@ -334,6 +334,7 @@ void util_init(HMODULE self)
         }
     }
     g_cfg.m2_owned = setting("EFMI_VK_M2_OWNED", "m2_owned") != "0";
+    g_cfg.m2_folder_generation = setting("EFMI_VK_M2_FOLDER_GENERATION", "m2_folder_generation") != "0";
     g_cfg.m2_reserve_mb = strtoull(setting("EFMI_VK_M2_RESERVE_MB", "m2_reserve_mb").c_str(), nullptr, 10);
     {
         const std::string expiry = setting("EFMI_VK_M2_IDENTITY_EXPIRY_MS", "m2_identity_expiry_ms");

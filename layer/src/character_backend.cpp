@@ -374,8 +374,14 @@ public:
     SnapshotDispatch storage;
     CharacterPackage package;
     std::unique_ptr<CharacterProgram> program;
-    // Owned GPU execution of the generation's Present work; destroyed before the program.
-    std::unique_ptr<OwnedPresenter> presenter;
+    // Owned GPU execution of the generation's Present work; destroyed before the program. A folder
+    // generation's packages share one (D-131).
+    std::shared_ptr<OwnedPresenter> presenter;
+    // A package of a folder generation (D-131): the shared generation's Present, saves and F10 are the
+    // folder's; its plans run one at a time with the other packages' under the folder's lock, as the
+    // original's one context runs them.
+    std::shared_ptr<std::mutex> plan_mx;
+    bool folder_member() const { return plan_mx != nullptr; }
     // Owned GPU work inside replaced draws (P2, D-087) stopped after its first failure.
     bool draw_work_failed = false;
     // Owned work of replaced draws waits for the application's submission (set under mod_mx). Only
@@ -660,7 +666,7 @@ public:
                 logf("character Mod read from its INI: %s: %zu mesh files, %zu images, %zu sections, %zu mesh sections left to the game",
                      package_path.c_str(), package.streams.size(), package.images.size(), package.sections.size(), program->left_to_game());
             } else if (!program->init(package_path, package, last_reason, gpu)) return false;
-            if (program->gpu()) presenter = std::make_unique<OwnedPresenter>(device, program->gpu());
+            if (program->gpu()) presenter = std::make_shared<OwnedPresenter>(device, program->gpu());
             else if (!program->gpu_reason().empty()) logf("owned GPU work unavailable: %s", program->gpu_reason().c_str());
             {
                 // What the original overlay would show after a load; the generation carries on (D-067).
@@ -669,6 +675,25 @@ public:
                 for (const auto& text : loaded.diagnostic_messages) logf("INI warning: %s", text.c_str());
             }
         }
+        return init_device();
+    }
+    // A character Mod of a folder generation (D-131): its program (a view of the shared generation),
+    // its package and the folder's presenter and lock, made by the folder; the device side as above.
+    bool init_adopted(std::unique_ptr<CharacterProgram> adopted, CharacterPackage made, std::shared_ptr<OwnedPresenter> shared,
+                      std::shared_ptr<std::mutex> lock)
+    {
+        program = std::move(adopted); package = std::move(made); presenter = std::move(shared); plan_mx = std::move(lock);
+        for (const auto& note : program->library_notes()) logf("%s", note.c_str());
+        if (g_cfg.m2_dimension_zero_vendor && g_cfg.m2_dimension_zero_vendor == properties.vendorID &&
+            g_cfg.m2_dimension_zero_device == properties.deviceID) {
+            package.material_vendor = properties.vendorID; package.material_device = properties.deviceID;
+        }
+        logf("character Mod of the folder generation: %s: %zu mesh files, %zu images, %zu sections, %zu mesh sections left to the game",
+             package_path.c_str(), package.streams.size(), package.images.size(), package.sections.size(), program->left_to_game());
+        return init_device();
+    }
+    bool init_device()
+    {
 #define X(n) draw.n = reinterpret_cast<PFN_vk##n>(device->owned_gdpa(device->handle, "vk" #n));
         EFVK_VARIANT_FUNCS(X)
 #undef X
@@ -778,7 +803,7 @@ public:
         { std::lock_guard<std::mutex> lock(pool_mx); stopped = true; enabled = false; wake.notify_all(); }
         if (worker.joinable()) worker.join();
         if (presenter) presenter->stop();
-        if (program) { std::string reason; if (!program->save(reason)) note("INI shutdown settings: " + reason); }
+        if (program && !folder_member()) { std::string reason; if (!program->save(reason)) note("INI shutdown settings: " + reason); }
         // Once: an image goes when no generation declares it any more (BUG-061).
         if (textures && !images_forgotten) { textures->forget(image_ids); images_forgotten = true; }
         std::deque<std::shared_ptr<CharacterCommand>> old;
@@ -802,7 +827,7 @@ public:
             { std::lock_guard<std::mutex> lock(pool_mx); mesh = created; }
             activating.~Activating(); activating.textures = nullptr;
             while (true) {
-                if (program && save_requested.exchange(false)) {
+                if (program && !folder_member() && save_requested.exchange(false)) {
                     std::string error;
                     if (!program->save(error)) note("INI settings: " + error);
                 }
@@ -1378,6 +1403,9 @@ public:
 #else
         auto phase = [](const char*) {};
 #endif
+        // A folder generation's packages share its INI generation and owned runtime: one plan at a time.
+        std::unique_lock<std::mutex> shared;
+        if (plan_mx) shared = std::unique_lock<std::mutex>(*plan_mx);
         if (presenter && !draw_work_failed && program->gpu() && !program->gpu()->scope_active()) {
             try { program->gpu()->begin_draw(); gpu = program->gpu().get(); } catch (const std::exception&) {}
         }
@@ -1402,6 +1430,8 @@ public:
         const VkQueue bound = program->gpu()->queue();
         if (bound && bound != queue) return;
         std::string reason;
+        std::unique_lock<std::mutex> shared;
+        if (plan_mx) shared = std::unique_lock<std::mutex>(*plan_mx);
         if (!presenter->submit_pending(queue, reason)) {
             draw_work_failed = true; note(reason);
             logf("owned GPU work of replaced draws stopped: %s", reason.c_str());
@@ -1626,6 +1656,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 efmi::frontend::RuntimeDraw request;
                 request.hash = section->hash; request.count = r.count; request.first = r.first;
                 request.base = r.vertex_offset; request.instances = r.instances; request.first_instance = r.first_instance;
+                request.mod = program->folder_index();
                 request.frame = present; request.seconds = ini_seconds();
                 request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
                 request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
@@ -1782,6 +1813,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             efmi::frontend::RuntimeDraw request;
             request.hash = section->hash; request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
+            request.mod = program->folder_index();
             request.instance_entry = entry.data(); request.instance_entry_size = entry.size();
             render_targets(pipe->second, request);
             // The size of colour target 0 for the list's rt_width and rt_height, as the original reads
@@ -2368,6 +2400,60 @@ void generation_retire(CharacterGeneration& backend, uint32_t pipeline_id)
     backend.source_facts.erase(pipeline_id);
 }
 
+// The INI generation's Present for one presentation: its lists in the owned scope ordered before the
+// presentation, or a replay of the last one for a presentation without a draw (BUG-036). The caller
+// holds the lock the generation's plans take. True when the lists ran for a rendered frame.
+bool ini_present(CharacterProgram& program, OwnedPresenter* presenter, uint64_t frame, float frame_seconds, bool had_draws,
+                 PresentWork* present, const efmi::frontend::RuntimeInput& base, uint64_t now, const std::function<void(const std::string&)>& note)
+{
+    // The keys, window and cursor are sampled once per presentation for every package.
+    auto input = base;
+    input.frame_seconds = frame_seconds;
+    input.ticks_us = now;
+#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
+    auto present_began = std::chrono::steady_clock::now();
+    auto present_phase = [&](const char* name) {
+        const auto at = std::chrono::steady_clock::now();
+        program.note_timing(name, uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(at - present_began).count())); present_began = at;
+    };
+#else
+    auto present_phase = [](const char*) {};
+#endif
+    std::string reason, owned_reason;
+    if (!had_draws) {
+        // The first Present that draws into the back buffer kept nothing to replay: its frame's
+        // presentations go without (one frame, a panel opening); every later one has it.
+        if (!presenter || !presenter->last_drew_backbuffer() || !program.replayable()) return false;
+        const bool owned = presenter->begin(present, owned_reason);
+        if (!owned_reason.empty()) note(owned_reason);
+        if (!owned) return false;
+        const bool executed = program.replay(input, frame, ini_seconds(), reason);
+        if (!executed) note("INI Present replay: " + reason);
+        std::string submission;
+        presenter->finish(present, executed, submission, true);
+        if (!submission.empty()) note(submission);
+        return false;
+    }
+    // With a presentation the generation's GPU commands run in a scope ordered before it.
+    const bool owned = presenter && presenter->begin(present, owned_reason);
+    present_phase("present owned begin");
+    if (!owned_reason.empty()) note(owned_reason);
+    // What a replay needs is kept only where the last Present drew into the back buffer (D-108).
+    const bool keep_replay = presenter && presenter->last_drew_backbuffer();
+    const bool executed = program.present(input, frame, ini_seconds(), reason, keep_replay);
+    present_phase("present ini (whole)");
+    if (!executed) note("INI Present: " + reason);
+    // The first refusal of owned Present work ends the generation's GPU side; keep its reason.
+    static std::atomic<bool> logged{false};
+    if (owned && !executed && !logged.exchange(true)) logf("INI Present refused with owned GPU work: %s", reason.c_str());
+    if (owned) {
+        std::string submission;
+        presenter->finish(present, executed, submission);
+        if (!submission.empty()) note(submission);
+    }
+    present_phase("present owned finish");
+    return true;
+}
 void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& base)
 {
     // The Present lists run once per rendered frame, as the original's run once per frame. A
@@ -2387,63 +2473,20 @@ void generation_frame(CharacterGeneration& backend, bool had_draws, PresentWork*
         backend.frame.fetch_add(1, std::memory_order_relaxed);
     }
     backend.presents.fetch_add(1, std::memory_order_relaxed);
-    if (backend.program) {
-        // The keys, window and cursor are sampled once per presentation for every package.
-        auto input = base;
-        input.frame_seconds = backend.frame_seconds.load(std::memory_order_relaxed);
-        input.ticks_us = now;
+    // A folder generation's packages leave the shared generation's Present to the folder (D-131).
+    if (backend.program && !backend.folder_member()) {
         ThreadTrace* const trace = backend.device->trace ? backend.device->trace() : nullptr;
         StageMark locking(trace, "character Present (generation lock)");
         std::lock_guard<std::mutex> lock(backend.mod_mx);
-        StageMark stage(trace, "character Present (owned scope, INI Present, owned submission)");
-#if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
-        auto present_began = std::chrono::steady_clock::now();
-        auto present_phase = [&](const char* name) {
-            const auto now = std::chrono::steady_clock::now();
-            backend.program->note_timing(name, uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(now - present_began).count())); present_began = now;
-        };
-#else
-        auto present_phase = [](const char*) {};
-#endif
-        std::string reason, owned_reason;
-        if (!had_draws) {
-            // The first Present that draws into the back buffer kept nothing to replay: its frame's
-            // presentations go without (one frame, a panel opening); every later one has it.
-            if (!backend.presenter || !backend.presenter->last_drew_backbuffer() || !backend.program->replayable()) return;
-            const bool owned = backend.presenter->begin(present, owned_reason);
-            if (!owned_reason.empty()) backend.note(owned_reason);
-            if (!owned) return;
-            const bool executed = backend.program->replay(input, backend.frame.load(), ini_seconds(), reason);
-            if (!executed) backend.note("INI Present replay: " + reason);
-            std::string submission;
-            backend.presenter->finish(present, executed, submission, true);
-            if (!submission.empty()) backend.note(submission);
-            return;
-        }
-        // With a presentation the generation's GPU commands run in a scope ordered before it.
-        const bool owned = backend.presenter && backend.presenter->begin(present, owned_reason);
-        present_phase("present owned begin");
-        if (!owned_reason.empty()) backend.note(owned_reason);
-        // What a replay needs is kept only where the last Present drew into the back buffer (D-108).
-        const bool keep_replay = backend.presenter && backend.presenter->last_drew_backbuffer();
-        const bool executed = backend.program->present(input, backend.frame.load(), ini_seconds(), reason, keep_replay);
-        present_phase("present ini (whole)");
-        if (!executed) backend.note("INI Present: " + reason);
-        // The first refusal of owned Present work ends the generation's GPU side; keep its reason.
-        static std::atomic<bool> logged{false};
-        if (owned && !executed && !logged.exchange(true)) logf("INI Present refused with owned GPU work: %s", reason.c_str());
-        if (owned) {
-            std::string submission;
-            backend.presenter->finish(present, executed, submission);
-            if (!submission.empty()) backend.note(submission);
-        }
-        present_phase("present owned finish");
-        // As the original's Present: every settings_auto_save_interval seconds the persistent variables
-        // are saved if they changed (BUG-058: a panel animating persist variables had them saved every
-        // frame). Reloads and the shutdown save at once.
-        if (now - backend.save_checked_us >= g_cfg.settings_save_seconds * 1000000) {
-            backend.save_checked_us = now;
-            if (backend.program->settings_dirty()) { backend.save_requested = true; backend.wake.notify_one(); }
+        if (ini_present(*backend.program, backend.presenter.get(), backend.frame.load(), backend.frame_seconds.load(std::memory_order_relaxed),
+                        had_draws, present, base, now, [&backend](const std::string& text) { backend.note(text); })) {
+            // As the original's Present: every settings_auto_save_interval seconds the persistent variables
+            // are saved if they changed (BUG-058: a panel animating persist variables had them saved every
+            // frame). Reloads and the shutdown save at once.
+            if (now - backend.save_checked_us >= g_cfg.settings_save_seconds * 1000000) {
+                backend.save_checked_us = now;
+                if (backend.program->settings_dirty()) { backend.save_requested = true; backend.wake.notify_one(); }
+            }
         }
     }
 }
@@ -2465,6 +2508,165 @@ bool generation_ready(CharacterGeneration& backend)
 void generation_enable(CharacterGeneration&, bool);
 void generation_status(CharacterGeneration&, JsonWriter&);
 
+// D-131 (docs/folder-generation.md): the Mods folder's one INI generation and the packages carved from
+// it, one per character Mod it could take. The generation's Present, saves and F10 are the folder's.
+struct FolderGeneration {
+    Device* device = nullptr;
+    std::vector<std::shared_ptr<CharacterGeneration>> packages; // in the folder's order
+    std::vector<std::pair<std::string, std::string>> left_out;   // a Mod's INI and why it has no package
+    std::shared_ptr<OwnedPresenter> presenter;
+    std::shared_ptr<std::mutex> plan_mx = std::make_shared<std::mutex>();
+    CharacterProgram* program = nullptr;        // the shared generation, through one package's view of it
+    std::shared_ptr<CharacterGeneration> owner; // that package
+    std::atomic<uint64_t> frame{1}, presents{0};
+    std::atomic<float> frame_seconds{1.0f / 60};
+    uint64_t last_frame_us = 0, save_checked_us = host_time_us();
+    std::future<void> saving;
+    bool empty = false; // the folder holds no character Mod: a valid generation of no package
+    std::string reason, last_note;
+    std::mutex note_mx;
+    void note(const std::string& text)
+    {
+        std::lock_guard<std::mutex> lock(note_mx);
+        if (text == last_note) return;
+        last_note = text; logf("folder generation: %s", text.c_str());
+    }
+    void save()
+    {
+        if (saving.valid() && saving.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        if (saving.valid()) saving.get();
+        auto keep = owner;
+        saving = std::async(std::launch::async, [keep] {
+            std::string error;
+            if (keep && keep->program && !keep->program->save(error)) logf("folder generation settings: %s", error.c_str());
+        });
+    }
+    // Off the presenting thread: every package stops, then the owned runtime; the settings once.
+    void stop()
+    {
+        if (saving.valid()) saving.get();
+        for (auto& p : packages) if (p) p->stop();
+        if (presenter) presenter->stop();
+        if (program) { std::string error; if (!program->save(error)) logf("folder generation shutdown settings: %s", error.c_str()); }
+    }
+};
+
+namespace {
+// What a Mod's own generation saved (D-105, `<namespace>-<folder>.ini`) becomes the folder generation's
+// settings the first time it runs, so the toggles a player set stay set.
+void adopt_mod_settings(const std::filesystem::path& settings, const std::string& name, const std::filesystem::path& mods)
+{
+    std::error_code error;
+    const auto target = settings / (name + ".ini");
+    if (std::filesystem::exists(target, error)) return;
+    std::string reason, lines;
+    for (const auto& ini : CharacterProgram::mods_characters(mods, reason)) {
+        std::ifstream in(settings / (CharacterProgram::settings_name(ini, CharacterProgram::declared_namespace(ini)) + ".ini"), std::ios::binary);
+        std::string line;
+        while (std::getline(in, line)) if (!line.empty() && line[0] == '$') { lines += line; if (lines.back() != '\n') lines += '\n'; }
+    }
+    if (lines.empty()) return;
+    std::filesystem::create_directories(settings, error);
+    std::ofstream out(target, std::ios::binary | std::ios::trunc);
+    out << "; EFMI Vulkan persistent original INI variables\n[Constants]\n" << lines;
+    logf("folder generation: settings adopted from the Mods' own files into %s", target.u8string().c_str());
+}
+}
+
+std::shared_ptr<FolderGeneration> folder_create(Device* device, const VkPhysicalDeviceProperties& properties, const VkPhysicalDeviceMemoryProperties& memory,
+                                                TextureResidency* textures, std::shared_ptr<VariantCache> variants, Translucency* translucency, BoneMerge* bones)
+{
+    auto folder = std::make_shared<FolderGeneration>();
+    folder->device = device;
+    CharacterProgram::FolderSource source;
+    source.mods = absolute_folder(g_cfg.m2_mods);
+    source.core = g_cfg.m2_core.empty() ? source.mods.parent_path() / "Core" / "EFMI" : absolute_folder(g_cfg.m2_core);
+    source.settings = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
+    source.settings_name = "mods-folder";
+    try { adopt_mod_settings(source.settings, source.settings_name, source.mods); }
+    catch (const std::exception& e) { logf("folder generation: settings not adopted: %s", e.what()); }
+    const auto gpu = [device, &memory, variants](const std::filesystem::path& working, std::string& why) {
+        return OwnedPresenter::runtime(device, memory, working, why, variants ? variants->pipeline_cache() : VK_NULL_HANDLE);
+    };
+    std::vector<CharacterProgram::FolderMod> mods;
+    const auto began = host_time_us();
+    {
+        // Every character Mod gone (removed, disabled): the original's reload gives a configuration
+        // without them, and so does this one.
+        std::string none;
+        if (CharacterProgram::mods_characters(source.mods, none).empty()) {
+            folder->empty = true; folder->reason = none.empty() ? "the Mods folder holds no character Mod" : none;
+            logf("folder generation: %s", folder->reason.c_str());
+            return folder;
+        }
+    }
+    if (!CharacterProgram::discover_folder(source, mods, folder->reason, gpu)) {
+        logf("folder generation refused: %s", folder->reason.c_str());
+        for (auto& m : mods) if (!m.reason.empty()) folder->left_out.push_back({m.ini.u8string(), m.reason});
+        return folder;
+    }
+    for (auto& m : mods)
+        if (m.program && m.program->gpu()) { folder->presenter = std::make_shared<OwnedPresenter>(device, m.program->gpu()); break; }
+    for (auto& m : mods)
+        if (m.program) {
+            if (!folder->presenter && !m.program->gpu_reason().empty()) logf("owned GPU work unavailable: %s", m.program->gpu_reason().c_str());
+            // What the original overlay would show after a load; the generation carries on (D-067).
+            const auto loaded = m.program->status();
+            if (loaded.diagnostics) logf("INI loaded with %zu original warning(s)", loaded.diagnostics);
+            for (const auto& text : loaded.diagnostic_messages) logf("INI warning: %s", text.c_str());
+            break;
+        }
+    for (auto& m : mods) {
+        const auto path = m.ini.u8string();
+        if (!m.program) {
+            folder->left_out.push_back({path, m.reason});
+            logf("character package refused: %s: %s", path.c_str(), m.reason.c_str());
+            continue;
+        }
+        auto package = std::make_shared<CharacterGeneration>(device, properties, memory, path, true, textures, variants, translucency, bones);
+        CharacterProgram* view = m.program.get();
+        if (!package->init_adopted(std::move(m.program), std::move(m.package), folder->presenter, folder->plan_mx)) {
+            folder->left_out.push_back({path, package->last_reason});
+            logf("character package refused: %s: %s", path.c_str(), package->last_reason.c_str());
+            package->abandon();
+            continue;
+        }
+        if (!folder->program) { folder->program = view; folder->owner = package; }
+        folder->packages.push_back(std::move(package));
+    }
+    logf("folder generation: %zu character Mods, %zu left out, loaded in %llu ms", folder->packages.size(), folder->left_out.size(),
+         static_cast<unsigned long long>((host_time_us() - began) / 1000));
+    return folder;
+}
+
+// The folder generation's part of a presentation: its INI Present once, under the lock its packages'
+// plans take, and its saves (D-131).
+void folder_frame(FolderGeneration& folder, bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& base)
+{
+    const uint64_t now = host_time_us();
+    if (had_draws) {
+        if (folder.last_frame_us && now > folder.last_frame_us) {
+            const float seconds = static_cast<float>(now - folder.last_frame_us) * 1.0e-6f;
+            folder.frame_seconds.store(std::min(std::max(seconds, 0.001f), 0.25f), std::memory_order_relaxed);
+        }
+        folder.last_frame_us = now;
+        folder.frame.fetch_add(1, std::memory_order_relaxed);
+    }
+    folder.presents.fetch_add(1, std::memory_order_relaxed);
+    if (!folder.program) return;
+    ThreadTrace* const trace = folder.device->trace ? folder.device->trace() : nullptr;
+    StageMark locking(trace, "folder Present (generation lock)");
+    std::lock_guard<std::mutex> lock(*folder.plan_mx);
+    StageMark stage(trace, "folder Present (owned scope, INI Present, owned submission)");
+    if (!ini_present(*folder.program, folder.presenter.get(), folder.frame.load(), folder.frame_seconds.load(std::memory_order_relaxed),
+                     had_draws, present, base, now, [&folder](const std::string& text) { folder.note(text); }))
+        return;
+    if (now - folder.save_checked_us >= g_cfg.settings_save_seconds * 1000000) {
+        folder.save_checked_us = now;
+        if (folder.program->settings_dirty()) folder.save();
+    }
+}
+
 // F10 owns another complete resource generation. Its CPU parsing/validation and
 // Vulkan preparation run while the current generation continues to draw. Only
 // a Ready candidate takes over; command buffers retain their immutable owners.
@@ -2480,6 +2682,9 @@ public:
     std::string reload_error;
     bool stopped = false;
     bool reload_taken = false; // an F10 this presentation, for the folder rescan (presenting thread)
+    // A package of the folder generation (D-131): it is exchanged with every other at the folder's
+    // exchange, never on its own.
+    bool folder_member = false;
     std::future<void> stopping; // stop_later's work, which stop() and the destructor wait for
     ~CharacterController() { stop(); }
     void retire(std::shared_ptr<CharacterGeneration> old)
@@ -2520,6 +2725,11 @@ public:
     }
     void frame(bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& input)
     {
+        if (folder_member) {
+            std::shared_lock<std::shared_mutex> lock(mutex);
+            if (!stopped && active) generation_frame(*active, had_draws, present, input);
+            return;
+        }
         {
             // The generation's Present work holds the controller shared: the submitting threads go
             // on while it runs (BUG-034); the exchange below takes the lock exclusively.
@@ -2621,6 +2831,17 @@ public:
     // gone is stopped and stays in the list.
     std::vector<std::unique_ptr<CharacterController>> controllers;
     std::string reason; // why there is no package
+    // D-131: the folder generation the packages come from; after an F10 its successor loads, waits for
+    // the packages the frames draw to come up, and replaces it for every package at one presentation.
+    std::shared_ptr<FolderGeneration> folder, folder_staged;
+    std::future<std::shared_ptr<FolderGeneration>> folder_loading;
+    std::vector<std::future<void>> folder_retiring;
+    uint64_t folder_staged_at = 0, folder_reloads = 0, folder_rejected = 0;
+    std::string folder_error;
+    void retire_folder(std::shared_ptr<FolderGeneration> old)
+    {
+        if (old) folder_retiring.push_back(std::async(std::launch::async, [old = std::move(old)] { old->stop(); }));
+    }
     Device* device = nullptr;
     VkPhysicalDeviceProperties properties{};
     VkPhysicalDeviceMemoryProperties memory{};
@@ -2687,6 +2908,7 @@ public:
     // The recording path's time at the device level (D-099): every indexed draw asked, and of that
     // the index region hashing; the packages' stages are in their own status.
     std::atomic<uint64_t> record_calls{0}, record_us{0}, hash_calls{0}, hash_us{0}, hash_misses{0};
+    std::atomic<uint64_t> frame_us{0}, frame_calls{0}; // character_frame: every package's presentation work
     // The packages' sections by hash (D-096, D-097): a draw's index region is hashed once for every
     // package and looked up here, so only the packages with a section of that hash see the draw.
     // `counts` holds every index count a section matches, to pass over draws no section can match
@@ -2740,7 +2962,15 @@ public:
         }
         return false;
     }
-    ~CharacterBackend() { for (auto& c : controllers) c->stop(); if (textures) textures->stop(); if (variants) variants->stop(); close_pipeline_cache(); }
+    ~CharacterBackend()
+    {
+        for (auto& c : controllers) c->stop();
+        if (folder_loading.valid()) { auto candidate = folder_loading.get(); if (candidate) candidate->stop(); }
+        if (folder_staged) folder_staged->stop();
+        if (folder) folder->stop();
+        for (auto& f : folder_retiring) f.get();
+        if (textures) textures->stop(); if (variants) variants->stop(); close_pipeline_cache();
+    }
 };
 
 namespace {
@@ -2799,6 +3029,21 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     const bool directory = !g_cfg.m2_mods.empty() || std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package), error);
     backend->properties = p; backend->memory = m; backend->directory = directory;
     backend->controllers.reserve(kMaxPackages);
+    if (!g_cfg.m2_mods.empty() && g_cfg.m2_folder_generation) {
+        // One generation for the whole Mods folder (D-131): a controller per package carved from it.
+        backend->folder = folder_create(d, p, m, backend->textures.get(), backend->variants, backend->translucency.get(), backend->bone_merge.get());
+        for (auto& package : backend->folder->packages) {
+            if (backend->controllers.size() >= kMaxPackages) { logf("character packages: no room for %s (64 at most)", package->package_path.c_str()); break; }
+            auto controller = std::make_unique<CharacterController>();
+            controller->path = package->package_path; controller->lazy = true; controller->folder_member = true;
+            controller->active = package;
+            backend->controllers.push_back(std::move(controller));
+        }
+        if (backend->controllers.empty()) backend->reason = backend->folder->reason.empty() ? "no character Mod in the folder generation" : backend->folder->reason;
+        logf("character packages: %zu from the folder generation of %s", backend->controllers.size(), g_cfg.m2_mods.c_str());
+        backend->rebuild_index();
+        return backend;
+    }
     for (const auto& path : configured_packages(backend->reason)) {
         auto controller = std::make_unique<CharacterController>();
         controller->path = path; controller->lazy = directory;
@@ -2811,7 +3056,126 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     backend->rebuild_index();
     return backend;
 }
-void character_stop(CharacterBackend& b) { for (auto& c : b.controllers) c->stop(); if (b.textures) b.textures->stop(); if (b.variants) b.variants->stop(); b.close_pipeline_cache(); }
+void character_stop(CharacterBackend& b)
+{
+    for (auto& c : b.controllers) c->stop();
+    if (b.folder_loading.valid()) { auto candidate = b.folder_loading.get(); if (candidate) candidate->stop(); }
+    if (b.folder_staged) { b.folder_staged->stop(); b.folder_staged.reset(); }
+    if (b.folder) b.folder->stop();
+    for (auto& f : b.folder_retiring) f.get();
+    b.folder_retiring.clear();
+    if (b.textures) b.textures->stop(); if (b.variants) b.variants->stop(); b.close_pipeline_cache();
+}
+
+// D-131: the folder generation's presentation work and its F10 (presenting thread). The successor loads in
+// the background; packages the frames draw (activated ones) bring their successors up, with the images
+// they show; once they are ready every package is exchanged at this one point, a Mod added becoming a
+// package and one gone stopping, and the old generation stops off this thread.
+void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& input)
+{
+    if (b.folder) folder_frame(*b.folder, had_draws, present, input);
+    for (auto it = b.folder_retiring.begin(); it != b.folder_retiring.end();) {
+        if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) { it->get(); it = b.folder_retiring.erase(it); }
+        else ++it;
+    }
+    // The live package of a path, and whether a frame drew it.
+    // A refused successor: every package keeps its generation, and says so in its own status.
+    auto refuse = [&b](const std::string& why) {
+        ++b.folder_rejected; b.folder_error = why;
+        for (auto& c : b.controllers) {
+            std::unique_lock<std::shared_mutex> lock(c->mutex);
+            if (c->folder_member && !c->stopped) { ++c->rejected; c->reload_error = why; }
+        }
+    };
+    auto live = [&b](const std::string& path, bool& activated) -> CharacterController* {
+        for (auto& c : b.controllers) {
+            std::shared_lock<std::shared_mutex> lock(c->mutex);
+            if (c->path == path && !c->stopped && c->active) { activated = c->active->activated.load(); return c.get(); }
+        }
+        activated = false; return nullptr;
+    };
+    if (b.folder_loading.valid() && b.folder_loading.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        auto candidate = b.folder_loading.get();
+        if (!candidate || (!candidate->program && !candidate->empty)) {
+            refuse(candidate && !candidate->reason.empty() ? candidate->reason : "folder generation refused");
+            logf("INI reload refused; current folder generation retained: %s", b.folder_error.c_str());
+            b.retire_folder(std::move(candidate));
+        } else {
+            b.folder_staged = std::move(candidate); b.folder_staged_at = host_time_us();
+            for (auto& package : b.folder_staged->packages) {
+                bool activated = false;
+                CharacterController* controller = live(package->package_path, activated);
+                if (!controller || !activated) continue;
+                std::shared_ptr<CharacterGeneration> current;
+                { std::shared_lock<std::shared_mutex> lock(controller->mutex); current = controller->active; }
+                std::lock_guard<std::mutex> hold(package->mod_mx); package->activate();
+                if (package->textures && current) package->textures->preload_matching(package->image_ids, current->image_ids);
+            }
+        }
+    }
+    if (b.folder_staged) {
+        bool bad_image = false, ready = true;
+        for (auto& package : b.folder_staged->packages) {
+            bad_image |= package->textures && package->textures->any_failed(package->image_ids);
+            if (package->activated.load() && !generation_ready(*package)) ready = false;
+        }
+        if (bad_image) {
+            refuse("INI candidate texture failed to load; current folder generation retained");
+            logf("%s", b.folder_error.c_str()); b.retire_folder(std::move(b.folder_staged));
+        } else if (ready) {
+            auto staged = std::move(b.folder_staged);
+            if (b.folder && b.folder->program && staged->program) {
+                b.folder->program->suspend_persistence();
+                staged->program->inherit_persistent(*b.folder->program);
+            }
+            std::map<std::string, std::shared_ptr<CharacterGeneration>> by_path;
+            for (auto& package : staged->packages) by_path[package->package_path] = package;
+            std::vector<CharacterController*> gone;
+            {
+                // Every package at once: no draw sees one package exchanged and another not yet.
+                std::vector<std::unique_lock<std::shared_mutex>> locks;
+                for (auto& c : b.controllers) locks.emplace_back(c->mutex);
+                for (auto& c : b.controllers) {
+                    if (!c->folder_member || c->stopped) continue;
+                    const auto found = by_path.find(c->path);
+                    if (found == by_path.end()) { gone.push_back(c.get()); continue; }
+                    found->second->enabled = c->active ? c->active->enabled.load() : g_cfg.m2_enabled;
+                    c->active = found->second; ++c->generation; ++c->reloads; c->reload_error.clear();
+                    by_path.erase(found);
+                }
+            }
+            for (auto* c : gone) { c->stop_later(); logf("character package removed with its Mod: %s", c->path.c_str()); }
+            for (auto& added : by_path) {
+                if (b.controllers.size() >= kMaxPackages) { logf("character packages: no room for %s (64 at most)", added.first.c_str()); break; }
+                auto controller = std::make_unique<CharacterController>();
+                controller->path = added.first; controller->lazy = true; controller->folder_member = true; controller->active = added.second;
+                logf("character package found by F10: %s", added.first.c_str());
+                std::unique_lock<std::shared_mutex> lock(b.index_mx);
+                b.controllers.push_back(std::move(controller));
+            }
+            staged->save();
+            auto old = std::move(b.folder); b.folder = std::move(staged); ++b.folder_reloads; b.folder_error.clear();
+            logf("folder generation %llu Ready; F10 exchange complete for %zu packages", static_cast<unsigned long long>(b.folder_reloads),
+                 b.folder->packages.size());
+            b.retire_folder(std::move(old));
+        } else if (host_time_us() - b.folder_staged_at > 30000000) {
+            refuse("INI candidate resource upload failed or timed out; current folder generation retained");
+            logf("%s", b.folder_error.c_str()); b.retire_folder(std::move(b.folder_staged));
+        }
+    }
+    if (b.folder && b.folder->program && b.folder->program->take_reload_request() && !b.folder_loading.valid() && !b.folder_staged) {
+        Device* const d = b.device; const auto p = b.properties; const auto m = b.memory;
+        TextureResidency* const textures = b.textures.get(); auto variants = b.variants; Translucency* const translucency = b.translucency.get();
+        BoneMerge* const bones = b.bone_merge.get();
+        auto current = b.folder;
+        b.folder_loading = std::async(std::launch::async, [d, p, m, textures, variants, translucency, bones, current] {
+            // The settings the successor reads are those of now.
+            std::string reason;
+            if (current->owner && current->program && !current->program->save(reason)) logf("folder generation settings before reload: %s", reason.c_str());
+            return folder_create(d, p, m, textures, variants, translucency, bones);
+        });
+    }
+}
 
 // F10 reads the Mods folder again, as the original does (BUG-037): a Mod added since the start
 // (a new folder, a folder enabled) becomes a package, read in the background; a package whose Mod
@@ -3068,6 +3432,11 @@ void character_submitted(CharacterBackend& b, VkQueue q, SubmitWork& work, VkRes
 // Each package runs its Present work in turn; a presenter waits for what the one before handed on.
 void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
 {
+    // The presentation's work of every package (or of the folder generation, D-131), timed for the status.
+    struct Clock {
+        CharacterBackend& b; uint64_t began;
+        ~Clock() { b.frame_us += host_time_us() - began; ++b.frame_calls; }
+    } clock{b, host_time_us()};
     if (had_draws) b.frames.fetch_add(1, std::memory_order_relaxed);
     if (b.textures) b.textures->frame();
     if (b.translucency) b.translucency->frame();
@@ -3079,7 +3448,8 @@ void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
         c->frame(had_draws, present, input);
         if (c->reload_taken) { c->reload_taken = false; rescan = true; }
     }
-    if (rescan && b.directory) character_rescan(b);
+    if (b.folder) folder_frame_and_exchange(b, had_draws, present, input);
+    else if (rescan && b.directory) character_rescan(b);
     if (b.index_stale()) b.rebuild_index();
 }
 bool character_usable(CharacterBackend& b, std::string& reason)
@@ -3133,6 +3503,7 @@ void character_status(CharacterBackend& b, JsonWriter& w)
     else w.kv("package_reason", b.reason);
     w.key("record"); w.begin_object();
     w.kn("calls", b.record_calls.load()); w.kn("microseconds", b.record_us.load());
+    w.kn("frame_calls", b.frame_calls.load()); w.kn("frame_microseconds", b.frame_us.load());
     w.kn("hash_calls", b.hash_calls.load()); w.kn("hash_microseconds", b.hash_us.load()); w.kn("hash_misses", b.hash_misses.load());
     w.kn("full_hashes", g_hash_full.load()); w.kn("full_hash_bytes", g_hash_bytes.load());
     w.kn("full_new", g_hash_new.load()); w.kn("full_generation", g_hash_gen.load()); w.kn("full_fingerprint", g_hash_quick.load()); w.kn("full_due", g_hash_due.load());
@@ -3154,6 +3525,22 @@ void character_status(CharacterBackend& b, JsonWriter& w)
     }
     if (b.bone_merge) b.bone_merge->status(w);
     if (b.textures) b.textures->status(w);
+    if (b.folder) {
+        // D-131: the folder generation, its reloads and the Mods it left out.
+        w.key("folder_generation"); w.begin_object();
+        w.kn("packages", b.folder->packages.size()); w.kn("presents", b.folder->presents.load());
+        w.kn("reloads", b.folder_reloads); w.kn("rejected", b.folder_rejected); w.kv("reload_error", b.folder_error);
+        w.kb("loading", b.folder_loading.valid()); w.kb("staged", b.folder_staged != nullptr);
+        w.key("left_out"); w.begin_array();
+        for (const auto& m : b.folder->left_out) { w.begin_object(); w.kv("ini", m.first); w.kv("reason", m.second); w.end_object(); }
+        w.end_array();
+        if (b.folder->presenter) b.folder->presenter->status(w);
+        if (b.folder->program) {
+            const auto ini = b.folder->program->status();
+            w.key("ini"); w.begin_object(); w.kn("presents", ini.presents); w.kn("draws", ini.draws); w.kn("diagnostics", ini.diagnostics); w.end_object();
+        }
+        w.end_object();
+    }
     {
         const auto engine = efmi::frontend::engine_lock_stats();
         w.key("engine_lock"); w.begin_object();

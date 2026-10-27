@@ -637,6 +637,8 @@ def main() -> int:
                    "last_reason": r["status"].get("result", {}).get("replacement", {}).get("last_reason", ""),
                    "translucency": r["status"].get("result", {}).get("replacement", {}).get("translucency", {}),
                    "bones": r["status"].get("result", {}).get("replacement", {}).get("bones", {}),
+                   "folder": {k: v for k, v in r["status"].get("result", {}).get("replacement", {}).get("folder_generation", {}).items()
+                              if k in ("packages", "presents", "ini", "left_out")},
                    "targets": shots.get(enabled, {})} for enabled, r in results.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
     cpu_bones = None
@@ -694,6 +696,10 @@ def check(summary: dict, draws: list[dict], components: dict, mod_first: bool = 
             problems.append("%s run: %s" % (name, run.get("replay") or "no summary"))
     if not runs.get("enabled", {}).get("counters", {}).get("replaced"):
         problems.append("no draw replaced")
+    # One generation for the Mods folder (D-131): its INI Present runs once per presentation, not once per package.
+    folder = runs.get("enabled", {}).get("folder", {})
+    if folder and folder.get("ini", {}).get("presents", 0) > folder.get("presents", 0):
+        problems.append("the folder generation's Present ran %d times in %d presentations" % (folder["ini"]["presents"], folder["presents"]))
     # Every component a draw's vertices read bones from was imported on the device by then (BUG-054, D-127).
     unavailable = runs.get("enabled", {}).get("counters", {}).get("bones_unavailable", 0)
     if unavailable:

@@ -220,6 +220,25 @@ void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::
         }
     }
 }
+std::string CharacterProgram::settings_name(const std::filesystem::path& ini, const std::string& declared)
+{
+    // The settings file is the namespace's and the Mod folder's: two Mods of one character declare
+    // the same namespace (`namespace = yvonne`), and the toggles persisted by the one must not come
+    // up in the other when it takes its place (BUG-039). The original keeps one d3dx_user.ini by
+    // namespace alone and inherits them.
+    std::string name = declared;
+    if (name.empty()) {
+        const auto file = ini.filename().wstring();
+        for (wchar_t c : file) name += c < 0x80 ? static_cast<char>(towlower(c)) : '_';
+    }
+    std::string tag;
+    for (wchar_t c : ini.parent_path().filename().wstring())
+        tag += c < 0x80 && (isalnum(static_cast<int>(c)) || c == L'_' || c == L'-') ? static_cast<char>(c) : '_';
+    if (!tag.empty()) name += "-" + tag;
+    for (char& c : name) if (!isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') c = '_';
+    if (name.size() > 80) name.resize(80);
+    return name;
+}
 std::string CharacterProgram::declared_namespace(const std::filesystem::path& ini)
 {
     const auto bytes = read(ini, 32u << 20);
@@ -343,19 +362,7 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
             mod_namespace.assign(name.begin(), name.end());
             std::transform(mod_namespace.begin(), mod_namespace.end(), mod_namespace.begin(), ::tolower);
         }
-        // The settings file is the namespace's and the Mod folder's: two Mods of one character declare
-        // the same namespace (`namespace = yvonne`), and the toggles persisted by the one must not come
-        // up in the other when it takes its place (BUG-039). The original keeps one d3dx_user.ini by
-        // namespace alone and inherits them.
-        std::string settings_name = mod_namespace;
-        {
-            std::string tag;
-            for (wchar_t c : source.ini.parent_path().filename().wstring())
-                tag += c < 0x80 && (isalnum(static_cast<int>(c)) || c == L'_' || c == L'-') ? static_cast<char>(c) : '_';
-            if (!tag.empty()) settings_name += "-" + tag;
-        }
-        for (char& c : settings_name) if (!isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') c = '_';
-        if (settings_name.size() > 80) settings_name.resize(80);
+        const std::string settings_name = CharacterProgram::settings_name(source.ini, mod_namespace);
         auto found = std::make_shared<efmi::frontend::CharacterDiscovery>();
         if (!load(source.ini, source.core, source.settings, settings_name,
                   efmi::frontend::character_discovery(mod_namespace, found), factory, reason, source.mods, source.declarations_only)) {
@@ -466,15 +473,22 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
         std::vector<std::map<std::string, std::filesystem::path>> called(inis.size());
         std::vector<std::vector<std::string>> notes(inis.size());
         const bool gpu = bool(factory);
+        std::vector<std::wstring> names(inis.size());
         for (size_t i = 0; i < inis.size(); ++i) {
             FolderMod m; m.ini = inis[i]; m.mod_namespace = declared_namespace(inis[i]);
-            if (m.mod_namespace.empty()) {
-                const auto relative = inis[i].lexically_relative(root).wstring();
-                if (std::any_of(relative.begin(), relative.end(), [](wchar_t c) { return c < 0x20 || c > 0x7e; }))
-                    throw std::runtime_error("A character INI without a namespace has a path that is not ASCII: " + inis[i].u8string());
-                m.mod_namespace.assign(relative.begin(), relative.end());
-                std::transform(m.mod_namespace.begin(), m.mod_namespace.end(), m.mod_namespace.begin(), ::tolower);
+            // The namespace as the parser names the INI's sections: the declared one (UTF-8), else the
+            // INI's path from the root, as the original's include names it; in lower case as it lowers them.
+            std::wstring name;
+            if (!m.mod_namespace.empty()) {
+                const int n = MultiByteToWideChar(CP_UTF8, 0, m.mod_namespace.data(), int(m.mod_namespace.size()), nullptr, 0);
+                name.resize(size_t(std::max(n, 0)));
+                if (n) MultiByteToWideChar(CP_UTF8, 0, m.mod_namespace.data(), int(m.mod_namespace.size()), name.data(), n);
+            } else {
+                name = inis[i].lexically_relative(root).wstring();
+                m.mod_namespace = inis[i].lexically_relative(root).u8string();
             }
+            std::transform(name.begin(), name.end(), name.begin(), ::towlower);
+            names[i] = std::move(name);
             mod_inputs[i].push_back(inis[i]);
             if (gpu) {
                 // As a generation of one Mod: with the owned runtime the Mod folder's other enabled INIs
@@ -498,13 +512,13 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
         // that refuse in a generation of their own are left out with their reasons and the rest load again.
         std::vector<bool> left_out(inis.size(), false);
         for (int attempt = 0;; ++attempt) {
-            std::vector<std::pair<std::string, std::shared_ptr<efmi::frontend::CharacterDiscovery>>> mods;
+            std::vector<std::pair<std::wstring, std::shared_ptr<efmi::frontend::CharacterDiscovery>>> mods;
             std::vector<size_t> members;
             std::set<std::wstring> wanted;
             for (size_t i = 0; i < inis.size(); ++i) {
                 if (left_out[i]) continue;
                 members.push_back(i);
-                mods.push_back({out[i].mod_namespace, std::make_shared<efmi::frontend::CharacterDiscovery>()});
+                mods.push_back({names[i], std::make_shared<efmi::frontend::CharacterDiscovery>()});
                 for (const auto& input : mod_inputs[i]) wanted.insert(key(input));
                 for (const auto& library : called[i]) wanted.insert(key(library.second));
             }

@@ -65,6 +65,9 @@ struct Config {
     bool m2_pageable = true;            // VK_EXT_memory_priority and VK_EXT_pageable_device_local_memory when supported (D-095)
     bool m2_gpu_bones = true;           // the merged skeleton imported by compute dispatches, not CPU reads (D-117); the probe can switch it
     bool m2_owned = true; // owned GPU execution (Present work, GPU work in draws); m2_owned = 0 turns it off
+    // D-131: the Mods folder (m2_mods) as one INI generation, its character Mods' packages carved from it;
+    // m2_folder_generation = 0 keeps a generation per character Mod.
+    bool m2_folder_generation = true;
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped
     uint32_t shadow_usage = 0;                   // VkBufferUsageFlags that get a CPU shadow (set in util.cpp)

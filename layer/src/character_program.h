@@ -59,6 +59,9 @@ public:
     uint32_t folder_index() const { return folder_index_; }
     // The namespace an INI declares (`namespace = ...`), lower case; empty when it declares none.
     static std::string declared_namespace(const std::filesystem::path& ini);
+    // The settings file name of a generation of one Mod (D-105): its namespace (else its file name) and
+    // its Mod folder, in plain characters.
+    static std::string settings_name(const std::filesystem::path& ini, const std::string& mod_namespace);
     // The character Mods of an EFMI Mods folder: every enabled INI (no part of its path starts with
     // DISABLED, as the original skips them) that declares the EFMIv1 merged-skeleton initializer.
     static std::vector<std::filesystem::path> mods_characters(const std::filesystem::path& mods, std::string& reason);
