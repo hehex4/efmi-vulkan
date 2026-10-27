@@ -41,9 +41,15 @@ Format dxgi(uint32_t format)
 
 bool decode_dds(const uint8_t* data,size_t size,DdsImage& output,std::string& reason)
 {
+    return decode_dds_header(data,size,size,output,reason);
+}
+bool decode_dds_header(const uint8_t* data,size_t available,uint64_t file_size,DdsImage& output,std::string& reason)
+{
     reason.clear();
     auto fail=[&](const char* text){reason=text;return false;};
-    if(!data || size<128 || size>(128ull<<20))return fail("DDS file size is outside budget");
+    if(!data || file_size<128 || file_size>(128ull<<20))return fail("DDS file size is outside budget");
+    const size_t size=static_cast<size_t>(file_size);
+    if(available<std::min(size,kDdsHeaderBytes))return fail("DDS header bytes are missing");
     if(word(data)!=fourcc('D','D','S',' ') || word(data+4)!=124 || word(data+76)!=32)
         return fail("DDS magic/header size mismatch");
     const auto flags=word(data+8),width=word(data+16),height=word(data+12);

@@ -6,6 +6,7 @@
 - Each step test first: a check that fails on the version before for the reason named, then the change, the suite, a deployment with the game closed.
 - 1.9.8 (D-129, docs/engine-generations.md): generations with their own engine state; a load no longer holds anything the game's threads take. To see in the next session: an F10 or a Mod added while playing without a hitch for the load's length; `replacement.engine_lock.waits` low (they now count only waits for a generation's own lock). Left: loads still run one after another (the load mutex); the parser's statics would have to become per generation for parallel loads.
 - 1.9.7 (BUG-064): SiModGB to be seen in the game.
+- 1.9.9 (D-130): texture loads through the staging arena; in the next session `textures.load_max_microseconds` and `draw_wait_microseconds` while switching characters and options. Next in the review's order: step 4 (the owned work of replaced draws and the Present work in the game's batches).
 - To see in the next session with 1.9.3 or later: Typhoeus' wings in place with the bones on the GPU (`bones.failures` 0, `submitted` = `completed`, `replacement.submission_work.prefixed_batches` rising, `prefix_alone` 0, the counter `bones_unavailable` 0 after the first frames); no stall.
 
 ## Active: the first Vulkan game session's findings (2026-10-25)

@@ -36,6 +36,9 @@ STEPS = [
     # D-129: every writable global of the runtime is per generation, per thread, the load's, locked or
     # classified as safe to share; run after the runtime's build above.
     ("INI runtime globals classified", [os.path.join(ROOT, "scripts", "check_engine_globals.py")]),
+    # Cause C of docs/design-review-1.9.md (D-130): a texture's first use waits no longer than the
+    # original's load of it (DirectXTK on D3D11), the installed Mods' largest maps from the file cache.
+    ("texture first-use loads against the original", [os.path.join(ROOT, "scripts", "bench_texture_load.py"), "--check"]),
     ("source-defined INI evaluation", [os.path.join(ROOT, "scripts", "check_ini_evaluation.py")]),
     ("INI execution matrix", [os.path.join(ROOT, "scripts", "check_ini_execution_matrix.py")]),
     ("DX11 registers from SPIR-V", [os.path.join(ROOT, "scripts", "check_source_slots.py")]),
@@ -129,7 +132,7 @@ STEPS = [
 GROUPS = {
     "bones": ["bones across recordings", "bone regions reused", "two queues, bones", "CPU skeleton import"],
     "replay": ["captured frame"],
-    "textures": ["live INI rendering", "character replacement", "full card", "Mods folder"],
+    "textures": ["texture first-use", "live INI rendering", "character replacement", "full card", "Mods folder"],
     "submission": ["two queues, bones", "bone regions reused", "probe end to end", "Vulkan validation", "live INI rendering"],
     "ini": ["INI", "frontend host", "declarations", "registers", "Core facts", "texture roles", "offline plans"],
     "owned": ["owned", "GPU resources", "HLSL", "Present compute"],

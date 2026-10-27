@@ -226,6 +226,7 @@ int wmain(int argc,wchar_t** argv)
             for(auto format:{28u,29u}){auto rgba=fixture(format);rgba.resize(152);put(rgba,12,1);put(rgba,16,1);put(rgba,28,1);
                 rgba[148]=rgba[149]=rgba[150]=128;rgba[151]=255;run(g,rgba,true);}
             cache_tests(g);
+            staged_tests(g);
             buffer_tests(g);
             resource_cache_tests(g);
             file_plan_tests(g);

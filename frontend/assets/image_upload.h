@@ -11,7 +11,7 @@ namespace efmi::assets {
     X(MapMemory) X(UnmapMemory) X(CreateCommandPool) X(DestroyCommandPool) \
     X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer) \
     X(CmdPipelineBarrier) X(CmdCopyBufferToImage) X(CreateFence) X(DestroyFence) \
-    X(QueueSubmit) X(GetFenceStatus) X(WaitForFences)
+    X(QueueSubmit) X(GetFenceStatus) X(WaitForFences) X(ResetCommandPool) X(ResetFences)
 struct UploadDispatch {
     // A Vulkan layer initializes loader dispatch on internally allocated command buffers.
     // Ordinary application/inject entry points already do that through the loader.
@@ -39,6 +39,19 @@ public:
     bool prepare(const uint8_t*,size_t,const VkPhysicalDeviceMemoryProperties&,
                  const VkImageFormatProperties&,VkFormatFeatureFlags,
                  bool bc_enabled,bool readback=false,uint32_t skip_levels=0,float priority=-1.0f);
+    // D-130: the image alone, for a loader that reads the DDS's payload into staging of its own and
+    // records and submits the copy with its own command buffer and fence. After it, base_offset() is
+    // where in the file the payload the image takes begins.
+    bool prepare_image(const DdsImage&,const VkPhysicalDeviceMemoryProperties&,const VkImageFormatProperties&,
+                       VkFormatFeatureFlags,bool bc_enabled,uint32_t skip_levels=0,float priority=-1.0f,bool readback=false);
+    size_t base_offset() const { return decoded_.levels.empty()?0:decoded_.levels[skipped_].offset; }
+    // The levels a load leaves out of `image` for `skip_levels` requested: never below 4 by 4, never the last.
+    static uint32_t levels_skipped(const DdsImage& image,uint32_t skip_levels);
+    // The copy from `stage` (the file's bytes from base_offset() on at `offset`) into the caller's
+    // command buffer, between its begin and end.
+    bool record_copy(VkCommandBuffer,VkBuffer stage,VkDeviceSize offset);
+    // The caller's submission completed (Ready) or could not be made (Failed).
+    void loaded(bool ok,const std::string& reason={});
     // Creates/records upload commands off the submission path. After record,
     // submit performs only QueueSubmit and changes ticket state. With a timeline semaphore the
     // submission signals it with `value` once the upload completed.
@@ -59,6 +72,8 @@ public:
     // A Ready object must be retained until all draws using it complete.
 private:
     bool result(VkResult,const char*);
+    bool check_format(VkFormatFeatureFlags,const VkImageFormatProperties&,bool bc_enabled,bool readback);
+    bool create_image(const VkImageFormatProperties&,bool readback,uint32_t skip_levels,float priority);
     VkDeviceMemory allocate(const VkMemoryRequirements&,VkMemoryPropertyFlags,
                             const std::shared_ptr<AllocationBudget>&,uint64_t& charged,float priority=-1.0f);
     void release_staging();

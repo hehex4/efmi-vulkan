@@ -1,4 +1,5 @@
 #include "image_upload.h"
+#include <algorithm>
 #include <cstring>
 
 namespace efmi::assets {
@@ -49,15 +50,8 @@ void ImageUpload::release_staging()
     staging_charged_=0;command_=VK_NULL_HANDLE;
     pool_=VK_NULL_HANDLE;fence_=VK_NULL_HANDLE;stage_=VK_NULL_HANDLE;stage_memory_=VK_NULL_HANDLE;
 }
-bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDeviceMemoryProperties& memory,
-                          const VkImageFormatProperties& limits,VkFormatFeatureFlags features,
-                          bool bc_enabled,bool readback,uint32_t skip_levels,float priority)
+bool ImageUpload::check_format(VkFormatFeatureFlags features,const VkImageFormatProperties& limits,bool bc_enabled,bool readback)
 {
-    if(state_!=UploadState::Empty){reason_="Image ticket cannot be prepared again";return false;}
-#define X(name) if(!d_.name){reason_="Missing image upload entry: vk" #name;state_=UploadState::Failed;return false;}
-    EFMI_IMAGE_UPLOAD_FUNCS(X)
-#undef X
-    if(!decode_dds(data,size,decoded_,reason_)){state_=UploadState::Failed;return false;}
     const auto required=VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_TRANSFER_DST_BIT|
                         (readback?VK_FORMAT_FEATURE_TRANSFER_SRC_BIT:0);
     const bool compressed=decoded_.format>=VK_FORMAT_BC1_RGB_UNORM_BLOCK && decoded_.format<=VK_FORMAT_BC7_SRGB_BLOCK;
@@ -66,11 +60,20 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
        limits.maxArrayLayers<1 || !(limits.sampleCounts&VK_SAMPLE_COUNT_1_BIT)){
         reason_="Image format, enabled features or device limits are incompatible";state_=UploadState::Failed;return false;
     }
-    memory_=memory;
+    return true;
+}
+uint32_t ImageUpload::levels_skipped(const DdsImage& image,uint32_t skip_levels)
+{
+    if(image.levels.empty())return 0;
+    uint32_t skipped=std::min<uint32_t>(skip_levels,static_cast<uint32_t>(image.levels.size())-1);
+    while(skipped && (image.levels[skipped].width<4 || image.levels[skipped].height<4))--skipped;
+    return skipped;
+}
+bool ImageUpload::create_image(const VkImageFormatProperties& limits,bool readback,uint32_t skip_levels,float priority)
+{
     // The DDS's levels from skipped_ on become the image's levels 0..n: the texture at a quarter of
-    // its memory per level left out, never below 4 by 4 and never the last level.
-    skipped_=std::min<uint32_t>(skip_levels,static_cast<uint32_t>(decoded_.levels.size())-1);
-    while(skipped_ && (decoded_.levels[skipped_].width<4 || decoded_.levels[skipped_].height<4))--skipped_;
+    // its memory per level left out.
+    skipped_=levels_skipped(decoded_,skip_levels);
     const auto& base=decoded_.levels[skipped_];
     VkImageCreateInfo image={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType=VK_IMAGE_TYPE_2D;image.format=decoded_.format;image.extent={base.width,base.height,1};
@@ -87,12 +90,37 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
     VkImageViewCreateInfo view={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     view.image=image_;view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=decoded_.format;
     view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,image.mipLevels,0,1};
-    if(!result(d_.CreateImageView(device_,&view,nullptr,&view_),"create asset image view"))return false;
-    const auto start=base.offset;
+    return result(d_.CreateImageView(device_,&view,nullptr,&view_),"create asset image view");
+}
+bool ImageUpload::prepare_image(const DdsImage& decoded,const VkPhysicalDeviceMemoryProperties& memory,
+                                const VkImageFormatProperties& limits,VkFormatFeatureFlags features,
+                                bool bc_enabled,uint32_t skip_levels,float priority,bool readback)
+{
+    if(state_!=UploadState::Empty){reason_="Image ticket cannot be prepared again";return false;}
+#define X(name) if(!d_.name){reason_="Missing image upload entry: vk" #name;state_=UploadState::Failed;return false;}
+    EFMI_IMAGE_UPLOAD_FUNCS(X)
+#undef X
+    if(decoded.levels.empty()){reason_="DDS image has no levels";state_=UploadState::Failed;return false;}
+    decoded_=decoded;memory_=memory;
+    if(!check_format(features,limits,bc_enabled,readback) || !create_image(limits,readback,skip_levels,priority))return false;
+    state_=UploadState::Prepared;return true;
+}
+bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDeviceMemoryProperties& memory,
+                          const VkImageFormatProperties& limits,VkFormatFeatureFlags features,
+                          bool bc_enabled,bool readback,uint32_t skip_levels,float priority)
+{
+    if(state_!=UploadState::Empty){reason_="Image ticket cannot be prepared again";return false;}
+#define X(name) if(!d_.name){reason_="Missing image upload entry: vk" #name;state_=UploadState::Failed;return false;}
+    EFMI_IMAGE_UPLOAD_FUNCS(X)
+#undef X
+    if(!decode_dds(data,size,decoded_,reason_)){state_=UploadState::Failed;return false;}
+    memory_=memory;
+    if(!check_format(features,limits,bc_enabled,readback) || !create_image(limits,readback,skip_levels,priority))return false;
+    const auto start=base_offset();
     VkBufferCreateInfo buffer={VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     buffer.size=size-start;buffer.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     if(!result(d_.CreateBuffer(device_,&buffer,nullptr,&stage_),"create image staging buffer"))return false;
-    d_.GetBufferMemoryRequirements(device_,stage_,&req);
+    VkMemoryRequirements req{};d_.GetBufferMemoryRequirements(device_,stage_,&req);
     stage_memory_=allocate(req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,staging_budget_,staging_charged_);
     if(!stage_memory_){state_=UploadState::Failed;return false;}
     if(!result(d_.BindBufferMemory(device_,stage_,stage_memory_,0),"bind image staging memory"))return false;
@@ -100,6 +128,33 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
     if(!result(d_.MapMemory(device_,stage_memory_,0,buffer.size,0,&mapped),"map image staging memory"))return false;
     std::memcpy(mapped,data+start,size-start);d_.UnmapMemory(device_,stage_memory_);
     state_=UploadState::Prepared;return true;
+}
+bool ImageUpload::record_copy(VkCommandBuffer cmd,VkBuffer stage,VkDeviceSize offset)
+{
+    if(state_!=UploadState::Prepared){reason_="Image ticket is not ready for recording";return false;}
+    const uint32_t levels=static_cast<uint32_t>(decoded_.levels.size())-skipped_;
+    VkImageMemoryBarrier barrier={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    barrier.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+    barrier.image=image_;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,levels,0,1};
+    d_.CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+    std::vector<VkBufferImageCopy> copies;
+    for(uint32_t i=skipped_;i<decoded_.levels.size();++i){
+        const auto& level=decoded_.levels[i];VkBufferImageCopy copy{};
+        copy.bufferOffset=offset+(level.offset-decoded_.levels[skipped_].offset);
+        copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped_,0,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
+    }
+    d_.CmdCopyBufferToImage(cmd,stage,image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,static_cast<uint32_t>(copies.size()),copies.data());
+    barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
+    barrier.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;barrier.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    d_.CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+    state_=UploadState::Recorded;return true;
+}
+void ImageUpload::loaded(bool ok,const std::string& reason)
+{
+    if(ok && state_==UploadState::Recorded){state_=UploadState::Ready;return;}
+    reason_=reason.empty()?std::string("Image upload not completed"):reason;state_=UploadState::Failed;
 }
 bool ImageUpload::record(uint32_t graphics_family)
 {
@@ -111,26 +166,10 @@ bool ImageUpload::record(uint32_t graphics_family)
     ai.commandPool=pool_;ai.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ai.commandBufferCount=1;
     if(!result(d_.AllocateCommandBuffers(device_,&ai,&command_),"allocate image upload command"))return false;
     if(d_.SetDeviceLoaderData && !result(d_.SetDeviceLoaderData(device_,command_),"initialize image upload dispatch"))return false;
-    const auto cmd=command_;
     VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};begin.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if(!result(d_.BeginCommandBuffer(cmd,&begin),"begin image upload"))return false;
-    VkImageMemoryBarrier barrier={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    barrier.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-    barrier.image=image_;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,static_cast<uint32_t>(decoded_.levels.size())-skipped_,0,1};
-    d_.CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
-    std::vector<VkBufferImageCopy> copies;
-    for(uint32_t i=skipped_;i<decoded_.levels.size();++i){
-        const auto& level=decoded_.levels[i];VkBufferImageCopy copy{};
-        copy.bufferOffset=level.offset-decoded_.levels[skipped_].offset;
-        copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped_,0,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
-    }
-    d_.CmdCopyBufferToImage(cmd,stage_,image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,static_cast<uint32_t>(copies.size()),copies.data());
-    barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
-    barrier.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;barrier.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    d_.CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
-    if(!result(d_.EndCommandBuffer(cmd),"end image upload"))return false;
+    if(!result(d_.BeginCommandBuffer(command_,&begin),"begin image upload"))return false;
+    if(!record_copy(command_,stage_,0))return false;
+    if(!result(d_.EndCommandBuffer(command_),"end image upload"))return false;
     VkFenceCreateInfo fi={VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     if(!result(d_.CreateFence(device_,&fi,nullptr,&fence_),"create image upload fence"))return false;
     state_=UploadState::Recorded;return true;

@@ -18,4 +18,8 @@ struct DdsImage {
 // Bounded 2D, single-layer DDS. Preserves linear/sRGB formats and BC blocks.
 // Output stays unchanged on error; no file IO, GPU calls or payload copies.
 bool decode_dds(const uint8_t* data,size_t size,DdsImage& output,std::string& reason);
+// The same from the file's first bytes only (`available` of them, at least kDdsHeaderBytes or the whole
+// file) and its size: a loader reads the payload elsewhere (D-130).
+constexpr size_t kDdsHeaderBytes=148;
+bool decode_dds_header(const uint8_t* header,size_t available,uint64_t file_size,DdsImage& output,std::string& reason);
 }

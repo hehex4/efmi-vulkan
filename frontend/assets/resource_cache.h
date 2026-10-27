@@ -57,13 +57,24 @@ struct ResourceDevice {
     // Publication of the uploads the workers submit: the timeline signalled and the serial taken.
     VkSemaphore timeline=VK_NULL_HANDLE;
     std::atomic<uint64_t>* serial=nullptr;
+    // How long the loaders' staging arena stays without a load before it is released (D-130).
+    uint64_t arena_idle_us=5000000ull;
+    // Tests read the images back: they are made transfer sources as well.
+    bool readback=false;
 };
 struct ResourceBudgets {
     std::shared_ptr<AllocationBudget> resident=std::make_shared<AllocationBudget>(512ull<<20);
     std::shared_ptr<AllocationBudget> staging=std::make_shared<AllocationBudget>(160ull<<20);
     std::shared_ptr<AllocationBudget> source=std::make_shared<AllocationBudget>(128ull<<20);
 };
-struct ResourceCacheStats { uint64_t file_reads=0,submissions=0,ready=0,failed=0,releases=0; };
+struct ResourceCacheStats {
+    uint64_t file_reads=0,submissions=0,ready=0,failed=0,releases=0;
+    // Where a load's time goes, summed over the loads that became Ready: the file read, the rest of
+    // the preparation (decode, image and staging memory, the copy into staging, recording), and the
+    // submission until the worker saw the copy complete; the longest load from leaving the queue.
+    uint64_t read_us=0,prepare_us=0,complete_us=0,load_max_us=0;
+    uint64_t arenas=0; // staging arenas made (D-130): one per busy period
+};
 
 // One frontend generation, one device and one graphics queue. Workers read files,
 // decode/allocate/record, poll fences and release staging. They never submit.
@@ -103,10 +114,20 @@ public:
     void stop();
 private:
     struct Upload;
+    struct Loader;
+    struct Arena;
+    struct Slice;
     using Key=std::tuple<std::filesystem::path,VkBufferUsageFlags,uint64_t>;
     ResourceHandle declare(const std::filesystem::path&,VkBufferUsageFlags,std::string&,uint64_t tag=0);
     void run();
-    std::shared_ptr<Upload> prepare(const ResourceHandle&);
+    std::shared_ptr<Upload> prepare(const ResourceHandle&,uint64_t& read_done_us);
+    // D-130: an image read straight into the staging arena and recorded into the worker's command buffer.
+    std::shared_ptr<Upload> stage(const ResourceHandle&,Loader&,Slice&,uint64_t& read_done_us);
+    bool arena_take(uint64_t bytes,uint64_t& offset);
+    void arena_give(uint64_t offset,uint64_t bytes);
+    // The arena goes when no load used it for a while, as the original keeps no staging of its own.
+    void arena_idle();
+    uint64_t arena_bytes() const;
     void publish(const ResourceHandle&,ResourceState,std::shared_ptr<Upload> upload={},std::string reason={});
     ResourceDevice device_;
     ResourceBudgets budgets_;
@@ -120,6 +141,8 @@ private:
     std::map<Key,ResourceHandle> entries_;
     std::deque<ResourceHandle> queue_;
     ResourceHandle pending_;
+    std::unique_ptr<Arena> arena_;
+    mutable std::mutex arena_mutex_;
     std::shared_ptr<Upload> upload_;
     ResourceState phase_=ResourceState::Dormant;
     ResourceCacheStats stats_;

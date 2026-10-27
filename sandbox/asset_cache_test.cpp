@@ -184,6 +184,93 @@ void cache_tests(Gpu& g)
     check(!budget.resident->used() && !budget.staging->used() && !budget.source->used(),"queue failure balances retained allocations");
     check(!wrong_worker_calls && !wrong_submit_calls,"GPU preparation/polling stay on worker; submission stays on caller");
 }
+// D-130: with the layer's upload queue an image is read straight into the loaders' staging arena and
+// copied with the worker's own command buffer and fence; every level arrives as the file holds it.
+static std::atomic<unsigned> staged_pools{0};
+static VKAPI_ATTR VkResult VKAPI_CALL staged_create_pool(VkDevice d,const VkCommandPoolCreateInfo* i,const VkAllocationCallbacks* a,VkCommandPool* p)
+{
+    ++staged_pools;return pCreateCommandPool(d,i,a,p);
+}
+static std::vector<uint8_t> staged_fixture(uint32_t size,uint32_t levels,uint8_t seed)
+{
+    // A BC7 square with its mip chain, every payload byte distinct per file and position.
+    std::vector<uint8_t> data(148,0);
+    put(data,0,0x20534444);put(data,4,124);put(data,8,0x21007);put(data,12,size);put(data,16,size);
+    put(data,28,levels);put(data,76,32);put(data,80,4);put(data,84,0x30315844);put(data,108,0x1000);
+    put(data,128,98);put(data,132,3);put(data,140,1);
+    size_t bytes=0;for(uint32_t l=0,w=size;l<levels;++l,w=std::max(1u,w/2))bytes+=size_t((w+3)/4)*((w+3)/4)*16;
+    for(size_t i=0;i<bytes;++i)data.push_back(static_cast<uint8_t>(i*7+seed+(i>>8)));
+    return data;
+}
+static std::vector<uint8_t> staged_readback(Gpu& g,const ImageUpload& image)
+{
+    const auto& meta=image.metadata();const uint32_t skipped=image.skipped_levels();
+    const size_t base=meta.levels[skipped].offset;size_t bytes=0;
+    for(uint32_t i=skipped;i<meta.levels.size();++i)bytes+=meta.levels[i].bytes;
+    auto b=g.readback(bytes);auto cb=g.begin();const uint32_t count=static_cast<uint32_t>(meta.levels.size())-skipped;
+    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+    std::vector<VkBufferImageCopy> copies;
+    for(uint32_t i=skipped;i<meta.levels.size();++i){const auto& level=meta.levels[i];VkBufferImageCopy copy{};
+        copy.bufferOffset=level.offset-base;copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped,0,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);}
+    pCmdCopyImageToBuffer(cb,image.image(),VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,b.buffer,static_cast<uint32_t>(copies.size()),copies.data());
+    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_READ_BIT);
+    g.finish(cb,b);
+    const auto* mapped=static_cast<const uint8_t*>(b.mapped);return {mapped,mapped+bytes};
+}
+void staged_tests(Gpu& g)
+{
+    TextureDevice device;device.device=g.device;device.physical=g.physical;device.graphics_family=g.family;device.bc_enabled=g.bc;
+    device.memory=g.memory;device.dispatch=g.dispatch;device.dispatch.CreateCommandPool=staged_create_pool;
+    device.format_properties=pGetPhysicalDeviceFormatProperties;device.image_properties=pGetPhysicalDeviceImageFormatProperties;
+#define X(name) device.buffer_dispatch.name=p##name;
+    EFMI_BUFFER_UPLOAD_FUNCS(X)
+#undef X
+    std::mutex queue_mutex;device.upload_queue=g.queue;device.upload_family=g.family;device.upload_mutex=&queue_mutex;
+    device.arena_idle_us=200000;device.readback=true;
+    const auto folder=std::filesystem::current_path()/L"staged-fixtures";std::filesystem::create_directories(folder);
+    const std::vector<std::vector<uint8_t>> files={staged_fixture(64,7,1),staged_fixture(32,6,2),fixture(99),staged_fixture(64,7,3)};
+    TextureBudgets budget;budget.staging=std::make_shared<AllocationBudget>(160ull<<20);
+    {
+        TextureCache cache(device,budget,16,2);std::string reason;
+        std::vector<TextureHandle> handles;
+        for(size_t i=0;i<files.size();++i){
+            const auto path=folder/(L"staged"+std::to_wstring(i)+L".dds");write_fixture(path,files[i]);
+            handles.push_back(cache.declare_image(path,reason));
+        }
+        // The last one twice: once whole, once without its top level (as a texture loads under pressure).
+        auto reduced=cache.declare_image(folder/L"staged3.dds",reason,7);
+        bool demanded=reduced && cache.demand(reduced,1);
+        for(auto& h:handles)demanded=demanded && h && cache.demand(h);
+        check(demanded,"staged fixtures declared and demanded");
+        auto wait=[](const TextureHandle& h){return h->wait_until(Clock::now()+std::chrono::seconds(15));};
+        // Every load done before the test's own submissions: the queue is the loaders' too.
+        std::vector<TextureSnapshot> loaded;for(auto& h:handles)loaded.push_back(wait(h));
+        const auto small=wait(reduced);
+        bool exact=true;
+        for(size_t i=0;i<handles.size();++i){
+            const auto& ready=loaded[i];
+            if(ready.state!=TextureState::Ready || !ready.image){exact=false;continue;}
+            const auto& meta=ready.image->metadata();
+            exact=exact && staged_readback(g,*ready.image)==std::vector<uint8_t>(files[i].begin()+meta.levels[0].offset,files[i].end());
+        }
+        check(exact,"every level of every image read through the staging arena arrives as the file holds it");
+        const bool reduced_ok=small.state==TextureState::Ready && small.image && small.image->skipped_levels()==1 &&
+            staged_readback(g,*small.image)==std::vector<uint8_t>(files[3].begin()+small.image->metadata().levels[1].offset,files[3].end());
+        check(reduced_ok,"an image loaded without its top level takes the file's levels from the second on");
+        const auto stats=cache.stats();
+        check(stats.ready==files.size()+1 && stats.arenas==1 && budget.staging->peak()==budget.staging->limit(),
+              "one staging arena serves every load of a busy period, charged to the staging budget");
+        check(staged_pools<=2,"each worker keeps one command pool across its loads");
+        const auto until=Clock::now()+std::chrono::seconds(5);
+        while(budget.staging->used() && Clock::now()<until)std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        check(!budget.staging->used(),"the arena is released once no load used it for the idle time");
+        auto again=cache.declare_image(folder/L"staged1.dds",reason,9);
+        const bool reloaded=again && cache.demand(again) && wait(again).state==TextureState::Ready && cache.stats().arenas==2;
+        check(reloaded,"a later load makes a new arena");
+        cache.stop();
+    }
+    check(!budget.staging->used() && !budget.source->used(),"stopping the loaders returns the arena");
+}
 void cache_sample(Gpu& g,int count,wchar_t** paths)
 {
     auto device=cache_device(g);TextureBudgets budget;TextureCache cache(device,budget);std::string reason;

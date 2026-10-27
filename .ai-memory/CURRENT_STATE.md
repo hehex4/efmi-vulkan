@@ -6,6 +6,13 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 1.9.9: texture loads at least as fast as the original's (2026-10-27, D-130, cause C)
+
+- An image's load reads the file straight into a staging arena the loaders keep, with each worker's own command buffer and fence (docs/design-review-1.9.md cause C). Benchmark against the original's DirectXTK load on D3D11, the installed Mods' ten largest maps (661 MiB, file cache warm): one 64 MiB map 43 ms on 1.9.8, 20 ms on 1.9.9, 28 ms for the original; the ten together 245 ms, 99 ms, and 297 ms for the original one after another (build/texture-bench/report.json in the worktree).
+- Replay vk03 (22 Mods), three interleaved pairs against the deployed 1.9.8: startup texture waits 120 to 46 ms, longest startup frame 207 to 127 ms; pictures, replacement and residency identical; per-frame cost unchanged (build/performance-ab in the worktree).
+- Verification: asset tests 274 checks (new: every level of arena loads read back, one arena per busy period, one pool per worker, the arena released when idle), validation clean; run_all --only textures and every captured-frame step, and the new step "texture first-use loads against the original": passed.
+- Not yet in the game. To see: switching characters and a Mod's options with `textures.draw_wait_microseconds` and `load_max_microseconds` lower than 1.9.8's.
+
 ## 1.9.8: each generation's original engine state is its own (2026-10-26, D-129, BUG-063's open part)
 
 - The original's configuration globals are redirected by a forced include (frontend/xxmi/engine_globals.h) to the generation the calling thread entered; a scope takes only its generation's lock; a load also the load mutex, which no drawing, presenting or saving thread takes; the assembler's tables under their own mutex; the resource root and warnings per generation (docs/engine-generations.md).

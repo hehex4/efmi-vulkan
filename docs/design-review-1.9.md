@@ -106,7 +106,7 @@ semaphores between them, frames in flight.
 
 1. D-127 for the bones, with the rolling-bones replay failing on 1.9.2 first (1.9.3).
 2. Images and meshes shared by file identity; F10 loads only what changed (BUG-061).
-3. The texture load path measured and shortened.
+3. The texture load path measured and shortened (1.9.9, D-130: one map 20 ms against the original's 28 ms).
 4. The owned work of replaced draws and the Present work ride in the game's batches (D-127). The
    owned work of replaced draws goes only to the queue the generation's owned runtime is bound to,
    so a recording submitted on the other queue runs before it; the Present work (Typhoeus' and Si

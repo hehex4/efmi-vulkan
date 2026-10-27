@@ -63,7 +63,8 @@ TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryP
         // The ledger never refuses on its own: the target below keeps the residency within the budget.
         assets::ResourceBudgets budgets;
         budgets.resident = std::make_shared<assets::AllocationBudget>(std::max<uint64_t>(heap_bytes_, 1ull << 30));
-        budgets.staging = std::make_shared<assets::AllocationBudget>(192ull << 20);
+        // The loaders' staging arena (D-130): three 64 MiB maps at once and an 85 MiB one beside them.
+        budgets.staging = std::make_shared<assets::AllocationBudget>(256ull << 20);
         budgets.source = std::make_shared<assets::AllocationBudget>(192ull << 20);
         resource.timeline = timeline_; resource.serial = &signalled_;
         // Three loaders with a queue of the layer's own (a character's textures load at once), one otherwise.
@@ -519,6 +520,8 @@ void TextureResidency::status(JsonWriter& w) const
         const auto stats = cache_->stats();
         w.kn("file_reads", stats.file_reads); w.kn("submissions", stats.submissions);
         w.kn("ready", stats.ready); w.kn("load_failures", stats.failed); w.kn("releases", stats.releases);
+        w.kn("load_read_microseconds", stats.read_us); w.kn("load_prepare_microseconds", stats.prepare_us);
+        w.kn("load_complete_microseconds", stats.complete_us); w.kn("load_max_microseconds", stats.load_max_us);
     }
     w.end_object();
 }
