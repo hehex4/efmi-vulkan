@@ -731,11 +731,10 @@ bool IniRuntime::save(std::string& reason)
             text << "; EFMI Vulkan persistent original INI variables\n[Constants]\n" << std::setprecision(9);
             for (const auto* value : persistent_variables) {
                 if (!std::isfinite(value->fval)) throw std::runtime_error("Non-finite persistent value");
-                // Keep project text ASCII even if an original namespace is not.
-                auto name = utf8(value->name);
-                if (std::any_of(name.begin(), name.end(), [](unsigned char c) { return c >= 128; }))
-                    throw std::runtime_error("Persistent variable name is not ASCII");
-                text << name << " = " << value->fval << '\n';
+                // In UTF-8 whatever the script, as the original writes d3dx_user.ini (setlocale UTF-8, %ls), and
+                // as read_ini reads it back: a namespace outside ASCII (a Mod folder's name) must not stop the
+                // save of every Mod's settings (LIMIT-042).
+                text << utf8(value->name) << " = " << value->fval << '\n';
             }
             bytes = text.str();
             // Clean from this text on; a change after it marks the variables dirty again.

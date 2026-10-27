@@ -6,6 +6,10 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.7: settings named outside ASCII are saved (2026-10-27, LIMIT-042)
+
+- A persistent variable whose namespace is outside ASCII (an INI without a namespace in a Mod folder named with a full-width colon, as Mod folders are) stopped the save of every Mod's settings in the folder generation; it is now written as UTF-8, as the original does. Scene test failing on 2.0.6, 97/97 now.
+
 ## 2.0.6: RabbitFX's anti-dither (2026-10-27, D-133)
 
 - The user: RabbitFX's anti-dither had no effect under Vulkan. It now works as RabbitFX's ShaderRegex does under DX11: the `\` key toggles the persistent `$\rabbitfx\censor`; while it is set, every draw of a pipeline whose fragment stage has the character dither (interleaved gradient noise against the instance window; 38 of 473 captured modules) is drawn without it: the application's draws through a twin pipeline bound in place of the game's, replaced draws through their variants.

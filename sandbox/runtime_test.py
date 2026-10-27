@@ -380,6 +380,10 @@ def directory_generation(checks, validation):
     # parent, as the original's d3dx_user.ini) never read it.
     (folder / "k").mkdir()
     (folder / "k" / "1.ini").write_text("[Constants]\nglobal persist $z = 0\n", encoding="ascii")
+    # LIMIT-042: a panel INI in a folder whose name is outside ASCII (a full-width colon, as Mod folders
+    # have): its persistent variable's name is too, and the original writes it as UTF-8 with the rest.
+    (folder / "k\uff1apanel").mkdir()
+    (folder / "k\uff1apanel" / "1.ini").write_text("[Constants]\nglobal persist $q = 4\n", encoding="ascii")
     # D-133: RabbitFX's anti-dither. The layer provides RabbitFX natively (D-082); the installed file's key
     # and ShaderRegex sections join: its replacement keeps the shader's discard behind `if_z
     # IniParams[172].w`, its section assigns `w172 = $censor`, a persistent toggle the player left on.
@@ -441,8 +445,10 @@ def directory_generation(checks, validation):
     # One generation for the folder (D-131) keeps one settings file for every Mod, as the original's
     # d3dx_user.ini; a generation per Mod kept the namespace and the Mod folder (BUG-039).
     saved = settings / "mods-folder.ini"
-    checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(), label + ": settings saved in the configured folder")
-    saved_text = saved.read_text() if saved.is_file() else ""
+    checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(encoding="utf-8"), label + ": settings saved in the configured folder")
+    saved_text = saved.read_text(encoding="utf-8") if saved.is_file() else ""
+    checks.check("$\\mods\\fixture\\k\uff1apanel\\1.ini\\q = 4" in saved_text,
+                 label + ": a persistent variable named outside ASCII is saved, as UTF-8, with the others (LIMIT-042)")
     checks.check("$\\mods\\fixture\\k\\1.ini\\z = 7" in saved_text and "$\\k\\1.ini\\" not in saved_text,
                  label + ": the folder's settings keep the panel's value under its own name, not the old one")
     # The scene itself edits its mod.ini, drives its keys through keys.txt and writes its reports where

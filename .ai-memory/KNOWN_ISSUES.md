@@ -38,7 +38,9 @@
 - Fixed in 2.0.5: adoption renames such lines (a namespace that is an INI file of the Mod's folder); a folder file still holding the old names is adopted again once, its own lines first, the old names dropped. Test failing on 2.0.4 (the Mods-folder scene with a `k\1.ini` panel, the Mod's own settings and a folder file adopted the old way).
 - Also found: the save refuses every persistent variable whose name is outside ASCII (a Mod folder or an implicit namespace outside ASCII), which would stop the whole folder's save. No installed Mod has one now; recorded as LIMIT-042.
 
-## LIMIT-042: A persistent variable named outside ASCII stops the folder's settings save
+## LIMIT-042: A persistent variable named outside ASCII stopped the folder's settings save (fixed in 2.0.7)
+
+- 2.0.7: the names are written as UTF-8, as the original writes d3dx_user.ini (setlocale UTF-8, %ls), and read back by the runtime's UTF-8 reader. Test failing on 2.0.6: the Mods-folder scene with a panel INI in a folder named with a full-width colon (its settings and every other Mod's were not saved).
 
 - 2026-10-27. IniRuntime::save throws "Persistent variable name is not ASCII" for the first such name, and the folder generation saves every Mod's persistent variables in one file. The original writes d3dx_user.ini whatever the names. Next: write such names as UTF-8 and check that the parser reads them back.
 
