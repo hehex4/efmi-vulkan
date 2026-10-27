@@ -9,6 +9,7 @@
 ## 2.0.7: settings named outside ASCII are saved (2026-10-27, LIMIT-042)
 
 - A persistent variable whose namespace is outside ASCII (an INI without a namespace in a Mod folder named with a full-width colon, as Mod folders are) stopped the save of every Mod's settings in the folder generation; it is now written as UTF-8, as the original does. Scene test failing on 2.0.6, 97/97 now.
+- Deployed 2026-10-27 18:51 (5017280) with the game and the launcher closed; settings backed up to build/backups/settings-before-2.0.7-*; actual-config smoke: 20 Mods, none refused, validation clean, game log unchanged.
 
 ## 2.0.6: RabbitFX's anti-dither (2026-10-27, D-133)
 
