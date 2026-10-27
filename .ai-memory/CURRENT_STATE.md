@@ -10,7 +10,8 @@
 
 - The user: RabbitFX's anti-dither had no effect under Vulkan. It now works as RabbitFX's ShaderRegex does under DX11: the `\` key toggles the persistent `$\rabbitfx\censor`; while it is set, every draw of a pipeline whose fragment stage has the character dither (interleaved gradient noise against the instance window; 38 of 473 captured modules) is drawn without it: the application's draws through a twin pipeline bound in place of the game's, replaced draws through their variants.
 - Status: `folder_generation.discard_gates` (RabbitFX: index 172, component 3), `dither_off`, `dither_twins`, `dither_twins_failed`, `dither_twin_binds`.
-- Evidence (sandbox): recipe tests (rule and patch on fixtures and the 38 captured modules, all valid SPIR-V), the Mods-folder scene with a dithering application shader and `$censor` 1 (96/96; with `$censor` 0 its pictures fail), the vk03 replay with the installed folder (gate 172.w found, value 0). Not yet seen in the game.
+- Evidence (sandbox): recipe tests (rule and patch on fixtures and the 38 captured modules, all valid SPIR-V), the Mods-folder scene with a dithering application shader and `$censor` 1 (96/96; with `$censor` 0 its pictures fail), the vk03 replay with the installed folder (gate 172.w found, value 0). Whole suite passed (build/run_all-2.0.6.out, the replays rerun after their build lists gained the new source: build/run_all-2.0.6b.out). Not yet seen in the game.
+- Deployed 2026-10-27 18:32 (52b16c2) with the game and the launcher closed; settings backed up to build/backups/settings-before-2.0.6-*; actual-config smoke: 20 Mods, none refused, validation clean, game log unchanged, private 308 MiB.
 
 ## 2.0.5: panel settings adopted under the folder's names (2026-10-27, BUG-066)
 
