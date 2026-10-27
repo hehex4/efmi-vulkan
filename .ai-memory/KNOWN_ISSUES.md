@@ -32,6 +32,16 @@
 - Test that fails on 1.9.2: replay vk06 with only this Mod, `--split-passes --rolling-bones --bones-identical --check` (two copies of every bone buffer, frame f binding copy f%2, the copy of the frame before zeroed before a frame is submitted): GPU and CPU pictures differ, the GPU picture with the lower body and the hands' parts drawn down to the bottom of the image as in the game. With `--animate-bones` alone 1.9.2 also differs from the CPU (a pose one frame newer), without the collapse.
 - Fix (1.9.3, D-127): one persistent merged skeleton per object, written only by imports run in the batch of the recording that drew the component; per recording a snapshot copied after its batch's imports; the work at the front of the application's batch with the batch's waits widened to cover it.
 
+## BUG-066: Panel settings of Mods without a namespace were not restored in the folder generation (fixed in 2.0.5)
+
+- 2026-10-27, the 2.0.3 game session: 105 "Unrecognised entry" warnings from the folder's settings file, all `$\k\1.ini\...` and similar: the panel INI several Mods ship (`k\1.ini`, no namespace line) with persistent position, fade and minimized state. A generation per Mod named that INI by its path from the Mod folder; the folder generation names it by its path from the Mods folder's parent (`$\mods\<Mod>\k\1.ini\z`), as the original's d3dx_user.ini does. The adoption of 2.0.0 copied the per-Mod lines unchanged, so the values were not read, and lines of several Mods' panels became one name.
+- Fixed in 2.0.5: adoption renames such lines (a namespace that is an INI file of the Mod's folder); a folder file still holding the old names is adopted again once, its own lines first, the old names dropped. Test failing on 2.0.4 (the Mods-folder scene with a `k\1.ini` panel, the Mod's own settings and a folder file adopted the old way).
+- Also found: the save refuses every persistent variable whose name is outside ASCII (a Mod folder or an implicit namespace outside ASCII), which would stop the whole folder's save. No installed Mod has one now; recorded as LIMIT-042.
+
+## LIMIT-042: A persistent variable named outside ASCII stops the folder's settings save
+
+- 2026-10-27. IniRuntime::save throws "Persistent variable name is not ASCII" for the first such name, and the folder generation saves every Mod's persistent variables in one file. The original writes d3dx_user.ini whatever the names. Next: write such names as UTF-8 and check that the parser reads them back.
+
 ## BUG-065: Half of Typhoeus' draws kept the game's mesh in the folder generation (fixed in 2.0.4)
 
 - 2026-10-27, user-started session with 2.0.3 (PID 25552). Typhoeus (`30478105..._-AmIhB1`, namespace TifluosMain): matched 193,566 draws, refused 99,993 with "Original Core request differs from the resolved native identity, bone or LOD contract"; every other activated Mod (SiModGB 554,457 of 554,548 replaced, Yvonne, arcane, Liino, mifu) refused none. The previous session (1.9.x, a generation per Mod) logged no such refusal for the same INI.

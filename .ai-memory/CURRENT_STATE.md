@@ -6,6 +6,10 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.5: panel settings adopted under the folder's names (2026-10-27, BUG-066)
+
+- Settings of a Mod's INI without a namespace (`k\1.ini` panels) are adopted under the folder generation's names; a folder file adopted by 2.0.0 to 2.0.3 is adopted again once. Verification: the failing scene checks (93/93 now), the vk03 replay, owned Present.
+
 ## 2.0.4: a LOD the Core holds from another Mod (2026-10-27, BUG-065)
 
 - From the 2.0.3 game session: Typhoeus' draws refused in about half; the folder's one `$\EFMIv1\lod_level` held another Mod's LOD. The contract now compares the remap the Core picks, not the LOD number (docs: KNOWN_ISSUES BUG-065).

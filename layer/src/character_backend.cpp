@@ -2597,23 +2597,71 @@ struct FolderGeneration {
 };
 
 namespace {
+// A settings line `$\namespace\variable = value`: its key (before " =") and its namespace.
+bool settings_line(std::string line, std::string& key, std::string& space, std::string& rest)
+{
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+    const size_t equals = line.find(" =");
+    if (line.size() < 3 || line[0] != '$' || line[1] != '\\' || equals == std::string::npos) return false;
+    key = line.substr(0, equals); rest = line.substr(equals);
+    const size_t last = key.rfind('\\');
+    if (last <= 1) return false;
+    space = key.substr(2, last - 2);
+    return true;
+}
+std::string lower_utf8(const std::filesystem::path& path)
+{
+    std::wstring wide = path.wstring();
+    std::transform(wide.begin(), wide.end(), wide.begin(), ::towlower);
+    return std::filesystem::path(wide).u8string();
+}
 // What a Mod's own generation saved (D-105, `<namespace>-<folder>.ini`) becomes the folder generation's
-// settings the first time it runs, so the toggles a player set stay set.
+// settings the first time it runs, so the toggles a player set stay set. A generation of one Mod named
+// each other INI of the Mod's folder by its path from that folder (`$\k\1.ini\z`, a panel several Mods
+// ship); the folder generation names it by its path from the Mods folder's parent, as the original's
+// d3dx_user.ini does (`$\mods\<Mod>\k\1.ini\z`), so those lines are renamed. 2.0.0 to 2.0.3 adopted
+// them under the old names, which nothing reads and which no longer tell the Mods apart: such a file is
+// adopted again once, its own lines first.
 void adopt_mod_settings(const std::filesystem::path& settings, const std::string& name, const std::filesystem::path& mods)
 {
     std::error_code error;
     const auto target = settings / (name + ".ini");
-    if (std::filesystem::exists(target, error)) return;
-    std::string reason, lines;
+    const auto root = mods.parent_path();
+    std::string reason, key, space, rest;
+    std::vector<std::pair<std::string, std::string>> adopted; // key, line
+    std::set<std::string> old_names;                          // the per-Mod names of other INIs
     for (const auto& ini : CharacterProgram::mods_characters(mods, reason)) {
+        const auto folder = ini.parent_path();
         std::ifstream in(settings / (CharacterProgram::settings_name(ini, CharacterProgram::declared_namespace(ini)) + ".ini"), std::ios::binary);
         std::string line;
-        while (std::getline(in, line)) if (!line.empty() && line[0] == '$') { lines += line; if (lines.back() != '\n') lines += '\n'; }
+        while (std::getline(in, line)) {
+            if (!settings_line(line, key, space, rest)) continue;
+            const auto file = folder / std::filesystem::u8path(space);
+            if (space.size() > 4 && !_stricmp(space.c_str() + space.size() - 4, ".ini") && std::filesystem::is_regular_file(file, error)) {
+                old_names.insert(lower_utf8(std::filesystem::u8path(space)));
+                key = "$\\" + lower_utf8(file.lexically_relative(root)) + key.substr(2 + space.size());
+            }
+            adopted.emplace_back(key, key + rest);
+        }
     }
-    if (lines.empty()) return;
+    std::vector<std::string> lines;
+    std::set<std::string> keys;
+    if (std::filesystem::exists(target, error)) {
+        std::ifstream in(target, std::ios::binary);
+        std::string line;
+        bool stale = false;
+        while (std::getline(in, line)) {
+            if (!settings_line(line, key, space, rest)) continue;
+            if (old_names.count(lower_utf8(std::filesystem::u8path(space)))) { stale = true; continue; }
+            if (keys.insert(key).second) lines.push_back(key + rest);
+        }
+        if (!stale) return;
+    } else if (adopted.empty()) return;
+    for (const auto& line : adopted) if (keys.insert(line.first).second) lines.push_back(line.second);
     std::filesystem::create_directories(settings, error);
     std::ofstream out(target, std::ios::binary | std::ios::trunc);
-    out << "; EFMI Vulkan persistent original INI variables\n[Constants]\n" << lines;
+    out << "; EFMI Vulkan persistent original INI variables\n[Constants]\n";
+    for (const auto& line : lines) out << line << '\n';
     logf("folder generation: settings adopted from the Mods' own files into %s", target.u8string().c_str());
 }
 }

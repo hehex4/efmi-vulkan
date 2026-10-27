@@ -340,6 +340,17 @@ def directory_generation(checks, validation):
     (mods / "DISABLED old").mkdir()
     (mods / "DISABLED old" / "mod.ini").write_text((folder / "mod.ini").read_text(encoding="ascii"), encoding="ascii")
     settings = root / "settings"
+    # A panel INI without a namespace in the Mod's folder (`k\1.ini`, as several installed Mods ship) with
+    # a persistent variable. A generation per Mod named it by its path from the Mod folder and saved its
+    # value in the Mod's own settings file; 2.0.0 to 2.0.3 adopted that line under the old name into the
+    # folder's file, where the folder generation (which names the INI by its path from the Mods folder's
+    # parent, as the original's d3dx_user.ini) never read it.
+    (folder / "k").mkdir()
+    (folder / "k" / "1.ini").write_text("[Constants]\nglobal persist $z = 0\n", encoding="ascii")
+    settings.mkdir()
+    header = "; EFMI Vulkan persistent original INI variables\n[Constants]\n"
+    (settings / "runtime_fixture-fixture.ini").write_text(header + "$\\k\\1.ini\\z = 7\n", encoding="ascii")
+    (settings / "mods-folder.ini").write_text(header + "$\\k\\1.ini\\z = 3\n", encoding="ascii")
     extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1", EFMI_VK_M2_IDENTITY_EXPIRY_MS="500",
                  EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
@@ -376,10 +387,15 @@ def directory_generation(checks, validation):
         checks.equal((own["ini_generation"], own["ini_reloads"]), (2, 2), label + ": its reloads as with a package")
         variables = own.get("ini", {}).get("variables", {})
         checks.equal(variables.get("$\\runtime_fixture\\tint"), 1, label + ": the persistent variable survives F10")
+        checks.equal(variables.get("$\\mods\\fixture\\k\\1.ini\\z"), 7,
+                     label + ": a panel INI's setting saved by the Mod's own generation is read under the folder's name")
     # One generation for the folder (D-131) keeps one settings file for every Mod, as the original's
     # d3dx_user.ini; a generation per Mod kept the namespace and the Mod folder (BUG-039).
     saved = settings / "mods-folder.ini"
     checks.check(saved.is_file() and "$\\runtime_fixture\\tint = 1" in saved.read_text(), label + ": settings saved in the configured folder")
+    saved_text = saved.read_text() if saved.is_file() else ""
+    checks.check("$\\mods\\fixture\\k\\1.ini\\z = 7" in saved_text and "$\\k\\1.ini\\" not in saved_text,
+                 label + ": the folder's settings keep the panel's value under its own name, not the old one")
     # The scene itself edits its mod.ini, drives its keys through keys.txt and writes its reports where
     # it runs (the fixture's folder).
     after = {p: p.read_bytes() for p in mods.rglob("*") if p.is_file()}
