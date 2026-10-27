@@ -77,4 +77,13 @@ generation (`folder_create`, `folder_frame`, `folder_frame_and_exchange`), isola
 alone is left out, the live INI scene's third Mod) and the exchange of every package at one
 presentation. Measured on the vk03 replay with the 20 installed Mods (same build, `m2_folder_generation`
 off and on): presentation work 221 to 146 us per frame, recording 410 to 420 us, final targets
-identical. Step 5 (payloads) remains.
+identical.
+
+Step 5 is in 2.0.1 (ISSUE-011): a package keeps no mesh bytes once validated, as the original keeps
+no host copy of a buffer it made from a file (`LoadBufferFromFile` frees its bytes once `CreateBuffer`
+took them). Each stream keeps its file, offset and the checksum of the bytes validated at load; the
+upload when the package activates reads the files again (a few threads at once, each into its own
+streams' part of the mapped memory, through a bounce buffer the checksum reads), and so does a stream
+a live plan first adopts for bones. A file whose bytes changed since the load refuses with its name.
+Actual configuration with the installed Mods folder: private memory 712 to 298 MiB. Activation upload
+of a 23.7 MB character 4.5 ms (5 ms with the held payload; 16 ms when one thread read the files).

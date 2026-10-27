@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.1: mesh payloads not held in host memory (2026-10-27, D-131 step 5, ISSUE-011)
+
+- As the original frees a buffer file's bytes once the resource holds them, a package releases its payload once validated; each stream keeps its file, offset and checksum. The activation upload reads the files again with up to four threads (bounce buffer, checksum), and so does a stream a live plan adopts for bones; changed bytes refuse with the file's name. Status: `package_bytes`, `payload_held_bytes` (0), `mesh_upload_microseconds`.
+- Checks failing before: the live INI scene's packages and Mods folder report `payload_held_bytes` 0 (2.0.0 has no such field and holds the payload); character package unit tests (a loaded package and an envelope read back from their files, a changed file refused, a missing file refused).
+- Evidence (sandbox): actual configuration with the installed Mods folder, 20 character Mods: private memory 712 to 298 MiB. vk03 A/B against the deployed 2.0.0, three interleaved pairs: final targets, steady replacement and residency identical; mesh upload 4.5 ms for 23.7 MB; skipped draws at startup 112 to 87; steady costs within the run-to-run spread. Touched areas passed (unit, offline plans, ten captured-frame replays, character replacement 109 package checks, live INI, owned Present).
+
 ## 2.0.0: one generation for the Mods folder (2026-10-27, D-131)
 
 - docs/folder-generation.md. Step 1, offline and in the frontend: the native Core bridge serves several Mods in one generation (per Mod its contract, discovery and skeleton; a native answers the Mod whose TextureOverride runs and holds only the draw's own Mod to the contract); `CharacterProgram::discover_folder` loads the Mods folder in the original's include order and gives each character Mod its package; a Mod the folder cannot take is left out with its own reason.

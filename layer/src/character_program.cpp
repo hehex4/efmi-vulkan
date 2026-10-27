@@ -103,10 +103,12 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         const auto core = std::filesystem::u8path(config.get("core"));
         if (!ini.is_absolute() || !core.is_absolute()) throw std::runtime_error("Runtime INI/Core paths must be absolute");
         std::vector<uint8_t> payload;
+        std::vector<CharacterSource> files;
         std::map<std::wstring, uint32_t> remaps;
         for (uint32_t i = 0; i < package.streams.size(); ++i) {
             auto& s = package.streams[i];
             const auto source = std::filesystem::u8path(config.get(("stream_" + std::to_string(i)).c_str()));
+            files.push_back({source.u8string(), 0, 0});
             if (!source.is_absolute()) throw std::runtime_error("Runtime stream catalogue is incomplete");
             auto data = read(source, 128ull << 20);
             if (data.empty() || data.size() % s.stride || payload.size() + data.size() > (512ull << 20)) throw std::runtime_error("Runtime mesh size or stride invalid");
@@ -126,7 +128,8 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         element_offsets_ = facts->element_offsets;
         efmittl_ = facts->efmittl;
         catalogue(package, remaps);
-        return true;
+        // Validated and catalogued: the bytes are read again from the files when needed (ISSUE-011).
+        return package.release_payload(std::move(files), reason);
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesystem::path& core, const std::filesystem::path& settings_folder,
@@ -387,6 +390,7 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
         made.edits.push_back({2, VK_FORMAT_R8G8B8A8_UINT, VK_FORMAT_R16G16B16A16_UINT});
         std::map<std::wstring, uint32_t> remaps, meshes;
         std::vector<uint8_t> payload;
+        std::vector<CharacterSource> files(made.streams.size());
         auto add = [&](const std::filesystem::path& path, uint32_t kind, uint32_t stride) {
             auto data = read(path, 128ull << 20);
             if (data.empty() || !stride || data.size() % stride || payload.size() + data.size() > (512ull << 20))
@@ -397,6 +401,7 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
             s.kind = kind; s.stride = stride; s.offset = payload.size(); s.size = data.size();
             payload.insert(payload.end(), data.begin(), data.end());
             made.streams.push_back(s);
+            files.push_back({path.u8string(), 0, 0});
             return uint32_t(made.streams.size() - 1);
         };
         for (size_t i = 0; i < made.components.size(); ++i)
@@ -422,9 +427,12 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
         made.payload = std::move(payload);
         made.materials = true;
         if (!validate_refreshed(made, reason)) return false;
-        package = std::move(made);
         for (const auto& mesh : meshes) streams_.emplace(mesh.first, mesh.second);
-        catalogue(package, remaps);
+        catalogue(made, remaps);
+        // Validated and catalogued: as the original frees a buffer's file bytes once the resource holds
+        // them, the package keeps where they are and reads them again when it needs them (ISSUE-011).
+        if (!made.release_payload(std::move(files), reason)) return false;
+        package = std::move(made);
         left_to_game_ = found.left_to_game;
         identify_components_ = found.identify_components;
         element_offsets_ = found.element_offsets;

@@ -4,7 +4,9 @@
 #include <cstring>
 #include <fstream>
 #include <filesystem>
+#include <numeric>
 #include <set>
+#include <thread>
 
 namespace efvk {
 namespace {
@@ -15,14 +17,51 @@ constexpr uint64_t kMaxPayload = 512ull << 20;
 
 template <class T> T at(const uint8_t* p) { T v; std::memcpy(&v, p, sizeof(v)); return v; }
 
-bool open_file(const std::string& path, std::ifstream& in)
+bool widen(const std::string& path, std::wstring& wide)
 {
     int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), static_cast<int>(path.size()), nullptr, 0);
     if (count <= 0) return false;
-    std::wstring wide(count, L'\0');
+    wide.assign(count, L'\0');
     MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), static_cast<int>(path.size()), &wide[0], count);
+    return true;
+}
+bool open_file(const std::string& path, std::ifstream& in)
+{
+    std::wstring wide;
+    if (!widen(path, wide)) return false;
     in.open(wide.c_str(), std::ios::binary | std::ios::ate);
     return bool(in);
+}
+
+// A stream's bytes from its file into `out`, checked against the checksum taken when they were
+// validated; read as the original's LoadBufferFromFile reads a buffer file (CreateFile, ReadFile).
+// `bounce`: `out` is write-combined memory (the mesh's upload), which the checksum must not read
+// back, so the bytes pass through that buffer, a piece at a time while it is warm in the cache.
+bool read_source(const CharacterSource& source, uint64_t size, uint8_t* out, std::vector<uint8_t>* bounce, std::string& reason)
+{
+    std::wstring wide;
+    if (!widen(source.path, wide)) { reason = "mesh file path is not UTF-8: " + source.path; return false; }
+    struct Handle { HANDLE h; ~Handle() { if (h != INVALID_HANDLE_VALUE) CloseHandle(h); } } file{
+        CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
+    if (file.h == INVALID_HANDLE_VALUE) { reason = "mesh file missing or busy: " + source.path; return false; }
+    LARGE_INTEGER length{}, at{};
+    if (!GetFileSizeEx(file.h, &length) || static_cast<uint64_t>(length.QuadPart) < source.offset + size) {
+        reason = "mesh file changed since the load (shorter): " + source.path; return false;
+    }
+    at.QuadPart = static_cast<LONGLONG>(source.offset);
+    if (!SetFilePointerEx(file.h, at, nullptr, FILE_BEGIN)) { reason = "mesh file read failed: " + source.path; return false; }
+    uint32_t crc = 0;
+    for (uint64_t done = 0; done < size;) {
+        const DWORD n = static_cast<DWORD>(std::min<uint64_t>(size - done, bounce ? bounce->size() : (1u << 30)));
+        uint8_t* target = bounce ? bounce->data() : out + done;
+        DWORD got = 0;
+        if (!ReadFile(file.h, target, n, &got, nullptr) || got != n) { reason = "mesh file read failed: " + source.path; return false; }
+        crc = crc32c(crc, target, n);
+        if (bounce) std::memcpy(out + done, target, n);
+        done += n;
+    }
+    if (crc != source.crc) { reason = "mesh file changed since the load: " + source.path; return false; }
+    return true;
 }
 
 // Bounded material envelope. The embedded mesh must be v1, so envelopes cannot recurse.
@@ -124,7 +163,90 @@ bool CharacterPackage::load(const std::string& path, std::string& reason)
     in.seekg(0);
     in.read(reinterpret_cast<char*>(data.data()), size);
     if (!in) { reason = "character package read failed"; return false; }
-    return decode(data, reason);
+    if (!decode(data, reason)) return false;
+    // The payload ends the v1 package, which an envelope holds after its 32 bytes (decode checked both).
+    const uint64_t mesh_end = !std::memcmp(data.data(), kMaterialMagic, 8) ? 32 + at<uint64_t>(data.data() + 8) : data.size();
+    std::vector<CharacterSource> files;
+    for (const auto& s : streams) files.push_back({path, mesh_end - payload_bytes + s.offset, 0});
+    return release_payload(std::move(files), reason);
+}
+
+bool CharacterPackage::release_payload(std::vector<CharacterSource> files, std::string& reason)
+{
+    if (files.size() != streams.size() || payload.size() != payload_bytes) { reason = "mesh sources do not match the package's streams"; return false; }
+    for (size_t i = 0; i < streams.size(); ++i)
+        files[i].crc = crc32c(0, payload.data() + streams[i].offset, static_cast<size_t>(streams[i].size));
+    sources = std::move(files);
+    std::vector<uint8_t>().swap(payload);
+    return true;
+}
+
+bool CharacterPackage::read_stream(uint32_t stream, std::vector<uint8_t>& out, std::string& reason) const
+{
+    if (stream >= streams.size()) { reason = "stream out of range"; return false; }
+    const auto& s = streams[stream];
+    out.resize(static_cast<size_t>(s.size));
+    if (sources.empty()) {
+        if (s.offset + s.size > payload.size()) { reason = "stream outside the payload"; return false; }
+        std::memcpy(out.data(), payload.data() + s.offset, static_cast<size_t>(s.size));
+        return true;
+    }
+    return read_source(sources[stream], s.size, out.data(), nullptr, reason);
+}
+
+bool CharacterPackage::read_payload(uint8_t* out, std::string& reason) const
+{
+    if (sources.empty()) {
+        if (payload.size() != payload_bytes) { reason = "the package holds neither its payload nor its sources"; return false; }
+        std::memcpy(out, payload.data(), payload.size());
+        return true;
+    }
+    std::vector<uint32_t> order(streams.size());
+    std::iota(order.begin(), order.end(), 0u);
+    std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return streams[a].offset < streams[b].offset; });
+    // Zero between the streams; streams that share bytes are read by one thread.
+    uint64_t cursor = 0;
+    bool overlapping = false;
+    for (const uint32_t i : order) {
+        const auto& s = streams[i];
+        if (s.offset > cursor) std::memset(out + cursor, 0, static_cast<size_t>(s.offset - cursor));
+        overlapping |= s.offset < cursor;
+        cursor = std::max(cursor, s.offset + s.size);
+    }
+    if (cursor < payload_bytes) std::memset(out + cursor, 0, static_cast<size_t>(payload_bytes - cursor));
+    // The files are read by a few threads at once, each into its own streams' bytes: the page cache
+    // serves them in parallel, and one thread reading a character's files took three times as long as
+    // copying a held payload (ISSUE-011).
+    const size_t workers = overlapping ? 1 : std::min<size_t>(streams.size(), std::clamp(std::thread::hardware_concurrency() / 2, 1u, 4u));
+    std::vector<std::vector<uint32_t>> groups(workers);
+    std::vector<uint64_t> bytes(workers, 0);
+    std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return streams[a].size > streams[b].size; });
+    for (const uint32_t i : order) {
+        const size_t g = std::min_element(bytes.begin(), bytes.end()) - bytes.begin();
+        groups[g].push_back(i); bytes[g] += streams[i].size;
+    }
+    std::vector<std::string> reasons(workers);
+    std::vector<char> done(workers, 0);
+    auto read_group = [&](size_t g) {
+        uint64_t largest = 0;
+        for (const uint32_t i : groups[g]) largest = std::max(largest, streams[i].size);
+        std::vector<uint8_t> bounce(static_cast<size_t>(std::min<uint64_t>(largest, 1u << 20)));
+        for (const uint32_t i : groups[g])
+            if (!read_source(sources[i], streams[i].size, out + streams[i].offset, &bounce, reasons[g])) return;
+        done[g] = 1;
+    };
+    std::vector<std::thread> threads;
+    try {
+        for (size_t g = 1; g < workers; ++g) threads.emplace_back(read_group, g);
+    } catch (const std::system_error&) {
+        // No thread to spare: this one reads the rest.
+        for (size_t g = threads.size() + 1; g < workers; ++g) read_group(g);
+    }
+    read_group(0);
+    for (auto& t : threads) t.join();
+    for (size_t g = 0; g < workers; ++g)
+        if (!done[g]) { reason = reasons[g]; return false; }
+    return true;
 }
 
 // The component mask of a stream with bone indices (and optional weights), every index inside the
@@ -182,8 +304,13 @@ bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint3
         (uint64_t(weight_offset) + weights > s.stride || (weight_offset < index_offset + element && index_offset < weight_offset + weights)))) {
         reason = "bone elements outside the stream or overlapping"; return false;
     }
-    if (s.offset + s.size > payload.size()) { reason = "bone stream outside the payload"; return false; }
-    if (!stream_bones(components, bones, payload.data(), s, reason)) return false;
+    // The stream's bytes, held or read again from its file (ISSUE-011).
+    std::vector<uint8_t> bytes;
+    if (!read_stream(stream, bytes, reason)) return false;
+    CharacterStream read = s;
+    read.offset = 0;
+    if (!stream_bones(components, bones, bytes.data(), read, reason)) return false;
+    s.components = read.components;
     streams[stream] = s;
     return true;
 }
@@ -322,6 +449,7 @@ bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& rea
                 if (stream != kCharacterNone) l.required |= next.streams[stream].components;
             }
     next.payload.assign(payload, payload + payload_bytes);
+    next.payload_bytes = payload_bytes;
     *this = std::move(next);
     return true;
 }

@@ -86,6 +86,9 @@ def main() -> int:
                 metrics.update({key + "_us_per_frame": (value - previous.get(key, 0)) / frames for key, value in stage.items()})
                 metrics["startup_texture_wait_us"] = w["textures"]["draw_wait_microseconds"]
                 metrics["startup_variant_wait_us"] = w["record"]["variant_wait_microseconds"]
+                # Draws of an activated package skipped while its mesh and first batch were on their way.
+                metrics["startup_preparing_draws"] = sum(p.get("counters", {}).get("preparing", 0) for p in w.get("packages", [w]))
+                metrics["startup_mesh_upload_us"] = sum(p.get("mesh_upload_microseconds", 0) for p in w.get("packages", [w]))
                 metrics["steady_texture_wait_us"] = r["textures"]["draw_wait_microseconds"] - w["textures"]["draw_wait_microseconds"]
                 metrics["steady_variant_wait_us"] = r["record"]["variant_wait_microseconds"] - w["record"]["variant_wait_microseconds"]
                 row = {"scene": scene, "pair": pair, "build": name, "version": final["version"], "metrics": metrics,

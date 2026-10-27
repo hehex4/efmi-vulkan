@@ -202,6 +202,8 @@ def several_packages(checks, validation):
     packages = status.get("packages", [])
     names = [Path(p.get("path", "")).name for p in packages]
     checks.equal(names, ["0-other.bin", "character.bin"], label + ": both packages listed in name order")
+    held = [(p.get("package_bytes", 0) > 0, p.get("payload_held_bytes", -1)) for p in packages]
+    checks.equal(held, [(True, 0)] * len(packages), label + ": no package holds its mesh bytes in host memory (ISSUE-011)")
     if len(packages) == 2:
         other, own = packages
         checks.equal((other["lazy"], other["activated"], other.get("images_ready", 0), other["counters"].get("replaced", 0)),
@@ -281,6 +283,8 @@ def directory_generation(checks, validation):
     packages = status.get("packages", [])
     names = [Path(p.get("path", "")).parent.name for p in packages]
     checks.equal(names, ["fixture", "other"], label + ": both character INIs found, the DISABLED folder skipped")
+    held = [(p.get("package_bytes", 0) > 0, p.get("payload_held_bytes", -1)) for p in packages]
+    checks.equal(held, [(True, 0)] * len(packages), label + ": no package holds its mesh bytes in host memory (ISSUE-011)")
     left_out = status.get("folder_generation", {}).get("left_out", [])
     checks.equal([Path(m.get("ini", "")).parent.name for m in left_out], ["broken"],
                  label + ": the Mod the layer cannot take is left out alone, with its reason " + str([m.get("reason", "") for m in left_out]))

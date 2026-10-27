@@ -174,13 +174,16 @@ struct GpuMesh {
         if (buffer) d.DestroyBuffer(device, buffer, nullptr);
         if (memory) d.FreeMemory(device, memory, nullptr);
     }
-    bool create(const std::vector<uint8_t>& payload, const VkPhysicalDeviceMemoryProperties& properties, std::string& reason)
+    // The package's streams go from their files straight into the mapped memory, as the original reads
+    // a buffer file into the resource it creates and keeps no copy (ISSUE-011).
+    bool create(const CharacterPackage& package, const VkPhysicalDeviceMemoryProperties& properties, std::string& reason)
     {
         auto good = [&](VkResult result, const char* text) { if (result == VK_SUCCESS) return true; reason = text; return false; };
         VkBufferCreateInfo ci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         // Room behind the last stream: an element may reach past its file's stride (kCharacterOvershoot).
         const size_t padding = 256;
-        ci.size = payload.size() + padding; ci.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        const size_t bytes = static_cast<size_t>(package.payload_bytes);
+        ci.size = bytes + padding; ci.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         if (!good(d.CreateBuffer(device, &ci, nullptr, &buffer), "create character mesh buffer")) return false;
         VkMemoryRequirements req; d.GetBufferMemoryRequirements(device, buffer, &req);
         if (req.size > (768ull << 20)) { reason = "character mesh allocation budget exceeded"; return false; }
@@ -195,10 +198,10 @@ struct GpuMesh {
         if (!good(d.AllocateMemory(device, &ai, nullptr, &memory), "allocate character mesh memory") ||
             !good(d.BindBufferMemory(device, buffer, memory, 0), "bind character mesh memory") ||
             !good(d.MapMemory(device, memory, 0, VK_WHOLE_SIZE, 0, &mapped), "map character mesh memory")) return false;
-        std::memcpy(mapped, payload.data(), payload.size());
-        std::memset(static_cast<uint8_t*>(mapped) + payload.size(), 0, padding);
+        const bool read = package.read_payload(static_cast<uint8_t*>(mapped), reason);
+        std::memset(static_cast<uint8_t*>(mapped) + bytes, 0, padding);
         d.UnmapMemory(device, memory);
-        return true;
+        return read;
     }
 };
 
@@ -733,6 +736,7 @@ public:
     // What activating takes in device-local memory: the images (at most the image budget), the mesh
     // and the snapshot batches made at once (D-092). Set when the package is configured.
     uint64_t activation_bytes = 0;
+    std::atomic<uint64_t> mesh_upload_us{0}; // the mesh read from its files into device memory, once activated
     uint64_t next_memory_check = 0, memory_logged_us = 0;
     // The largest device-local heap's budget minus its use (VK_EXT_memory_budget); false without it.
     static bool device_local_free(Device* device, uint64_t& free_bytes, uint64_t& heap_bytes)
@@ -821,9 +825,12 @@ public:
         try {
             auto created = std::make_shared<GpuMesh>(device->handle, storage);
             std::string reason;
-            if (!created->create(package.payload, memory, reason)) { note(reason); return; }
-            logf("character mesh uploaded: %llu bytes in %s memory", static_cast<unsigned long long>(package.payload.size()),
-                 created->device_local ? "device" : "host");
+            const uint64_t began = host_time_us();
+            if (!created->create(package, memory, reason)) { note(reason); return; }
+            mesh_upload_us = host_time_us() - began;
+            logf("character mesh uploaded: %llu bytes in %s memory from %s in %llu us", static_cast<unsigned long long>(package.payload_bytes),
+                 created->device_local ? "device" : "host", package.sources.empty() ? "the package" : "the files",
+                 static_cast<unsigned long long>(mesh_upload_us.load()));
             { std::lock_guard<std::mutex> lock(pool_mx); mesh = created; }
             activating.~Activating(); activating.textures = nullptr;
             while (true) {
@@ -1495,7 +1502,7 @@ bool CharacterGeneration::init_materials()
         image_ids.push_back(id);
     }
     // D-092: activating brings the mesh and the first snapshot batches up; the textures come on demand.
-    activation_bytes = package.payload.size() + (32ull << 20);
+    activation_bytes = package.payload_bytes + (32ull << 20);
     return true;
 }
 
@@ -3620,7 +3627,9 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
     w.end_object();
     w.kn("frame", backend.frame.load()); w.kn("presents", backend.presents.load());
     w.kn("sections", backend.package.sections.size());
-    w.kn("package_bytes", backend.package.payload.size());
+    w.kn("package_bytes", backend.package.payload_bytes);
+    w.kn("payload_held_bytes", backend.package.payload.size()); // in host memory (ISSUE-011: none once loaded)
+    w.kn("mesh_upload_microseconds", backend.mesh_upload_us.load());
     w.kb("materials", backend.package.materials);
     w.kn("material_profiles", backend.package.profiles.size());
     w.kn("image_count", backend.image_ids.size());

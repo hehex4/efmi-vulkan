@@ -125,6 +125,45 @@ static std::vector<uint8_t> package(Model* out = nullptr)
     return data;
 }
 static void seal(std::vector<uint8_t>& data) { poke(data, 36, crc32c(0, data.data() + 48, data.size() - 48)); }
+// A package file of the test's own, in the temporary folder.
+static std::filesystem::path package_file(const char* name, const std::vector<uint8_t>& bytes)
+{
+    const auto path = std::filesystem::temp_directory_path() / (std::string("efvk-") + name + "-" + std::to_string(GetCurrentProcessId()) + ".bin");
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return path;
+}
+
+// ISSUE-011: 3DMigoto keeps no host copy of a buffer it made from a file (LoadBufferFromFile frees its
+// bytes once CreateBuffer took them). A loaded package holds no payload either: where each stream is
+// in its file, and the checksum of the bytes validated at load; its streams are read again from there.
+static void payload_tests(const std::vector<uint8_t>& valid, const Model& m)
+{
+    const auto path = package_file("payload", valid);
+    CharacterPackage p;
+    std::string why;
+    check(p.load(path.u8string(), why) && p.payload.empty() && p.payload_bytes == m.payload.size() && p.sources.size() == p.streams.size(),
+          "a loaded package holds no payload, only where each stream is in its file");
+    std::vector<uint8_t> read(m.payload.size() + 1, 0xCD);
+    check(p.read_payload(read.data(), why) && std::equal(m.payload.begin(), m.payload.end(), read.begin()) && read.back() == 0xCD,
+          "the payload read again from the file is the one validated, zero between streams");
+    // The texcoord stream (3) carries no bone indices in the file; a live plan that binds it under the
+    // blend-index edit adopts it, its bytes read from the file.
+    check(p.adopt_bones(3, 0, kCharacterNone, why) && p.streams[3].components == 1, "a stream adopted for bones is read from its file");
+    // The position stream (2) changed in the file since the load.
+    auto changed = valid;
+    changed[48 + m.tables.size() + static_cast<size_t>(p.streams[2].offset) + 2] ^= 1;
+    package_file("payload", changed);
+    check(!p.read_payload(read.data(), why) && why.find("changed") != std::string::npos,
+          ("a stream whose file changed since the load refuses: " + why).c_str());
+    check(!p.adopt_bones(2, 0, kCharacterNone, why) && why.find("changed") != std::string::npos && p.streams[2].bone_index_offset == kCharacterNone,
+          "a stream adopted for bones whose file changed refuses and stays as it was");
+    std::filesystem::remove(path);
+    check(!p.read_payload(read.data(), why) && !why.empty(), "a stream whose file is gone refuses");
+    CharacterPackage held;
+    check(held.decode(valid, why) && held.payload == m.payload && held.payload_bytes == m.payload.size() && held.read_payload(read.data(), why) &&
+          std::equal(m.payload.begin(), m.payload.end(), read.begin()), "a decoded package holds its payload until released");
+}
 
 static void material_tests(const std::vector<uint8_t>& mesh)
 {
@@ -151,6 +190,15 @@ static void material_tests(const std::vector<uint8_t>& mesh)
     check(package.decode(data, reason) && package.materials && package.images == std::vector<std::string>{path} &&
           package.profiles[0].code == code && package.pixels[0][0].asset == 0 && package.pixels[1][0].asset == kCharacterNone,
           "material envelope preserves exact code, per-draw file/null and mesh bytes");
+    {
+        // The envelope's mesh streams are read again from the envelope's file (ISSUE-011).
+        const auto file = package_file("envelope", data);
+        CharacterPackage loaded;
+        std::vector<uint8_t> read(package.payload.size());
+        check(loaded.load(file.u8string(), reason) && loaded.payload.empty() && loaded.read_payload(read.data(), reason) && read == package.payload,
+              "a material envelope's mesh is read again from its file");
+        std::filesystem::remove(file);
+    }
     {
         // A package without profiles: every fragment shader's rules come from its module (D-076).
         std::vector<uint8_t> bare(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(profile));
@@ -676,7 +724,7 @@ int main(int argc, char** argv)
     if (argc == 3 && !strcmp(argv[1], "--inspect")) {
         if (!p.load(argv[2], why)) { fprintf(stderr, "package rejected: %s\n", why.c_str()); return 1; }
         printf("{\"bones\":%u,\"components\":%zu,\"streams\":%zu,\"sections\":%zu,\"draws\":%zu,\"payload_bytes\":%zu,\"required\":[",
-               p.bones, p.components.size(), p.streams.size(), p.sections.size(), p.draws.size(), p.payload.size());
+               p.bones, p.components.size(), p.streams.size(), p.sections.size(), p.draws.size(), static_cast<size_t>(p.payload_bytes));
         for (size_t i = 0; i < p.lists.size(); ++i) printf("%s%u", i ? "," : "", p.lists[i].required);
         printf("],\"materials\":%s,\"images\":%zu,\"profiles\":%zu}\n", p.materials ? "true" : "false", p.images.size(), p.profiles.size());
         return 0;
@@ -788,6 +836,7 @@ int main(int argc, char** argv)
     { auto d = valid; poke(d, payload + m.remap_data, uint16_t(2000)); reject(d, "remap source outside the window refused"); }
     check(p.decode(valid, why), "valid package still accepted after the refusals");
     declaration_tests(p);
+    payload_tests(valid, m);
     material_tests(valid);
     register_tests();
     texture_role_tests();

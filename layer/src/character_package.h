@@ -102,6 +102,14 @@ struct CharacterMaterialProfile {
     std::vector<CharacterMaterialRule> rules;
 };
 
+// Where a stream's bytes are once the package released its payload (ISSUE-011): a region of a file,
+// and the checksum of the bytes validated at load.
+struct CharacterSource {
+    std::string path; // UTF-8
+    uint64_t offset = 0;
+    uint32_t crc = 0;
+};
+
 struct CharacterPackage {
     uint32_t bones = 0;
     std::vector<CharacterComponent> components; // in bone order, disjoint; bones between them belong to none
@@ -110,7 +118,10 @@ struct CharacterPackage {
     std::vector<CharacterList> lists;
     std::vector<CharacterDraw> draws;
     std::vector<CharacterEdit> edits;
+    // The mesh bytes, from decode until release_payload; payload_bytes stays their size.
     std::vector<uint8_t> payload;
+    uint64_t payload_bytes = 0;
+    std::vector<CharacterSource> sources; // per stream, once released
     bool materials = false;
     uint32_t material_vendor = 0, material_device = 0;
     std::vector<std::string> images; // absolute UTF-8 paths, immutable after load
@@ -132,6 +143,15 @@ struct CharacterPackage {
     // blend-index edit applies): the same checks as decode, then its component mask. Once per stream.
     bool adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason, uint32_t index_bytes = 2,
                      uint32_t weight_bytes = 2);
+    // 3DMigoto keeps no host copy of a buffer it made from a file: LoadBufferFromFile frees the bytes
+    // once CreateBuffer took them. The package does the same once validated: `files` names each
+    // stream's file and where its bytes begin; the payload goes and the streams are read again from
+    // there (the upload when the package activates, a stream a live plan adopts for bones).
+    bool release_payload(std::vector<CharacterSource> files, std::string& reason);
+    // The payload, zero between streams, into `out` (payload_bytes long): held, or read from the files.
+    // A stream whose bytes are not the ones validated at load refuses (its file changed since).
+    bool read_payload(uint8_t* out, std::string& reason) const;
+    bool read_stream(uint32_t stream, std::vector<uint8_t>& out, std::string& reason) const;
 };
 
 // True when the file starts with the character package magic. No other validation.
