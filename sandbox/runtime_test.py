@@ -169,6 +169,7 @@ def main():
     directory_generation(checks, validation)
     implicit_namespace(checks)
     stride_branches(checks)
+    lod_left_by_another_mod(checks)
     return checks.finish()
 
 
@@ -278,6 +279,40 @@ def stride_branches(checks):
                  [(0, 0, 1, 12), (1, 1, 1, 8)], label + ": a section per branch, with its component, LOD and stride")
     checks.check(len(found) == 2 and all(s.get("planned") and s.get("skip") and s.get("draws") for s in found),
                  label + ": each branch plans and draws with its stride " + str([s.get("reason", "") for s in found]))
+
+
+def lod_left_by_another_mod(checks):
+    """A Mod that never hands its LOD to the Core (Typhoeus: its LOD1 parts are components of their own)
+    in the folder generation, after another Mod's draws left the Core's one `$\\EFMIv1\\lod_level` at 1,
+    as in the original's one variable space. The Core reads that value only to pick the component's LOD
+    remap (MergedSkeleton.ini, `LodRemaps[component * levels + lod_level]`): a component without remaps
+    draws the same bones at any LOD and plans; one with a LOD1 remap must agree with the draw's LOD."""
+    root = Path(test_dir("runtime-lod-"))
+    mods = root / "Mods"
+    (mods / "a").mkdir(parents=True)
+    (mods / "b").mkdir()
+    fixture(mods / "a", settings="a", name="a.bin", namespace="runtime_a")
+    fixture(mods / "b", salt=0x5A5A5A5A, settings="b", name="b.bin", namespace="runtime_b")
+    a = mods / "a" / "mod.ini"
+    a.write_text(re.sub(r"^\$lod_level = \d+$", "$lod_level = 1", a.read_text(encoding="ascii"), flags=re.M), encoding="ascii")
+    b = mods / "b" / "mod.ini"
+    handed = "$\\EFMIv1\\lod_level = $lod_level\n"
+    text = b.read_text(encoding="ascii")
+    checks.check(handed in text, "the fixture hands its LOD to the Core")
+    b.write_text(re.sub(r"^\$lod_level = \d+\n", "", text, flags=re.M).replace(handed, ""), encoding="ascii")
+    run = subprocess.run([str(Path(DIST) / "efmi_vk_character_test.exe"), "--plan-folder", str(mods), str(CORE), str(root / "settings")],
+                         cwd=root, capture_output=True, text=True, errors="replace", timeout=120)
+    rows = {Path(r.get("ini", "")).parent.name: r for r in (json.loads(line) for line in run.stdout.splitlines() if line.startswith("{"))}
+    label = "a Mod that leaves the Core's LOD to the others"
+    checks.check(run.returncode == 0 and set(rows) >= {"a", "b"} and rows["b"].get("loaded"), label + ": both Mods load " + run.stderr[-300:])
+    sections = rows.get("b", {}).get("sections", [])
+    free = [s for s in sections if s.get("component") in (1, 2)]
+    remapped = [s for s in sections if s.get("component") == 0]
+    # Component 1 draws; component 2 is the fixture's hidden one (planned, skipped, no draw).
+    checks.check(free and all(s.get("planned") and s.get("skip") for s in free) and any(s.get("draws") for s in free),
+                 label + ": its components without LOD remaps plan whatever LOD the Core holds " + str([s.get("reason", "") for s in free]))
+    checks.check(remapped and all(not s.get("planned") and "LOD contract" in s.get("reason", "") for s in remapped),
+                 label + ": its component with a LOD1 remap must agree with the draw's LOD")
 
 
 def directory_generation(checks, validation):

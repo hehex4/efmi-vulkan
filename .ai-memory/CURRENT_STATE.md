@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.4: a LOD the Core holds from another Mod (2026-10-27, BUG-065)
+
+- From the 2.0.3 game session: Typhoeus' draws refused in about half; the folder's one `$\EFMIv1\lod_level` held another Mod's LOD. The contract now compares the remap the Core picks, not the LOD number (docs: KNOWN_ISSUES BUG-065).
+- Same session, sandbox-independent facts: frame pacing over the last 2048 frames mean 8.55 ms (117 fps), p50 8.34 ms, p99 10.8 ms, one 345 ms frame with a 289 ms first texture load; SiModGB replaced 554,457 of 554,548 matched draws.
+- Verification: the failing test, offline plans and folder generation unchanged (143 drawn sections, 19 of 19 alike), ten captured-frame replays, character replacement, live INI 91/91.
+
 ## 2.0.3: F10 keeps unchanged meshes on the device (2026-10-27, BUG-061's open part)
 
 - A successor generation whose package streams are the same bytes at the same places as the live one's keeps the live mesh (`keep_mesh`, `CharacterPackage::same_payload`: files, offsets, validated checksums), as images are kept by their files since 1.9.4. The original releases every resource on F10 and reads its files again at first use; the layer reads them once for the validation and no more. A discovered package's mesh files are laid out in the order of their files (the generation's resource order differed between parses, so the same files made different layouts).

@@ -327,12 +327,24 @@ class CharacterCore : public RuntimeExtension {
         value = EncodeFloat30(uint32_t(mixed ^ mixed >> 32) | 1u);
         return true;
     }
+    // The Core reads `lod_level` only to pick the component's LOD remap (MergedSkeleton.ini:
+    // `LodRemaps[component * levels + lod_level]`), so a draw is the original's when the remap the Core
+    // picks is the one the layer imported the bones with, whatever the two LOD numbers. In one variable
+    // space for the folder, as in the original's, a Mod that never hands its LOD to the Core (Typhoeus,
+    // whose LOD1 parts are components of their own) leaves the value another Mod's draw set, and DX11
+    // draws it all the same. LOD0 has no remap by the contract; LOD1's is the component's (none for
+    // most); beyond LOD1 the remap is not known here.
+    bool lod_agrees(const efvk::CharacterPackage& expected)
+    {
+        const auto lod = integer(v(L"lod_level").fval);
+        return lod == current.lod || ((lod == 0 || lod == 1) && !expected.components[current.component].has_remap);
+    }
     bool contract(const Mod& m, std::wstring& reason)
     {
         const auto& expected = m.expected;
         return (current.identity && current.instances == 1 && !current.first_instance && current.component < expected.components.size() && current.lod < 2 &&
             m.original_components.size() == expected.components.size() &&
-            integer(v(L"component_id").fval) == m.original_components[current.component] && integer(v(L"lod_level").fval) == current.lod &&
+            integer(v(L"component_id").fval) == m.original_components[current.component] && lod_agrees(expected) &&
             integer(v(L"bones_count").fval) == expected.bones && v(L"gpu_posed").fval == 1 && v(L"custom_mesh_scale").fval == 1) ||
             fail(reason, L"Original Core request differs from the resolved native identity, bone or LOD contract");
     }
