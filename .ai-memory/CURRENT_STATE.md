@@ -11,6 +11,7 @@
 - The user, in the 2.0.8 game session: basically no problems left; publish a release (GPLv3, install and use only, nothing for development).
 - 2.0.9: `scripts/build.py release` (no probe compiled in), relative configured folders from the DLL's folder (the release's `m2_mods = ../Mods`), LICENSE (GPLv3), THIRD_PARTY_NOTICES.md, release/ (configuration and README), scripts/check_release.py, docs/release.md.
 - Evidence (sandbox): the Mods-folder scene with the Mods folder named relative to the layer's folder (failing on 2.0.8: no Mod found; 25/25 now); the release check (files, digest, no pipe name, injected with the installed Mods: 18 character Mods, none left out, no fault, no pipe, validation clean, Core shaders compiled without dxil.dll); run_all's touched areas (text, unit, Mods-folder replay, character replacement, live INI, owned Present, probe end to end, modes): all passed. The release itself not yet run in the game; the user will download and test it.
+- Published 2026-10-27: tag v2.0.9 on c7cf4f5, https://github.com/loyal37/efmi-vulkan/releases/tag/v2.0.9, asset EFMI-Vulkan-2.0.9.zip (12,891,347 bytes, SHA-256 06e614c5f32fc022b246ccfc00c683683cc207d1703ee44206c06b7b757a8dc6, downloaded back and compared). Notes in English (the user: everything published in English). The user's own dist stays the 2.0.8 development build with the probe.
 
 ## 2.0.8: F10 around Mods added and removed, RabbitFX's anti-dither narrowed and ahead of its key (2026-10-27)
 
