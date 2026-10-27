@@ -94,6 +94,18 @@ material preparation and variant lookups repeated for unchanged inputs, and the 
 in the play path. **Change:** keep a list's translated result per section and input state, rebuilt
 only when the list's result differs; one generation for the Mods folder; a play configuration.
 
+Measured 2026-10-27 on 2.0.3 (vk03 replay, arcane, 29 matched draws a frame). Normal build, 6000
+frames, 173,913 matched draws: about 16.6 us per matched draw, of which plan 10.5 (the original's
+interpreter running the TextureOverride lists, then the compile to a file plan and the draw list,
+whose result is already cached by its signature), emit 1.4, bones 1.0, materials 0.9, snapshot 0.9,
+variants 0.7 (already looked up by pipeline, draw and material plan), append 0.6, identify 0.55.
+A phase-timing build (build/phase-profile in the worktree) splits the plan: interpreter about 5.2,
+compile 0.6, list 0.8, the rest setup; its timers inflate materials and variants to 2.5 and 1.9.
+The interpreter is the original's own per-draw work, which 3DMigoto runs too; what the layer adds
+is about 6 us spread over several sub-microsecond steps, with no single repeated result left to
+keep. Before more work here: the same figures from the game (the profile endpoint of the probe),
+where draws per frame and threads differ.
+
 ## Cause E: tests that do not model what failed
 
 BUG-050, BUG-052, BUG-054 and BUG-060 each passed the replay, because the replay kept its data
