@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.6: RabbitFX's anti-dither (2026-10-27, D-133)
+
+- The user: RabbitFX's anti-dither had no effect under Vulkan. It now works as RabbitFX's ShaderRegex does under DX11: the `\` key toggles the persistent `$\rabbitfx\censor`; while it is set, every draw of a pipeline whose fragment stage has the character dither (interleaved gradient noise against the instance window; 38 of 473 captured modules) is drawn without it: the application's draws through a twin pipeline bound in place of the game's, replaced draws through their variants.
+- Status: `folder_generation.discard_gates` (RabbitFX: index 172, component 3), `dither_off`, `dither_twins`, `dither_twins_failed`, `dither_twin_binds`.
+- Evidence (sandbox): recipe tests (rule and patch on fixtures and the 38 captured modules, all valid SPIR-V), the Mods-folder scene with a dithering application shader and `$censor` 1 (96/96; with `$censor` 0 its pictures fail), the vk03 replay with the installed folder (gate 172.w found, value 0). Not yet seen in the game.
+
 ## 2.0.5: panel settings adopted under the folder's names (2026-10-27, BUG-066)
 
 - Settings of a Mod's INI without a namespace (`k\1.ini` panels) are adopted under the folder generation's names; a folder file adopted by 2.0.0 to 2.0.3 is adopted again once. Verification: the failing scene checks (93/93 now), the vk03 replay, owned Present.

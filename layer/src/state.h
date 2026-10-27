@@ -346,6 +346,9 @@ struct DrawRec {
     uint32_t rp = 0;         // ordinal of the render pass inside the submitted command buffer, 0 when outside
     uint32_t targets = 0;    // one-based immutable render-target context, 0 outside/unobserved
     VkPipeline pipeline = VK_NULL_HANDLE;
+    // What the driver has bound for the draw: `pipeline`, or its twin without the character dither
+    // (D-133). Code that binds its own pipeline in between binds this one back.
+    VkPipeline bound = VK_NULL_HANDLE;
     VkBuffer ib = VK_NULL_HANDLE;
     uint64_t ib_off = 0;
     VkBuffer indirect = VK_NULL_HANDLE;
@@ -425,8 +428,9 @@ struct CmdBuf {
     std::vector<std::shared_ptr<CommandOwner>> owners;
     uint64_t character_frame = 0;  // the character backend's number for this recording; 0: none yet
 
-    // Current bindings while recording.
+    // Current bindings while recording. `gfx_bound` is what the driver has (DrawRec::bound).
     VkPipeline gfx_pipeline = VK_NULL_HANDLE;
+    VkPipeline gfx_bound = VK_NULL_HANDLE;
     VkPipeline comp_pipeline = VK_NULL_HANDLE;
     VkBuffer ib = VK_NULL_HANDLE;
     uint64_t ib_off = 0;

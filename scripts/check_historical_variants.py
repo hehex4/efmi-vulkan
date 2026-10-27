@@ -312,7 +312,7 @@ def main():
         (out/"cases.inc").write_text(generated, encoding="ascii")
         sources_cpp = [ROOT/"sandbox/historical_variant_gpu.cpp"]
         sources_cpp += [ROOT/"frontend/assets"/name for name in ("dds.cpp", "image_upload.cpp", "resource_cache.cpp", "buffer_upload.cpp", "file_plan.cpp", "file_draws.cpp")]
-        sources_cpp += [ROOT/"frontend/gpu"/name for name in ("fragment_images.cpp", "material_plan.cpp", "draw_transaction.cpp")]
+        sources_cpp += [ROOT/"frontend/gpu"/name for name in ("fragment_images.cpp", "dither_kills.cpp", "material_plan.cpp", "draw_transaction.cpp")]
         sources_cpp += [ROOT/"layer/src"/name for name in ("pipeline_recipe.cpp", "pipeline_variant.cpp", "spirv_repoint.cpp", "variant_cache.cpp", "draw_snapshots.cpp")]
         exe = out/"historical_variants.exe"
         args = COMMON+["/DNOMINMAX", "/I"+find_vulkan_include(), "/I"+str(out), "/I"+str(ROOT/"frontend/assets"),

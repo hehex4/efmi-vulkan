@@ -58,7 +58,18 @@ the instance window (left alone: not a character's fade), alpha-test kills match
 
 ## Order of work, each step test first
 
-Status 2026-10-27: step 2's mechanism done (IniRuntime::discard_gates; the Mods-folder scene's RabbitFX-shaped library reports IniParams[172].w = $censor; status `folder_generation.discard_gates`, `dither_off`). The installed RabbitFX is not loaded as an INI: the layer's RabbitFX interface (D-082, frontend/xxmi/rabbit_textures.h) stands in for it and lacks the anti-dither contract (`$censor` not persistent, no `\` key, no gate); RabbitFX itself now: the installed file's key and ShaderRegex sections join the interface (RuntimeConfig::native_library_files), its `$censor` is persistent; the vk03 replay with the installed folder reports 172.w = 0. Step 1 done (frontend/gpu/dither_kills.cpp; recipe_test: the fixture's dither found, its alpha test and noise-only kill not; 38 of 473 distinct captured modules dithered, all 38 patched into valid SPIR-V without a dither branch).
+Status 2026-10-27 (2.0.6): all four steps done. Steps 3 and 4: `FragmentPatch::no_dither`; replaced and
+texture-only draws take it while the gate is set; the application's own draws bind the pipeline's twin
+(a variant with the application's vertex stage, no images, the dither dropped) in vkCmdBindPipeline
+(`CharacterModule::bind`), kept by the recording until it completed (`TwinOwner`); code that binds its
+own pipelines in between binds back what the driver had (`DrawRec::bound`, `CmdBuf::gfx_bound`). The
+gate is read once after the load as well, so the first frame sees it, and the first bind of a pipeline
+waits for its twin (bounded, 4 s), as a replaced draw waits for its variant (D-103). The twins follow
+RabbitFX's gate alone, not the layer's replacement switch. Scene check: the Mods-folder scene with a
+dithering application fragment shader (EFMI_VK_TEST_DITHER) and the saved `$censor` 1 draws every
+picture as without the dither (96/96); with `$censor` 0 its picture checks fail.
+
+Earlier: step 2's mechanism done (IniRuntime::discard_gates; the Mods-folder scene's RabbitFX-shaped library reports IniParams[172].w = $censor; status `folder_generation.discard_gates`, `dither_off`). The installed RabbitFX is not loaded as an INI: the layer's RabbitFX interface (D-082, frontend/xxmi/rabbit_textures.h) stands in for it and lacks the anti-dither contract (`$censor` not persistent, no `\` key, no gate); RabbitFX itself now: the installed file's key and ShaderRegex sections join the interface (RuntimeConfig::native_library_files), its `$censor` is persistent; the vk03 replay with the installed folder reports 172.w = 0. Step 1 done (frontend/gpu/dither_kills.cpp; recipe_test: the fixture's dither found, its alpha test and noise-only kill not; 38 of 473 distinct captured modules dithered, all 38 patched into valid SPIR-V without a dither branch).
 
 1. The rule and the patch on the captured modules (unit test: the dithered shaders found, the
    cutout and noise-only kills not; the patched modules validate and reach no dither kill).

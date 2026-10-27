@@ -97,6 +97,9 @@ struct CharacterModule {
     // After the application's vkCmdEndRenderPass of the instance `cb->pass` names (D-113): work that
     // belongs to that pass and needs targets of its own (the translucent captures and composite).
     void (*pass_end)(CharacterBackend&, CmdBuf*) = nullptr;
+    // At the application's vkCmdBindPipeline (graphics), on its recording thread: the pipeline to bind in
+    // its place, or `pipeline` (D-133: its twin without the character dither while a discard gate is set).
+    VkPipeline (*bind)(CharacterBackend&, CmdBuf*, VkPipeline pipeline) = nullptr;
 };
 
 // The copy this binary was built with.

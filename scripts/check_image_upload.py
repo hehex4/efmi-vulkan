@@ -35,6 +35,7 @@ def main() -> int:
                      str(ROOT/"frontend/assets/file_plan.cpp"),
                      str(ROOT/"frontend/assets/file_draws.cpp"),
                      str(ROOT/"frontend/gpu/fragment_images.cpp"),
+                     str(ROOT/"frontend/gpu/dither_kills.cpp"),
                      str(ROOT/"frontend/gpu/material_plan.cpp"),
                      str(ROOT/"frontend/gpu/draw_transaction.cpp"),
                      *[str(ROOT/"layer/src"/name) for name in ("pipeline_recipe.cpp","pipeline_variant.cpp",

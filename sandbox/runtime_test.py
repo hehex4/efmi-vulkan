@@ -391,6 +391,9 @@ def directory_generation(checks, validation):
     (settings / "mods-folder.ini").write_text(header + "$\\k\\1.ini\\z = 3\n$\\rabbitfx\\censor = 1\n", encoding="ascii")
     extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1", EFMI_VK_M2_IDENTITY_EXPIRY_MS="500",
                  EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
+                 # D-133: the scene's application fragment shader dithers; with RabbitFX's gate set (the saved
+                 # $censor) every picture must be the one without the dither.
+                 EFMI_VK_TEST_DITHER="1",
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
                  XDG_CACHE_HOME=str(root), TEMP=str(root), TMP=str(root), TMPDIR=str(root))
     env = layer_env(str(root / "layer.log"), extra=extra)
@@ -417,6 +420,10 @@ def directory_generation(checks, validation):
     checks.equal([(g.get("index"), g.get("component"), g.get("value")) for g in gates], [(172, 3, 1.0)],
                  label + ": the library's discard gate, IniParams[172].w, holds $censor (1) after its section's assignment")
     checks.check(status.get("folder_generation", {}).get("dither_off") is True, label + ": a set gate turns the character dither off")
+    fg = status.get("folder_generation", {})
+    checks.check(fg.get("dither_twins", 0) >= 1 and fg.get("dither_twin_binds", 0) >= 1 and fg.get("dither_twins_failed", 1) == 0,
+                 label + ": the application's dithered pipeline is bound as its twin without the dither " +
+                 str({k: fg.get(k) for k in ("dither_twins", "dither_twin_binds", "dither_twins_failed")}))
     left_out = status.get("folder_generation", {}).get("left_out", [])
     checks.equal([Path(m.get("ini", "")).parent.name for m in left_out], ["broken"],
                  label + ": the Mod the layer cannot take is left out alone, with its reason " + str([m.get("reason", "") for m in left_out]))

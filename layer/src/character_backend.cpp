@@ -1,4 +1,5 @@
 #include "character_backend.h"
+#include "../../frontend/gpu/dither_kills.h"
 #include "character_module.h"
 #include "command_owner.h"
 #include "draw_snapshots.h"
@@ -254,6 +255,33 @@ std::atomic<uint64_t> g_mesh_uploads{0}, g_meshes_kept{0};
 // D-133: a ShaderRegex replacement's discard gate is set (RabbitFX's IniParams[172].w = $censor): the
 // character dither is not drawn, as the replaced shader skips its discard. Set at each presentation.
 std::atomic<bool> g_dither_off{false};
+// Whether a pipeline's fragment stage has the character dither, by the pipeline's id (read once).
+std::shared_mutex g_dither_mx;
+std::unordered_map<uint32_t, bool> g_dither_pipelines;
+bool pipeline_dither(uint32_t id, const GraphicsRecipe& recipe)
+{
+    {
+        std::shared_lock<std::shared_mutex> lock(g_dither_mx);
+        const auto found = g_dither_pipelines.find(id);
+        if (found != g_dither_pipelines.end()) return found->second;
+    }
+    bool dither = false;
+    for (const auto& stage : recipe.stages)
+        if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) dither = efmi::gpu::dither_kills(stage.shader->code) > 0;
+    std::unique_lock<std::shared_mutex> lock(g_dither_mx);
+    if (g_dither_pipelines.size() >= 16384) g_dither_pipelines.clear();
+    g_dither_pipelines[id] = dither;
+    return dither;
+}
+// The variant identity of a pipeline's twin without the dither (captures take 1 to 3 << 40).
+inline uint64_t twin_identity(uint32_t pipeline_id) { return (uint64_t(0x40) << 40) | pipeline_id; }
+// A recording that bound twins keeps them until it completed: the application may destroy its pipeline
+// meanwhile, and the variant cache retire the twin with it.
+struct TwinOwner final : CommandOwner {
+    std::vector<std::shared_ptr<const PipelineVariant>> held;
+    void reset_after_completion() override { held.clear(); used = false; }
+    bool seal() override { return false; }
+};
 struct IndexHashTable {
     std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes;
     std::vector<uint8_t> scratch;
@@ -942,7 +970,8 @@ public:
     bool init_materials();
     // The variant a (pipeline, draw, material plan) resolved to, kept per generation (D-106): the
     // variant cache's key building and lookup cost 5 us per replaced draw. Cleared with the plans.
-    std::map<std::tuple<uint32_t, uint32_t, const StaticMaterial*>, std::shared_ptr<const PipelineVariant>> variant_lookup;
+    std::map<std::tuple<uint32_t, uint32_t, const StaticMaterial*, bool>, std::shared_ptr<const PipelineVariant>> variant_lookup;
+    std::vector<FragmentPatch> scratch_patches; // a draw's material patch without the dither (D-133)
     bool refresh_materials()
     {
         variant_lookup.clear();
@@ -2063,11 +2092,20 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         struct WaitingVariant { uint32_t draw; VertexInputRecipe vertex; };
         std::vector<WaitingVariant> waiting; // Allocates only for a cold variant.
         variants.resize(list->count);
+        // While a discard gate is set (D-133) the draw's fragment stage goes without the character dither,
+        // as the application's own draws of the pipeline do through its twin.
+        const bool no_dither = g_dither_off.load(std::memory_order_relaxed) && pipeline_dither(pipe->second.id, *pipe->second.recipe);
+        auto patch_of = [&](uint32_t i) -> const FragmentPatch& {
+            if (!no_dither) return material_plans[i]->patch;
+            if (scratch_patches.size() < list->count) scratch_patches.resize(list->count);
+            scratch_patches[i] = material_plans[i]->patch; scratch_patches[i].no_dither = true;
+            return scratch_patches[i];
+        };
         auto keep_variant = [&](uint32_t i, const VariantResult& result) {
             if (!result.variant) return false;
             variants[i] = result.variant;
             if (variant_lookup.size() < 65536)
-                variant_lookup.emplace(std::make_tuple(pipe->second.id, list->first + i, material_plans[i]), result.variant);
+                variant_lookup.emplace(std::make_tuple(pipe->second.id, list->first + i, material_plans[i], no_dither), result.variant);
             return true;
         };
         for (uint32_t i = 0; i < list->count; ++i) {
@@ -2081,7 +2119,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     const auto recipe = translucency->recipe(pipe->second, CaptureKind(k), own_set, reason);
                     if (!recipe) return refuse(C_VARIANT, "translucent capture: " + reason);
                     FragmentPatch patch;
-                    if (k < 2) { patch = material_plans[i]->patch; if (capture_t4[i]) patch.images.push_back({capture_t4_binding.first, capture_t4_binding.second}); }
+                    if (k < 2) { patch = material_plans[i]->patch; patch.no_dither = no_dither; if (capture_t4[i]) patch.images.push_back({capture_t4_binding.first, capture_t4_binding.second}); }
                     else patch.replacement_images = 2;
                     const auto result = cache->request(capture_identity(pipe->second.id, CaptureKind(k)), recipe, pipe->second.layout, vertex, patch);
                     if (result.variant) { scratch_captures[k][i] = result.variant; continue; }
@@ -2092,14 +2130,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 }
                 continue;
             }
-            const auto lookup_key = std::make_tuple(pipe->second.id, list->first + i, material_plans[i]);
+            const auto lookup_key = std::make_tuple(pipe->second.id, list->first + i, material_plans[i], no_dither);
             if (const auto known = variant_lookup.find(lookup_key); known != variant_lookup.end()) { variants[i] = known->second; continue; }
             VertexInputRecipe vertex;
             std::string reason;
             if (!package.vertex_input(package.draws[list->first + i], pipe->second.recipe->vertex, vertex, reason))
                 return refuse(C_VERTEX, "character vertex declaration: " + reason);
             // Issue all cold requests before waiting so the existing builders can run in parallel.
-            const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, material_plans[i]->patch);
+            const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, patch_of(i));
             if (keep_variant(i, result)) continue;
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { waiting.push_back({i, std::move(vertex)}); continue; }
             return refuse(C_VARIANT, "character variant: " + result.reason);
@@ -2109,7 +2147,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             const auto remaining = std::max(std::chrono::milliseconds(0),
                 std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
             const auto result = cache->await(pipe->second.id, pipe->second.recipe, pipe->second.layout,
-                request.vertex, material_plans[request.draw]->patch, remaining);
+                request.vertex, patch_of(request.draw), remaining);
             if (keep_variant(request.draw, result)) continue;
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
             return refuse(C_VARIANT, "character variant: " + result.reason);
@@ -2214,7 +2252,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     scratch_pending_captures.clear();
     lap(S_SNAPSHOT);
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
-    if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.pipeline, original))
+    if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.bound ? r.bound : r.pipeline, original))
         return refuse(C_VARIANT, "character draw transaction refused");
     if (restore_layout) {
         draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
@@ -2280,6 +2318,7 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
     FragmentPatch patch = plans[0]->patch;
     patch.keep_vertex = true;
+    patch.no_dither = g_dither_off.load(std::memory_order_relaxed) && pipeline_dither(pipe.id, *pipe.recipe);
     const auto result = cache->await(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, patch, std::chrono::milliseconds(4000));
     if (!result.variant) {
         if (result.state == VariantState::Queued || result.state == VariantState::Building) { ++counters[C_PENDING]; return false; }
@@ -2300,7 +2339,7 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     args.first_instance = r.first_instance;
     const VariantDraw item{result.variant.get(), slot.set, slot.offset, &original, args};
     command_owner->variants.push_back(result.variant);
-    if (!emit_variant_draws(draw, cb->handle, &item, 1, r.pipeline, original))
+    if (!emit_variant_draws(draw, cb->handle, &item, 1, r.bound ? r.bound : r.pipeline, original))
         return refuse(C_VARIANT, "texture-only draw transaction refused");
     if (restore_layout) {
         draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
@@ -2704,6 +2743,14 @@ std::shared_ptr<FolderGeneration> folder_create(Device* device, const VkPhysical
     }
     for (auto& m : mods)
         if (m.program && m.program->gpu()) { folder->presenter = std::make_shared<OwnedPresenter>(device, m.program->gpu()); break; }
+    // The discard gates as the load left them (D-133): the first frame's draws already see them.
+    for (auto& m : mods)
+        if (m.program) {
+            folder->gates = m.program->discard_gates();
+            g_dither_off.store(std::any_of(folder->gates.begin(), folder->gates.end(), [](const auto& g) { return g.value != 0; }),
+                               std::memory_order_relaxed);
+            break;
+        }
     for (auto& m : mods)
         if (m.program) {
             if (!folder->presenter && !m.program->gpu_reason().empty()) logf("owned GPU work unavailable: %s", m.program->gpu_reason().c_str());
@@ -3011,6 +3058,11 @@ public:
     // the index region hashing; the packages' stages are in their own status.
     std::atomic<uint64_t> record_calls{0}, record_us{0}, hash_calls{0}, hash_us{0}, hash_misses{0};
     std::atomic<uint64_t> frame_us{0}, frame_calls{0}; // character_frame: every package's presentation work
+    // D-133: the twins of the application's pipelines without the character dither, by pipeline id.
+    std::shared_mutex twins_mx;
+    std::unordered_map<uint32_t, std::shared_ptr<const PipelineVariant>> twins;
+    std::unordered_set<uint32_t> twins_failed;
+    std::atomic<uint64_t> twin_binds{0};
     // The packages' sections by hash (D-096, D-097): a draw's index region is hashed once for every
     // package and looked up here, so only the packages with a section of that hash see the draw.
     // `counts` holds every index count a section matches, to pass over draws no section can match
@@ -3416,12 +3468,64 @@ bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
     }
     return false;
 }
+// At the application's graphics pipeline bind (D-133): while a discard gate is set (RabbitFX's anti-
+// dither), a pipeline whose fragment stage has the character dither is bound as its twin without it, as
+// the original's replaced shader skips the discard on every draw it makes. The twin is a variant of the
+// pipeline (its own vertex stage and images, the dither branch steered away) built by the variant cache's
+// workers; the first bind waits for it, and binds the application's pipeline only when that wait runs out
+// or the twin cannot be made. Recording thread; the gate off costs one load.
+VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline)
+{
+    // RabbitFX's state alone decides, as under DX11 its replaced shaders do whatever the character Mods do.
+    if (!g_dither_off.load(std::memory_order_relaxed) || !b.variants || !cb) return pipeline;
+    uint32_t id = 0;
+    std::shared_ptr<const GraphicsRecipe> recipe;
+    std::shared_ptr<const PipelineLayoutInfo> layout;
+    {
+        std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
+        const auto pipe = b.device->pipes.find(pipeline);
+        if (pipe == b.device->pipes.end() || !pipe->second.recipe || !pipe->second.layout) return pipeline;
+        id = pipe->second.id; recipe = pipe->second.recipe; layout = pipe->second.layout;
+    }
+    if (!pipeline_dither(id, *recipe)) return pipeline;
+    std::shared_ptr<const PipelineVariant> twin;
+    {
+        std::shared_lock<std::shared_mutex> lock(b.twins_mx);
+        if (b.twins_failed.count(id)) return pipeline;
+        const auto found = b.twins.find(id);
+        if (found != b.twins.end()) twin = found->second;
+    }
+    if (!twin) {
+        FragmentPatch patch;
+        patch.keep_vertex = true; patch.no_dither = true;
+        // The first bind waits for the twin (bounded), as the original's replaced shader is made when the
+        // game creates its shader and a replaced draw waits for its variant (D-103).
+        const auto result = b.variants->await(twin_identity(id), recipe, layout, recipe->vertex, patch, std::chrono::milliseconds(4000));
+        std::unique_lock<std::shared_mutex> lock(b.twins_mx);
+        if (result.variant) twin = b.twins[id] = result.variant;
+        else {
+            if (result.state == VariantState::Failed && b.twins_failed.insert(id).second)
+                logf("character dither: no twin for pipeline %u: %s", id, result.reason.c_str());
+            return pipeline;
+        }
+    }
+    const auto held = owner_for(cb->owners, &b.twins, [] { return std::make_shared<TwinOwner>(); });
+    if (!held) return pipeline;
+    auto& owner = static_cast<TwinOwner&>(*held);
+    owner.used = true;
+    if (std::find(owner.held.begin(), owner.held.end(), twin) == owner.held.end()) owner.held.push_back(twin);
+    ++b.twin_binds;
+    return twin->pipeline;
+}
 void character_retire(CharacterBackend& b, uint32_t id)
 {
     if (b.variants) {
         b.variants->retire(id);
         for (uint32_t k = 0; k < kCaptureKinds; ++k) b.variants->retire(capture_identity(id, CaptureKind(k)));
+        b.variants->retire(twin_identity(id));
     }
+    { std::unique_lock<std::shared_mutex> lock(b.twins_mx); b.twins.erase(id); b.twins_failed.erase(id); }
+    { std::unique_lock<std::shared_mutex> lock(g_dither_mx); g_dither_pipelines.erase(id); }
     if (b.translucency) b.translucency->retire(id);
     { std::lock_guard<std::mutex> lock(b.copy_mx); b.copy_facts.erase(id); }
     for (auto& c : b.controllers) {
@@ -3662,6 +3766,11 @@ void character_status(CharacterBackend& b, JsonWriter& w)
             w.end_array();
         }
         w.kb("dither_off", g_dither_off.load());
+        {
+            std::shared_lock<std::shared_mutex> lock(b.twins_mx);
+            w.kn("dither_twins", b.twins.size()); w.kn("dither_twins_failed", b.twins_failed.size());
+        }
+        w.kn("dither_twin_binds", b.twin_binds.load());
         w.end_object();
     }
     {
@@ -3687,6 +3796,7 @@ const CharacterModule* builtin_character_module()
         m.create = character_create; m.usable = character_usable; m.ready = character_ready; m.stop = character_stop;
         m.record = character_record; m.retire = character_retire; m.frame = character_frame; m.status = character_status;
         m.enable = character_enable; m.submit = character_submit; m.submitted = character_submitted; m.pass_end = character_pass_end;
+        m.bind = character_bind;
         return m;
     }();
     return &module;

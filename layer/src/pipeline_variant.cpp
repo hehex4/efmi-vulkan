@@ -1,4 +1,5 @@
 #include "pipeline_variant.h"
+#include "../../frontend/gpu/dither_kills.h"
 #include <set>
 
 namespace efvk {
@@ -20,7 +21,7 @@ static bool prepare_fragment(const GraphicsRecipe& recipe,const PipelineLayoutIn
     auto fail=[&](const char* why){reason=why;return false;};
     if(patch.images.size()+patch.nulls.size()>32)return fail("fragment_patch_budget");
     stage=recipe.stages.size();
-    if(patch.images.empty() && patch.nulls.empty())return true;
+    if(patch.images.empty() && patch.nulls.empty() && !patch.no_dither)return true;
     std::set<std::pair<uint32_t,uint32_t>> seen;
     for(const auto* list:{&patch.images,&patch.nulls})for(const auto& image:*list){
         if(!seen.insert({image.set,image.binding}).second)return fail("fragment_patch_duplicate_source");
@@ -54,6 +55,11 @@ static bool prepare_fragment(const GraphicsRecipe& recipe,const PipelineLayoutIn
         std::vector<efmi::gpu::ImageBindingMove> moves;
         for(uint32_t i=0;i<patch.images.size();++i)moves.push_back({patch.images[i].set,patch.images[i].binding,own_set,2+i});
         if(!efmi::gpu::repoint_fragment_images(words,moves,words,reason))return false;
+    }
+    if(patch.no_dither && efmi::gpu::dither_kills(words)){
+        std::vector<uint32_t> without;
+        if(!efmi::gpu::remove_dither(words,without,reason))return false;
+        words=std::move(without);
     }
     return true;
 }
@@ -135,7 +141,8 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
             for (const auto& pair : s->bindings)
                 if (!pair.second.immutable_samplers.empty() || pair.second.flags) { reason = "immutable_sampler_or_binding_flags"; return false; }
         }
-        if (patch.images.empty() && patch.nulls.empty()) { reason = "texture_only_variant_without_images"; return false; }
+        // A texture-only draw moves images; a twin of the application's pipeline (D-133) only drops the dither.
+        if (patch.images.empty() && patch.nulls.empty() && !patch.no_dither) { reason = "texture_only_variant_without_images"; return false; }
     } else if (!prepare_vertex_variant(recipe, source, max_sets, rewritten, reason)) return false;
     size_t fs_index=recipe.stages.size();std::vector<uint32_t> fragment;
     own_set = static_cast<uint32_t>(source.sets.size());

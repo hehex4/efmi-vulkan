@@ -498,6 +498,9 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             }
         }
         p.stats.bindings = RuntimeInputCount();G->constants_run=true;
+        // The gates hold from the first draw on, as the original's assignment runs at a replaced shader's
+        // first draw (D-133): once now, with the saved values restored, and after every presentation.
+        p.run_gates();
         RuntimeResetParser();load_guard.complete=true;return runtime;
     } catch (const std::exception& e) { reason = std::string(phase) + ": " + e.what(); return {}; }
 }

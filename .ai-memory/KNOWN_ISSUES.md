@@ -955,6 +955,8 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 
 ## LIMIT-036: ShaderOverride and ShaderRegex sections are inert under Vulkan
 
+- 2026-10-27 (2.0.6, D-133): one ShaderRegex effect is reproduced: a replacement that keeps the shader's discard behind an IniParams element (RabbitFX's anti-dither, 172.w = `$censor`) drops the character dither, found in SPIR-V by its data flow, from every draw while the element is set. The other replacements (RabbitFX's glow, FX and hue branches, other Mods' patterns) stay inert.
+
 - 2026-10-20 (candidate 1.6.4, D-089). The layer cannot tell which Vulkan pipeline a DX11 shader hash means. Xaihi's `ps skip.ini` (two pixel shaders skipped) and Yvonne's EFMITTL translucency (lit-pass capture and composite keyed to a vertex shader and the depth copy shader) do not act: the game draws those shaders, and Yvonne's translucent part appears only in depth-only passes. Lifting this needs a source of DX11 shader identity in Vulkan (a game-wide shader table from the paired catalogue would be one, if the user decides the runtime may depend on it).
 
 ## BUG-032: The first game session of 1.6.4 froze

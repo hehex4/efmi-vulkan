@@ -392,7 +392,7 @@ def build(out: Path) -> Path:
     sources = [ROOT / "sandbox/replay_gpu.cpp"]
     sources += [ROOT / "frontend/assets" / n for n in ("dds.cpp", "image_upload.cpp", "resource_cache.cpp", "buffer_upload.cpp",
                                                          "file_plan.cpp", "file_draws.cpp")]
-    sources += [ROOT / "frontend/gpu" / n for n in ("fragment_images.cpp", "material_plan.cpp", "draw_transaction.cpp")]
+    sources += [ROOT / "frontend/gpu" / n for n in ("fragment_images.cpp", "dither_kills.cpp", "material_plan.cpp", "draw_transaction.cpp")]
     sources += [ROOT / "layer/src" / n for n in ("pipeline_recipe.cpp", "pipeline_variant.cpp", "spirv_repoint.cpp", "variant_cache.cpp",
                                                  "draw_snapshots.cpp")]
     exe = out / "replay_gpu.exe"

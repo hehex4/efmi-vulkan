@@ -554,7 +554,8 @@ void Translucency::fail(const std::string& why)
 void Translucency::restore(CmdBuf* cb)
 {
     VkCommandBuffer cmd = cb->handle;
-    if (cb->gfx_pipeline) d_.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, cb->gfx_pipeline);
+    // What the driver had bound: the application's pipeline or its twin without the dither (D-133).
+    if (cb->gfx_pipeline) d_.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, cb->gfx_bound ? cb->gfx_bound : cb->gfx_pipeline);
     for (uint32_t i = 0; i < kMaxSets; ++i) {
         const SetBind& s = cb->sets[i];
         if (!s.set || s.pushed || s.unsupported || !s.layout_handle || uint64_t(s.dyn_first) + s.dyn_count > cb->dyn.size()) continue;

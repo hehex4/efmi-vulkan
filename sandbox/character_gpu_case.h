@@ -7,8 +7,13 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
 {
     auto recipe=m2_fixture::recipe();
     RecipeFixture layout_fixture(material);auto layout=layout_fixture.layout;
+    // D-133: the application's fragment shader with the character dither, for the scene that runs RabbitFX's
+    // anti-dither (EFMI_VK_TEST_DITHER=1 in this process's environment): its pictures must be the same.
+    const bool dither=[]{char value[4]={};return GetEnvironmentVariableA("EFMI_VK_TEST_DITHER",value,sizeof(value)) && value[0]=='1';}();
     if(material){
-        auto fs=std::make_shared<ShaderInfo>();fs->id=2;fs->code=variant_fixture::shader(false,true);fs->size=static_cast<uint32_t>(fs->code.size()*4);
+        auto fs=std::make_shared<ShaderInfo>();fs->id=2;
+        fs->code=variant_fixture::shader(false,true,6,dither?variant_fixture::Kill::Dither:variant_fixture::Kill::None);
+        fs->size=static_cast<uint32_t>(fs->code.size()*4);
         recipe.stages[1].shader=fs;recipe.blend_attachments[0].blendEnable=VK_FALSE;
     }
     if(use_rp2){auto pass=std::make_shared<RenderPassRecipe>(*recipe.render_pass);pass->version2=true;recipe.render_pass=pass;}

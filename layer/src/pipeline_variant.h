@@ -29,6 +29,9 @@ struct FragmentPatch {
     // Images a replaced fragment stage of the recipe reads at private bindings 2+i after `images`
     // (the translucent capture's opacity shader, D-113).
     uint32_t replacement_images = 0;
+    // The fragment stage without the character dither (D-133, efmi::gpu::remove_dither), as RabbitFX's
+    // replaced shader skips its discard while its gate is set. A module without the dither is unchanged.
+    bool no_dither = false;
 };
 std::vector<VkDescriptorSetLayoutBinding> private_draw_bindings(uint32_t image_count);
 

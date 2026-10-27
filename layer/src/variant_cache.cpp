@@ -21,6 +21,7 @@ VariantCache::Key VariantCache::key_for(uint64_t identity, const VertexInputReci
         for(const auto& image:*list)key.fragment.insert(key.fragment.end(),{image.set,image.binding});
     }
     key.fragment.push_back(fragment.keep_vertex ? 1u : 0u);
+    key.fragment.push_back(fragment.no_dither ? 1u : 0u);
     return key;
 }
 

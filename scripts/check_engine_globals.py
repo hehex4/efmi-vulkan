@@ -45,6 +45,7 @@ RULES = [
     (r"crc32c", r"hw_available|table|long_shifts|short_shifts", "constant", "computed at module initialization"),
     (r"character_core|efmittl_bridge", r"core_namespace|library", "constant", "names initialized with the module"),
     (r"hlsl_compiler", r"CLSID_DxcUtils", "constant", "a class identifier"),
+    (r"runtime_parser", r"wrapped", "constant", "the discard gate's pattern (D-133), built once and only read"),
     # Only a load uses these, and a load holds the load mutex.
     (r"runtime_parser", r"ini_sections|recursive_includes|ini_warned|enumParseError|buf|log_level|empty_section_vector", "load",
      "the INI parser's state, cleared at each load's start and end"),

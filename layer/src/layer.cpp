@@ -108,6 +108,7 @@ DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
         return r;
     }
     r.pipeline = cb->gfx_pipeline;
+    r.bound = cb->gfx_bound;
     r.ib = cb->ib;
     r.ib_off = cb->ib_off;
     r.index_size = cb->index_size;
@@ -377,13 +378,17 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindPipeline(VkCommandBuffer cmd, VkPipelineBin
 {
     count_call(HI_CmdBindPipeline);
     Device* dev = dev_of(cmd);
+    VkPipeline bound = pipeline;
     if (CmdBuf* cb = cb_of(dev, cmd)) {
-        if (point == VK_PIPELINE_BIND_POINT_GRAPHICS)
+        if (point == VK_PIPELINE_BIND_POINT_GRAPHICS) {
+            // The replacement code may bind the pipeline's twin without the character dither (D-133).
             cb->gfx_pipeline = pipeline;
-        else if (point == VK_PIPELINE_BIND_POINT_COMPUTE)
+            bound = m2_bind(dev, cb, pipeline);
+            cb->gfx_bound = bound;
+        } else if (point == VK_PIPELINE_BIND_POINT_COMPUTE)
             cb->comp_pipeline = pipeline;
     }
-    dev->d.CmdBindPipeline(cmd, point, pipeline);
+    dev->d.CmdBindPipeline(cmd, point, bound);
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkIndexType type)

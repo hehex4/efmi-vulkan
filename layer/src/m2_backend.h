@@ -25,6 +25,8 @@ void m2_create(Device*,const VkPhysicalDeviceProperties&,const VkPhysicalDeviceM
 void m2_stop(Device*);
 void m2_retire(Device*,VkPipeline);
 bool m2_record(Device*,CmdBuf*,const DrawRec&);
+// At the application's graphics pipeline bind: the pipeline to bind in its place (D-133), else `pipeline`.
+VkPipeline m2_bind(Device*,CmdBuf*,VkPipeline pipeline);
 // After the application ended the classic render pass CmdBuf::pass names (D-113).
 void m2_pass_end(Device*,CmdBuf*);
 void m2_seal(Device*,uint32_t,const VkCommandBuffer*);

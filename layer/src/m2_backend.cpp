@@ -217,7 +217,7 @@ bool M2Backend::record(CmdBuf* cb,const DrawRec& r)
     owner->variants.push_back(variant.variant);
     IndexedDraw draw_indices;draw_indices.count=profile.indices;
     if(!emit_variant_draw(draw,cb->handle,*variant.variant,slot.set,slot.offset,owner->mesh->geometry,
-                          draw_indices,r.pipeline,original))return refuse(unsupported,"M2 draw transaction refused");
+                          draw_indices,r.bound?r.bound:r.pipeline,original))return refuse(unsupported,"M2 draw transaction refused");
     ++replaced;return true;
 }
 
@@ -303,6 +303,12 @@ bool m2_record(Device* device,CmdBuf* cb,const DrawRec& r){
     if(!device->m2)return false;
     try{return device->m2->record(cb,r);}
     catch(const std::exception& e){++device->m2->unsupported;device->m2->note(e.what());return false;}
+}
+
+VkPipeline m2_bind(Device* device,CmdBuf* cb,VkPipeline pipeline){
+    if(!device->character_mode)return pipeline;
+    std::shared_lock<std::shared_mutex> lock(device->character_mx);
+    return device->character && device->character_module->bind ? device->character_module->bind(*device->character,cb,pipeline) : pipeline;
 }
 
 void m2_pass_end(Device* device,CmdBuf* cb){
