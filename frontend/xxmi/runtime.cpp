@@ -354,6 +354,28 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 HostParseExcerpt(text.c_str(), name.c_str());
             }
         }
+        for (const auto& path : config.native_library_files) {
+            // The file's namespace line, then only its [Key...] and [ShaderRegex...] sections.
+            std::ifstream in(path, std::ios::binary);
+            std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (bytes.size() >= 3 && (unsigned char)bytes[0] == 0xEF && (unsigned char)bytes[1] == 0xBB && (unsigned char)bytes[2] == 0xBF) bytes.erase(0, 3);
+            const int n = MultiByteToWideChar(CP_UTF8, 0, bytes.data(), int(bytes.size()), nullptr, 0);
+            std::wstring text(size_t(std::max(n, 0)), L'\0');
+            if (n) MultiByteToWideChar(CP_UTF8, 0, bytes.data(), int(bytes.size()), text.data(), n);
+            std::wistringstream lines(text);
+            std::wstring line, kept;
+            bool section = false, keep = false;
+            while (std::getline(lines, line)) {
+                if (!line.empty() && line.back() == L'\r') line.pop_back();
+                const auto first = line.find_first_not_of(L" \t");
+                if (first != std::wstring::npos && line[first] == L'[') {
+                    section = true;
+                    keep = !_wcsnicmp(line.c_str() + first, L"[Key", 4) || !_wcsnicmp(line.c_str() + first, L"[ShaderRegex", 12);
+                }
+                if (keep || (!section && first != std::wstring::npos && !_wcsnicmp(line.c_str() + first, L"namespace", 9))) kept += line + L"\n";
+            }
+            HostParseExcerpt(kept.c_str(), path.lexically_relative(config.resource_root).wstring().c_str());
+        }
         // Original [Constants] parsing consumes declarations and later executes
         // assignments from the generated settings file after default values.
         if (std::filesystem::exists(p.settings)) read_ini(p.settings, L"efvk-user-settings.ini");

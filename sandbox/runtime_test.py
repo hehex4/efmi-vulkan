@@ -315,28 +315,36 @@ def lod_left_by_another_mod(checks):
                  label + ": its component with a LOD1 remap must agree with the draw's LOD")
 
 
-RABBIT_LIKE = r"""namespace = RabbitLike
+# Shaped as the installed RabbitFX.ini (2.8): its sections the layer's interface provides natively
+# (D-082: [Constants], [CommandListSetTextures]) stay the interface's; its key and its ShaderRegex
+# sections join (D-133).
+RABBITFX_SHAPED = r"""namespace = RabbitFX
 [KeyCensor]
 key = no_modifiers \
 type = cycle
 $censor = 0,1
 [Constants]
-global persist $censor = 1
-global $touched = 0
+global persist $censor = 0
+global $h = 0.0
+[CommandListSetTextures]
+ps-t70 = ref ResourceDiffuse
 [ShaderRegexMain]
 shader_model = ps_4_0 ps_5_0
 temps = ini
 filter_index = 1718.1
 w172 = $censor
+if x172 != 0
+	post run = CommandListClean
+endif
 [ShaderRegexMain.Pattern]
 (?<discard>discard_nz r\d\.\w\n)
 [ShaderRegexMain.Pattern.Replace]
 ld_indexable(texture1d)(float,float,float,float) ${ini}.xyzw, l(172, 0), t120.xyzw\n
 if_z ${ini}.w\n
+
 	${discard}
+
 endif\n
-[CommandListSetTextures]
-$touched = 1
 """
 
 
@@ -372,20 +380,15 @@ def directory_generation(checks, validation):
     # parent, as the original's d3dx_user.ini) never read it.
     (folder / "k").mkdir()
     (folder / "k" / "1.ini").write_text("[Constants]\nglobal persist $z = 0\n", encoding="ascii")
-    # D-133: a ShaderRegex library shaped as RabbitFX's anti-dither, which the fixture calls by namespace
-    # (as Mods call RabbitFX's SetTextures). Its replacement keeps the shader's discard behind
-    # `if_z IniParams[172].w` and its section assigns `w172 = $censor`; under Vulkan the replacement cannot
-    # apply, and the folder generation reports the element and its value after that assignment.
-    (mods / "rabbit").mkdir()
-    (mods / "rabbit" / "rabbit.ini").write_text(RABBIT_LIKE, encoding="ascii")
-    ini_text = (folder / "mod.ini").read_text(encoding="ascii")
-    checks.check("[Present]\npost $active = 0\n" in ini_text, "the fixture has its Present list")
-    (folder / "mod.ini").write_text(ini_text.replace("[Present]\npost $active = 0\n",
-                                                     "[Present]\npost $active = 0\nrun = CommandList\\RabbitLike\\SetTextures\n"), encoding="ascii")
+    # D-133: RabbitFX's anti-dither. The layer provides RabbitFX natively (D-082); the installed file's key
+    # and ShaderRegex sections join: its replacement keeps the shader's discard behind `if_z
+    # IniParams[172].w`, its section assigns `w172 = $censor`, a persistent toggle the player left on.
+    (mods / "RabbitFX -ENDMI-").mkdir()
+    (mods / "RabbitFX -ENDMI-" / "RabbitFX.ini").write_text(RABBITFX_SHAPED, encoding="ascii")
     settings.mkdir()
     header = "; EFMI Vulkan persistent original INI variables\n[Constants]\n"
     (settings / "runtime_fixture-fixture.ini").write_text(header + "$\\k\\1.ini\\z = 7\n", encoding="ascii")
-    (settings / "mods-folder.ini").write_text(header + "$\\k\\1.ini\\z = 3\n", encoding="ascii")
+    (settings / "mods-folder.ini").write_text(header + "$\\k\\1.ini\\z = 3\n$\\rabbitfx\\censor = 1\n", encoding="ascii")
     extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1", EFMI_VK_M2_IDENTITY_EXPIRY_MS="500",
                  EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",

@@ -4,7 +4,9 @@
 // variables and command lists as Mods use them, where SetTextures binds a Mod's diffuse, lightmap
 // and normal map at the DX11 registers the draw's own fragment shader samples them from
 // (CommandListResolveRoles, a native command, asks the host). Glow, FX and hue features need
-// RabbitFX's shader rewrite and are not reproduced: those lists only reset their inputs.
+// RabbitFX's shader rewrite and are not reproduced: those lists only reset their inputs. Its anti-dither
+// toggle `$censor` is persistent as RabbitFX declares it; the installed file's key and ShaderRegex
+// sections join the generation beside this interface (RuntimeConfig::native_library_files, D-133).
 // Slots retain source meaning, never assumed to be Vulkan binding numbers.
 #pragma once
 #include <string>
@@ -44,7 +46,7 @@ global $s = 0.0
 global $v = 0.0
 global $brightness = 1.0
 global $interpolate = 1.0
-global $censor = 0
+global persist $censor = 0
 global $RabbitFXMain = 1718.1
 global $RabbitFXShadow = 1718.2
 global $RabbitFXShadowFace = 1718.3

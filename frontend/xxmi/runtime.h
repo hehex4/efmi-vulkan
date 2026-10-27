@@ -29,6 +29,10 @@ struct RuntimeConfig {
     // the inputs, each under its path relative to the root (`..\EFMITTL\translucency.ini`), so the
     // files it names resolve against its own folder as the original resolves them.
     std::vector<std::filesystem::path> libraries;
+    // Installed files of libraries the runtime provides natively (RabbitFX, D-082): their key and
+    // ShaderRegex sections join after the native interface (the key toggles the interface's variables,
+    // the ShaderRegex sections give the discard gates, D-133); every other section is the interface's.
+    std::vector<std::filesystem::path> native_library_files;
 };
 struct RuntimeInput {
     bool foreground = false;

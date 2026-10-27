@@ -141,6 +141,7 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
 {
     efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
                                          settings_folder, settings_name};
+    if (!mods.empty()) options.native_library_files = native_library_files(mods);
     if (factory) gpu_ = factory(core.parent_path().parent_path(), gpu_reason_);
     if (gpu_) {
         // The original loads every enabled INI of the Mod folder (DISABLED names excluded).
@@ -281,6 +282,23 @@ std::vector<std::filesystem::path> CharacterProgram::mods_characters(const std::
         if (has_section(ini_text(it->path()), "commandlistinitializemergedskeleton")) found.push_back(it->path());
     }
     if (error) reason = "cannot read the Mods folder " + mods.u8string() + ": " + error.message();
+    std::sort(found.begin(), found.end());
+    return found;
+}
+// The installed files of the libraries the runtime provides natively (RabbitFX, D-082, D-133): enabled
+// INIs of the Mods folder that declare one of their namespaces.
+std::vector<std::filesystem::path> CharacterProgram::native_library_files(const std::filesystem::path& mods)
+{
+    const auto native = efmi::frontend::character_core_libraries();
+    std::vector<std::filesystem::path> found;
+    std::error_code error;
+    for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
+         it.increment(error)) {
+        if (!_wcsnicmp(it->path().filename().c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
+        if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
+        const auto name = declared_namespace(it->path());
+        if (!name.empty() && std::find(native.begin(), native.end(), name) != native.end()) found.push_back(it->path());
+    }
     std::sort(found.begin(), found.end());
     return found;
 }
@@ -537,6 +555,7 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
             if (members.empty()) { reason = "every character Mod of the folder refused"; return false; }
             efmi::frontend::RuntimeConfig options{root, {source.core / "API.ini", source.core / "MergedSkeleton.ini", source.core / "SpatialIdentification.ini",
                                                          source.core / "Helpers.ini"}, source.settings, source.settings_name};
+            options.native_library_files = native_library_files(source.mods);
             std::vector<std::filesystem::path> ordered;
             include_order(source.mods, wanted, ordered);
             if (ordered.size() + options.inputs.size() > 128) throw std::runtime_error("The Mods folder has more INI files than one generation takes");

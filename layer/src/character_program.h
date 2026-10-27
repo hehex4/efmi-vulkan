@@ -65,6 +65,7 @@ public:
     // The character Mods of an EFMI Mods folder: every enabled INI (no part of its path starts with
     // DISABLED, as the original skips them) that declares the EFMIv1 merged-skeleton initializer.
     static std::vector<std::filesystem::path> mods_characters(const std::filesystem::path& mods, std::string& reason);
+    static std::vector<std::filesystem::path> native_library_files(const std::filesystem::path& mods);
     // The libraries a generation of `inputs` calls (D-112): every enabled INI of the Mods folder outside
     // every character Mod's folder that declares a namespace the inputs reference (`CommandList\NS\...`,
     // `$\NS\...`) and that neither an input nor `known` (the extension's own libraries) declares; then
