@@ -173,6 +173,12 @@ public:
     // Retired workers must not overwrite a newer generation's settings file.
     void suspend_persistence();
     RuntimeStatus status() const;
+    // D-133: the IniParams elements ShaderRegex replacements test before a discard they keep (RabbitFX:
+    // `ld ... l(172, 0), t120` and `if_z ini.w` around `${discard}`), each with its value after the
+    // sections' unconditional assignments to it, which present() runs as the original runs them
+    // whenever a replaced shader draws. Empty when no replacement gates a discard.
+    struct DiscardGate { uint32_t index = 0, component = 0; float value = 0; };
+    std::vector<DiscardGate> discard_gates() const;
     void note_timing(const char* name, uint64_t microseconds);
     std::vector<std::shared_ptr<const assets::FileResource>> resources() const;
 private:

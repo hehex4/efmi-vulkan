@@ -1,6 +1,7 @@
 // The parser is included unchanged, as in the standalone feasibility host.
 #include "ini_module.cpp"
 #include "runtime_host.h"
+#include <regex>
 
 std::wstring HostResourceDirectory();
 
@@ -27,6 +28,47 @@ void RuntimeParseParameterRegister()
     // The source disables out-of-range registers. Negative registers also
     // disable automatic binding; the resource itself is still allocated.
     if(G->IniParamsReg>=D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT)G->IniParamsReg=-1;
+}
+// D-133: ShaderRegex replacements that keep the shader's discard behind `if_z` on an IniParams element
+// read from t120, the original's IniParams texture (RabbitFX: `ld_indexable(texture1d)(...) ${ini}.xyzw,
+// l(172, 0), t120.xyzw`, `if_z ${ini}.w`, `${discard}`): each element once, from the replacement text as
+// the original reads it (the raw lines). Then the main ShaderRegex sections' unconditional assignments
+// to those elements (`w172 = $censor`), parsed as the original parses an IniParams assignment, into
+// `assignments`. The regex sections themselves stay unparsed and inert (D-089).
+void RuntimeShaderRegexGates(std::vector<std::pair<uint32_t, uint32_t>>& gates, CommandList& assignments)
+{
+    static const std::wregex wrapped(LR"(ld_indexable\(texture1d\)\([^)]*\)\s*\$\{(\w+)\}\.xyzw,\s*l\((\d+)(?:,\s*0)*\),\s*t120\.xyzw(?:\\n|\s)*if_z\s+\$\{\1\}\.([xyzw])(?:\\n|\s)*\$\{discard\})");
+    auto leaf = [](const std::wstring& name) { return name.substr(name.rfind(L'\\') + 1); };
+    const std::wstring suffix = L".pattern.replace";
+    for (const auto& section : ini_sections) {
+        if (_wcsnicmp(section.first.c_str(), L"ShaderRegex", 11)) continue;
+        const auto name = leaf(section.first);
+        if (name.size() <= suffix.size() || _wcsicmp(name.c_str() + name.size() - suffix.size(), suffix.c_str())) continue;
+        std::wstring text;
+        for (const auto& line : section.second.kv_vec) text += line.raw_line + L"\n";
+        for (std::wsregex_iterator it(text.begin(), text.end(), wrapped), end; it != end; ++it) {
+            const std::pair<uint32_t, uint32_t> gate{uint32_t(std::stoul((*it)[2].str())), uint32_t(std::wstring(L"xyzw").find((*it)[3].str()[0]))};
+            if (std::find(gates.begin(), gates.end(), gate) == gates.end()) gates.push_back(gate);
+        }
+    }
+    if (gates.empty()) return;
+    for (const auto& section : ini_sections) {
+        if (_wcsnicmp(section.first.c_str(), L"ShaderRegex", 11) || leaf(section.first).find(L'.') != std::wstring::npos) continue;
+        int depth = 0;
+        for (const auto& line : section.second.kv_vec) {
+            const auto& raw = line.raw_line;
+            if (!_wcsnicmp(raw.c_str(), L"if ", 3)) { ++depth; continue; }
+            if (!_wcsnicmp(raw.c_str(), L"endif", 5)) { depth = std::max(0, depth - 1); continue; }
+            if (depth || !_wcsnicmp(raw.c_str(), L"else", 4) || !_wcsnicmp(raw.c_str(), L"elif", 4)) continue;
+            int index = 0; float DirectX::XMFLOAT4::* member = nullptr;
+            if (!ParseIniParamName(line.first.c_str(), &index, &member) || index < 0) continue;
+            const uint32_t component = member == &DirectX::XMFLOAT4::x ? 0 : member == &DirectX::XMFLOAT4::y ? 1 :
+                                       member == &DirectX::XMFLOAT4::z ? 2 : member == &DirectX::XMFLOAT4::w ? 3 : 4;
+            if (std::find(gates.begin(), gates.end(), std::make_pair(uint32_t(index), component)) == gates.end()) continue;
+            std::wstring value = line.second;
+            ParseCommandListIniParamOverride(section.first.c_str(), line.first.c_str(), &value, &assignments, &line.ini_namespace);
+        }
+    }
 }
 void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,bool custom_shaders,bool shader_hooks)
 {

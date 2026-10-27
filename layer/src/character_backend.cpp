@@ -251,6 +251,9 @@ std::atomic<uint64_t> g_hash_full{0}, g_hash_bytes{0}, g_hash_new{0}, g_hash_gen
 std::atomic<uint64_t> g_quick_read_us{0}; // microseconds of the edge fingerprint reads (write-combined memory)
 // Meshes put on the device from their files, and those a successor generation kept from the live one.
 std::atomic<uint64_t> g_mesh_uploads{0}, g_meshes_kept{0};
+// D-133: a ShaderRegex replacement's discard gate is set (RabbitFX's IniParams[172].w = $censor): the
+// character dither is not drawn, as the replaced shader skips its discard. Set at each presentation.
+std::atomic<bool> g_dither_off{false};
 struct IndexHashTable {
     std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes;
     std::vector<uint8_t> scratch;
@@ -2566,6 +2569,7 @@ struct FolderGeneration {
     std::atomic<uint64_t> frame{1}, presents{0};
     std::atomic<float> frame_seconds{1.0f / 60};
     uint64_t last_frame_us = 0, save_checked_us = host_time_us();
+    std::vector<efmi::frontend::IniRuntime::DiscardGate> gates; // D-133, under plan_mx
     std::future<void> saving;
     bool empty = false; // the folder holds no character Mod: a valid generation of no package
     std::string reason, last_note;
@@ -2754,6 +2758,9 @@ void folder_frame(FolderGeneration& folder, bool had_draws, PresentWork* present
     if (!ini_present(*folder.program, folder.presenter.get(), folder.frame.load(), folder.frame_seconds.load(std::memory_order_relaxed),
                      had_draws, present, base, now, [&folder](const std::string& text) { folder.note(text); }))
         return;
+    // The discard gates the presentation's assignments left (D-133): any one set turns the dither off.
+    folder.gates = folder.program->discard_gates();
+    g_dither_off.store(std::any_of(folder.gates.begin(), folder.gates.end(), [](const auto& g) { return g.value != 0; }), std::memory_order_relaxed);
     if (now - folder.save_checked_us >= g_cfg.settings_save_seconds * 1000000) {
         folder.save_checked_us = now;
         if (folder.program->settings_dirty()) folder.save();
@@ -3646,6 +3653,15 @@ void character_status(CharacterBackend& b, JsonWriter& w)
             const auto ini = b.folder->program->status();
             w.key("ini"); w.begin_object(); w.kn("presents", ini.presents); w.kn("draws", ini.draws); w.kn("diagnostics", ini.diagnostics); w.end_object();
         }
+        {
+            std::lock_guard<std::mutex> lock(*b.folder->plan_mx);
+            w.key("discard_gates"); w.begin_array();
+            for (const auto& g : b.folder->gates) {
+                w.begin_object(); w.kn("index", g.index); w.kn("component", g.component); w.key("value"); w.raw(std::to_string(g.value)); w.end_object();
+            }
+            w.end_array();
+        }
+        w.kb("dither_off", g_dither_off.load());
         w.end_object();
     }
     {

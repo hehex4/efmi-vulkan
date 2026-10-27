@@ -315,6 +315,31 @@ def lod_left_by_another_mod(checks):
                  label + ": its component with a LOD1 remap must agree with the draw's LOD")
 
 
+RABBIT_LIKE = r"""namespace = RabbitLike
+[KeyCensor]
+key = no_modifiers \
+type = cycle
+$censor = 0,1
+[Constants]
+global persist $censor = 1
+global $touched = 0
+[ShaderRegexMain]
+shader_model = ps_4_0 ps_5_0
+temps = ini
+filter_index = 1718.1
+w172 = $censor
+[ShaderRegexMain.Pattern]
+(?<discard>discard_nz r\d\.\w\n)
+[ShaderRegexMain.Pattern.Replace]
+ld_indexable(texture1d)(float,float,float,float) ${ini}.xyzw, l(172, 0), t120.xyzw\n
+if_z ${ini}.w\n
+	${discard}
+endif\n
+[CommandListSetTextures]
+$touched = 1
+"""
+
+
 def directory_generation(checks, validation):
     """D-078: a Mods folder instead of packages. The fixture Mod and another character's Mod (whose
     sections match no draw of the scene) sit in it as an EFMI Mods folder holds them; the layer reads
@@ -347,6 +372,16 @@ def directory_generation(checks, validation):
     # parent, as the original's d3dx_user.ini) never read it.
     (folder / "k").mkdir()
     (folder / "k" / "1.ini").write_text("[Constants]\nglobal persist $z = 0\n", encoding="ascii")
+    # D-133: a ShaderRegex library shaped as RabbitFX's anti-dither, which the fixture calls by namespace
+    # (as Mods call RabbitFX's SetTextures). Its replacement keeps the shader's discard behind
+    # `if_z IniParams[172].w` and its section assigns `w172 = $censor`; under Vulkan the replacement cannot
+    # apply, and the folder generation reports the element and its value after that assignment.
+    (mods / "rabbit").mkdir()
+    (mods / "rabbit" / "rabbit.ini").write_text(RABBIT_LIKE, encoding="ascii")
+    ini_text = (folder / "mod.ini").read_text(encoding="ascii")
+    checks.check("[Present]\npost $active = 0\n" in ini_text, "the fixture has its Present list")
+    (folder / "mod.ini").write_text(ini_text.replace("[Present]\npost $active = 0\n",
+                                                     "[Present]\npost $active = 0\nrun = CommandList\\RabbitLike\\SetTextures\n"), encoding="ascii")
     settings.mkdir()
     header = "; EFMI Vulkan persistent original INI variables\n[Constants]\n"
     (settings / "runtime_fixture-fixture.ini").write_text(header + "$\\k\\1.ini\\z = 7\n", encoding="ascii")
@@ -375,6 +410,10 @@ def directory_generation(checks, validation):
     checks.equal(names, ["fixture", "other"], label + ": both character INIs found, the DISABLED folder skipped")
     held = [(p.get("package_bytes", 0) > 0, p.get("payload_held_bytes", -1)) for p in packages]
     checks.equal(held, [(True, 0)] * len(packages), label + ": no package holds its mesh bytes in host memory (ISSUE-011)")
+    gates = status.get("folder_generation", {}).get("discard_gates", [])
+    checks.equal([(g.get("index"), g.get("component"), g.get("value")) for g in gates], [(172, 3, 1.0)],
+                 label + ": the library's discard gate, IniParams[172].w, holds $censor (1) after its section's assignment")
+    checks.check(status.get("folder_generation", {}).get("dither_off") is True, label + ": a set gate turns the character dither off")
     left_out = status.get("folder_generation", {}).get("left_out", [])
     checks.equal([Path(m.get("ini", "")).parent.name for m in left_out], ["broken"],
                  label + ": the Mod the layer cannot take is left out alone, with its reason " + str([m.get("reason", "") for m in left_out]))

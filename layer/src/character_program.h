@@ -110,6 +110,11 @@ public:
     void suspend_persistence() { if (runtime_) runtime_->suspend_persistence(); }
     void inherit_persistent(const CharacterProgram& previous) { runtime_->inherit_persistent(*previous.runtime_); }
     efmi::frontend::RuntimeStatus status() const { return runtime_ ? runtime_->status() : efmi::frontend::RuntimeStatus{}; }
+    // D-133: the IniParams elements ShaderRegex replacements gate a discard on, as the last presentation left them.
+    std::vector<efmi::frontend::IniRuntime::DiscardGate> discard_gates() const
+    {
+        return runtime_ ? runtime_->discard_gates() : std::vector<efmi::frontend::IniRuntime::DiscardGate>{};
+    }
 private:
     // The generation from `options` and `extension`: the owned runtime's part when there is one, the
     // declarations of CustomShaders only otherwise when `declarations_only`.

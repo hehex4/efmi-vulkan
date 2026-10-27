@@ -43,6 +43,7 @@ void RuntimeCompileConstants(CommandList&,CommandList&);
 void RuntimeParseParameterRegister();
 void RuntimeUpdateTransitions(HackerDevice*);
 void RuntimeValidateSections(const std::vector<std::wstring>&,bool custom_shaders,bool shader_hooks);
+void RuntimeShaderRegexGates(std::vector<std::pair<uint32_t, uint32_t>>& gates, CommandList& assignments);
 size_t RuntimeInputCount();
 bool RuntimeDispatchInput(HackerDevice*, const efmi::frontend::RuntimeInput&);
 void RuntimeWindowSample(const efmi::frontend::RuntimeInput*);
@@ -246,6 +247,21 @@ struct IniRuntime::Impl {
         for (size_t i = 0; i < variable_list.size(); ++i) pre_values[i] = variable_list[i]->fval;
     }
     std::vector<std::shared_ptr<const assets::FileResource>> resources;
+    // D-133: the IniParams elements ShaderRegex replacements test before a discard they keep, and the
+    // sections' unconditional assignments to them (RuntimeShaderRegexGates, at load).
+    std::vector<IniRuntime::DiscardGate> gates;
+    CommandList gate_assignments;
+    // After the Present lists: the assignments run, as when a replaced shader draws, and the gates read.
+    void run_gates()
+    {
+        if (gates.empty()) return;
+        CommandListState state; state.mHackerContext = &context; state.mHackerDevice = &device;
+        for (const auto& command : gate_assignments.commands) command->run(&state);
+        for (auto& gate : gates) {
+            const auto& value = G->iniParams[gate.index];
+            gate.value = gate.component == 0 ? value.x : gate.component == 1 ? value.y : gate.component == 2 ? value.z : value.w;
+        }
+    }
     Impl() { device.mHackerContext = &context; context.mHackerDevice = &device; }
     // A replaced draw's colour target size as the host read it off its render pass: the original
     // caches rt_width and rt_height in the state off OMGetRenderTargets at their first use, and a
@@ -394,6 +410,16 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         for (const auto& branch : dynamically_allocated_command_lists) branch_lists.insert(branch.get());
         all_roots.erase(std::remove_if(all_roots.begin(), all_roots.end(),
             [&](const auto* root) { return branch_lists.count(const_cast<CommandList*>(root)); }), all_roots.end());
+        {
+            // Before the parameters are sized: the gate assignments reserve their elements as the original's do.
+            std::vector<std::pair<uint32_t, uint32_t>> elements;
+            RuntimeShaderRegexGates(elements, p.gate_assignments);
+            for (const auto& e : elements)
+                if (e.second < 4 && int(e.first) < 65536) {
+                    p.gates.push_back({e.first, e.second, 0});
+                    G->iniParamsReserved = std::max(G->iniParamsReserved, int(e.first) + 1);
+                }
+        }
         if (G->iniParamsReserved < 0 || G->iniParamsReserved > 65536)
             throw std::runtime_error("INI parameter reservation exceeds generation budget");
         G->iniParams.assign(G->iniParamsReserved, DirectX::XMFLOAT4(0, 0, 0, 0));
@@ -612,6 +638,7 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why,std::move(between)) || !ignored.items.empty())
             throw std::runtime_error("Present requires unavailable render context: " + utf8(why));
         phase("present execute");
+        p.run_gates();
         ++p.stats.presents; p.replayable = keep_replay_state; return true;
     } catch (const std::exception& e) {
         if(impl_->extension)impl_->extension->execution_failed();
@@ -712,6 +739,10 @@ RuntimeStatus IniRuntime::status() const
     result.dirty = G->user_config_dirty; result.reload_requested = G->gReloadConfigPending;
     for (const auto& item : command_list_globals) result.variables[utf8(item.first)] = item.second.fval;
     return result;
+}
+std::vector<IniRuntime::DiscardGate> IniRuntime::discard_gates() const
+{
+    auto& p = *impl_; Scope scope(p.state); return p.gates;
 }
 std::vector<std::shared_ptr<const assets::FileResource>> IniRuntime::resources() const
 {
