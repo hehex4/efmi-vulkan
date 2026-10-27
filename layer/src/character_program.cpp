@@ -83,6 +83,9 @@ bool validate_refreshed(CharacterPackage& package, std::string& reason)
     const auto checksum = crc32c(0, bytes.data() + 48, bytes.size() - 48); std::memcpy(bytes.data() + 36, &checksum, 4);
     CharacterPackage validated;
     if (!validated.decode(bytes, reason)) return false;
+    for (size_t i = 0; i < validated.sections.size(); ++i) {
+        validated.sections[i].stride_slot = package.sections[i].stride_slot; validated.sections[i].stride = package.sections[i].stride;
+    }
     validated.materials = package.materials; validated.material_vendor = package.material_vendor; validated.material_device = package.material_device;
     validated.images = std::move(package.images); validated.profiles = std::move(package.profiles); validated.pixels = std::move(package.pixels);
     package = std::move(validated); return true;

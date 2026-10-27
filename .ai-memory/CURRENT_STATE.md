@@ -6,6 +6,11 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.2: a component chosen by `vbN->stride` (2026-10-27, D-132, LIMIT-041)
+
+- Discovery makes a section per `if vbN->stride == K` branch of a TextureOverride; the device index matches it only to a draw whose pipeline binds that stride; the plan answers the stride from the same pipeline.
+- Evidence (offline and sandbox): installed Mods' dry run with no refused section (avywenna's face planned as two sections, 2 draws and 2 images each; drawn sections 141 to 143); fixture Mod with a stride-branching section planned per branch; live INI scene 87/87 with the fixture's first section branching on `vb1->stride` (the non-matching branch first), and 86/87 with the device-side check disabled. Touched areas passed (text, unit, offline plans, folder generation, vk03 replay, character replacement, live INI).
+
 ## 2.0.1: mesh payloads not held in host memory (2026-10-27, D-131 step 5, ISSUE-011)
 
 - As the original frees a buffer file's bytes once the resource holds them, a package releases its payload once validated; each stream keeps its file, offset and checksum. The activation upload reads the files again with up to four threads (bounce buffer, checksum), and so does a stream a live plan adopts for bones; changed bytes refuse with the file's name. Status: `package_bytes`, `payload_held_bytes` (0), `mesh_upload_microseconds`.

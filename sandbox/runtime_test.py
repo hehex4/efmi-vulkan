@@ -168,6 +168,7 @@ def main():
     several_packages(checks, validation)
     directory_generation(checks, validation)
     implicit_namespace(checks)
+    stride_branches(checks)
     return checks.finish()
 
 
@@ -239,6 +240,46 @@ def implicit_namespace(checks):
     checks.check(len(drawn) >= 2, label + ": its components are drawn by their live plans")
 
 
+def stride_branch_ini(ini, branches):
+    """The fixture's first TextureOverride chooses its component and LOD by `vb1->stride`, as an EFMI
+    export may (LIMIT-041): `branches` is ((stride, component, lod), ...) in the order of the if/elif
+    chain. Returns the section's hash."""
+    text = ini.read_text(encoding="ascii")
+    head, rest = text.split("[TextureOverride_EntryPoint_0]\n", 1)
+    section, tail = rest.split("\n[", 1)
+    hashed = re.search(r"^hash = (\w+)$", section, re.M).group(1)
+    assignment = "$\\EFMIv1\\component_id = 0\n"
+    assert assignment in section, "the fixture's first section assigns component 0"
+    chain = "".join("%s vb1->stride == %d\n$lod_level = %d\n$\\EFMIv1\\component_id = %d\n" % ("if" if i == 0 else "elif", stride, lod, component)
+                    for i, (stride, component, lod) in enumerate(branches)) + "endif\n"
+    section = re.sub(r"^\$lod_level = \d+\n", "", section, flags=re.M).replace(assignment, chain)
+    ini.write_text(head + "[TextureOverride_EntryPoint_0]\n" + section + "\n[" + tail, encoding="ascii")
+    return hashed
+
+
+def stride_branches(checks):
+    """LIMIT-041: a TextureOverride that tells a component's LODs apart by `if vb1->stride == K`, as an
+    EFMI export may (avywenna's face). The original reads the bound vertex buffer's stride per draw;
+    discovery makes a section per branch, which the backend matches by the draw's pipeline binding
+    and the production planner (efmi_vk_character_test --plan-mods, no GPU) plans with that stride."""
+    root = Path(test_dir("runtime-stride-"))
+    folder = root / "Mods" / "fixture"
+    folder.mkdir(parents=True)
+    fixture(folder)
+    hashed = stride_branch_ini(folder / "mod.ini", ((12, 0, 0), (8, 1, 1)))
+    run = subprocess.run([str(Path(DIST) / "efmi_vk_character_test.exe"), "--plan-mods", str(root / "Mods"), str(CORE),
+                          str(root / "settings")], cwd=root, capture_output=True, text=True, errors="replace", timeout=120)
+    rows = [json.loads(line) for line in run.stdout.splitlines() if line.startswith("{")]
+    label = "a component chosen by vb1->stride"
+    checks.check(run.returncode == 0 and len(rows) == 1 and rows[0].get("loaded"), label + ": the Mod loads " +
+                 (rows[0].get("reason", "") if rows else run.stderr[-300:]))
+    found = [s for s in (rows[0].get("sections", []) if rows else []) if s.get("hash") == hashed]
+    checks.equal([(s.get("component"), s.get("lod"), s.get("stride_slot"), s.get("stride")) for s in found],
+                 [(0, 0, 1, 12), (1, 1, 1, 8)], label + ": a section per branch, with its component, LOD and stride")
+    checks.check(len(found) == 2 and all(s.get("planned") and s.get("skip") and s.get("draws") for s in found),
+                 label + ": each branch plans and draws with its stride " + str([s.get("reason", "") for s in found]))
+
+
 def directory_generation(checks, validation):
     """D-078: a Mods folder instead of packages. The fixture Mod and another character's Mod (whose
     sections match no draw of the scene) sit in it as an EFMI Mods folder holds them; the layer reads
@@ -251,6 +292,9 @@ def directory_generation(checks, validation):
     folder.mkdir()
     fixture(mods / "other", salt=0x5A5A5A5A, settings="other", name="other.bin", namespace="runtime_other")
     fixture(folder)
+    # LIMIT-041: the fixture's first section chooses its component by `vb1->stride`, the branch the scene's
+    # pipeline does not bind (stride 12) first: only the draw's own stride (8) may take its draws.
+    stride_branch_ini(folder / "mod.ini", ((12, 1, 1), (8, 0, 0)))
     # D-131: a third character Mod the layer cannot take (an export whose TextureOverride sections are
     # missing, so the Core's contract has no mesh section): the folder generation leaves out that Mod
     # alone, with its reason, and the others behave as before.
@@ -310,6 +354,8 @@ def directory_generation(checks, validation):
     checks.equal((changed, added), ([], []), label + ": the layer writes nothing into the Mods folder")
     log = (root / "layer.log").read_text(encoding="utf-8", errors="replace")
     checks.check(log.count("character Mod of the folder generation") >= 2, label + ": every package was made from its INI in the folder generation")
+    checks.check("differs from the resolved native identity" not in log,
+                 label + ": a section chosen by vb1->stride takes only the draws whose pipeline binds its stride (LIMIT-041)")
 
 
 if __name__ == "__main__":

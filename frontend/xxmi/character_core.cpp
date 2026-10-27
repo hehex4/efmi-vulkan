@@ -228,6 +228,60 @@ class CharacterCore : public RuntimeExtension {
         assignments(&list, name, values, unknown);
         return !unknown && values.size() == 1 ? *values.begin() : efvk::kCharacterNone;
     }
+    // LIMIT-041: an EFMI export may tell a component's LODs apart by the vertex layout, branches
+    // `if vbN->stride == K` of its TextureOverride each assigning one component and LOD. The original
+    // evaluates the condition per draw from the stride of the bound vertex buffer (GetResourceStride,
+    // IAGetVertexBuffers); here each branch is a section of its own, which a draw matches while its
+    // pipeline binds slot N with stride K.
+    struct StrideChoice { uint32_t slot, stride, component, lod; };
+    static bool stride_condition(const CommandListExpression& expression, uint32_t& slot, uint32_t& stride)
+    {
+        const auto* op = dynamic_cast<const CommandListOperator*>(expression.evaluatable.get());
+        if (!op || op->token != L"==") return false;
+        auto side = [&](const std::shared_ptr<CommandListEvaluatable>& target, const std::shared_ptr<CommandListEvaluatable>& value) {
+            const auto* operand = dynamic_cast<const CommandListOperand*>(target.get());
+            float k = 0;
+            if (!operand || operand->type != ParamOverrideType::TEXTURE || operand->texture_filter_target.type != ResourceCopyTargetType::VERTEX_BUFFER ||
+                operand->texture_filter_target.evaluation_mode != ResourceCopyTargetEvaluationMode::RESOURCE_STRIDE ||
+                operand->texture_filter_target.slot_expression || operand->texture_filter_target.slot >= 4)
+                return false;
+            if (!value || !value->static_evaluate(&k) || !(k >= 1 && k <= 2048) || std::floor(k) != k) return false;
+            slot = operand->texture_filter_target.slot; stride = uint32_t(k);
+            return true;
+        };
+        return side(op->lhs, op->rhs) || side(op->rhs, op->lhs);
+    }
+    // The choices of such a list, in its order; false when the component is assigned outside them or a
+    // branch assigns no single constant component.
+    static bool stride_choices(const CommandList* list, const std::wstring& component, const std::wstring& lod, std::vector<StrideChoice>& out,
+                               unsigned depth = 0)
+    {
+        if (!list) return true;
+        if (depth > 32) return false;
+        for (const auto& held : list->commands) {
+            const CommandListCommand* command = DrawPlanAdapter::original(*held);
+            const auto* branch = dynamic_cast<const IfCommand*>(command);
+            if (!branch) {
+                const auto* assignment = dynamic_cast<const VariableAssignment*>(command);
+                if (assignment && assignment->var && !_wcsicmp(assignment->var->name.c_str(), component.c_str())) return false;
+                continue;
+            }
+            StrideChoice choice{};
+            if (stride_condition(branch->expression, choice.slot, choice.stride)) {
+                if (!branch->true_commands_pre) return false;
+                choice.component = assigned(*branch->true_commands_pre, component);
+                choice.lod = assigned(*branch->true_commands_pre, lod);
+                if (choice.component == efvk::kCharacterNone) return false;
+                out.push_back(choice);
+                // An `elif` continues the choices in the branch not taken.
+                if (!stride_choices(branch->false_commands_pre.get(), component, lod, out, depth + 1)) return false;
+                continue;
+            }
+            if (!stride_choices(branch->true_commands_pre.get(), component, lod, out, depth + 1) ||
+                !stride_choices(branch->false_commands_pre.get(), component, lod, out, depth + 1)) return false;
+        }
+        return true;
+    }
     static bool constant(const FuzzyMatch& f, uint32_t& value)
     {
         if (f.op != FuzzyMatchOp::EQUAL || f.rhs_type1 != FuzzyMatchOperandType::VALUE || f.rhs_type2 != FuzzyMatchOperandType::VALUE ||
@@ -521,15 +575,20 @@ global $mod_id = -1
                 if (m) {
                     const auto& expected = m->expected;
                     auto& own_seen = seen[size_t(m - mods_.data())];
-                    size_t index = 0;
-                    for (; index < expected.sections.size(); ++index) {
+                    // The entry's expected sections: one, or one per branch of a list that chooses the
+                    // component by `vbN->stride` (LIMIT-041).
+                    std::vector<size_t> indices;
+                    for (size_t index = 0; index < expected.sections.size(); ++index) {
                         const auto& s = expected.sections[index];
                         if (s.hash == hashed.first && matches(entry.match_index_count, s.match_count, false) &&
-                            matches(entry.match_first_index, s.match_first, true)) break;
+                            matches(entry.match_first_index, s.match_first, true) && !own_seen[index] &&
+                            (indices.empty() || s.stride_slot != efvk::kCharacterNone)) indices.push_back(index);
+                        if (indices.size() == 1 && expected.sections[indices[0]].stride_slot == efvk::kCharacterNone) break;
                     }
                     const std::wstring prefix = L"textureoverride" + m->mod;
-                    if (index < expected.sections.size() && !own_seen[index] && !_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size())) {
-                        own_seen[index] = true; continue;
+                    if (!indices.empty() && !_wcsnicmp(entry.ini_section.c_str(), prefix.c_str(), prefix.size())) {
+                        for (const size_t index : indices) own_seen[index] = true;
+                        continue;
                     }
                     // A mesh section the renderer has no part for (a LOD beyond its scope) stays the
                     // game's; an image-hash section runs against the host's texture identities.
@@ -560,8 +619,22 @@ global $mod_id = -1
                 s.section.hash = hashed.first;
                 const bool first_ok = entry.match_first_index.op == FuzzyMatchOp::ALWAYS || constant(entry.match_first_index, s.section.match_first);
                 if (own && m->discovery && mesh && constant(entry.match_index_count, s.section.match_count) && s.section.match_count && first_ok) {
+                    const std::wstring lod_level = L"$" + m->mod + L"lod_level";
                     s.original = assigned(entry.command_list, component_id);
-                    s.section.lod = assigned(entry.command_list, L"$" + m->mod + L"lod_level");
+                    s.section.lod = assigned(entry.command_list, lod_level);
+                    std::vector<StrideChoice> choices;
+                    std::set<uint32_t> strides;
+                    if (s.original == efvk::kCharacterNone && stride_choices(&entry.command_list, component_id, lod_level, choices) && !choices.empty() &&
+                        std::all_of(choices.begin(), choices.end(), [&](const StrideChoice& c) { return c.slot == choices[0].slot && strides.insert(c.stride).second; })) {
+                        // One section per branch (LIMIT-041).
+                        for (const auto& c : choices) {
+                            FoundSection branch = s;
+                            branch.original = c.component; branch.section.lod = c.lod;
+                            branch.section.stride_slot = c.slot; branch.section.stride = c.stride;
+                            m->found.push_back(branch);
+                        }
+                        continue;
+                    }
                     m->found.push_back(s);
                     continue;
                 }

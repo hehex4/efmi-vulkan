@@ -443,8 +443,15 @@ static void write_plans(JsonWriter& w, CharacterProgram& program, CharacterProgr
             // Offline no game texture is known: every pixel slot is bound without a hash, as the
             // backend answers for a resource whose hash it cannot know.
             request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
-            // Nor are its vertex buffers: a list that tells LODs apart by `vbN->stride` is refused here.
+            // Nor are its vertex buffers: a list that tells LODs apart by `vbN->stride` is refused here,
+            // unless the section is one of its branches (LIMIT-041), which the backend matches only to a
+            // draw whose pipeline binds that stride.
             request.vertex_stride = [](unsigned, uint32_t&, std::string& why) { why = "offline the game's vertex buffers are not known"; return false; };
+            if (s.stride_slot != kCharacterNone)
+                request.vertex_stride = [&s](unsigned slot, uint32_t& value, std::string& why) {
+                    if (slot != s.stride_slot) { why = "offline the game's vertex buffers are not known"; return false; }
+                    value = s.stride; return true;
+                };
             CharacterList list; bool skip = false, added = false, textures = false; std::string refused;
             const bool ok = program.plan(request, package, list, skip, added, refused, nullptr, &textures);
             // A list that tells LODs apart by `vbN->stride` plans once the host answers it, as the game's
@@ -464,6 +471,7 @@ static void write_plans(JsonWriter& w, CharacterProgram& program, CharacterProgr
             char hash[16]; snprintf(hash, sizeof(hash), "%08x", s.hash);
             w.kv("hash", hash); w.kn("count", s.match_count);
             if (s.component != kCharacterNone) { w.kn("component", s.component); w.kn("lod", lod); }
+            if (s.stride_slot != kCharacterNone) { w.kn("stride_slot", s.stride_slot); w.kn("stride", s.stride); }
             if (!present_ok) w.kv("present_refused", presented);
             w.kb("planned", ok);
             if (!ok) w.kv("reason", refused);

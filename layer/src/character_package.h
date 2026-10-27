@@ -83,6 +83,10 @@ struct CharacterSection {
     uint32_t match_first = kCharacterNone; // none: any first index
     uint32_t component = 0;
     uint32_t lod = kCharacterNone;         // none: the section leaves the mod's LOD variable as it is
+    // A draw matches only while its vertex binding `stride_slot` has this stride: one branch of a
+    // TextureOverride that tells a component's LODs apart by `if vbN->stride == K` (LIMIT-041). Not in
+    // the file.
+    uint32_t stride_slot = kCharacterNone, stride = 0;
 };
 struct CharacterEdit {
     uint32_t binding = 0;

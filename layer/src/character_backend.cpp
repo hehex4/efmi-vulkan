@@ -3306,6 +3306,16 @@ bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
         } else if (section.match_count != r.count || (section.match_first != kCharacterNone && section.match_first != r.first)) {
             continue;
         }
+        if (section.stride_slot != kCharacterNone) {
+            // A branch of a list that chooses the component by `vbN->stride` (LIMIT-041): the original
+            // reads the bound vertex buffer's stride, the layer the draw's pipeline binding.
+            std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
+            const auto pipe = b.device->pipes.find(r.pipeline);
+            uint32_t stride = 0;
+            std::string why;
+            if (pipe == b.device->pipes.end() || !CharacterGeneration::vertex_stride(pipe->second, section.stride_slot, stride, why) ||
+                stride != section.stride) continue;
+        }
         if (generation_record(*c.active, cb, r, candidate.section)) return true;
     }
     return false;
