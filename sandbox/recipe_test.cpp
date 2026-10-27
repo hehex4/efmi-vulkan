@@ -1,5 +1,8 @@
 // CPU tests for ownership, ignored pointers, fail-closed rewrites and partial GPU-build cleanup.
 #include "variant_fixture.h"
+#include "../frontend/gpu/dither_kills.h"
+#include <spirv-tools/libspirv.h>
+#include <filesystem>
 #include "../layer/src/state.h"
 #include "../layer/src/json.h"
 
@@ -264,6 +267,70 @@ static void draw_sequence_tests()
     variant.pipeline=VK_NULL_HANDLE;variant.layout=VK_NULL_HANDLE;
 }
 
+// SPIRV-Tools from the layer's folder (shipped with it), for the patched modules (D-133).
+static bool spirv_valid(const std::vector<uint32_t>& words, std::string& error)
+{
+    static HMODULE tools = LoadLibraryW(L"SPIRV-Tools-shared.dll");
+    if (!tools) { error = "SPIRV-Tools-shared.dll not found"; return false; }
+    const auto create = reinterpret_cast<decltype(&spvContextCreate)>(GetProcAddress(tools, "spvContextCreate"));
+    const auto destroy = reinterpret_cast<decltype(&spvContextDestroy)>(GetProcAddress(tools, "spvContextDestroy"));
+    const auto validate = reinterpret_cast<decltype(&spvValidate)>(GetProcAddress(tools, "spvValidate"));
+    const auto release = reinterpret_cast<decltype(&spvDiagnosticDestroy)>(GetProcAddress(tools, "spvDiagnosticDestroy"));
+    if (!create || !destroy || !validate || !release) { error = "SPIRV-Tools entry points missing"; return false; }
+    spv_context context = create(SPV_ENV_VULKAN_1_1);
+    spv_diagnostic diagnostic = nullptr;
+    spv_const_binary_t binary{words.data(), words.size()};
+    const bool ok = validate(context, &binary, &diagnostic) == SPV_SUCCESS;
+    if (!ok) error = diagnostic && diagnostic->error ? diagnostic->error : "invalid";
+    if (diagnostic) release(diagnostic);
+    destroy(context);
+    return ok;
+}
+
+// D-133: the character dither in SPIR-V and the module without it.
+static void dither_tests()
+{
+    using variant_fixture::Kill;
+    const auto dither = variant_fixture::shader(false, false, 6, Kill::Dither);
+    const auto cutout = variant_fixture::shader(false, false, 6, Kill::Cutout);
+    const auto noise = variant_fixture::shader(false, false, 6, Kill::Noise);
+    std::string error;
+    check(spirv_valid(dither, error) && spirv_valid(cutout, error) && spirv_valid(noise, error), ("the kill fixtures are valid SPIR-V " + error).c_str());
+    check(efmi::gpu::dither_kills(dither) == 1, "the character dither is found: noise against the instance window, then a kill");
+    check(efmi::gpu::dither_kills(cutout) == 0 && efmi::gpu::dither_kills(noise) == 0 && efmi::gpu::dither_kills(variant_fixture::shader(false)) == 0,
+          "an alpha test, a noise kill without the instance window and a shader without a kill are not the dither");
+    std::vector<uint32_t> patched, kept = {1, 2, 3};
+    std::string reason;
+    check(efmi::gpu::remove_dither(dither, patched, reason) && efmi::gpu::dither_kills(patched) == 0 && patched.size() == dither.size() + 3,
+          ("the patched module keeps its code, the dither branch steered by a constant " + reason).c_str());
+    check(spirv_valid(patched, error), ("the patched module is valid SPIR-V " + error).c_str());
+    check(!efmi::gpu::remove_dither(cutout, kept, reason) && kept == std::vector<uint32_t>({1, 2, 3}) && !reason.empty(),
+          "a module without the dither is refused and the output left as it was");
+    // The captured fragment modules of the game (local captures; the rule's ground truth, docs/rabbitfx-dither.md).
+    const std::filesystem::path captures = "F:/efmi vulkan/captures";
+    std::error_code ignored;
+    if (!std::filesystem::is_directory(captures, ignored)) { printf("dither: captures absent, corpus skipped\n"); return; }
+    std::set<std::vector<uint32_t>> seen;
+    uint32_t modules = 0, dithered = 0, patched_valid = 0;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(captures, ignored)) {
+        if (!entry.is_regular_file(ignored) || entry.path().extension() != ".spv") continue;
+        std::ifstream input(entry.path(), std::ios::binary | std::ios::ate);
+        const auto size = input.tellg();
+        if (size < 20 || size % 4) continue;
+        std::vector<uint32_t> words(static_cast<size_t>(size) / 4);
+        input.seekg(0); input.read(reinterpret_cast<char*>(words.data()), size);
+        if (words[0] != 0x07230203 || !seen.insert(words).second) continue;
+        ++modules;
+        if (!efmi::gpu::dither_kills(words)) continue;
+        ++dithered;
+        std::vector<uint32_t> out;
+        if (efmi::gpu::remove_dither(words, out, reason) && efmi::gpu::dither_kills(out) == 0 && spirv_valid(out, error)) ++patched_valid;
+    }
+    printf("dither: %u captured modules, %u with the character dither, %u patched and valid\n", modules, dithered, patched_valid);
+    check(dithered == 38, "the captured modules with the character dither are the 38 the rule names (docs/rabbitfx-dither.md)");
+    check(patched_valid == dithered, "every captured dithered module patches into valid SPIR-V without its dither");
+}
+
 int main(int argc, char** argv)
 {
     // Cross-check the production rewriter on previously exported, local SPIR-V modules.
@@ -283,6 +350,7 @@ int main(int argc, char** argv)
     }
     util_init(GetModuleHandleW(nullptr));
     rewrite_tests(); ownership_tests(); ignored_pointer_tests(); tracked_lifetime_tests(); draw_sequence_tests();
+    dither_tests();
     printf("recipe_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

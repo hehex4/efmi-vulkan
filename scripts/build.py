@@ -118,7 +118,7 @@ MODULE_SOURCES = [
     "module/module_main.cpp", "src/character_backend.cpp", "src/translucency.cpp", "src/shader_hooks.cpp", "src/character_package.cpp", "src/character_materials.cpp",
     "src/character_program.cpp", "src/character_present.cpp",
     "src/merged_skeleton.cpp", "src/pipeline_variant.cpp", "src/spirv_repoint.cpp",
-    "src/variant_cache.cpp", "src/draw_snapshots.cpp", "src/pipeline_recipe.cpp", "../frontend/gpu/fragment_images.cpp",
+    "src/variant_cache.cpp", "src/draw_snapshots.cpp", "src/pipeline_recipe.cpp", "../frontend/gpu/fragment_images.cpp", "../frontend/gpu/dither_kills.cpp",
     "src/texture_identity.cpp", "src/texture_residency.cpp",
     "src/bone_merge.cpp", "build/bone_merge_spirv.cpp",
 ]
@@ -239,7 +239,7 @@ def build_layer(vcvars: str, include: str, out: str) -> str:
     dll = os.path.join(out, LAYER_DLL)
     args = COMMON + [
         "/I" + include, "/Fobuild\\", "/Fdbuild\\efmi_vk_layer_cl.pdb", "/LD",
-    ] + sources(folder) + [generate_bone_merge_shader(), "../frontend/gpu/fragment_images.cpp"] + MATERIAL_SOURCES + runtime_link() + [
+    ] + sources(folder) + [generate_bone_merge_shader(), "../frontend/gpu/fragment_images.cpp", "../frontend/gpu/dither_kills.cpp"] + MATERIAL_SOURCES + runtime_link() + [
         "/Fe:" + dll,
         "/link", "/NOLOGO", "/DLL", "/OPT:REF", "/OPT:ICF", "/DEBUG",
         "/PDB:build\\efmi_vk_layer.pdb", "/IMPLIB:build\\efmi_vk_layer.lib",
@@ -294,7 +294,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
                      "/DEFVK_CHARACTER_CACHE_TESTS", "tracker_test.cpp", "../layer/src/state.cpp", "../layer/src/resources.cpp", "../layer/src/util.cpp",
                      "../layer/src/pipeline_recipe.cpp", "../layer/src/render_targets.cpp",
                      "../layer/src/pipeline_variant.cpp", "../layer/src/spirv_repoint.cpp",
-                     "../frontend/gpu/fragment_images.cpp",
+                     "../frontend/gpu/fragment_images.cpp", "../frontend/gpu/dither_kills.cpp",
                      "../layer/src/variant_cache.cpp", "../layer/src/draw_snapshots.cpp",
                      "../layer/src/merged_skeleton.cpp", "../layer/src/m2_mesh.cpp", "../layer/src/m2_backend.cpp",
                      "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/translucency.cpp", "../layer/src/shader_hooks.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/texture_residency.cpp", "../layer/src/character_materials.cpp",
@@ -314,7 +314,7 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
         os.makedirs(os.path.join(folder, "build", name), exist_ok=True)
         exe = os.path.join(out, "efmi_vk_" + name + ".exe")
         sources = [name + ".cpp", "../layer/src/pipeline_recipe.cpp", "../layer/src/pipeline_variant.cpp",
-                   "../layer/src/spirv_repoint.cpp", "../frontend/gpu/fragment_images.cpp"]
+                   "../layer/src/spirv_repoint.cpp", "../frontend/gpu/fragment_images.cpp", "../frontend/gpu/dither_kills.cpp"]
         if name in ("cache_test", "variant_gpu"):
             sources.append("../layer/src/variant_cache.cpp")
         if name in ("variant_gpu", "snapshot_test"):
@@ -333,6 +333,9 @@ def build_recipe_tests(vcvars: str, include: str, out: str) -> dict:
                         "../layer/src/character_package.cpp", "../layer/src/character_backend.cpp", "../layer/src/translucency.cpp", "../layer/src/shader_hooks.cpp", "../layer/src/character_program.cpp", "../layer/src/character_present.cpp", "../layer/src/texture_identity.cpp", "../layer/src/texture_residency.cpp", "../layer/src/character_materials.cpp",
                         "../layer/src/bone_merge.cpp", "../layer/build/bone_merge_spirv.cpp"] + MATERIAL_SOURCES + runtime_link()
         args = COMMON + ["/I" + include, "/Fobuild\\" + name + "\\", "/Fdbuild\\" + name + "\\test_cl.pdb"]
+        if name == "recipe_test":
+            # The dither patch's modules are validated with SPIRV-Tools (D-133).
+            args.append("/IF:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/include")
         args += sources + ["/Fe:" + exe, "/link", "/NOLOGO", "/DEBUG", "/SUBSYSTEM:CONSOLE",
                            "/PDB:build\\" + name + "\\test.pdb", "user32.lib"]
         run_cl(vcvars, folder, args)

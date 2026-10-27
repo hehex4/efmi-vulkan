@@ -12,7 +12,11 @@ namespace variant_fixture {
 // `image_binding`: where the material fragment shader declares its image in set 1. Another
 // number gives other bytes and another place for the same texture, as a feature variant of a
 // game shader has.
-inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t image_binding=6)
+// A fragment kill before the output (D-133): the character dither (interleaved gradient noise against
+// the instance window at set 2 binding 0), an alpha test (a value of set 0), a noise test without the
+// instance window (another fade).
+enum class Kill { None, Dither, Cutout, Noise };
+inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t image_binding=6,Kill kill=Kill::None)
 {
     using namespace spv;
     Builder b;
@@ -67,6 +71,13 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t ima
         b.op(OpVariable, {p_out, output, StorageOutput});
     } else b.op(OpVariable, {p_out_v4, output, StorageOutput});
     b.op(OpVariable, {p_bone, bone_var, StorageUniform}); b.op(OpVariable, {p_instance, instance_var, StorageUniform});
+    // The kill's types and constants: bool, the noise factor, one half.
+    auto t_bool = b.id(), k_noise = b.id(), k_half = b.id();
+    if (!vertex && kill != Kill::None) {
+        b.op(static_cast<Op>(20), {t_bool});
+        b.op(OpConstant, {t_f, k_noise, 0x4253EE82u}); // 52.9829189f
+        b.op(OpConstant, {t_f, k_half, 0x3f000000u});
+    }
     b.op(OpFunction, {t_void, main, 0, t_fn}); b.op(OpLabel, {label});
     if (vertex) {
         b.op(OpLoad, {t_v2, in_pos, pos_in}); b.op(OpCompositeExtract, {t_f, x, in_pos, 0});
@@ -80,6 +91,23 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t ima
     } else {
         b.op(OpAccessChain, {p_uni_v4, ptr_a, bone_var, c1}); b.op(OpAccessChain, {p_uni_v4, ptr_b, instance_var, c1});
         b.op(OpLoad, {t_v4, a, ptr_a}); b.op(OpLoad, {t_v4, v, ptr_b}); b.op(OpFMul, {t_v4, sum, a, v});
+        if (kill != Kill::None) {
+            auto ax = b.id(), vx = b.id(), noise = b.id(), diff = b.id(), cond = b.id(), killed = b.id(), merge = b.id();
+            b.op(OpCompositeExtract, {t_f, ax, a, 0}); b.op(OpCompositeExtract, {t_f, vx, v, 0});
+            b.op(OpFMul, {t_f, noise, ax, k_noise});
+            if (kill == Kill::Dither) {
+                b.op(static_cast<Op>(131), {t_f, diff, vx, noise});           // OpFSub: the instance's fade minus the noise
+                b.op(static_cast<Op>(184), {t_bool, cond, diff, f0});         // OpFOrdLessThan
+            } else if (kill == Kill::Cutout) {
+                b.op(static_cast<Op>(184), {t_bool, cond, ax, k_half});
+            } else {
+                b.op(static_cast<Op>(184), {t_bool, cond, noise, k_half});
+            }
+            b.op(static_cast<Op>(247), {merge, 0});                          // OpSelectionMerge
+            b.op(static_cast<Op>(250), {cond, killed, merge});               // OpBranchConditional
+            b.op(OpLabel, {killed}); b.op(static_cast<Op>(252), {});         // OpKill
+            b.op(OpLabel, {merge});
+        }
         if(material){
             b.op(OpLoad,{image_type,image,image_var});b.op(static_cast<Op>(95),{t_v4,texel,image,coord,2,c0});
             b.op(OpFMul,{t_v4,tinted,sum,texel});b.op(OpStore,{output,tinted});

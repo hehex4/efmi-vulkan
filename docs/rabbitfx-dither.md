@@ -58,6 +58,8 @@ the instance window (left alone: not a character's fade), alpha-test kills match
 
 ## Order of work, each step test first
 
+Status 2026-10-27: step 1 done (frontend/gpu/dither_kills.cpp; recipe_test: the fixture's dither found, its alpha test and noise-only kill not; 38 of 473 distinct captured modules dithered, all 38 patched into valid SPIR-V without a dither branch).
+
 1. The rule and the patch on the captured modules (unit test: the dithered shaders found, the
    cutout and noise-only kills not; the patched modules validate and reach no dither kill).
 2. The gate from the INI (frontend test: RabbitFX's sections give IniParams[172].w = `$censor`).
