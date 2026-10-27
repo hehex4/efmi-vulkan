@@ -100,6 +100,9 @@ struct CharacterModule {
     // At the application's vkCmdBindPipeline (graphics), on its recording thread: the pipeline to bind in
     // its place, or `pipeline` (D-133: its twin without the character dither while a discard gate is set).
     VkPipeline (*bind)(CharacterBackend&, CmdBuf*, VkPipeline pipeline) = nullptr;
+    // After the application created a graphics pipeline, its record in Device::pipes complete (D-133:
+    // the twin a discard gate needs is prepared then). The creating thread.
+    void (*created)(CharacterBackend&, VkPipeline pipeline) = nullptr;
 };
 
 // The copy this binary was built with.

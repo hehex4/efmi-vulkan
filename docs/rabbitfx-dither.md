@@ -56,6 +56,22 @@ the instance window (left alone: not a character's fade), alpha-test kills match
   gate is on (made once, off the recording thread; until it exists the game's pipeline is bound).
   Replaced draws take the patch in their pipeline variants.
 
+## 2.0.8: the camera fade, and the states made ahead
+
+In the game (2.0.7) the anti-dither turned the field's grass and bushes into solid quads: their kill is
+`min(LOD cross-fade - noise, alpha - cutoff) < 0`, the cross-fade read from the instance window too, so
+the rule took it and the patch dropped the alpha test with it. RabbitFX's patterns never match those
+shaders: they need the character materials' declarations and the camera fade (`max r, cb.x, cb.x`
+then `add r, -r, l(1.0)`) before the discard. The rule now needs that fade: the larger of two values
+read from the instance window in the kill's condition. Over 626 distinct captured modules (with the
+field frame of 2026-10-27, captures/vk-2026-10-27-field) 45 match, all patched and valid; ten that
+2.0.6 took (LOD cross-fades, three with an alpha test) and every alpha-tested field module do not.
+
+The key also took a second or two: twins and the replaced draws' other state compiled when the gate
+turned. As the original's replaced shader exists from the game's shader creation, the twin of a
+dithered pipeline is now prepared when the game creates it (or when a gate appears), and a replaced
+draw prepares its other state with its first; both build behind the variants draws wait for.
+
 ## Order of work, each step test first
 
 Status 2026-10-27 (2.0.6): all four steps done. Steps 3 and 4: `FragmentPatch::no_dither`; replaced and

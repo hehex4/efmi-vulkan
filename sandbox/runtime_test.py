@@ -398,6 +398,8 @@ def directory_generation(checks, validation):
                  # D-133: the scene's application fragment shader dithers; with RabbitFX's gate set (the saved
                  # $censor) every picture must be the one without the dither.
                  EFMI_VK_TEST_DITHER="1",
+                 # The scene ends with what a player does around F10 in a Mods folder (docs/f10-operations.md).
+                 EFMI_VK_TEST_FOLDER_F10="1",
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
                  XDG_CACHE_HOME=str(root), TEMP=str(root), TMP=str(root), TMPDIR=str(root))
     env = layer_env(str(root / "layer.log"), extra=extra)
@@ -428,6 +430,10 @@ def directory_generation(checks, validation):
     checks.check(fg.get("dither_twins", 0) >= 1 and fg.get("dither_twin_binds", 0) >= 1 and fg.get("dither_twins_failed", 1) == 0,
                  label + ": the application's dithered pipeline is bound as its twin without the dither " +
                  str({k: fg.get(k) for k in ("dither_twins", "dither_twin_binds", "dither_twins_failed")}))
+    # 2.0.6 in the game: the key took a second or two, every twin and variant of the other state compiled
+    # when the gate turned. The original's replaced shader exists from the game's shader creation.
+    checks.check(fg.get("dither_twins_prepared", 0) >= 1,
+                 label + ": the dithered pipeline's twin is prepared when the application creates the pipeline, before a bind needs it")
     left_out = status.get("folder_generation", {}).get("left_out", [])
     checks.equal([Path(m.get("ini", "")).parent.name for m in left_out], ["broken"],
                  label + ": the Mod the layer cannot take is left out alone, with its reason " + str([m.get("reason", "") for m in left_out]))
@@ -451,12 +457,35 @@ def directory_generation(checks, validation):
                  label + ": a persistent variable named outside ASCII is saved, as UTF-8, with the others (LIMIT-042)")
     checks.check("$\\mods\\fixture\\k\\1.ini\\z = 7" in saved_text and "$\\k\\1.ini\\" not in saved_text,
                  label + ": the folder's settings keep the panel's value under its own name, not the old one")
-    # The scene itself edits its mod.ini, drives its keys through keys.txt and writes its reports where
-    # it runs (the fixture's folder).
+    # 2.0.7 in the game: F10 after a drawn character's Mod was removed stopped its package twice at
+    # once (its controller and the generation it left); the second join's error ended the game.
+    removed = folder / "runtime-removed.json"
+    after_removal = json.loads(removed.read_text())["result"]["replacement"] if removed.is_file() else {}
+    checks.equal(after_removal.get("folder_generation", {}).get("packages"), 1,
+                 label + ": F10 after the drawn character's Mod was disabled goes on with the other Mod, the removed package stopped once")
+    def report_of(name):
+        path = folder / name
+        return json.loads(path.read_text())["result"]["replacement"] if path.is_file() else {}
+    removed_packages = [(Path(p.get("path", "")).parent.name, p.get("stopped")) for p in after_removal.get("packages", [])]
+    checks.equal(removed_packages, [("fixture", True), ("other", False)], label + ": the disabled Mod's package shows stopped, in its slot")
+    # BUG-068: enabled again, the Mod takes its slot back (2.0.7 added a third entry, and so on to 64).
+    reenabled = report_of("runtime-reenabled.json")
+    back = [(Path(p.get("path", "")).parent.name, p.get("stopped"), p.get("activated")) for p in reenabled.get("packages", [])]
+    checks.equal(back, [("fixture", False, True), ("other", False, False)],
+                 label + ": a Mod enabled again by F10 is drawn from the slot it had")
+    # D-133, BUG-070: the gate follows the live generation when RabbitFX goes and comes back.
+    gates_of = lambda r: [(g.get("index"), g.get("component"), g.get("value")) for g in r.get("folder_generation", {}).get("discard_gates", [])]
+    no_rabbit, rabbit_back = report_of("runtime-no-rabbitfx.json"), report_of("runtime-rabbitfx-back.json")
+    checks.equal((gates_of(no_rabbit), no_rabbit.get("folder_generation", {}).get("dither_off")), ([], False),
+                 label + ": without RabbitFX after F10 no gate is left and the dither is drawn")
+    checks.equal((gates_of(rabbit_back), rabbit_back.get("folder_generation", {}).get("dither_off")), ([(172, 3, 1.0)], True),
+                 label + ": RabbitFX back by F10 brings its gate back with the saved $censor")
+    # The scene itself edits its mod.ini (and disables it last), drives its keys through keys.txt and
+    # writes its reports where it runs (the fixture's folder).
     after = {p: p.read_bytes() for p in mods.rglob("*") if p.is_file()}
     changed = [str(p.relative_to(mods)) for p in after if p.name not in ("mod.ini", "keys.txt") and p in sources and sources[p] != after[p]]
     added = [str(p.relative_to(mods)) for p in after if p not in sources and
-             not (p.parent == folder and re.fullmatch(r"(character|runtime)-[\w-]+\.json|pixels\.rgba|stdout\.txt", p.name))]
+             not (p.parent == folder and re.fullmatch(r"(character|runtime)-[\w-]+\.json|pixels\.rgba|stdout\.txt|DISABLED_mod\.ini", p.name))]
     checks.equal((changed, added), ([], []), label + ": the layer writes nothing into the Mods folder")
     log = (root / "layer.log").read_text(encoding="utf-8", errors="replace")
     checks.check(log.count("character Mod of the folder generation") >= 2, label + ": every package was made from its INI in the folder generation")

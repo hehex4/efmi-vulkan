@@ -255,6 +255,9 @@ std::atomic<uint64_t> g_mesh_uploads{0}, g_meshes_kept{0};
 // D-133: a ShaderRegex replacement's discard gate is set (RabbitFX's IniParams[172].w = $censor): the
 // character dither is not drawn, as the replaced shader skips its discard. Set at each presentation.
 std::atomic<bool> g_dither_off{false};
+// Whether the Mods have such a gate at all: then both states are made ahead of the key, as the original's
+// replaced shader exists from the game's shader creation and the key only flips its branch.
+std::atomic<bool> g_dither_gated{false};
 // Whether a pipeline's fragment stage has the character dither, by the pipeline's id (read once).
 std::shared_mutex g_dither_mx;
 std::unordered_map<uint32_t, bool> g_dither_pipelines;
@@ -275,6 +278,10 @@ bool pipeline_dither(uint32_t id, const GraphicsRecipe& recipe)
 }
 // The variant identity of a pipeline's twin without the dither (captures take 1 to 3 << 40).
 inline uint64_t twin_identity(uint32_t pipeline_id) { return (uint64_t(0x40) << 40) | pipeline_id; }
+// The twin's fragment patch: the application's vertex stage and images, the dither branch steered away.
+inline FragmentPatch twin_patch() { FragmentPatch patch; patch.keep_vertex = true; patch.no_dither = true; return patch; }
+// The same patch the other way round, for the state the key turns on next (built behind requested work).
+inline FragmentPatch other_state(FragmentPatch patch) { patch.no_dither = !patch.no_dither; return patch; }
 // A recording that bound twins keeps them until it completed: the application may destroy its pipeline
 // meanwhile, and the variant cache retire the twin with it.
 struct TwinOwner final : CommandOwner {
@@ -860,7 +867,13 @@ public:
         program.reset();
     }
 
-    void stop()
+    // Once, by whoever asks first; a caller meanwhile waits until it is done. A package is stopped by its
+    // controller (its Mod gone, the device going) and with the folder generation it belongs to, on threads
+    // of their own: 2.0.7 joined its worker from two of them at once and the second join's error ended the
+    // game. The original releases each object once, its reference count deciding when (D3D11 runtime).
+    std::once_flag stop_once;
+    void stop() { std::call_once(stop_once, [this] { stop_now(); }); }
+    void stop_now()
     {
         { std::lock_guard<std::mutex> lock(pool_mx); stopped = true; enabled = false; wake.notify_all(); }
         if (worker.joinable()) worker.join();
@@ -2093,8 +2106,10 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         std::vector<WaitingVariant> waiting; // Allocates only for a cold variant.
         variants.resize(list->count);
         // While a discard gate is set (D-133) the draw's fragment stage goes without the character dither,
-        // as the application's own draws of the pipeline do through its twin.
-        const bool no_dither = g_dither_off.load(std::memory_order_relaxed) && pipeline_dither(pipe->second.id, *pipe->second.recipe);
+        // as the application's own draws of the pipeline do through its twin. The other state is prepared
+        // with the first, so the key finds it made.
+        const bool dithered = g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(pipe->second.id, *pipe->second.recipe);
+        const bool no_dither = dithered && g_dither_off.load(std::memory_order_relaxed);
         auto patch_of = [&](uint32_t i) -> const FragmentPatch& {
             if (!no_dither) return material_plans[i]->patch;
             if (scratch_patches.size() < list->count) scratch_patches.resize(list->count);
@@ -2122,6 +2137,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     if (k < 2) { patch = material_plans[i]->patch; patch.no_dither = no_dither; if (capture_t4[i]) patch.images.push_back({capture_t4_binding.first, capture_t4_binding.second}); }
                     else patch.replacement_images = 2;
                     const auto result = cache->request(capture_identity(pipe->second.id, CaptureKind(k)), recipe, pipe->second.layout, vertex, patch);
+                    if (k < 2 && dithered) cache->prepare(capture_identity(pipe->second.id, CaptureKind(k)), recipe, pipe->second.layout, vertex, other_state(patch));
                     if (result.variant) { scratch_captures[k][i] = result.variant; continue; }
                     if (result.state == VariantState::Queued || result.state == VariantState::Building) {
                         waiting_captures.push_back({i, k, vertex, recipe, std::move(patch)}); continue;
@@ -2138,6 +2154,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 return refuse(C_VERTEX, "character vertex declaration: " + reason);
             // Issue all cold requests before waiting so the existing builders can run in parallel.
             const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, patch_of(i));
+            if (dithered) cache->prepare(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, other_state(patch_of(i)));
             if (keep_variant(i, result)) continue;
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { waiting.push_back({i, std::move(vertex)}); continue; }
             return refuse(C_VARIANT, "character variant: " + result.reason);
@@ -2318,8 +2335,10 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
     FragmentPatch patch = plans[0]->patch;
     patch.keep_vertex = true;
-    patch.no_dither = g_dither_off.load(std::memory_order_relaxed) && pipeline_dither(pipe.id, *pipe.recipe);
+    const bool dithered = g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(pipe.id, *pipe.recipe);
+    patch.no_dither = dithered && g_dither_off.load(std::memory_order_relaxed);
     const auto result = cache->await(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, patch, std::chrono::milliseconds(4000));
+    if (dithered) cache->prepare(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, other_state(patch));
     if (!result.variant) {
         if (result.state == VariantState::Queued || result.state == VariantState::Building) { ++counters[C_PENDING]; return false; }
         return refuse(C_VARIANT, "texture-only variant: " + result.reason);
@@ -2629,8 +2648,11 @@ struct FolderGeneration {
             if (keep && keep->program && !keep->program->save(error)) logf("folder generation settings: %s", error.c_str());
         });
     }
-    // Off the presenting thread: every package stops, then the owned runtime; the settings once.
-    void stop()
+    // Off the presenting thread: every package stops, then the owned runtime; the settings once. Once,
+    // whoever asks first (the retirement after an exchange, the device going); the others wait for it.
+    std::once_flag stop_once;
+    void stop() { std::call_once(stop_once, [this] { stop_now(); }); }
+    void stop_now()
     {
         if (saving.valid()) saving.get();
         for (auto& p : packages) if (p) p->stop();
@@ -2743,14 +2765,10 @@ std::shared_ptr<FolderGeneration> folder_create(Device* device, const VkPhysical
     }
     for (auto& m : mods)
         if (m.program && m.program->gpu()) { folder->presenter = std::make_shared<OwnedPresenter>(device, m.program->gpu()); break; }
-    // The discard gates as the load left them (D-133): the first frame's draws already see them.
+    // The discard gates as the load left them (D-133); the live generation's reach the draws (BUG-070:
+    // 2.0.7 set them from a reload candidate while it loaded).
     for (auto& m : mods)
-        if (m.program) {
-            folder->gates = m.program->discard_gates();
-            g_dither_off.store(std::any_of(folder->gates.begin(), folder->gates.end(), [](const auto& g) { return g.value != 0; }),
-                               std::memory_order_relaxed);
-            break;
-        }
+        if (m.program) { folder->gates = m.program->discard_gates(); break; }
     for (auto& m : mods)
         if (m.program) {
             if (!folder->presenter && !m.program->gpu_reason().empty()) logf("owned GPU work unavailable: %s", m.program->gpu_reason().c_str());
@@ -2808,6 +2826,7 @@ void folder_frame(FolderGeneration& folder, bool had_draws, PresentWork* present
     // The discard gates the presentation's assignments left (D-133): any one set turns the dither off.
     folder.gates = folder.program->discard_gates();
     g_dither_off.store(std::any_of(folder.gates.begin(), folder.gates.end(), [](const auto& g) { return g.value != 0; }), std::memory_order_relaxed);
+    g_dither_gated.store(!folder.gates.empty(), std::memory_order_relaxed);
     if (now - folder.save_checked_us >= g_cfg.settings_save_seconds * 1000000) {
         folder.save_checked_us = now;
         if (folder.program->settings_dirty()) folder.save();
@@ -2836,7 +2855,9 @@ public:
     ~CharacterController() { stop(); }
     void retire(std::shared_ptr<CharacterGeneration> old)
     {
-        if (old) retiring.push_back(std::async(std::launch::async, [old = std::move(old)] { old->stop(); }));
+        if (old) retiring.push_back(std::async(std::launch::async, [old = std::move(old)] {
+            try { old->stop(); } catch (const std::exception& e) { logf("character generation retirement: %s", e.what()); }
+        }));
     }
     // Device teardown: everything stops here, waiting for what it must.
     void stop()
@@ -2861,14 +2882,33 @@ public:
         std::unique_lock<std::shared_mutex> lock(mutex);
         if (stopped) return;
         stopped = true;
-        stopping = std::async(std::launch::async, [loading = std::move(loading), staged = staged, active = active,
-                                                   retiring = std::move(retiring)]() mutable {
-            if (loading.valid()) { auto candidate = loading.get(); if (candidate) candidate->stop(); }
-            if (staged) staged->stop();
-            if (active) active->stop();
-            for (auto& future : retiring) future.get();
+        // The stop owns the generations: the controller keeps nothing of the Mod that went (BUG-068).
+        stopping = std::async(std::launch::async, [loading = std::move(loading), staged = std::move(staged), active = std::move(active),
+                                                   retiring = std::move(retiring), path = path]() mutable {
+            try {
+                if (loading.valid()) { auto candidate = loading.get(); if (candidate) candidate->stop(); }
+                if (staged) staged->stop();
+                if (active) active->stop();
+                for (auto& future : retiring) future.get();
+            } catch (const std::exception& e) { logf("character package stop (%s): %s", path.c_str(), e.what()); }
         });
-        retiring.clear(); staged.reset();
+        retiring.clear(); staged.reset(); active.reset();
+    }
+    // The Mod of a stopped folder package is back (an F10 found it again): the controller takes its new
+    // package in the same slot, a new generation for the draws' index. Draws index the controllers
+    // without a lock, so slots are never removed; 2.0.7 added one per return and ran out at 64 (BUG-068).
+    // Only once the earlier stop is done; otherwise the caller takes a new slot.
+    bool revive(std::shared_ptr<CharacterGeneration> package)
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        if (!stopped || !folder_member) return false;
+        if (stopping.valid()) {
+            if (stopping.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+            stopping.get();
+        }
+        active = std::move(package); staged.reset(); retiring.clear();
+        ++generation; ++reloads; reload_error.clear(); stopped = false;
+        return true;
     }
     void frame(bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& input)
     {
@@ -2986,10 +3026,18 @@ public:
     std::future<std::shared_ptr<FolderGeneration>> folder_loading;
     std::vector<std::future<void>> folder_retiring;
     uint64_t folder_staged_at = 0, folder_reloads = 0, folder_rejected = 0;
+    bool folder_reload_again = false; // an F10 pressed while the last one loaded (BUG-069)
+    // D-133: the existing pipelines' twins, prepared when a discard gate appears (at the start, or RabbitFX
+    // added by F10); presenting thread.
+    bool twins_swept = false;
+    std::future<void> twins_sweep;
     std::string folder_error;
     void retire_folder(std::shared_ptr<FolderGeneration> old)
     {
-        if (old) folder_retiring.push_back(std::async(std::launch::async, [old = std::move(old)] { old->stop(); }));
+        if (old) folder_retiring.push_back(std::async(std::launch::async, [old = std::move(old)] {
+            try { old->stop(); }
+            catch (const std::exception& e) { logf("folder generation retirement: %s", e.what()); }
+        }));
     }
     Device* device = nullptr;
     VkPhysicalDeviceProperties properties{};
@@ -3062,7 +3110,7 @@ public:
     std::shared_mutex twins_mx;
     std::unordered_map<uint32_t, std::shared_ptr<const PipelineVariant>> twins;
     std::unordered_set<uint32_t> twins_failed;
-    std::atomic<uint64_t> twin_binds{0};
+    std::atomic<uint64_t> twin_binds{0}, twins_prepared{0};
     // The packages' sections by hash (D-096, D-097): a draw's index region is hashed once for every
     // package and looked up here, so only the packages with a section of that hash see the draw.
     // `counts` holds every index count a section matches, to pass over draws no section can match
@@ -3118,6 +3166,7 @@ public:
     }
     ~CharacterBackend()
     {
+        if (twins_sweep.valid()) twins_sweep.get();
         for (auto& c : controllers) c->stop();
         if (folder_loading.valid()) { auto candidate = folder_loading.get(); if (candidate) candidate->stop(); }
         if (folder_staged) folder_staged->stop();
@@ -3159,6 +3208,7 @@ std::vector<std::string> configured_packages(std::string& reason)
 }
 }
 
+void prepare_twins(CharacterBackend& b);
 std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDeviceProperties& p, const VkPhysicalDeviceMemoryProperties& m)
 {
     auto backend = std::make_shared<CharacterBackend>();
@@ -3196,6 +3246,14 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
         if (backend->controllers.empty()) backend->reason = backend->folder->reason.empty() ? "no character Mod in the folder generation" : backend->folder->reason;
         logf("character packages: %zu from the folder generation of %s", backend->controllers.size(), g_cfg.m2_mods.c_str());
         backend->rebuild_index();
+        // The first frame's draws see the gates of the generation loaded here (D-133).
+        g_dither_off.store(std::any_of(backend->folder->gates.begin(), backend->folder->gates.end(), [](const auto& g) { return g.value != 0; }),
+                           std::memory_order_relaxed);
+        g_dither_gated.store(!backend->folder->gates.empty(), std::memory_order_relaxed);
+        // A backend made while the game has its pipelines (a module exchange) prepares their twins here,
+        // off the game's threads; one made with the device has none yet.
+        prepare_twins(*backend);
+        backend->twins_swept = g_dither_gated.load(std::memory_order_relaxed);
         return backend;
     }
     for (const auto& path : configured_packages(backend->reason)) {
@@ -3212,6 +3270,7 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
 }
 void character_stop(CharacterBackend& b)
 {
+    if (b.twins_sweep.valid()) b.twins_sweep.get();
     for (auto& c : b.controllers) c->stop();
     if (b.folder_loading.valid()) { auto candidate = b.folder_loading.get(); if (candidate) candidate->stop(); }
     if (b.folder_staged) { b.folder_staged->stop(); b.folder_staged.reset(); }
@@ -3228,6 +3287,17 @@ void character_stop(CharacterBackend& b)
 void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& input)
 {
     if (b.folder) folder_frame(*b.folder, had_draws, present, input);
+    // A discard gate there now and not before (the start, RabbitFX added by F10, a module exchange): the
+    // twins of the pipelines the game already has are prepared off this thread (D-133).
+    const bool gated = g_dither_gated.load(std::memory_order_relaxed);
+    if (!gated) b.twins_swept = false;
+    else if (!b.twins_swept && !(b.twins_sweep.valid() && b.twins_sweep.wait_for(std::chrono::seconds(0)) != std::future_status::ready)) {
+        if (b.twins_sweep.valid()) b.twins_sweep.get();
+        b.twins_swept = true;
+        b.twins_sweep = std::async(std::launch::async, [&b] {
+            try { prepare_twins(b); } catch (const std::exception& e) { logf("character dither: twins not prepared: %s", e.what()); }
+        });
+    }
     for (auto it = b.folder_retiring.begin(); it != b.folder_retiring.end();) {
         if (it->wait_for(std::chrono::seconds(0)) == std::future_status::ready) { it->get(); it = b.folder_retiring.erase(it); }
         else ++it;
@@ -3301,6 +3371,9 @@ void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork*
             }
             for (auto* c : gone) { c->stop_later(); logf("character package removed with its Mod: %s", c->path.c_str()); }
             for (auto& added : by_path) {
+                CharacterController* back = nullptr;
+                for (auto& c : b.controllers) if (c->folder_member && c->path == added.first) back = c.get();
+                if (back && back->revive(added.second)) { logf("character package back with its Mod: %s", added.first.c_str()); continue; }
                 if (b.controllers.size() >= kMaxPackages) { logf("character packages: no room for %s (64 at most)", added.first.c_str()); break; }
                 auto controller = std::make_unique<CharacterController>();
                 controller->path = added.first; controller->lazy = true; controller->folder_member = true; controller->active = added.second;
@@ -3309,6 +3382,10 @@ void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork*
                 b.controllers.push_back(std::move(controller));
             }
             staged->save();
+            // An F10 pressed while this one loaded reloads again, as each press does in the original (BUG-069).
+            if (b.folder && b.folder->program && b.folder->program->take_reload_request()) {
+                b.folder_reload_again = true; logf("folder generation: an F10 pressed while it loaded reloads again");
+            }
             auto old = std::move(b.folder); b.folder = std::move(staged); ++b.folder_reloads; b.folder_error.clear();
             logf("folder generation %llu Ready; F10 exchange complete for %zu packages", static_cast<unsigned long long>(b.folder_reloads),
                  b.folder->packages.size());
@@ -3318,7 +3395,10 @@ void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork*
             logf("%s", b.folder_error.c_str()); b.retire_folder(std::move(b.folder_staged));
         }
     }
-    if (b.folder && b.folder->program && b.folder->program->take_reload_request() && !b.folder_loading.valid() && !b.folder_staged) {
+    // A request is taken only when no reload runs: one pressed meanwhile waits for it (BUG-069).
+    if (b.folder && b.folder->program && !b.folder_loading.valid() && !b.folder_staged &&
+        (std::exchange(b.folder_reload_again, false) || b.folder->program->take_reload_request())) {
+        logf("folder generation: F10 reload starts");
         Device* const d = b.device; const auto p = b.properties; const auto m = b.memory;
         TextureResidency* const textures = b.textures.get(); auto variants = b.variants; Translucency* const translucency = b.translucency.get();
         BoneMerge* const bones = b.bone_merge.get();
@@ -3496,11 +3576,9 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline)
         if (found != b.twins.end()) twin = found->second;
     }
     if (!twin) {
-        FragmentPatch patch;
-        patch.keep_vertex = true; patch.no_dither = true;
-        // The first bind waits for the twin (bounded), as the original's replaced shader is made when the
-        // game creates its shader and a replaced draw waits for its variant (D-103).
-        const auto result = b.variants->await(twin_identity(id), recipe, layout, recipe->vertex, patch, std::chrono::milliseconds(4000));
+        // Prepared when the game created the pipeline (character_created), so normally made by now; a twin
+        // still being built is waited for (bounded), as a replaced draw waits for its variant (D-103).
+        const auto result = b.variants->await(twin_identity(id), recipe, layout, recipe->vertex, twin_patch(), std::chrono::milliseconds(4000));
         std::unique_lock<std::shared_mutex> lock(b.twins_mx);
         if (result.variant) twin = b.twins[id] = result.variant;
         else {
@@ -3516,6 +3594,43 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline)
     if (std::find(owner.held.begin(), owner.held.end(), twin) == owner.held.end()) owner.held.push_back(twin);
     ++b.twin_binds;
     return twin->pipeline;
+}
+// At the application's graphics pipeline creation (D-133): when the Mods have a discard gate, the twin of a
+// pipeline with the character dither is prepared at once, behind the variants draws wait for, as the
+// original replaces the shader when the game creates it; the key then only changes what is bound.
+void prepare_twin(CharacterBackend& b, uint32_t id, const std::shared_ptr<const GraphicsRecipe>& recipe,
+                  const std::shared_ptr<const PipelineLayoutInfo>& layout)
+{
+    if (!recipe || !layout || !pipeline_dither(id, *recipe)) return;
+    const auto result = b.variants->prepare(twin_identity(id), recipe, layout, recipe->vertex, twin_patch());
+    if (result.state == VariantState::Queued) ++b.twins_prepared;
+}
+void character_created(CharacterBackend& b, VkPipeline pipeline)
+{
+    if (!g_dither_gated.load(std::memory_order_relaxed) || !b.variants) return;
+    uint32_t id = 0;
+    std::shared_ptr<const GraphicsRecipe> recipe;
+    std::shared_ptr<const PipelineLayoutInfo> layout;
+    {
+        std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
+        const auto pipe = b.device->pipes.find(pipeline);
+        if (pipe == b.device->pipes.end()) return;
+        id = pipe->second.id; recipe = pipe->second.recipe; layout = pipe->second.layout;
+    }
+    prepare_twin(b, id, recipe, layout);
+}
+// A backend made while the game already has its pipelines (a module exchange): their twins, as above.
+void prepare_twins(CharacterBackend& b)
+{
+    if (!g_dither_gated.load(std::memory_order_relaxed) || !b.variants) return;
+    std::vector<std::tuple<uint32_t, std::shared_ptr<const GraphicsRecipe>, std::shared_ptr<const PipelineLayoutInfo>>> pipes;
+    {
+        std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
+        pipes.reserve(b.device->pipes.size());
+        for (const auto& pipe : b.device->pipes)
+            if (pipe.second.recipe && pipe.second.layout) pipes.emplace_back(pipe.second.id, pipe.second.recipe, pipe.second.layout);
+    }
+    for (const auto& [id, recipe, layout] : pipes) prepare_twin(b, id, recipe, layout);
 }
 void character_retire(CharacterBackend& b, uint32_t id)
 {
@@ -3705,6 +3820,7 @@ static void controller_status(CharacterController& c, JsonWriter& w)
     std::shared_lock<std::shared_mutex> lock(c.mutex);
     w.kn("ini_generation", c.generation); w.kn("ini_reloads", c.reloads); w.kn("ini_reload_rejected", c.rejected);
     w.kb("ini_reload_pending", c.loading.valid() || bool(c.staged)); w.kv("ini_reload_error", c.reload_error);
+    w.kb("stopped", c.stopped);
     if (c.active) generation_status(*c.active, w);
 }
 // One package's fields at the top as before: the first one on the GPU, else the first. Every package
@@ -3771,6 +3887,7 @@ void character_status(CharacterBackend& b, JsonWriter& w)
             w.kn("dither_twins", b.twins.size()); w.kn("dither_twins_failed", b.twins_failed.size());
         }
         w.kn("dither_twin_binds", b.twin_binds.load());
+        w.kn("dither_twins_prepared", b.twins_prepared.load());
         w.end_object();
     }
     {
@@ -3797,6 +3914,7 @@ const CharacterModule* builtin_character_module()
         m.record = character_record; m.retire = character_retire; m.frame = character_frame; m.status = character_status;
         m.enable = character_enable; m.submit = character_submit; m.submitted = character_submitted; m.pass_end = character_pass_end;
         m.bind = character_bind;
+        m.created = character_created;
         return m;
     }();
     return &module;

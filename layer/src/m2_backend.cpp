@@ -311,6 +311,12 @@ VkPipeline m2_bind(Device* device,CmdBuf* cb,VkPipeline pipeline){
     return device->character && device->character_module->bind ? device->character_module->bind(*device->character,cb,pipeline) : pipeline;
 }
 
+void m2_created(Device* device,VkPipeline pipeline){
+    if(!device->character_mode)return;
+    std::shared_lock<std::shared_mutex> lock(device->character_mx);
+    if(device->character && device->character_module->created)device->character_module->created(*device->character,pipeline);
+}
+
 void m2_pass_end(Device* device,CmdBuf* cb){
     if(!device->character_mode)return;
     std::shared_lock<std::shared_mutex> lock(device->character_mx);

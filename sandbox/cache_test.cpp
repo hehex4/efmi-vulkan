@@ -213,6 +213,32 @@ int main()
         driver.resume(); stopper.get();
         check(driver.count()==0,"parallel canceled builders release all temporary GPU objects");
     }
+    {
+        // D-133: a prepared variant (the state a key turns on) is built after the requested ones; a
+        // request for it moves it ahead of the variants still only prepared.
+        driver.pause=true;
+        VariantCache cache(handle<VkDevice>(1),dispatch(),4);
+        const uint32_t before=driver.started;
+        cache.request(60,recipe,layout,vertex); check(driver.await_started(before+1),"preparation scenario occupies the builder");
+        check(cache.prepare(61,recipe,layout,vertex).state==VariantState::Queued,"a prepared variant is queued");
+        cache.request(62,recipe,layout,vertex);
+        cache.prepare(63,recipe,layout,vertex); cache.request(63,recipe,layout,vertex);
+        driver.resume();
+        auto built=[&](uint64_t id){
+            auto end=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+            VariantResult result;
+            do {
+                result=cache.prepare(id,recipe,layout,vertex);   // a prepare of a known variant moves nothing
+                if (result.state==VariantState::Ready) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            } while(std::chrono::steady_clock::now()<end);
+            return result.variant ? reinterpret_cast<uintptr_t>(result.variant->pipeline) : uintptr_t(0);
+        };
+        const auto p61=built(61),p62=built(62),p63=built(63);
+        check(p61 && p62 && p63 && p62<p63 && p63<p61 && driver.started==before+4,
+              "requested variants build before a prepared one, and a requested prepared one with them");
+        cache.stop();
+    }
     printf("variant cache: %d checks passed, %d failed\n",passed,failed);
     return failed?1:0;
 }

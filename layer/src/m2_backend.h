@@ -27,6 +27,8 @@ void m2_retire(Device*,VkPipeline);
 bool m2_record(Device*,CmdBuf*,const DrawRec&);
 // At the application's graphics pipeline bind: the pipeline to bind in its place (D-133), else `pipeline`.
 VkPipeline m2_bind(Device*,CmdBuf*,VkPipeline pipeline);
+// After the application created a graphics pipeline, its record made (D-133).
+void m2_created(Device*,VkPipeline pipeline);
 // After the application ended the classic render pass CmdBuf::pass names (D-113).
 void m2_pass_end(Device*,CmdBuf*);
 void m2_seal(Device*,uint32_t,const VkCommandBuffer*);

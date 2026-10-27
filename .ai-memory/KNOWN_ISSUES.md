@@ -1,5 +1,39 @@
 # EFMI Vulkan - Known issues
 
+## BUG-067: An F10 after a drawn character's Mod was removed ended the game (fixed in 2.0.8)
+
+- 2026-10-27 19:25:49, PID 30992, 2.0.7: the user deleted a Typhoeus Mod and Si SorceressV2 and added another Typhoeus Mod, then pressed F10. The exchange logged the three packages removed, then the presenting thread rethrew a std::system_error (errc 3, no_such_process: std::thread::join's `_Thrd_join` failure) from the old generation's retirement future (`folder_frame_and_exchange`); Unity's crash handler took it (Player.log, crash dump; the layer's own log has no crash line, only the watchdog's stall lines while the handler ran).
+- Cause: a removed Mod's package was stopped by its controller (`stop_later`, a thread of its own) and, with every other package of the generation it left, by that generation's retirement (another thread); both joined the package's worker at once and the second join failed. The original releases each object once, through its reference count, on one thread.
+- 2.0.8: `CharacterGeneration::stop` and `FolderGeneration::stop` run once (std::call_once; a concurrent caller waits until it is done); the retirement and removal tasks log an error instead of passing it to the presenting thread. Test failing on 2.0.7: the Mods-folder scene disables its drawn Mod's INI and presses F10 (the process ended with 0xC0000409).
+
+## BUG-068: A Mod enabled again by F10 took a new slot, 64 in all, and a removed package kept its objects (fixed in 2.0.8)
+
+- Found going through docs/f10-operations.md. Controllers are never removed (draws index them without a lock); every return of a removed Mod added one, so toggling Mods with F10 ran out of the 64 slots, and the stopped controller kept its last generation (and through it the old generation's INI state). 2.0.8: the stop takes the generations with it; a Mod back takes its old slot (a new generation for the index). Test failing on 2.0.7: the scene's Mod enabled again showed a third package entry.
+
+## BUG-069: An F10 pressed while a reload loaded was lost (fixed in 2.0.8)
+
+- Found the same way. The request was taken every presentation, also while a load ran, and dropped; it also lived in the old generation's runtime, which the exchange replaces. The original reloads once per press. 2.0.8: the request is taken only when no reload runs, and one left in the old generation at the exchange starts the next load. Test failing on 2.0.7: two F10 with an INI edit between them, the second during the first's load: the edit must be drawn.
+
+## BUG-070: A reload candidate set the dither gate while it loaded (fixed in 2.0.8)
+
+- folder_create set the global gate for every generation it made, the F10 candidates included, until the next presentation set it from the live one again (one frame; a refused candidate's gate). 2.0.8: the gate is set at the start and from the live generation only. No test can see the one frame; the scene checks the gate after RabbitFX was disabled and enabled again by F10.
+
+## BUG-071: The anti-dither removed the field's alpha tests (fixed in 2.0.8)
+
+- 2026-10-27, 2.0.6/2.0.7 in the game: with `$censor` on, grass and bushes drew as solid quads. Their fragment shaders kill on `min(LOD cross-fade - noise, alpha - cutoff) < 0`: the cross-fade comes from the instance window too, so the rule took the kill and the patch removed the alpha test with it. RabbitFX's patterns match only the character materials (their constant-buffer declarations and the camera fade `max r, cb.x, cb.x; add r, -r, 1`). 2.0.8: the rule needs that fade (the larger of two instance window values) in the kill's condition. Field frame of 2026-10-27 saved as captures/vk-2026-10-27-field; recipe test failing on 2.0.7 (a foliage-shaped fixture and eleven alpha-tested field modules).
+
+## BUG-072: RabbitFX's key took a second or two (fixed in 2.0.8)
+
+- The twins and the replaced draws' other-state variants were compiled when the gate turned, and the first binds waited for them (up to 4 s each, serially). The original's replaced shader exists from the game's shader creation; the key flips a branch. 2.0.8: twins are prepared when the game creates a dithered pipeline (or when a gate appears: start, module exchange, RabbitFX added by F10), and a replaced draw prepares its other state with the first, both behind requested variants (VariantCache::prepare). Status `dither_twins_prepared`. Test failing on 2.0.7: the scene's dithered pipeline prepared before any bind.
+
+## LIMIT-043: A broken texture file refuses the whole F10 candidate
+
+- The original reloads and only that resource fails at its first use; the layer keeps the live generation (scene: broken DDS). Recorded in docs/f10-operations.md.
+
+## LIMIT-044: Files deleted while their reload reads them
+
+- A package of the candidate whose mesh files went during the load fails to come up; the candidate is refused after 30 s. The original loads what is there.
+
 ## BUG-064: SiModGB drew nothing: its declarations and a texture query refused (fixed in 1.9.7)
 
 - 2026-10-26 22:03, PID 8552, 1.9.6, user-started session: the user installed SiModGB (Mods/SiModGB/mod1.ini) and saw nothing of it. The log: its plans refused with "Index stride conflicts with its declared format" and "Unadapted original buffer query", then the owned Present's generation failed. Offline (dry run of the installed Mods) after the first fix: 25 of its 26 sections refused with "Typed vertex resource format requires a declaration adapter".

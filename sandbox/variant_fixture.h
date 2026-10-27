@@ -13,9 +13,10 @@ namespace variant_fixture {
 // number gives other bytes and another place for the same texture, as a feature variant of a
 // game shader has.
 // A fragment kill before the output (D-133): the character dither (interleaved gradient noise against
-// the instance window at set 2 binding 0), an alpha test (a value of set 0), a noise test without the
-// instance window (another fade).
-enum class Kill { None, Dither, Cutout, Noise };
+// the camera fade, one minus the larger of two instance window values at set 2 binding 0), an alpha test
+// (a value of set 0), a noise test without the instance window (another fade), and the shape of the
+// field's foliage: the instance's LOD cross-fade against the noise and an alpha test in one kill.
+enum class Kill { None, Dither, Cutout, Noise, LodCutout };
 inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t image_binding=6,Kill kill=Kill::None)
 {
     using namespace spv;
@@ -29,6 +30,8 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t ima
     auto in_pos = b.id(), x = b.id(), y = b.id(), position = b.id(), blend = b.id(), bone = b.id(), moved = b.id(), out_ptr = b.id();
     auto image_type=b.id(),image_ptr=b.id(),image_var=b.id(),image=b.id(),coord=b.id(),texel=b.id(),t_u2=b.id(),tinted=b.id();
     b.op(OpCapability, {CapabilityShader});
+    const uint32_t glsl = (!vertex && (kill == Kill::Dither || kill == Kill::LodCutout)) ? b.id() : 0;
+    if (glsl) b.string_op(static_cast<Op>(11), {glsl}, "GLSL.std.450", {});   // OpExtInstImport
     b.op(OpMemoryModel, {AddressingLogical, MemoryGLSL450});
     if (vertex) b.entry_point(ModelVertex, main, "main", {pos_in, blend_in, output});
     else { b.entry_point(ModelFragment, main, "main", {output}); b.op(OpExecutionMode, {main, ModeOriginUpperLeft}); }
@@ -96,8 +99,18 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t ima
             b.op(OpCompositeExtract, {t_f, ax, a, 0}); b.op(OpCompositeExtract, {t_f, vx, v, 0});
             b.op(OpFMul, {t_f, noise, ax, k_noise});
             if (kill == Kill::Dither) {
-                b.op(static_cast<Op>(131), {t_f, diff, vx, noise});           // OpFSub: the instance's fade minus the noise
+                auto vy = b.id(), larger = b.id(), fade = b.id();
+                b.op(OpCompositeExtract, {t_f, vy, v, 1});
+                b.op(static_cast<Op>(12), {t_f, larger, glsl, 80, vx, vy});    // OpExtInst NMax: the two fades of the instance
+                b.op(static_cast<Op>(131), {t_f, fade, f1, larger});          // OpFSub: one minus the larger
+                b.op(static_cast<Op>(131), {t_f, diff, fade, noise});         // minus the noise
                 b.op(static_cast<Op>(184), {t_bool, cond, diff, f0});         // OpFOrdLessThan
+            } else if (kill == Kill::LodCutout) {
+                auto cross = b.id(), alpha = b.id();
+                b.op(static_cast<Op>(131), {t_f, cross, vx, noise});          // the LOD cross-fade minus the noise
+                b.op(static_cast<Op>(131), {t_f, alpha, ax, k_half});         // the alpha test
+                b.op(static_cast<Op>(12), {t_f, diff, glsl, 79, cross, alpha}); // OpExtInst NMin: either one kills
+                b.op(static_cast<Op>(184), {t_bool, cond, diff, f0});
             } else if (kill == Kill::Cutout) {
                 b.op(static_cast<Op>(184), {t_bool, cond, ax, k_half});
             } else {

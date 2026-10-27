@@ -35,6 +35,10 @@ public:
     // Recipes are owned immutable objects. The same identity must always refer to the same source.
     VariantResult request(uint64_t identity, std::shared_ptr<const GraphicsRecipe>,
                           std::shared_ptr<const PipelineLayoutInfo>, const VertexInputRecipe&, const FragmentPatch& = {});
+    // As request, for a variant nothing draws with yet (D-133: the state a key turns on): built when no
+    // requested variant waits. A later request or await of it moves it ahead with the others.
+    VariantResult prepare(uint64_t identity, std::shared_ptr<const GraphicsRecipe>,
+                          std::shared_ptr<const PipelineLayoutInfo>, const VertexInputRecipe&, const FragmentPatch& = {});
     // As request, then waiting (bounded) while the variant is queued or building (D-103): the draw
     // takes longer, as a shader's creation does under DX11, and the character is never the game's
     // mesh meanwhile. Returns the final state, or the pending one when the wait ran out.
@@ -68,8 +72,11 @@ private:
         VertexInputRecipe vertex;
         FragmentPatch fragment;
         VariantResult result;
+        bool prepared = false; // queued in later_
     };
     static Key key_for(uint64_t, const VertexInputRecipe&, const FragmentPatch&);
+    VariantResult submit(uint64_t identity, std::shared_ptr<const GraphicsRecipe>, std::shared_ptr<const PipelineLayoutInfo>,
+                         const VertexInputRecipe&, const FragmentPatch&, bool prepared);
     void run();
     VkDevice dev_;
     VkPipelineCache pipeline_cache_ = VK_NULL_HANDLE;
@@ -82,7 +89,7 @@ private:
     std::atomic<uint64_t> waits_{0}, wait_us_{0};
     bool stopped_ = false;
     std::map<Key, std::shared_ptr<Job>> jobs_;
-    std::deque<std::shared_ptr<Job>> queue_;
+    std::deque<std::shared_ptr<Job>> queue_, later_;
     // Several builders: the variants a character needs when it first appears compile in parallel,
     // the driver compiling on each thread (D-101; one builder took 0.3-2 s per character switch).
     std::vector<std::thread> workers_;

@@ -546,5 +546,65 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
               "F10 held through the exchange does not retrigger in the new generation");
         press("1\n"); frame(false);
         self_probe("{\"cmd\":\"status\"}", "runtime-final.json");
+        // The Mods folder (D-131): the drawn character's Mod is disabled and F10 pressed. 2.0.7 in the
+        // game: the removed package was stopped twice at once, by its controller and with the generation
+        // it left, and the second join's error ended the game in its presentation.
+        char folder_scene[4] = {};
+        if (GetEnvironmentVariableA("EFMI_VK_TEST_FOLDER_F10", folder_scene, sizeof(folder_scene)) && folder_scene[0] == '1') {
+            if (!MoveFileExA("mod.ini", "DISABLED_mod.ini", 0)) throw std::runtime_error("Cannot disable the scene's Mod");
+            const auto before_removal = number(status(), "reloads");
+            press("1 121\n"); frame(false); press("1\n");
+            bool removed = false;
+            for (uint32_t i = 0; i < 600 && !removed; ++i) { frame(false); removed = number(status(), "reloads") == before_removal + 1; if (!removed) Sleep(5); }
+            for (int i = 0; i < 100; ++i) { frame(false); Sleep(2); }
+            check(removed, "F10 after the drawn character's Mod was disabled exchanges the folder generation without it");
+            self_probe("{\"cmd\":\"status\"}", "runtime-removed.json");
+            auto reloads_to = [&](uint32_t target, uint32_t tries) {
+                bool reached = false;
+                for (uint32_t i = 0; i < tries && !reached; ++i) { frame(false); reached = number(status(), "reloads") == target; if (!reached) Sleep(5); }
+                return reached;
+            };
+            auto shade_becomes = [&](uint32_t shade) {
+                bool seen = false;
+                for (uint32_t i = 0; i < 400 && !seen; ++i) { frame(false); seen = shade_at(-.6f,.3f) == shade; if (!seen) Sleep(5); }
+                return seen;
+            };
+            // Enabled again: drawn again, in the slot it had (BUG-068: 2.0.7 took a new one each time, 64 in all).
+            if (!MoveFileExA("DISABLED_mod.ini", "mod.ini", 0)) throw std::runtime_error("Cannot enable the scene's Mod again");
+            press("1 121\n"); frame(false); press("1\n");
+            const bool back = reloads_to(before_removal + 2, 600);
+            check(back && shade_becomes(5), "F10 after the Mod was enabled again draws it again");
+            self_probe("{\"cmd\":\"status\"}", "runtime-reenabled.json");
+            // Two F10 in a row, the INI edited between them: the second press is not lost (BUG-069: 2.0.7
+            // dropped a press made while a reload loaded). The edit must be drawn.
+            write_text("mod.ini", original_text);
+            const auto before_pair = number(status(), "reloads");
+            press("1 121\n"); frame(false); press("1\n"); frame(false); // released: the next press is a new one
+            bool loading = false;
+            for (uint32_t i = 0; i < 200 && !loading; ++i) {
+                const auto text = status();
+                loading = text.find("\"loading\":true") != std::string::npos || text.find("\"staged\":true") != std::string::npos;
+                if (!loading) frame(false);
+            }
+            write_text("mod.ini", changed);
+            press("1 121\n"); frame(false); press("1\n");
+            const bool both = reloads_to(before_pair + 2, 800);
+            check(loading && both && shade_becomes(5), "an F10 pressed while the last one loads reloads again, and its edit is drawn");
+            // RabbitFX disabled, then enabled again (D-133, BUG-070): the gate follows the live generation.
+            const char* const rabbit = "../RabbitFX -ENDMI-/RabbitFX.ini";
+            const char* const rabbit_off = "../RabbitFX -ENDMI-/DISABLED_RabbitFX.ini";
+            if (!MoveFileExA(rabbit, rabbit_off, 0)) throw std::runtime_error("Cannot disable the scene's RabbitFX");
+            auto reloads = number(status(), "reloads");
+            press("1 121\n"); frame(false); press("1\n");
+            check(reloads_to(reloads + 1, 600), "F10 after RabbitFX was disabled exchanges the generation");
+            for (int i = 0; i < 5; ++i) frame(false);
+            self_probe("{\"cmd\":\"status\"}", "runtime-no-rabbitfx.json");
+            if (!MoveFileExA(rabbit_off, rabbit, 0)) throw std::runtime_error("Cannot enable the scene's RabbitFX again");
+            reloads = number(status(), "reloads");
+            press("1 121\n"); frame(false); press("1\n");
+            check(reloads_to(reloads + 1, 600), "F10 after RabbitFX was enabled again exchanges the generation");
+            for (int i = 0; i < 20; ++i) { frame(false); Sleep(2); }
+            self_probe("{\"cmd\":\"status\"}", "runtime-rabbitfx-back.json");
+        }
     }
 }

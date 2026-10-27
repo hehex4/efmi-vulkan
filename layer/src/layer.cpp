@@ -264,8 +264,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateGraphicsPipelines(VkDevice device, VkPip
     VkResult r = dev->d.CreateGraphicsPipelines(device, cache, count, infos, alloc, pipes);
     // A batch can return an error after successfully creating some pipelines.
     for (uint32_t i = 0; i < count; i++)
-        if (pipes[i])
+        if (pipes[i]) {
             on_create_graphics_pipeline(dev, pipes[i], &infos[i]);
+            m2_created(dev, pipes[i]);
+        }
     return r;
 }
 

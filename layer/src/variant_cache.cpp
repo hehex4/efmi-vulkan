@@ -42,6 +42,19 @@ VariantCache::~VariantCache() { stop(); }
 VariantResult VariantCache::request(uint64_t identity, std::shared_ptr<const GraphicsRecipe> recipe,
                                    std::shared_ptr<const PipelineLayoutInfo> layout, const VertexInputRecipe& vertex,const FragmentPatch& fragment)
 {
+    return submit(identity, std::move(recipe), std::move(layout), vertex, fragment, false);
+}
+
+VariantResult VariantCache::prepare(uint64_t identity, std::shared_ptr<const GraphicsRecipe> recipe,
+                                   std::shared_ptr<const PipelineLayoutInfo> layout, const VertexInputRecipe& vertex,const FragmentPatch& fragment)
+{
+    return submit(identity, std::move(recipe), std::move(layout), vertex, fragment, true);
+}
+
+VariantResult VariantCache::submit(uint64_t identity, std::shared_ptr<const GraphicsRecipe> recipe,
+                                  std::shared_ptr<const PipelineLayoutInfo> layout, const VertexInputRecipe& vertex,
+                                  const FragmentPatch& fragment, bool prepared)
+{
     if (!identity || !recipe || !layout || vertex.bindings.size() > 32 || vertex.attributes.size() > 32 ||
         fragment.images.size()>32 || fragment.nulls.size()>32 || fragment.images.size()+fragment.nulls.size()>32)
         return {VariantState::Failed, {}, "invalid variant request"};
@@ -49,12 +62,21 @@ VariantResult VariantCache::request(uint64_t identity, std::shared_ptr<const Gra
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopped_) return {VariantState::Stopped, {}, "variant cache stopped"};
     auto found = jobs_.find(key);
-    if (found != jobs_.end()) return found->second->result;
+    if (found != jobs_.end()) {
+        // A prepared variant a draw now asks for goes ahead with the requested ones.
+        const auto& job = found->second;
+        if (!prepared && job->prepared) {
+            job->prepared = false;
+            later_.erase(std::remove(later_.begin(), later_.end(), job), later_.end());
+            if (job->result.state == VariantState::Queued) { queue_.push_back(job); wake_.notify_one(); }
+        }
+        return job->result;
+    }
     if (jobs_.size() >= capacity_) return {VariantState::Saturated, {}, "variant cache capacity reached"};
     auto job = std::make_shared<Job>();
     job->key = std::move(key); job->recipe = std::move(recipe); job->layout = std::move(layout); job->vertex = vertex;
-    job->fragment=fragment;
-    jobs_.emplace(job->key, job); queue_.push_back(job); wake_.notify_one();
+    job->fragment=fragment; job->prepared = prepared;
+    jobs_.emplace(job->key, job); (prepared ? later_ : queue_).push_back(job); wake_.notify_one();
     return job->result;
 }
 
@@ -92,8 +114,9 @@ void VariantCache::retire(uint64_t identity)
             if (it->first.identity == identity) { released.push_back(it->second); it = jobs_.erase(it); }
             else ++it;
         }
-        queue_.erase(std::remove_if(queue_.begin(), queue_.end(),
-                     [identity](const auto& job) { return job->key.identity == identity; }), queue_.end());
+        for (auto* queue : {&queue_, &later_})
+            queue->erase(std::remove_if(queue->begin(), queue->end(),
+                         [identity](const auto& job) { return job->key.identity == identity; }), queue->end());
         done_.notify_all();
     }
 }
@@ -105,7 +128,7 @@ void VariantCache::stop()
     std::map<Key, std::shared_ptr<Job>> released;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        stopped_ = true; released.swap(jobs_); queue_.clear(); wake_.notify_all();
+        stopped_ = true; released.swap(jobs_); queue_.clear(); later_.clear(); wake_.notify_all();
         done_.notify_all();
     }
     for (auto& worker : workers_) if (worker.joinable()) worker.join();
@@ -117,9 +140,10 @@ void VariantCache::run()
         std::shared_ptr<Job> job;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            wake_.wait(lock, [&] { return stopped_ || !queue_.empty(); });
+            wake_.wait(lock, [&] { return stopped_ || !queue_.empty() || !later_.empty(); });
             if (stopped_) return;
-            job = queue_.front(); queue_.pop_front(); job->result.state = VariantState::Building;
+            auto& from = !queue_.empty() ? queue_ : later_;
+            job = from.front(); from.pop_front(); job->prepared = false; job->result.state = VariantState::Building;
         }
         VariantResult result;
         try {

@@ -294,11 +294,17 @@ static void dither_tests()
     const auto dither = variant_fixture::shader(false, false, 6, Kill::Dither);
     const auto cutout = variant_fixture::shader(false, false, 6, Kill::Cutout);
     const auto noise = variant_fixture::shader(false, false, 6, Kill::Noise);
+    const auto foliage = variant_fixture::shader(false, false, 6, Kill::LodCutout);
     std::string error;
-    check(spirv_valid(dither, error) && spirv_valid(cutout, error) && spirv_valid(noise, error), ("the kill fixtures are valid SPIR-V " + error).c_str());
-    check(efmi::gpu::dither_kills(dither) == 1, "the character dither is found: noise against the instance window, then a kill");
+    check(spirv_valid(dither, error) && spirv_valid(cutout, error) && spirv_valid(noise, error) && spirv_valid(foliage, error),
+          ("the kill fixtures are valid SPIR-V " + error).c_str());
+    check(efmi::gpu::dither_kills(dither) == 1, "the character dither is found: noise against the instance's camera fade, then a kill");
     check(efmi::gpu::dither_kills(cutout) == 0 && efmi::gpu::dither_kills(noise) == 0 && efmi::gpu::dither_kills(variant_fixture::shader(false)) == 0,
           "an alpha test, a noise kill without the instance window and a shader without a kill are not the dither");
+    // 2.0.6 in the game: the field's grass and bushes drew as solid quads with the anti-dither on, their
+    // alpha test gone with the LOD cross-fade it shares a kill with. RabbitFX's patterns match neither.
+    check(efmi::gpu::dither_kills(foliage) == 0,
+          "the instance's LOD cross-fade and an alpha test in one kill (the field's foliage) are not the character dither");
     std::vector<uint32_t> patched, kept = {1, 2, 3};
     std::string reason;
     check(efmi::gpu::remove_dither(dither, patched, reason) && efmi::gpu::dither_kills(patched) == 0 && patched.size() == dither.size() + 3,
@@ -311,7 +317,11 @@ static void dither_tests()
     std::error_code ignored;
     if (!std::filesystem::is_directory(captures, ignored)) { printf("dither: captures absent, corpus skipped\n"); return; }
     std::set<std::vector<uint32_t>> seen;
-    uint32_t modules = 0, dithered = 0, patched_valid = 0;
+    uint32_t modules = 0, dithered = 0, patched_valid = 0, foliage_dithered = 0;
+    // The field's alpha-tested modules of the 2026-10-27 frame (vk-2026-10-27-field), each a kill of the
+    // LOD cross-fade and a texture's alpha: never the character dither.
+    const char* const alpha_tested[] = {"e1f74fbb", "ecadd0ba", "609efaa1", "da05b7c1", "b3f81f38", "948314b4", "ea45f5ae",
+                                        "36e2a5c6", "91ed851e", "5e3605c5", "cc410c39"};
     for (const auto& entry : std::filesystem::recursive_directory_iterator(captures, ignored)) {
         if (!entry.is_regular_file(ignored) || entry.path().extension() != ".spv") continue;
         std::ifstream input(entry.path(), std::ios::binary | std::ios::ate);
@@ -323,11 +333,17 @@ static void dither_tests()
         ++modules;
         if (!efmi::gpu::dither_kills(words)) continue;
         ++dithered;
+        const auto name = entry.path().filename().string();
+        for (const char* hash : alpha_tested)
+            if (name.find(hash) != std::string::npos) { ++foliage_dithered; printf("dither: alpha-tested %s taken for the dither\n", name.c_str()); }
         std::vector<uint32_t> out;
         if (efmi::gpu::remove_dither(words, out, reason) && efmi::gpu::dither_kills(out) == 0 && spirv_valid(out, error)) ++patched_valid;
     }
     printf("dither: %u captured modules, %u with the character dither, %u patched and valid\n", modules, dithered, patched_valid);
-    check(dithered == 38, "the captured modules with the character dither are the 38 the rule names (docs/rabbitfx-dither.md)");
+    check(foliage_dithered == 0, "no alpha-tested module of the field is taken for the character dither");
+    // 28 of the earlier captures (the 2.0.6 rule took 38: ten were LOD cross-fades of the field, seven alone
+    // and three with an alpha test) and 17 of the field frame of 2026-10-27.
+    check(dithered == 45, "the captured modules with the character dither are the 45 the rule names (docs/rabbitfx-dither.md)");
     check(patched_valid == dithered, "every captured dithered module patches into valid SPIR-V without its dither");
 }
 

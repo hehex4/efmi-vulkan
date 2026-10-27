@@ -8,6 +8,7 @@
 namespace efmi::gpu {
 namespace {
 enum : uint32_t {
+    OpExtInstImport = 11, OpExtInst = 12, OpCompositeExtract = 81,
     OpTypeBool = 20, OpTypeFloat = 22, OpConstantTrue = 41, OpConstantFalse = 42, OpConstant = 43, OpFunction = 54,
     OpVariable = 59, OpLoad = 61, OpAccessChain = 65, OpInBoundsAccessChain = 66, OpPtrAccessChain = 67,
     OpInBoundsPtrAccessChain = 70, OpDecorate = 71, OpCopyObject = 83, OpLabel = 248, OpBranchConditional = 250, OpKill = 252,
@@ -15,6 +16,7 @@ enum : uint32_t {
     DecorationBinding = 33, DecorationDescriptorSet = 34,
 };
 constexpr float kNoise = 52.9829189f; // interleaved gradient noise: frac(52.9829 * frac(dot(p, (0.0671, 0.0058))))
+constexpr uint32_t kFMax = 40, kNMax = 80; // GLSL.std.450
 
 // Instructions without a result type and id, or whose operands name no value this analysis follows.
 // OpExtInst (12) is followed: GLSL.std.450's Floor and Fract are steps of the noise.
@@ -39,11 +41,17 @@ Scan scan(const std::vector<uint32_t>& code)
     Scan s;
     if (code.size() < 5 || code[0] != 0x07230203) return s;
     std::unordered_map<uint32_t, std::vector<uint32_t>> reads;
-    std::unordered_map<uint32_t, uint32_t> base, set, binding;
-    std::unordered_set<uint32_t> floats, noise, kills;
+    std::unordered_map<uint32_t, uint32_t> base, set, binding, value_of;
+    std::unordered_set<uint32_t> floats, noise, kills, fades;
     struct Candidate { size_t at; uint32_t condition, t, f; };
     std::vector<Candidate> branches;
-    uint32_t label = 0;
+    uint32_t label = 0, glsl = 0;
+    auto in_instance = [&](uint32_t value) {
+        const auto v = value_of.find(value);
+        if (v == value_of.end()) return false;
+        const auto st = set.find(v->second), bi = binding.find(v->second);
+        return st != set.end() && st->second == 2 && bi != binding.end() && bi->second == 0;
+    };
     for (size_t i = 5; i < code.size();) {
         const uint32_t op = code[i] & 0xFFFF, n = code[i] >> 16;
         if (!n || i + n > code.size()) return {};
@@ -63,36 +71,45 @@ Scan scan(const std::vector<uint32_t>& code)
         else if (op == OpLabel && count >= 1) label = o[0];
         else if ((op == OpKill || op == OpTerminateInvocation || op == OpDemoteToHelperInvocation) && label) kills.insert(label);
         else if (op == OpBranchConditional && count >= 3) branches.push_back({i, o[0], o[1], o[2]});
+        else if (op == OpExtInstImport && count >= 4 && std::memcmp(o + 1, "GLSL.std.450", 12) == 0) glsl = o[0];
         // A pointer or a value read through it keeps the variable it comes from.
         if ((op == OpLoad || op == OpAccessChain || op == OpInBoundsAccessChain || op == OpPtrAccessChain || op == OpInBoundsPtrAccessChain ||
              op == OpCopyObject) && count >= 3) {
             const auto from = base.find(o[2]);
             if (from != base.end()) base[o[1]] = from->second;
+            if (op == OpLoad && from != base.end()) value_of[o[1]] = from->second;
         }
+        if (op == OpCompositeExtract && count >= 3) {
+            const auto from = value_of.find(o[2]);
+            if (from != value_of.end()) value_of[o[1]] = from->second;
+        }
+        // The camera fade: the larger of two values read from the instance window (RabbitFX's
+        // `max r, cb[..].x, cb[..].x` before the discard it wraps).
+        if (op == OpExtInst && count >= 6 && glsl && o[2] == glsl && (o[3] == kFMax || o[3] == kNMax) && in_instance(o[4]) && in_instance(o[5]))
+            fades.insert(o[1]);
         if (!no_value(op) && count >= 2) reads[o[1]].assign(o + 2, o + count);
         i += n;
     }
     if (!s.first_function) return {};
-    std::unordered_set<uint32_t> instance;
-    for (const auto& v : set)
-        if (v.second == 2) { const auto b = binding.find(v.first); if (b != binding.end() && b->second == 0) instance.insert(v.first); }
     for (const auto& b : branches) {
         const bool kill_true = kills.count(b.t) != 0, kill_false = kills.count(b.f) != 0;
         if (kill_true == kill_false) continue;
-        // What the condition is computed from: the noise and the instance window, both.
-        bool from_noise = false, from_instance = false;
+        // What the condition is computed from: the noise and the instance's camera fade, both. The
+        // instance window alone is not enough: the field's foliage kills by its LOD cross-fade (an
+        // instance value against the same noise) and its alpha test in one branch, and RabbitFX's
+        // patterns, which need the character materials' declarations and the fade's max, leave it.
+        bool from_noise = false, from_fade = false;
         std::unordered_set<uint32_t> seen;
         std::vector<uint32_t> stack{b.condition};
-        while (!stack.empty() && seen.size() < 65536 && !(from_noise && from_instance)) {
+        while (!stack.empty() && seen.size() < 65536 && !(from_noise && from_fade)) {
             const uint32_t id = stack.back(); stack.pop_back();
             if (!seen.insert(id).second) continue;
             if (noise.count(id)) from_noise = true;
-            const auto from = base.find(id);
-            if (from != base.end() && instance.count(from->second)) from_instance = true;
+            if (fades.count(id)) from_fade = true;
             const auto r = reads.find(id);
             if (r != reads.end()) stack.insert(stack.end(), r->second.begin(), r->second.end());
         }
-        if (from_noise && from_instance) s.dithers.push_back({b.at, b.condition, kill_true ? 1u : 0u});
+        if (from_noise && from_fade) s.dithers.push_back({b.at, b.condition, kill_true ? 1u : 0u});
     }
     s.ok = true;
     return s;
