@@ -415,18 +415,19 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
                 made.components[i].remap_stream = it->second;
             }
         // Every mesh file the generation declares (a folder Mod: under its folders); those of sections
-        // the renderer has no part for are never bound by a replaced draw.
+        // the renderer has no part for are never bound by a replaced draw. In the order of their files,
+        // whatever order the generation keeps its resources in: the same files make the same mesh, which
+        // a successor generation keeps on the device (BUG-061).
+        struct Declared { std::filesystem::path path; uint32_t kind, stride; };
+        std::map<std::wstring, Declared> declared;
         for (const auto& file : runtime_->resources()) {
             if (!file->usage || remaps.count(key(file->path)) || !owns(file->path)) continue;
             const uint32_t kind = file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT ? CharacterStream::Index : CharacterStream::Vertex;
-            const auto known = meshes.find(key(file->path));
-            if (known != meshes.end()) {
-                const auto& s = made.streams[known->second];
-                if (s.kind != kind || s.stride != file->stride) throw std::runtime_error("One mesh file declared with two meanings: " + file->path.u8string());
-                continue;
-            }
-            meshes.emplace(key(file->path), add(file->path, kind, file->stride));
+            const auto known = declared.emplace(key(file->path), Declared{file->path, kind, file->stride});
+            if (!known.second && (known.first->second.kind != kind || known.first->second.stride != file->stride))
+                throw std::runtime_error("One mesh file declared with two meanings: " + file->path.u8string());
         }
+        for (const auto& file : declared) meshes.emplace(file.first, add(file.second.path, file.second.kind, file.second.stride));
         made.payload = std::move(payload);
         made.materials = true;
         if (!validate_refreshed(made, reason)) return false;

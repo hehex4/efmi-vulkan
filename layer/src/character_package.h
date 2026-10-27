@@ -156,6 +156,10 @@ struct CharacterPackage {
     // A stream whose bytes are not the ones validated at load refuses (its file changed since).
     bool read_payload(uint8_t* out, std::string& reason) const;
     bool read_stream(uint32_t stream, std::vector<uint8_t>& out, std::string& reason) const;
+    // The same bytes at the same places as `other`'s: both released, every stream at the same offset,
+    // of the same size, from the same file region with the same validated checksum (BUG-061: an F10
+    // that changed no mesh file keeps the mesh on the device).
+    bool same_payload(const CharacterPackage& other) const;
 };
 
 // True when the file starts with the character package magic. No other validation.

@@ -494,6 +494,10 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         check(number(warned_status, "file_reads") == number(before_reload, "file_reads") &&
               number(warned_status, "declared") == number(before_reload, "declared"),
               "F10 with unchanged texture files reads none again and declares no second image");
+        // Nor did a mesh file change: the new generation keeps the live mesh on the device (BUG-061).
+        check(number(warned_status, "mesh_uploads") == number(before_reload, "mesh_uploads") &&
+              number(warned_status, "meshes_kept") == number(before_reload, "meshes_kept") + 1,
+              "F10 with unchanged mesh files uploads no mesh again and keeps the live one");
         const auto old_generation = first_generation + 1;
         write_text("mod.ini", original_text);
         std::ifstream texture("green.dds", std::ios::binary);

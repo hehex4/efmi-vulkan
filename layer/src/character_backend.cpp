@@ -249,6 +249,8 @@ constexpr uint64_t kHashTableIdleFrames = 8;
 // (a copy into the buffer, anywhere in it), the edge fingerprint changed, or the periodic repeat.
 std::atomic<uint64_t> g_hash_full{0}, g_hash_bytes{0}, g_hash_new{0}, g_hash_gen{0}, g_hash_quick{0}, g_hash_due{0}, g_quick_reads{0}, g_quick_skipped{0};
 std::atomic<uint64_t> g_quick_read_us{0}; // microseconds of the edge fingerprint reads (write-combined memory)
+// Meshes put on the device from their files, and those a successor generation kept from the live one.
+std::atomic<uint64_t> g_mesh_uploads{0}, g_meshes_kept{0};
 struct IndexHashTable {
     std::unordered_map<IndexKey, IndexHash, IndexKeyHash> hashes;
     std::vector<uint8_t> scratch;
@@ -727,7 +729,12 @@ public:
         cache = variants; // the device's variant cache (D-103); null refuses the generation
         if (!cache) { last_reason = "variant cache unavailable"; return false; }
         enabled = g_cfg.m2_enabled;
-        if (!lazy) activate();
+        if (!lazy) {
+            // A successor of a package that is not lazy activates here, on its loading thread.
+            if (predecessor) keep_mesh(*predecessor);
+            activate();
+        }
+        predecessor = nullptr;
         return true;
     }
 
@@ -737,6 +744,26 @@ public:
     // and the snapshot batches made at once (D-092). Set when the package is configured.
     uint64_t activation_bytes = 0;
     std::atomic<uint64_t> mesh_upload_us{0}; // the mesh read from its files into device memory, once activated
+    std::shared_ptr<const GpuMesh> kept_mesh;  // the live generation's, when no mesh file changed (keep_mesh)
+    CharacterGeneration* predecessor = nullptr; // during init only: the live generation this one succeeds
+
+    // Before a successor of `live` activates (F10): the original releases its buffers on a reload and
+    // reads their files again at first use; the layer keeps the live mesh when every stream is the
+    // same bytes at the same place, as it keeps images by their files (BUG-061). `live`'s package is
+    // read under its mod_mx, which its plans hold while they adopt bone streams.
+    void keep_mesh(CharacterGeneration& live)
+    {
+        std::shared_ptr<const GpuMesh> held;
+        {
+            std::lock_guard<std::mutex> plans(live.mod_mx);
+            if (!package.same_payload(live.package)) return;
+            std::lock_guard<std::mutex> lock(live.pool_mx); held = live.mesh;
+        }
+        if (!held) return;
+        std::lock_guard<std::mutex> lock(pool_mx);
+        kept_mesh = std::move(held);
+        activation_bytes = 32ull << 20; // the snapshot batches only
+    }
     uint64_t next_memory_check = 0, memory_logged_us = 0;
     // The largest device-local heap's budget minus its use (VK_EXT_memory_budget); false without it.
     static bool device_local_free(Device* device, uint64_t& free_bytes, uint64_t& heap_bytes)
@@ -823,15 +850,24 @@ public:
             ~Activating() { if (textures) textures->activating_bytes.fetch_sub(std::min(textures->activating_bytes.load(), bytes)); }
         } activating{textures, activation_bytes};
         try {
-            auto created = std::make_shared<GpuMesh>(device->handle, storage);
-            std::string reason;
-            const uint64_t began = host_time_us();
-            if (!created->create(package, memory, reason)) { note(reason); return; }
-            mesh_upload_us = host_time_us() - began;
-            logf("character mesh uploaded: %llu bytes in %s memory from %s in %llu us", static_cast<unsigned long long>(package.payload_bytes),
-                 created->device_local ? "device" : "host", package.sources.empty() ? "the package" : "the files",
-                 static_cast<unsigned long long>(mesh_upload_us.load()));
-            { std::lock_guard<std::mutex> lock(pool_mx); mesh = created; }
+            std::shared_ptr<const GpuMesh> kept;
+            { std::lock_guard<std::mutex> lock(pool_mx); kept = std::move(kept_mesh); }
+            if (kept) {
+                ++g_meshes_kept;
+                logf("character mesh kept from the generation before: %llu bytes, no mesh file changed",
+                     static_cast<unsigned long long>(package.payload_bytes));
+                std::lock_guard<std::mutex> lock(pool_mx); mesh = std::move(kept);
+            } else {
+                auto created = std::make_shared<GpuMesh>(device->handle, storage);
+                std::string reason;
+                const uint64_t began = host_time_us();
+                if (!created->create(package, memory, reason)) { note(reason); return; }
+                mesh_upload_us = host_time_us() - began; ++g_mesh_uploads;
+                logf("character mesh uploaded: %llu bytes in %s memory from %s in %llu us", static_cast<unsigned long long>(package.payload_bytes),
+                     created->device_local ? "device" : "host", package.sources.empty() ? "the package" : "the files",
+                     static_cast<unsigned long long>(mesh_upload_us.load()));
+                std::lock_guard<std::mutex> lock(pool_mx); mesh = created;
+            }
             activating.~Activating(); activating.textures = nullptr;
             while (true) {
                 if (program && !folder_member() && save_requested.exchange(false)) {
@@ -2360,9 +2396,11 @@ VkResult generation_submit(CharacterGeneration& backend, VkQueue queue)
 std::shared_ptr<CharacterGeneration> generation_create(Device* device, const VkPhysicalDeviceProperties& properties,
                                                    const VkPhysicalDeviceMemoryProperties& memory,
                                                    const std::string& path, bool lazy, TextureResidency* textures,
-                                                   std::shared_ptr<VariantCache> variants, Translucency* translucency, BoneMerge* bones)
+                                                   std::shared_ptr<VariantCache> variants, Translucency* translucency, BoneMerge* bones,
+                                                   CharacterGeneration* predecessor = nullptr)
 {
     auto backend = std::make_shared<CharacterGeneration>(device, properties, memory, path, lazy, textures, std::move(variants), translucency, bones);
+    backend->predecessor = predecessor;
     try {
         if (!backend->init()) {
             // BUG-026: a refusal can come after the INI program or its presenter were made; a refused
@@ -2771,6 +2809,7 @@ public:
                 // A lazy package already on the GPU brings its successor up at once, with the textures
                 // the live generation shows: the same images, unless a file changed (BUG-061).
                 if (active->activated.load()) {
+                    staged->keep_mesh(*active);
                     std::lock_guard<std::mutex> hold(staged->mod_mx); staged->activate();
                     if (staged->textures) staged->textures->preload_matching(staged->image_ids, active->image_ids);
                 }
@@ -2810,7 +2849,8 @@ public:
                     failed->note("Cannot preserve settings before reload: " + reason); return failed;
                 }
                 return generation_create(previous->device, previous->properties, previous->memory, previous->package_path,
-                                         previous->lazy, previous->textures, previous->variants, previous->translucency, previous->bones_gpu);
+                                         previous->lazy, previous->textures, previous->variants, previous->translucency, previous->bones_gpu,
+                                         previous.get());
             });
         }
     }
@@ -3115,6 +3155,7 @@ void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork*
                 if (!controller || !activated) continue;
                 std::shared_ptr<CharacterGeneration> current;
                 { std::shared_lock<std::shared_mutex> lock(controller->mutex); current = controller->active; }
+                if (current) package->keep_mesh(*current);
                 std::lock_guard<std::mutex> hold(package->mod_mx); package->activate();
                 if (package->textures && current) package->textures->preload_matching(package->image_ids, current->image_ids);
             }
@@ -3526,6 +3567,7 @@ void character_status(CharacterBackend& b, JsonWriter& w)
     w.kn("full_new", g_hash_new.load()); w.kn("full_generation", g_hash_gen.load()); w.kn("full_fingerprint", g_hash_quick.load()); w.kn("full_due", g_hash_due.load());
     w.kn("fingerprint_reads", g_quick_reads.load()); w.kn("fingerprint_skipped", g_quick_skipped.load());
     w.kn("fingerprint_read_microseconds", g_quick_read_us.load());
+    w.kn("mesh_uploads", g_mesh_uploads.load()); w.kn("meshes_kept", g_meshes_kept.load());
     w.kb("pipeline_cache", b.pipeline_cache != VK_NULL_HANDLE); w.kn("pipeline_cache_loaded_bytes", b.pipeline_cache_loaded);
     if (b.variants) { w.kn("variant_waits", b.variants->waits()); w.kn("variant_wait_microseconds", b.variants->wait_microseconds()); }
     w.kb("upload_queue", b.device && b.device->upload_queue != VK_NULL_HANDLE);

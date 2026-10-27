@@ -194,6 +194,17 @@ bool CharacterPackage::read_stream(uint32_t stream, std::vector<uint8_t>& out, s
     return read_source(sources[stream], s.size, out.data(), nullptr, reason);
 }
 
+bool CharacterPackage::same_payload(const CharacterPackage& other) const
+{
+    if (sources.empty() || sources.size() != other.sources.size() || payload_bytes != other.payload_bytes || streams.size() != other.streams.size())
+        return false;
+    for (size_t i = 0; i < streams.size(); ++i)
+        if (streams[i].offset != other.streams[i].offset || streams[i].size != other.streams[i].size || sources[i].crc != other.sources[i].crc ||
+            sources[i].offset != other.sources[i].offset || sources[i].path != other.sources[i].path)
+            return false;
+    return true;
+}
+
 bool CharacterPackage::read_payload(uint8_t* out, std::string& reason) const
 {
     if (sources.empty()) {

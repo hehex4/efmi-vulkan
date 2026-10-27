@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.3: F10 keeps unchanged meshes on the device (2026-10-27, BUG-061's open part)
+
+- A successor generation whose package streams are the same bytes at the same places as the live one's keeps the live mesh (`keep_mesh`, `CharacterPackage::same_payload`: files, offsets, validated checksums), as images are kept by their files since 1.9.4. The original releases every resource on F10 and reads its files again at first use; the layer reads them once for the validation and no more. A discovered package's mesh files are laid out in the order of their files (the generation's resource order differed between parses, so the same files made different layouts).
+- Status: `record.mesh_uploads`, `record.meshes_kept` (device-wide).
+- Check failing on 2.0.2 (all four configurations): the live INI scene's F10 with unchanged mesh files uploads no mesh again and keeps the live one. Touched areas passed (text, unit, offline plans, folder generation, ten captured-frame replays, character replacement, live INI, owned Present).
+
 ## 2.0.2: a component chosen by `vbN->stride` (2026-10-27, D-132, LIMIT-041)
 
 - Discovery makes a section per `if vbN->stride == K` branch of a TextureOverride; the device index matches it only to a draw whose pipeline binds that stride; the plan answers the stride from the same pipeline.
