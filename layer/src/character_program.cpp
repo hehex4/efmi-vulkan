@@ -11,6 +11,31 @@
 
 namespace efvk {
 namespace {
+// The folder of the module this code runs in (the layer DLL; a test program offline). Its configuration,
+// settings, caches and log are never Mod content, also when a player unpacked the release into the Mods
+// folder (EFMI\Mods\EFMI-Vulkan): its settings file is an INI the scans would otherwise load as a Mod's.
+const std::filesystem::path& layer_folder()
+{
+    static const std::filesystem::path folder = [] {
+        HMODULE module = nullptr;
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                reinterpret_cast<LPCWSTR>(&layer_folder), &module))
+            return std::filesystem::path{};
+        std::wstring path(32768, L'\0');
+        const DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+        if (!length || length >= path.size()) return std::filesystem::path{};
+        path.resize(length);
+        return std::filesystem::path(path).parent_path();
+    }();
+    return folder;
+}
+bool layer_folder_entry(const std::filesystem::directory_entry& entry)
+{
+    std::error_code error;
+    const auto& own = layer_folder();
+    return !own.empty() && !_wcsicmp(entry.path().filename().c_str(), own.filename().c_str()) && entry.is_directory(error) &&
+           std::filesystem::equivalent(entry.path(), own, error);
+}
 std::wstring key(const std::filesystem::path& path)
 {
     auto result = path.lexically_normal().wstring();
@@ -152,7 +177,7 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
             const auto name = it->path().filename().wstring();
             // The generation's own settings are never a Mod input, wherever they are kept.
             const bool settings = it->is_directory() && std::filesystem::equivalent(it->path(), options.settings_directory, error);
-            if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
+            if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
             if (!it->is_regular_file() || _wcsicmp(it->path().extension().c_str(), L".ini") || std::filesystem::equivalent(it->path(), ini, error)) continue;
             if (options.inputs.size() >= 64) throw std::runtime_error("The Mod folder has too many INI files for one generation");
             options.inputs.push_back(it->path());
@@ -277,7 +302,7 @@ std::vector<std::filesystem::path> CharacterProgram::mods_characters(const std::
     for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
          it.increment(error)) {
         const auto name = it->path().filename().wstring();
-        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
+        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
         if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
         if (has_section(ini_text(it->path()), "commandlistinitializemergedskeleton")) found.push_back(it->path());
     }
@@ -294,7 +319,7 @@ std::vector<std::filesystem::path> CharacterProgram::native_library_files(const 
     std::error_code error;
     for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
          it.increment(error)) {
-        if (!_wcsnicmp(it->path().filename().c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
+        if (!_wcsnicmp(it->path().filename().c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
         if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
         const auto name = declared_namespace(it->path());
         if (!name.empty() && std::find(native.begin(), native.end(), name) != native.end()) found.push_back(it->path());
@@ -333,7 +358,7 @@ std::vector<std::filesystem::path> CharacterProgram::libraries(const std::filesy
     std::error_code error;
     for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
          it.increment(error)) {
-        if (!_wcsnicmp(it->path().filename().c_str(), L"DISABLED", 8)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
+        if (!_wcsnicmp(it->path().filename().c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
         if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
         auto text = ini_text(it->path());
         if (has_section(text, "commandlistinitializemergedskeleton")) { characters.push_back(it->path().parent_path()); continue; }
@@ -473,7 +498,7 @@ void include_order(const std::filesystem::path& folder, const std::set<std::wstr
     std::error_code error;
     for (const auto& entry : std::filesystem::directory_iterator(folder, error)) {
         const auto name = entry.path().filename().wstring();
-        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8) || !_wcsicmp(name.c_str(), L"desktop.ini")) continue;
+        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8) || !_wcsicmp(name.c_str(), L"desktop.ini") || layer_folder_entry(entry)) continue;
         if (entry.is_directory(error)) folders.insert(name);
         else if (name.size() > 4 && !wcscmp(name.c_str() + name.size() - 4, L".ini")) files.insert(name);
     }
@@ -529,7 +554,7 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
                      it.increment(error)) {
                     const auto name = it->path().filename().wstring();
                     const bool settings = it->is_directory() && std::filesystem::equivalent(it->path(), source.settings, error);
-                    if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
+                    if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
                     if (!it->is_regular_file() || _wcsicmp(it->path().extension().c_str(), L".ini") || std::filesystem::equivalent(it->path(), inis[i], error)) continue;
                     mod_inputs[i].push_back(it->path());
                 }

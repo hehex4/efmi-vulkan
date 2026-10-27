@@ -14,8 +14,10 @@ Launcher (next to `EFMI\Mods`):
 - `dxcompiler.dll`, `SPIRV-Tools-shared.dll`, `efmi-vkd3d-shader.dll`: loaded from this folder by full path
   when a Mod's HLSL or DX11 bytecode is compiled. `dxil.dll` is not shipped (SPIR-V only, and its
   Microsoft licence does not go with a GPL package).
-- `efmi_vk.cfg`: `m2_mods = ../Mods` (a relative folder is taken from the DLL's folder; the Core is the
-  Mods folder's sibling `Core\EFMI`), replacement on, the settings the game was played with.
+- `efmi_vk.cfg`: `m2_mods = auto` (the first folder upward from the DLL's that holds `Mods` and
+  `Core\EFMI`, so EFMI\EFMI-Vulkan and EFMI\Mods\EFMI-Vulkan both work; 2.0.9's `../Mods` found nothing
+  in the latter, BUG-073; a named folder may be relative to the DLL's folder), replacement on, the
+  settings the game was played with. The layer's own folder is never part of the Mods folder's content.
 - `README.txt` (install and use), `LICENSE.txt` (GPLv3), `THIRD_PARTY_NOTICES.md`, `licenses\`.
 
 Not in it: tests, the sandbox, the replacement module files, the layer manifest, symbols (kept in
@@ -30,7 +32,8 @@ hide code and is never done here. SPIRV-Tools could be linked statically if one 
 1. `python scripts/build.py layer sandbox release`: the development build (for the checks) and the
    release in `build/release/EFMI-Vulkan`, `build/release/EFMI-Vulkan-X.Y.Z.zip` and its `.sha256`.
 2. The touched regression areas, then `python scripts/check_release.py build/release/EFMI-Vulkan-X.Y.Z.zip`
-   (contents, no probe in the binary, the release injected into the sandbox with the installed Mods).
+   (contents, no probe in the binary, the release injected into the sandbox with the installed Mods, and
+   unpacked into an EFMI folder of its own and into its Mods folder).
 3. Commit, fast-forward main, push; tag `vX.Y.Z` on that commit.
 4. `gh release create vX.Y.Z build/release/EFMI-Vulkan-X.Y.Z.zip --title "EFMI Vulkan X.Y.Z" --notes-file ...`:
    the notes say how to install and use it, and the archive's SHA-256.

@@ -9,7 +9,8 @@ Install
 
 1. Close the game and the XXMI Launcher.
 2. Unpack the archive into the EFMI folder of your XXMI Launcher, the folder that holds Mods and
-   Core. You then have EFMI\EFMI-Vulkan\efmi_vk_inject.dll next to EFMI\Mods.
+   Core. You then have EFMI\EFMI-Vulkan\efmi_vk_inject.dll next to EFMI\Mods. (Unpacked into
+   EFMI\Mods it works too.)
 3. Open the XXMI Launcher, choose EFMI, open its settings:
    - XXMI DLL Injection Mode: Skip.
    - Advanced, Custom Libraries: tick Inject Libraries and enter the full path of

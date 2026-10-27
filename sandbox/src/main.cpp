@@ -191,6 +191,7 @@ struct App {
     std::vector<Timing> timings;
     VkPhysicalDeviceProperties properties = {};
     bool validation = false, validation_canary = false;
+    bool handled_fault = false; // --handled-fault: once the device exists (the layer and its fault log are loaded)
     VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
     bool primary_screen = false;
     bool readable_swapchain = false; // test readback of what the layer drew into the image
@@ -1474,12 +1475,22 @@ static void cleanup()
     vkDestroyInstance(g.instance, nullptr);
 }
 
+// A fault the program handles itself, as Endfield raises one at start-up: the layer's log must not call
+// it a crash.
+static int handled_fault()
+{
+    __try { *static_cast<volatile int*>(nullptr) = 0; } __except (EXCEPTION_EXECUTE_HANDLER) { return 1; }
+    return 0;
+}
+
 int wmain(int argc, wchar_t** argv)
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
     for (int i = 1; i < argc; i++) {
         std::wstring a = argv[i];
-        if (a == L"--seconds" && i + 1 < argc)
+        if (a == L"--handled-fault")
+            g.handled_fault = true;
+        else if (a == L"--seconds" && i + 1 < argc)
             g.seconds = _wtoi(argv[++i]);
         else if (a == L"--threads" && i + 1 < argc)
             g.threads = _wtoi(argv[++i]);
@@ -1551,6 +1562,8 @@ int wmain(int argc, wchar_t** argv)
         ok = load_injected();
     if (ok && g.reresolve_exports)
         resolve_from_exports();
+    if (ok && g.handled_fault)
+        printf("handled fault: %d\n", handled_fault());
     if (ok)
         ok = render_frame() && write_expected();
     if (ok)

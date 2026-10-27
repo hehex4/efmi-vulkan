@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.1.0: the release finds the EFMI folder from where it is unpacked (2026-10-27, BUG-073)
+
+- The user downloaded v2.0.9 and unpacked it into EFMI\Mods: no Mod loaded (`../Mods` named EFMI\Mods\Mods). Moved to the EFMI folder it worked in the game (the user, 2026-10-27): the first game run of the release build.
+- 2.1.0: `m2_mods = auto` (the release's): the first folder upward from the DLL's that holds Mods and Core\EFMI; every scan of the Mods folder leaves out the layer's own folder (its settings file is an INI); a first-chance fault outside the layer's folder is logged as `exception:` with a note, not as `crash:` (the game raises and handles one at every start; the 2.0.9 log showed it as a crash). The sandbox's `--handled-fault` raises one after its device exists; symbolize_crash.py reads both kinds of lines.
+- Evidence (sandbox): check_release.py extended with the unpack layouts (an EFMI folder of its own with the installed Core, one character Mod and the libraries; the release in EFMI and in EFMI\Mods; an INI planted in its settings; the handled fault): failing on the 2.0.9 archive (the Mods folder layout found no Mod, the fault logged as a crash), passing on 2.1.0 (and the installed Mods: 18 character Mods, none left out); run_all's touched areas (20 steps: text, unit, both offline plan steps, every captured-frame replay, character replacement, live INI, probe end to end, modes, validation): all passed. Archive EFMI-Vulkan-2.1.0.zip, SHA-256 0e50731e675fe6ca3cae55e063fd907cf4673af284fbcacba703ee214f078ec8.
+
 ## 2.0.9: the playable release (2026-10-27, D-135)
 
 - The user, in the 2.0.8 game session: basically no problems left; publish a release (GPLv3, install and use only, nothing for development).

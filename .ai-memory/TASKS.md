@@ -12,6 +12,7 @@
 - 2.0.4: BUG-065 fixed (Typhoeus' draws refused for the LOD another Mod left in the Core). To see in the game: Typhoeus `refused_state` 0.
 - 2.0.5: BUG-066 fixed (panel settings adopted under the folder's names). To see in the game: no "Unrecognised entry" for `$\k\...`, the panels where the player left them.
 - Offline work done for now (2026-10-27): what is left needs the game: cause D's per-draw figures, the review's step 4 (no failing check offline), the successor's snapshot arenas at F10 (measure in the game first), the play configuration last.
+- 2.1.0 release (BUG-073): publish (v2.1.0); the user tests it unpacked where they like. 2.0.9 worked in the game once moved into the EFMI folder.
 - 2.0.9 release (D-135): the user downloads and tests it in the game. Tested GPU so far: one NVIDIA RTX 5060 Laptop GPU only.
 - 2.0.8 (BUG-067 to BUG-072, docs/f10-operations.md): to see in the game: F10 after disabling, enabling or replacing Mods (no crash; `packages[].stopped`; the Mod back in its slot); two F10 in a row; anti-dither on in the field (grass and bushes keep their cut-outs; characters undithered); the `\` key switching at once (`dither_twins_prepared` rising as pipelines appear, no long frame at the press).
 - Character Mods' toggle keys slow (the user, 2026-10-27): measure first whether presses are lost to `condition = $active0 == 1` (count key-downs whose condition failed), then design from the original's ordering.

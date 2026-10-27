@@ -95,6 +95,27 @@ void module_offset(const void* address, char* out, size_t size)
         snprintf(out, size, "%ls+0x%llx", name, static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(address) - reinterpret_cast<uintptr_t>(module)));
     } else snprintf(out, size, "%p", address);
 }
+// Whether an address is in a file of this DLL's folder.
+bool own_code(const void* address)
+{
+    static const std::wstring own = [] {
+        HMODULE self = nullptr;
+        wchar_t path[MAX_PATH] = {};
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(&own_code), &self) && self)
+            GetModuleFileNameW(self, path, MAX_PATH);
+        std::wstring folder = path;
+        return folder.substr(0, folder.find_last_of(L'\\') + 1);
+    }();
+    HMODULE module = nullptr;
+    wchar_t path[MAX_PATH] = {};
+    if (own.empty() || !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                           reinterpret_cast<LPCWSTR>(address), &module) || !module)
+        return false;
+    GetModuleFileNameW(module, path, MAX_PATH);
+    const std::wstring file = path;
+    return file.size() > own.size() && !_wcsnicmp(file.c_str(), own.c_str(), own.size()) && file.find(L'\\', own.size()) == std::wstring::npos;
+}
 LONG WINAPI crash_logger(EXCEPTION_POINTERS* info)
 {
     const auto& record = *info->ExceptionRecord;
@@ -112,13 +133,17 @@ LONG WINAPI crash_logger(EXCEPTION_POINTERS* info)
     }
     char where[300];
     module_offset(record.ExceptionAddress, where, sizeof(where));
+    // In a file of the layer's own folder (the layer, its module, its GPU tools) a fault is ours and a crash;
+    // anywhere else it is the process's, seen first: the game raises one at start-up and handles it.
+    const char* const kind = own_code(record.ExceptionAddress) ? "crash" : "exception";
+    const char* const note = own_code(record.ExceptionAddress) ? "" : " (first chance; the process may handle it)";
     if (code == EXCEPTION_ACCESS_VIOLATION && record.NumberParameters >= 2)
-        logf("crash: access violation %s address %p at %s, thread %lu", record.ExceptionInformation[0] == 1 ? "writing" : record.ExceptionInformation[0] == 8 ? "executing" : "reading",
-             reinterpret_cast<void*>(record.ExceptionInformation[1]), where, GetCurrentThreadId());
-    else logf("crash: exception 0x%08lx at %s, thread %lu", code, where, GetCurrentThreadId());
+        logf("%s: access violation %s address %p at %s, thread %lu%s", kind, record.ExceptionInformation[0] == 1 ? "writing" : record.ExceptionInformation[0] == 8 ? "executing" : "reading",
+             reinterpret_cast<void*>(record.ExceptionInformation[1]), where, GetCurrentThreadId(), note);
+    else logf("%s: exception 0x%08lx at %s, thread %lu%s", kind, code, where, GetCurrentThreadId(), note);
     void* frames[24] = {};
     const USHORT count = CaptureStackBackTrace(0, 24, frames, nullptr);
-    for (USHORT i = 0; i < count; ++i) { module_offset(frames[i], where, sizeof(where)); logf("crash: frame %u: %s", i, where); }
+    for (USHORT i = 0; i < count; ++i) { module_offset(frames[i], where, sizeof(where)); logf("%s: frame %u: %s", kind, i, where); }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 } // namespace

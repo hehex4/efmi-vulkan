@@ -1,5 +1,10 @@
 # EFMI Vulkan - Known issues
 
+## BUG-073: The v2.0.9 release unpacked into EFMI\Mods loaded no Mod (fixed in 2.1.0)
+
+- 2026-10-27, the user's test of the published v2.0.9: unpacked into EFMI\Mods\EFMI-Vulkan, the configuration's `../Mods` named EFMI\Mods\Mods ("folder generation: cannot read the Mods folder ... Mods\Mods"). Inside the Mods folder the release's settings file would also have been read as a Mod's INI. The log also called the game's own handled start-up fault (EndfieldBase.dll, every start since the first sessions) a crash.
+- 2.1.0: `m2_mods = auto`, the layer's folder left out of every Mods scan, foreign first-chance faults logged as `exception:`. Release check failing on the 2.0.9 archive, passing on 2.1.0.
+
 ## BUG-067: An F10 after a drawn character's Mod was removed ended the game (fixed in 2.0.8)
 
 - 2026-10-27 19:25:49, PID 30992, 2.0.7: the user deleted a Typhoeus Mod and Si SorceressV2 and added another Typhoeus Mod, then pressed F10. The exchange logged the three packages removed, then the presenting thread rethrew a std::system_error (errc 3, no_such_process: std::thread::join's `_Thrd_join` failure) from the old generation's retirement future (`folder_frame_and_exchange`); Unity's crash handler took it (Player.log, crash dump; the layer's own log has no crash line, only the watchdog's stall lines while the handler ran).

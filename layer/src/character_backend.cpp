@@ -52,6 +52,27 @@ std::filesystem::path absolute_folder(const std::string& path)
     if (folder.has_filename()) return folder;
     return folder.parent_path();
 }
+std::filesystem::path module_folder();
+// The configured Mods folder. `auto` (the release's) is the Mods folder of the EFMI folder the layer sits
+// in or under: the first folder upward from the DLL's own that holds Mods and Core\EFMI, so the release
+// works unpacked into EFMI (EFMI\EFMI-Vulkan) and into EFMI\Mods alike.
+std::filesystem::path mods_folder()
+{
+    if (g_cfg.m2_mods != "auto") return absolute_folder(g_cfg.m2_mods);
+    static const std::filesystem::path found = [] {
+        const auto start = module_folder();
+        std::error_code error;
+        for (auto at = start; !at.empty() && at.has_relative_path(); at = at.parent_path())
+            if (std::filesystem::is_directory(at / "Mods", error) && std::filesystem::is_directory(at / "Core" / "EFMI", error)) {
+                logf("Mods folder found from the layer's folder: %s", (at / "Mods").u8string().c_str());
+                return at / "Mods";
+            }
+        logf("Mods folder not found: no folder at or above %s holds Mods and Core\\EFMI. Put EFMI-Vulkan into the EFMI folder of the "
+             "XXMI Launcher, or name the Mods folder in efmi_vk.cfg (m2_mods)", start.u8string().c_str());
+        return std::filesystem::path{};
+    }();
+    return found;
+}
 std::filesystem::path module_folder()
 {
     HMODULE module = nullptr;
@@ -68,7 +89,7 @@ CharacterProgram::Source mod_source(const std::string& ini)
 {
     CharacterProgram::Source source;
     source.ini = std::filesystem::absolute(std::filesystem::u8path(ini)).lexically_normal();
-    const auto mods = absolute_folder(g_cfg.m2_mods);
+    const auto mods = mods_folder();
     source.core = g_cfg.m2_core.empty() ? mods.parent_path() / "Core" / "EFMI" : absolute_folder(g_cfg.m2_core);
     source.settings = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
     source.mod_namespace = CharacterProgram::declared_namespace(source.ini);
@@ -2742,7 +2763,7 @@ std::shared_ptr<FolderGeneration> folder_create(Device* device, const VkPhysical
     auto folder = std::make_shared<FolderGeneration>();
     folder->device = device;
     CharacterProgram::FolderSource source;
-    source.mods = absolute_folder(g_cfg.m2_mods);
+    source.mods = mods_folder();
     source.core = g_cfg.m2_core.empty() ? source.mods.parent_path() / "Core" / "EFMI" : absolute_folder(g_cfg.m2_core);
     source.settings = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
     source.settings_name = "mods-folder";
@@ -3187,9 +3208,9 @@ constexpr size_t kMaxPackages = 64;
 std::vector<std::string> mods_characters(std::string& reason)
 {
     std::vector<std::string> found;
-    for (const auto& path : CharacterProgram::mods_characters(absolute_folder(g_cfg.m2_mods), reason)) found.push_back(path.u8string());
-    if (found.size() > kMaxPackages) { found.resize(kMaxPackages); logf("character Mods: more than 64 in %s, the first 64 are used", g_cfg.m2_mods.c_str()); }
-    if (found.empty() && reason.empty()) reason = "no character Mod in " + g_cfg.m2_mods;
+    for (const auto& path : CharacterProgram::mods_characters(mods_folder(), reason)) found.push_back(path.u8string());
+    if (found.size() > kMaxPackages) { found.resize(kMaxPackages); logf("character Mods: more than 64 in %s, the first 64 are used", mods_folder().u8string().c_str()); }
+    if (found.empty() && reason.empty()) reason = "no character Mod in " + mods_folder().u8string();
     return found;
 }
 std::vector<std::string> configured_packages(std::string& reason)
@@ -3249,7 +3270,7 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
             backend->controllers.push_back(std::move(controller));
         }
         if (backend->controllers.empty()) backend->reason = backend->folder->reason.empty() ? "no character Mod in the folder generation" : backend->folder->reason;
-        logf("character packages: %zu from the folder generation of %s", backend->controllers.size(), g_cfg.m2_mods.c_str());
+        logf("character packages: %zu from the folder generation of %s", backend->controllers.size(), mods_folder().u8string().c_str());
         backend->rebuild_index();
         // The first frame's draws see the gates of the generation loaded here (D-133).
         g_dither_off.store(std::any_of(backend->folder->gates.begin(), backend->folder->gates.end(), [](const auto& g) { return g.value != 0; }),

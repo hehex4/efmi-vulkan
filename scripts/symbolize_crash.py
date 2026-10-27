@@ -54,7 +54,7 @@ def base_of(name: str):
 
 
 for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
-    if "crash:" not in line:
+    if "crash:" not in line and "exception:" not in line:
         continue
     def name(m):
         module, offset = m.group(1), int(m.group(2), 16)
