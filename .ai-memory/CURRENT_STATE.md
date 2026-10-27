@@ -10,6 +10,7 @@
 
 - A successor generation whose package streams are the same bytes at the same places as the live one's keeps the live mesh (`keep_mesh`, `CharacterPackage::same_payload`: files, offsets, validated checksums), as images are kept by their files since 1.9.4. The original releases every resource on F10 and reads its files again at first use; the layer reads them once for the validation and no more. A discovered package's mesh files are laid out in the order of their files (the generation's resource order differed between parses, so the same files made different layouts).
 - Status: `record.mesh_uploads`, `record.meshes_kept` (device-wide).
+- Deployed 2026-10-27 14:43 (f6d0724) with the game and the launcher closed; backup build/backups/before-2.0.3-20261027-144345, manifest build/candidate-2.0.3.json, cfg unchanged. Actual-config sandbox at --api 1.3: 20 character Mods, 0 left out, loaded in 2016 ms, private memory 308 MiB, validation clean, game log unchanged (build/smoke-2.0.3.json in the worktree). Not yet in the game.
 - Check failing on 2.0.2 (all four configurations): the live INI scene's F10 with unchanged mesh files uploads no mesh again and keeps the live one. Touched areas passed (text, unit, offline plans, folder generation, ten captured-frame replays, character replacement, live INI, owned Present).
 
 ## 2.0.2: a component chosen by `vbN->stride` (2026-10-27, D-132, LIMIT-041)
