@@ -10,6 +10,7 @@
 
 - Discovery makes a section per `if vbN->stride == K` branch of a TextureOverride; the device index matches it only to a draw whose pipeline binds that stride; the plan answers the stride from the same pipeline.
 - Evidence (offline and sandbox): installed Mods' dry run with no refused section (avywenna's face planned as two sections, 2 draws and 2 images each; drawn sections 141 to 143); fixture Mod with a stride-branching section planned per branch; live INI scene 87/87 with the fixture's first section branching on `vb1->stride` (the non-matching branch first), and 86/87 with the device-side check disabled. Touched areas passed (text, unit, offline plans, folder generation, vk03 replay, character replacement, live INI).
+- Deployed 2026-10-27 13:56 (979feef, with 2.0.1's payload release) with the game and the launcher closed; backup build/backups/before-2.0.2-20261027-135629, manifest build/candidate-2.0.2.json, cfg unchanged. Actual-config sandbox at --api 1.3: 20 character Mods in the folder generation, 0 left out, loaded in 2251 ms, private memory 306 MiB, validation clean, game log unchanged (build/smoke-2.0.2.json in the worktree). Not yet in the game.
 
 ## 2.0.1: mesh payloads not held in host memory (2026-10-27, D-131 step 5, ISSUE-011)
 
