@@ -1077,6 +1077,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-133: RabbitFX's anti-dither from SPIR-V facts and the library's own gate
+
+- Date: 2026-10-27 (docs/rabbitfx-dither.md). The user: RabbitFX's anti-dither has no effect, adapt it. The original: RabbitFX's ShaderRegex replacements wrap the character shaders' dither discard (interleaved gradient noise against the instance fade in cb2) in `if_z IniParams[172].w`, its sections assign `w172 = $censor` (`\` key). Under Vulkan the sections are inert (LIMIT-036).
+- Design: the dither kill found in SPIR-V by data flow (the noise constant 52.9829 and the instance window at set 2 binding 0; 38 of 263 captured fragment modules, noise-only and cutout kills left alone); a patched module whose dither branches never kill; the gate is the IniParams element the replacement text tests, assigned by the sections' own lists, evaluated at each presentation; applied to every draw as the original's replaced shader is: twin pipelines for the game's draws while the gate is on, the patch in replaced draws' variants. Steps test first, in the document's order.
+
 ## D-132: A section per `vbN->stride` branch, matched by the draw's pipeline binding
 
 - Date: 2026-10-27 (LIMIT-041). An EFMI export may tell a component's LODs apart by the vertex layout: one TextureOverride whose `if vbN->stride == K` / `elif` branches each assign one component and LOD (avywenna's face, 22a60235: stride 12 component 0 LOD 0, stride 8 component 3 LOD 1). The original evaluates the condition per draw from the bound vertex buffer's stride (`GetResourceStride`, `IAGetVertexBuffers`) and the Core identifies the draw with the component the branch assigned.
