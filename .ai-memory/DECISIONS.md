@@ -1077,6 +1077,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-135: The playable release, GPLv3, without the probe (docs/release.md)
+
+- Date: 2026-10-27 (2.0.9). The user: publish a release under GPLv3 (the layer compiles 3DMigoto's GPLv3 engine); its text tells players how to install and use it; nothing for development goes in; players hold a playable version.
+- `scripts/build.py release`: the inject DLL built with `EFVK_NO_PROBE` and without ipc.cpp (the probe pipe's access list let any interactive user's process drive the elevated game, module exchange included), the three GPU tools it loads (not dxil.dll), a configuration with `m2_mods = ../Mods`, README, LICENSE, THIRD_PARTY_NOTICES.md, licence texts; zipped with its SHA-256. Symbols stay in layer/build/release. A relative configured folder is now taken from the DLL's folder, not the game's working directory.
+- `scripts/check_release.py`: the archive's files and digest, no pipe name in the binary, the release injected into the sandbox with the installed Mods (judged from its log: every character Mod loaded, no fault, no probe pipe, validation clean).
+- One DLL was considered and declined: DXC exists only as Microsoft's DLL, vkd3d-shader is a MinGW build, loading from memory is never done; SPIRV-Tools could be linked statically.
+
 ## D-134: Every F10 operation against the original (docs/f10-operations.md)
 
 - Date: 2026-10-27 (2.0.8). The user, after BUG-067: consider everything a player may do around F10. Contract, from ReloadConfig: each press reloads (BUG-069); what the new configuration no longer has is released once (BUG-067); a Mod gone and back is the same Mod (BUG-068); what the draws see comes from the live generation only (BUG-070). Each row of the document names its check; the Mods-folder scene ends with the player's operations (disable the drawn Mod, enable it again, two F10 in a row, RabbitFX off and on).

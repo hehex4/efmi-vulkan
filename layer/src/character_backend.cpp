@@ -40,10 +40,15 @@ bool is_mod_ini(const std::string& path)
     const auto extension = std::filesystem::u8path(path).extension().wstring();
     return !_wcsicmp(extension.c_str(), L".ini");
 }
+std::filesystem::path module_folder();
+// A configured folder; a relative one is taken from the layer's own folder, where its configuration
+// is (the release names `../Mods` from EFMI\EFMI-Vulkan), never from the game's working directory.
 std::filesystem::path absolute_folder(const std::string& path)
 {
     std::error_code error;
-    auto folder = std::filesystem::absolute(std::filesystem::u8path(path), error).lexically_normal();
+    auto named = std::filesystem::u8path(path);
+    if (named.is_relative()) named = module_folder() / named;
+    auto folder = std::filesystem::absolute(named, error).lexically_normal();
     if (folder.has_filename()) return folder;
     return folder.parent_path();
 }

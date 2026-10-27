@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "2.0.8"
+#define EFVK_VERSION "2.0.9"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -143,6 +143,12 @@ void install_crash_log();
 // layer answers from its settings, a module from the host's, so an exchange is not needed to compare.
 bool live_gpu_bones();
 
+#ifdef EFVK_NO_PROBE
+// The release build carries no probe (scripts/build.py release): no pipe, nothing outside the game reads
+// or changes it, no module exchange.
+inline void ipc_start() {}
+#else
 void ipc_start();
+#endif
 
 } // namespace efvk

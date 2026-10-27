@@ -421,9 +421,14 @@ void util_init(HMODULE self)
                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     install_crash_log();
 
-    logf("efmi_vk_layer %s loaded into %s, mode=%s, entry=%s, crc=%s, resources=%s, shader_budget=%llu, image_hash=%s, profile_tracker=%s, "
+#ifdef EFVK_NO_PROBE
+    const char* const build_kind = " (release, no probe)";
+#else
+    const char* const build_kind = "";
+#endif
+    logf("efmi_vk_layer %s%s loaded into %s, mode=%s, entry=%s, crc=%s, resources=%s, shader_budget=%llu, image_hash=%s, profile_tracker=%s, "
          "unmap_snapshot=%s up to %llu",
-         EFVK_VERSION, g_exe_name.c_str(), g_cfg.mode == Mode::Passthrough ? "passthrough" : "probe",
+         EFVK_VERSION, build_kind, g_exe_name.c_str(), g_cfg.mode == Mode::Passthrough ? "passthrough" : "probe",
          g_cfg.entry == Entry::Inject ? "inject" : "layer", g_hw_crc ? "sse4.2" : "table",
          g_cfg.track_resources ? "on" : "off", static_cast<unsigned long long>(g_cfg.shader_budget),
          g_cfg.image_hash ? "on" : "off", g_cfg.profile_tracker ? "on" : "off",

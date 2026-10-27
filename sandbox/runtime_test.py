@@ -393,7 +393,9 @@ def directory_generation(checks, validation):
     header = "; EFMI Vulkan persistent original INI variables\n[Constants]\n"
     (settings / "runtime_fixture-fixture.ini").write_text(header + "$\\k\\1.ini\\z = 7\n", encoding="ascii")
     (settings / "mods-folder.ini").write_text(header + "$\\k\\1.ini\\z = 3\n$\\rabbitfx\\censor = 1\n", encoding="ascii")
-    extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1", EFMI_VK_M2_IDENTITY_EXPIRY_MS="500",
+    # The Mods folder relative to the layer's own folder, as the release's configuration names it
+    # (`m2_mods = ../Mods` with the release unpacked into EFMI); the scene runs elsewhere.
+    extra = dict(EFMI_VK_M2_MODS=os.path.relpath(mods, DIST), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_TEXTURE_PRELOAD="1", EFMI_VK_M2_IDENTITY_EXPIRY_MS="500",
                  EFMI_VK_TEST_KEYS=str(folder / "keys.txt"),
                  # D-133: the scene's application fragment shader dithers; with RabbitFX's gate set (the saved
                  # $censor) every picture must be the one without the dither.

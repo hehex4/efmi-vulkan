@@ -376,7 +376,98 @@ def deploy_owned_gpu_tools(out: str) -> list[str]:
     return copied
 
 
+# The playable release (docs/release.md): the layer with the inject entry and without the probe, the
+# GPU tools it loads, its configuration, the README and the licences. Nothing for development: no
+# probe pipe (EFVK_NO_PROBE, ipc.cpp left out), no tests, no sandbox, no replacement module files, no
+# layer manifest, no symbols (they stay in layer/build/release for crash logs), no dxil.dll.
+RELEASE_NAME = "EFMI-Vulkan"
+RELEASE_TOOLS = [tool for tool in OWNED_GPU_TOOLS if os.path.basename(tool) != "dxil.dll"]
+RELEASE_LICENSES = {
+    "vkd3d-LGPL-2.1.txt": "F:/vulkan/vkd3d-2.1/LICENSE",
+    "vkd3d-COPYING.txt": "F:/vulkan/vkd3d-2.1/COPYING",
+    "SPIRV-Tools-Apache-2.0.txt": "F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/LICENSE",
+    "DirectXShaderCompiler-LLVM.txt": "F:/vulkan/dxc-1.9.2609/LICENSE-LLVM.txt",
+    "DirectXShaderCompiler-MIT.txt": "F:/vulkan/dxc-1.9.2609/LICENCE-MIT.txt",
+    "DirectXTK-MIT.txt": "F:/vulkan/XXMI-Libs-Package/DirectXTK/LICENSE",
+    "SPIRV-Reflect-Apache-2.0.txt": "F:/vulkan/SPIRV-Reflect-1.4.321.0/LICENSE",
+    "Vulkan-Headers-Apache-2.0.txt": "F:/vulkan/Vulkan-Headers/LICENSES/Apache-2.0.txt",
+    "Vulkan-Headers-MIT.txt": "F:/vulkan/Vulkan-Headers/LICENSES/MIT.txt",
+    "SPIRV-Headers-MIT.txt": "F:/vulkan/SPIRV-Headers-1.4.321.0/LICENSE",
+}
+# Licences that exist only as a source file's leading comment: (file, first line, last line of it).
+RELEASE_LICENSE_COMMENTS = {
+    "crc32c-hw-zlib.txt": ("F:/vulkan/XXMI-Libs-Package/crc32c-hw-1.0.5/src/crc32c.cpp", "/*", "*/"),
+    "PCRE2-BSD.txt": ("F:/vulkan/XXMI-Libs-Package/pcre2/pcre2.h", "           Copyright (c) 2016-2017 University of Cambridge",
+                      "-----------------------------------------------------------------------------"),
+}
+RELEASE_FILES = sorted([INJECT_DLL, "efmi_vk.cfg", "README.txt", "LICENSE.txt", "THIRD_PARTY_NOTICES.md"] +
+                       [os.path.basename(tool) for tool in RELEASE_TOOLS] +
+                       ["licenses/" + name for name in list(RELEASE_LICENSES) + list(RELEASE_LICENSE_COMMENTS)])
+
+
+def license_comment(path: str, first: str, last: str) -> str:
+    lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+    begin = next(i for i, line in enumerate(lines) if line.rstrip() == first.rstrip())
+    end = next(i for i in range(begin + 1, len(lines)) if lines[i].strip() == last.strip() and i > begin + 2)
+    return "\n".join(lines[begin:end + 1]) + "\n"
+
+
+def build_release(vcvars: str, include: str, out: str) -> dict:
+    import hashlib
+    import re
+    import zipfile
+    folder = os.path.join(ROOT, "layer")
+    objects = os.path.join(folder, "build", "release")
+    os.makedirs(objects, exist_ok=True)
+    out = os.path.abspath(out)
+    if os.path.isdir(out):
+        if not os.path.abspath(out).startswith(os.path.join(ROOT, "build") + os.sep):
+            raise BuildError("release output must be inside build/: " + out)
+        shutil.rmtree(out)
+    os.makedirs(os.path.join(out, "licenses"))
+    dll = os.path.join(out, INJECT_DLL)
+    layer_sources = [name for name in sources(folder) if os.path.basename(name) != "ipc.cpp"]
+    args = COMMON + [
+        "/DEFVK_NO_PROBE", "/I" + include, "/Fobuild\\release\\", "/Fdbuild\\release\\efmi_vk_inject_cl.pdb", "/LD",
+    ] + layer_sources + [generate_bone_merge_shader(), "../frontend/gpu/fragment_images.cpp", "../frontend/gpu/dither_kills.cpp"] + MATERIAL_SOURCES + runtime_link() + [
+        "/Fe:" + dll,
+        "/link", "/NOLOGO", "/DLL", "/OPT:REF", "/OPT:ICF", "/DEBUG",
+        "/PDB:build\\release\\efmi_vk_inject.pdb", "/IMPLIB:build\\release\\efmi_vk_inject.lib",
+        "advapi32.lib", "user32.lib",
+    ]
+    run_cl(vcvars, folder, args)
+    for leftover in ("efmi_vk_inject.exp", "efmi_vk_inject.lib"):
+        if os.path.isfile(os.path.join(out, leftover)):
+            os.remove(os.path.join(out, leftover))
+    for tool in RELEASE_TOOLS:
+        shutil.copy2(tool, os.path.join(out, os.path.basename(tool)))
+    shutil.copy2(os.path.join(ROOT, "release", "efmi_vk.cfg"), os.path.join(out, "efmi_vk.cfg"))
+    shutil.copy2(os.path.join(ROOT, "release", "README.txt"), os.path.join(out, "README.txt"))
+    shutil.copy2(os.path.join(ROOT, "LICENSE"), os.path.join(out, "LICENSE.txt"))
+    shutil.copy2(os.path.join(ROOT, "THIRD_PARTY_NOTICES.md"), os.path.join(out, "THIRD_PARTY_NOTICES.md"))
+    for name, path in RELEASE_LICENSES.items():
+        shutil.copy2(path, os.path.join(out, "licenses", name))
+    for name, (path, first, last) in RELEASE_LICENSE_COMMENTS.items():
+        with open(os.path.join(out, "licenses", name), "w", encoding="utf-8", newline="\n") as f:
+            f.write(license_comment(path, first, last))
+    found = sorted(os.path.relpath(os.path.join(d, n), out).replace(os.sep, "/") for d, _, names in os.walk(out) for n in names)
+    if found != RELEASE_FILES:
+        raise BuildError("release files differ from the list: extra %s, missing %s" %
+                         (sorted(set(found) - set(RELEASE_FILES)), sorted(set(RELEASE_FILES) - set(found))))
+    with open(os.path.join(folder, "src", "common.h"), encoding="utf-8") as f:
+        version = re.search(r'#define EFVK_VERSION "([0-9.]+)"', f.read()).group(1)
+    archive = os.path.join(os.path.dirname(out), "%s-%s.zip" % (RELEASE_NAME, version))
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+        for name in RELEASE_FILES:
+            z.write(os.path.join(out, name), RELEASE_NAME + "/" + name)
+    digest = hashlib.sha256(open(archive, "rb").read()).hexdigest()
+    with open(archive + ".sha256", "w", encoding="ascii", newline="\n") as f:
+        f.write("%s  %s\n" % (digest, os.path.basename(archive)))
+    return {"release": out, "release_archive": archive, "release_sha256": digest}
+
+
 def build(targets, out: str | None = None) -> dict:
+    release_out = out or os.path.join(ROOT, "build", "release", RELEASE_NAME)
     out = os.path.abspath(out or os.path.join(ROOT, "dist"))
     os.makedirs(out, exist_ok=True)
     vcvars = find_vcvars()
@@ -397,13 +488,16 @@ def build(targets, out: str | None = None) -> dict:
         result["owned_gpu_tools"] = deploy_owned_gpu_tools(out)
     if "sandbox" in targets:
         result["sandbox"] = build_sandbox(vcvars, include, out)
+    if "release" in targets:
+        result.update(build_release(vcvars, include, release_out))
     return result
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Build the EFMI Vulkan layer and sandbox")
-    ap.add_argument("targets", nargs="*", choices=["layer", "sandbox", "module"],
-                    help="what to build (default: layer and sandbox; 'module' builds the replacement module alone)")
+    ap.add_argument("targets", nargs="*", choices=["layer", "sandbox", "module", "release"],
+                    help="what to build (default: layer and sandbox; 'module' builds the replacement module alone; "
+                         "'release' the playable package in build/release)")
     ap.add_argument("--out", help="output directory (default: dist)")
     args = ap.parse_args()
     targets = args.targets or ["layer", "sandbox"]
@@ -413,9 +507,11 @@ def main() -> int:
         print(str(e))
         return 1
     print("shared header stamp %s" % result["abi"])
-    for key in ("layer", "module", "sandbox", "tracker_test", "recipe_test", "variant_gpu", "bone_test"):
+    for key in ("layer", "module", "sandbox", "tracker_test", "recipe_test", "variant_gpu", "bone_test", "release", "release_archive"):
         if key in result:
             print("built %s" % result[key])
+    if "release_sha256" in result:
+        print("release sha256 %s" % result["release_sha256"])
     return 0
 
 

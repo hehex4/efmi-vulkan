@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.0.9: the playable release (2026-10-27, D-135)
+
+- The user, in the 2.0.8 game session: basically no problems left; publish a release (GPLv3, install and use only, nothing for development).
+- 2.0.9: `scripts/build.py release` (no probe compiled in), relative configured folders from the DLL's folder (the release's `m2_mods = ../Mods`), LICENSE (GPLv3), THIRD_PARTY_NOTICES.md, release/ (configuration and README), scripts/check_release.py, docs/release.md.
+- Evidence (sandbox): the Mods-folder scene with the Mods folder named relative to the layer's folder (failing on 2.0.8: no Mod found; 25/25 now); the release check (files, digest, no pipe name, injected with the installed Mods: 18 character Mods, none left out, no fault, no pipe, validation clean, Core shaders compiled without dxil.dll); run_all's touched areas (text, unit, Mods-folder replay, character replacement, live INI, owned Present, probe end to end, modes): all passed. The release itself not yet run in the game; the user will download and test it.
+
 ## 2.0.8: F10 around Mods added and removed, RabbitFX's anti-dither narrowed and ahead of its key (2026-10-27)
 
 - Game session of 2.0.7 (PID 30992, user-started, 2026-10-27 19:0x-19:25): with the anti-dither on, the field's grass and bushes drew as solid quads (BUG-071); the `\` key took a second or two (BUG-072); an F10 after the user replaced a Typhoeus Mod and deleted Si SorceressV2 ended the game (BUG-067; Unity crash report: our std::system_error, errc 3, rethrown in folder_frame_and_exchange from the old generation's retirement). The user then asked for every operation around F10 to be considered: docs/f10-operations.md; BUG-068, BUG-069, BUG-070 found that way.
