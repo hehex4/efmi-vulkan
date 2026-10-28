@@ -887,9 +887,9 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 // Without an index buffer, or with a null position buffer, the original's draw reads index 0 or
                 // position zero for every vertex: its triangles have no area and nothing shows. That draw is left
                 // out; the list's other draws go on (BUG-077).
-                if (index_null || (vb_null & 1u)) continue;
-                if (draws.size() >= 1024 || item.instance_count != 1 || item.first_instance || bound.index_stream == kCharacterNone)
-                    throw std::runtime_error("Runtime draw outside the single-instance contract");
+                if ((item.indexed && index_null) || (vb_null & 1u)) continue;
+                if (draws.size() >= 1024 || !item.instance_count || (item.indexed && bound.index_stream == kCharacterNone))
+                    throw std::runtime_error("Runtime draw outside the package's index streams");
                 // The blend-index widening EFMI exports use: BLENDINDICES of slot 2 as R16G16B16A16_UINT
                 // (DXGI 12) or R32G32B32A32_UINT (DXGI 3); the shader reads four unsigned integers either way.
                 // Besides it, element offset edits whose game offset the Mod's lists name (D-085).
@@ -934,7 +934,24 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 }
                 bound.blend = blend->replace.format == 3 ? VK_FORMAT_R32G32B32A32_UINT : VK_FORMAT_R16G16B16A16_UINT;
                 const uint32_t index_bytes = bound.blend == VK_FORMAT_R32G32B32A32_UINT ? 4 : 2;
-                bound.count = item.index_count; bound.first = item.first_index; bound.base = item.vertex_offset;
+                bound.count = item.index_count; bound.first = item.first_index; bound.base = item.indexed ? item.vertex_offset : 0;
+                bound.instances = item.instance_count; bound.first_instance = item.first_instance; bound.indexed = item.indexed;
+                if (item.automatic) {
+                    // The original's get_index_count_from_current_ib / get_vertex_count_from_current_vb: the bound
+                    // buffer's whole elements from its start, no first element or base; none, and nothing is drawn.
+                    const uint32_t stream = item.indexed ? bound.index_stream : bound.vb[0];
+                    uint64_t elements = 0;
+                    if (stream == kCharacterOwned) {
+                        const auto* o = bound.owned_stream(0);
+                        elements = o && o->stride ? o->size / o->stride : 0;
+                    } else if (stream != kCharacterNone) {
+                        const auto& s = package.streams[stream];
+                        const uint64_t file = stream < package.sources.size() ? std::min(s.size, package.sources[stream].file_bytes) : s.size;
+                        elements = s.stride ? file / s.stride : 0;
+                    }
+                    bound.count = uint32_t(std::min<uint64_t>(elements, UINT32_MAX)); bound.first = 0; bound.base = 0;
+                    if (!bound.count) continue;
+                }
                 // The stream under the blend-index edit carries the bone indices where the pipeline reads
                 // the element the edit widens (R8G8B8A8_UINT in binding 2, then 16-bit indices), and
                 // 16-bit weights where it reads R16G16B16A16_UNORM in that binding. Without such an
@@ -966,9 +983,14 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why, index_bytes, weight_bytes))
                         throw std::runtime_error("Blend stream refused: " + why);
                 }
-                const auto& index = package.streams[bound.index_stream];
-                if (uint64_t(bound.first) + bound.count > index.size / index.stride) throw std::runtime_error("Runtime indexed draw exceeds file bounds");
-                const auto extrema = index_bounds_[bound.index_stream];
+                // A non-indexed draw reads the vertices from `first` on (D-142).
+                const bool indexed = bound.indexed;
+                if (indexed) {
+                    const auto& index = package.streams[bound.index_stream];
+                    if (uint64_t(bound.first) + bound.count > index.size / index.stride) throw std::runtime_error("Runtime indexed draw exceeds file bounds");
+                }
+                const auto extrema = indexed ? index_bounds_[bound.index_stream]
+                                             : std::pair<uint32_t, uint32_t>{bound.first, bound.first + bound.count - 1};
                 for (uint32_t slot = 0; slot < 4; ++slot) {
                     const uint32_t stream = bound.vb[slot];
                     if (stream == kCharacterNone) continue;
@@ -992,6 +1014,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 auto& slots = material[material_count++]; slots.clear();
                 for (const auto& pixel : pixels) slots.push_back({pixel.first, pixel.second});
                 put(signature, bound.index_stream); put(signature, bound.count); put(signature, bound.first); put(signature, bound.base);
+                put(signature, bound.instances); put(signature, bound.first_instance); put(signature, uint32_t(bound.indexed));
                 for (auto stream : bound.vb) put(signature, stream);
                 put(signature, uint32_t(bound.owned.size()));
                 for (const auto& o : bound.owned) { put(signature, o.slot); put(signature, o.buffer); put(signature, o.offset); put(signature, o.size); put(signature, o.stride); }

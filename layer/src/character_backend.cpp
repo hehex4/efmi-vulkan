@@ -2411,10 +2411,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 command_owner->owned.push_back(o->keep); ++counters[C_OWNED];
             } else if (d.vb[s] != kCharacterNone) { g.buffers[s] = mesh_owner->buffer; g.offsets[s] = package.streams[d.vb[s]].offset; }
         }
-        const auto& index = package.streams[d.index_stream];
-        g.index = mesh_owner->buffer; g.index_offset = index.offset;
-        g.index_type = index.stride == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
+        // A non-indexed draw (D-142) leaves the application's index binding in place, unused.
+        if (d.indexed) {
+            const auto& index = package.streams[d.index_stream];
+            g.index = mesh_owner->buffer; g.index_offset = index.offset;
+            g.index_type = index.stride == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
+        }
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
+        args.instances = d.instances; args.first_instance = d.first_instance; args.indexed = d.indexed;
         if (capturing[i]) {
             if (!capture(cb, r, capture_sets, d, i, slot, g, args, append_bones, command_owner)) return false;
             continue;

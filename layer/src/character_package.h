@@ -47,6 +47,10 @@ struct CharacterDraw {
     uint32_t index_stream = 0, count = 0, first = 0;
     int32_t base = 0;
     uint32_t vb[4] = {kCharacterNone, kCharacterNone, kCharacterNone, kCharacterNone};
+    // A live plan's instances and non-indexed draws (D-142): `indexed` false draws `count` vertices from
+    // `first` without the index stream. Not in the file.
+    uint32_t instances = 1, first_instance = 0;
+    bool indexed = true;
     // A live plan's blend-index format for binding 2 (R16G16B16A16_UINT or R32G32B32A32_UINT);
     // undefined keeps the package's edits. Not part of the package file.
     VkFormat blend = VK_FORMAT_UNDEFINED;

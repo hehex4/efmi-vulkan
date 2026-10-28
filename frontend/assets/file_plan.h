@@ -42,6 +42,7 @@ struct FilePlanItem {
     std::shared_ptr<const OwnedBuffer> owned; // BindVertex of an owned buffer; resource is null then
     uint32_t index_count=0,first_index=0,instance_count=1,first_instance=0;
     int32_t vertex_offset=0;
+    bool indexed=true,automatic=false; // PlanItem's (D-142)
     std::vector<LayoutEdit> layout;
     std::wstring external;
     uint32_t phase_mask=0;

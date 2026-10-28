@@ -226,7 +226,7 @@ bool emit_variant_draws(const VariantDispatch& d, VkCommandBuffer cmd, const Var
     for (size_t i = 0; i < count; ++i) {
         const auto& item = items[i];
         if (!item.variant || !item.variant->pipeline || !item.variant->layout || !item.own || !item.geometry ||
-            !item.draw.count || !item.draw.instances || !geometry_ready(*item.geometry) ||
+            !item.draw.count || !item.draw.instances || !geometry_ready(*item.geometry) || (!item.draw.indexed && !d.CmdDraw) ||
             item.geometry->first_binding != original.first_binding || item.geometry->buffers.size() != original.buffers.size())
             return false;
     }
@@ -239,7 +239,8 @@ bool emit_variant_draws(const VariantDispatch& d, VkCommandBuffer cmd, const Var
         d.CmdBindIndexBuffer(cmd, replacement.index, replacement.index_offset, replacement.index_type);
         d.CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, item.variant->layout, item.variant->own_set,
                                1, &item.own, 1, &item.instance_offset);
-        d.CmdDrawIndexed(cmd, draw.count, draw.instances, draw.first, draw.vertex_offset, draw.first_instance);
+        if (draw.indexed) d.CmdDrawIndexed(cmd, draw.count, draw.instances, draw.first, draw.vertex_offset, draw.first_instance);
+        else d.CmdDraw(cmd, draw.count, draw.instances, draw.first, draw.first_instance);
     }
     d.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, original_pipeline);
     d.CmdBindVertexBuffers(cmd, original.first_binding, static_cast<uint32_t>(original.buffers.size()),

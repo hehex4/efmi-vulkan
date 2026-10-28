@@ -216,6 +216,28 @@ and 865 bones. Check: character_test (a package of 40 components loads and its l
 bones; refused on the build before). LOD 2 and 3 sections stay the game's: the user, 2026-10-28, does not
 want them taken.
 
+## The draw commands of a replaced draw (D-142)
+
+The original's DrawCommand::run issues DrawIndexed, DrawIndexedInstanced, Draw and DrawInstanced with
+their arguments; `draw = from_caller` the matched draw's own call again (an indexed or a non-indexed one,
+instanced or not); `draw = auto` Draw(vb0's whole elements from its offset, 0); `drawindexed = auto`
+DrawIndexed(the index buffer's whole elements, 0, 0); `drawindexedinstanced = auto` that with the caller's
+instance count and first instance; and a count it cannot determine draws nothing. The layer planned
+DrawIndexed and (planned, then refused) DrawIndexedInstanced only.
+
+Now the plan carries the instance count and first instance, whether the draw is indexed, and whether
+its count is the bound buffer's; the program takes them into the draw (a non-indexed draw without the
+index stream, its vertices from `first`; an automatic count from the bound stream's whole elements of
+the file, an owned buffer's from its size) and the emitter draws a non-indexed one with vkCmdDraw.
+dispatch, the indirect draws and drawauto inside a replaced draw are what remains of DrawCommand (the
+first runs the game's last compute shader, which a render pass cannot; the others read their arguments
+from GPU buffers).
+
+Checks: check_mod_degradation's four variants (a section's first draw as two instances, `draw = 3, 0`,
+`draw = from_caller`, `drawindexed = auto`), each refused on the build before, planned now; a vk04 replay
+of SiModGB's copy with three draws made two instances, non-indexed and automatic (validation clean, every
+matched draw planned).
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

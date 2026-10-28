@@ -845,20 +845,59 @@ struct DrawPlanAdapter::Runtime {
         if (auto* draw = as<DrawCommand>(original, kinds, K_DrawCommand)) {
             if (state->call_info && state->call_info->hunting_skip) return;
             PlanItem item; item.operation = PlanOperation::DrawIndexed;
-            if (draw->type == DrawCommandType::DRAW_INDEXED) {
+            const auto* info = state->call_info;
+            // DrawCommand::run, case by case (D-142). A Draw's vertex count and first vertex take the
+            // indexed fields with `indexed` false.
+            switch (draw->type) {
+            case DrawCommandType::DRAW_INDEXED:
                 item.index_count = positive(draw->args[0], state);
                 item.first_index = positive(draw->args[1], state);
                 item.vertex_offset = integer(draw->args[2], state);
-            } else if (draw->type == DrawCommandType::DRAW_INDEXED_INSTANCED) {
+                break;
+            case DrawCommandType::DRAW_INDEXED_INSTANCED:
                 item.index_count = positive(draw->args[0], state);
                 item.instance_count = positive(draw->args[1], state);
                 item.first_index = positive(draw->args[2], state);
                 item.vertex_offset = integer(draw->args[3], state);
                 item.first_instance = positive(draw->args[4], state);
-            } else {
-                refuse(L"Planner supports direct indexed draws only: " + original->ini_line);
+                break;
+            case DrawCommandType::DRAW:
+                item.indexed = false;
+                item.index_count = positive(draw->args[0], state);
+                item.first_index = positive(draw->args[1], state);
+                break;
+            case DrawCommandType::DRAW_INSTANCED:
+                item.indexed = false;
+                item.index_count = positive(draw->args[0], state);
+                item.instance_count = positive(draw->args[1], state);
+                item.first_index = positive(draw->args[2], state);
+                item.first_instance = positive(draw->args[3], state);
+                break;
+            case DrawCommandType::FROM_CALLER:
+                // The matched draw's own call again (no active draw: nothing, as the original logs).
+                if (!info) return;
+                if (info->type == DrawCall::DrawIndexedInstanced || info->type == DrawCall::DrawIndexed) {
+                    item.index_count = info->IndexCount; item.first_index = info->FirstIndex; item.vertex_offset = INT(info->FirstVertex);
+                    if (info->type == DrawCall::DrawIndexedInstanced) { item.instance_count = info->InstanceCount; item.first_instance = info->FirstInstance; }
+                } else if (info->type == DrawCall::DrawInstanced || info->type == DrawCall::Draw) {
+                    item.indexed = false; item.index_count = info->VertexCount; item.first_index = info->FirstVertex;
+                    if (info->type == DrawCall::DrawInstanced) { item.instance_count = info->InstanceCount; item.first_instance = info->FirstInstance; }
+                } else refuse(L"The matched draw's call is not a direct draw: " + original->ini_line);
+                break;
+            case DrawCommandType::AUTO_VERTEX_COUNT:
+                item.indexed = false; item.automatic = true;
+                break;
+            case DrawCommandType::AUTO_INDEX_COUNT:
+                item.automatic = true;
+                break;
+            case DrawCommandType::AUTO_INDEX_INSTANCE_COUNT:
+                if (!info) return;
+                item.automatic = true; item.instance_count = info->InstanceCount; item.first_instance = info->FirstInstance;
+                break;
+            default:
+                refuse(L"Planner supports direct draws only: " + original->ini_line);
             }
-            if (!item.index_count || !item.instance_count) return;
+            if ((!item.index_count && !item.automatic) || !item.instance_count) return;
             indexed(item,*state);
             return;
         }

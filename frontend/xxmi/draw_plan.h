@@ -22,6 +22,10 @@ struct PlanItem {
     CustomResource* resource = nullptr; // An explicit null binding when absent.
     unsigned index_count = 0, first_index = 0, instance_count = 1, first_instance = 0;
     int vertex_offset = 0;
+    // A DrawIndexed's (D-142): false for the original's Draw and DrawInstanced (index_count is then the
+    // vertex count, first_index the first vertex); `automatic` for draw, drawindexed and
+    // drawindexedinstanced = auto, whose count the bound buffers give (get_*_count_from_current_*).
+    bool indexed = true, automatic = false;
     std::vector<InputLayoutElementOverride> layout;
     std::wstring external;
     unsigned phase_mask = 0; // External callback: bit 0 pre, bit 1 post.

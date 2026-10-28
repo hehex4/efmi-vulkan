@@ -1077,6 +1077,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-142: A replaced draw issues the original's direct draws (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. The plan took DrawIndexed only and the program one instance only.
+- As DrawCommand::run: DrawIndexedInstanced, Draw, DrawInstanced, from_caller (the matched draw's call) and the three `auto` counts (the bound buffer's whole elements; none, nothing drawn) are planned and drawn (vkCmdDraw for the non-indexed ones).
+
 ## D-141: The character contract's sizes are the widths of the layer's indices, not budgets (docs/ini-semantics.md)
 
 - Date: 2026-10-28. The user: LOD 2 and 3 sections are not to be done; everything else of D-137's gaps is.

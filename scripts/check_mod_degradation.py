@@ -16,7 +16,9 @@ installed Core:
 - a texture the Mod binds given as a PNG: the original loads every file not named .dds with WIC (D-139);
 - a texture file the loader makes nothing of: the original's resource is null and the draw goes on;
 - a texture declared with a colour space and a size: the loaders take the first and ignore the second;
-  one whose declared format its file is not: the original's view fails and the slot binds nothing (D-140).
+  one whose declared format its file is not: the original's view fails and the slot binds nothing (D-140);
+- a section's first draw as two instances, as a non-indexed draw, as `draw = from_caller` and as
+  `drawindexed = auto`: the original issues each (D-142).
 
 Each must load, and every section must plan in every state. Writes build/mod-degradation/.
 """
@@ -199,6 +201,18 @@ def main() -> int:
         (mod / ini_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
     variant("texture declared with a colour space and a size", lambda mod: insert_key(mod, ["color_space = sRGB", "width = 64"]))
     variant("texture declared with a format its file is not", lambda mod: insert_key(mod, ["format = R32_FLOAT"]))
+
+    def first_draw_as(mod: Path, make) -> None:
+        lines = text.splitlines()
+        at = next(i for i, line in enumerate(lines) if line.strip().lower().startswith("drawindexed"))
+        args = [a.strip() for a in lines[at].split("=", 1)[1].split(",")]
+        indent = lines[at][:len(lines[at]) - len(lines[at].lstrip())]
+        lines[at] = indent + make(args)
+        (mod / ini_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    variant("a draw as two instances", lambda mod: first_draw_as(mod, lambda a: "drawindexedinstanced = %s, 2, %s, %s, 0" % (a[0], a[1], a[2])))
+    variant("a non-indexed draw", lambda mod: first_draw_as(mod, lambda a: "draw = 3, 0"))
+    variant("a draw from the caller", lambda mod: first_draw_as(mod, lambda a: "draw = from_caller"))
+    variant("an indexed draw of the bound buffer's count", lambda mod: first_draw_as(mod, lambda a: "drawindexed = auto"))
     print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
     return 1 if failed else 0
 

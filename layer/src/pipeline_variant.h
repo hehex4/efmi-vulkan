@@ -11,7 +11,7 @@ namespace efvk {
     X(CreateShaderModule) X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) \
     X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateRenderPass) X(CreateRenderPass2) X(DestroyRenderPass) \
     X(CreateGraphicsPipelines) X(DestroyPipeline) \
-    X(CmdBindPipeline) X(CmdBindVertexBuffers) X(CmdBindIndexBuffer) X(CmdBindDescriptorSets) X(CmdDrawIndexed)
+    X(CmdBindPipeline) X(CmdBindVertexBuffers) X(CmdBindIndexBuffer) X(CmdBindDescriptorSets) X(CmdDrawIndexed) X(CmdDraw)
 
 struct VariantDispatch {
 #define X(n) PFN_vk##n n = nullptr;
@@ -76,6 +76,8 @@ struct DrawGeometry {
 struct IndexedDraw {
     uint32_t count = 0, instances = 1, first = 0, first_instance = 0;
     int32_t vertex_offset = 0;
+    // False: the original's Draw/DrawInstanced, `count` vertices from `first`, the index binding unused (D-142).
+    bool indexed = true;
 };
 
 struct VariantDraw {
