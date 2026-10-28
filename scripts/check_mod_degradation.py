@@ -20,7 +20,10 @@ installed Core:
 - a section's first draw as two instances, as a non-indexed draw, as `draw = from_caller` and as
   `drawindexed = auto`: the original issues each (D-142);
 - a slot range bound to none and to one texture before a section's first draw: the original binds
-  each slot of the range (D-143).
+  each slot of the range (D-143);
+- a texture check of the draw's index buffer and of a vertex buffer: the original looks up the resource's
+  sections (D-144);
+- a dispatch before a section's first draw: the layer does not issue it there; the draw goes on (D-146).
 
 Each must load, and every section must plan in every state. Writes build/mod-degradation/.
 """
@@ -229,6 +232,9 @@ def main() -> int:
         with open(mod / ini_name, "a", encoding="utf-8") as ini:
             ini.write("\n[PoolEfvkRange]\npool_size = 2\n")
     variant("a slot range bound from a pool range", pool_range)
+    variant("a texture check of the draw's index buffer", lambda mod: before_first_draw(mod, "checktextureoverride = ib"))
+    variant("a texture check of a vertex buffer", lambda mod: before_first_draw(mod, "checktextureoverride = vb0"))
+    variant("a dispatch in a replaced draw", lambda mod: before_first_draw(mod, "dispatch = 1, 1, 1"))
     print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
     return 1 if failed else 0
 

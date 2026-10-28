@@ -408,6 +408,9 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 return true;
             });
         }
+        // The matched draw's index region hash, which is what the original's region hash of its own index
+        // buffer gives (D-144).
+        p.adapter.index_region_hash([&p](uint32_t& hash) { if (!p.current_draw) return false; hash = p.current_draw->hash; return true; });
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
         if(config.shader_hooks){HostParseShaderOverrides();HostParseShaderRegex();
             for(const auto& entry:G->mShaderOverrideMap)

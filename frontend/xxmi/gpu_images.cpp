@@ -252,11 +252,14 @@ void GpuResourceRuntime::image_view(GpuResourceBinding& b,View kind,bool complet
     // A supplied UNKNOWN view descriptor inherits a fully typed texture format
     // in D3D11. It does not choose a typed format for a typeless allocation.
     // The headless source-API fixture checks SRV, UAV and RTV behavior directly.
-    if(format==DXGI_FORMAT_UNKNOWN){
-        require(original_default_format(d.Format)==d.Format,"Original UNKNOWN image view cannot infer a typeless resource format");format=d.Format;
-    }
+    // Where D3D11 makes no view (CreateCompatibleView returns null), nothing is bound: the original's
+    // SetResource takes the null view and the list goes on (D-145).
     const bool typeless=original_default_format(d.Format)!=d.Format;
-    require(typeless?source_image_family(format)==d.Format:format==d.Format,"Original image view format is outside its DXGI resource family");
+    if(format==DXGI_FORMAT_UNKNOWN){
+        if(typeless){b={};return;}
+        format=d.Format;
+    }
+    if(!(typeless?source_image_family(format)==d.Format:format==d.Format)){b={};return;}
     auto translated=source_image_format(format);const auto native=b.image->description().format;
     // D3D depth-compatible SRVs reinterpret one aspect of the same allocation;
     // Vulkan expresses this with an aspect mask, not a color-format image view.

@@ -418,12 +418,20 @@ static void image_ini_failures(Device& d,const std::filesystem::path& root){
         {change(typed,"width = 2","width = 2\nwidth_multiply = -1")+"[Present]\nclear = ResourceSource 1\n","multiplier"},
         {change(typed,"width = 2","width = 2\nwidth_multiply = 1e38")+"[Present]\nclear = ResourceSource 1\n","multiplier"},
         {change(typed,"type = Texture2D","type = Texture3D\ndepth = 2")+"[Present]\nclear = ResourceSource 1\n","dimensions are invalid"},
-        {typed+"[ResourceAlias]\nformat = R8G8B8A8_UNORM_SRGB\n[Present]\nResourceAlias = ref ResourceSource\nps-t0 = ref ResourceAlias\n","DXGI resource family"},
-        {typeless+"[ResourceAlias]\nformat = R32_FLOAT\n[Present]\nResourceAlias = ref ResourceSource\nps-t0 = ref ResourceAlias\n","DXGI resource family"},
-        {typeless+"[PoolImages]\npool_size = 1\n[Present]\nPoolImages[0] = ref ResourceSource\nps-t[0:0] = ref PoolImages[0:0]\n","cannot infer a typeless"},
         {typed+"[ResourceCopy]\nformat = R32_FLOAT\nbind_flags = shader_resource\n[Present]\nResourceCopy = copy ResourceSource\n","different DXGI families"},
         {typed+"[Constants]\nglobal $out = 0\n[Present]\nstore = $out, ResourceSource, 0\n","store requires a buffer"},
     };
+    // D-145: a view D3D11 does not make (a typed texture under another format, a typeless one with none;
+    // image_source_reference checks this on WARP) leaves the slot unbound, and the Present goes on.
+    for(const auto& text:{typed+"[ResourceAlias]\nformat = R8G8B8A8_UNORM_SRGB\n[Present]\nResourceAlias = ref ResourceSource\nps-t0 = ref ResourceAlias\n",
+                          typeless+"[ResourceAlias]\nformat = R32_FLOAT\n[Present]\nResourceAlias = ref ResourceSource\nps-t0 = ref ResourceAlias\n",
+                          typeless+"[PoolImages]\npool_size = 1\n[Present]\nPoolImages[0] = ref ResourceSource\nps-t[0:0] = ref PoolImages[0:0]\n"}){
+        static int index=0;const auto directory=root/("no-view-"+std::to_string(index++));
+        ImageIniFixture f(d,directory,"namespace = images\n[Constants]\nglobal $after = 0\n"+std::string(text)+"$after = 1\n");
+        f.present();f.variable("after",1);
+        check(!f.srv(0).image && !f.srv(0).image_view,"A view D3D11 does not make binds nothing and the Present goes on");
+        f.release();
+    }
     // A file the original's loader makes no texture of (not there, a truncated DDS) leaves the resource
     // null, with its warning, and the list goes on (CustomResource::LoadFromFile, D-139).
     for(const char* file:{"not-loaded.png","truncated.dds"}){const auto directory=root/file;

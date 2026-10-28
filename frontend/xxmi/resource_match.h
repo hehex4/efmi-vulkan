@@ -30,4 +30,7 @@ void source_resource_matches(const SourceResourceMatch&,ResourceCopyTargetType,
                              CommandListState&,TextureOverrideMatches&);
 // The original's match_* sections a texture of this description meets in this draw, appended in its order.
 void described_resource_matches(const D3D11_TEXTURE2D_DESC&,CommandListState&,TextureOverrideMatches&);
+// The original's region path for the matched draw's own index buffer (D-144): its hash sections prefiltered
+// by the draw's index count, filtered by the region's hash and the draw.
+void region_hash_matches(uint32_t hash,CommandListState&,TextureOverrideMatches&);
 }

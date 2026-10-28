@@ -44,6 +44,14 @@ void source_resource_matches(const SourceResourceMatch& source,ResourceCopyTarge
         },source.description);
     }
 }
+void region_hash_matches(uint32_t hash,CommandListState& state,TextureOverrideMatches& matches){
+    match_require(G!=nullptr && state.call_info,"Region matching needs an active generation and a draw");
+    // With track_region_hashes (EFMI's d3dx.ini) the original's region path; a generation that did not read
+    // it matched the draw by this hash through the hash map, and so does this.
+    if(!G->track_region_hashes){find_texture_override_for_hash(hash,&matches,state.call_info);return;}
+    if(auto* candidates=get_fuzzy_matches_by_draw_info(state.call_info))
+        find_texture_overrides_by_hash_from_fuzzy_matches(hash,candidates,&matches,state.call_info);
+}
 void described_resource_matches(const D3D11_TEXTURE2D_DESC& description,CommandListState& state,TextureOverrideMatches& matches){
     match_require(G!=nullptr,"Resource matching needs an active generation");
     find_texture_overrides_for_desc(&description,&matches,state.call_info);

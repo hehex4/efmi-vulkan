@@ -2267,4 +2267,5 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - 2026-10-28: the user: LOD 2 and 3 not to be done, every other gap to be done. D-141, the contract's sizes as index widths (64 components).
 - 2026-10-28: D-142, a replaced draw's direct draws (instanced, non-indexed, from_caller, auto).
 - 2026-10-28: D-143, slot ranges in a replaced draw.
+- 2026-10-28: D-144, CheckTextureOverride of other targets in a replaced draw; D-145, a view D3D11 does not make binds nothing in owned work; D-146, dispatch, drawauto and indirect draws in a replaced draw do nothing.
 - 2026-10-27: cause D measured offline (vk03, phase-timing build and normal build): 16.6 us per matched draw, the plan 10.5 (interpreter about 5.2); the other stages already cached. Recorded in docs/design-review-1.9.md; nothing changed. The remaining items wait on the game or on a failing check.

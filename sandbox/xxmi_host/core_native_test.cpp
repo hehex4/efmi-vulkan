@@ -26,7 +26,7 @@ drawindexed = 3, $result, 0
 $result = $result + 2
 post $result = $result + 5
 [CommandListBad]
-dispatch = 1, 1, 1
+drawindexed = -3, 0, 0
 [CommandListUnresolved]
 run = CommandListForeign
 [CommandListForeign]
@@ -43,7 +43,7 @@ post $result = $result + 3
 post drawindexed = 3, $result, 0
 [CommandListPairBad]
 drawindexed = 3, 0, 0
-post dispatch = 1, 1, 1
+post drawindexed = -3, 0, 0
 [CommandListAbort]
 $result = 13
 handling = abort

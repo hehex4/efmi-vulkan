@@ -81,7 +81,11 @@ int HostPlanTests()
           "same compiled list reevaluates branches and instanced arguments");
     check(plan.items.back().layout[0].match.semantic_index==0,"later layout execution cannot mutate the earlier plan");
     const size_t retained=plan.items.size();
-    for(auto* name:{L"fail",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget",L"applicationvertex"}) {
+    // D-146: a dispatch in a replaced draw does nothing (the original's warning) and its draw goes on.
+    DrawPlan dispatched;
+    check(run(L"fail",dispatched,reason) && dispatched.items.size()==1 && dispatched.items[0].operation==PlanOperation::DrawIndexed,
+          "a dispatch in a replaced draw does nothing and the list's draw goes on");
+    for(auto* name:{L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget",L"applicationvertex"}) {
         check(!run(name,plan,reason) && !reason.empty() && plan.items.size()==retained &&
               plan.items.back().vertex_offset==-2 && plan.items.back().layout[0].match.semantic_index==0,
               "late unsupported/invalid/recursive command rejects the complete output");

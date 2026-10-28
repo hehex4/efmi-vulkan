@@ -174,6 +174,9 @@ public:
     // this query outside them (the host's draws, D-077).
     void texture_queries(TextureQuery);
     bool has_texture_queries() const;
+    // The index region hash the matched draw was found by (D-144): what the original's region hash of the
+    // draw's own index buffer is. False outside a draw.
+    void index_region_hash(std::function<bool(uint32_t&)>);
     // The original command an adapted list holds in place of `command` (itself when not adapted).
     static const CommandListCommand* original(const CommandListCommand& command);
     using ResourceMatchQuery=std::function<bool(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&)>;

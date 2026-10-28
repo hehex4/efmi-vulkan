@@ -8,6 +8,7 @@
 #include <climits>
 #include <array>
 #include "ResourceHash.h"
+#include "Overlay.h"
 #include "globals.h"
 
 void FrontendRunCommandList(CommandList&,CommandListState&);
@@ -478,6 +479,9 @@ struct DrawPlanAdapter::Runtime {
     // application's own buffer is still bound.
     struct VertexBinding {bool planned=false;CustomResource* resource=nullptr;std::shared_ptr<const PlanItem::OwnedBuffer> owned;};
     std::array<VertexBinding,32> vertex_bindings;
+    VertexBinding index_binding; // the plan's index buffer binding, as the vertex ones (D-144)
+    std::function<bool(uint32_t&)> draw_index_hash;
+    std::unordered_set<const void*> unknown_identity_logged;
     // `ResourceX = ref ps-tN` in a matched draw's plan: X refers to the application's texture at
     // pixel slot N of that draw. One stand-in per slot marks it; it never reaches a file plan.
     std::array<CustomResource,128> application_textures;
@@ -573,8 +577,15 @@ struct DrawPlanAdapter::Runtime {
             // when deciding whether to apply IA region hashing.
             bound=source.bound;source_resource_matches(source,target.type,state,matches);
         }else{
-            if(!texture_query || resolved.type!=ResourceCopyTargetType::SHADER_RESOURCE || resolved.shader_type!=L'p')
-                refuse(L"Texture query requires an adapted single pixel slot");
+            if(!texture_query)refuse(L"Texture query requires an adapted single pixel slot");
+            if(resolved.type!=ResourceCopyTargetType::SHADER_RESOURCE || resolved.shader_type!=L'p'){
+                other_matches(resolved,state,bound,matches);
+                if(matches.size()>max_items)refuse(L"Texture match count exceeds planner budget");
+                for(auto* match:matches)if(!match || !adapted.count(match->command_list.ResolveCommandList()) ||
+                                           !adapted.count(match->post_command_list.ResolveCommandList()))
+                    refuse(L"Matched texture command lists were not adapted");
+                return;
+            }
             const auto slot=resolved.ResolveSlot(&state);
             if(slot>=pixel_bindings.size())refuse(L"Texture query slot outside supported range");
             DrawPlanAdapter::TextureIdentity identity;
@@ -593,6 +604,40 @@ struct DrawPlanAdapter::Runtime {
         for(auto* match:matches)if(!match || !adapted.count(match->command_list.ResolveCommandList()) ||
                                    !adapted.count(match->post_command_list.ResolveCommandList()))
             refuse(L"Matched texture command lists were not adapted");
+    }
+    // CheckTextureOverride of a target other than a pixel slot in a replaced draw's plan (D-144), as the
+    // original's find_texture_overrides_for_resource answers it: a Mod's own resource (a declaration, or one
+    // the plan bound) has no handle info and meets nothing; an empty slot is not bound; the matched draw's own
+    // index buffer meets the sections of the hash it was matched by, through the original's region path. The
+    // game's other buffers and the other stages' resources have no DX11 identity the layer knows: they meet
+    // nothing, and the original's warning says so once per command.
+    void other_matches(ResourceCopyTarget& target,CommandListState& state,bool& bound,TextureOverrideMatches& matches)
+    {
+        bound=false;matches.clear();
+        auto unknown=[&](){
+            bound=true;
+            if(unknown_identity_logged.size()<64 && unknown_identity_logged.insert(&target).second)
+                LogOverlayW(LOG_WARNING,L"CheckTextureOverride of the game's resource that the Vulkan layer cannot identify meets no section\n");
+        };
+        switch(target.type){
+        case ResourceCopyTargetType::CUSTOM_RESOURCE:
+            bound=target.GetCustomResource(&state)!=nullptr;return;
+        case ResourceCopyTargetType::EMPTY:
+            return;
+        case ResourceCopyTargetType::VERTEX_BUFFER:{
+            const auto slot=target.ResolveSlot(&state);
+            if(slot>=vertex_bindings.size())refuse(L"Texture query slot outside supported range");
+            const auto& b=vertex_bindings[slot];
+            if(b.planned){bound=b.resource || b.owned;return;}
+            unknown();return;}
+        case ResourceCopyTargetType::INDEX_BUFFER:{
+            if(index_binding.planned){bound=index_binding.resource!=nullptr;return;}
+            uint32_t hash=0;
+            if(!draw_index_hash || !draw_index_hash(hash)){unknown();return;}
+            bound=true;region_hash_matches(hash,state,matches);return;}
+        default:
+            unknown();return;
+        }
     }
     // A declaration reference executed by the owned backend is also what later replaced draws
     // resolve through the plan, exactly as the plan path itself would record it.
@@ -613,10 +658,11 @@ struct DrawPlanAdapter::Runtime {
     void check_texture(CheckTextureOverrideCommand& check,CommandListState& state)
     {
         auto& target=effective_target(check.target,state);
-        if(!(resource_match && gpu()) && (target.type!=ResourceCopyTargetType::SHADER_RESOURCE || target.shader_type!=L'p' ||
-           (target.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE &&
-            target.evaluation_mode!=ResourceCopyTargetEvaluationMode::SLOT_RANGE)))
-            refuse(L"Texture override only supports pixel resource slots");
+        // Any resource, slot range or pool range, as the original checks them; a target other than a pixel
+        // slot is answered by other_matches (D-144).
+        if(!(resource_match && gpu()) && target.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE &&
+           target.evaluation_mode!=ResourceCopyTargetEvaluationMode::SLOT_RANGE && target.evaluation_mode!=ResourceCopyTargetEvaluationMode::POOL_RANGE)
+            refuse(L"Texture override needs a resource, slot range or pool range target");
         int first=0;unsigned count=1;
         if(target.IsRange()){
             if(target.custom_resource_pool)validate_pool_runtime(*target.custom_resource_pool);
@@ -928,7 +974,13 @@ struct DrawPlanAdapter::Runtime {
                 item.automatic = true; item.instance_count = info->InstanceCount; item.first_instance = info->FirstInstance;
                 break;
             default:
-                refuse(L"Planner supports direct draws only: " + original->ini_line);
+                // dispatch (the game's last compute shader, which a render pass cannot run), drawauto (stream
+                // output) and the indirect draws (arguments in a GPU buffer): the layer does not issue them in a
+                // replaced draw. The command does nothing, the original's warning says so once, and the draw's
+                // other commands go on (D-146).
+                if (unknown_identity_logged.size() < 64 && unknown_identity_logged.insert(draw).second)
+                    LogOverlayW(LOG_WARNING, L"The Vulkan layer does not issue this command in a replaced draw: %ls\n", original->ini_line.c_str());
+                return;
             }
             if ((!item.index_count && !item.automatic) || !item.instance_count) return;
             indexed(item,*state);
@@ -1006,6 +1058,7 @@ struct DrawPlanAdapter::Runtime {
             if(item.operation==PlanOperation::BindPixelResource)
                 pixel_bindings[item.slot]=item.application_slot==int(item.slot)?PixelBinding{}:PixelBinding{false,item.resource};
             if(item.operation==PlanOperation::BindVertex)vertex_bindings[item.slot]={true,item.resource,item.owned};
+            if(item.operation==PlanOperation::BindIndex)index_binding={true,item.resource,nullptr};
             append(std::move(item));
             return;
         }
@@ -1343,6 +1396,7 @@ void DrawPlanAdapter::texture_queries(TextureQuery query)
     };
 }
 bool DrawPlanAdapter::has_texture_queries() const {return bool(runtime_->texture_query) || bool(runtime_->resource_match);}
+void DrawPlanAdapter::index_region_hash(std::function<bool(uint32_t&)> query){runtime_->draw_index_hash=std::move(query);}
 const CommandListCommand* DrawPlanAdapter::original(const CommandListCommand& command)
 {
     const auto* bridge=dynamic_cast<const BridgeCommand*>(&command);return bridge?bridge->original.get():&command;
@@ -1463,7 +1517,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     runtime_->keep_original=false;runtime_->shader_depth=0;
-    runtime_->pixel_bindings={};runtime_->vertex_bindings={};
+    runtime_->pixel_bindings={};runtime_->vertex_bindings={};runtime_->index_binding={};
     phase("exec setup");
     try {
         auto run=[&](const auto& lists,CommandListState& phase){for(auto* root:lists){
@@ -1523,7 +1577,8 @@ bool DrawPlanAdapter::execute_intercepted(const std::vector<CommandList*>& pre,c
     }
     DrawPlan candidate;candidate.skip_original=state.call_info->skip;
     runtime_->active=&candidate;runtime_->steps=runtime_->draws=runtime_->queries->count=0;
-    runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};runtime_->vertex_bindings={};runtime_->keep_original=false;
+    runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};runtime_->vertex_bindings={};runtime_->index_binding={};
+    runtime_->keep_original=false;
     runtime_->shader_depth=0;
     try{
         auto fresh=[&](CommandListState& root,bool after){root.mHackerDevice=state.mHackerDevice;root.mHackerContext=state.mHackerContext;

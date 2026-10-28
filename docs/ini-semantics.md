@@ -252,7 +252,52 @@ assigned or wrote, of an untyped pool, binds nothing, as the original's has no r
 Checks: check_mod_degradation's three range variants (to none, to one texture, from a pool range), refused
 on the build before ("Unsupported frontend operation"), planned now.
 
-## Freezes (the user's other half, 2026-10-28)
+## CheckTextureOverride of other targets in a replaced draw (D-144)
+
+The original looks up a resource's sections wherever the target is (find_texture_overrides_for_resource,
+the region path for an index or vertex buffer). The plan answered pixel slots only and refused any other
+target. Now: a Mod's own resource (a declaration, or one the plan bound to the slot) has no handle info and
+meets nothing, as in the original; an empty slot is not bound; the matched draw's own index buffer meets
+the sections of the region hash the draw was matched by (region_hash_matches: the original's region path
+with track_region_hashes, else the hash map the generation matched the draw through);
+the game's vertex buffers and the other stages' resources have no DX11 identity the layer knows (their
+Vulkan buffers are not shown to be the DX11 build's), so they meet nothing and the original's warning
+channel says so once per target.
+
+Checks: check_mod_degradation's two variants (`checktextureoverride = ib` and `= vb0` before a section's
+first draw), refused on the build before ("Texture query requires an adapted single pixel slot"),
+planned now.
+
+## A view D3D11 does not make, in owned work (D-145)
+
+CreateCompatibleView returns null where D3D11 makes no view: a typed texture under another format, a
+typeless one without a format (image_source_reference checks both on WARP); SetResource then binds the
+null view and the list goes on. Owned work (Present, CustomShader) refused the whole Present there. Now
+the slot binds nothing. Checks: resource_image_ini_cases's three such cases were refusals (the test
+asserted it, passing on the build before); they bind nothing now and the Present goes on.
+
+## Commands a replaced draw does not issue (D-146)
+
+`dispatch` runs the game's last compute shader in the original, which a Vulkan render pass cannot hold;
+`drawauto` draws stream output, which the layer does not make; the indirect draws read their arguments
+from a GPU buffer, which a replaced draw's plan does not take. Each refused the whole draw; now the
+command does nothing, the original's warning channel says so once, and the draw's other commands go on.
+Check: check_mod_degradation's `dispatch = 1, 1, 1` variant (refused before, planned now).
+
+XX, [(
+## D-145: A view D3D11 does not make binds nothing in owned work (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. As CreateCompatibleView's null view: a typed texture under another format, a typeless one without a format, bind nothing; the Present goes on.
+
+## D-146: dispatch, drawauto and indirect draws in a replaced draw do nothing, with a warning (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. They refused the whole draw. A compute dispatch cannot run in the game's render pass and the layer has no stream output; the indirect draws' GPU arguments are not taken by the plan (no Mod uses them).
+
+## D-144: CheckTextureOverride of other targets in a replaced draw (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. As find_texture_overrides_for_resource: a Mod's resource meets nothing; the matched draw's own index buffer meets its region hash's sections through the original's region path; the game's other buffers and other stages' resources have no known DX11 identity and meet nothing, with the original's warning.
+
+## D-143: Slot ranges in a replaced draw
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the
 layer's Present work for minutes in 1.9.4 (PID 14500, 285 s) and 1.9.5 (PID 11492, 416 s), BUG-062 and
