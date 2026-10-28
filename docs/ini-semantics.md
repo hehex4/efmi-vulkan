@@ -416,6 +416,21 @@ resources does.
 Checks: plan_test (saved, nulled and put back plans the draw; nulled at a draw, moved to another slot,
 or left changed at the end refuses).
 
+## A copy of a region past its buffer (D-153)
+
+`ResourceX = copy ResourceY->Region(offset, size)` copies with SpecialCopyBufferRegion: a box from the
+offset to the lesser of the end boundary (the size argument) and the offset plus the destination's size,
+into the start of a destination made like the source. A box that ends before it starts (an offset at or
+past the buffer, an end boundary below the offset) is undefined in D3D11; under the judge the original's
+device stops answering after it (every later store, even of the untouched source, reads zero), so it is
+no judge case. The layer refused the list. It now copies nothing there and reads no byte past the buffer;
+the destination is made as for any copy and reads zero (copy destinations are created zeroed, as D3D11's
+are in practice). The defined case is the judge's regions case (the region lands at the start, the copy
+keeps the source's size).
+
+Checks: the judge's regions case (5 values); resource_gpu (a region past the buffer and one ending before
+its offset copy nothing and the list goes on).
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

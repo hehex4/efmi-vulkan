@@ -312,10 +312,12 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         b.offset=uint_value(input.member_args[0].GetValue(&state));b.visible_size=uint_value(input.member_args[1].GetValue(&state));
         b.region=true;
         // A reference of a region outside the buffer into a slot: CreateCompatibleView gets no element in
-        // range and makes no view, so the slot takes the null view (D-151). A copy of one stays refused.
-        if(destination && destination->type!=Target::CUSTOM_RESOURCE && destination->type!=Target::POOL &&
-           b.buffer && !(b.offset<b.buffer->size() && b.visible_size<=b.buffer->size()))return {};
-        require(!b.buffer || (b.offset<b.buffer->size() && b.visible_size<=b.buffer->size()),"GPU resource region outside allocation");
+        // range and makes no view, so the slot takes the null view (D-151).
+        if(b.buffer && !(b.offset<b.buffer->size() && b.visible_size<=b.buffer->size())){
+            if(destination && destination->type!=Target::CUSTOM_RESOURCE && destination->type!=Target::POOL)return {};
+            // Anything else reads no byte past the buffer: past it, the region ends where it starts (D-153).
+            b.visible_size=b.offset<b.buffer->size()?UINT(b.buffer->size()):b.offset;
+        }
     }
     return b;
 }
@@ -444,7 +446,7 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
     const std::array<UINT,4> key={out.description.ByteWidth,out.description.BindFlags,out.description.MiscFlags,out.description.StructureByteStride};
     auto found=pool.find(key);
     if(found!=pool.end())out.buffer=found->second;
-    else{out.buffer=commands_.create(out.description.ByteWidth,usage(out.description));pool.emplace(key,out.buffer);}
+    else{out.buffer=commands_.create(out.description.ByteWidth,usage(out.description),nullptr,0,true);pool.emplace(key,out.buffer);}
     reuse_view(out);
     // The original resolve helper returns for buffers. It still creates/reuses
     // the destination, but must not replace existing bytes with a normal copy.
@@ -453,8 +455,10 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
         if(destination_size){
             // SpecialCopyBufferRegion treats source size as an end boundary.
             const uint64_t end=std::min<uint64_t>(source_end,uint64_t(source.offset)+destination_size);
-            require(end>=source.offset,"GPU buffer copy region ends before its offset");
-            auto bytes=end-source.offset;if(source.stride)bytes=bytes/source.stride*source.stride;
+            // A box that ends before it starts (an end boundary below the offset, a region past the buffer) is
+            // undefined in D3D11: the original's device stops answering on the test machine. The layer copies
+            // nothing; the destination is made as for any copy and reads zero (D-153).
+            auto bytes=end>source.offset?end-source.offset:0;if(source.stride)bytes=bytes/source.stride*source.stride;
             require(bytes<=out.description.ByteWidth,"GPU copy override truncates the original region");
             if(bytes)commands_.copy(source.buffer,source.offset,out.buffer,0,bytes);
             out.offset=0;

@@ -424,9 +424,18 @@ bind_flags = shader_resource unordered_access
     check(!memcmp(output.data(),bytes,sizeof(bytes)),"Original file bytes round trip exactly");
     struct Failure{const char* command;const char* reason;};
     const Failure bad[]={
-        {"ResourceOut = copy ResourceSource->Region(40, 16)\n","region outside"},
         {"clear = ResourceSource 2\ndrawindexed = 3,0,0\n","shader execution"},
     };
+    {   // D-153: a copy of a region past the buffer (undefined in D3D11) copies nothing; the copy is made, reads
+        // zero, and the list goes on.
+        write(root/"Mods/files.ini",(base+"ResourceOut = copy ResourceSource->Region(40, 16)\nstore = $result, ResourceOut, 0\n"
+                                     "$size = ResourceOut->size\n").c_str());
+        auto copier=std::make_shared<GpuResourceRuntime>(d.resource);auto candidate=IniRuntime::load(config,copier,why);
+        check(bool(candidate),"Outside region fixture loads");copier->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        check(candidate->present({},2,0,why) && candidate->status().variables.at("$\\files\\result")==0,
+              "A copy of a region past its buffer copies nothing and the list goes on");
+        auto done=copier->finish();if(done)done->wait();candidate.reset();copier.reset();
+    }
     // D-151: a raw view of a buffer without the raw flag, and a slot reference of a region outside the buffer,
     // are views D3D11 does not make: nothing is bound and the list goes on.
     for(const char* command:{"cs-u0 = raw ref ResourceSource\n","cs-u0 = ref ResourceSource->Region(40, 16)\n"}){
@@ -1245,8 +1254,14 @@ ps-t8 = ref ResourceIndexCopy
     ini.reset();backend.reset();
     // The converted binding above deliberately outlives this generation.
     check(budgets.resident->used()>0 && !budgets.staging->used(),"Retained region binding outlives generation retirement");
+    {   // D-153: a region ending before its offset is a box D3D11 leaves undefined; the copy copies nothing.
+        write(root/"Mods/regions.ini",(declarations+"ResourceCopy = copy ResourceSource->Region(16, 8)\n").c_str());
+        backend=std::make_shared<GpuResourceRuntime>(d.resource,budgets);ini=IniRuntime::load(config,backend,why);
+        if(!ini)throw std::runtime_error("Region fixture must parse: "+why);backend->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        check(ini->present({},2,0,why),"A region ending before its offset copies nothing and the list goes on");
+        auto done=backend->finish();if(done)done->wait();ini.reset();backend.reset();
+    }
     const std::vector<std::pair<std::string,std::string>> bad={
-        {"ResourceCopy = copy ResourceSource->Region(16, 8)\n","ends before"},
         {"ResourceTruncated = copy ResourceSource\n","incompatible allocation sizes"},
         {"ResourceTruncated = copy ResourceSource->Region(8, 32)\n","truncates"},
     };
