@@ -46,6 +46,7 @@ void RuntimeValidateSections(const std::vector<std::wstring>&,bool custom_shader
 void RuntimeShaderRegexGates(std::vector<std::pair<uint32_t, uint32_t>>& gates, CommandList& assignments);
 size_t RuntimeInputCount();
 bool RuntimeDispatchInput(HackerDevice*, const efmi::frontend::RuntimeInput&);
+std::vector<std::vector<int>> RuntimeInputKeys();
 void RuntimeWindowSample(const efmi::frontend::RuntimeInput*);
 HWND RuntimeWindowHandle();
 extern std::vector<CommandList*> pending_post_command_lists;
@@ -771,6 +772,10 @@ std::vector<IniRuntime::DiscardGate> IniRuntime::discard_gates() const
 std::vector<std::shared_ptr<const assets::FileResource>> IniRuntime::resources() const
 {
     return impl_->resources;
+}
+std::vector<std::vector<int>> IniRuntime::key_combos() const
+{
+    Scope scope(impl_->state); return ::RuntimeInputKeys();
 }
 void IniRuntime::library_hook(LibraryHook hook)
 {

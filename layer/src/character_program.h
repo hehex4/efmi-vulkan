@@ -111,6 +111,8 @@ public:
     void suspend_persistence() { if (runtime_) runtime_->suspend_persistence(); }
     void inherit_persistent(const CharacterProgram& previous) { runtime_->inherit_persistent(*previous.runtime_); }
     efmi::frontend::RuntimeStatus status() const { return runtime_ ? runtime_->status() : efmi::frontend::RuntimeStatus{}; }
+    // The keys of the generation's key actions (D-137 checks press them as a player does).
+    std::vector<std::vector<int>> key_combos() const { return runtime_ ? runtime_->key_combos() : std::vector<std::vector<int>>{}; }
     // D-133: the IniParams elements ShaderRegex replacements gate a discard on, as the last presentation left them.
     std::vector<efmi::frontend::IniRuntime::DiscardGate> discard_gates() const
     {

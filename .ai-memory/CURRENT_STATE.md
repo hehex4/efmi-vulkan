@@ -10,6 +10,7 @@
 
 - BUG-076 (tangtang Ramune v1.9's broken arm): a texture file the Mod does not ship binds nothing, as in the original; check_folder_generation failing before, passing.
 - The overlay's notices (docs/ini-semantics.md): `> Reloaded config in N.NNNs` after F10 as the original, a refused F10, and the layer's refusals once per Mod and reason, drawn top left as 3DMigoto's (GDI Arial, level colours and times, black backing), after the Present work on the presenting queue, no GPU wait in the presentation. Failing first: owned_present_test (no notice drawn) and runtime_test (no reload notice) on the build before; now 66/66 and 104/104; text, unit, native tracker, M2 hook, character replacement, probe end to end, modes, Vulkan validation passed. Readback: green text on the dark backing at the top left (640x360 sandbox, 14 px).
+- Every installed Mod in every key state (scripts/check_mod_states.py, a run_all step): the original's parsed keys pressed as a player does, every section planned after each hold and release; 316 key actions, 2407 states, 18 Mods, no refusal; reports BUG-076 with its fix taken out. The INI runtime test links character_program.cpp without util.cpp: its own logf (BUG-076's log line had broken that step; caught now).
 - Not deployed, not run in the game.
 
 ## 2.1.1: the loader behind a proxy DLL, character meshes without resizable BAR (2026-10-28, BUG-074, BUG-075)

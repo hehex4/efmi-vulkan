@@ -401,6 +401,132 @@ static void register_tests()
           "a truncated or foreign module is refused and the output stays");
 }
 
+// A section's draw as the backend hands it to the plan, with what offline stands in for the game.
+template <typename Section>
+static efmi::frontend::RuntimeDraw section_draw(const Section& s, uint32_t lod, uint64_t frame, CharacterProgram& program,
+                                                const std::vector<efmi::gpu::SourceRegister>& vertex)
+{
+    efmi::frontend::RuntimeDraw request;
+    request.hash = s.hash; request.count = s.match_count == kCharacterNone ? 0 : s.match_count;
+    request.first = s.match_first == kCharacterNone ? 0 : s.match_first;
+    request.frame = frame; request.seconds = float(frame) / 60.0f;
+    request.mod = program.folder_index();
+    if (s.component != kCharacterNone) { request.component = s.component; request.lod = lod; request.identity = 1; }
+    if (s.component != kCharacterNone) { request.rolling_bone_source = true; request.source_vs_config_slot = 2; }
+    request.shader_stages = 0x1 | 0x10;
+    request.source_srv = [&vertex](wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& why) {
+        if (stage != L'v') { why = "offline the pixel shader's declarations are not known"; return false; }
+        return srv_of(vertex, slot, type, dimension, stride, why);
+    };
+    request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
+    request.vertex_stride = [](unsigned, uint32_t&, std::string& why) { why = "offline the game's vertex buffers are not known"; return false; };
+    if (s.stride_slot != kCharacterNone)
+        request.vertex_stride = [&s](unsigned slot, uint32_t& value, std::string& why) {
+            if (slot != s.stride_slot) { why = "offline the game's vertex buffers are not known"; return false; }
+            value = s.stride; return true;
+        };
+    return request;
+}
+
+// D-137: the folder generation's dry run in every state its keys reach as a player presses them. Each
+// key action's keys (as the original parsed them) are held for a presentation and released, up to eight
+// presses or until the variables repeat a state seen; the original's own dispatch decides what changes.
+// After the default state and after each hold and release, every Mod's sections are planned. A refusal is
+// reported with the first state it appeared in; the offline stand-ins' own limits are not.
+static int plan_folder_states(const std::filesystem::path& mods, const std::filesystem::path& core, const std::filesystem::path& settings)
+{
+    const auto vertex = common_vertex_registers();
+    CharacterProgram::FolderSource source{std::filesystem::absolute(mods), std::filesystem::absolute(core), std::filesystem::absolute(settings)};
+    source.declarations_only = true;
+    std::vector<CharacterProgram::FolderMod> found;
+    std::string reason;
+    if (!CharacterProgram::discover_folder(source, found, reason)) { fprintf(stderr, "folder generation refused: %s\n", reason.c_str()); return 1; }
+    CharacterProgram* presenter = nullptr;
+    for (auto& m : found) if (m.program) { presenter = m.program.get(); break; }
+    if (!presenter) { fprintf(stderr, "no character Mod\n"); return 1; }
+    struct Refusal { std::string state, reason; uint32_t hash = 0, component = kCharacterNone, lod = 0; };
+    std::vector<std::vector<Refusal>> refusals(found.size());
+    std::vector<std::set<std::string>> seen_refusals(found.size());
+    std::vector<uint64_t> plans(found.size());
+    std::vector<std::string> present_errors;
+    uint64_t frame = 0, states = 0;
+    efmi::frontend::RuntimeInput released;
+    released.foreground = true;
+    auto present = [&](const efmi::frontend::RuntimeInput& input, const std::string& state) {
+        std::string why;
+        ++frame;
+        if (!presenter->present(input, frame, float(frame) / 60.0f, why) && present_errors.size() < 16)
+            present_errors.push_back(state + ": " + why);
+    };
+    auto plan_all = [&](const std::string& state) {
+        ++states;
+        for (size_t i = 0; i < found.size(); ++i) {
+            auto& m = found[i];
+            if (!m.program) continue;
+            uint32_t current_lod = 0;
+            for (const auto& s : m.package.sections) {
+                if (s.lod != kCharacterNone) current_lod = s.lod;
+                const uint32_t lod = s.component == kCharacterNone ? kCharacterNone : current_lod;
+                auto request = section_draw(s, lod, frame, *m.program, vertex);
+                CharacterList list; bool skip = false, added = false, textures = false; std::string why;
+                ++plans[i];
+                if (m.program->plan(request, m.package, list, skip, added, why, nullptr, &textures)) continue;
+                if (why.find("offline ") != std::string::npos) continue; // the stand-ins' limits, not the Mod's
+                char key[64]; snprintf(key, sizeof(key), "%08x/%u/%u/", s.hash, s.component, lod);
+                if (!seen_refusals[i].insert(key + why).second) continue;
+                refusals[i].push_back({state, why, s.hash, s.component, lod});
+            }
+        }
+    };
+    auto snapshot = [&] {
+        std::string text;
+        for (const auto& v : presenter->status().variables) text += v.first + "=" + std::to_string(v.second) + ";";
+        return text;
+    };
+    // EFMI's exports register at a Present and draw after it: the default state is the second one.
+    present(released, "start"); plan_all("start");
+    present(released, "default"); plan_all("default");
+    const auto combos = presenter->key_combos();
+    for (size_t c = 0; c < combos.size(); ++c) {
+        std::set<std::string> seen{snapshot()};
+        std::string keys;
+        for (int k : combos[c]) { char name[16]; snprintf(name, sizeof(name), "%s0x%02x", keys.empty() ? "" : "+", k); keys += name; }
+        efmi::frontend::RuntimeInput held = released;
+        for (int k : combos[c]) if (k >= 0 && k < 256) held.keys[k] = true;
+        for (int press = 1; press <= 8; ++press) {
+            const std::string state = "key " + std::to_string(c) + " (" + keys + ") press " + std::to_string(press);
+            present(held, state + " held"); plan_all(state + " held");
+            present(released, state); plan_all(state);
+            if (!seen.insert(snapshot()).second) break;
+        }
+    }
+    JsonWriter summary; summary.begin_object();
+    summary.kn("key_actions", combos.size()); summary.kn("states", states);
+    summary.key("present_errors"); summary.begin_array(); for (const auto& e : present_errors) summary.str(e); summary.end_array();
+    summary.end_object();
+    printf("%s\n", summary.out.c_str());
+    for (size_t i = 0; i < found.size(); ++i) {
+        JsonWriter w; w.begin_object();
+        w.kv("ini", found[i].ini.lexically_relative(mods).u8string());
+        w.kb("loaded", found[i].program != nullptr);
+        if (!found[i].program) w.kv("reason", found[i].reason);
+        w.kn("plans", plans[i]);
+        w.key("refusals"); w.begin_array();
+        for (const auto& r : refusals[i]) {
+            w.begin_object();
+            char hash[16]; snprintf(hash, sizeof(hash), "%08x", r.hash);
+            w.kv("hash", hash);
+            if (r.component != kCharacterNone) { w.kn("component", r.component); w.kn("lod", r.lod); }
+            w.kv("state", r.state); w.kv("reason", r.reason);
+            w.end_object();
+        }
+        w.end_array();
+        w.end_object();
+        printf("%s\n", w.out.c_str());
+    }
+    return 0;
+}
+
 // The live plan of each section of a discovered Mod in package order, with the LOD the backend would
 // pass, written as the dry run's JSON (D-078). `presenter` runs the generation's Present before each
 // plan: the Mod's own program, or one program of a folder generation (D-131), whose Present is shared.
@@ -424,34 +550,14 @@ static void write_plans(JsonWriter& w, CharacterProgram& program, CharacterProgr
             ++frame;
             std::string presented;
             const bool present_ok = presenter.present(input, frame, float(frame) / 60.0f, presented);
-            efmi::frontend::RuntimeDraw request;
-            request.hash = s.hash; request.count = s.match_count == kCharacterNone ? 0 : s.match_count;
-            request.first = s.match_first == kCharacterNone ? 0 : s.match_first;
-            request.frame = frame; request.seconds = float(frame) / 60.0f;
-            request.mod = program.folder_index();
-            if (s.component != kCharacterNone) { request.component = s.component; request.lod = lod; request.identity = 1; }
-            // Offline there is no pipeline: the facts the backend reads off each vertex module
-            // (D-079) are taken as the game's common ones, the rolling vs-t0 bones and vs-cb2.
-            if (s.component != kCharacterNone) { request.rolling_bone_source = true; request.source_vs_config_slot = 2; }
-            // So are the stages, a vertex and a pixel shader, and the vertex shader's declarations
-            // (D-124); the pixel shader's are not known.
-            request.shader_stages = 0x1 | 0x10;
-            request.source_srv = [&vertex](wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& why) {
-                if (stage != L'v') { why = "offline the pixel shader's declarations are not known"; return false; }
-                return srv_of(vertex, slot, type, dimension, stride, why);
-            };
-            // Offline no game texture is known: every pixel slot is bound without a hash, as the
-            // backend answers for a resource whose hash it cannot know.
-            request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
-            // Nor are its vertex buffers: a list that tells LODs apart by `vbN->stride` is refused here,
-            // unless the section is one of its branches (LIMIT-041), which the backend matches only to a
-            // draw whose pipeline binds that stride.
-            request.vertex_stride = [](unsigned, uint32_t&, std::string& why) { why = "offline the game's vertex buffers are not known"; return false; };
-            if (s.stride_slot != kCharacterNone)
-                request.vertex_stride = [&s](unsigned slot, uint32_t& value, std::string& why) {
-                    if (slot != s.stride_slot) { why = "offline the game's vertex buffers are not known"; return false; }
-                    value = s.stride; return true;
-                };
+            // Offline there is no pipeline: the facts the backend reads off each vertex module (D-079) are
+            // taken as the game's common ones, the rolling vs-t0 bones and vs-cb2; the stages a vertex and a
+            // pixel shader with the vertex shader's declarations (D-124), the pixel shader's not known; every
+            // pixel slot bound without a hash, as the backend answers for a resource whose hash it cannot know.
+            // Nor are its vertex buffers: a list that tells LODs apart by `vbN->stride` is refused here, unless
+            // the section is one of its branches (LIMIT-041), which the backend matches only to a draw whose
+            // pipeline binds that stride.
+            auto request = section_draw(s, lod, frame, program, vertex);
             CharacterList list; bool skip = false, added = false, textures = false; std::string refused;
             const bool ok = program.plan(request, package, list, skip, added, refused, nullptr, &textures);
             // A list that tells LODs apart by `vbN->stride` plans once the host answers it, as the game's
@@ -686,6 +792,8 @@ int main(int argc, char** argv)
         }
         return 0;
     }
+    if (argc == 5 && !strcmp(argv[1], "--plan-folder-states"))
+        return plan_folder_states(path_argument(2), path_argument(3), path_argument(4));
     if (argc == 5 && !strcmp(argv[1], "--plan-folder")) {
         // The same dry run through one generation for the whole Mods folder (D-131): every character
         // Mod in it, each planned through the shared generation with the draw naming its Mod.

@@ -18,6 +18,32 @@ std::vector<InputAction*>* RuntimeInputActions();
 static std::vector<InputAction*>* efvk_engine_actions() { return RuntimeInputActions(); }
 
 size_t RuntimeInputCount() { return actions.size(); }
+
+// The keys each action needs held, read off the original's parsed buttons, for a host's check that
+// presses them as a player does (D-137): the original's own dispatch then decides what they change.
+// InputButtonList keeps its buttons private; the standard's explicit instantiation reads them without
+// changing the original.
+namespace {
+template <typename Tag, typename Tag::type Member> struct Expose { friend typename Tag::type member(Tag) { return Member; } };
+struct ButtonsOf { using type = std::vector<InputButton*> InputButtonList::*; friend type member(ButtonsOf); };
+template struct Expose<ButtonsOf, &InputButtonList::buttons>;
+void held_keys(InputButton* button, std::vector<int>& out, bool& usable)
+{
+    if (auto* key = dynamic_cast<VKInputButton*>(button)) { if (!key->invert) out.push_back(key->vkey); return; }
+    if (auto* list = dynamic_cast<InputButtonList*>(button)) { for (auto* b : list->*member(ButtonsOf())) held_keys(b, out, usable); return; }
+    usable = false; // a controller button: no key to hold
+}
+}
+std::vector<std::vector<int>> RuntimeInputKeys()
+{
+    std::vector<std::vector<int>> out;
+    for (auto* action : actions) {
+        std::vector<int> keys; bool usable = true;
+        if (action && action->button) held_keys(action->button, keys, usable);
+        if (usable && !keys.empty()) out.push_back(std::move(keys));
+    }
+    return out;
+}
 bool RuntimeDispatchInput(HackerDevice* device, const efmi::frontend::RuntimeInput& input)
 {
     efmi::frontend::RuntimeInput released;

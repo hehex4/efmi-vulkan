@@ -185,6 +185,9 @@ public:
     std::vector<DiscardGate> discard_gates() const;
     void note_timing(const char* name, uint64_t microseconds);
     std::vector<std::shared_ptr<const assets::FileResource>> resources() const;
+    // The virtual keys each of the generation's key actions needs held, in the original's order (a
+    // controller's buttons left out), for checks that press them as a player does (D-137).
+    std::vector<std::vector<int>> key_combos() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

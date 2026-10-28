@@ -69,6 +69,20 @@ Checks: owned_present_test (a notice drawn into presented images, LimeGreen text
 none in the middle, clean synchronization validation), runtime_test (an F10 that reloaded queues the
 original's text).
 
+## Every installed Mod in every key state (check_mod_states.py)
+
+The folder generation offline (`efmi_vk_character_test --plan-folder-states`), as the original loads the
+folder: two presentations for the default state (EFMI's exports register at a Present), then each key
+action's keys as the original parsed them (`IniRuntime::key_combos`: the VK codes of its buttons that are
+not inverted) held for a presentation and released, up to eight presses or until the variables repeat a
+state. The original's own dispatch decides what a key changes (cycle, toggle, hold, conditions such as
+`$active0 == 1`); nothing of the key syntax is read by the check. After each hold and each release every
+Mod's sections are planned; a refusal fails the check with the first state it appeared in. The offline
+stand-ins' limits (no game pipeline: "offline ...") are not counted.
+
+2026-10-28 on the installed folder: 316 key actions, 2407 states, 18 Mods, every section plans in every
+state, 7 s. With BUG-076's fix taken out it reports tangtang Ramune's component 0 at LOD 0. A run_all step.
+
 ## Status
 
 - BUG-076 (2.1.1 tree): a texture file that is not there binds nothing, in a Mod's own generation and in

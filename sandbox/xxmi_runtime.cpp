@@ -2,6 +2,7 @@
 #include "../frontend/xxmi/character_core.h"
 #include "../layer/src/character_program.h"
 #include <fstream>
+#include <cstdarg>
 #include <cstdio>
 #include <stdexcept>
 #include <thread>
@@ -12,6 +13,11 @@ namespace efvk { uint32_t crc32c(uint32_t seed, const void* data, size_t size) {
     uint32_t hash = ~seed; const auto* p = static_cast<const uint8_t*>(data);
     for (size_t i = 0; i < size; ++i) { hash ^= p[i]; for (int b = 0; b < 8; ++b) hash = (hash >> 1) ^ (0x82f63b78u & (0u - (hash & 1))); }
     return ~hash;
+}
+// The plans' notes (BUG-076's missing texture file) to the test's output.
+void logf(const char* fmt, ...)
+{
+    va_list args; va_start(args, fmt); vfprintf(stdout, fmt, args); va_end(args); fputc('\n', stdout);
 } }
 static int checks = 0;
 static void check(bool result, const char* text)
