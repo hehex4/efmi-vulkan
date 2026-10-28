@@ -239,7 +239,8 @@ void GpuResourceRuntime::image_view(GpuResourceBinding& b,View kind,bool complet
     if(!(b.bind_flags()&image_bind_flag(kind))){b={};return;}
     if(complete_info)fill_info(b);
     const auto original=original_image_view(b.image_description,image_target(kind),b.format);
-    require(original.valid,"Original image view dimension is invalid");
+    // A view dimension D3D11 does not make: the null view, as for missing bind flags (D-151).
+    if(!original.valid){b={};return;}
     auto range=b.image->full_range();VkImageViewType type=VK_IMAGE_VIEW_TYPE_2D;VkImageUsageFlags usage=0;DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
     const auto& source=b.image_description;const auto& d=source.texture;
     if(source.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE1D)type=d.ArraySize==1?VK_IMAGE_VIEW_TYPE_1D:VK_IMAGE_VIEW_TYPE_1D_ARRAY;
@@ -249,7 +250,7 @@ void GpuResourceRuntime::image_view(GpuResourceBinding& b,View kind,bool complet
         if(original.srv.ViewDimension==D3D11_SRV_DIMENSION_TEXTURECUBE)type=VK_IMAGE_VIEW_TYPE_CUBE;
         else if(original.srv.ViewDimension==D3D11_SRV_DIMENSION_TEXTURECUBEARRAY)type=VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
     }else{range.levelCount=1;
-        if(kind==View::UnorderedAccess){format=original.uav.Format;usage=VK_IMAGE_USAGE_STORAGE_BIT;require(d.SampleDesc.Count==1,"Original multisampled image cannot have a UAV");}
+        if(kind==View::UnorderedAccess){format=original.uav.Format;usage=VK_IMAGE_USAGE_STORAGE_BIT;if(d.SampleDesc.Count!=1){b={};return;}}
         else if(kind==View::RenderTarget){format=original.rtv.Format;usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;}
         else {format=original.dsv.Format;usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;}
     }

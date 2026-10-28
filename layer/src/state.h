@@ -640,6 +640,9 @@ struct Device {
     VkPhysicalDeviceFeatures enabled_features = {};
     bool float_controls = false;
     VkPhysicalDeviceFloatControlsProperties float_properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES};
+    // Vulkan 1.3 (texelBufferAlignment always on): texel-buffer view offsets as these say (D-151).
+    bool texel_alignment = false;
+    VkPhysicalDeviceTexelBufferAlignmentProperties texel_alignment_properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES};
     PFN_vkGetPhysicalDeviceFormatProperties2 format_properties2 = nullptr;
 
     // Presentation: the swap chains of this device and the window behind each.

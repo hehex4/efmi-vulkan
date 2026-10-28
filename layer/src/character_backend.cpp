@@ -2582,6 +2582,12 @@ void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkIn
         properties2(device->phys, &query);
         device->float_controls = true;
     }
+    if (properties2 && effective >= VK_API_VERSION_1_3) {
+        VkPhysicalDeviceProperties2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        query.pNext = &device->texel_alignment_properties;
+        properties2(device->phys, &query);
+        device->texel_alignment = true;
+    }
     if (effective >= VK_API_VERSION_1_1)
         device->format_properties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties2>(gipa(instance, "vkGetPhysicalDeviceFormatProperties2"));
     device->material_format_properties = reinterpret_cast<PFN_vkGetPhysicalDeviceFormatProperties>(gipa(instance, "vkGetPhysicalDeviceFormatProperties"));

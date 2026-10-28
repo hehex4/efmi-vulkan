@@ -1077,6 +1077,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-151: Views D3D11 does not make are null views; a first use adds its destination's bind flags (docs/ini-semantics.md)
+
+- Date: 2026-10-28, found by the judge (D-150). The original's CreateCompatibleView returns null where D3D11 refuses a view, and its callers bind, clear or copy through nothing; the layer refused those Presents. CustomResource::Substantiate adds the bind flags of the target it is first fetched for (references and slot ranges); the layer's load did not. A texel-buffer view starts at a single texel on Vulkan 1.3 (texelBufferAlignment properties), as a D3D11 FirstElement does.
+
 ## D-150: The original as the judge: XXMI's own d3d11.dll in a D3D11 program of the project's (docs/ini-semantics.md)
 
 - Date: 2026-10-28, D-137 step 2. Cases run in [Present] under the pinned XXMI 3DMigoto (extracted from F:\vulkan into build/, a d3dx.ini of the judge's own naming the judge program; the installation untouched) and under the owned GPU runtime; their persistent variables are compared. A run_all step.

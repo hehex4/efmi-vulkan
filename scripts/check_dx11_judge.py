@@ -16,10 +16,11 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
-import time
 import zipfile
+import zlib
 from pathlib import Path
 
 from build import COMMON, find_vcvars, find_vulkan_include, run_cl
@@ -75,6 +76,42 @@ def prepare_original() -> Path:
     return folder
 
 
+def texel(x: int, y: int) -> tuple[int, int, int, int]:
+    """The judge's 4x4 test image (images.ini states the same rule)."""
+    return 60 * x + 10, 70 * y + 5, 255 - 30 * x - 20 * y, 100 + 10 * x + 30 * y
+
+
+def dds_rgba8() -> bytes:
+    """A 4x4 R8G8B8A8_UNORM DDS with the legacy header (masks), as an RGBA8 file is usually written."""
+    header = struct.pack("<4s7I44x", b"DDS ", 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x8, 4, 4, 16, 0, 1)
+    pixel_format = struct.pack("<2I4s5I", 32, 0x1 | 0x40, bytes(4), 32, 0xff, 0xff00, 0xff0000, 0xff000000)
+    caps = struct.pack("<5I", 0x1000, 0, 0, 0, 0)
+    body = bytes(c for y in range(4) for x in range(4) for c in texel(x, y))
+    return header + pixel_format + caps + body
+
+
+def png(alpha: bool) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+    rows = b"".join(bytes(1) + bytes(c for x in range(4) for c in texel(x, y)[:4 if alpha else 3]) for y in range(4))
+    return (bytes([0x89]) + b"PNG" + bytes([0x0d, 0x0a, 0x1a, 0x0a]) + chunk(b"IHDR", struct.pack(">2I5B", 4, 4, 8, 6 if alpha else 2, 0, 0, 0)) +
+            chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+# Files a case reads that the judge writes rather than the repository keeping binaries.
+GENERATED = {"images": lambda: {"images.dds": dds_rgba8(), "images.png": png(True), "images.rgb.png": png(False)}}
+
+
+def stage(case: Path, mods: Path) -> None:
+    """The case and its files (<stem>.*) into a Mods folder."""
+    shutil.copy(case, mods / case.name)
+    for extra in case.parent.glob(case.stem + ".*"):
+        if extra.suffix != ".ini":
+            shutil.copy(extra, mods / extra.name)
+    for name, data in GENERATED.get(case.stem, dict)().items():
+        (mods / name).write_bytes(data)
+
+
 def persisted(text: str) -> dict[str, float]:
     """`$\\namespace\\name = value` lines of a d3dx_user.ini."""
     out = {}
@@ -89,10 +126,7 @@ def run_original(exe: Path, folder: Path, case: Path, frames: int) -> dict[str, 
     mods = folder / "Mods"
     shutil.rmtree(mods, ignore_errors=True)
     mods.mkdir()
-    shutil.copy(case, mods / case.name)
-    for extra in case.parent.glob(case.stem + ".*"):
-        if extra.suffix != ".ini":
-            shutil.copy(extra, mods / extra.name)
+    stage(case, mods)
     user = folder / "d3dx_user.ini"
     user.unlink(missing_ok=True)
     run = subprocess.run([str(exe), str(folder), str(frames)], cwd=folder, capture_output=True, text=True, timeout=300)
@@ -108,10 +142,7 @@ def run_layer(case: Path, frames: int) -> dict[str, float]:
     work = OUT / "layer" / case.stem
     shutil.rmtree(work, ignore_errors=True)
     (work / "Mods").mkdir(parents=True)
-    shutil.copy(case, work / "Mods" / case.name)
-    for extra in case.parent.glob(case.stem + ".*"):
-        if extra.suffix != ".ini":
-            shutil.copy(extra, work / "Mods" / extra.name)
+    stage(case, work / "Mods")
     # The test's own child process, with the validation layer as check_resource_commands.py runs it.
     sys.path.insert(0, str(ROOT / "sandbox"))
     from harness import inject_env

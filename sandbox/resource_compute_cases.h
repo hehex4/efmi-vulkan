@@ -8,7 +8,8 @@ static gpu::ShaderHost shader_host(Device& d){gpu::ShaderHost h;h.get_device_pro
     h.float_controls=d.float_controls;h.float_properties=d.float_properties;
     h.validator=L"F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/build/source/SPIRV-Tools-shared.dll";
     h.scalar_block_layout=d.scalar_layout;h.shader_draw_parameters=d.draw_parameters;h.vertex_divisor=d.vertex_divisor;h.vertex_zero_divisor=d.vertex_zero_divisor;
-    h.divisor_first_instance=d.divisor_first_instance;h.max_vertex_divisor=d.max_vertex_divisor;h.null_descriptors=d.null_descriptors;return h;}
+    h.divisor_first_instance=d.divisor_first_instance;h.max_vertex_divisor=d.max_vertex_divisor;h.null_descriptors=d.null_descriptors;
+    h.texel_alignment=d.texel_alignment;h.texel_alignment_properties=d.texel_alignment_properties;return h;}
 static gpu::ShaderDescriptor buffer_descriptor(char type,unsigned slot,const gpu::Buffer& buffer,VkFormat format=VK_FORMAT_UNDEFINED){
     gpu::ShaderDescriptor value;value.binding=gpu::HlslCompiler::binding('c',type,slot);value.buffer=buffer;value.size=buffer->size();value.format=format;return value;
 }

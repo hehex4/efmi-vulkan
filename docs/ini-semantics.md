@@ -364,6 +364,39 @@ What it found, both refusals of the layer where the original degrades, both fixe
   nothing is cleared, and a view of a kind the bind flags leave out is the original's null view.
 resource_image_ini_cases's six cases that asserted those refusals now check the null resource.
 
+## Views D3D11 does not make, and the bind flags of a first use (D-151)
+
+The judge's new cases (images: DDS, WIC PNG with and without alpha, `color_space = sRGB` on both, copies,
+clears of a texture without and with render-target and UAV bind flags, a missing file; draw: CustomShader
+blend, cull and front, write mask, blend factor, no blend key; flow: if/elif/else, nested conditions,
+command lists, IniParams read by a shader, ring pool variables with a negative index, slot ranges of pool
+elements; views: typed, structured, raw and reformatted buffer views, a region's view) agree with the
+original in 83 more values, after the gaps they found:
+
+- `cs-t[0:1] = ref PoolBuffers[0:1]` with typed buffers in the pool: the original's ViewForSlot makes the
+  view with zero stride, offset and size and an UNKNOWN format, which D3D11 refuses for a typed buffer
+  (and gives no element for a raw one), so the slots take the null view; only a structured buffer gets one
+  element. The layer refused the Present. Now those slots bind nothing.
+- CustomResource::Substantiate adds the bind flags of the target a resource is first fetched for
+  (GetResource's dst: a reference's destination, a slot range's slots; a copy passes none) unless
+  something was assigned to it first. A resource referenced into a pool element took the pool template's
+  flags in the original (the image of the flow case binds through the pool there); the layer's load did
+  not add them. GpuResourceRuntime::load now takes the destination and adds them once per declaration.
+- Every other view D3D11 does not make is the null view rather than a refusal: a single slot reference of
+  a resource without the slot's bind flag, a raw view of a buffer without the raw flag, a typeless or
+  missing buffer view format, a typed view of a structured buffer, no element in range, an image view
+  dimension D3D11 has no view for, a UAV of a multisampled image, and a slot reference of a region outside
+  its buffer. A clear through no view clears nothing. A copy of a region outside its buffer stays refused.
+- A buffer view's FirstElement can be any element in D3D11 (`->Region(8, 16)` of R32_FLOAT starts at the
+  third); a Vulkan texel-buffer view's offset must be a multiple of minTexelBufferOffsetAlignment (16 on
+  the test machine) unless texelBufferAlignment is on, which Vulkan 1.3 makes always (the game's version).
+  The shader runtime refused. The layer now reads VkPhysicalDeviceTexelBufferAlignmentProperties on a 1.3
+  device and aligns as they say for every texel usage of the buffer (a single texel where the device
+  allows it); the judge's layer side runs at 1.3, as the game, and fails on any validation message.
+
+Checks: the judge's eight cases (105 values, validation clean at 1.3); resource_gpu's raw-view and
+outside-region references bind nothing and the list goes on.
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

@@ -2272,4 +2272,5 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - 2026-10-28: the user: do everything without stopping, test after. D-148, draws past their files.
 - 2026-10-28: D-149, DDS arrays and cubes as their first layer; buffer-description sections stay inert (the game's buffers are shared pools).
 - 2026-10-28: D-150, the original as the judge (XXMI's d3d11.dll in a D3D11 program); its two findings fixed.
+- 2026-10-28: D-151, the judge's image, draw and flow cases; views D3D11 does not make are null views; first-use bind flags.
 - 2026-10-27: cause D measured offline (vk03, phase-timing build and normal build): 16.6 us per matched draw, the plan 10.5 (interpreter about 5.2); the other stages already cached. Recorded in docs/design-review-1.9.md; nothing changed. The remaining items wait on the game or on a failing check.

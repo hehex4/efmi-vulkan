@@ -136,6 +136,7 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
         host.get_device_proc = device->next_gdpa; host.properties = device->physical_properties; host.validator = validator;
         host.float_controls = device->float_controls; host.float_properties = device->float_properties;
         host.null_descriptors = device->null_descriptors;
+        host.texel_alignment = device->texel_alignment; host.texel_alignment_properties = device->texel_alignment_properties;
         host.shader_draw_parameters = device->draw_parameters;
         host.pipeline_cache = pipeline_cache;
         // The shipped CustomShader caches run through the exact translation (D-070). Without

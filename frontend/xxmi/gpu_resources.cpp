@@ -75,19 +75,20 @@ void select_buffer_view(GpuResourceBinding& b,GpuResourceBinding::View kind,bool
     if(kind==GpuResourceBinding::View::None){b.view=kind;return;}
     require(kind==GpuResourceBinding::View::ShaderResource || kind==GpuResourceBinding::View::UnorderedAccess,"GPU buffer target view needs an additional adapter");
     if(complete_info)fill_buffer_info(b);auto format=b.format;auto stride=b.stride;
-    require(!force_raw || (b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS),"GPU raw view requires raw allocation flags");
+    // _CreateCompatibleView: a description D3D11 refuses (a raw view without the raw flag, a typeless or
+    // missing format, a typed view of a structured buffer, no element in range) makes no view, and the
+    // original binds, clears or copies through nothing (D-151).
     const bool raw=force_raw || ((b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS) &&
         (format==DXGI_FORMAT_UNKNOWN || format==DXGI_FORMAT_R32_TYPELESS));
     if(raw){format=DXGI_FORMAT_R32_TYPELESS;stride=4;}
-    require(format!=DXGI_FORMAT_R32_TYPELESS || raw,"GPU typeless buffer view requires raw view flags");
-    require(!(b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) || format==DXGI_FORMAT_UNKNOWN,
-            "GPU structured buffer view must have unknown format");
     const auto width=format!=DXGI_FORMAT_UNKNOWN && format!=DXGI_FORMAT(-1)?dxgi_format_size(format):b.description.StructureByteStride;
-    require(width>0,"GPU buffer view requires a typed, raw or structured element");
-    require(b.offset<=b.visible_size,"GPU buffer view ends before its offset");
+    if((raw && !(b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS)) || (format==DXGI_FORMAT_R32_TYPELESS && !raw) ||
+       ((b.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) && format!=DXGI_FORMAT_UNKNOWN) || !width || b.offset>b.visible_size){
+        b={};return;
+    }
     UINT first=0,count=0;FrontendBufferViewElements(stride,b.offset,format,b.visible_size,first,count);
     const uint64_t offset=uint64_t(first)*width,size=uint64_t(count)*width;
-    require(size && offset<b.buffer->size() && size<=b.buffer->size()-offset,"GPU buffer view has an empty or invalid element range");
+    if(!size || offset>=b.buffer->size() || size>b.buffer->size()-offset){b={};return;}
     b.view=kind;b.view_format=format;b.view_offset=UINT(offset);b.view_size=UINT(size);
 }
 GpuResourceBinding::View view_kind(Target t){return t==Target::SHADER_RESOURCE?GpuResourceBinding::View::ShaderResource:
@@ -176,12 +177,22 @@ CustomResource* GpuResourceRuntime::declaration(ResourceCopyTarget& t,CommandLis
     if(r && r->pool)validate_pool_runtime(*r->pool);
     return r;
 }
-GpuResourceBinding GpuResourceRuntime::load(CustomResource& r) {
+GpuResourceBinding GpuResourceRuntime::load(CustomResource& r,ResourceCopyTarget* destination,CommandListState* state) {
+    require(substantiated_.size()<65536 || substantiated_.count(&r),"GPU resource declaration budget exceeded");
+    const bool first=substantiated_.insert(&r).second;
     const auto found=resources_.find(&r);
     if(found!=resources_.end()){
         if(r.is_null)return {};
         auto value=found->second;value.stride=r.stride;value.offset=r.offset;value.format=r.format;
         value.visible_size=r.buf_size;value.source_stride=r.source_stride;return value;
+    }
+    // CustomResource::Substantiate, once per resource and unless something was assigned to it first: the
+    // bind flags of the target it is first fetched for (GetResource's dst, the destination of a reference
+    // or a slot range's slots) join the declaration's, covering what parsing could not deduce (D-151).
+    if(first && destination){
+        D3D11_RESOURCE_MISC_FLAG misc=D3D11_RESOURCE_MISC_FLAG(0);
+        const auto flags=destination->BindFlags(state,&misc);
+        r.bind_flags=D3D11_BIND_FLAG(r.bind_flags|flags);r.misc_flags=D3D11_RESOURCE_MISC_FLAG(r.misc_flags|misc);
     }
     require(resources_.size()<65536,"GPU resource declaration budget exceeded");
     if(r.filename.empty() && r.override_type==CustomResourceType::INVALID)
@@ -273,7 +284,7 @@ bool GpuResourceRuntime::match_source(ResourceCopyTarget& target,CommandListStat
         return true;
     }catch(const std::exception& e){if(active_)failed_=true;reason=widen(e.what());return false;}
 }
-GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListState& state) {
+GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListState& state,ResourceCopyTarget* destination) {
     auto& t=effective(input,state);GpuResourceBinding b;
     require(!t.IsRange(),"GPU range command requires the slot-range adapter");
     if(t.type==Target::EMPTY)return {};
@@ -282,7 +293,7 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         // The original special target returns its image/view without supplying
         // any out-of-band format or buffer metadata. Reading never flushes it.
         b.format=DXGI_FORMAT_UNKNOWN;b.stride=b.source_stride=b.offset=b.visible_size=0;
-    }else if(t.type==Target::CUSTOM_RESOURCE){if(auto* r=declaration(t,state))b=load(*r);}
+    }else if(t.type==Target::CUSTOM_RESOURCE){if(auto* r=declaration(t,state))b=load(*r,destination,&state);}
     else if(swap_chain(t.type)){
         // GetBuffer(0) returns the resource alone: no view and no out-of-band format or size.
         b=backbuffer_;b.drop_view();b.format=DXGI_FORMAT_UNKNOWN;b.stride=b.source_stride=b.offset=b.visible_size=0;
@@ -300,6 +311,10 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         require(input.member_args[0].expression && input.member_args[1].expression,"GPU region requires offset and size");
         b.offset=uint_value(input.member_args[0].GetValue(&state));b.visible_size=uint_value(input.member_args[1].GetValue(&state));
         b.region=true;
+        // A reference of a region outside the buffer into a slot: CreateCompatibleView gets no element in
+        // range and makes no view, so the slot takes the null view (D-151). A copy of one stays refused.
+        if(destination && destination->type!=Target::CUSTOM_RESOURCE && destination->type!=Target::POOL &&
+           b.buffer && !(b.offset<b.buffer->size() && b.visible_size<=b.buffer->size()))return {};
         require(!b.buffer || (b.offset<b.buffer->size() && b.visible_size<=b.buffer->size()),"GPU resource region outside allocation");
     }
     return b;
@@ -318,8 +333,10 @@ void GpuResourceRuntime::set(ResourceCopyTarget& input,CommandListState& state,c
         r->is_null=!b;r->stride=b.stride;r->offset=b.offset;r->buf_size=b.visible_size;r->format=b.format;
     }else {
         auto key=slot(t,state);
-        require(!b || (b.bind_flags()&bind_flag(t.type)),"Referenced GPU resource lacks destination bind flags");
+        // CreateCompatibleView makes no view of a resource without the slot's bind flag, nor of a description
+        // D3D11 refuses: the original binds the null view and the list goes on (D-151).
         auto bound=b;
+        if(bound && !(bound.bind_flags()&bind_flag(t.type)))bound={};
         select_view(bound,view_kind(t.type));
         if(t.type==Target::CONSTANT_BUFFER && bound.region)
             require(bound.offset%16==0 && bound.visible_size%16==0 && bound.visible_size<=bound.description.ByteWidth-bound.offset,
@@ -336,7 +353,8 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
     require(!(uint32_t(op.options)&~allowed),"GPU copy option requires an additional adapter");
     auto& dst=effective(op.dst,state);
     if(op.src.type==Target::EMPTY){set(dst,state,{});return;} // Explicit null ignores unless_null upstream.
-    auto source=get(op.src,state);
+    // A reference substantiates its source with the destination's bind flags; a copy does not (D-151).
+    auto source=get(op.src,state,(op.options&ResourceCopyOptions::REFERENCE)?&op.dst:nullptr);
     if(dst.type!=Target::POOL){copy_to(op,dst,state,std::move(source));return;}
     require(dst.custom_resource_pool && (dst.evaluation_mode==Mode::RESOURCE || dst.evaluation_mode==Mode::POOL_FULL_RANGE_RESOURCE),
             "GPU whole-pool assignment needs a resource pool target");
@@ -459,6 +477,7 @@ void GpuResourceRuntime::clear(ClearViewCommand& op,CommandListState& state) {
     // Without the UAV bind flag the original makes no view to clear through and clears nothing (D-150).
     if(!(b.description.BindFlags&D3D11_BIND_UNORDERED_ACCESS))return;
     select_view(b,GpuResourceBinding::View::UnorderedAccess);
+    if(!b)return; // no view to clear through (D-151)
     b.format=b.view_format;b.offset=b.view_offset;b.visible_size=b.view_size;
     require(!op.clear_depth && !op.clear_stencil,"GPU buffer clear cannot use depth/stencil flags");
     require(b.description.BindFlags&D3D11_BIND_UNORDERED_ACCESS,"GPU buffer clear needs a UAV-compatible resource");
@@ -524,24 +543,26 @@ void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& sta
             auto* source=pool?pool->GetResource(float(int64_t(pool_first)+i),false,true,false):broadcast;
             one.src.SetCustomResource(source);
             if(per_slot){copy(one,state);continue;}
-            auto value=source?load(*source):GpuResourceBinding{};
+            // BindSlotRef fetches the element with the slots as GetResource's dst (D-151).
+            auto value=source?load(*source,&slots,&state):GpuResourceBinding{};
             // Unlike scalar `null`, range null with unless_null preserves slots.
             if(!value && (op.options&ResourceCopyOptions::UNLESS_NULL))continue;
+            // ViewForSlot: no view of a resource without the slots' bind flag; the slot takes the null view.
+            if(value && !(value.bind_flags()&bind_flag(slots.type)))value={};
             if(value){
-                require(value.bind_flags()&bind_flag(slots.type),"Range reference lacks destination bind flags");
                 const auto kind=view_kind(slots.type);
                 if(kind==GpuResourceBinding::View::None)value.drop_view();
                 else if(value.view!=kind){
                     if(views[i].buffer==value.buffer && views[i].image==value.image && views[i].view==kind){value.view=kind;value.view_format=views[i].view_format;
                         value.view_offset=views[i].view_offset;value.view_size=views[i].view_size;value.image_view=views[i].image_view;}
                     else if(value.image){value.format=DXGI_FORMAT_UNKNOWN;select_view(value,kind,false,false);views[i]=value;}
-                    else {
-                        // Original plain range ViewForSlot calls its view helper
-                        // with zero stride/offset/size and UNKNOWN format. That
-                        // creates one structured element, not an invented full
-                        // view. Typed/raw fresh-view failures remain explicit.
-                        require(value.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED,
-                                "Original plain buffer range needs an existing compatible view or a structured resource");
+                    else if(!(value.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED)){
+                        // ViewForSlot calls its view helper with zero stride, offset and size and an UNKNOWN
+                        // format: a typed buffer has no format to view it with, a raw one gets no element,
+                        // and D3D11 makes no view: the slot takes the null view (D-151).
+                        value={};
+                    }else {
+                        // That call makes one structured element of a structured buffer, not a full view.
                         UINT start=0,n=0;FrontendBufferViewElements(0,0,DXGI_FORMAT_UNKNOWN,0,start,n);
                         value.view=kind;value.view_format=DXGI_FORMAT_UNKNOWN;
                         value.view_offset=start*value.description.StructureByteStride;value.view_size=n*value.description.StructureByteStride;

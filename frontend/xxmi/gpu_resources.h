@@ -4,6 +4,7 @@
 #include "resource_match.h"
 #include "../gpu/resource_commands.h"
 #include <map>
+#include <set>
 #include <tuple>
 
 namespace efmi::frontend {
@@ -106,8 +107,8 @@ private:
     ResourceCopyTarget& effective(ResourceCopyTarget&,CommandListState&);
     Slot slot(ResourceCopyTarget&,CommandListState&);
     CustomResource* declaration(ResourceCopyTarget&,CommandListState&,bool writing=false);
-    GpuResourceBinding get(ResourceCopyTarget&,CommandListState&);
-    GpuResourceBinding load(CustomResource&);
+    GpuResourceBinding get(ResourceCopyTarget&,CommandListState&,ResourceCopyTarget* destination=nullptr);
+    GpuResourceBinding load(CustomResource&,ResourceCopyTarget* destination=nullptr,CommandListState* state=nullptr);
     GpuResourceBinding load_image(CustomResource&);
     // A file the original's loader makes no resource of: null from then on, with its warning (D-139).
     GpuResourceBinding unloaded(CustomResource&,const wchar_t* kind,const std::string& why);
@@ -135,6 +136,8 @@ private:
     uint64_t parameter_uploads_=0;
     bool parameters_initialized_=false;
     std::map<CustomResource*,GpuResourceBinding> resources_;
+    // CustomResource::Substantiate runs once per resource: the declarations already substantiated (D-151).
+    std::set<CustomResource*> substantiated_;
     std::map<std::weak_ptr<void>,SourceResourceIdentity,std::owner_less<std::weak_ptr<void>>> source_identities_;
     std::map<Slot,GpuResourceBinding> slots_;
     // A source slot-range command materializes every view before one API bind.

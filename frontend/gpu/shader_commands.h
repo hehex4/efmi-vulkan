@@ -30,6 +30,11 @@ struct ShaderHost {
     // VK_EXT_robustness2 nullDescriptor enabled on the logical device: a D3D11 null view reads
     // zero and reports zero dimensions, which a null Vulkan descriptor provides.
     bool null_descriptors=false;
+    // Vulkan 1.3, where texelBufferAlignment is always on, with the device's
+    // VkPhysicalDeviceTexelBufferAlignmentProperties: a texel-buffer view may start at a single texel,
+    // as a D3D11 buffer view's FirstElement does. Otherwise minTexelBufferOffsetAlignment (D-151).
+    bool texel_alignment=false;
+    VkPhysicalDeviceTexelBufferAlignmentProperties texel_alignment_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES};
     std::shared_ptr<assets::AllocationBudget> objects=std::make_shared<assets::AllocationBudget>(8192);
     // Share across all owned shader generations on this device, within the
     // sampler capacity reserved by the host. Other application samplers count

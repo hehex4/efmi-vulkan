@@ -35,6 +35,9 @@ struct Device {
     bool scalar_layout=false,draw_parameters=false;
     bool float_controls=false;
     bool null_descriptors=false;
+    // The instance and device API version; 1.3 turns texelBufferAlignment on (D-151), as in the game.
+    uint32_t api=VK_API_VERSION_1_1;bool texel_alignment=false;
+    VkPhysicalDeviceTexelBufferAlignmentProperties texel_alignment_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TEXEL_BUFFER_ALIGNMENT_PROPERTIES};
     VkPhysicalDeviceFloatControlsProperties float_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES};
     bool vertex_divisor=false,vertex_zero_divisor=false,divisor_first_instance=false;uint32_t max_vertex_divisor=1;
     VkDebugUtilsMessengerEXT messenger=VK_NULL_HANDLE;
@@ -46,7 +49,7 @@ struct Device {
         auto loader=LoadLibraryW(L"vulkan-1.dll");check(loader!=nullptr,"Vulkan loader");
         auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
         auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
-        VkApplicationInfo app={VK_STRUCTURE_TYPE_APPLICATION_INFO};app.pApplicationName="efmi_resource_commands";app.apiVersion=VK_API_VERSION_1_1;
+        VkApplicationInfo app={VK_STRUCTURE_TYPE_APPLICATION_INFO};app.pApplicationName="efmi_resource_commands";app.apiVersion=api;
         const char* layer="VK_LAYER_KHRONOS_validation";const char* ext=VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
         VkDebugUtilsMessengerCreateInfoEXT debug={VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
         debug.messageSeverity=VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT|VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
@@ -80,8 +83,10 @@ struct Device {
         check(selected!=VK_NULL_HANDLE,"Graphics queue available");GetPhysicalDeviceMemoryProperties(selected,&resource.memory);
         VkPhysicalDeviceFeatures features{};GetPhysicalDeviceFeatures(selected,&features);
         GetPhysicalDeviceProperties(selected,&properties);
-        check(properties.apiVersion>=VK_API_VERSION_1_1,"Vulkan 1.1 image execution available");
-        resource.physical=selected;resource.api_version=VK_API_VERSION_1_1;
+        check(properties.apiVersion>=api,"Requested Vulkan version available");
+        resource.physical=selected;resource.api_version=api;
+        if(api>=VK_API_VERSION_1_3){VkPhysicalDeviceProperties2 query{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+            query.pNext=&texel_alignment_properties;GetPhysicalDeviceProperties2(selected,&query);texel_alignment=true;}
         resource.GetImageFormatProperties=GetPhysicalDeviceImageFormatProperties;resource.GetFormatProperties=GetPhysicalDeviceFormatProperties;
         resource.GetFormatProperties2=GetPhysicalDeviceFormatProperties2;
         resource.enabled_features.textureCompressionBC=features.textureCompressionBC;
@@ -419,10 +424,19 @@ bind_flags = shader_resource unordered_access
     check(!memcmp(output.data(),bytes,sizeof(bytes)),"Original file bytes round trip exactly");
     struct Failure{const char* command;const char* reason;};
     const Failure bad[]={
-        {"cs-t0 = ref ResourceSource->Region(40, 16)\n","region outside"},
+        {"ResourceOut = copy ResourceSource->Region(40, 16)\n","region outside"},
         {"clear = ResourceSource 2\ndrawindexed = 3,0,0\n","shader execution"},
-        {"cs-u0 = raw ref ResourceSource\n","raw allocation"},
     };
+    // D-151: a raw view of a buffer without the raw flag, and a slot reference of a region outside the buffer,
+    // are views D3D11 does not make: nothing is bound and the list goes on.
+    for(const char* command:{"cs-u0 = raw ref ResourceSource\n","cs-u0 = ref ResourceSource->Region(40, 16)\n"}){
+        write(root/"Mods/files.ini",(base+command).c_str());
+        auto unviewed=std::make_shared<GpuResourceRuntime>(d.resource);auto candidate=IniRuntime::load(config,unviewed,why);
+        check(bool(candidate),"Raw view fixture loads");unviewed->begin(d.queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        check(candidate->present({},2,0,why) && !unviewed->binding(L'c',T::UNORDERED_ACCESS_VIEW,0).buffer,
+              "A view D3D11 does not make binds nothing and the list goes on");
+        auto done=unviewed->finish();if(done)done->wait();candidate.reset();unviewed.reset();
+    }
     for(const auto& item:bad){
         write(root/"Mods/files.ini",(base+item.command).c_str());gpu::ResourceBudgets budgets;
         auto rejected=std::make_shared<GpuResourceRuntime>(d.resource,budgets);auto candidate=IniRuntime::load(config,rejected,why);
@@ -1426,7 +1440,8 @@ vb0 = ref ResourceVertex->Region(12, 48)
 // [Present] under the owned GPU runtime (resources and CustomShaders) `frames` times with a 256x256 back
 // buffer, then every variable as one JSON line.
 static int present_ini(const std::filesystem::path& root,unsigned frames){
-    Device d;d.init(false,false,true,false,false,false,true,true,true);
+    // The game's Vulkan version: texel-buffer views start at a single texel there (D-151).
+    Device d;d.api=VK_API_VERSION_1_3;d.init(false,false,true,false,false,false,true,true,true);
     gpu::ResourceBudgets budgets;auto host=shader_host(d);
     auto gpu=std::make_shared<frontend::GpuShaderRuntime>(d.resource,host,L"F:/vulkan/dxc-1.9.2609/bin/x64/dxcompiler.dll",budgets);
     frontend::RuntimeConfig config{root,{},root/"settings","judge",root/"Mods"};
@@ -1452,6 +1467,8 @@ static int present_ini(const std::filesystem::path& root,unsigned frames){
     }
     printf("%s}\n",json.c_str());
     resources.backbuffer(nullptr,DXGI_FORMAT_UNKNOWN);image.reset();ini.reset();gpu.reset();
+    // The judge's layer side runs under the validation layer: a message fails the case.
+    if(errors || warnings){fprintf(stderr,"validation errors=%u warnings=%u\n",unsigned(errors),unsigned(warnings));return 1;}
     return 0;
 }
 int wmain(int argc,wchar_t** argv){

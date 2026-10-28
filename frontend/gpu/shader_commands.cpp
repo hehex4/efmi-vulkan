@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <set>
 #include <stdexcept>
 
@@ -225,8 +226,19 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
                     (uniform?value.size>=binding.block_size:(!binding.stride || value.size>=binding.stride)),"Shader buffer range/usage/alignment invalid");
                 buffers.push_back({value.buffer->buffer(),value.offset,value.size});write.pBufferInfo=&buffers.back();
             }else{const auto& format=format_info(value.format);const bool read=binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-                require(format.aspects==VK_IMAGE_ASPECT_COLOR_BIT && !format.compression && limits.minTexelBufferOffsetAlignment &&
-                    value.offset%limits.minTexelBufferOffsetAlignment==0 && value.offset%format.bytes==0 && value.size%format.bytes==0 &&
+                // The offset alignment of every texel usage the buffer has (the view's creation checks each).
+                VkDeviceSize alignment=limits.minTexelBufferOffsetAlignment;
+                if(d->host.texel_alignment && format.bytes){
+                    const auto& t=d->host.texel_alignment_properties;const VkDeviceSize texel=format.bytes%3==0?format.bytes/3:format.bytes;
+                    auto need=[&](VkDeviceSize bytes,VkBool32 single){return single?std::min(bytes,texel):bytes;};
+                    alignment=1;
+                    if(value.buffer->usage()&VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT)
+                        alignment=std::lcm(alignment,need(t.uniformTexelBufferOffsetAlignmentBytes,t.uniformTexelBufferOffsetSingleTexelAlignment));
+                    if(value.buffer->usage()&VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)
+                        alignment=std::lcm(alignment,need(t.storageTexelBufferOffsetAlignmentBytes,t.storageTexelBufferOffsetSingleTexelAlignment));
+                }
+                require(format.aspects==VK_IMAGE_ASPECT_COLOR_BIT && !format.compression && alignment &&
+                    value.offset%alignment==0 && value.offset%format.bytes==0 && value.size%format.bytes==0 &&
                     value.size/format.bytes<=limits.maxTexelBufferElements && binding.scalar_width==32 && binding.scalar_type==format.scalar_type &&
                     (value.buffer->usage()&(read?VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)),"Shader texel-buffer view is incompatible");
                 if(!read)storage_format(value.format,true);
