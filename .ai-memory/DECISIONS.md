@@ -1077,6 +1077,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-141: The character contract's sizes are the widths of the layer's indices, not budgets (docs/ini-semantics.md)
+
+- Date: 2026-10-28. The user: LOD 2 and 3 sections are not to be done; everything else of D-137's gaps is.
+- The original Core sizes its pools by the Mod's counts. The layer's component masks are 64-bit (stream, list, identity), and the limits are 64 components, 65535 bones, 4096 mesh sections and files, 4096 Mods in a folder.
+
 ## D-140: A texture declaration's colour space, format and size keys as the original takes them (docs/ini-semantics.md)
 
 - Date: 2026-10-28, D-137's gaps. Any of these keys on a texture a replaced draw bound refused the draw.

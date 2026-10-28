@@ -365,7 +365,7 @@ public:
     // the order the draws name them (RuntimeDraw::mod).
     explicit CharacterCore(const std::vector<std::pair<std::wstring, std::shared_ptr<CharacterDiscovery>>>& mods) : folder_(true)
     {
-        if (mods.empty() || mods.size() > 256) throw std::runtime_error("A folder generation holds one to 256 character Mods");
+        if (mods.empty() || mods.size() > 4096) throw std::runtime_error("A folder generation holds one to 4096 character Mods");
         for (const auto& m : mods) {
             if (!m.second) throw std::runtime_error("Character discovery needs its output");
             add(m.first, {}); mods_.back().discovery = m.second;
@@ -712,7 +712,7 @@ global $mod_id = -1
         }
         for (auto& m : mods_) {
             if (!m.discovery) continue;
-            if (m.found.size() > 256) return fail(why, L"More mesh sections than one character contract holds");
+            if (m.found.size() > efvk::kCharacterSections) return fail(why, L"More mesh sections than one character contract holds");
             // In one order whatever else the generation holds: the registry is a hash table, whose order
             // changes with the other Mods' sections in it (D-131).
             std::stable_sort(m.found.begin(), m.found.end(), [](const FoundSection& a, const FoundSection& b) {
@@ -732,7 +732,7 @@ global $mod_id = -1
         std::vector<uint32_t> order;
         for (uint32_t i = 0; i < metadata.components.size(); ++i) if (metadata.components[i].count) order.push_back(i);
         std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return metadata.components[a].first < metadata.components[b].first; });
-        if (order.empty() || order.size() > 32) return fail(why, L"Original skeleton has no or too many active components");
+        if (order.empty() || order.size() > efvk::kCharacterComponents) return fail(why, L"Original skeleton has no or too many active components");
         efvk::CharacterPackage contract;
         contract.bones = metadata.bones;
         std::vector<std::filesystem::path> remaps;

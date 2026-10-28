@@ -521,7 +521,7 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
             data.resize(elements, 0);
             if (data.empty()) return kCharacterNone;
             if (payload.size() + data.size() > (512ull << 20)) throw std::runtime_error("Mesh size or stride invalid: " + path.u8string());
-            if (made.streams.size() >= 256) throw std::runtime_error("More mesh files than one character holds");
+            if (made.streams.size() >= kCharacterStreams) throw std::runtime_error("More mesh files than one character holds");
             while (payload.size() % 16) payload.push_back(0);
             CharacterStream s;
             s.kind = kind; s.stride = stride; s.offset = payload.size(); s.size = data.size();
@@ -834,7 +834,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         auto& pixels = scratch_pixels_; pixels.clear();
         auto& draws = scratch_draws_; draws.clear();
         auto& material = scratch_material_; size_t material_count = 0;
-        uint32_t required = 0;
+        uint64_t required = 0;
         auto& signature = scratch_signature_; signature.clear();
         for (const auto& item : plan.items) {
             using Op = efmi::assets::FileOperation;

@@ -68,9 +68,12 @@ struct Model {
     size_t stream_table = 0, draw_table = 0, component_table = 0, list_table = 0, section_table = 0, edit_table = 0;
     size_t blend_a = 0, blend_b = 0, index_data = 0, remap_data = 0;
 };
-static std::vector<uint8_t> package(Model* out = nullptr)
+// `extra`: that many more components of one bone each after the two, the second draw reading the last of
+// them instead of bone 3 (D-141: more components than a 32-bit mask holds).
+static std::vector<uint8_t> package(Model* out = nullptr, uint32_t extra = 0)
 {
     Model m;
+    m.components += extra; m.lists += 2 * extra; m.bones += extra;
     struct Entry { uint32_t kind, stride; uint64_t offset, size; uint32_t index_offset, weight_offset; };
     std::vector<Entry> table;
     auto add = [&](uint32_t kind, uint32_t stride, const std::vector<uint8_t>& bytes, uint32_t io = kCharacterNone, uint32_t wo = kCharacterNone) {
@@ -82,7 +85,8 @@ static std::vector<uint8_t> package(Model* out = nullptr)
     std::vector<uint8_t> position(3 * 16, 0), texcoord(3 * 8, 0), index, remap, blend_a, blend_b;
     for (uint32_t v = 0; v < 3; ++v) {
         for (uint16_t value : {uint16_t(65535), uint16_t(0), uint16_t(0), uint16_t(0), uint16_t(1), uint16_t(0), uint16_t(0), uint16_t(0)}) put(blend_a, value);
-        for (uint16_t value : {uint16_t(40000), uint16_t(25535), uint16_t(0), uint16_t(0), uint16_t(0), uint16_t(3), uint16_t(0), uint16_t(0)}) put(blend_b, value);
+        const uint16_t second = extra ? uint16_t(4 + extra) : uint16_t(3);
+        for (uint16_t value : {uint16_t(40000), uint16_t(25535), uint16_t(0), uint16_t(0), uint16_t(0), second, uint16_t(0), uint16_t(0)}) put(blend_b, value);
         put(index, v);
     }
     put(remap, uint16_t(1)); put(remap, uint16_t(0));
@@ -99,6 +103,8 @@ static std::vector<uint8_t> package(Model* out = nullptr)
     m.component_table = t.size();
     for (uint32_t value : {0u, 2u, s_remap, 0u, 1u, 0u}) put(t, value);
     for (uint32_t value : {2u, 3u, kCharacterNone, 2u, 3u, 0u}) put(t, value);
+    for (uint32_t i = 0; i < extra; ++i)
+        for (uint32_t value : {5u + i, 1u, kCharacterNone, 4u + 2 * i, 5u + 2 * i, 0u}) put(t, value);
     m.stream_table = t.size();
     for (const auto& e : table) { put(t, e.kind); put(t, e.stride); put(t, e.offset); put(t, e.size); put(t, e.index_offset); put(t, e.weight_offset); }
     m.section_table = t.size();
@@ -106,6 +112,7 @@ static std::vector<uint8_t> package(Model* out = nullptr)
     for (uint32_t value : {0x22222222u, 12u, kCharacterNone, 1u, kCharacterNone}) put(t, value);
     m.list_table = t.size();
     for (uint32_t value : {0u, 2u, 0u, 2u, 2u, 0u, 2u, 0u}) put(t, value);
+    for (uint32_t i = 0; i < 2 * extra; ++i) for (uint32_t value : {2u, 0u}) put(t, value);
     m.draw_table = t.size();
     for (uint32_t blend : {s_blend_a, s_blend_b}) {
         for (uint32_t value : {s_index, 3u, 0u}) put(t, value);
@@ -910,6 +917,13 @@ int main(int argc, char** argv)
           "a draw list requires exactly the components whose bones carry weight; a hidden component requires none");
     check(p.sections[0].match_first == 0 && p.sections[1].match_first == kCharacterNone && p.sections[1].lod == kCharacterNone,
           "sections keep an unspecified first index and an unassigned LOD");
+    {
+        // D-141: the original Core sizes its pools by the Mod's component count; 40 components load and a
+        // list's bones of the 40th are a bit of its mask.
+        CharacterPackage wide;
+        check(wide.decode(package(nullptr, 38), why) && wide.components.size() == 40 && wide.lists[0].required == (1ull | 1ull << 39),
+              "a character of 40 components loads, and its list requires the 40th component's bones");
+    }
     const auto kept = p.payload;
     const size_t tables = 48, payload = 48 + m.tables.size();
     {
@@ -932,7 +946,7 @@ int main(int argc, char** argv)
     { auto d = valid; d.back() ^= 1; reject(d, "checksum mismatch refused", false); }
     { auto d = valid; d.pop_back(); reject(d, "truncated file refused"); }
     { auto d = valid; d.push_back(0); reject(d, "trailing bytes refused"); }
-    { auto d = valid; poke(d, 8, uint32_t(5000)); reject(d, "bone count outside limits refused"); }
+    { auto d = valid; poke(d, 8, uint32_t(65536)); reject(d, "bone count past 16-bit indices refused"); }
     { auto d = valid; poke(d, tables + m.component_table + 24, uint32_t(0)); reject(d, "overlapping components refused"); }
     { auto d = valid; poke(d, tables + m.component_table + 24, uint32_t(5000)); reject(d, "a component past the skeleton refused"); }
     { auto d = valid; poke(d, tables + m.component_table + 24, uint32_t(3)); poke(d, tables + m.component_table + 28, uint32_t(2)); seal(d);

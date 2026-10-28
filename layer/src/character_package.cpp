@@ -301,7 +301,7 @@ static bool stream_bones(const std::vector<CharacterComponent>& components, uint
                 } else weight = at<uint16_t>(element + s.bone_weight_offset + k * 2);
                 total += weight;
             }
-            if (const uint32_t c = component_of(bone); weight && c < component_count) s.components |= 1u << c;
+            if (const uint32_t c = component_of(bone); weight && c < component_count) s.components |= 1ull << c;
         }
         if (s.bone_weight_offset != kCharacterNone && (total < 65533 - (s.bone_weight_bytes == 4 ? 64 : 0) || total > 65537 + (s.bone_weight_bytes == 4 ? 64 : 0))) {
             reason = "bone weights are not normalized"; return false;
@@ -346,8 +346,11 @@ bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& rea
     const uint32_t bone_count = words[0], component_count = words[1], stream_count = words[2], section_count = words[3];
     const uint32_t list_count = words[4], draw_count = words[5], edit_count = words[6], checksum = words[7];
     const uint64_t payload_bytes = at<uint64_t>(file.data() + 40);
-    if (!bone_count || bone_count > 4096 || !component_count || component_count > 32 || !stream_count || stream_count > 256 ||
-        !section_count || section_count > 256 || list_count != component_count * 2 || draw_count > 1024 || edit_count > 16 ||
+    // The original Core sizes its pools by the Mod's own counts; these bound what the format's indices and the
+    // component masks hold (D-141): 16-bit bone indices, 64 components.
+    if (!bone_count || bone_count > kCharacterBones || !component_count || component_count > kCharacterComponents || !stream_count ||
+        stream_count > kCharacterStreams || !section_count || section_count > kCharacterSections || list_count != component_count * 2 ||
+        draw_count > 16384 || edit_count > 16 ||
         !payload_bytes || payload_bytes > kMaxPayload)
         return fail("character package dimensions outside limits");
     const uint64_t tables = uint64_t(component_count) * 24 + uint64_t(stream_count) * 32 + uint64_t(section_count) * 20 +

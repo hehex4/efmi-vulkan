@@ -202,6 +202,20 @@ one with `format = R32_FLOAT`), 6 sections refused each on the build before, pla
 BC7 file declared plain and sRGB loads as two textures, BC7_UNORM and BC7_SRGB, the blocks as the file
 holds them); resource_plan_test (an sRGB declaration was a refusal case; it reaches the loader as its flag).
 
+## The character contract's sizes (D-141)
+
+The original Core has no limit of its own on a character: the Mod sets `$component_count` and
+`$bones_count`, and its pools and the merged skeleton are sized by them (MergedSkeleton.ini, the Mod's
+[Pool_MergedSkeleton_Component_*] `pool_size = $component_count`). The layer refused a Mod with more than
+32 components (a 32-bit mask per stream and per list), 256 mesh sections, 256 mesh files, or (in a
+prepared package) 4096 bones. Now a component is a bit of a 64-bit mask (the stream's, the list's, the
+identity's components met), and the bounds are the widths of the layer's own indices: 64 components,
+65535 bones (16-bit indices after the blend-index edit; the merged skeleton takes 65536), 4096 mesh
+sections and files, 4096 Mods in a folder generation. The installed and disabled Mods reach 17 components
+and 865 bones. Check: character_test (a package of 40 components loads and its list requires the 40th's
+bones; refused on the build before). LOD 2 and 3 sections stay the game's: the user, 2026-10-28, does not
+want them taken.
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

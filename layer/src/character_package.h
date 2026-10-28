@@ -13,6 +13,13 @@ constexpr uint32_t kCharacterOvershoot = 64;
 // DDS images one package may declare: they load only when a draw binds them, so this is a sanity
 // budget, not memory (a Mod with a watch GUI declares 83; 64 until 1.8.1).
 constexpr uint32_t kCharacterImages = 1024;
+// What one character's contract holds (D-141). The original Core sizes its pools by the Mod's counts and has
+// no limit of its own; these are the widths of the layer's indices and masks: a component a bit of a 64-bit
+// mask, a bone a 16-bit index after the blend-index edit, sections and mesh files far beyond any export.
+constexpr uint32_t kCharacterComponents = 64;
+constexpr uint32_t kCharacterBones = 65535;
+constexpr uint32_t kCharacterSections = 4096;
+constexpr uint32_t kCharacterStreams = 4096;
 // The formats a pipeline declares BLENDINDICES and BLENDWEIGHT with in binding 2: four unsigned
 // integers of 8, 16 or 32 bits, and four normalized 16-bit or float weights. A Mod's blend-index
 // edit names the replacement format; the game's own may be any of these (BUG-038).
@@ -34,7 +41,7 @@ struct CharacterStream {
     uint32_t bone_index_offset = kCharacterNone, bone_weight_offset = kCharacterNone;
     uint32_t bone_index_bytes = 2; // width of one bone index: 2 (16-bit), or 4 under a 32-bit blend-index edit
     uint32_t bone_weight_bytes = 2; // width of one weight: 2 (16-bit normalized) or 4 (float, BUG-038)
-    uint32_t components = 0; // bit per component whose bones this stream refers to (computed at load)
+    uint64_t components = 0; // bit per component whose bones this stream refers to (computed at load)
 };
 struct CharacterDraw {
     uint32_t index_stream = 0, count = 0, first = 0;
@@ -69,7 +76,7 @@ struct CharacterDraw {
 };
 struct CharacterList {
     uint32_t first = 0, count = 0; // into draws; an empty list hides the original geometry
-    uint32_t required = 0;         // components whose bones the list's vertices use (computed at load)
+    uint64_t required = 0;         // components whose bones the list's vertices use (computed at load)
 };
 struct CharacterComponent {
     uint32_t first = 0, count = 0;     // bone range in the merged skeleton

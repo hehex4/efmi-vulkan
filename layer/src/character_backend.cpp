@@ -347,7 +347,7 @@ struct Identity {
     uint64_t last_present = 0;       // counted presents at the last draw
     uint64_t last_us = 0;            // host time of the last draw
     uint64_t id = 0, generation = 0; // generation changes whenever the master's bytes change
-    uint32_t seen = 0;               // components met since this identity appeared
+    uint64_t seen = 0;               // components met since this identity appeared
     MergedSkeleton skeleton;
     std::vector<uint8_t> coverage;   // per component: bit 0 current pose imported, bit 1 previous
     // The merged skeleton on the device (D-117, D-127), and whether this recording's draws of the object
@@ -1963,7 +1963,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!read_range(instance, 0, entry.size(), entry.data())) return refuse(C_ENTRY, "character instance entry is not mapped");
         identity = identify(entry, now, present);
         if (!identity) return refuse(C_IDENTITIES, "character position invalid or all identities in use");
-        identity->seen |= 1u << section->component;
+        identity->seen |= 1ull << section->component;
         if (now > identity->update_frame) {
             std::string reason;
             if (!identity->skeleton.begin_update(now, reason)) return refuse(C_IMPORT, reason);
@@ -2040,7 +2040,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         // place and a frame has passed. Until then the game draws it.
         if (!identity->custom) {
             uint32_t bits = 0;
-            for (uint32_t value = identity->seen; value; value &= value - 1) ++bits;
+            for (uint64_t value = identity->seen; value; value &= value - 1) ++bits;
             // The original Core's identification_min_components as the Mod sets it (EFMI exports: 3).
             const uint32_t wanted = program && program->identify_components() ? program->identify_components() : kIdentifyingComponents;
             if (bits >= std::min<uint32_t>(wanted, static_cast<uint32_t>(package.components.size())) && now > identity->first_frame)

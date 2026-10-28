@@ -2264,4 +2264,5 @@ Follow-up, same day: installed operation census. The inspection host prints an `
 - 2026-10-28: D-138, sections matched by a resource's description: texture ones run against the layer's description of the game's image, the rest inert and reported per Mod (CharacterDiscovery::gaps).
 - 2026-10-28: D-139, image files load as the original's LoadFromFile (WIC for every file not named .dds; a file that does not load is null in owned work and replaced draws).
 - 2026-10-28: D-140, a texture declaration's colour space, format and size keys as the original takes them; the disabled Mods' copies plan in every state.
+- 2026-10-28: the user: LOD 2 and 3 not to be done, every other gap to be done. D-141, the contract's sizes as index widths (64 components).
 - 2026-10-27: cause D measured offline (vk03, phase-timing build and normal build): 16.6 us per matched draw, the plan 10.5 (interpreter about 5.2); the other stages already cached. Recorded in docs/design-review-1.9.md; nothing changed. The remaining items wait on the game or on a failing check.
