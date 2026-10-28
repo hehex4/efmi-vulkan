@@ -101,7 +101,8 @@ entry per outcome: `matched`, `replaced`, `items`, `hidden`, `identifying`, `inc
 `pending`, `refused_state`, `refused_instances`, `refused_set3`, `refused_pipeline`,
 `refused_vertex`, `refused_variant`, `refused_bindings`, `unreadable_entry`, `unreadable_bones`,
 `import_rejected`, `exhausted`, `identities_full`; also `identities`, `identities_replaced`,
-`mesh_in_device_memory`.
+`mesh_in_device_memory` and `mesh_memory` (`mapped`: written through a mapping of device memory the host sees whole;
+`copied`: copied there on the layer's upload queue, where the host's window is small, BUG-075; `host`: system memory).
 
 ## Verification
 

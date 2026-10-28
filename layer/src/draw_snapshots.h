@@ -20,6 +20,17 @@ struct SnapshotSlot { VkDescriptorSet set = VK_NULL_HANDLE; uint32_t offset = 0;
 // First memory type of `type_bits` the host can map coherently; with `device_local`, only one that
 // also lives on the device. UINT32_MAX when there is none.
 uint32_t host_memory_type(const VkPhysicalDeviceMemoryProperties&, uint32_t type_bits, bool device_local);
+// Where a character's mesh goes (BUG-075). The original fills a DEFAULT buffer from the file's bytes
+// (CustomResource::SubstantiateBuffer) and the driver brings it into video memory with its own copy.
+// Mapped: the host writes device memory directly, only where it sees the whole of the device's
+// largest heap (resizable BAR, or one memory as on integrated GPUs). Copied: device memory filled by
+// a copy on the layer's upload queue, because the host's window is then a heap of a few hundred MiB
+// the application needs as well. Host: system memory the device reads over the bus, without a queue
+// to copy on.
+enum class MeshMemory : uint8_t { Mapped, Copied, Host };
+struct MeshPlacement { MeshMemory memory = MeshMemory::Host; uint32_t type = UINT32_MAX; };
+MeshPlacement mesh_placement(const VkPhysicalDeviceMemoryProperties&, uint32_t type_bits, bool can_copy);
+const char* mesh_memory_name(MeshMemory);
 // Where a shared append's time goes, device-wide (D-099).
 struct SnapshotTiming { std::atomic<uint64_t> copy_us{0}, descriptor_us{0}, images_us{0}, entry_us{0}; };
 extern SnapshotTiming g_snapshot_timing;

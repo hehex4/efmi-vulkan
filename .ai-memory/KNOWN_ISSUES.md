@@ -1,5 +1,21 @@
 # EFMI Vulkan - Known issues
 
+## BUG-075: Character meshes in the host's window of device memory, whatever its size (fixed in 2.1.1)
+
+- Found in the review of 2026-10-28. GpuMesh took host-visible device memory first and wrote the mesh through a mapping. With resizable BAR (this machine) that is the whole card; without it (many desktops, AMD without Smart Access Memory) a heap of about 256 MiB the game uses as well: meshes of a few characters (4 were 110 MB here) fill it, and the game's own allocations there or ours fail.
+- The original creates a Mod's buffer with D3D11_USAGE_DEFAULT and the file's bytes as initial data (CustomResource::SubstantiateBuffer); the driver copies them into video memory.
+- 2.1.1: mapped only when that memory is on the largest device-local heap; otherwise device memory filled by a copy on the layer's upload queue; host memory without one. Failing check: the character test with the window simulated as 256 MiB.
+
+## BUG-074: A proxy DLL named vulkan-1.dll hid the loader (fixed in 2.1.1)
+
+- 2026-10-28, an AMD player's 2.0.9 log (relayed by the user): "bootstrap: no free memory near vulkan-1.dll for 0 stubs; nothing redirected", then nothing: no device seen, no Mod. The first module named vulkan-1.dll mapped held none of the 144 names as code: a proxy that forwards them. The layer latched onto it and ignored the loader it forwards to; the message also misnamed the cause.
+- 2.1.1: a module counts as the loader only when it exports vkGetInstanceProcAddr as code; a proxy's forwarders name the module waited for; every candidate is logged with its path. The sandbox next to a generated forwarding proxy reproduces the AMD log line exactly on 2.1.0.
+- Not verified on the player's machine: which proxy it is is unknown until 2.1.1's log names it.
+
+## LIMIT-045: DXGI D24 depth formats where the device has no D24_UNORM_S8_UINT
+
+- AMD GPUs do not support VK_FORMAT_D24_UNORM_S8_UINT as a depth attachment; a CustomResource an INI declares with `format = D24_UNORM_S8_UINT` (or R24/X24 views) is created in it and fails there. DXVK substitutes D32_SFLOAT_S8_UINT. No installed Mod declares one (2026-10-28); copies of the game's depth use the game's own format. Not changed: the substitution touches view and copy compatibility.
+
 ## BUG-073: The v2.0.9 release unpacked into EFMI\Mods loaded no Mod (fixed in 2.1.0)
 
 - 2026-10-27, the user's test of the published v2.0.9: unpacked into EFMI\Mods\EFMI-Vulkan, the configuration's `../Mods` named EFMI\Mods\Mods ("folder generation: cannot read the Mods folder ... Mods\Mods"). Inside the Mods folder the release's settings file would also have been read as a Mod's INI. The log also called the game's own handled start-up fault (EndfieldBase.dll, every start since the first sessions) a crash.

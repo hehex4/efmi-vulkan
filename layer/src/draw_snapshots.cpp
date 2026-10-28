@@ -111,6 +111,16 @@ bool DrawSnapshots::create_storage(const VkPhysicalDeviceMemoryProperties& memor
     return true;
 }
 
+namespace {
+// Memory for ordinary resources: not protected, lazily allocated or AMD's device-coherent memory, each
+// of which needs a feature the application may not have enabled.
+bool ordinary_type(VkMemoryPropertyFlags flags)
+{
+    return !(flags & (VK_MEMORY_PROPERTY_PROTECTED_BIT | VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT |
+                      VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD | VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD));
+}
+} // namespace
+
 uint32_t host_memory_type(const VkPhysicalDeviceMemoryProperties& memory, uint32_t type_bits, bool device_local)
 {
     const VkMemoryPropertyFlags host = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
@@ -121,13 +131,43 @@ uint32_t host_memory_type(const VkPhysicalDeviceMemoryProperties& memory, uint32
     int best = -1;
     for (uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
         const auto flags = memory.memoryTypes[i].propertyFlags;
-        if (!(type_bits & (1u << i)) || (flags & host) != host) continue;
+        if (!(type_bits & (1u << i)) || (flags & host) != host || !ordinary_type(flags)) continue;
         if (device_local && !(flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) continue;
         const int score = ((flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ? 2 : 0) +
                           ((device_local || !(flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) ? 1 : 0);
         if (score > best) { best = score; chosen = i; }
     }
     return chosen;
+}
+
+MeshPlacement mesh_placement(const VkPhysicalDeviceMemoryProperties& memory, uint32_t type_bits, bool can_copy)
+{
+    uint32_t largest = UINT32_MAX;
+    for (uint32_t h = 0; h < memory.memoryHeapCount; ++h)
+        if ((memory.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) &&
+            (largest == UINT32_MAX || memory.memoryHeaps[h].size > memory.memoryHeaps[largest].size))
+            largest = h;
+    const VkMemoryPropertyFlags mapped =
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    uint32_t direct = UINT32_MAX, device = UINT32_MAX;
+    for (uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
+        const auto flags = memory.memoryTypes[i].propertyFlags;
+        if (!(type_bits & (1u << i)) || !ordinary_type(flags) || memory.memoryTypes[i].heapIndex != largest) continue;
+        if ((flags & mapped) == mapped && direct == UINT32_MAX) direct = i;
+        // Device memory the host does not see first: the host-visible kind is the scarcer one.
+        if ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) &&
+            (device == UINT32_MAX || ((memory.memoryTypes[device].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
+                                      !(flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT))))
+            device = i;
+    }
+    if (direct != UINT32_MAX) return {MeshMemory::Mapped, direct};
+    if (can_copy && device != UINT32_MAX) return {MeshMemory::Copied, device};
+    return {MeshMemory::Host, host_memory_type(memory, type_bits, false)};
+}
+
+const char* mesh_memory_name(MeshMemory memory)
+{
+    return memory == MeshMemory::Mapped ? "mapped" : memory == MeshMemory::Copied ? "copied" : "host";
 }
 
 bool DrawSnapshots::append_shared(const uint8_t* bones, size_t size, uint64_t key, const InstanceEntry& entry, SnapshotSlot& output)

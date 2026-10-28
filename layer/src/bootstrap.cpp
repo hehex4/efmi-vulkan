@@ -9,10 +9,20 @@
 // The redirection has to be in place before the application resolves its
 // Vulkan functions, so the DLL asks the Windows loader to be told when
 // vulkan-1.dll is mapped.
+//
+// The loader is the module that holds the code of those exports, not the first
+// module of that name: a proxy DLL called vulkan-1.dll that forwards them (to the
+// system's loader by its full path, or to a renamed copy) is mapped first and holds
+// none (BUG-074, 2.0.9 on an AMD machine: "0 stubs", nothing redirected, no Mod).
+// As 3DMigoto takes the original d3d11.dll from the system folder whatever else is
+// called d3d11.dll (D3D11Wrapper.cpp), a module is patched only when it exports
+// vkGetInstanceProcAddr as code; the module its forwarders name is waited for.
 #include "common.h"
 
 #include <mutex>
 #include <psapi.h>
+#include <string>
+#include <vector>
 
 namespace efvk {
 
@@ -20,12 +30,26 @@ namespace {
 
 std::mutex g_patch_mx;
 HMODULE g_patched = nullptr;
+// Lower-case file names the loader may have besides vulkan-1.dll: the targets of a proxy's forwarders.
+std::vector<std::wstring> g_loader_names;
+std::vector<HMODULE> g_logged;                   // modules already described in the log
+
+const wchar_t* base_name(const wchar_t* path)
+{
+    const wchar_t* base = wcsrchr(path, L'\\');
+    return base ? base + 1 : path;
+}
 
 bool is_vulkan_loader(const wchar_t* path)
 {
-    const wchar_t* base = wcsrchr(path, L'\\');
-    base = base ? base + 1 : path;
-    return _wcsicmp(base, L"vulkan-1.dll") == 0;
+    const wchar_t* base = base_name(path);
+    if (_wcsicmp(base, L"vulkan-1.dll") == 0)
+        return true;
+    std::lock_guard<std::mutex> lock(g_patch_mx);
+    for (const std::wstring& name : g_loader_names)
+        if (_wcsicmp(base, name.c_str()) == 0)
+            return true;
+    return false;
 }
 
 // Export table entries are 32-bit offsets from the module base, so the jump
@@ -69,12 +93,9 @@ void write_stub(uint8_t* at, void* target)
     at[12] = at[13] = at[14] = at[15] = 0xCC;
 }
 
-struct Export {
-    DWORD* slot;
-};
-
-// Finds the export table slot of a name. Forwarders and missing names give nullptr.
-DWORD* find_slot(HMODULE mod, const char* name)
+// The export table entry of a name: its slot when it is code; a forwarder's target
+// ("module.function") in `forward` instead; nothing when the name is not exported.
+DWORD* find_slot(HMODULE mod, const char* name, const char** forward = nullptr)
 {
     uint8_t* base = reinterpret_cast<uint8_t*>(mod);
     const IMAGE_DOS_HEADER* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(mod);
@@ -90,19 +111,114 @@ DWORD* find_slot(HMODULE mod, const char* name)
         if (strcmp(reinterpret_cast<const char*>(base + names[i]), name))
             continue;
         DWORD* slot = &funcs[ordinals[i]];
-        if (*slot >= dir.VirtualAddress && *slot < dir.VirtualAddress + dir.Size)
+        if (*slot >= dir.VirtualAddress && *slot < dir.VirtualAddress + dir.Size) {
+            if (forward)
+                *forward = reinterpret_cast<const char*>(base + *slot);
             return nullptr; // forwarder, not code
+        }
         return slot;
     }
     return nullptr;
 }
 
+DWORD exported_names(HMODULE mod)
+{
+    uint8_t* base = reinterpret_cast<uint8_t*>(mod);
+    const IMAGE_NT_HEADERS* nt =
+        reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(mod)->e_lfanew);
+    const IMAGE_DATA_DIRECTORY& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+    return dir.VirtualAddress ? reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(base + dir.VirtualAddress)->NumberOfNames : 0;
+}
+
+// The module of a forwarder as the Windows loader looks it up:
+// "C:\Windows\System32\vulkan-1.vkCreateInstance" -> "C:\Windows\System32\vulkan-1.dll".
+std::wstring forward_module(const char* forward)
+{
+    std::string module(forward);
+    const size_t dot = module.find_last_of('.');
+    if (dot == std::string::npos || !dot)
+        return std::wstring();
+    module.resize(dot);
+    std::wstring wide(module.size() + 1, L'\0');
+    const int n = MultiByteToWideChar(CP_UTF8, 0, module.c_str(), -1, &wide[0], static_cast<int>(wide.size()));
+    if (n <= 1)
+        return std::wstring();
+    wide.resize(static_cast<size_t>(n) - 1);
+    if (!wcschr(base_name(wide.c_str()), L'.'))
+        wide += L".dll";
+    return wide;
+}
+
+std::string narrow(const wchar_t* path)
+{
+    char out[MAX_PATH * 3] = {};
+    WideCharToMultiByte(CP_UTF8, 0, path, -1, out, sizeof(out) - 1, nullptr, nullptr);
+    return out;
+}
+
+bool first_sight(HMODULE mod)
+{
+    for (HMODULE seen : g_logged)
+        if (seen == mod)
+            return false;
+    g_logged.push_back(mod);
+    return true;
+}
+
+void patch_loader(HMODULE mod, const wchar_t* path, bool was_loaded);
+
+// A module named like the loader that does not hold its code. Its forwarders name the module that
+// does; when that one is in the process already, it is the loader now, otherwise it is waited for.
+void not_the_loader(HMODULE mod, const wchar_t* path, bool was_loaded, const char* forward)
+{
+    const std::wstring target = forward ? forward_module(forward) : std::wstring();
+    {
+        std::lock_guard<std::mutex> lock(g_patch_mx);
+        if (!first_sight(mod))
+            return;
+        if (!target.empty()) {
+            std::wstring name = base_name(target.c_str());
+            for (wchar_t& ch : name)
+                ch = static_cast<wchar_t>(towlower(ch));
+            bool known = name == L"vulkan-1.dll";
+            for (const std::wstring& other : g_loader_names)
+                known |= other == name;
+            if (!known)
+                g_loader_names.push_back(name);
+        }
+    }
+    logf("bootstrap: %s at %p is not the Vulkan loader: %lu exported names, vkGetInstanceProcAddr %s%s; waiting for the loader",
+         narrow(path).c_str(), static_cast<void*>(mod), exported_names(mod), forward ? "forwarded to " : "not exported",
+         forward ? forward : "");
+    if (target.empty())
+        return;
+    // The forwarder's module is loaded at the first lookup through it; one already loaded is the loader now.
+    HMODULE loaded = GetModuleHandleW(target.c_str());
+    if (!loaded || loaded == mod)
+        return;
+    wchar_t loaded_path[MAX_PATH] = {};
+    if (GetModuleFileNameW(loaded, loaded_path, MAX_PATH))
+        patch_loader(loaded, loaded_path, was_loaded);
+}
+
 void patch_loader(HMODULE mod, const wchar_t* path, bool was_loaded)
 {
-    std::lock_guard<std::mutex> lock(g_patch_mx);
-    if (g_patched)
+    const char* forward = nullptr;
+    if (!find_slot(mod, "vkGetInstanceProcAddr", &forward)) {
+        not_the_loader(mod, path, was_loaded, forward);
         return;
+    }
+    std::lock_guard<std::mutex> lock(g_patch_mx);
+    if (g_patched) {
+        // A second loader (an embedded browser brings its own): the application's calls through it are
+        // not seen. Said once, so that a missing device can be traced to it.
+        if (mod != g_patched && first_sight(mod))
+            logf("bootstrap: another Vulkan loader %s at %p; its exports are left as they are, the first one's are redirected",
+                 narrow(path).c_str(), static_cast<void*>(mod));
+        return;
+    }
     g_patched = mod;
+    first_sight(mod);
     g_attach.loader_found.store(1);
     g_attach.loader_was_loaded.store(was_loaded ? 1 : 0);
 
@@ -124,9 +240,10 @@ void patch_loader(HMODULE mod, const wchar_t* path, bool was_loaded)
     exports_resolved();
 
     size_t bytes = (found * kStubSize + 0xFFF) & ~static_cast<size_t>(0xFFF);
-    uint8_t* page = found ? alloc_near(mod, bytes) : nullptr;
+    uint8_t* page = alloc_near(mod, bytes);
     if (!page) {
-        logf("bootstrap: no free memory near vulkan-1.dll for %zu stubs; nothing redirected", found);
+        logf("bootstrap: %s at %p: no free memory above it for %zu stubs; nothing redirected", narrow(path).c_str(),
+             static_cast<void*>(mod), found);
         return;
     }
     uint8_t* stub = page;
@@ -155,10 +272,8 @@ void patch_loader(HMODULE mod, const wchar_t* path, bool was_loaded)
     }
     g_attach.exports_redirected.store(redirected);
 
-    char narrow[MAX_PATH * 3] = {};
-    WideCharToMultiByte(CP_UTF8, 0, path, -1, narrow, sizeof(narrow) - 1, nullptr, nullptr);
-    logf("bootstrap: %s at %p, %u of %zu exports redirected%s", narrow, static_cast<void*>(mod), redirected, hooks.size(),
-         was_loaded ? "; it was already loaded, so functions resolved earlier are not intercepted" : "");
+    logf("bootstrap: %s at %p, %u of %zu exports redirected%s", narrow(path).c_str(), static_cast<void*>(mod), redirected,
+         hooks.size(), was_loaded ? "; it was already loaded, so functions resolved earlier are not intercepted" : "");
 }
 
 // Loader notification, see LdrRegisterDllNotification.
@@ -183,14 +298,9 @@ VOID CALLBACK on_dll_event(ULONG reason, const LdrNotifyData* data, PVOID)
 {
     if (reason != 1 || !data || !data->FullDllName || !data->FullDllName->Buffer) // 1 = loaded
         return;
-    wchar_t path[MAX_PATH];
-    size_t n = data->FullDllName->Length / sizeof(wchar_t);
-    if (n >= MAX_PATH)
-        return;
-    memcpy(path, data->FullDllName->Buffer, n * sizeof(wchar_t));
-    path[n] = 0;
-    if (is_vulkan_loader(path))
-        patch_loader(static_cast<HMODULE>(data->DllBase), path, false);
+    const std::wstring path(data->FullDllName->Buffer, data->FullDllName->Length / sizeof(wchar_t));
+    if (is_vulkan_loader(path.c_str()))
+        patch_loader(static_cast<HMODULE>(data->DllBase), path.c_str(), false);
 }
 
 } // namespace
@@ -206,25 +316,26 @@ void bootstrap_start()
     LONG st = reg ? reg(0, on_dll_event, nullptr, &cookie) : -1;
     logf("bootstrap: loader notification %s (0x%lx)", st == 0 ? "registered" : "FAILED", st);
 
-    // It may already be there.
+    // It may already be there, maybe behind a module of its name that is not.
     HMODULE mods[2048];
     DWORD needed = 0;
-    bool found = false;
     if (K32EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &needed)) {
         DWORD count = needed / sizeof(HMODULE);
         if (count > sizeof(mods) / sizeof(mods[0]))
             count = sizeof(mods) / sizeof(mods[0]);
         for (DWORD i = 0; i < count; i++) {
             wchar_t path[MAX_PATH];
-            if (GetModuleFileNameW(mods[i], path, MAX_PATH) && is_vulkan_loader(path)) {
+            if (GetModuleFileNameW(mods[i], path, MAX_PATH) && is_vulkan_loader(path))
                 patch_loader(mods[i], path, true);
-                found = true;
-                break;
-            }
         }
     }
+    bool found;
+    {
+        std::lock_guard<std::mutex> lock(g_patch_mx);
+        found = g_patched != nullptr;
+    }
     if (!found)
-        logf("bootstrap: vulkan-1.dll is not loaded yet, waiting for it");
+        logf("bootstrap: the Vulkan loader is not loaded yet, waiting for it");
 }
 
 } // namespace efvk

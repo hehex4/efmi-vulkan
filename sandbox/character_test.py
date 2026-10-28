@@ -122,6 +122,12 @@ def main():
                        VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0", XDG_CACHE_HOME=str(folder), TMPDIR=str(folder),
                        TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1",
                        EFMI_VK_M2_TEXTURE_PRELOAD="0" if cold_material else "1")
+            # BUG-075: without resizable BAR the host sees a window of the device's memory of a few hundred
+            # MiB, which the game needs too; the mesh is copied into device memory on the layer's upload
+            # queue then, read by both graphics queues of the split runs.
+            small_bar = queue_case == "split"
+            if small_bar:
+                env["EFMI_VK_TEST_SMALL_BAR"] = "1"
             args = [os.path.join(DIST, "efmi_vk_variant_gpu.exe"), "--character"]
             # Every full run exchanges the replacement code twice while the scene draws and has a
             # module with another header stamp refused (docs/hot-swap.md).
@@ -177,6 +183,8 @@ def main():
                              label + " late refusal counted while independent components still replace")
                 continue
             checks.check(r["kind"] == "character" and r["configured"] and r["enabled"] and r["ready"], label + " character backend active")
+            checks.equal((r.get("mesh_memory"), r.get("mesh_in_device_memory")), ("copied" if small_bar else "mapped", True),
+                         label + " the mesh in device memory, copied there when the host's window is small")
             checks.check(c["replaced"] >= 50 and c["items"] > c["replaced"] and c["hidden"] >= 25, label + " replaced draws, extra items and hidden draws counted")
             checks.check(c["identifying"] >= 3, label + " a new character is drawn by the application first")
             checks.check(c["restored_set3"] >= 10, label + " the application's set 3 was bound again after replacements")

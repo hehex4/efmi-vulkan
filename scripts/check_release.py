@@ -34,8 +34,9 @@ ap = argparse.ArgumentParser()
 ap.add_argument("archive", type=Path)
 ap.add_argument("--mods", default="D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods")
 ap.add_argument("--seconds", type=int, default=60)
-ap.add_argument("--layout-mods", nargs="*", default=["Si FGO lancer Melusine Mod By FengliS", "EFMITTL", "RabbitFX -ENDMI-"],
-                help="installed Mods copied into the layout check's own EFMI folder (one character Mod and its libraries)")
+ap.add_argument("--layout-mods", nargs="*",
+                help="installed Mods copied into the layout check's own EFMI folder (one character Mod and its libraries); "
+                     "default: the smallest character Mod the installed folder loaded and every enabled folder that is not one")
 args = ap.parse_args()
 
 failures = []
@@ -129,7 +130,17 @@ check("validation: errors=0 warnings=0" in output, "clean core and synchronizati
 installed = mods.parent
 efmi = work / "EFMI"
 shutil.copytree(installed / "Core" / "EFMI", efmi / "Core" / "EFMI")
-for name in args.layout_mods:
+layout = args.layout_mods
+if layout is None:
+    # Whichever Mods the user has installed now: a fixed name went with the Mod (2.1.1's check).
+    characters = set()
+    for ini in re.findall(r"character Mod of the folder generation: (.*?): \d+ mesh files", log):
+        relative = Path(ini).relative_to(mods)
+        characters.add(relative.parts[0])
+    size = lambda name: sum(f.stat().st_size for f in (mods / name).rglob("*") if f.is_file())
+    layout = ([min(sorted(characters), key=size)] if characters else []) + [name for name in enabled if name not in characters]
+check(bool(layout), "a character Mod for the layouts: " + ", ".join(layout))
+for name in layout:
     shutil.copytree(mods / name, efmi / "Mods" / name)
 for place in (efmi, efmi / "Mods"):
     label = "unpacked into " + place.relative_to(work).as_posix()

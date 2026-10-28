@@ -1077,6 +1077,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-136: The loader is the module that holds the code; meshes in device memory by copy without resizable BAR
+
+- Date: 2026-10-28 (2.1.1, BUG-074, BUG-075), from the review the user asked for.
+- As 3DMigoto takes the original d3d11.dll from the system folder whatever else carries that name (D3D11Wrapper.cpp: original_d3d11.dll, else GetSystemDirectory), the inject entry patches only a module whose vkGetInstanceProcAddr export is code, follows a proxy's forwarders to the module it waits for, and logs every candidate. One loader is patched (one set of originals); a second is logged.
+- As D3D11 fills a DEFAULT buffer from initial data, a character's mesh goes into device memory: mapped where the host sees the largest device-local heap, copied on the layer's upload queue otherwise (the worker waits for the copy before publishing), host memory only without an upload queue. Tests simulate the small window with EFMI_VK_TEST_SMALL_BAR in their child process.
+
 ## D-135: The playable release, GPLv3, without the probe (docs/release.md)
 
 - Date: 2026-10-27 (2.0.9). The user: publish a release under GPLv3 (the layer compiles 3DMigoto's GPLv3 engine); its text tells players how to install and use it; nothing for development goes in; players hold a playable version.

@@ -116,12 +116,14 @@ class Sandbox:
     def __init__(self, threads: int = 2, seconds: int = 60, with_layer: bool = True, mode: str | None = "probe",
                  env_extra: dict | None = None, entry: str = "layer", inject_dll: str | None = None,
                  descriptors: str = "ordinary", draws: int = 5, extra_args: list[str] | None = None,
-                 validation: bool = False):
+                 validation: bool = False, exe: str | None = None):
         """``entry``: ``layer`` (the Vulkan loader loads the layer), ``inject`` (the sandbox loads
         the DLL before it touches Vulkan), ``inject-late`` (after its device exists) or
         ``inject-late-exports`` (late, and the device functions are then resolved again through
         the exports of vulkan-1.dll). Ignored when ``with_layer`` is false. ``inject_dll`` replaces
-        the DLL from dist/ for the inject entries."""
+        the DLL from dist/ for the inject entries; ``exe`` a copy of the program elsewhere (the DLLs
+        next to it are found first)."""
+        self.exe = exe or SANDBOX_EXE
         self.threads = threads
         self.seconds = seconds
         self.with_layer = with_layer
@@ -143,9 +145,9 @@ class Sandbox:
         self._stdout = None
 
     def __enter__(self):
-        if not os.path.isfile(SANDBOX_EXE):
-            raise RuntimeError("%s is missing; run scripts/build.py" % SANDBOX_EXE)
-        args = [SANDBOX_EXE, "--seconds", str(self.seconds), "--threads", str(self.threads),
+        if not os.path.isfile(self.exe):
+            raise RuntimeError("%s is missing; run scripts/build.py" % self.exe)
+        args = [self.exe, "--seconds", str(self.seconds), "--threads", str(self.threads),
                 "--expected", self.expected_path, "--trigger", self.trigger_path, "--descriptors", self.descriptors,
                 "--draws", str(self.draws)] + self.extra_args
         if not self.with_layer:
