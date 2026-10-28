@@ -35,7 +35,8 @@ public:
     // Deferred: recording without a queue yet, on a thread that must not touch it (a generation
     // loading in the background); finish() names the queue. Store refuses there.
     // Draw: recording without a queue during a replaced draw's plan (P2, D-087); the host submits
-    // the work before the application's submission. Store refuses there.
+    // the work before the application's submission. Store there gives the value its previous execution
+    // read, once that submission completed (D-147).
     enum class ExecutionSite { OutsideRenderPass, InsideRenderPass, Deferred, Draw };
     GpuResourceRuntime(gpu::ResourceDevice,gpu::ResourceBudgets={});
     std::vector<std::wstring> install(DrawPlanAdapter&) override;
@@ -155,6 +156,8 @@ private:
     VkQueue queue_=VK_NULL_HANDLE;
     D3D11_VIEWPORT viewport_{};
     ExecutionSite site_=ExecutionSite::OutsideRenderPass;
+    // A store's reads in flight in replaced draws' scopes, with the value's offset in each (D-147).
+    std::unordered_map<const StoreCommand*,std::vector<std::pair<gpu::ResourceCommands::Feedback,UINT>>> feedback_;
     bool recorded_=false; // owned work recorded in the current Draw scope
     bool active_=false,installed_=false,failed_=false;
 };

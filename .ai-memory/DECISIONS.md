@@ -1077,6 +1077,22 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-147: store in a replaced draw reads a frame late; clear runs as owned work (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. The original's store waits for the GPU; the layer's owned work in a replaced draw runs after the game's recording, and a wait on the game's thread froze it before (BUG-062). A store there takes the value its copy read at an earlier execution, once that submission completed (ResourceCommands::feedback); before the first the variable stays. clear of the Mod's resources is owned work. Exact timing would need a wait on the game's thread: the user's priority is no freezes; to be revisited if a Mod needs the same frame.
+
+## D-146: dispatch, drawauto and indirect draws in a replaced draw do nothing, with a warning (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. They refused the whole draw. A compute dispatch cannot run in the game's render pass and the layer has no stream output; the indirect draws' GPU arguments are not taken by the plan (no Mod uses them).
+
+## D-145: A view D3D11 does not make binds nothing in owned work (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. As CreateCompatibleView's null view: a typed texture under another format, a typeless one without a format, bind nothing; the Present goes on.
+
+## D-144: CheckTextureOverride of other targets in a replaced draw (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. As find_texture_overrides_for_resource: a Mod's resource meets nothing; the matched draw's own index buffer meets its region hash's sections through the original's region path; the game's other buffers and other stages' resources have no known DX11 identity and meet nothing, with the original's warning.
+
 ## D-143: Slot ranges in a replaced draw as the original's single slot operations (docs/ini-semantics.md)
 
 - Date: 2026-10-28, D-137's gaps. A slot range refused the replaced draw.

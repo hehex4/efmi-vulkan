@@ -77,6 +77,7 @@ global $lod_level = 0
 global $merged_skeleton_initialized = 0
 global $texture_seen = 0
 global $texture_other = 0
+global $stored = 0
 [KeyTint]
 key = ctrl 5
 condition = $active == 1
@@ -97,6 +98,7 @@ post $active = 0
 $\EFMIv1\gpu_posed = 1
 CommandList\EFMIv1\Callback_Component_DrawCustom = ref CommandListDraw{component}
 run = CommandList_Component_DrawInstances
+store = $stored, ResourceStoreSource, 0
 $active = 1
 """
     text += COMMON
@@ -113,6 +115,8 @@ Pool_MergedSkeleton_Component_LodRemaps[{i}*$levels+1] = {('ref ResourceS0' if i
                        ("MergedSkeleton_Instance_UpdateFrame", "$component_count * $max_instance_count"),
                        ("MergedSkeleton_Instance_LodLevel", "$component_count * $max_instance_count")):
         text += f"\n[Pool_{name}]\npool_size = {size}\n"
+    # A store in a replaced draw (D-147) reads this Mod buffer.
+    text += "\n[ResourceStoreSource]\ntype = Buffer\nformat = R32_FLOAT\ndata = 7\n"
     text += """
 [ResourceMergedSkeletonDataRW]
 type = RWBuffer

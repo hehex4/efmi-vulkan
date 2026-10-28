@@ -284,20 +284,24 @@ from a GPU buffer, which a replaced draw's plan does not take. Each refused the 
 command does nothing, the original's warning channel says so once, and the draw's other commands go on.
 Check: check_mod_degradation's `dispatch = 1, 1, 1` variant (refused before, planned now).
 
-XX, [(
-## D-145: A view D3D11 does not make binds nothing in owned work (docs/ini-semantics.md)
+## store and clear in a replaced draw (D-147)
 
-- Date: 2026-10-28, D-137's gaps. As CreateCompatibleView's null view: a typed texture under another format, a typeless one without a format, bind nothing; the Present goes on.
+The original's `store = $v, Resource, i` maps the resource at once (a staging copy and a Map that waits
+for the GPU) and the value is there for the list's next command; `clear` clears a resource's view. In a
+replaced draw the layer's owned work is recorded while the game records its own command buffer and is
+submitted before the game's submission: nothing of it has run when the list goes on, and waiting for the
+GPU on the game's recording thread is what froze the game before (BUG-062). So, as the user prefers no
+freezes to the exact frame: a store there copies its value into a host buffer with that submission and
+takes, at a later execution of the same store, the value of the newest one completed (the value of a
+frame or so before); before the first, the variable keeps its value, as the original's does for a null
+source. `clear` of the Mod's own resources runs as owned work there, as its copies do. Both reach only
+the Mod's resources (the game's are not owned work's). A generation without the owned GPU runtime
+(offline) keeps the variable and clears nothing, with the warning once.
 
-## D-146: dispatch, drawauto and indirect draws in a replaced draw do nothing, with a warning (docs/ini-semantics.md)
+Check: live INI rendering's fixture Mod stores `ResourceStoreSource` (data 7) in its sections: refused
+on the build before (the whole character stayed the game's), `$stored` is 7 now in every scene.
 
-- Date: 2026-10-28, D-137's gaps. They refused the whole draw. A compute dispatch cannot run in the game's render pass and the layer has no stream output; the indirect draws' GPU arguments are not taken by the plan (no Mod uses them).
-
-## D-144: CheckTextureOverride of other targets in a replaced draw (docs/ini-semantics.md)
-
-- Date: 2026-10-28, D-137's gaps. As find_texture_overrides_for_resource: a Mod's resource meets nothing; the matched draw's own index buffer meets its region hash's sections through the original's region path; the game's other buffers and other stages' resources have no known DX11 identity and meet nothing, with the original's warning.
-
-## D-143: Slot ranges in a replaced draw
+## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the
 layer's Present work for minutes in 1.9.4 (PID 14500, 285 s) and 1.9.5 (PID 11492, 416 s), BUG-062 and

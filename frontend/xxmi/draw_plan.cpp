@@ -528,7 +528,7 @@ struct DrawPlanAdapter::Runtime {
         if(auto* copy=dynamic_cast<ResourceCopyOperation*>(&command)){check(copy->src);check(copy->dst);}
         else if(auto* range=dynamic_cast<SlotRangeCopyOperation*>(&command)){check(range->src);check(range->dst);}
         else if(auto* clear=dynamic_cast<ClearViewCommand*>(&command))check(clear->target);
-        else if(dynamic_cast<StoreCommand*>(&command))refuse(L"Store needs GPU feedback, which a replaced draw's scope cannot give: "+command.ini_line);
+        else if(auto* store=dynamic_cast<StoreCommand*>(&command))check(store->src);
         else if(auto* batch=dynamic_cast<ShaderResourceBatch*>(&command)){
             for(const auto& operation:batch->operations)if(operation){check(operation->src);check(operation->dst);}
         }
@@ -891,6 +891,13 @@ struct DrawPlanAdapter::Runtime {
         // A replaced draw's scope, outside CustomShaders: a copy into a Mod resource, or a reference to
         // one with owned content, is owned work; the draw's own bindings and draws keep the plan (D-087).
         if(resource_command && drawing() && !shader_depth && !owned()){
+            // store and clear of the Mod's own resources are owned work as its copies are (D-147).
+            if(as<StoreCommand>(original, kinds, K_StoreCommand) || as<ClearViewCommand>(original, kinds, K_ClearViewCommand)){
+                owned_only(*original,*state);
+                std::wstring why;
+                if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
+                return;
+            }
             if(auto* copy=as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation); copy && (kinds & K_ResourceCopyOperationExact)){
                 auto& dst=effective_target(copy->dst,*state);
                 bool owned_source=false;
@@ -1158,6 +1165,13 @@ struct DrawPlanAdapter::Runtime {
             return;
         }
         // Never forward arbitrary commands to the reference's D3D scaffolding.
+        // Without the owned GPU runtime (offline) a store keeps its variable, as the original's for a null
+        // source, and a clear does nothing; the warning says so once (D-147).
+        if(as<StoreCommand>(original, kinds, K_StoreCommand) || as<ClearViewCommand>(original, kinds, K_ClearViewCommand)){
+            if(unknown_identity_logged.size()<64 && unknown_identity_logged.insert(original.get()).second)
+                LogOverlayW(LOG_WARNING,L"GPU work of a replaced draw without the owned GPU runtime does nothing: %ls\n",original->ini_line.c_str());
+            return;
+        }
         refuse(L"Unsupported frontend operation: " + original->ini_line);
     }
 };

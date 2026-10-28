@@ -575,7 +575,20 @@ void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
     // structured buffers, and returns zero for an out-of-range read.
     if(op.CalculateCopyRegion(source.description,sizeof(float),offset,&from,&size,&value_offset) &&
        from<=source.description.ByteWidth && size<=source.description.ByteWidth-from){
-        require(queue_!=VK_NULL_HANDLE && site_!=ExecutionSite::Draw,"Original store needs immediate GPU feedback, which a scope without its queue cannot give");
+        if(site_==ExecutionSite::Draw){
+            // A replaced draw's scope cannot wait for the GPU (the game's thread records it): the value this
+            // store read at an earlier execution, once that submission completed, and a read for a later
+            // one. Before the first, the variable keeps its value, as the original's for a null source (D-147).
+            auto& reads=feedback_[&op];std::vector<uint8_t> bytes;
+            for(size_t i=reads.size();i-->0;){
+                if(!commands_.feedback_ready(reads[i].first,bytes))continue;
+                memcpy(&value,bytes.data()+reads[i].second,sizeof(value));op.SetOutputValue(&state,value);
+                reads.erase(reads.begin(),reads.begin()+ptrdiff_t(i)+1);break;
+            }
+            if(reads.size()<4)reads.push_back({commands_.feedback(source.buffer,from,size),value_offset});
+            return;
+        }
+        require(queue_!=VK_NULL_HANDLE,"Original store needs immediate GPU feedback, which a scope without its queue cannot give");
         auto bytes=commands_.readback(queue_,source.buffer,from,size);memcpy(&value,bytes.data()+value_offset,sizeof(value));
     }
     op.SetOutputValue(&state,value);

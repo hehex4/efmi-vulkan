@@ -231,6 +231,11 @@ public:
     // Synchronous feedback required by original store. Only explicit hosts
     // owning queue synchronization may call this; never an implicit draw wait.
     std::vector<uint8_t> readback(VkQueue,const Buffer&,VkDeviceSize offset,VkDeviceSize size);
+    // Feedback without a wait (D-147): `size` bytes of `source` copied into a host buffer by the pending
+    // submission; feedback_ready gives them once that submission completed, false before.
+    struct Feedback {Buffer buffer;VkDeviceSize size=0;std::shared_ptr<ResourceSubmission> submission;};
+    Feedback feedback(const Buffer& source,VkDeviceSize offset,VkDeviceSize size);
+    bool feedback_ready(Feedback&,std::vector<uint8_t>& bytes);
     void discard();
     // Driver allocations this domain made, and what it reused instead (BUG-058): device memory
     // allocations, descriptor pools, and upload buffers and descriptor sets taken again.

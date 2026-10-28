@@ -201,6 +201,16 @@ std::vector<uint8_t> ResourceCommands::readback(VkQueue queue,const Buffer& sour
     barrier(VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_READ_BIT);auto ticket=submit(queue);ticket->wait();
     return read_stage(stage,size);
 }
+ResourceCommands::Feedback ResourceCommands::feedback(const Buffer& source,VkDeviceSize offset,VkDeviceSize size) {
+    validate(source,offset,size);Feedback result;result.size=size;
+    result.buffer=allocate(size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true);copy(source,offset,result.buffer,0,size);
+    barrier(VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_READ_BIT);command();result.submission=pending_;
+    return result;
+}
+bool ResourceCommands::feedback_ready(Feedback& f,std::vector<uint8_t>& bytes) {
+    if(!f.buffer || !f.submission || !f.submission->ready())return false;
+    bytes=read_stage(f.buffer,f.size);return true;
+}
 std::vector<uint8_t> ResourceCommands::read_stage(const Buffer& stage,VkDeviceSize size) {
     std::vector<uint8_t> result(size_t(size),0);void* mapped=nullptr;
     check(device_.dispatch.MapMemory(device_.device,stage->memory_,0,VK_WHOLE_SIZE,0,&mapped),"Map resource readback");

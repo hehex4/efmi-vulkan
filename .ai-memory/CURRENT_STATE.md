@@ -21,6 +21,7 @@
 - D-144: CheckTextureOverride of a target other than a pixel slot in a replaced draw: a Mod's resource meets nothing, the matched draw's index buffer meets its region hash's sections through the original's region path, the game's other buffers and stages meet nothing with the original's warning. Failing first: check_mod_degradation's `checktextureoverride = ib` and `= vb0` variants (refused before), planned now.
 - D-145: in owned work a view D3D11 does not make (typed texture under another format, typeless without one) binds nothing and the Present goes on (was a refusal; the test asserted it on the build before; WARP shows D3D11 makes no such view).
 - D-146: dispatch, drawauto and the indirect draws in a replaced draw do nothing with the original's warning, the draw goes on (refused the draw before; check_mod_degradation's dispatch variant).
+- D-147: store in a replaced draw takes the value of an earlier execution's read once its submission completed (no wait on the game's thread; before the first, the variable stays); clear of the Mod's resources runs as owned work there. Failing first: live INI rendering with a store in the fixture's sections (the character stayed the game's on the build before); `$stored` reads 7 now.
 - Not deployed, not run in the game.
 
 ## 2.1.1: the loader behind a proxy DLL, character meshes without resizable BAR (2026-10-28, BUG-074, BUG-075)
