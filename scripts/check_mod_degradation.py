@@ -12,7 +12,9 @@ installed Core:
 - a section matched by a texture's description (match_type, match_width ...): the original runs it at
   a CheckTextureOverride of a pixel slot (D-138);
 - a section matched by a buffer's description and a section that changes the game's resources when they
-  are created: the layer does not do these, the rest of the Mod loads and the layer says so.
+  are created: the layer does not do these, the rest of the Mod loads and the layer says so;
+- a texture the Mod binds given as a PNG: the original loads every file not named .dds with WIC (D-139);
+- a texture file the loader makes nothing of: the original's resource is null and the draw goes on.
 
 Each must load, and every section must plan in every state. Writes build/mod-degradation/.
 """
@@ -21,8 +23,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +46,28 @@ def resources(ini: str) -> list[tuple[str, dict]]:
             keys[k.strip().lower()] = v.strip()
     if name: out.append((name, keys))
     return [(n, k) for n, k in out if n.lower().startswith("resource") and "filename" in k]
+
+
+def png_bytes(width: int, height: int) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    # Filter byte 0, then RGBA8 samples.
+    rows = b"".join(b"\x00" + b"".join(bytes((x * 40 & 255, y * 40 & 255, 128, 255)) for x in range(width)) for y in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)) +
+            chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+
+def set_key(lines: list[str], section: str, name: str, value: str) -> None:
+    """`name = value` in [section], in place of the line that sets it."""
+    inside = False
+    for i, line in enumerate(lines):
+        stripped = line.split(";", 1)[0].strip()
+        if stripped.startswith("["):
+            inside = stripped.strip("[]").lower() == section.lower()
+        elif inside and "=" in stripped and stripped.split("=", 1)[0].strip().lower() == name:
+            lines[i] = "%s = %s" % (name, value)
+            return
+    raise RuntimeError("[%s] sets no %s" % (section, name))
 
 
 def smallest_character_mod() -> Path:
@@ -143,6 +169,25 @@ def main() -> int:
         (mod / ini_name).write_text("\n".join(lines) + "\n" + extra, encoding="utf-8")
     variant("buffer section by description, creation-time key", not_for_vulkan,
             ("matches buffers by their description", "changes how the game creates"))
+
+    # A texture a draw of the Mod binds (`ps-tN = Resource...`) from a .dds file.
+    files = {n.lower(): k["filename"] for n, k in declared}
+    bound = [b for b in re.findall(r"(?im)^\s*ps-t\d+\s*=\s*(?:ref\s+|reference\s+)?(Resource[^\s;]+)", text)
+             if files.get(b.lower(), "").lower().endswith(".dds")]
+    if not bound:
+        print("mod degradation: %s binds no DDS texture" % source.name)
+        return 1
+
+    def as_png(mod: Path) -> None:
+        (mod / "efvk_texture.png").write_bytes(png_bytes(8, 4))
+        lines = text.splitlines()
+        set_key(lines, bound[0], "filename", "efvk_texture.png")
+        (mod / ini_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    variant("texture given as a PNG", as_png)
+
+    def unloadable(mod: Path) -> None:
+        (mod / files[bound[0].lower()].replace("\\", "/")).write_bytes(b"DDS " + bytes(range(60)))
+    variant("texture file the loader makes nothing of", unloadable, ("does not load",))
     print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
     return 1 if failed else 0
 

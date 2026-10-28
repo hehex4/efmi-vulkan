@@ -1,6 +1,8 @@
 // Original PNG resources -> owned Vulkan images, compared with the pinned DirectXTK WIC loader
 // on a headless WARP device: the call CustomResource::LoadFromFile makes, with the same flags.
 #include "WICTextureLoader.h"
+#include <wincodec.h>
+#include <objbase.h>
 static uint32_t png_crc(const uint8_t* p,size_t n){
     uint32_t c=0xffffffffu;
     for(size_t i=0;i<n;++i){c^=p[i];for(int k=0;k<8;++k)c=(c>>1)^(0xedb88320u&(0u-(c&1)));}
@@ -35,6 +37,27 @@ static std::vector<uint8_t> png_rows(uint32_t width,uint32_t height,uint32_t byt
         for(uint32_t i=0;i<width*bytes_per_pixel;++i)rows.push_back(uint8_t((y*71+i*29+13)&0xff));}
     return rows;
 }
+// The same samples in another container, written by the system's own WIC encoder (BMP, JPEG, TIFF).
+static std::vector<uint8_t> wic_file(const GUID& container,uint32_t width,uint32_t height){
+    using Microsoft::WRL::ComPtr;
+    ComPtr<IWICImagingFactory> factory;
+    check(SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&factory))),"WIC factory for fixtures");
+    ComPtr<IStream> stream;check(SUCCEEDED(CreateStreamOnHGlobal(nullptr,TRUE,&stream)),"WIC fixture stream");
+    ComPtr<IWICBitmapEncoder> encoder;
+    check(SUCCEEDED(factory->CreateEncoder(container,nullptr,&encoder)) && SUCCEEDED(encoder->Initialize(stream.Get(),WICBitmapEncoderNoCache)),"WIC fixture encoder");
+    ComPtr<IWICBitmapFrameEncode> frame;ComPtr<IPropertyBag2> options;
+    check(SUCCEEDED(encoder->CreateNewFrame(&frame,&options)) && SUCCEEDED(frame->Initialize(options.Get())) && SUCCEEDED(frame->SetSize(width,height)),"WIC fixture frame");
+    WICPixelFormatGUID format=GUID_WICPixelFormat24bppBGR;
+    check(SUCCEEDED(frame->SetPixelFormat(&format)) && format==GUID_WICPixelFormat24bppBGR,"WIC fixture takes 24bpp BGR");
+    const auto rows=png_rows(width,height,3);std::vector<uint8_t> pixels;
+    for(uint32_t y=0;y<height;++y){const auto at=rows.begin()+size_t(y)*(width*3+1)+1;pixels.insert(pixels.end(),at,at+width*3);}
+    check(SUCCEEDED(frame->WritePixels(height,width*3,UINT(pixels.size()),pixels.data())) && SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit()),
+          "WIC fixture encodes");
+    STATSTG stat{};HGLOBAL global=nullptr;
+    check(SUCCEEDED(stream->Stat(&stat,STATFLAG_NONAME)) && SUCCEEDED(GetHGlobalFromStream(stream.Get(),&global)),"WIC fixture bytes");
+    const auto* p=static_cast<const uint8_t*>(GlobalLock(global));std::vector<uint8_t> out(p,p+size_t(stat.cbSize.QuadPart));GlobalUnlock(global);
+    return out;
+}
 struct PngReference {DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;UINT width=0,height=0,mips=0,array=0,bind=0,misc=0;std::vector<uint8_t> bytes;};
 static PngReference png_native(ID3D11Device* device,ID3D11DeviceContext* context,const std::filesystem::path& file,DirectX::WIC_LOADER_FLAGS flags){
     using Microsoft::WRL::ComPtr;PngReference out;ComPtr<ID3D11Resource> resource;
@@ -62,7 +85,8 @@ static void image_ini_png(Device& d,const std::filesystem::path& root,const std:
     const HRESULT apartment=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
     // WIC's PNG decoder yields 32bppBGRA for 8-bit RGBA and gray-alpha, 24bppBGR for RGB and
     // indexed formats for palettes; the pinned loader keeps BGRA and expands the others to RGBA.
-    struct Case {const char* name;std::vector<uint8_t> file;const char* color_space;DirectX::WIC_LOADER_FLAGS flags;DXGI_FORMAT expected;};
+    struct Case {const char* name;std::vector<uint8_t> file;const char* color_space;DirectX::WIC_LOADER_FLAGS flags;DXGI_FORMAT expected;
+                 const char* file_name="image.png";};
     const std::vector<uint8_t> palette{255,0,0, 0,255,0, 0,0,255, 255,255,0};
     std::vector<uint8_t> indexed;for(uint32_t y=0;y<3;++y){indexed.push_back(0);for(uint32_t x=0;x<5;++x)indexed.push_back(uint8_t((x+y)%4));}
     std::vector<Case> cases={
@@ -77,6 +101,11 @@ static void image_ini_png(Device& d,const std::filesystem::path& root,const std:
         {"rgba16",png_file(5,3,16,6,png_rows(5,3,8),false),nullptr,DirectX::WIC_LOADER_DEFAULT,DXGI_FORMAT_R16G16B16A16_UNORM},
         {"rgb16",png_file(5,3,16,2,png_rows(5,3,6),false),nullptr,DirectX::WIC_LOADER_DEFAULT,DXGI_FORMAT_R16G16B16A16_UNORM},
         {"palette",png_file(5,3,8,3,indexed,false,{{"PLTE",palette},{"tRNS",{255,64,0}}}),nullptr,DirectX::WIC_LOADER_DEFAULT,DXGI_FORMAT_R8G8B8A8_UNORM},
+        // Every other file takes the same WIC path in the original (D-139).
+        {"bmp",wic_file(GUID_ContainerFormatBmp,5,3),nullptr,DirectX::WIC_LOADER_DEFAULT,DXGI_FORMAT_UNKNOWN,"image.bmp"},
+        {"jpeg",wic_file(GUID_ContainerFormatJpeg,5,3),nullptr,DirectX::WIC_LOADER_DEFAULT,DXGI_FORMAT_UNKNOWN,"image.jpg"},
+        {"jpeg-force",wic_file(GUID_ContainerFormatJpeg,5,3),"sRGB",DirectX::WIC_LOADER_FORCE_SRGB,DXGI_FORMAT_UNKNOWN,"image.jpg"},
+        {"tiff",wic_file(GUID_ContainerFormatTiff,5,3),nullptr,DirectX::WIC_LOADER_DEFAULT,DXGI_FORMAT_UNKNOWN,"image.tif"},
     };
     // The image panel's own pictures: scripts/check_resource_commands.py copies them from the
     // first enabled installed Mod that ships one and verifies the originals stay unchanged.
@@ -85,13 +114,13 @@ static void image_ini_png(Device& d,const std::filesystem::path& root,const std:
     for(const auto& source:panel){std::ifstream in(source,std::ios::binary);std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)),{});
         check(bytes.size()>8,"Read installed panel PNG");cases.push_back({source.filename()==L"k.png"?"panel":"panel-icon",std::move(bytes),nullptr,DirectX::WIC_LOADER_DEFAULT,DXGI_FORMAT_UNKNOWN});}
     for(const auto& c:cases){const auto directory=root/c.name;std::filesystem::create_directories(directory/"Mods");
-        const auto file=directory/"Mods/image.png";{std::ofstream out(file,std::ios::binary);out.write(reinterpret_cast<const char*>(c.file.data()),c.file.size());check(bool(out),"Write PNG fixture");}
+        const auto file=directory/"Mods"/c.file_name;{std::ofstream out(file,std::ios::binary);out.write(reinterpret_cast<const char*>(c.file.data()),c.file.size());check(bool(out),"Write PNG fixture");}
         const auto native=png_native(device.Get(),context.Get(),file,c.flags);
         if(c.expected!=DXGI_FORMAT_UNKNOWN && native.format!=c.expected)printf("PNG %s: native format %d, expected %d\n",c.name,int(native.format),int(c.expected));
         if(c.expected!=DXGI_FORMAT_UNKNOWN)check(native.format==c.expected,"Native WIC loader chooses the documented format for the fixture");
         check(native.mips==1 && native.array==1 && native.misc==0,"Native WIC loader without a context creates one mip and no misc flags");
         std::string ini="namespace = images\n[Constants]\nglobal $format = 0\nglobal $width = 0\nglobal $height = 0\nglobal $mips = 0\n"
-                        "[ResourceImage]\nfilename = image.png\nbind_flags = shader_resource\n";
+                        "[ResourceImage]\nfilename = "+std::string(c.file_name)+"\nbind_flags = shader_resource\n";
         if(c.color_space)ini+=std::string("color_space = ")+c.color_space+"\n";
         ini+="[Present]\nps-t0 = ref ResourceImage\n$format = ps-t0->format\n$width = ps-t0->width\n$height = ps-t0->height\n$mips = ps-t0->mips\n";
         ImageIniFixture f(d,directory,ini);f.present();
@@ -100,14 +129,18 @@ static void image_ini_png(Device& d,const std::filesystem::path& root,const std:
         check(f.srv(0).image_view->range().levelCount==1,"Owned PNG view spans its single mip");
         f.release();
     }
-    {   // A WIC container the owned decoder does not handle refuses instead of loading nothing.
-        const auto directory=root/"bmp";std::filesystem::create_directories(directory/"Mods");
-        const std::vector<uint8_t> bmp{'B','M',58,0,0,0,0,0,0,0,54,0,0,0,40,0,0,0,1,0,0,0,1,0,0,0,1,0,24,0,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255,0};
-        {std::ofstream out(directory/"Mods/image.bmp",std::ios::binary);out.write(reinterpret_cast<const char*>(bmp.data()),bmp.size());}
-        ImageIniFixture f(d,directory,"namespace = images\n[ResourceImage]\nfilename = image.bmp\nbind_flags = shader_resource\n[Present]\nps-t0 = ref ResourceImage\n");
-        f.backend->begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
-        check(!f.ini->present({},1,0,f.why) && f.why.find("other than PNG")!=std::string::npos,"Non-PNG WIC image refuses with its reason");
-        refuses([&]{f.backend->finish();},"Refused PNG load prevents submission of partial work");f.backend->discard();f.release();
+    {   // A file the original's loader makes no texture of: null, and the Present goes on (D-139).
+        const auto directory=root/"broken";std::filesystem::create_directories(directory/"Mods");
+        const std::vector<uint8_t> garbage{'B','M',58,0,0,0,1,2,3,4,5,6,7,8,9};
+        {std::ofstream out(directory/"Mods/image.bmp",std::ios::binary);out.write(reinterpret_cast<const char*>(garbage.data()),garbage.size());}
+        Microsoft::WRL::ComPtr<ID3D11Resource> none;
+        check(FAILED(DirectX::CreateWICTextureFromFileEx(device.Get(),(directory/"Mods/image.bmp").c_str(),0,D3D11_USAGE_DEFAULT,
+              D3D11_BIND_SHADER_RESOURCE,0,0,DirectX::WIC_LOADER_DEFAULT,&none,nullptr)),"Native WIC loader fails on the broken file");
+        ImageIniFixture f(d,directory,"namespace = images\n[Constants]\nglobal $after = 0\n[ResourceImage]\nfilename = image.bmp\n"
+                                      "bind_flags = shader_resource\n[Present]\nps-t0 = ref ResourceImage\n$after = 1\n");
+        f.present();f.variable("after",1);
+        check(!f.srv(0).image,"A texture file that does not load binds nothing, as the original's null resource");
+        f.release();
     }
     printf("PNG resources: %zu fixtures compared with the native WIC loader, %zu installed panel images\n",cases.size(),panel.size());
     if(SUCCEEDED(apartment))CoUninitialize();

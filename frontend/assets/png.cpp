@@ -66,14 +66,15 @@ uint32_t png_pixel_bytes(VkFormat format)
     default: return 0;
     }
 }
-bool decode_png(const uint8_t* data, size_t size, PngPixels& output, std::string& reason,
-                std::shared_ptr<AllocationBudget> budget, uint32_t flags)
+static bool decode(const uint8_t* data, size_t size, PngPixels& output, std::string& reason,
+                   std::shared_ptr<AllocationBudget> budget, uint32_t flags, bool png_only, bool pixels)
 {
     reason.clear();
     try {
         if (flags & ~(png_force_srgb | png_ignore_srgb)) throw std::runtime_error("PNG loader flags need another adapter");
         static const uint8_t magic[] = {137, 80, 78, 71, 13, 10, 26, 10};
-        if (!data || size < 33 || size > (128ull << 20) || std::memcmp(data, magic, sizeof(magic)))
+        if (!data || !size || size > (128ull << 20)) throw std::runtime_error("Image encoded size is invalid");
+        if (png_only && (size < 33 || std::memcmp(data, magic, sizeof(magic))))
             throw std::runtime_error("PNG signature or encoded size is invalid");
         Apartment apartment;
         ComPtr<IWICImagingFactory> factory;
@@ -84,28 +85,40 @@ bool decode_png(const uint8_t* data, size_t size, PngPixels& output, std::string
         ComPtr<IWICBitmapDecoder> decoder;
         require(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand, &decoder), "Decode PNG");
         GUID container{}; require(decoder->GetContainerFormat(&container), "Read image container");
-        if (container != GUID_ContainerFormatPng) throw std::runtime_error("Image container is not PNG");
+        if (png_only && container != GUID_ContainerFormatPng) throw std::runtime_error("Image container is not PNG");
         UINT frames = 0; require(decoder->GetFrameCount(&frames), "Read image frame count");
-        if (frames != 1) throw std::runtime_error("Image frame count needs another adapter");
+        // The loader takes frame 0 of whatever the container holds.
+        if (png_only ? frames != 1 : !frames) throw std::runtime_error("Image frame count needs another adapter");
         ComPtr<IWICBitmapFrameDecode> frame; require(decoder->GetFrame(0, &frame), "Read PNG frame");
         UINT width = 0, height = 0; require(frame->GetSize(&width, &height), "Read PNG dimensions");
         if (!width || !height || width > 16384 || height > 16384) throw std::runtime_error("PNG dimensions exceed image budget");
         GUID original{}; require(frame->GetPixelFormat(&original), "Read PNG pixel format");
         auto format = target_format(original);
-        // The loader's order: FORCE_SRGB, else unless IGNORE_SRGB the PNG sRGB chunk. Only the
-        // 8-bit color formats have sRGB variants (LoaderHelpers::MakeSRGB).
+        // The loader's order: FORCE_SRGB, else unless IGNORE_SRGB the PNG sRGB chunk, or another
+        // container's colour space 1. Only the 8-bit color formats have sRGB variants (LoaderHelpers::MakeSRGB).
         bool srgb = (flags & png_force_srgb) != 0;
         ComPtr<IWICMetadataQueryReader> metadata;
         if (!srgb && !(flags & png_ignore_srgb) && SUCCEEDED(frame->GetMetadataQueryReader(&metadata))) {
-            PROPVARIANT value{};
-            srgb = SUCCEEDED(metadata->GetMetadataByName(L"/sRGB/RenderingIntent", &value)) && value.vt == VT_UI1;
-            PropVariantClear(&value);
+            GUID kind{};
+            if (SUCCEEDED(metadata->GetContainerFormat(&kind))) {
+                PROPVARIANT value{};
+                if (kind == GUID_ContainerFormatPng)
+                    srgb = SUCCEEDED(metadata->GetMetadataByName(L"/sRGB/RenderingIntent", &value)) && value.vt == VT_UI1;
+                else
+                    srgb = SUCCEEDED(metadata->GetMetadataByName(L"System.Image.ColorSpace", &value)) && value.vt == VT_UI2 && value.uiVal == 1;
+                PropVariantClear(&value);
+            }
         }
         if (srgb && format.vk == VK_FORMAT_R8G8B8A8_UNORM) format.vk = VK_FORMAT_R8G8B8A8_SRGB;
         if (srgb && format.vk == VK_FORMAT_B8G8R8A8_UNORM) format.vk = VK_FORMAT_B8G8R8A8_SRGB;
         const uint64_t pitch = uint64_t(width) * png_pixel_bytes(format.vk), bytes = pitch * height;
         if (!bytes || bytes > (128ull << 20)) throw std::runtime_error("Decoded PNG exceeds image budget");
         PngPixels next;
+        if (!pixels) {
+            next.metadata.format = format.vk; next.metadata.width = width; next.metadata.height = height;
+            next.metadata.levels.push_back({width, height, 0, size_t(bytes)});
+            output = std::move(next); return true;
+        }
         next.reservation = std::make_shared<Reservation>(std::move(budget), bytes);
         next.bytes.resize(size_t(bytes));
         if (original == format.target) {
@@ -124,5 +137,15 @@ bool decode_png(const uint8_t* data, size_t size, PngPixels& output, std::string
         next.metadata.levels.push_back({width, height, 0, size_t(bytes)});
         output = std::move(next); return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
+}
+bool decode_png(const uint8_t* data, size_t size, PngPixels& output, std::string& reason,
+                std::shared_ptr<AllocationBudget> budget, uint32_t flags)
+{
+    return decode(data, size, output, reason, std::move(budget), flags, true, true);
+}
+bool decode_wic(const uint8_t* data, size_t size, PngPixels& output, std::string& reason,
+                std::shared_ptr<AllocationBudget> budget, uint32_t flags, bool pixels)
+{
+    return decode(data, size, output, reason, std::move(budget), flags, false, pixels);
 }
 }

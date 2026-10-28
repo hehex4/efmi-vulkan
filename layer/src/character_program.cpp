@@ -1,5 +1,6 @@
 #include "character_program.h"
 #include "../../frontend/xxmi/character_core.h"
+#include "../../frontend/assets/png.h"
 #include "json.h"
 #include <chrono>
 #include <fstream>
@@ -55,6 +56,29 @@ std::vector<uint8_t> read(const std::filesystem::path& path, uint64_t limit)
     std::vector<uint8_t> bytes(size_t(in.tellg())); in.seekg(0); in.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
     if (!in) throw std::runtime_error("Runtime resource read failed");
     return bytes;
+}
+// Whether the original's loader makes a texture of this file (CustomResource::LoadFromFile, D-139): a .dds
+// by its header (its levels inside the file), any other file by the system's WIC decoder (its frame 0,
+// without decoding the pixels); within the size the layer's loader reads.
+bool image_loads(const std::filesystem::path& path, std::string& why)
+{
+    try {
+        std::ifstream in(path, std::ios::binary | std::ios::ate);
+        if (!in || in.tellg() <= 0) { why = "the file cannot be read"; return false; }
+        const uint64_t size = uint64_t(in.tellg());
+        if (size > (128ull << 20)) { why = "the file is larger than 128 MiB"; return false; }
+        if (!_wcsicmp(path.extension().c_str(), L".dds")) {
+            uint8_t header[efmi::assets::kDdsHeaderBytes]{};
+            const size_t available = size_t(std::min<uint64_t>(size, sizeof(header)));
+            in.seekg(0); in.read(reinterpret_cast<char*>(header), std::streamsize(available));
+            if (!in) { why = "the file cannot be read"; return false; }
+            efmi::assets::DdsImage image;
+            return efmi::assets::decode_dds_header(header, available, size, image, why);
+        }
+        const auto bytes = read(path, 128ull << 20);
+        efmi::assets::PngPixels image;
+        return efmi::assets::decode_wic(bytes.data(), bytes.size(), image, why, {}, 0, false);
+    } catch (const std::exception& e) { why = e.what(); return false; }
 }
 // An INI's lines without comments, trimmed and in lower case (D-112).
 std::string ini_text(const std::filesystem::path& path)
@@ -163,7 +187,7 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         identify_components_ = facts->identify_components;
         element_offsets_ = facts->element_offsets;
         efmittl_ = facts->efmittl;
-        gaps_ = facts->gaps;
+        gaps_ = facts->gaps; // before the catalogue adds its own
         catalogue(package, remaps);
         // Validated and catalogued: the bytes are read again from the files when needed (ISSUE-011).
         return package.release_payload(std::move(files), reason);
@@ -224,10 +248,30 @@ bool CharacterProgram::owns(const std::filesystem::path& file) const
     const auto name = key(file);
     return std::any_of(folders_.begin(), folders_.end(), [&](const std::wstring& folder) { return !name.compare(0, folder.size(), folder); });
 }
+bool CharacterProgram::image_checked(const std::filesystem::path& path)
+{
+    if (unloadable_.count(key(path))) return false;
+    std::string why;
+    if (image_loads(path, why)) return true;
+    // A file the original's loader makes no texture of stays its null resource as well (D-139).
+    unloadable_.insert(key(path));
+    if (gaps_.size() < 16)
+        gaps_.push_back("texture file " + path.filename().u8string() + " does not load (" + why +
+                        "): what binds it binds nothing, as the original's null resource");
+    return false;
+}
+bool CharacterProgram::image_unloadable(const std::string& path) const
+{
+    return unloadable_.count(key(std::filesystem::u8path(path))) != 0;
+}
 void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::wstring, uint32_t>& remaps)
 {
     {
-        for (uint32_t i = 0; i < package.images.size(); ++i) images_.emplace(key(std::filesystem::u8path(package.images[i])), i);
+        for (uint32_t i = 0; i < package.images.size(); ++i) {
+            const auto path = std::filesystem::u8path(package.images[i]);
+            images_.emplace(key(path), i);
+            image_checked(path);
+        }
         for (const auto& file : runtime_->resources()) {
             if (!owns(file->path)) continue; // another Mod's of a folder generation
             if (file->usage) {
@@ -244,11 +288,10 @@ void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::
                 const auto& stream = package.streams[found->second];
                 if (file->stride != stream.stride || (file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT) != (stream.kind == CharacterStream::Index))
                     throw std::runtime_error("Original file declaration differs from the renderer stream profile");
-            } else if (_wcsicmp(file->path.extension().c_str(), L".dds")) {
-                continue; // Only owned GPU work reads other image files; a replaced draw binding one refuses.
             } else if (std::error_code error; !std::filesystem::exists(file->path, error)) {
                 continue; // The original's load of it fails and it binds nothing (image_index, BUG-076).
-            } else if (!images_.count(key(file->path))) {
+            } else if (!images_.count(key(file->path)) && !unloadable_.count(key(file->path))) {
+                if (!image_checked(file->path)) continue;
                 if (package.images.size() >= kCharacterImages) throw std::runtime_error("Runtime image catalogue exceeds budget");
                 images_.emplace(key(file->path), uint32_t(package.images.size())); package.images.push_back(file->path.u8string());
             }
@@ -516,6 +559,7 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
             if (mesh.second != kCharacterNone) streams_.emplace(mesh.first, mesh.second);
             else absent_.insert(mesh.first);
         }
+        gaps_ = found.gaps; // before the catalogue adds its own
         catalogue(made, remaps);
         // Validated and catalogued: as the original frees a buffer's file bytes once the resource holds
         // them, the package keeps where they are and reads them again when it needs them (ISSUE-011).
@@ -525,7 +569,6 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
         identify_components_ = found.identify_components;
         element_offsets_ = found.element_offsets;
         efmittl_ = found.efmittl;
-        gaps_ = found.gaps;
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
@@ -684,6 +727,8 @@ uint32_t CharacterProgram::image_index(const std::shared_ptr<const efmi::assets:
     if (!std::filesystem::exists(resource->path, error)) {
         index = kCharacterNone;
         logf("INI texture file missing, bound as nothing as the original does: %s", resource->path.u8string().c_str());
+    } else if (unloadable_.count(key(resource->path))) {
+        index = kCharacterNone; // its load fails as the original's does (D-139)
     } else if (found == images_.end()) {
         throw std::runtime_error("INI image not in prepared resource catalogue");
     }

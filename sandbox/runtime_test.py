@@ -150,7 +150,8 @@ def main():
                 continue
             status = json.loads(report.read_text())["result"]["replacement"]
             checks.equal((status["ini_generation"], status["ini_reloads"], status["ini_reload_rejected"], status["ini_reload_pending"], status["ini_reload_error"]),
-                         (2, 2, 1, False, ""), label + " two accepted reloads, one with an original warning, and one refused")
+                         (4, 4, 0, False, ""), label + " four accepted reloads: an original warning, a texture file that does not "
+                         "load (D-139), the file repaired, another branch")
             checks.equal(status["ini"]["diagnostics"], 0, label + " the last generation has no warning left")
             checks.equal(status["ini"]["variables"]["$\\runtime_fixture\\tint"], 1, label + " persistent variable survives F10")
             variables = status["ini"]["variables"]
@@ -212,7 +213,7 @@ def several_packages(checks, validation):
                      (True, False, 0, 0), label + ": the other character's package never matched and never went to the GPU")
         checks.check(own["lazy"] and own["activated"] and own["counters"].get("replaced", 0) > 0 and own["images_ready"] == 2,
                      label + ": the fixture's package went to the GPU on its first match and replaced draws")
-        checks.equal((own["ini_generation"], own["ini_reloads"]), (2, 2), label + ": its reloads as with one package")
+        checks.equal((own["ini_generation"], own["ini_reloads"]), (4, 4), label + ": its reloads as with one package")
         log = (folder / "layer.log").read_text(encoding="utf-8", errors="replace")
         activations = [line for line in log.splitlines() if "activated on its first match" in line]
         checks.check(activations and all("character.bin" in line and "0-other.bin" not in line for line in activations),
@@ -449,7 +450,8 @@ def directory_generation(checks, validation):
                      (True, False, 0, 0), label + ": the other character's Mod never matched and never went to the GPU")
         checks.check(own["activated"] and own["counters"].get("replaced", 0) > 0 and own["images_ready"] == 2,
                      label + ": the fixture's Mod went to the GPU on its first match and replaced draws")
-        checks.equal((own["ini_generation"], own["ini_reloads"]), (2, 2), label + ": its reloads as with a package")
+        # A broken line, a texture file that does not load, the file repaired, another branch (D-139).
+        checks.equal((own["ini_generation"], own["ini_reloads"]), (4, 4), label + ": its reloads as with a package")
         variables = own.get("ini", {}).get("variables", {})
         checks.equal(variables.get("$\\runtime_fixture\\tint"), 1, label + ": the persistent variable survives F10")
         checks.equal(variables.get("$\\mods\\fixture\\k\\1.ini\\z"), 7,

@@ -63,6 +63,7 @@
 ## LIMIT-043: A broken texture file refuses the whole F10 candidate
 
 - The original reloads and only that resource fails at its first use; the layer keeps the live generation (scene: broken DDS). Recorded in docs/f10-operations.md.
+- 2026-10-28 (D-139): a texture file the loader makes nothing of (a broken DDS, a file WIC cannot decode) is found when the generation loads and bound as nothing, as the original's null resource; it is never declared to the residency and no longer refuses an F10 candidate. A load that fails on the GPU for another reason (device memory, a budget's ten-second wait) still refuses the candidate and the draw.
 
 ## LIMIT-044: Files deleted while their reload reads them
 

@@ -26,7 +26,7 @@ def build(out: Path) -> Path:
     args = COMMON + ["/I" + find_vulkan_include(), "/I" + str(TK / "Inc"), "/I" + str(TK / "Src"),
                      "/Fo" + str(out) + "/", "/Fd" + str(out / "bench.pdb"),
                      str(ROOT / "sandbox/texture_load_bench.cpp"), str(TK / "Src/DDSTextureLoader.cpp"),
-                     *[str(ROOT / "frontend/assets" / n) for n in ("dds.cpp", "image_upload.cpp", "buffer_upload.cpp", "resource_cache.cpp")],
+                     *[str(ROOT / "frontend/assets" / n) for n in ("dds.cpp", "png.cpp", "image_upload.cpp", "buffer_upload.cpp", "resource_cache.cpp")],
                      "/Fe:" + str(exe), "/link", "/NOLOGO", "d3d11.lib", "dxguid.lib", "ole32.lib"]
     run_cl(find_vcvars(), str(out), args)
     return exe

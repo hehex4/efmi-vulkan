@@ -422,13 +422,20 @@ static void image_ini_failures(Device& d,const std::filesystem::path& root){
         {typeless+"[ResourceAlias]\nformat = R32_FLOAT\n[Present]\nResourceAlias = ref ResourceSource\nps-t0 = ref ResourceAlias\n","DXGI resource family"},
         {typeless+"[PoolImages]\npool_size = 1\n[Present]\nPoolImages[0] = ref ResourceSource\nps-t[0:0] = ref PoolImages[0:0]\n","cannot infer a typeless"},
         {typed+"[ResourceCopy]\nformat = R32_FLOAT\nbind_flags = shader_resource\n[Present]\nResourceCopy = copy ResourceSource\n","different DXGI families"},
-        {"[ResourceSource]\nfilename = not-loaded.png\n[Present]\nps-t0 = ref ResourceSource\n","WIC image source is unreadable"},
         {typed+"[Constants]\nglobal $out = 0\n[Present]\nstore = $out, ResourceSource, 0\n","store requires a buffer"},
-        {"[ResourceSource]\nfilename = truncated.dds\n[Present]\nps-t0 = ref ResourceSource\n","payload is truncated"},
     };
-    for(size_t i=0;i<std::size(cases);++i){const auto directory=root/std::to_string(i);
-        if(i==std::size(cases)-1){write_image_dds(directory/"Mods/truncated.dds",{"truncated",DXGI_FORMAT_R8G8B8A8_UNORM,3,2,2,1,1,1,4,1});
+    // A file the original's loader makes no texture of (not there, a truncated DDS) leaves the resource
+    // null, with its warning, and the list goes on (CustomResource::LoadFromFile, D-139).
+    for(const char* file:{"not-loaded.png","truncated.dds"}){const auto directory=root/file;
+        if(std::string(file)=="truncated.dds"){write_image_dds(directory/"Mods/truncated.dds",{"truncated",DXGI_FORMAT_R8G8B8A8_UNORM,3,2,2,1,1,1,4,1});
             std::filesystem::resize_file(directory/"Mods/truncated.dds",148);}
+        ImageIniFixture f(d,directory,"namespace = images\n[Constants]\nglobal $after = 0\n[ResourceSource]\nfilename = "+std::string(file)+
+                                      "\n[Present]\nps-t0 = ref ResourceSource\n$after = 1\n");
+        f.present();f.variable("after",1);
+        check(!f.srv(0).image,"An image file that does not load binds nothing and the Present goes on");
+        f.release();
+    }
+    for(size_t i=0;i<std::size(cases);++i){const auto directory=root/std::to_string(i);
         ImageIniFixture f(d,directory,"namespace = images\n"+cases[i].first);
         f.backend->begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
         check(!f.ini->present({},1,0,f.why),"Invalid original image operation is refused");

@@ -11,7 +11,7 @@ enum class FileOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed
 struct FileResource {
     std::wstring name;
     std::filesystem::path path;
-    VkBufferUsageFlags usage=0; // Zero means a DDS image.
+    VkBufferUsageFlags usage=0; // Zero means an image file (a .dds, or any WIC container).
     uint32_t stride=0;
     VkIndexType index_type=VK_INDEX_TYPE_MAX_ENUM;
 };

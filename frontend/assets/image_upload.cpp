@@ -110,11 +110,22 @@ bool ImageUpload::prepare(const uint8_t* data,size_t size,const VkPhysicalDevice
                           bool bc_enabled,bool readback,uint32_t skip_levels,float priority)
 {
     if(state_!=UploadState::Empty){reason_="Image ticket cannot be prepared again";return false;}
+    DdsImage decoded;
+    if(!decode_dds(data,size,decoded,reason_)){state_=UploadState::Failed;return false;}
+    return prepare_decoded(decoded,data,size,memory,limits,features,bc_enabled,readback,skip_levels,priority);
+}
+bool ImageUpload::prepare_decoded(const DdsImage& decoded,const uint8_t* data,size_t size,const VkPhysicalDeviceMemoryProperties& memory,
+                                  const VkImageFormatProperties& limits,VkFormatFeatureFlags features,
+                                  bool bc_enabled,bool readback,uint32_t skip_levels,float priority)
+{
+    if(state_!=UploadState::Empty){reason_="Image ticket cannot be prepared again";return false;}
 #define X(name) if(!d_.name){reason_="Missing image upload entry: vk" #name;state_=UploadState::Failed;return false;}
     EFMI_IMAGE_UPLOAD_FUNCS(X)
 #undef X
-    if(!decode_dds(data,size,decoded_,reason_)){state_=UploadState::Failed;return false;}
-    memory_=memory;
+    if(decoded.levels.empty() || decoded.levels.back().offset+decoded.levels.back().bytes>size){
+        reason_="Decoded image levels outside its bytes";state_=UploadState::Failed;return false;
+    }
+    decoded_=decoded;memory_=memory;
     if(!check_format(features,limits,bc_enabled,readback) || !create_image(limits,readback,skip_levels,priority))return false;
     const auto start=base_offset();
     VkBufferCreateInfo buffer={VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};

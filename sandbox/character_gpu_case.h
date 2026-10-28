@@ -510,15 +510,24 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         texture.close();
         write_text("green.dds", "broken DDS candidate");
         press("1 121\n"); frame(false); press("1\n");
-        bool bad_image = false;
-        for (uint32_t i = 0; i < 400 && !bad_image; ++i) { frame(false); bad_image = number(status(), "ini_reload_rejected") == 1; if (!bad_image) Sleep(5); }
-        // The live generation draws on. Right after the exchange before, its frames may still be the
-        // game's while its pipeline variants build (the frame gate, D-097), so the pixel is waited for.
-        bool kept_green = false;
-        for (uint32_t i = 0; i < 100 && bad_image && !kept_green; ++i) { kept_green = shade_at(-.6f,.3f) == 8; if (!kept_green) { frame(false); Sleep(5); } }
-        check(bad_image && number(status(), "ini_generation") == old_generation && kept_green,
-              "failed candidate DDS upload retains old Ready images and the live drawing generation");
+        // As the original: the reload goes through, and a texture whose file does not load is a null
+        // resource; the draw goes on and reads zero there (D-139; the candidate was refused before). Its
+        // frames may still be the game's while the variant without the image builds (the frame gate,
+        // D-097), so the pixel is waited for.
+        bool reloaded = false;
+        for (uint32_t i = 0; i < 400 && !reloaded; ++i) { frame(false); reloaded = number(status(), "ini_generation") == old_generation + 1; if (!reloaded) Sleep(5); }
+        bool unbound = false;
+        for (uint32_t i = 0; i < 200 && reloaded && !unbound; ++i) { unbound = shade_at(-.6f,.3f) == 7; if (!unbound) { frame(false); Sleep(5); } }
+        check(reloaded && number(status(), "ini_reload_rejected") == 0 && unbound,
+              "F10 with a texture file that does not load goes through as the original's: it binds nothing, the draw goes on");
         write_text("green.dds", texture_bytes);
+        press("1 121\n"); frame(false); press("1\n");
+        bool green_again = false;
+        for (uint32_t i = 0; i < 400 && !green_again; ++i) {
+            frame(false); green_again = number(status(), "ini_generation") == old_generation + 2 && shade_at(-.6f,.3f) == 8; if (!green_again) Sleep(5);
+        }
+        check(green_again, "F10 with the texture file repaired loads it again");
+        const auto live_generation = old_generation + 2;
         auto changed = original_text;
         const auto alternate = changed.find("else\n ps-t1 = ResourceGreen\n");
         if (alternate == std::string::npos) throw std::runtime_error("Runtime fixture branch not found");
@@ -532,7 +541,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
             VK(g.submit(cmd)); VK(vkQueueWaitIdle(g.queue));
             preserved &= shade_at(-.6f,.3f) == 8;
             self_probe("{\"cmd\":\"m2\",\"advance\":1}", "runtime-advance.json");
-            swapped = number(status(), "ini_generation") == old_generation + 1;
+            swapped = number(status(), "ini_generation") == live_generation + 1;
             if (!swapped) Sleep(5);
         }
         check(swapped && preserved, "F10 publishes a Ready generation while sealed commands keep the old mesh, bones and images");
@@ -542,7 +551,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         for (uint32_t i = 0; i < 400 && !red; ++i) { frame(false); red = shade_at(-.6f,.3f) == 5; if (!red) Sleep(5); }
         check(red && shade_at(0,0) == 6 && shade_at(.6f,-.1f) == 1, "new recordings use the reloaded INI and keep application state intact");
         for (int i = 0; i < 3; ++i) frame(false);
-        check(number(status(), "ini_generation") == old_generation + 1 && status().find("\"ini_reload_pending\":false") != std::string::npos,
+        check(number(status(), "ini_generation") == live_generation + 1 && status().find("\"ini_reload_pending\":false") != std::string::npos,
               "F10 held through the exchange does not retrigger in the new generation");
         press("1\n"); frame(false);
         self_probe("{\"cmd\":\"status\"}", "runtime-final.json");

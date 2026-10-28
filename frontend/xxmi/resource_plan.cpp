@@ -20,11 +20,12 @@ std::shared_ptr<const assets::FileResource> describe(const CustomResource& r,uns
         return refuse(L"Resource transformation is not supported by immutable file upload");
     auto file=std::make_shared<assets::FileResource>();file->name=r.name;file->path=path.lexically_normal();
     if(role==2){
+        // A .dds by the DDS loader, any other file by WIC, as the original's LoadFromFile (D-139).
         if((r.override_type!=CustomResourceType::INVALID && r.override_type!=CustomResourceType::TEXTURE2D) ||
-           _wcsicmp(path.extension().c_str(),L".dds") || r.override_stride!=-1 ||
+           r.override_stride!=-1 ||
            r.override_format!=DXGI_FORMAT(-1) || r.override_color_space!=CustomColorSpace::DEFAULT ||
            (r.override_bind_flags!=CustomResourceBindFlags::INVALID && r.override_bind_flags!=CustomResourceBindFlags::SHADER_RESOURCE))
-            return refuse(L"Pixel file binding requires an unmodified DDS image");
+            return refuse(L"Pixel file binding requires an unmodified image");
         return file;
     }
     if(r.override_type!=CustomResourceType::BUFFER)return refuse(L"Mesh file binding requires a plain Buffer declaration");

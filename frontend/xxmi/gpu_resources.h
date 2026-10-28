@@ -108,6 +108,8 @@ private:
     GpuResourceBinding get(ResourceCopyTarget&,CommandListState&);
     GpuResourceBinding load(CustomResource&);
     GpuResourceBinding load_image(CustomResource&);
+    // A file the original's loader makes no resource of: null from then on, with its warning (D-139).
+    GpuResourceBinding unloaded(CustomResource&,const wchar_t* kind,const std::string& why);
     gpu::Image allocate_image(ImageSourceDescription&);
     void select_view(GpuResourceBinding&,GpuResourceBinding::View,bool raw=false,bool complete_info=true);
     void fill_info(GpuResourceBinding&,ResourceCopyTargetType type=ResourceCopyTargetType::CUSTOM_RESOURCE);

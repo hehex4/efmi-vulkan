@@ -1,5 +1,6 @@
 // Included by the headless asset GPU fixture, sharing its actual device.
 #include "../frontend/assets/texture_cache.h"
+#include "../frontend/assets/png.h"
 #include <chrono>
 #include <future>
 
@@ -216,6 +217,53 @@ static std::vector<uint8_t> staged_readback(Gpu& g,const ImageUpload& image)
     barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_READ_BIT);
     g.finish(cb,b);
     const auto* mapped=static_cast<const uint8_t*>(b.mapped);return {mapped,mapped+bytes};
+}
+// An 8-bit RGBA PNG in one stored zlib block, samples distinct per position.
+static std::vector<uint8_t> png_fixture(uint32_t width,uint32_t height)
+{
+    auto crc=[](const uint8_t* p,size_t n){uint32_t c=0xffffffffu;for(size_t i=0;i<n;++i){c^=p[i];for(int k=0;k<8;++k)c=(c>>1)^(0xedb88320u&(0u-(c&1)));}return ~c;};
+    auto be=[](std::vector<uint8_t>& out,uint32_t v){for(int s=24;s>=0;s-=8)out.push_back(uint8_t(v>>s));};
+    auto chunk=[&](std::vector<uint8_t>& out,const char* type,const std::vector<uint8_t>& data){
+        be(out,uint32_t(data.size()));const size_t start=out.size();out.insert(out.end(),type,type+4);out.insert(out.end(),data.begin(),data.end());
+        be(out,crc(out.data()+start,out.size()-start));};
+    std::vector<uint8_t> rows;
+    for(uint32_t y=0;y<height;++y){rows.push_back(0);for(uint32_t i=0;i<width*4;++i)rows.push_back(uint8_t((y*71+i*29+13)&0xff));}
+    std::vector<uint8_t> out{137,80,78,71,13,10,26,10},header;be(header,width);be(header,height);header.insert(header.end(),{8,6,0,0,0});
+    chunk(out,"IHDR",header);
+    std::vector<uint8_t> z{0x78,0x01,1,uint8_t(rows.size()),uint8_t(rows.size()>>8),uint8_t(~rows.size()),uint8_t(~rows.size()>>8)};
+    z.insert(z.end(),rows.begin(),rows.end());uint32_t a=1,b=0;for(auto c:rows){a=(a+c)%65521;b=(b+a)%65521;}be(z,b<<16|a);
+    chunk(out,"IDAT",z);chunk(out,"IEND",{});return out;
+}
+// D-139: a file not named .dds is decoded as the original's WIC loader decodes it, on the worker's own
+// staging and through the staging arena, and arrives as the decoder made it; a file WIC makes nothing of fails.
+void wic_tests(Gpu& g)
+{
+    const auto folder=std::filesystem::current_path()/L"wic-fixtures";std::filesystem::create_directories(folder);
+    const auto png=png_fixture(8,4);write_fixture(folder/L"image.png",png);
+    write_fixture(folder/L"broken.png",{'n','o','t',' ','a','n',' ','i','m','a','g','e'});
+    PngPixels expected;std::string reason;
+    check(decode_wic(png.data(),png.size(),expected,reason),"the WIC fixture decodes");
+    std::mutex queue_mutex;
+    for(const bool staged:{false,true}){
+        TextureDevice device=cache_device(g);
+        if(staged){device.dispatch=g.dispatch;device.dispatch.CreateCommandPool=staged_create_pool;device.upload_queue=g.queue;device.upload_family=g.family;
+            device.upload_mutex=&queue_mutex;device.readback=true;
+#define X(name) device.buffer_dispatch.name=p##name;
+            EFMI_BUFFER_UPLOAD_FUNCS(X)
+#undef X
+        }
+        TextureCache cache(device,{},16,1);
+        auto image=cache.declare_image(folder/L"image.png",reason),broken=cache.declare_image(folder/L"broken.png",reason);
+        check(image && broken && cache.demand(image) && cache.demand(broken),"WIC fixtures declared and demanded");
+        auto settle=[&](const TextureHandle& h){return staged?h->wait_until(Clock::now()+std::chrono::seconds(15)):await_texture(cache,h,g,true);};
+        const auto ready=settle(image),failed=settle(broken);
+        const bool loaded=ready.state==TextureState::Ready && ready.image && ready.image->metadata().format==expected.metadata.format &&
+                          ready.image->metadata().width==8 && ready.image->metadata().height==4;
+        check(loaded,staged?"a PNG through the staging arena loads as the decoder made it":"a PNG on the worker's staging loads as the decoder made it");
+        if(staged && loaded)check(staged_readback(g,*ready.image)==expected.bytes,"the PNG's pixels arrive as decoded");
+        check(failed.state==TextureState::Failed,"a file WIC makes nothing of fails its load");
+        cache.stop();
+    }
 }
 void staged_tests(Gpu& g)
 {

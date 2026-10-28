@@ -1,4 +1,5 @@
 #include "resource_cache.h"
+#include "png.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -193,6 +194,14 @@ struct BudgetBusy:std::runtime_error{using std::runtime_error::runtime_error;};
     throw std::runtime_error(reason);
 }
 uint64_t steady_us(){return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());}
+// As the original (CustomResource::LoadFromFile): a file named .dds is a DDS, any other the system's WIC decodes.
+bool wic_image(const std::filesystem::path& path){return _wcsicmp(path.extension().c_str(),L".dds")!=0;}
+PngPixels decoded_wic(const std::vector<uint8_t>& bytes)
+{
+    PngPixels pixels;std::string reason;
+    if(!decode_wic(bytes.data(),bytes.size(),pixels,reason))throw std::runtime_error("WIC image: "+reason);
+    return pixels;
+}
 constexpr uint64_t kArenaBytes=256ull<<20;      // three loaders' 64 MiB maps at once, an 85 MiB one beside them
 constexpr uint64_t kArenaAlignment=256;
 }
@@ -303,8 +312,9 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
            !ticket->buffer->record(record_family,!own_queue || record_family==device_.graphics_family))fail_upload(ticket->buffer->reason());
         return ticket;
     }
-    DdsImage meta;std::string reason;
-    if(!decode_dds(bytes.data(),bytes.size(),meta,reason))throw std::runtime_error(reason);
+    DdsImage meta;std::string reason;PngPixels pixels;
+    if(wic_image(entry->path_))meta=(pixels=decoded_wic(bytes)).metadata;
+    else if(!decode_dds(bytes.data(),bytes.size(),meta,reason))throw std::runtime_error(reason);
     VkFormatProperties features{};device_.format_properties(device_.physical,meta.format,&features);
     VkImageFormatProperties limits{};
     const auto result=device_.image_properties(device_.physical,meta.format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
@@ -312,9 +322,12 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
     if(result!=VK_SUCCESS)throw std::runtime_error("Resource format unsupported for sampled upload");
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);
     if(own_queue)upload->share(device_.graphics_family,device_.upload_family);
-    if(!upload->prepare(bytes.data(),bytes.size(),device_.memory,limits,features.optimalTilingFeatures,device_.bc_enabled,false,
-                        entry->skip_levels_,device_.memory_priority) ||
-       !upload->record(record_family))fail_upload(upload->reason());
+    const bool prepared=pixels.bytes.empty()?
+        upload->prepare(bytes.data(),bytes.size(),device_.memory,limits,features.optimalTilingFeatures,device_.bc_enabled,false,
+                        entry->skip_levels_,device_.memory_priority):
+        upload->prepare_decoded(meta,pixels.bytes.data(),pixels.bytes.size(),device_.memory,limits,features.optimalTilingFeatures,
+                                device_.bc_enabled,false,entry->skip_levels_,device_.memory_priority);
+    if(!prepared || !upload->record(record_family))fail_upload(upload->reason());
     ticket->image=std::move(upload);return ticket;
 }
 std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle& entry,Loader& loader,Slice& slice,uint64_t& read_done_us)
@@ -326,27 +339,38 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
     LARGE_INTEGER size{};
     if(!GetFileSizeEx(file.handle,&size) || size.QuadPart<=0 || size.QuadPart>(128ll<<20))
         throw std::runtime_error("Resource file size outside source budget");
-    // The header first: what the image is, and where in the file the levels it takes begin.
-    uint8_t header[kDdsHeaderBytes]{};DWORD read=0;
-    const DWORD header_bytes=static_cast<DWORD>(std::min<int64_t>(size.QuadPart,static_cast<int64_t>(kDdsHeaderBytes)));
-    if(!ReadFile(file.handle,header,header_bytes,&read,nullptr) || read!=header_bytes)throw std::runtime_error("Incomplete resource file read");
-    DdsImage meta;std::string reason;
-    if(!decode_dds_header(header,read,static_cast<uint64_t>(size.QuadPart),meta,reason))throw std::runtime_error(reason);
+    // The header first: what the image is, and where in the file the levels it takes begin. A WIC image is
+    // decoded whole, its pixels the payload.
+    DWORD read=0;DdsImage meta;std::string reason;PngPixels pixels;
+    if(wic_image(entry->path_)){
+        std::vector<uint8_t> bytes(static_cast<size_t>(size.QuadPart));
+        if(!ReadFile(file.handle,bytes.data(),static_cast<DWORD>(bytes.size()),&read,nullptr) || read!=bytes.size())
+            throw std::runtime_error("Incomplete resource file read");
+        meta=(pixels=decoded_wic(bytes)).metadata;
+    }else{
+        uint8_t header[kDdsHeaderBytes]{};
+        const DWORD header_bytes=static_cast<DWORD>(std::min<int64_t>(size.QuadPart,static_cast<int64_t>(kDdsHeaderBytes)));
+        if(!ReadFile(file.handle,header,header_bytes,&read,nullptr) || read!=header_bytes)throw std::runtime_error("Incomplete resource file read");
+        if(!decode_dds_header(header,read,static_cast<uint64_t>(size.QuadPart),meta,reason))throw std::runtime_error(reason);
+    }
     VkFormatProperties features{};device_.format_properties(device_.physical,meta.format,&features);
     VkImageFormatProperties limits{};
     if(device_.image_properties(device_.physical,meta.format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
                                 VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),0,&limits)!=VK_SUCCESS)
         throw std::runtime_error("Resource format unsupported for sampled upload");
     const auto base=meta.levels[ImageUpload::levels_skipped(meta,entry->skip_levels_)].offset;
-    const uint64_t payload=static_cast<uint64_t>(size.QuadPart)-base;
+    const uint64_t payload=pixels.bytes.empty()?static_cast<uint64_t>(size.QuadPart)-base:pixels.bytes.size();
     // The payload straight into the arena: one read, no copy of our own.
     uint64_t offset=0;
     if(!arena_take(payload,offset))throw BudgetBusy("Aggregate staging arena busy");
     slice.cache=this;slice.offset=offset;slice.bytes=payload;
     uint8_t* target;{std::lock_guard<std::mutex> lock(arena_mutex_);target=arena_->mapped+offset;}
-    LARGE_INTEGER at{};at.QuadPart=static_cast<LONGLONG>(base);
-    if(!SetFilePointerEx(file.handle,at,nullptr,FILE_BEGIN) || !ReadFile(file.handle,target,static_cast<DWORD>(payload),&read,nullptr) || read!=payload)
-        throw std::runtime_error("Incomplete resource file read");
+    if(!pixels.bytes.empty())std::memcpy(target,pixels.bytes.data(),pixels.bytes.size());
+    else{
+        LARGE_INTEGER at{};at.QuadPart=static_cast<LONGLONG>(base);
+        if(!SetFilePointerEx(file.handle,at,nullptr,FILE_BEGIN) || !ReadFile(file.handle,target,static_cast<DWORD>(payload),&read,nullptr) || read!=payload)
+            throw std::runtime_error("Incomplete resource file read");
+    }
     read_done_us=steady_us();
     {std::lock_guard<std::mutex> lock(mutex_);++stats_.file_reads;}
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);

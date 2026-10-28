@@ -1735,6 +1735,8 @@ bool CharacterGeneration::init_materials()
     // The images as the device's residency holds them (D-094): declared here, loaded on first bind.
     if (!textures || !textures->usable()) { last_reason = textures ? textures->reason() : "textures need the device's residency"; return false; }
     for (const auto& path : package.images) {
+        // A file that does not load is the original's null resource: no plan binds it (D-139).
+        if (program && program->image_unloadable(path)) { image_ids.push_back(TextureResidency::kNone); continue; }
         std::string why;
         const auto id = textures->declare(path, why);
         if (id == TextureResidency::kNone) { last_reason = why; return false; }
@@ -4152,6 +4154,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
         uint64_t resident = 0, failed = 0, bytes = 0;
         if (backend.textures)
             for (const auto id : backend.image_ids) {
+                if (id == TextureResidency::kNone) continue; // a file that does not load, never declared
                 if (backend.textures->resident(id)) { ++resident; bytes += backend.textures->file_bytes(id); }
                 else if (backend.textures->failed(id)) ++failed;
             }

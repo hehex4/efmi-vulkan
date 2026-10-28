@@ -390,7 +390,7 @@ def emit(replay: Replay, draws: list[dict]) -> str:
 def build(out: Path) -> Path:
     from build import COMMON, BuildError, find_vcvars, find_vulkan_include, run_cl
     sources = [ROOT / "sandbox/replay_gpu.cpp"]
-    sources += [ROOT / "frontend/assets" / n for n in ("dds.cpp", "image_upload.cpp", "resource_cache.cpp", "buffer_upload.cpp",
+    sources += [ROOT / "frontend/assets" / n for n in ("dds.cpp", "png.cpp", "image_upload.cpp", "resource_cache.cpp", "buffer_upload.cpp",
                                                          "file_plan.cpp", "file_draws.cpp")]
     sources += [ROOT / "frontend/gpu" / n for n in ("fragment_images.cpp", "dither_kills.cpp", "material_plan.cpp", "draw_transaction.cpp")]
     sources += [ROOT / "layer/src" / n for n in ("pipeline_recipe.cpp", "pipeline_variant.cpp", "spirv_repoint.cpp", "variant_cache.cpp",

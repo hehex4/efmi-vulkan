@@ -3,6 +3,7 @@
 #include "globals.h"
 #include "util.h"
 #include "ResourceHash.h"
+#include "Overlay.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -193,9 +194,12 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r) {
     GpuResourceBinding b;std::vector<uint8_t> bytes;
     if(!r.filename.empty()) {
         require(r.override_type!=CustomResourceType::INVALID,"GPU untyped file requires image/resource type adaptation");
+        // LoadBufferFromFile: a file it cannot open or read (or an empty one, which no buffer is made of) is null.
         std::ifstream in(std::filesystem::path(r.filename),std::ios::binary|std::ios::ate);
-        require(bool(in) && in.tellg()>0 && uint64_t(in.tellg())<=max_bytes,"GPU resource file unreadable or over budget");
-        bytes.resize(size_t(in.tellg()));in.seekg(0);in.read(reinterpret_cast<char*>(bytes.data()),bytes.size());require(bool(in),"GPU resource file read failed");
+        if(!in || in.tellg()<=0)return unloaded(r,L"buffer","the file cannot be read");
+        require(uint64_t(in.tellg())<=max_bytes,"GPU resource file over budget");
+        bytes.resize(size_t(in.tellg()));in.seekg(0);in.read(reinterpret_cast<char*>(bytes.data()),bytes.size());
+        if(!in)return unloaded(r,L"buffer","the file cannot be read");
         b.visible_size=uint32_t(bytes.size()); // Original LoadBufferFromFile keeps file size separately.
     }else if(r.initial_data_size){require(r.initial_data && r.initial_data_size<=max_bytes,"GPU initial data exceeds budget");
         const auto* p=static_cast<const uint8_t*>(r.initial_data);bytes.assign(p,p+r.initial_data_size);}
@@ -206,6 +210,12 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r) {
     r.OverrideOutOfBandInfo(&b.format,&b.stride);b.source_stride=r.source_stride;
     b.buffer=commands_.create(b.description.ByteWidth,usage(b.description),bytes.empty()?nullptr:bytes.data(),std::min<size_t>(bytes.size(),b.description.ByteWidth),true);
     r.is_null=false;r.stride=b.stride;r.format=b.format;r.buf_size=b.visible_size;resources_[&r]=b;return b;
+}
+GpuResourceBinding GpuResourceRuntime::unloaded(CustomResource& r,const wchar_t* kind,const std::string& why){
+    // CustomResource::LoadFromFile and LoadBufferFromFile: the overlay's warning, and the resource stays null,
+    // so every assignment of it binds nothing and the rest goes on.
+    LogOverlayW(LOG_WARNING,L"Failed to load custom %ls resource %ls: %hs\n",kind,r.filename.c_str(),why.c_str());
+    r.is_null=true;resources_[&r]={};return {};
 }
 GpuResourceBinding GpuResourceRuntime::resolve(ResourceCopyTarget& input,CommandListState& state){active();return get(input,state);}
 // The owned buffer a replaced draw binds as a vertex stream (D-087): what the resource holds now,

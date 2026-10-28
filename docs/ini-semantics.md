@@ -82,6 +82,8 @@ stand-ins' limits (no game pipeline: "offline ...") are not counted.
 
 2026-10-28 on the installed folder: 316 key actions, 2407 states, 18 Mods, every section plans in every
 state, 7 s. With BUG-076's fix taken out it reports tangtang Ramune's component 0 at LOD 0. A run_all step.
+The same on copies of the user's ten disabled Mods (without their DISABLED_ prefix, with the installed
+libraries; 2026-10-28, after D-139): 179 key actions, 2398 states, every section plans.
 
 ## Classification of refusal points (2026-10-28)
 
@@ -140,6 +142,42 @@ pre lists before post lists; another description, an undescribed texture and the
 resource meet none) and check_mod_degradation's two variants (a section by a texture's description
 loads and plans in every state; one by a buffer's description and a creation-time key load and are
 reported), both refused before.
+
+## Image files (D-139)
+
+The original (CustomResource::LoadFromFile) takes a file named .dds with DirectXTK's DDS loader and every
+other file with its WIC loader (CreateWICTextureFromFileEx: frame 0, its WIC-to-DXGI table, the sRGB rule
+of the container: PNG's sRGB chunk, another's System.Image.ColorSpace 1; one mip). A file either loader
+makes nothing of leaves the resource null, with an overlay warning, and every assignment of it binds
+nothing; the same for a buffer file it cannot open or read (LoadBufferFromFile).
+
+The layer, before: a replaced draw that bound anything but a .dds refused ("Pixel file binding requires
+an unmodified DDS image", the game's mesh drawn); a texture file present but broken refused the draw when
+its load failed (C_IMAGE, the game's mesh) and refused an F10 candidate (LIMIT-043); owned work (Present,
+CustomShader) took PNG only and refused the Present for any file it could not load. Now:
+
+- `assets::decode_wic` is the PNG decoder made general: any WIC container, frame 0, the same table, the
+  container's sRGB rule. Owned work and the replaced draws' loader (ResourceCache, both its own staging
+  and the staging arena) take every file not named .dds through it.
+- The character program checks at load whether each texture file loads (CharacterProgram image_loads:
+  a .dds by its header, another by WIC without decoding the pixels, within the loader's 128 MiB). One
+  that does not is the original's null resource: what binds it binds nothing, as for a file not there
+  (BUG-076), and the Mod is told (its gaps: log, notice). Such a file is never declared to the residency,
+  so it no longer refuses an F10 candidate.
+- Owned work: a texture or buffer file the loader makes nothing of is null with the original's warning;
+  the Present goes on.
+
+Checks: resource_png_cases (BMP, JPEG, JPEG with forced sRGB and TIFF fixtures, written by WIC's own
+encoder, decode to the bytes and format the pinned DirectXTK loader gives on WARP; a broken file fails
+there and binds nothing in the owned Present, which goes on), resource_image_ini_cases (a missing PNG and
+a truncated DDS bind nothing, the Present goes on; were refusals), asset_gpu wic_tests (a PNG through
+both of the loader's paths arrives as decoded; a broken file fails), check_mod_degradation (a bound
+texture as a PNG: the Mod's sections refused before, plan now; a broken DDS is reported and binds
+nothing), and a vk04 replay of SiModGB's copy with one texture a PNG and one a broken DDS (every matched
+draw planned, validation clean). The live INI scene's F10 with its texture file broken was refused
+before (the candidate dropped, LIMIT-043); now it goes through as the original's, the pixel reads
+the null texture's zero, and an F10 after the file is repaired draws it again; a prepared package's own
+images are checked the same way and one that does not load is never declared.
 
 ## Freezes (the user's other half, 2026-10-28)
 

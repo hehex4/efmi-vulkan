@@ -113,7 +113,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
             if test:
                 run_cl(vcvars, str(out), flags + ["/DNOMINMAX", str(ROOT / "sandbox/xxmi_runtime.cpp"),
                        str(ROOT / "layer/src/character_package.cpp"), str(ROOT / "layer/src/merged_skeleton.cpp"),
-                       str(ROOT / "layer/src/pipeline_recipe.cpp"), str(ROOT / "layer/src/character_program.cpp"),
+                       str(ROOT / "layer/src/pipeline_recipe.cpp"), str(ROOT / "layer/src/character_program.cpp"), str(ROOT / "frontend/assets/dds.cpp"),
                        *objects, "/Fe:" + str(out / "runtime_test.exe"), "/link", "/NOLOGO", "/OPT:REF", "/OPT:ICF", *libraries])
     except Exception as exc:
         output.write(str(exc))

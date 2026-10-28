@@ -76,6 +76,8 @@ public:
     const std::vector<std::string>& library_notes() const { return library_notes_; }
     // What the original does for the Mod's sections and the layer does not (CharacterDiscovery::gaps).
     const std::vector<std::string>& gaps() const { return gaps_; }
+    // A package image whose file the original's loader makes nothing of (D-139): never declared, bound as nothing.
+    bool image_unloadable(const std::string& path) const;
     // The folder of the library of this namespace the generation loaded (D-112), empty without one.
     std::filesystem::path library_folder(const std::string& name) const
     {
@@ -134,6 +136,8 @@ private:
               const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension>, const GpuFactory&, std::string& reason,
               const std::filesystem::path& mods = {}, bool declarations_only = false);
     void catalogue(CharacterPackage&, const std::map<std::wstring, uint32_t>& remaps);
+    // Whether a texture file loads (D-139); one that does not is recorded, the Mod told.
+    bool image_checked(const std::filesystem::path& path);
     std::shared_ptr<efmi::frontend::OwnedRuntime> gpu_;
     std::string gpu_reason_;
     std::vector<std::string> library_notes_;
@@ -144,6 +148,8 @@ private:
     std::map<std::wstring, uint32_t> streams_, images_;
     // Mesh files the generation declares that gave no buffer (BUG-077): bound, they bind nothing.
     std::set<std::wstring> absent_;
+    // Texture files the original's loader makes no texture of (D-139): bound, they bind nothing.
+    std::set<std::wstring> unloadable_;
     // The stream or image a plan item's resource names, by the resource object the compiler hands
     // out for a declaration (stable for the generation): the path key is made once per resource,
     // not per draw (it cost 10 us per matched draw).

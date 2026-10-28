@@ -30,7 +30,7 @@ def main() -> int:
         args=COMMON+["/DNOMINMAX","/I"+find_vulkan_include(),"/I"+str(ROOT/"frontend/assets"),
                      "/Fo"+str(out)+"/", "/Fd"+str(out/"test.pdb"),
                      str(ROOT/"sandbox/asset_gpu.cpp"),str(ROOT/"frontend/assets/dds.cpp"),
-                     str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/resource_cache.cpp"),
+                     str(ROOT/"frontend/assets/image_upload.cpp"),str(ROOT/"frontend/assets/resource_cache.cpp"),str(ROOT/"frontend/assets/png.cpp"),
                      str(ROOT/"frontend/assets/buffer_upload.cpp"),
                      str(ROOT/"frontend/assets/file_plan.cpp"),
                      str(ROOT/"frontend/assets/file_draws.cpp"),

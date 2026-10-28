@@ -39,6 +39,10 @@ public:
     bool prepare(const uint8_t*,size_t,const VkPhysicalDeviceMemoryProperties&,
                  const VkImageFormatProperties&,VkFormatFeatureFlags,
                  bool bc_enabled,bool readback=false,uint32_t skip_levels=0,float priority=-1.0f);
+    // The same for an image already decoded (a WIC image's one level): `data` holds its levels at their offsets.
+    bool prepare_decoded(const DdsImage&,const uint8_t*,size_t,const VkPhysicalDeviceMemoryProperties&,
+                         const VkImageFormatProperties&,VkFormatFeatureFlags,
+                         bool bc_enabled,bool readback=false,uint32_t skip_levels=0,float priority=-1.0f);
     // D-130: the image alone, for a loader that reads the DDS's payload into staging of its own and
     // records and submits the copy with its own command buffer and fence. After it, base_offset() is
     // where in the file the payload the image takes begins.
