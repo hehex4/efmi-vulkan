@@ -65,6 +65,16 @@ struct RuntimeInput {
     // GetSystemTicks), which advances the original FPS counter. Zero leaves it unchanged.
     uint64_t ticks_us = 0;
 };
+// A texture at a DX11 pixel slot of a draw as the original sees it (D-077, D-138): its resource hash and
+// the D3D11_TEXTURE2D_DESC its match_* sections compare, field by field (Width, Height, MipLevels,
+// ArraySize, Format, SampleDesc.Count, SampleDesc.Quality, Usage, BindFlags, CPUAccessFlags, MiscFlags);
+// `described` false when the host cannot tell, and no such section matches it.
+struct RuntimeTexture {
+    bool bound = false;
+    uint32_t hash = 0;
+    bool described = false;
+    uint32_t description[11] = {};
+};
 struct RuntimeDraw {
     uint32_t hash = 0, count = 0, first = 0, instances = 1, first_instance = 0;
     int32_t base = 0;
@@ -83,8 +93,8 @@ struct RuntimeDraw {
     int32_t source_vs_config_slot = -1;
     float frame_seconds = 0;
     // With RuntimeConfig::texture_identity: the application's texture at a DX11 pixel slot of this
-    // draw, as the original's resource hash (`bound` false for an empty slot). False refuses.
-    std::function<bool(unsigned slot, bool& bound, uint32_t& hash, std::string& reason)> pixel_texture;
+    // draw, as the original's resource hash and description (`bound` false for an empty slot). False refuses.
+    std::function<bool(unsigned slot, RuntimeTexture& texture, std::string& reason)> pixel_texture;
     // RabbitFX's texture roles in this draw (D-082): the DX11 t registers of the diffuse map, the
     // lightmap and the normal map its fragment shader samples, -1 for a role it has not. False:
     // not known, and the RabbitFX library binds nothing.

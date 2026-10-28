@@ -6,6 +6,7 @@
 #include "efmittl_bridge.h"
 #include "buffer_queries.h"
 #include "globals.h"
+#include "Overlay.h"
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
@@ -24,6 +25,13 @@ const std::wstring core_namespace = L"\\efmiv1\\";
 std::wstring command(const wchar_t* name) { return L"commandlist" + core_namespace + name; }
 CommandListVariable& var(const wchar_t* name) { return command_list_globals.at(L"$" + core_namespace + name); }
 ExplicitCommandListSection& list(const wchar_t* name) { return explicitCommandListSections.at(command(name)); }
+std::string narrow(const std::wstring& value)
+{
+    const int n = WideCharToMultiByte(CP_UTF8, 0, value.data(), int(value.size()), nullptr, 0, nullptr, nullptr);
+    std::string out(size_t(std::max(n, 0)), '\0');
+    if (n) WideCharToMultiByte(CP_UTF8, 0, value.data(), int(value.size()), out.data(), n, nullptr, nullptr);
+    return out;
+}
 uint32_t integer(float value)
 {
     if (!std::isfinite(value) || value < 0 || value > 65536 || std::floor(value) != value) throw std::runtime_error("Invalid native Core integer");
@@ -566,9 +574,49 @@ global $mod_id = -1
         for (const auto& m : mods_) HostCompileGraph(L"commandlist" + m.mod + L"initializemergedskeleton", boundaries);
         return boundaries;
     }
+    // What the original does for a section and the layer does not (D-137): the original's warning, and a
+    // line for the Mod the section belongs to, which the host shows.
+    void gap(const std::wstring& section, const std::wstring& text)
+    {
+        LogOverlayW(LOG_WARNING, L"[%ls] %ls\n", section.c_str(), text.c_str());
+        Mod* m = folder_ ? mod_of(section, L"textureoverride") : &mods_[0];
+        CharacterDiscovery* out = m ? (m->discovery ? m->discovery.get() : m->facts.get()) : nullptr;
+        if (out && out->gaps.size() < 16) out->gaps.push_back(narrow(L"[" + section + L"] " + text));
+    }
+    // Sections matched by a resource's description (match_type, match_width, ...: the original's
+    // FuzzyMatchResourceDesc, D-138). One that can match a 2D texture runs where the original's does, at a
+    // CheckTextureOverride of a pixel slot, against the host's description of the game's image (the one its
+    // texture hash is made of, D-077). One that can match a buffer would also run at the game's draws by
+    // their index buffer's description, and one for 1D or 3D textures at theirs: the host describes neither,
+    // so these match none of them and the Mod is told. And what the original does with a section when the
+    // game creates, maps or copies a resource (format, size, CPU reads, region copies): the layer leaves the
+    // game's resources as the game made them.
+    bool described_sections(std::wstring& why)
+    {
+        auto creation = [&](const TextureOverride& o) {
+            if (o.format != -1 || o.width != -1 || o.height != -1 || o.width_multiply != 1.0f || o.height_multiply != 1.0f ||
+                o.override_byte_width != -1 || o.deny_cpu_read || o.expand_region_copy)
+                gap(o.ini_section, L"changes how the game creates, maps or copies the resources it matches; "
+                                   L"the Vulkan layer leaves them as the game made them");
+        };
+        for (const auto& hashed : G->mTextureOverrideMap)
+            for (const auto& entry : hashed.second) creation(entry);
+        for (const auto& fuzzy : G->mFuzzyTextureOverrides) {
+            const auto& section = fuzzy->texture_override->ini_section;
+            creation(*fuzzy->texture_override);
+            if (fuzzy->matches_buffer)
+                gap(section, L"matches buffers by their description, which the Vulkan layer does not give for the game's: it matches none of them");
+            if (!fuzzy->matches_tex2d && (fuzzy->matches_tex1d || fuzzy->matches_tex3d))
+                gap(section, L"matches 1D or 3D textures by their description; the Vulkan layer describes 2D textures only: it matches none of them");
+            if (!fuzzy->matches_tex2d) continue;
+            if (!textures) return fail(why, L"Generation contains an unprofiled override; source-image identity is unavailable");
+            ++texture_sections;
+        }
+        return true;
+    }
     bool validate_overrides(std::wstring& why) override
     {
-        if (!G->mFuzzyTextureOverrides.empty()) return fail(why, L"Fuzzy/image overrides require a source-image identity provider");
+        if (!described_sections(why)) return false;
         if (std::any_of(mods_.begin(), mods_.end(), [](const Mod& m) { return m.discovery != nullptr; })) return discover_sections(why);
         auto matches = [](const FuzzyMatch& f, uint32_t value, bool) {
             // None: any value (an optional first index, a hash-only section's index count).

@@ -74,6 +74,8 @@ public:
                                                         const std::vector<std::string>& known, std::vector<std::string>& notes);
     // The libraries the generation loaded and those it left out (D-112), for the log.
     const std::vector<std::string>& library_notes() const { return library_notes_; }
+    // What the original does for the Mod's sections and the layer does not (CharacterDiscovery::gaps).
+    const std::vector<std::string>& gaps() const { return gaps_; }
     // The folder of the library of this namespace the generation loaded (D-112), empty without one.
     std::filesystem::path library_folder(const std::string& name) const
     {
@@ -135,6 +137,7 @@ private:
     std::shared_ptr<efmi::frontend::OwnedRuntime> gpu_;
     std::string gpu_reason_;
     std::vector<std::string> library_notes_;
+    std::vector<std::string> gaps_;
     std::map<std::string, std::filesystem::path> libraries_; // loaded libraries by namespace
     bool efmittl_ = false;
     std::shared_ptr<efmi::frontend::IniRuntime> runtime_;

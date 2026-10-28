@@ -159,12 +159,13 @@ public:
         bool application=true;
         CustomResource* resource=nullptr; // Null with application=false means an explicit unbind.
     };
-    struct TextureIdentity {bool bound=false;uint32_t hash=0;};
+    // With `described`, the description the original's match_* sections compare (D-138).
+    struct TextureIdentity {bool bound=false;uint32_t hash=0;bool described=false;D3D11_TEXTURE2D_DESC description{};};
     using TextureQuery=std::function<bool(unsigned,const PixelBinding&,CommandListState&,TextureIdentity&,std::wstring&)>;
     // The provider proves the source-API resource hash (including the original
     // hash policy), not merely a Vulkan object identity or arbitrary byte hash.
-    // Unknown data refuses. Hash matching uses original XXMI rules; descriptor
-    // fuzzy matching is unsupported and refuses. Install before adaptation. With a
+    // Unknown data refuses. Hash and descriptor (match_*) matching use original XXMI
+    // rules; a texture without a description meets no descriptor section. Install before adaptation. With a
     // source resource matcher as well, the matcher answers inside owned scopes and
     // this query outside them (the host's draws, D-077).
     void texture_queries(TextureQuery);

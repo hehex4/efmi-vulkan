@@ -28,4 +28,6 @@ struct SourceResourceMatch {
 // Requires the owning generation's globals; never dereferences a D3D object.
 void source_resource_matches(const SourceResourceMatch&,ResourceCopyTargetType,
                              CommandListState&,TextureOverrideMatches&);
+// The original's match_* sections a texture of this description meets in this draw, appended in its order.
+void described_resource_matches(const D3D11_TEXTURE2D_DESC&,CommandListState&,TextureOverrideMatches&);
 }

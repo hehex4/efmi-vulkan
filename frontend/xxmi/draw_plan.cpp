@@ -580,8 +580,10 @@ struct DrawPlanAdapter::Runtime {
             if(!texture_query(slot,binding,state,identity,why))refuse(why.empty()?L"Texture source identity is unknown":why);
             }
             bound=identity.bound;if(!bound)return;
-            if(!G->mFuzzyTextureOverrides.empty())refuse(L"Texture descriptor fuzzy matching has no adapter");
             find_texture_override_for_hash(identity.hash,&matches,state.call_info);
+            // The original appends the match_* sections the resource's description meets after the hash's
+            // (find_texture_overrides_for_resource); one the host cannot describe meets none (D-138).
+            if(!G->mFuzzyTextureOverrides.empty() && identity.described)described_resource_matches(identity.description,state,matches);
         }
         if(matches.size()>max_items)refuse(L"Texture match count exceeds planner budget");
         for(auto* match:matches)if(!match || !adapted.count(match->command_list.ResolveCommandList()) ||

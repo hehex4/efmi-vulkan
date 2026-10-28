@@ -44,4 +44,8 @@ void source_resource_matches(const SourceResourceMatch& source,ResourceCopyTarge
         },source.description);
     }
 }
+void described_resource_matches(const D3D11_TEXTURE2D_DESC& description,CommandListState& state,TextureOverrideMatches& matches){
+    match_require(G!=nullptr,"Resource matching needs an active generation");
+    find_texture_overrides_for_desc(&description,&matches,state.call_info);
+}
 }

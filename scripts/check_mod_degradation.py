@@ -7,7 +7,12 @@ installed Core:
 - an index buffer file deleted: the original's resource is null and that draw shows nothing;
 - a vertex buffer file one byte short of whole elements: the original's buffer holds it, the last
   partial element is never read;
-- a vertex buffer file declared a second time with another stride: the original makes two buffers.
+- a vertex buffer file declared a second time with another stride: the original makes two buffers;
+- more distinct draw lists than the layer's cache holds;
+- a section matched by a texture's description (match_type, match_width ...): the original runs it at
+  a CheckTextureOverride of a pixel slot (D-138);
+- a section matched by a buffer's description and a section that changes the game's resources when they
+  are created: the layer does not do these, the rest of the Mod loads and the layer says so.
 
 Each must load, and every section must plan in every state. Writes build/mod-degradation/.
 """
@@ -69,7 +74,7 @@ def main() -> int:
         print("mod degradation: %s has no index or vertex buffer declaration to break" % source.name)
         return 1
 
-    def variant(label: str, change) -> None:
+    def variant(label: str, change, expect: tuple[str, ...] = ()) -> None:
         nonlocal failed
         mods = out / label / "Mods"
         mod = mods / source.name
@@ -79,7 +84,7 @@ def main() -> int:
         result = subprocess.run([sys.executable, str(ROOT / "scripts" / "check_mod_states.py")], env=env, capture_output=True,
                                 text=True, errors="replace", timeout=1800)
         (out / label / "check.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
-        ok = result.returncode == 0
+        ok = result.returncode == 0 and all(e in result.stdout for e in expect)
         failed |= not ok
         print("%s %s: %s" % ("ok  " if ok else "FAIL", label, (result.stdout.strip().splitlines() or ["(no output)"])[-1]))
         if not ok:
@@ -121,6 +126,23 @@ def main() -> int:
         insert_after("[Present]", "$efvk_frame = $efvk_frame + 1")
         (mod / ini_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
     variant("more distinct draw lists than the cache holds", many_lists)
+
+    texture = next((n for n, k in declared if k["filename"].lower().endswith(".dds")), None)
+
+    def by_description(mod: Path) -> None:
+        bind = "ps-t0 = %s" % texture if texture else "ps-t0 = null"
+        extra = "\n[TextureOverrideEfvkBySize]\nmatch_type = Texture2D\nmatch_width = 1024\nmatch_height = width\n%s\n" % bind
+        (mod / ini_name).write_text(text + extra, encoding="utf-8")
+    variant("texture section matched by its description", by_description)
+
+    def not_for_vulkan(mod: Path) -> None:
+        extra = "\n[TextureOverrideEfvkByteWidth]\nmatch_type = Buffer\nmatch_byte_width = 1024\nhandling = skip\n"
+        lines = text.splitlines()
+        first = next(i for i, line in enumerate(lines) if line.strip().lower().startswith("[textureoverride"))
+        lines.insert(first + 1, "deny_cpu_read = 1")
+        (mod / ini_name).write_text("\n".join(lines) + "\n" + extra, encoding="utf-8")
+    variant("buffer section by description, creation-time key", not_for_vulkan,
+            ("matches buffers by their description", "changes how the game creates"))
     print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
     return 1 if failed else 0
 

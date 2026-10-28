@@ -1,4 +1,5 @@
 #include "texture_identity.h"
+#include <cstring>
 
 namespace efvk {
 
@@ -49,16 +50,11 @@ uint32_t dxgi_format(VkFormat format)
     }
 }
 
-bool dx11_texture_hash(const ImageInfo& image, uint32_t& hash)
+bool dx11_texture_desc(const ImageInfo& image, uint32_t desc[11])
 {
-    // Without content tracking no upload is seen, and an asset would look like a texture without data.
-    if (!g_cfg.image_hash || !g_cfg.track_resources) return false;
     if (image.type != VK_IMAGE_TYPE_2D) return false;
     const uint32_t format = dxgi_format(image.format);
     if (!format) return false;
-    uint32_t seed = 0;
-    if (image.content == IMG_HASHED) seed = image.dx11_data_crc;
-    else if (image.content != IMG_NONE) return false; // a partial, unreadable or oversized upload
     // The DX11 description of the same texture: default usage, no CPU access, bind flags from what the
     // Vulkan image is used for (a game asset: shader resource only), a cube map flagged as such.
     uint32_t bind = 0;
@@ -69,8 +65,21 @@ bool dx11_texture_hash(const ImageInfo& image, uint32_t& hash)
     const uint32_t misc = (image.flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) ? 0x4u : 0u; // D3D11_RESOURCE_MISC_TEXTURECUBE
     // D3D11_TEXTURE2D_DESC: Width, Height, MipLevels, ArraySize, Format, SampleDesc {Count, Quality},
     // Usage, BindFlags, CPUAccessFlags, MiscFlags.
-    const uint32_t desc[11] = {image.extent.width, image.extent.height, image.levels, image.layers, format,
-                               image.samples ? image.samples : 1u, 0, 0, bind, 0, misc};
+    const uint32_t fields[11] = {image.extent.width, image.extent.height, image.levels, image.layers, format,
+                                 image.samples ? image.samples : 1u, 0, 0, bind, 0, misc};
+    memcpy(desc, fields, sizeof(fields));
+    return true;
+}
+
+bool dx11_texture_hash(const ImageInfo& image, uint32_t& hash)
+{
+    // Without content tracking no upload is seen, and an asset would look like a texture without data.
+    if (!g_cfg.image_hash || !g_cfg.track_resources) return false;
+    uint32_t desc[11];
+    if (!dx11_texture_desc(image, desc)) return false;
+    uint32_t seed = 0;
+    if (image.content == IMG_HASHED) seed = image.dx11_data_crc;
+    else if (image.content != IMG_NONE) return false; // a partial, unreadable or oversized upload
     hash = crc32c(seed, desc, sizeof(desc));
     return true;
 }

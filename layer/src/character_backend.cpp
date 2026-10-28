@@ -754,7 +754,7 @@ public:
         // The answers of the pixel slot queries already made in this draw (the Core and RabbitFX ask
         // for the same slots again): bit per slot answered, and the answer.
         uint64_t answered[2] = {0, 0};
-        struct Answer { bool bound = false; uint32_t hash = 0; } answers[128];
+        efmi::frontend::RuntimeTexture answers[128];
     } lookups;
     // The package's frame gate (D-097): a frame replaces draws only while every image and pipeline
     // variant the package's draws needed in the frame before is in place, and the first bind that is
@@ -821,6 +821,18 @@ public:
             notice(NoticeLevel::Warning, (package_path + "\n" + reason).c_str(), text.c_str());
         }
     }
+    // What the original does for the Mod's sections and the layer does not (CharacterProgram::gaps), shown
+    // at load as the refusals above are (D-137): every one in the log, the first three as notices.
+    void show_gaps()
+    {
+        if (!program) return;
+        const std::string mod = std::filesystem::u8path(package_path).parent_path().filename().u8string();
+        size_t shown = 0;
+        for (const auto& gap : program->gaps()) {
+            logf("character package %s: %s", package_path.c_str(), gap.c_str());
+            if (shown++ < 3) notice(NoticeLevel::Warning, (package_path + "\n" + gap).c_str(), ("EFMI Vulkan: " + mod + ": " + gap).c_str());
+        }
+    }
     // A fragment shader without a profile of its own keeps the application's images; logged once per
     // pipeline and slot set (derive caches the answer).
     uint32_t refuse_profile(const std::string& reason, uint32_t result) { note(reason); logf("%s", reason.c_str()); return result; }
@@ -849,6 +861,7 @@ public:
                 logf("character Mod read from its INI: %s: %zu mesh files, %zu images, %zu sections, %zu mesh sections left to the game",
                      package_path.c_str(), package.streams.size(), package.images.size(), package.sections.size(), program->left_to_game());
             } else if (!program->init(package_path, package, last_reason, gpu)) return false;
+            show_gaps();
             if (program->gpu()) presenter = std::make_shared<OwnedPresenter>(device, program->gpu());
             else if (!program->gpu_reason().empty()) logf("owned GPU work unavailable: %s", program->gpu_reason().c_str());
             {
@@ -867,6 +880,7 @@ public:
     {
         program = std::move(adopted); package = std::move(made); presenter = std::move(shared); plan_mx = std::move(lock);
         for (const auto& note : program->library_notes()) logf("%s", note.c_str());
+        show_gaps();
         if (g_cfg.m2_dimension_zero_vendor && g_cfg.m2_dimension_zero_vendor == properties.vendorID &&
             g_cfg.m2_dimension_zero_device == properties.deviceID) {
             package.material_vendor = properties.vendorID; package.material_device = properties.deviceID;
@@ -1181,26 +1195,29 @@ public:
     }
 
     // Caller holds mod_mx and res_mx shared. The application's texture at DX11 pixel slot `slot` of the
-    // draw, by its original resource hash (D-077): the slot's binding comes from the fragment module's
-    // registers (D-076), the image from the tracked descriptor. A slot the module does not declare reads
-    // nothing here; a resource whose hash cannot be known answers a bound slot without a hash, so no
-    // override matches it and the draw is still replaced (counted in texture_unknown, reason noted).
-    bool pixel_texture(const DrawRec& r, unsigned slot, bool& bound, uint32_t& hash, std::string& why)
+    // draw, by its original resource hash (D-077) and description (D-138): the slot's binding comes from
+    // the fragment module's registers (D-076), the image from the tracked descriptor. A slot the module
+    // does not declare reads nothing here; a resource whose hash cannot be known answers a bound slot
+    // without a hash, so no hash section matches it and the draw is still replaced (counted in
+    // texture_unknown, reason noted); one the layer cannot describe meets no match_* section.
+    bool pixel_texture(const DrawRec& r, unsigned slot, efmi::frontend::RuntimeTexture& texture, std::string& why)
     {
         // Inside record(): one draw's bindings do not change while it is planned, so a slot's answer
         // holds for the rest of the draw (D-108).
         const bool cacheable = lookups.pipeline == r.pipeline && lookups.pipe && slot < 128;
         if (cacheable && (lookups.answered[slot >> 6] >> (slot & 63) & 1)) {
-            ++texture_queries; bound = lookups.answers[slot].bound; hash = lookups.answers[slot].hash; return true;
+            ++texture_queries; texture = lookups.answers[slot]; return true;
         }
-        const bool answered = pixel_texture_uncached(r, slot, bound, hash, why);
-        if (cacheable && answered) { lookups.answered[slot >> 6] |= 1ull << (slot & 63); lookups.answers[slot] = {bound, hash}; }
+        const bool answered = pixel_texture_uncached(r, slot, texture, why);
+        if (cacheable && answered) { lookups.answered[slot >> 6] |= 1ull << (slot & 63); lookups.answers[slot] = texture; }
         return answered;
     }
-    bool pixel_texture_uncached(const DrawRec& r, unsigned slot, bool& bound, uint32_t& hash, std::string&)
+    bool pixel_texture_uncached(const DrawRec& r, unsigned slot, efmi::frontend::RuntimeTexture& texture, std::string&)
     {
         ++texture_queries;
-        bound = false; hash = 0;
+        texture = {};
+        bool& bound = texture.bound;
+        uint32_t& hash = texture.hash;
         const auto unknown = [&](const char* why) { bound = true; hash = 0; ++texture_unknown; texture_reason = why; return true; };
         const PipeInfo* info = lookups.pipeline == r.pipeline ? lookups.pipe : nullptr;
         if (!info) {
@@ -1236,6 +1253,7 @@ public:
         const ImageInfo* image = bound_image(r, reg->set, reg->binding, empty, why);
         if (empty) return true; // a null view: an empty slot
         if (!image) return unknown(why);
+        texture.described = dx11_texture_desc(*image, texture.description);
         if (!dx11_texture_hash(*image, hash)) return unknown("an image without a known original hash");
         bound = true;
         return true;
@@ -1887,8 +1905,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 request.mod = program->folder_index();
                 request.frame = present; request.seconds = ini_seconds();
                 request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
-                request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
-                    return pixel_texture(r, slot, bound, value, why); };
+                request.pixel_texture = [this, &r](unsigned slot, efmi::frontend::RuntimeTexture& texture, std::string& why) {
+                    return pixel_texture(r, slot, texture, why); };
                 request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
                 const auto found = device->pipes.find(r.pipeline);
                 if (found != device->pipes.end()) {
@@ -2084,8 +2102,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             if (translucency && program->efmittl()) { request.lit_vertex = lit_vertex(pipe->second); translucency->listen(); }
             request.seconds = ini_seconds();
             request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
-            request.pixel_texture = [this, &r](unsigned slot, bool& bound, uint32_t& value, std::string& why) {
-                return pixel_texture(r, slot, bound, value, why); };
+            request.pixel_texture = [this, &r](unsigned slot, efmi::frontend::RuntimeTexture& texture, std::string& why) {
+                return pixel_texture(r, slot, texture, why); };
             request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
             request.vertex_stride = [&pipe](unsigned slot, uint32_t& stride, std::string& why) { return vertex_stride(pipe->second, slot, stride, why); };
             const SourceFacts& facts = facts_of(pipe->second, site);

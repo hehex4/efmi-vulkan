@@ -52,6 +52,9 @@ def main() -> int:
             print("  NOT LOADED: %s: %s" % (mod["ini"], mod.get("reason", "")))
             failed = True
             continue
+        # What the original does for a section and the layer does not: shown, as the layer shows it.
+        for gap in mod.get("gaps", []):
+            print("  GAP %s: %s" % (mod["ini"], gap))
         if not refusals:
             continue
         failed = True

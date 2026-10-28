@@ -96,6 +96,51 @@ then the gaps (step 3).
   refusing; check_mod_degradation.py). The every-state check also runs 1200 presentations after the keys
   (a Present that changes state every frame).
 
+## Sections matched by a resource's description (D-138)
+
+A TextureOverride without `hash` but with match_* keys (match_type, match_width, match_height,
+match_format, match_byte_width, match_bind_flags, match_usage, match_mips, match_msaa ...) is a
+FuzzyMatchResourceDesc of the original (IniHandler.cpp parse_texture_override_fuzzy_match): it matches
+every resource whose D3D11 description meets its predicates, `match_usage` DEFAULT unless given, the
+types its keys can apply to (update_types_matched), and its draw-context keys. The original looks them
+up wherever it looks up a resource's sections (ResourceHash.cpp find_texture_overrides_for_resource:
+the whole-resource hash's sections, then these, each filtered by the draw): a CheckTextureOverride of a
+pixel slot (EFMI's Core runs one on ps-t0 to ps-t22 in a Mod's draws), `CheckTextureOverride = ib` (the
+Core's ShaderRegexEnableTextureOverrides, every vs_4/vs_5 draw of the game: the region hash's sections,
+then the index buffer's description's), and when the game creates a resource (HackerDevice
+process_texture_override: format, width, height, their multipliers). The original's own resources
+(CustomResource, the back buffer) have no handle info and meet none.
+
+The layer, before: any such section refused the whole Mod ("Fuzzy/image overrides require a
+source-image identity provider"). Now:
+
+- A section that can match a 2D texture runs at a CheckTextureOverride of a pixel slot, against the
+  description of the game's image the layer already makes for its texture hash (D-077: Vulkan format to
+  DXGI, usage DEFAULT, bind flags from the image's usage, TEXTURECUBE for cube-compatible images; the
+  hash from it matched DX11's on 345 of 347 textures, the two others a cube map and a mip chain the
+  game uploads shorter under Vulkan). The original's matcher and order (find_texture_overrides_for_desc
+  after the hash's sections) run unchanged in the frontend (`described_resource_matches`). An image
+  the layer cannot describe (1D, 3D, a format without a DXGI counterpart) meets none. A Mod's own
+  resource meets none, as in the original.
+- A section that can match a buffer would also run at the game's draws by their index buffer's
+  description. The layer finds the game's draws by their index region's hash (D-097) and has no D3D11
+  description of the game's buffers (Unity's Vulkan buffers are not shown to be the DX11 build's): it
+  matches none of them. One for 1D or 3D textures likewise.
+- A section that changes how the game creates, maps or copies a resource (format, width, height,
+  width_multiply, height_multiply, a buffer size with allow_buffer_resize, deny_cpu_read,
+  expand_region_copy), matched by hash or description: the layer leaves the game's resources as the game
+  made them.
+
+The last two are the layer's gaps: the section is inert, the rest of the Mod loads, and the Mod is told
+(CharacterDiscovery::gaps, the original's warning in the log, the first three per Mod as overlay notices
+naming the section). No installed Mod has such a section (census 2026-10-28: no match_* key and no
+creation-time key in any enabled TextureOverride). Checks: texture_query_test (the original's parse of
+a Texture2D and a Buffer section; a described texture meets the Texture2D one after its hash sections,
+pre lists before post lists; another description, an undescribed texture and the generation's own
+resource meet none) and check_mod_degradation's two variants (a section by a texture's description
+loads and plans in every state; one by a buffer's description and a creation-time key load and are
+reported), both refused before.
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

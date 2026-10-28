@@ -84,6 +84,16 @@ CheckTextureOverride = ps-t5
 [TextureOverrideUnadapted]
 hash = deadbeef
 $order = 999
+[TextureOverrideBySize]
+match_type = Texture2D
+match_width = 512
+match_height = width / 2
+match_format = BC7_UNORM
+$order = $order * 10 + 5
+[TextureOverrideBuffers]
+match_type = Buffer
+match_byte_width = 64
+$order = 777
 )",L"texture-query.ini");
     if(api)HostParseIniFile(std::filesystem::absolute(api));
     // A generation-owned declaration; parsing its filename is unrelated to
@@ -97,11 +107,15 @@ $order = 999
     auto& single=explicitCommandListSections.at(ns+L"single").command_list;
     for(auto& command:single.commands)if(auto* c=dynamic_cast<CheckTextureOverrideCommand*>(command.get()))c->run_pre_and_post_together=false;
     DrawPlanAdapter adapter;unsigned queries=0,custom_queries=0;bool unknown=false,core_mode=false;
+    // The description slot 0's texture is given with (D-138): none, or 512 x 256 BC7 as the game's build creates it.
+    bool described=false;UINT described_width=512;
     adapter.texture_queries([&](unsigned slot,const DrawPlanAdapter::PixelBinding& binding,CommandListState&,DrawPlanAdapter::TextureIdentity& id,std::wstring& why){
         ++queries;if(!binding.application){++custom_queries;if(binding.resource!=&own){why=L"Unprepared custom texture";return false;}id={true,0x12345678};return true;}
         if((slot==3 && !core_mode) || unknown){why=L"Source texture identity unavailable";return false;}
         id.bound=true;
         if(core_mode && slot!=0){id.hash=0x24681357;return true;}
+        if(described && slot==0){id.described=true;id.description={described_width,256,1,1,DXGI_FORMAT_BC7_UNORM,{1,0},D3D11_USAGE_DEFAULT,
+                                                                   D3D11_BIND_SHADER_RESOURCE,0,0};}
         switch(slot){case 0:id.hash=0x11223344;break;case 1:id.hash=0xaabbccdd;break;case 2:id.hash=0xaabbccde;break;
             case 5:id.hash=0x99990000;break;case 9:id.hash=0xdeadbeef;break;case 6:id.bound=false;break;default:id.hash=0x24681357;break;}
         return true;
@@ -111,6 +125,7 @@ $order = 999
     optimise_command_lists(nullptr);
     for(auto name:names){auto& s=explicitCommandListSections.at(ns+name);adapter.adapt(s.command_list);adapter.adapt(s.post_command_list);}
     for(auto& hash:G->mTextureOverrideMap)for(auto& item:hash.second)if(hash.first!=0xdeadbeef){adapter.adapt(item.command_list);adapter.adapt(item.post_command_list);}
+    for(auto& fuzzy:G->mFuzzyTextureOverrides){adapter.adapt(fuzzy->texture_override->command_list);adapter.adapt(fuzzy->texture_override->post_command_list);}
     if(api){auto& lists=explicitCommandListSections.at(core_name);adapter.adapt(lists.command_list);adapter.adapt(lists.post_command_list);}
     check(HostDiagnosticCount()==diagnostics,"texture override fixture compiles without parser diagnostics");
     HackerContext context;DrawCallInfo call(DrawCall::DrawIndexed,0,7,1,0,0,0,nullptr,0);
@@ -150,10 +165,16 @@ $order = 999
     CommandListState no_this;no_this.mHackerContext=&context;no_this.call_info=&call;
     check(!adapter.execute(explicitCommandListSections.at(ns+L"badthis").command_list,no_this,result,why) && result.items.size()==1,
           "missing this binding refuses without publishing partial output");
-    auto fuzzy=std::make_shared<FuzzyMatchResourceDesc>(L"fixture/fuzzy");G->mFuzzyTextureOverrides.insert(fuzzy);
-    check(!run(L"both") && result.items.size()==1 && why==L"Texture descriptor fuzzy matching has no adapter",
-          "descriptor-only fuzzy rules cannot be silently omitted by a hash-only adapter");
-    G->mFuzzyTextureOverrides.erase(fuzzy);
+    check(G->mFuzzyTextureOverrides.size()==2,"the original parses both descriptor sections");
+    described=true;
+    check(run(L"both") && result.items.back().first_index==12534 && value(L"filter")==9 && restored,
+          "a described texture meets the original's match_* section after its hash sections, pre lists before post lists");
+    described_width=1024;
+    check(run(L"both") && result.items.back().first_index==1234,"a description the section excludes meets none");
+    described_width=512;
+    check(run(L"replacement") && result.items.size()==1 && custom_queries==2,"the generation's own resource meets no descriptor section");
+    described=false;
+    check(run(L"both") && result.items.back().first_index==1234,"a texture the host cannot describe meets no descriptor section");
     if(api){
         core_mode=true;value(L"order")=0;const auto before=queries,custom_before=custom_queries;
         CommandListState state;state.mHackerContext=&context;state.call_info=&call;auto& core=explicitCommandListSections.at(core_name);

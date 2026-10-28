@@ -163,6 +163,7 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
         identify_components_ = facts->identify_components;
         element_offsets_ = facts->element_offsets;
         efmittl_ = facts->efmittl;
+        gaps_ = facts->gaps;
         catalogue(package, remaps);
         // Validated and catalogued: the bytes are read again from the files when needed (ISSUE-011).
         return package.release_payload(std::move(files), reason);
@@ -524,6 +525,7 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
         identify_components_ = found.identify_components;
         element_offsets_ = found.element_offsets;
         efmittl_ = found.efmittl;
+        gaps_ = found.gaps;
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }

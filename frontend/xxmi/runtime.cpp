@@ -400,9 +400,12 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 // A resource of the generation: the original keeps no hash for what it creates itself.
                 if (!binding.application) { id.bound = binding.resource != nullptr; id.hash = 0; return true; }
                 if (!p.current_draw || !p.current_draw->pixel_texture) { why = L"Source texture identity unavailable outside a draw"; return false; }
-                bool bound = false; uint32_t hash = 0; std::string reason;
-                if (!p.current_draw->pixel_texture(slot, bound, hash, reason)) { why.assign(reason.begin(), reason.end()); return false; }
-                id.bound = bound; id.hash = hash; return true;
+                RuntimeTexture texture; std::string reason;
+                if (!p.current_draw->pixel_texture(slot, texture, reason)) { why.assign(reason.begin(), reason.end()); return false; }
+                static_assert(sizeof(texture.description) == sizeof(D3D11_TEXTURE2D_DESC), "the description is D3D11_TEXTURE2D_DESC's fields");
+                id.bound = texture.bound; id.hash = texture.hash; id.described = texture.described;
+                if (texture.described) memcpy(&id.description, texture.description, sizeof(id.description));
+                return true;
             });
         }
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};

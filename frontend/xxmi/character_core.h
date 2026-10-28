@@ -39,6 +39,9 @@ struct CharacterDiscovery {
     // component ids; known once the overrides are parsed, before any declaration runs (the offline
     // dry run lists them for a Mod whose declarations need the GPU).
     std::vector<efvk::CharacterSection> declared;
+    // What the original does for the Mod's sections and the layer does not (D-137, D-138): a line each
+    // (UTF-8, the section named), for the host to show; the rest of the Mod loads.
+    std::vector<std::string> gaps;
 };
 std::shared_ptr<RuntimeExtension> character_discovery(const std::string& mod_namespace, std::shared_ptr<CharacterDiscovery> output);
 // A folder generation (D-131, docs/folder-generation.md): every character Mod of the Mods folder in

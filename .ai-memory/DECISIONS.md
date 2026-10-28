@@ -1077,6 +1077,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-138: Sections matched by a resource's description, as the original matches them (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. A TextureOverride with match_* keys refused the whole Mod.
+- As the original (find_texture_overrides_for_resource: hash sections, then the description's, filtered by the draw), a section that can match a 2D texture runs at every CheckTextureOverride of a pixel slot against the D3D11_TEXTURE2D_DESC the layer makes of the game's image for its texture hash (D-077), with the original's matcher unchanged; an image the layer cannot describe and a Mod's own resource meet none.
+- What the layer cannot do as the original: a section matching the game's buffers by description (the draws are found by their index region's hash; no D3D11 description of the game's buffers is established), one for 1D or 3D textures, and keys that change the game's resources when they are created, mapped or copied. Each such section is inert, the Mod loads, and the Mod is told (CharacterDiscovery::gaps: the log, the first three as overlay notices).
+
 ## D-137: The original is the INI's specification, including how it fails (docs/ini-semantics.md)
 
 - Date: 2026-10-28. The user: the INI handling keeps meeting problems; Mods are written every way; think it through, general, never per Mod; then: do all of it.

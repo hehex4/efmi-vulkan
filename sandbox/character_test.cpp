@@ -418,7 +418,7 @@ static efmi::frontend::RuntimeDraw section_draw(const Section& s, uint32_t lod, 
         if (stage != L'v') { why = "offline the pixel shader's declarations are not known"; return false; }
         return srv_of(vertex, slot, type, dimension, stride, why);
     };
-    request.pixel_texture = [](unsigned, bool& bound, uint32_t& value, std::string&) { bound = true; value = 0; return true; };
+    request.pixel_texture = [](unsigned, efmi::frontend::RuntimeTexture& texture, std::string&) { texture = {}; texture.bound = true; return true; };
     request.vertex_stride = [](unsigned, uint32_t&, std::string& why) { why = "offline the game's vertex buffers are not known"; return false; };
     if (s.stride_slot != kCharacterNone)
         request.vertex_stride = [&s](unsigned slot, uint32_t& value, std::string& why) {
@@ -516,6 +516,7 @@ static int plan_folder_states(const std::filesystem::path& mods, const std::file
         w.kv("ini", found[i].ini.lexically_relative(mods).u8string());
         w.kb("loaded", found[i].program != nullptr);
         if (!found[i].program) w.kv("reason", found[i].reason);
+        else { w.key("gaps"); w.begin_array(); for (const auto& gap : found[i].program->gaps()) w.str(gap); w.end_array(); }
         w.kn("plans", plans[i]);
         w.key("refusals"); w.begin_array();
         for (const auto& r : refusals[i]) {

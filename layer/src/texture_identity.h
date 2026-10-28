@@ -10,6 +10,12 @@ namespace efvk {
 // The DXGI format the game's DX11 build creates for this Vulkan format; 0 when not known.
 uint32_t dxgi_format(VkFormat format);
 
+// The D3D11_TEXTURE2D_DESC the game's DX11 build creates for this image, field by field (Width, Height,
+// MipLevels, ArraySize, Format, SampleDesc.Count, SampleDesc.Quality, Usage, BindFlags, CPUAccessFlags,
+// MiscFlags): what the original's hash is made of and its match_* sections compare (D-138). False for a
+// 1D or 3D image and an unknown format.
+bool dx11_texture_desc(const ImageInfo& image, uint32_t desc[11]);
+
 // False when the hash cannot be computed: image content tracking off, a 3D or 1D image, an unknown
 // format, or an upload the tracker could not read whole. An image never uploaded from a buffer has
 // the hash of a texture without data.
