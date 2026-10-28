@@ -45,20 +45,29 @@ bool read_source(const CharacterSource& source, uint64_t size, uint8_t* out, std
         CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr)};
     if (file.h == INVALID_HANDLE_VALUE) { reason = "mesh file missing or busy: " + source.path; return false; }
     LARGE_INTEGER length{}, at{};
-    if (!GetFileSizeEx(file.h, &length) || static_cast<uint64_t>(length.QuadPart) < source.offset + size) {
+    const uint64_t from_file = std::min(size, source.file_bytes);
+    if (!GetFileSizeEx(file.h, &length) || static_cast<uint64_t>(length.QuadPart) < source.offset + from_file) {
         reason = "mesh file changed since the load (shorter): " + source.path; return false;
     }
     at.QuadPart = static_cast<LONGLONG>(source.offset);
     if (!SetFilePointerEx(file.h, at, nullptr, FILE_BEGIN)) { reason = "mesh file read failed: " + source.path; return false; }
     uint32_t crc = 0;
-    for (uint64_t done = 0; done < size;) {
-        const DWORD n = static_cast<DWORD>(std::min<uint64_t>(size - done, bounce ? bounce->size() : (1u << 30)));
+    for (uint64_t done = 0; done < from_file;) {
+        const DWORD n = static_cast<DWORD>(std::min<uint64_t>(from_file - done, bounce ? bounce->size() : (1u << 30)));
         uint8_t* target = bounce ? bounce->data() : out + done;
         DWORD got = 0;
         if (!ReadFile(file.h, target, n, &got, nullptr) || got != n) { reason = "mesh file read failed: " + source.path; return false; }
         crc = crc32c(crc, target, n);
         if (bounce) std::memcpy(out + done, target, n);
         done += n;
+    }
+    if (from_file < size) {
+        std::memset(out + from_file, 0, static_cast<size_t>(size - from_file));
+        std::vector<uint8_t> zero(static_cast<size_t>(std::min<uint64_t>(size - from_file, 1u << 16)), 0);
+        for (uint64_t done = from_file; done < size;) {
+            const size_t n = static_cast<size_t>(std::min<uint64_t>(size - done, zero.size()));
+            crc = crc32c(crc, zero.data(), n); done += n;
+        }
     }
     if (crc != source.crc) { reason = "mesh file changed since the load: " + source.path; return false; }
     return true;

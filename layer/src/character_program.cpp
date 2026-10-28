@@ -41,6 +41,13 @@ std::wstring key(const std::filesystem::path& path)
     auto result = path.lexically_normal().wstring();
     std::transform(result.begin(), result.end(), result.begin(), ::towlower); return result;
 }
+// A mesh stream by its file and how the generation declares it: the original makes a buffer per
+// [Resource] declaration, so one file declared twice (another stride, or as index and vertex data) is
+// two buffers, and here two streams (BUG-077).
+std::wstring stream_key(const std::filesystem::path& path, bool index, uint32_t stride)
+{
+    return key(path) + (index ? L"|index|" : L"|vertex|") + std::to_wstring(stride);
+}
 std::vector<uint8_t> read(const std::filesystem::path& path, uint64_t limit)
 {
     std::ifstream in(path, std::ios::binary | std::ios::ate);
@@ -142,7 +149,8 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
             if (data.empty() || data.size() % s.stride || payload.size() + data.size() > (512ull << 20)) throw std::runtime_error("Runtime mesh size or stride invalid");
             while (payload.size() % 16) payload.push_back(0);
             s.offset = payload.size(); s.size = data.size(); payload.insert(payload.end(), data.begin(), data.end());
-            if (s.kind != CharacterStream::Remap && !streams_.emplace(key(source), i).second) throw std::runtime_error("Duplicate runtime stream catalogue entry");
+            if (s.kind != CharacterStream::Remap && !streams_.emplace(stream_key(source, s.kind == CharacterStream::Index, s.stride), i).second)
+                throw std::runtime_error("Duplicate runtime stream catalogue entry");
             if (s.kind == CharacterStream::Remap) remaps.emplace(key(source), i);
         }
         package.payload = std::move(payload);
@@ -222,9 +230,11 @@ void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::
         for (const auto& file : runtime_->resources()) {
             if (!owns(file->path)) continue; // another Mod's of a folder generation
             if (file->usage) {
-                const auto found = streams_.find(key(file->path));
+                const auto stream_name = stream_key(file->path, file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT, file->stride);
+                const auto found = streams_.find(stream_name);
                 if (found == streams_.end()) {
                     if (remaps.count(key(file->path))) continue; // Validated by the native Core palette reader.
+                    if (absent_.count(stream_name)) continue;     // binds nothing (BUG-077)
                     // A mesh of sections the renderer has no part for (another INI of the Mod folder,
                     // a LOD beyond the packager's scope) stays with the game's draws, which are not
                     // planned; a replaced draw that binds it refuses in plan().
@@ -439,17 +449,27 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
         std::map<std::wstring, uint32_t> remaps, meshes;
         std::vector<uint8_t> payload;
         std::vector<CharacterSource> files(made.streams.size());
-        auto add = [&](const std::filesystem::path& path, uint32_t kind, uint32_t stride) {
+        // A file the original's buffer could not be made from (not there, or empty) gives no stream: a draw
+        // that binds it binds nothing, as the original's null resource (BUG-077).
+        auto add = [&](const std::filesystem::path& path, uint32_t kind, uint32_t stride) -> uint32_t {
+            std::error_code error;
+            if (!stride || !std::filesystem::is_regular_file(path, error)) return kCharacterNone;
             auto data = read(path, 128ull << 20);
-            if (data.empty() || !stride || data.size() % stride || payload.size() + data.size() > (512ull << 20))
-                throw std::runtime_error("Mesh size or stride invalid: " + path.u8string());
+            // The original's buffer holds the whole file; a last element the file holds only part of is fetched out
+            // of bounds and reads zero: the stream takes the whole elements from the file and zero for that one.
+            const uint64_t whole = data.size() / stride * stride;
+            const uint64_t elements = (data.size() + stride - 1) / stride * stride;
+            data.resize(whole);
+            data.resize(elements, 0);
+            if (data.empty()) return kCharacterNone;
+            if (payload.size() + data.size() > (512ull << 20)) throw std::runtime_error("Mesh size or stride invalid: " + path.u8string());
             if (made.streams.size() >= 256) throw std::runtime_error("More mesh files than one character holds");
             while (payload.size() % 16) payload.push_back(0);
             CharacterStream s;
             s.kind = kind; s.stride = stride; s.offset = payload.size(); s.size = data.size();
             payload.insert(payload.end(), data.begin(), data.end());
             made.streams.push_back(s);
-            files.push_back({path.u8string(), 0, 0});
+            files.push_back({path.u8string(), 0, 0, whole});
             return uint32_t(made.streams.size() - 1);
         };
         for (size_t i = 0; i < made.components.size(); ++i)
@@ -457,6 +477,7 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
                 const auto k = key(found.remap_files[i]);
                 auto it = remaps.find(k);
                 if (it == remaps.end()) it = remaps.emplace(k, add(found.remap_files[i], CharacterStream::Remap, 2)).first;
+                if (it->second == kCharacterNone) throw std::runtime_error("LOD remap file unreadable: " + found.remap_files[i].u8string());
                 made.components[i].remap_stream = it->second;
             }
         // Every mesh file the generation declares (a folder Mod: under its folders); those of sections
@@ -466,17 +487,34 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
         struct Declared { std::filesystem::path path; uint32_t kind, stride; };
         std::map<std::wstring, Declared> declared;
         for (const auto& file : runtime_->resources()) {
-            if (!file->usage || remaps.count(key(file->path)) || !owns(file->path)) continue;
-            const uint32_t kind = file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT ? CharacterStream::Index : CharacterStream::Vertex;
-            const auto known = declared.emplace(key(file->path), Declared{file->path, kind, file->stride});
-            if (!known.second && (known.first->second.kind != kind || known.first->second.stride != file->stride))
-                throw std::runtime_error("One mesh file declared with two meanings: " + file->path.u8string());
+            if (!file->usage || remaps.count(key(file->path))) continue;
+            const bool index = file->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            // A file that is not there binds nothing whoever declares it; the original resolves it to its own
+            // folder when the Mod's has none (IniHandler.cpp), outside every Mod's (BUG-076, BUG-077).
+            if (std::error_code error; !std::filesystem::is_regular_file(file->path, error)) {
+                if (absent_.insert(stream_key(file->path, index, file->stride)).second)
+                    library_notes_.push_back("INI mesh file missing; a draw that binds it binds nothing, as the original's null buffer: " +
+                                             file->path.u8string());
+                continue;
+            }
+            if (!owns(file->path)) continue;
+            declared.emplace(stream_key(file->path, index, file->stride),
+                             Declared{file->path, index ? uint32_t(CharacterStream::Index) : uint32_t(CharacterStream::Vertex), file->stride});
         }
-        for (const auto& file : declared) meshes.emplace(file.first, add(file.second.path, file.second.kind, file.second.stride));
+        for (const auto& file : declared) {
+            const uint32_t stream = add(file.second.path, file.second.kind, file.second.stride);
+            meshes.emplace(file.first, stream);
+            if (stream == kCharacterNone)
+                library_notes_.push_back("INI mesh file empty; a draw that binds it binds nothing, as the original's null buffer: " +
+                                         file.second.path.u8string());
+        }
         made.payload = std::move(payload);
         made.materials = true;
         if (!validate_refreshed(made, reason)) return false;
-        for (const auto& mesh : meshes) streams_.emplace(mesh.first, mesh.second);
+        for (const auto& mesh : meshes) {
+            if (mesh.second != kCharacterNone) streams_.emplace(mesh.first, mesh.second);
+            else absent_.insert(mesh.first);
+        }
         catalogue(made, remaps);
         // Validated and catalogued: as the original frees a buffer's file bytes once the resource holds
         // them, the package keeps where they are and reads them again when it needs them (ISSUE-011).
@@ -621,10 +659,13 @@ uint32_t CharacterProgram::stream_index(const std::shared_ptr<const efmi::assets
 {
     const auto cached = stream_cache_.find(resource.get());
     if (cached != stream_cache_.end()) return cached->second;
-    const auto found = streams_.find(key(resource->path));
-    if (found == streams_.end()) throw std::runtime_error("INI mesh not in prepared stream profile");
-    if (stream_cache_.size() < 4096) stream_cache_.emplace(resource.get(), found->second);
-    return found->second;
+    const auto name = stream_key(resource->path, resource->usage == VK_BUFFER_USAGE_INDEX_BUFFER_BIT, resource->stride);
+    const auto found = streams_.find(name);
+    uint32_t index = found == streams_.end() ? kCharacterNone : found->second;
+    // A file that gave no buffer binds nothing, as the original's null resource (BUG-077).
+    if (found == streams_.end() && !absent_.count(name)) throw std::runtime_error("INI mesh not in prepared stream profile");
+    if (stream_cache_.size() < 4096) stream_cache_.emplace(resource.get(), index);
+    return index;
 }
 uint32_t CharacterProgram::image_index(const std::shared_ptr<const efmi::assets::FileResource>& resource)
 {
@@ -702,6 +743,8 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         }
         CharacterDraw bound;
         bound.index_stream = kCharacterNone;
+        bool index_null = false; // bound to nothing explicitly (null, or a file that gave no buffer), not left unbound
+        uint32_t vb_null = 0;
         auto& pixels = scratch_pixels_; pixels.clear();
         auto& draws = scratch_draws_; draws.clear();
         auto& material = scratch_material_; size_t material_count = 0;
@@ -726,17 +769,25 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     if (item.operation != Op::BindVertex || item.slot >= 4) throw std::runtime_error("Owned GPU buffer outside a profiled vertex slot");
                     const auto& o = *item.owned;
                     if (!o.buffer || !o.stride || o.size < o.stride) throw std::runtime_error("Owned vertex buffer without a whole vertex");
-                    bound.vb[item.slot] = kCharacterOwned;
+                    bound.vb[item.slot] = kCharacterOwned; vb_null &= ~(1u << item.slot);
                     bound.owned.push_back({item.slot, o.buffer, o.offset, o.size, o.stride, o.keep});
                     continue;
                 }
                 if (!item.resource) {
-                    if (item.operation == Op::BindIndex) bound.index_stream = kCharacterNone;
-                    else if (item.slot < 4) bound.vb[item.slot] = kCharacterNone;
+                    if (item.operation == Op::BindIndex) { bound.index_stream = kCharacterNone; index_null = true; }
+                    else if (item.slot < 4) { bound.vb[item.slot] = kCharacterNone; vb_null |= 1u << item.slot; }
                     else throw std::runtime_error("Runtime vertex slot outside profile");
                     continue;
                 }
                 const uint32_t found_stream = stream_index(item.resource);
+                if (found_stream == kCharacterNone) {
+                    // The original's null buffer (BUG-077), as an explicit null binding.
+                    if (item.operation == Op::BindIndex) { bound.index_stream = kCharacterNone; index_null = true; }
+                    else if (item.slot < 4) { bound.vb[item.slot] = kCharacterNone; vb_null |= 1u << item.slot; }
+                    continue;
+                }
+                if (item.operation == Op::BindIndex) index_null = false;
+                else if (item.slot < 4) vb_null &= ~(1u << item.slot);
                 const auto& stream = package.streams[found_stream];
                 if (item.resource->stride != stream.stride) throw std::runtime_error("Runtime binding stride mismatch");
                 if (item.operation == Op::BindIndex) {
@@ -747,7 +798,11 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     bound.vb[item.slot] = found_stream;
                 }
             } else if (item.operation == Op::DrawIndexed || item.operation == Op::Translucent) {
-                if (draws.size() >= 64 || item.instance_count != 1 || item.first_instance || bound.index_stream == kCharacterNone)
+                // Without an index buffer, or with a null position buffer, the original's draw reads index 0 or
+                // position zero for every vertex: its triangles have no area and nothing shows. That draw is left
+                // out; the list's other draws go on (BUG-077).
+                if (index_null || (vb_null & 1u)) continue;
+                if (draws.size() >= 1024 || item.instance_count != 1 || item.first_instance || bound.index_stream == kCharacterNone)
                     throw std::runtime_error("Runtime draw outside the single-instance contract");
                 // The blend-index widening EFMI exports use: BLENDINDICES of slot 2 as R16G16B16A16_UINT
                 // (DXGI 12) or R32G32B32A32_UINT (DXGI 3); the shader reads four unsigned integers either way.

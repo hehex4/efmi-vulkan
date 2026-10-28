@@ -112,6 +112,9 @@ struct CharacterSource {
     std::string path; // UTF-8
     uint64_t offset = 0;
     uint32_t crc = 0;
+    // Bytes the stream takes from the file; the rest of the stream is zero (a last element the file holds
+    // only part of reads zero, as the original's out-of-bounds vertex fetch does; BUG-077). All by default.
+    uint64_t file_bytes = UINT64_MAX;
 };
 
 struct CharacterPackage {

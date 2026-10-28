@@ -1,0 +1,112 @@
+"""A Mod whose files are broken degrades as the original does, not as a whole (BUG-077, D-137).
+
+Copies the smallest installed character Mod (read-only source) into folders of its own and breaks one
+thing in each, then runs the every-key-state check (check_mod_states.py) on that folder with the
+installed Core:
+
+- an index buffer file deleted: the original's resource is null and that draw shows nothing;
+- a vertex buffer file one byte short of whole elements: the original's buffer holds it, the last
+  partial element is never read;
+- a vertex buffer file declared a second time with another stride: the original makes two buffers.
+
+Each must load, and every section must plan in every state. Writes build/mod-degradation/.
+"""
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+MODS = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Mods")
+CORE = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Core\EFMI")
+
+
+def resources(ini: str) -> list[tuple[str, dict]]:
+    out, name, keys = [], None, {}
+    for line in ini.splitlines():
+        line = line.split(";", 1)[0].strip()
+        if line.startswith("["):
+            if name: out.append((name, keys))
+            name, keys = line.strip("[]"), {}
+        elif "=" in line and name:
+            k, v = line.split("=", 1)
+            keys[k.strip().lower()] = v.strip()
+    if name: out.append((name, keys))
+    return [(n, k) for n, k in out if n.lower().startswith("resource") and "filename" in k]
+
+
+def smallest_character_mod() -> Path:
+    candidates = []
+    for folder in MODS.iterdir():
+        if not folder.is_dir() or folder.name.upper().startswith("DISABLED"):
+            continue
+        inis = [p for p in folder.glob("*.ini")]
+        if not any(re.search(r"(?im)^\s*\[TextureOverride", p.read_text(encoding="utf-8", errors="replace")) for p in inis):
+            continue
+        if not list(folder.rglob("*.buf")):
+            continue
+        candidates.append((sum(f.stat().st_size for f in folder.rglob("*") if f.is_file()), folder))
+    return min(candidates)[1]
+
+
+def main() -> int:
+    source = smallest_character_mod()
+    out = ROOT / "build" / "mod-degradation"
+    if out.exists():
+        shutil.rmtree(out)
+    failed = False
+    ini_name = next(p.name for p in source.glob("*.ini") if re.search(r"(?im)^\s*\[TextureOverride", p.read_text(encoding="utf-8", errors="replace")))
+    text = (source / ini_name).read_text(encoding="utf-8", errors="replace")
+    declared = resources(text)
+    fmt = lambda k: k.get("format", "").upper().replace("DXGI_FORMAT_", "")
+    index = next((k["filename"] for n, k in declared if fmt(k) in ("R32_UINT", "R16_UINT") and k["filename"].lower().endswith(".buf")), None)
+    vertex = next(((n, k) for n, k in declared if "stride" in k and k["filename"].lower().endswith(".buf") and fmt(k) not in ("R32_UINT", "R16_UINT")), None)
+    if not index or not vertex:
+        print("mod degradation: %s has no index or vertex buffer declaration to break" % source.name)
+        return 1
+
+    def variant(label: str, change) -> None:
+        nonlocal failed
+        mods = out / label / "Mods"
+        mod = mods / source.name
+        shutil.copytree(source, mod)
+        change(mod)
+        env = dict(os.environ, EFMI_VK_CHECK_MODS=str(mods), EFMI_VK_CHECK_CORE=str(CORE))
+        result = subprocess.run([sys.executable, str(ROOT / "scripts" / "check_mod_states.py")], env=env, capture_output=True,
+                                text=True, errors="replace", timeout=1800)
+        (out / label / "check.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
+        ok = result.returncode == 0
+        failed |= not ok
+        print("%s %s: %s" % ("ok  " if ok else "FAIL", label, (result.stdout.strip().splitlines() or ["(no output)"])[-1]))
+        if not ok:
+            print("\n".join("     " + line for line in result.stdout.strip().splitlines()[-8:]))
+
+    variant("index buffer file deleted", lambda mod: (mod / index.replace("\\", "/")).unlink())
+
+    def short(mod: Path) -> None:
+        path = mod / vertex[1]["filename"].replace("\\", "/")
+        path.write_bytes(path.read_bytes()[:-1])
+    variant("vertex buffer one byte short", short)
+
+    def twice(mod: Path) -> None:
+        name, keys = vertex
+        stride = int(keys["stride"])
+        extra = "\n[ResourceEfvkSecondMeaning]\ntype = Buffer\nstride = %d\nfilename = %s\n" % (stride * 2, keys["filename"])
+        # Bound after a list's last draw, so the generation declares it in use without a draw reading it.
+        lines = text.splitlines()
+        first = next(i for i, line in enumerate(lines) if line.strip().lower().startswith("drawindexed"))
+        end = next((i for i in range(first + 1, len(lines)) if lines[i].strip().startswith("[")), len(lines))
+        last = max(i for i in range(first, end) if lines[i].strip().lower().startswith("drawindexed"))
+        lines.insert(last + 1, "vb1 = ResourceEfvkSecondMeaning")
+        (mod / ini_name).write_text("\n".join(lines) + "\n" + extra, encoding="utf-8")
+    variant("vertex buffer file declared with a second stride", twice)
+    print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

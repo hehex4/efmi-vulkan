@@ -139,6 +139,8 @@ private:
     bool efmittl_ = false;
     std::shared_ptr<efmi::frontend::IniRuntime> runtime_;
     std::map<std::wstring, uint32_t> streams_, images_;
+    // Mesh files the generation declares that gave no buffer (BUG-077): bound, they bind nothing.
+    std::set<std::wstring> absent_;
     // The stream or image a plan item's resource names, by the resource object the compiler hands
     // out for a declaration (stable for the generation): the path key is made once per resource,
     // not per draw (it cost 10 us per matched draw).

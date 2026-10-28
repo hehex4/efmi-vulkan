@@ -1,5 +1,12 @@
 # EFMI Vulkan - Known issues
 
+## BUG-077: A broken buffer file dropped the whole Mod (fixed in the 2.1.2 tree)
+
+- Found by D-137's classification of refusal points (2026-10-28), shown failing by check_mod_degradation.py on a copy of an installed Mod: a mesh file that is not there refused the draws binding it ("INI mesh not in prepared stream profile"); a file one byte short of whole elements, or one file declared twice with another stride, left the whole Mod out of the folder generation ("Mesh size or stride invalid", "One mesh file declared with two meanings").
+- The original makes a buffer per [Resource] at first use; one it cannot load stays null (CustomResource::LoadBufferFromFile), a draw without an index buffer or with a null position buffer reads index or position zero and shows nothing, an element past the buffer's end reads zero, and two declarations of one file are two buffers.
+- Fixed: a missing or empty file gives no stream and binds nothing (whoever declares it: the original resolves a missing file to its own folder); a draw whose index or position binding is nothing is left out, the list's other draws go on; a last partial element reads zero (CharacterSource::file_bytes, the rest of the stream zero on every read); streams are keyed by file, kind and stride. A list may hold 1024 draws (was 64).
+- Open budget: the program's cache of distinct draw lists refuses past 1024 lists or 16384 draws (entries may be referenced by recordings in flight; to be replaced by a bounded reuse).
+
 ## BUG-076: A texture file the INI names but the Mod does not ship refused the draw (fixed in the 2.1.1 tree)
 
 - 2026-10-28, in the game (2.0.8 development build, user-started): tangtang Ramune v1.9 drew its arm in broken strips. Status: refused_state 18579 of 92767 matched, "INI plan: INI image not in prepared resource catalogue". Its component 0 at LOD 0 binds `ps-t15 = Resource-9a09f1f0-22587-0-NormalMap`, whose file is not in the Mod.

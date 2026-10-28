@@ -51,6 +51,8 @@ STEPS = [
     # D-137: every section of every installed Mod plans in every state the Mods' keys reach as a player
     # presses them (the original's own dispatch decides what changes).
     ("installed Mods offline plans in every key state", [os.path.join(ROOT, "scripts", "check_mod_states.py")]),
+    # BUG-077: a Mod with a missing, short or twice-declared buffer file loads and degrades as the original.
+    ("installed Mod with broken files offline plans", [os.path.join(ROOT, "scripts", "check_mod_degradation.py")]),
     # --mod-first: no matched draw shows the game's mesh, not even while a new object is identified or
     # an EFMI Mod registers with the Core's API (the user's bar; held instead, 2026-10-26).
     ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",

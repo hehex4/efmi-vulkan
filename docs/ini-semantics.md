@@ -83,6 +83,17 @@ stand-ins' limits (no game pipeline: "offline ...") are not counted.
 2026-10-28 on the installed folder: 316 key actions, 2407 states, 18 Mods, every section plans in every
 state, 7 s. With BUG-076's fix taken out it reports tangtang Ramune's component 0 at LOD 0. A run_all step.
 
+## Classification of refusal points (2026-10-28)
+
+About 230 refusal texts in the planning code (frontend draw_plan, resource_plan, vertex_plan, material_plan,
+draw_transaction, file_draws; the layer's character_program): 41 internal invariants (an adapter not
+installed, a cyclic graph), 39 budgets, 56 constructs the plan path does not take, the rest per-value checks.
+Worked through by impact: first what drops a whole Mod at load, then what the original degrades, then budgets,
+then the gaps (step 3).
+
+- Done: BUG-076 (a missing texture binds nothing), BUG-077 (a missing, short or twice-declared buffer file
+  degrades per draw as the original; check_mod_degradation.py).
+
 ## Status
 
 - BUG-076 (2.1.1 tree): a texture file that is not there binds nothing, in a Mod's own generation and in
