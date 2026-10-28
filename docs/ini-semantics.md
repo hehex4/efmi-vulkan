@@ -337,6 +337,33 @@ INI generation on every draw to follow it. The Vulkan captures do not record buf
 descriptions are not shown equal. These sections stay inert and reported per Mod (D-138); no installed or
 disabled Mod has one.
 
+## The original as the judge (D-150)
+
+D-137's step 2: small INIs run under the original itself and under the layer, and what they leave is
+compared. scripts/check_dx11_judge.py (a run_all step) extracts the pinned XXMI 3DMigoto (d3d11.dll
+1.2.2, the version of the user's EFMI installation, from F:\vulkan\XXMI-PACKAGE-v1.2.2.zip) into
+build/dx11-judge/xxmi with a d3dx.ini of its own whose [Loader] names the judge's D3D11 program
+(sandbox/dx11_judge.cpp: a hidden window, a swap chain made through the original, frames presented); the
+user's installation is never touched. Each case of sandbox/judge_cases runs its commands in [Present]
+and puts results in `global persist` variables, which the original saves to d3dx_user.ini (an assignment
+must mark them: a store alone does not); the same case runs under the owned GPU runtime
+(resource_gpu.exe --present-ini) and its variables are compared.
+
+Cases: expressions; buffers (copy, reference, Region copy, store in and past range, ->size); compute (a
+CustomShader dispatch writing a RWBuffer, store; a clear of a buffer without the UAV bind flag); queries
+(->width/height/mips/array of a Texture2D declared without `array` and of one with it, bb->width, a
+structured buffer's stride, `=== null`).
+
+What it found, both refusals of the layer where the original degrades, both fixed:
+- A Texture2D declared without `array` (and other descriptions D3D11 does not create): the original's
+  SubstantiateTexture leaves the resource null with a notice, queries give -2 (RESOURCE_NOT_FOUND); the
+  layer refused the Present. Now the resource is null and the list goes on (texture and buffer
+  substantiation alike).
+- A clear of a resource without a view of the cleared kind (a buffer without the UAV bind flag, an image
+  without the view's bind flag): the original makes no view and clears nothing; the layer refused. Now
+  nothing is cleared, and a view of a kind the bind flags leave out is the original's null view.
+resource_image_ini_cases's six cases that asserted those refusals now check the null resource.
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

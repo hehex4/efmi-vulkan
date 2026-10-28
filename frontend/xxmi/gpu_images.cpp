@@ -199,7 +199,10 @@ GpuResourceBinding GpuResourceRuntime::load_image(CustomResource& resource) {
             resource.override_type==CustomResourceType::TEXTURE3D?D3D11_RESOURCE_DIMENSION_TEXTURE3D:D3D11_RESOURCE_DIMENSION_TEXTURE2D;
         if(source.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE3D)source.depth=0;
         d.BindFlags=resource.bind_flags;d.MiscFlags=resource.misc_flags;d.Usage=D3D11_USAGE_DEFAULT;
-        apply_overrides(resource,source);out.image=allocate_image(source);
+        // SubstantiateTexture: a description D3D11 does not create leaves the resource null, with the
+        // original's notice, and the list goes on (D-150).
+        try{apply_overrides(resource,source);out.image=allocate_image(source);}
+        catch(const std::exception& e){return unloaded(resource,L"texture",e.what());}
     }else if(_wcsicmp(std::filesystem::path(resource.filename).extension().c_str(),L".dds")){
         // As LoadFromFile: a file the loader makes no texture of leaves the resource null (D-139).
         WicSource file;
@@ -232,7 +235,8 @@ GpuResourceBinding GpuResourceRuntime::load_image(CustomResource& resource) {
 void GpuResourceRuntime::image_view(GpuResourceBinding& b,View kind,bool complete_info) {
     if(kind==View::None){b.drop_view();return;}
     if(b.view==kind && b.image_view)return;
-    require(b.bind_flags()&image_bind_flag(kind),"Original image allocation lacks view bind flags");
+    // A view of a kind the resource's bind flags leave out is not made: the original's null view (D-150).
+    if(!(b.bind_flags()&image_bind_flag(kind))){b={};return;}
     if(complete_info)fill_info(b);
     const auto original=original_image_view(b.image_description,image_target(kind),b.format);
     require(original.valid,"Original image view dimension is invalid");
@@ -316,6 +320,7 @@ void GpuResourceRuntime::image_clear(GpuResourceBinding b,ClearViewCommand& op) 
         else if(b.bind_flags()&D3D11_BIND_UNORDERED_ACCESS)kind=View::UnorderedAccess;
         else if(b.bind_flags()&D3D11_BIND_RENDER_TARGET)kind=View::RenderTarget;
         if(kind==View::None)return;select_view(b,kind);
+        if(!b.image_view)return; // no view to clear through: the original clears nothing (D-150)
     }
     auto range=b.image_view->range();
     if(b.view==View::DepthStencil){

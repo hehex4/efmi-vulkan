@@ -206,7 +206,9 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r) {
     b.description.ByteWidth=UINT(bytes.size());b.description.BindFlags=r.bind_flags;b.description.MiscFlags=r.misc_flags;
     if(r.override_type==CustomResourceType::STRUCTURED_BUFFER)b.description.StructureByteStride=UINT(bytes.size());
     // Original description rules, including format-derived stride and array.
-    r.OverrideBufferDesc(&b.description);validate_desc(b.description);
+    r.OverrideBufferDesc(&b.description);
+    // SubstantiateBuffer: a description D3D11 does not create leaves the resource null (D-150).
+    try{validate_desc(b.description);}catch(const std::exception& e){return unloaded(r,L"buffer",e.what());}
     r.OverrideOutOfBandInfo(&b.format,&b.stride);b.source_stride=r.source_stride;
     b.buffer=commands_.create(b.description.ByteWidth,usage(b.description),bytes.empty()?nullptr:bytes.data(),std::min<size_t>(bytes.size(),b.description.ByteWidth),true);
     r.is_null=false;r.stride=b.stride;r.format=b.format;r.buf_size=b.visible_size;resources_[&r]=b;return b;
@@ -454,6 +456,8 @@ void GpuResourceRuntime::clear(ClearViewCommand& op,CommandListState& state) {
     // ClearViewCommand queries the existing view first. An SRV has no clear
     // operation, even when its underlying buffer also has the UAV bind flag.
     if(b.view==GpuResourceBinding::View::ShaderResource)return;
+    // Without the UAV bind flag the original makes no view to clear through and clears nothing (D-150).
+    if(!(b.description.BindFlags&D3D11_BIND_UNORDERED_ACCESS))return;
     select_view(b,GpuResourceBinding::View::UnorderedAccess);
     b.format=b.view_format;b.offset=b.view_offset;b.visible_size=b.view_size;
     require(!op.clear_depth && !op.clear_stencil,"GPU buffer clear cannot use depth/stencil flags");

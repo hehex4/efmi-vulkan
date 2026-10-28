@@ -412,15 +412,21 @@ static void image_ini_failures(Device& d,const std::filesystem::path& root){
     const auto typeless=image_declaration("ResourceSource","R8G8B8A8_TYPELESS");
     auto change=[](std::string text,const char* from,const char* to){const auto position=text.find(from);check(position!=std::string::npos,"Negative fixture description field exists");text.replace(position,strlen(from),to);return text;};
     const std::pair<std::string,std::string> cases[]={
-        {change(typed,"array = 1","array = 0")+"[Present]\nclear = ResourceSource 1\n","dimensions are invalid"},
-        {change(typed,"msaa = 1","msaa = 0")+"[Present]\nclear = ResourceSource 1\n","sample count"},
-        {change(typed,"msaa = 1","msaa = 1\nmsaa_quality = 1")+"[Present]\nclear = ResourceSource 1\n","sample-pattern adaptation"},
-        {change(typed,"width = 2","width = 2\nwidth_multiply = -1")+"[Present]\nclear = ResourceSource 1\n","multiplier"},
-        {change(typed,"width = 2","width = 2\nwidth_multiply = 1e38")+"[Present]\nclear = ResourceSource 1\n","multiplier"},
-        {change(typed,"type = Texture2D","type = Texture3D\ndepth = 2")+"[Present]\nclear = ResourceSource 1\n","dimensions are invalid"},
         {typed+"[ResourceCopy]\nformat = R32_FLOAT\nbind_flags = shader_resource\n[Present]\nResourceCopy = copy ResourceSource\n","different DXGI families"},
         {typed+"[Constants]\nglobal $out = 0\n[Present]\nstore = $out, ResourceSource, 0\n","store requires a buffer"},
     };
+    // D-150 (the original as the judge: an array-less Texture2D gives -2 queries in XXMI): a description
+    // D3D11 does not create (no array slice, no samples, a quality without a pattern, a width multiplied
+    // out of range, a volume with an array) leaves the resource null and a clear of it does nothing.
+    for(const auto& text:{change(typed,"array = 1","array = 0"),change(typed,"msaa = 1","msaa = 0"),
+                          change(typed,"msaa = 1","msaa = 1\nmsaa_quality = 1"),change(typed,"width = 2","width = 2\nwidth_multiply = -1"),
+                          change(typed,"width = 2","width = 2\nwidth_multiply = 1e38"),change(typed,"type = Texture2D","type = Texture3D\ndepth = 2")}){
+        static int index=0;const auto directory=root/("not-created-"+std::to_string(index++));
+        ImageIniFixture f(d,directory,"namespace = images\n[Constants]\nglobal $after = 0\n"+text+"[Present]\nclear = ResourceSource 1\nps-t0 = ResourceSource\n$after = 1\n");
+        f.present();f.variable("after",1);
+        check(!f.srv(0).image,"A resource D3D11 does not create is null: its clear does nothing, its binding binds nothing");
+        f.release();
+    }
     // D-145: a view D3D11 does not make (a typed texture under another format, a typeless one with none;
     // image_source_reference checks this on WARP) leaves the slot unbound, and the Present goes on.
     for(const auto& text:{typed+"[ResourceAlias]\nformat = R8G8B8A8_UNORM_SRGB\n[Present]\nResourceAlias = ref ResourceSource\nps-t0 = ref ResourceAlias\n",

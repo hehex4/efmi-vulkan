@@ -113,6 +113,9 @@ STEPS = [
                                             "--copy-passes", "--expect-translucency"]),
     ("EFMITTL hook rules on the paired catalogue", [os.path.join(ROOT, "scripts", "check_shader_hooks.py")]),
     ("original INI GPU resources", [os.path.join(ROOT, "scripts", "check_resource_commands.py")]),
+    # D-150: the original as the judge: INI cases under the pinned XXMI 3DMigoto in a D3D11 program and under the
+    # owned GPU runtime, their persistent variables compared (after the GPU resource runtime is built).
+    ("the original as the judge (XXMI DX11)", [os.path.join(ROOT, "scripts", "check_dx11_judge.py")]),
     ("EFMITTL owned transparency", [os.path.join(ROOT, "scripts", "check_efmittl.py")]),
     ("original HLSL Vulkan compiler", [os.path.join(ROOT, "scripts", "check_shader_compiler.py")]),
     ("installed Mods and Core HLSL", [os.path.join(ROOT, "scripts", "check_hlsl_folder.py")]),

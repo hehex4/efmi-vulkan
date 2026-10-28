@@ -1422,8 +1422,44 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_owned_generation_cases.h"
 #include "resource_operand_cases.h"
 #include "resource_reference_cases.h"
+// The layer's side of the original as the judge (D-150, scripts/check_dx11_judge.py): an INI folder's
+// [Present] under the owned GPU runtime (resources and CustomShaders) `frames` times with a 256x256 back
+// buffer, then every variable as one JSON line.
+static int present_ini(const std::filesystem::path& root,unsigned frames){
+    Device d;d.init(false,false,true,false,false,false,true,true,true);
+    gpu::ResourceBudgets budgets;auto host=shader_host(d);
+    auto gpu=std::make_shared<frontend::GpuShaderRuntime>(d.resource,host,L"F:/vulkan/dxc-1.9.2609/bin/x64/dxcompiler.dll",budgets);
+    frontend::RuntimeConfig config{root,{},root/"settings","judge",root/"Mods"};
+    auto& resources=gpu->resources();std::string why;
+    resources.begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    auto ini=frontend::IniRuntime::load(config,gpu,why);
+    if(!ini){fprintf(stderr,"load: %s\n",why.c_str());return 1;}
+    {auto ticket=resources.finish();if(ticket)ticket->wait();}
+    gpu::ImageDescription description;description.format=VK_FORMAT_R8G8B8A8_UNORM;description.extent={256,256,1};
+    description.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    auto image=resources.commands().create_image(description);
+    for(unsigned frame=1;frame<=frames;++frame){
+        resources.begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+        resources.backbuffer(image,DXGI_FORMAT_R8G8B8A8_UNORM);
+        if(!ini->present({},frame,0,why)){fprintf(stderr,"present %u: %s\n",frame,why.c_str());return 1;}
+        auto ticket=resources.finish();if(ticket)ticket->wait();
+    }
+    std::string json="{";
+    for(const auto& v:ini->status().variables){
+        std::string key;for(char c:v.first){if(c=='\\' || c=='"')key+='\\';key+=c;}
+        char value[64];snprintf(value,sizeof(value),"%.9g",double(v.second));
+        if(json.size()>1)json+=",";json+="\""+key+"\":"+value;
+    }
+    printf("%s}\n",json.c_str());
+    resources.backbuffer(nullptr,DXGI_FORMAT_UNKNOWN);image.reset();ini.reset();gpu.reset();
+    return 0;
+}
 int wmain(int argc,wchar_t** argv){
     setvbuf(stdout,nullptr,_IONBF,0);
+    if(argc==4 && !wcscmp(argv[1],L"--present-ini")){
+        try{return present_ini(std::filesystem::absolute(argv[2]),unsigned(_wtoi(argv[3])));}
+        catch(const std::exception& e){fprintf(stderr,"present-ini: %s\n",e.what());return 1;}
+    }
     try{check(argc==2,"Fixture path required");{Device device;device.init(false,false,true,false,false,false,true,true,true);low_level(device);image_commands(device);const auto root=std::filesystem::absolute(argv[1]);
         ini_gpu(device,root/"inline");file_and_failures(device,root/"files");range_gpu(device,root/"ranges");copy_gpu(device,root/"copies");regions_gpu(device,root/"regions");
         view_metadata_gpu(device,root/"view-metadata");properties_gpu(device,root/"properties");

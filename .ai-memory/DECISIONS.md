@@ -1077,6 +1077,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-150: The original as the judge: XXMI's own d3d11.dll in a D3D11 program of the project's (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137 step 2. Cases run in [Present] under the pinned XXMI 3DMigoto (extracted from F:\vulkan into build/, a d3dx.ini of the judge's own naming the judge program; the installation untouched) and under the owned GPU runtime; their persistent variables are compared. A run_all step.
+- Its first findings, fixed: a description D3D11 does not create is a null resource (was a refusal), and a clear without a view of its kind clears nothing (was a refusal).
+
 ## D-149: DDS arrays and cubes load as their first layer for a replaced draw's 2D slot (docs/ini-semantics.md)
 
 - Date: 2026-10-28, D-137's gaps. The layer re-points only nonarray 2D fragment images; D3D11 leaves a 2D slot reading another view dimension undefined (drivers read the first slice). A DDS array or cube loads as its first layer (levels); volumes still do not. Buffer-description sections stay inert: the game's buffers are shared 16 MiB pools (DX11 capture), so in the original they would meet nearly every draw.
