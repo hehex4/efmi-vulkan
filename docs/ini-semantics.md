@@ -238,6 +238,20 @@ Checks: check_mod_degradation's four variants (a section's first draw as two ins
 of SiModGB's copy with three draws made two instances, non-indexed and automatic (validation clean, every
 matched draw planned).
 
+## Slot ranges in a replaced draw (D-143)
+
+`ps-t[a:b] = X` binds every slot of the range: to none, to one resource every slot takes, or to the
+elements of a pool range of the same size (another size: a warning and nothing); `unless_null` keeps a
+slot whose source is none; `Pool[a:b] = ref ps-t[c:d]` fetches the slots into the pool's elements
+(SlotRangeCopyOperation::run, RunBind, RunFetch). The original runs a single slot operation per slot for
+anything but a plain reference (SlotOp). The plan refused every range. Now it resolves the range with the
+original's own code (FrontendSlotRange beside the pinned CommandList.cpp: ResolveRange, pool_element) and
+runs one ResourceCopyOperation per slot through the plan, as `ps-tN = ...` goes. A pool element nothing
+assigned or wrote, of an untyped pool, binds nothing, as the original's has no resource.
+
+Checks: check_mod_degradation's three range variants (to none, to one texture, from a pool range), refused
+on the build before ("Unsupported frontend operation"), planned now.
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

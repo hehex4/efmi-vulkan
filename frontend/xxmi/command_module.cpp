@@ -15,6 +15,33 @@ void FrontendRunCommandList(CommandList& list,CommandListState& state)
     _RunCommandList(&list,&state);
 }
 
+// A slot range as the original's SlotRangeCopyOperation::run resolves it (D-143): whether it binds slots
+// or fetches them into a pool, its first slot, and per slot of the range the custom resource RunBind binds
+// there (a pool element, the one resource every slot takes, or none) or the pool element RunFetch fills.
+// False where the original does nothing: a range that does not resolve, or a pool range of another size.
+bool FrontendSlotRange(SlotRangeCopyOperation& op,CommandListState& state,bool& bind,unsigned& first,std::vector<CustomResource*>& resources)
+{
+    bind=op.dst.evaluation_mode==ResourceCopyTargetEvaluationMode::SLOT_RANGE;
+    ResourceCopyTarget& slots=bind?op.dst:op.src;
+    ResourceCopyTarget& other=bind?op.src:op.dst;
+    const bool has_pool=other.type==ResourceCopyTargetType::POOL;
+    int slot_first=0,pool_first=0;unsigned count=0,pool_count=0;
+    if(!slots.ResolveRange(&state,&slot_first,&count))return false;
+    if(has_pool){
+        if(!other.ResolveRange(&state,&pool_first,&pool_count))return false;
+        if(pool_count!=count){
+            LogOverlayW(LOG_WARNING,L"Slot range and pool range sizes differ (%u vs %u)\n - [%ls]\n",count,pool_count,op.ini_line.c_str());
+            return false;
+        }
+    }
+    if(!bind && !has_pool)return false;
+    first=unsigned(slot_first);
+    CustomResource* single=other.type==ResourceCopyTargetType::CUSTOM_RESOURCE?other.GetCustomResource(&state):nullptr;
+    resources.clear();
+    for(unsigned i=0;i<count;++i)resources.push_back(has_pool?pool_element(other.custom_resource_pool,pool_first,i,!bind):single);
+    return true;
+}
+
 // Preserve the original buffer-view element calculation, including its use of
 // buf_src_size as an end boundary rather than a length after offset.
 void FrontendBufferViewElements(UINT stride,UINT offset,DXGI_FORMAT format,UINT end,UINT& first,UINT& count)

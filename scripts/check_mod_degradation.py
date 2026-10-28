@@ -18,7 +18,9 @@ installed Core:
 - a texture declared with a colour space and a size: the loaders take the first and ignore the second;
   one whose declared format its file is not: the original's view fails and the slot binds nothing (D-140);
 - a section's first draw as two instances, as a non-indexed draw, as `draw = from_caller` and as
-  `drawindexed = auto`: the original issues each (D-142).
+  `drawindexed = auto`: the original issues each (D-142);
+- a slot range bound to none and to one texture before a section's first draw: the original binds
+  each slot of the range (D-143).
 
 Each must load, and every section must plan in every state. Writes build/mod-degradation/.
 """
@@ -213,6 +215,20 @@ def main() -> int:
     variant("a non-indexed draw", lambda mod: first_draw_as(mod, lambda a: "draw = 3, 0"))
     variant("a draw from the caller", lambda mod: first_draw_as(mod, lambda a: "draw = from_caller"))
     variant("an indexed draw of the bound buffer's count", lambda mod: first_draw_as(mod, lambda a: "drawindexed = auto"))
+
+    def before_first_draw(mod: Path, line: str) -> None:
+        lines = text.splitlines()
+        at = next(i for i, l in enumerate(lines) if l.strip().lower().startswith("drawindexed"))
+        lines.insert(at, lines[at][:len(lines[at]) - len(lines[at].lstrip())] + line)
+        (mod / ini_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    variant("a slot range bound to none", lambda mod: before_first_draw(mod, "ps-t[20:21] = null"))
+    variant("a slot range bound to one texture", lambda mod: before_first_draw(mod, "ps-t[20:21] = %s" % bound[0]))
+
+    def pool_range(mod: Path) -> None:
+        before_first_draw(mod, "ps-t[20:21] = ref PoolEfvkRange[0:1]")
+        with open(mod / ini_name, "a", encoding="utf-8") as ini:
+            ini.write("\n[PoolEfvkRange]\npool_size = 2\n")
+    variant("a slot range bound from a pool range", pool_range)
     print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
     return 1 if failed else 0
 

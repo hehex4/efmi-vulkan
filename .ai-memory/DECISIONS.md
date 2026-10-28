@@ -1077,6 +1077,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-143: Slot ranges in a replaced draw as the original's single slot operations (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. A slot range refused the replaced draw.
+- The range resolves with the original's code (FrontendSlotRange); each slot runs as a ResourceCopyOperation through the plan; an untyped pool element nothing assigned binds nothing.
+
 ## D-142: A replaced draw issues the original's direct draws (docs/ini-semantics.md)
 
 - Date: 2026-10-28, D-137's gaps. The plan took DrawIndexed only and the program one instance only.

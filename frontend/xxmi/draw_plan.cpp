@@ -11,6 +11,7 @@
 #include "globals.h"
 
 void FrontendRunCommandList(CommandList&,CommandListState&);
+bool FrontendSlotRange(SlotRangeCopyOperation&,CommandListState&,bool& bind,unsigned& first,std::vector<CustomResource*>&);
 
 namespace efmi::frontend {
 namespace {
@@ -480,6 +481,9 @@ struct DrawPlanAdapter::Runtime {
     // `ResourceX = ref ps-tN` in a matched draw's plan: X refers to the application's texture at
     // pixel slot N of that draw. One stand-in per slot marks it; it never reaches a file plan.
     std::array<CustomResource,128> application_textures;
+    // A slot range's single slot operations, one per slot of the range, kept with the command (D-143).
+    std::unordered_map<const SlotRangeCopyOperation*,std::vector<std::shared_ptr<ResourceCopyOperation>>> range_ops;
+    std::vector<CustomResource*> range_resources;
     int application_slot(const CustomResource* resource) const {
         if(resource<application_textures.data() || resource>=application_textures.data()+application_textures.size())return -1;
         return int(resource-application_textures.data());
@@ -664,11 +668,12 @@ struct DrawPlanAdapter::Runtime {
         // a slot changes type or a resource reset runs. Preserve references in
         // other slots and the independent resource half of a mixed element.
         if (found != references.end()) return resource->is_null ? nullptr : found->second;
-        // An empty original Resource declaration has no object until assigned.
+        // An empty original Resource declaration has no object until assigned; nor has a pool element its
+        // untyped template made that nothing assigned or wrote (D-143: the original binds it as null).
         // Preserve typed/generated resources for their own adapters.
         if (resource && resource->filename.empty() && resource->override_type == CustomResourceType::INVALID &&
             resource->override_format == DXGI_FORMAT(-1) && resource->override_stride == -1 &&
-            !resource->initial_data && !resource->resource && !resource->pool) return nullptr;
+            !resource->initial_data && !resource->resource && (!resource->pool || !owned_contents.count(resource))) return nullptr;
         return resource;
     }
     void direct_resource(const CustomResource* resource)
@@ -683,6 +688,30 @@ struct DrawPlanAdapter::Runtime {
     }
 
     // A planned indexed draw takes the input layout edits and the native draw data of the moment.
+    // A slot range (D-143) as the original runs one: a single slot operation per slot of the range (its
+    // SlotOp), each through the plan as `ps-tN = ...` or `Pool[i] = ref ps-tN` would go. unless_null keeps a
+    // bound slot whose source is none; a fetch takes the slot's binding as the plan holds it.
+    void slot_range(SlotRangeCopyOperation& range,CommandListState& state)
+    {
+        bool bind=false;unsigned first=0;
+        auto& resources=range_resources;
+        if(!FrontendSlotRange(range,state,bind,first,resources))return;
+        auto& ops=range_ops[&range];
+        const auto& slots=bind?range.dst:range.src;
+        for(unsigned i=0;i<resources.size();++i){
+            if(bind && !resources[i] && (range.options&ResourceCopyOptions::UNLESS_NULL))continue;
+            if(ops.size()<=i)ops.push_back(std::make_shared<ResourceCopyOperation>());
+            auto& op=*ops[i];
+            ResourceCopyTarget& slot=bind?op.dst:op.src;
+            ResourceCopyTarget& resource=bind?op.src:op.dst;
+            slot=ResourceCopyTarget();slot.type=slots.type;slot.shader_type=slots.shader_type;slot.max_slot=slots.max_slot;slot.slot=first+i;
+            resource=ResourceCopyTarget();
+            if(resources[i]){resource.type=ResourceCopyTargetType::CUSTOM_RESOURCE;resource.SetCustomResource(resources[i]);}
+            else resource.type=ResourceCopyTargetType::EMPTY;
+            op.options=ResourceCopyOptions(int(range.options)&~int(ResourceCopyOptions::UNLESS_NULL));op.ini_line=range.ini_line;
+            run(std::shared_ptr<CommandListCommand>(ops[i]),&state);
+        }
+    }
     void indexed(PlanItem& item,CommandListState& state)
     {
         if (++draws > max_draws) refuse(L"Plan draw budget exceeded");
@@ -840,6 +869,10 @@ struct DrawPlanAdapter::Runtime {
             if(!owned())owned_only(*original,*state);
             if(owned_gate || draw_gate){mirror_reference(*original,*state);mark_owned(*original,*state);}
             if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
+            return;
+        }
+        if (auto* range = as<SlotRangeCopyOperation>(original, kinds, K_SlotRangeCopyOperation)) {
+            slot_range(*range, *state);
             return;
         }
         if (auto* draw = as<DrawCommand>(original, kinds, K_DrawCommand)) {
