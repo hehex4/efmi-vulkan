@@ -45,6 +45,30 @@ problems, Mods are written in every way, think it through and handle it generall
 3. The gaps those checks show, closed by implementing the commands' D3D11 meaning for replaced draws, the
    way owned work (Present, CustomShader) already does, not by special cases.
 
+## The overlay's notices (2.1.2)
+
+As 3DMigoto's LogOverlay (Overlay.cpp): notices drawn at the top left of the presented image, a line each
+in the level's colour (DIRE red 20 s, WARNING orange-red 10 s, NOTICE orange 5 s, INFO lime green 2 s,
+the time from the first showing), on a black backing of 75 %, at most ten, in Arial (3DMigoto's
+notifications font) drawn by GDI, so a Mod's name shows in any script. `layer/src/notices.cpp` draws them
+with a render pass of its own on the presenting queue after the presentation's other work (the Mods'
+Present work), the presentation then waiting for it; three slots, never a wait for the GPU in the
+presentation (BUG-062): with all three in use the notices wait a presentation. The notices are kept by
+util.cpp (`notice()`, also the module's through HostApi).
+
+- F10: `> Reloaded config in N.NNNs`, as the original after ReloadConfig (IniHandler.cpp), timed from the
+  key to the exchange of the folder generation.
+- A refused F10 (the layer's; the original always loads what it can): `> Reload failed, the Mods loaded
+  before stay: ...` as a warning.
+- What the layer cannot do as the original does (a package's refusal reason): once per Mod and reason for
+  the process, as a warning naming the Mod. These are the layer's gaps, shown whatever `show_warnings`
+  says; the original's own warnings would follow `show_warnings` (EFMI's d3dx.ini: 0), and none is routed
+  to the overlay yet.
+
+Checks: owned_present_test (a notice drawn into presented images, LimeGreen text at the top left and
+none in the middle, clean synchronization validation), runtime_test (an F10 that reloaded queues the
+original's text).
+
 ## Status
 
 - BUG-076 (2.1.1 tree): a texture file that is not there binds nothing, in a Mod's own generation and in

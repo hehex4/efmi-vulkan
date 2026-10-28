@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "2.1.1"
+#define EFVK_VERSION "2.1.2"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -124,6 +124,21 @@ void bootstrap_start();
 
 void util_init(HMODULE self);
 void logf(const char* fmt, ...);
+
+// Notices on the overlay (D-137), as the original's LogOverlay: logged, and shown at the top left of the
+// presented image for the time of their level (Overlay.cpp log_levels), at most ten at once, the most
+// severe first. A non-empty `key` shows the notice once for the process.
+enum class NoticeLevel : int { Dire = 0, Warning = 1, Notice = 2, Info = 3 };
+void notice(NoticeLevel level, const char* key, const char* text);
+struct NoticeLine {
+    NoticeLevel level;
+    std::string text; // UTF-8
+};
+// The lines to show now; a line's time starts at its first showing, as the original's does. False when
+// they are the ones of `version` (then `lines` is left as it was); `version` follows them.
+bool notices_visible(std::vector<NoticeLine>& lines, uint64_t& version);
+// Notices queued since the start, and the last few texts.
+uint64_t notices_queued(std::vector<std::string>& recent);
 const std::wstring& module_dir();
 const std::string& exe_name();
 

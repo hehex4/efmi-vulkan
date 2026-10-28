@@ -148,8 +148,48 @@ def long_elif_chain(checks, entry):
     checks.equal(code, 0, label + " the sandbox ran and ended normally")
 
 
+def notices_drawn(checks, entry):
+    """D-137: the overlay's notices drawn over the presented image as 3DMigoto's (top left, the level's
+    colour on a black backing), after the presentation's other work, with clean synchronization."""
+    folder = Path(test_dir("owned-present-notices-"))
+    package = fixture(folder)
+    readback = folder / "notices.raw"
+    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_SETTINGS=str(folder / "settings"),
+                 EFMI_VK_TEST_NOTICE="> Reloaded config in 0.123s", EFMI_VK_TEST_NOTICES_READBACK=str(readback))
+    label = entry + ", notices:"
+    notices = {}
+    with Sandbox(seconds=4, env_extra=extra, entry=entry, extra_args=["--readable-swapchain"], validation=True) as sandbox:
+        with ProbeClient(sandbox.pid) as probe:
+            time.sleep(1.0)
+            notices = probe.status().get("notices", {})
+        sandbox.proc.wait(timeout=90)
+        output = sandbox.output()
+    checks.equal(sandbox.proc.returncode, 0, label + " the sandbox exits normally")
+    checks.check("validation: errors=0 warnings=0" in output, label + " clean core and synchronization validation", output[-3000:])
+    checks.check(notices.get("drawn", 0) > 0 and not notices.get("failed") and not notices.get("error"),
+                 label + " the notice was drawn into presented images", notices)
+    checks.check(readback.is_file(), label + " a presented image with the notice was copied", notices)
+    if not readback.is_file():
+        print("artifacts:", folder)
+        return
+    meta = json.loads(Path(str(readback) + ".json").read_text())
+    width, height, data = meta["width"], meta["height"], readback.read_bytes()
+    bgra = meta["format"] in (44, 50)
+    def rgb(x, y):
+        p = pixel(data, width, x, y)
+        return (p[2], p[1], p[0]) if bgra else (p[0], p[1], p[2])
+    green = sum(1 for y in range(0, min(60, height)) for x in range(0, min(500, width))
+                if (lambda c: c[1] > 140 and c[1] > c[0] + 60 and c[1] > c[2] + 60)(rgb(x, y)))
+    checks.check(green > 40, label + " LimeGreen text at the top left of the image (%d pixels)" % green)
+    far = sum(1 for y in range(height // 2, height // 2 + 40) for x in range(width // 2, width // 2 + 200)
+              if (lambda c: c[1] > 140 and c[1] > c[0] + 60 and c[1] > c[2] + 60)(rgb(x, y)))
+    checks.equal(far, 0, label + " nothing of it in the middle of the image")
+
+
 def main():
     checks = Checks("owned Present on a swap chain")
+    for entry in ("layer", "inject"):
+        notices_drawn(checks, entry)
     for entry in ("layer", "inject"):
         long_elif_chain(checks, entry)
     for entry in ("layer", "inject"):

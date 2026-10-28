@@ -12,6 +12,7 @@
 #include "character_module.h"
 #include "m2_backend.h"
 #include "character_backend.h"
+#include "notices.h"
 
 #include <cstddef>
 #include <mutex>
@@ -1173,6 +1174,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueuePresentKHR(VkQueue queue, const VkPresent
         StageMark stage(thread_trace(), "presentation work (frame, character Present)");
         on_present(dev, &present);
     }
+    {
+        // Over the Mods' Present work, as 3DMigoto draws its notices last (D-137).
+        StageMark stage(thread_trace(), "presentation notices");
+        notices_present(dev, &present);
+    }
     StageMark stage(thread_trace(), "driver vkQueuePresentKHR");
     if (!present.replaced || !info)
         return dev->d.QueuePresentKHR(queue, info);
@@ -1247,6 +1253,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroySwapchainKHR(VkDevice device, VkSwapchainKH
             const auto found = dev->swapchains.find(swapchain);
             if (found != dev->swapchains.end()) { images = std::move(found->second.images); dev->swapchains.erase(found); }
         }
+        notices_swapchain_gone(dev, images);
         for (const auto image : images) on_destroy_image(dev, image);
     }
     dev->d.DestroySwapchainKHR(device, swapchain, alloc);
@@ -1268,6 +1275,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
         return;
     PFN_vkDestroyDevice next = dev->d.DestroyDevice;
     if (!dev->passive) {
+        notices_device_gone(dev);
         m2_stop(dev);
         // The application idled the device before destroying it; retired semaphores may still sit in
         // batches of queues it did not idle (a test's second queue), so the device waits once more.
@@ -1701,11 +1709,14 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         dev->device_id = props.deviceID;
         dev->driver_version = props.driverVersion;
         dev->max_bound_descriptor_sets = props.limits.maxBoundDescriptorSets;
-        if (inst->GetPhysicalDeviceMemoryProperties && character_configured()) {
+        if (inst->GetPhysicalDeviceMemoryProperties) {
             VkPhysicalDeviceMemoryProperties memory;
             inst->GetPhysicalDeviceMemoryProperties(phys, &memory);
-            character_device_setup(dev, info, inst->handle, inst->gipa);
-            m2_create(dev, props, memory);
+            dev->memory_properties = memory;
+            if (character_configured()) {
+                character_device_setup(dev, info, inst->handle, inst->gipa);
+                m2_create(dev, props, memory);
+            }
         }
     }
     for (uint32_t i = 0; i < info->enabledExtensionCount; i++)

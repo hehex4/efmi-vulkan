@@ -5,6 +5,7 @@
 #include "m2_backend.h"
 #include "pipeline_variant.h"
 #include "json.h"
+#include "notices.h"
 
 #include <algorithm>
 
@@ -1607,6 +1608,7 @@ std::string probe_status()
     w.kn("devices_created", g_attach.devices_created.load());
     w.kn("passive_calls", g_attach.passive_calls.load());
     w.end_object();
+    notices_status(w);
     w.key("features");
     w.begin_array();
     w.str("capture");

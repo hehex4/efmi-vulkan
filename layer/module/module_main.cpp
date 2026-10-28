@@ -22,6 +22,11 @@ void logf(const char* fmt, ...)
     g_host->log(text);
 }
 
+void notice(NoticeLevel level, const char* key, const char* text)
+{
+    if (g_host && g_host->notice) g_host->notice(static_cast<int>(level), key, text);
+}
+
 uint32_t crc32c(uint32_t seed, const void* data, size_t size) { return g_host->crc32c(seed, data, size); }
 bool live_gpu_bones() { return g_host && g_host->gpu_bones ? g_host->gpu_bones() : g_cfg.m2_gpu_bones; }
 
@@ -42,7 +47,7 @@ extern "C" __declspec(dllexport) const efvk::CharacterModule* efmi_vk_character_
 {
     using namespace efvk;
     if (!host || host->size != sizeof(HostApi) || host->abi != EFVK_ABI || !host->config || !host->log || !host->crc32c ||
-        !host->read_buffer_locked || !host->collect_buffer_ranges_locked) return nullptr;
+        !host->read_buffer_locked || !host->collect_buffer_ranges_locked || !host->notice) return nullptr;
     g_host = host;
     g_cfg = *host->config;
     return builtin_character_module();

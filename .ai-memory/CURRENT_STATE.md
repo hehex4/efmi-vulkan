@@ -6,6 +6,12 @@
 
 > Launcher, 2026-10-25 15:50: the EFMI profile switched to Vulkan at the user's request (d3d11_mode_cmd_args empty, xxmi_dll_inject_mode SKIP; game and launcher closed; backup and manifest in build/backups/launcher-vulkan-20261025-155010/). The injected library is still F:\EFMI MCP\dist\efmi_probe.dll, a signed value the user changes to F:\efmi vulkan\dist\efmi_vk_inject.dll in the launcher before the layer can load.
 
+## 2.1.2: BUG-076 and the overlay's notices (2026-10-28, D-137)
+
+- BUG-076 (tangtang Ramune v1.9's broken arm): a texture file the Mod does not ship binds nothing, as in the original; check_folder_generation failing before, passing.
+- The overlay's notices (docs/ini-semantics.md): `> Reloaded config in N.NNNs` after F10 as the original, a refused F10, and the layer's refusals once per Mod and reason, drawn top left as 3DMigoto's (GDI Arial, level colours and times, black backing), after the Present work on the presenting queue, no GPU wait in the presentation. Failing first: owned_present_test (no notice drawn) and runtime_test (no reload notice) on the build before; now 66/66 and 104/104; text, unit, native tracker, M2 hook, character replacement, probe end to end, modes, Vulkan validation passed. Readback: green text on the dark backing at the top left (640x360 sandbox, 14 px).
+- Not deployed, not run in the game.
+
 ## 2.1.1: the loader behind a proxy DLL, character meshes without resizable BAR (2026-10-28, BUG-074, BUG-075)
 
 - The user asked for a review of the whole project after an AMD player's 2.0.9 log (the layer loaded, "no free memory near vulkan-1.dll for 0 stubs; nothing redirected", nothing after: no Mod). Reviewed for what breaks on other machines: injection and the loader (BUG-074), device creation (every added extension, feature and the upload queue already checked against support), memory types and heaps (BUG-075; the snapshot arenas, bone rings and translucency targets choose correctly), the layer's own shaders (bone_merge.hlsl, no subgroup operations), paths outside ASCII (wide or u8path everywhere, BUG-046 and LIMIT-042 earlier), compiler loading (full paths), formats (LIMIT-045), device teardown, the release check.

@@ -1,11 +1,13 @@
 // Logging, configuration and CRC-32C.
 #include "common.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cwctype>
 #include <map>
 #include <mutex>
+#include <set>
 #include <intrin.h>
 #include <nmmintrin.h>
 #include <smmintrin.h>
@@ -325,6 +327,69 @@ void logf(const char* fmt, ...)
     DWORD written = 0;
     SetFilePointer(g_log, 0, nullptr, FILE_END);
     WriteFile(g_log, line, static_cast<DWORD>(m), &written, nullptr);
+}
+
+namespace {
+struct NoticeEntry {
+    NoticeLevel level;
+    std::string text;
+    uint64_t shown_ms = 0; // the tick of its first showing; 0 until then
+};
+std::mutex g_notice_mx;
+std::vector<NoticeEntry> g_notices;
+std::set<std::string> g_notice_keys;
+uint64_t g_notice_version = 1;
+std::vector<std::string> g_notice_recent; // the last texts queued, for the status
+uint64_t g_notice_count = 0;
+// Overlay.cpp log_levels: DIRE 20 s, WARNING 10 s, NOTICE 5 s, INFO 2 s; MAX_SIMULTANEOUS_NOTICES 10.
+const uint64_t kNoticeMs[] = {20000, 10000, 5000, 2000};
+const size_t kNoticesShown = 10;
+} // namespace
+
+void notice(NoticeLevel level, const char* key, const char* text)
+{
+    if (!text) return;
+    const int index = static_cast<int>(level);
+    if (index < 0 || index > 3) return;
+    {
+        std::lock_guard<std::mutex> lock(g_notice_mx);
+        if (key && *key && !g_notice_keys.insert(key).second) return;
+        // Notices wait for their turn without a bound in the original; a burst keeps the latest.
+        if (g_notices.size() >= 256) g_notices.erase(g_notices.begin());
+        g_notices.push_back({level, text});
+        ++g_notice_version; ++g_notice_count;
+        if (g_notice_recent.size() >= 8) g_notice_recent.erase(g_notice_recent.begin());
+        g_notice_recent.push_back(text);
+    }
+    logf("notice: %s", text);
+}
+
+uint64_t notices_queued(std::vector<std::string>& recent)
+{
+    std::lock_guard<std::mutex> lock(g_notice_mx);
+    recent = g_notice_recent;
+    return g_notice_count;
+}
+
+bool notices_visible(std::vector<NoticeLine>& lines, uint64_t& version)
+{
+    const uint64_t now = GetTickCount64();
+    std::lock_guard<std::mutex> lock(g_notice_mx);
+    const size_t before = g_notices.size();
+    g_notices.erase(std::remove_if(g_notices.begin(), g_notices.end(), [now](const NoticeEntry& e) {
+                        return e.shown_ms && now - e.shown_ms > kNoticeMs[static_cast<int>(e.level)];
+                    }), g_notices.end());
+    if (g_notices.size() != before) ++g_notice_version;
+    if (version == g_notice_version) return false;
+    lines.clear();
+    for (int level = 0; level < 4; ++level)
+        for (auto& e : g_notices) {
+            if (static_cast<int>(e.level) != level || lines.size() >= kNoticesShown) continue;
+            if (!e.shown_ms) e.shown_ms = now;
+            lines.push_back({e.level, e.text});
+        }
+    version = g_notice_version;
+    return true;
 }
 
 void util_init(HMODULE self)

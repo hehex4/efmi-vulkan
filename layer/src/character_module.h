@@ -35,6 +35,8 @@ struct HostApi {
     // The settings the probe changes in a running process (`set`), read live: the module's copy of the
     // configuration is the one its entry made (BUG-055).
     bool (*gpu_bones)() = nullptr;
+    // The host's overlay notices (D-137): level as NoticeLevel, key and text as notice() takes them.
+    void (*notice)(int level, const char* key, const char* text) = nullptr;
 };
 
 // The presentation a frame ends with, when the host saw one (vkQueuePresentKHR on `queue`). The

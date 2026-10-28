@@ -813,6 +813,13 @@ public:
         if (logged_reasons.size() >= 16 || std::find(logged_reasons.begin(), logged_reasons.end(), reason) != logged_reasons.end()) return;
         logged_reasons.push_back(reason);
         logf("character package %s: %s", package_path.c_str(), reason.c_str());
+        // What the layer cannot do as the original does is shown, not only logged (D-137): once per Mod and
+        // reason for the process, the first three of a generation.
+        if (logged_reasons.size() <= 3) {
+            const std::string mod = std::filesystem::u8path(package_path).parent_path().filename().u8string();
+            const std::string text = "EFMI Vulkan: " + mod + ": " + reason + " (that part keeps the game's look)";
+            notice(NoticeLevel::Warning, (package_path + "\n" + reason).c_str(), text.c_str());
+        }
     }
     // A fragment shader without a profile of its own keeps the application's images; logged once per
     // pipeline and slot set (derive caches the answer).
@@ -3160,6 +3167,7 @@ public:
     std::vector<std::future<void>> folder_retiring;
     uint64_t folder_staged_at = 0, folder_reloads = 0, folder_rejected = 0;
     bool folder_reload_again = false; // an F10 pressed while the last one loaded (BUG-069)
+    uint64_t folder_reload_began_us = 0; // the F10 reload that runs, for its notice (D-137)
     // D-133: the existing pipelines' twins, prepared when a discard gate appears (at the start, or RabbitFX
     // added by F10); presenting thread.
     bool twins_swept = false;
@@ -3443,6 +3451,9 @@ void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork*
             std::unique_lock<std::shared_mutex> lock(c->mutex);
             if (c->folder_member && !c->stopped) { ++c->rejected; c->reload_error = why; }
         }
+        // The original's F10 always loads what it can; a refused one of the layer's is shown (D-137).
+        notice(NoticeLevel::Warning, "", ("> Reload failed, the Mods loaded before stay: " + why).c_str());
+        b.folder_reload_began_us = 0;
     };
     auto live = [&b](const std::string& path, bool& activated) -> CharacterController* {
         for (auto& c : b.controllers) {
@@ -3522,6 +3533,13 @@ void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork*
             auto old = std::move(b.folder); b.folder = std::move(staged); ++b.folder_reloads; b.folder_error.clear();
             logf("folder generation %llu Ready; F10 exchange complete for %zu packages", static_cast<unsigned long long>(b.folder_reloads),
                  b.folder->packages.size());
+            // As the original says it after its ReloadConfig (IniHandler.cpp): from the key to the exchange.
+            if (b.folder_reload_began_us) {
+                char text[64];
+                snprintf(text, sizeof(text), "> Reloaded config in %.3fs", double(host_time_us() - b.folder_reload_began_us) / 1e6);
+                notice(NoticeLevel::Info, "", text);
+                b.folder_reload_began_us = 0;
+            }
             b.retire_folder(std::move(old));
         } else if (host_time_us() - b.folder_staged_at > 30000000) {
             refuse("INI candidate resource upload failed or timed out; current folder generation retained");
@@ -3532,6 +3550,7 @@ void folder_frame_and_exchange(CharacterBackend& b, bool had_draws, PresentWork*
     if (b.folder && b.folder->program && !b.folder_loading.valid() && !b.folder_staged &&
         (std::exchange(b.folder_reload_again, false) || b.folder->program->take_reload_request())) {
         logf("folder generation: F10 reload starts");
+        if (!b.folder_reload_began_us) b.folder_reload_began_us = host_time_us();
         Device* const d = b.device; const auto p = b.properties; const auto m = b.memory;
         TextureResidency* const textures = b.textures.get(); auto variants = b.variants; Translucency* const translucency = b.translucency.get();
         BoneMerge* const bones = b.bone_merge.get();

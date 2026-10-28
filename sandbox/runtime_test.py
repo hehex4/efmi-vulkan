@@ -419,6 +419,10 @@ def directory_generation(checks, validation):
         print(output[-6000:]); print("artifacts:", root)
     report = folder / "runtime-final.json"
     status = json.loads(report.read_text())["result"]["replacement"] if report.is_file() else {}
+    # D-137: each F10 that reloaded says so as the original's ReloadConfig does.
+    recent = json.loads(report.read_text())["result"].get("notices", {}).get("recent", []) if report.is_file() else []
+    checks.check(any(text.startswith("> Reloaded config in ") and text.endswith("s") for text in recent),
+                 label + ": an F10 that reloaded queues the original's notice " + str(recent))
     packages = status.get("packages", [])
     names = [Path(p.get("path", "")).parent.name for p in packages]
     checks.equal(names, ["fixture", "other"], label + ": both character INIs found, the DISABLED folder skipped")
