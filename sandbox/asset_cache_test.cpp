@@ -262,6 +262,16 @@ void wic_tests(Gpu& g)
         check(loaded,staged?"a PNG through the staging arena loads as the decoder made it":"a PNG on the worker's staging loads as the decoder made it");
         if(staged && loaded)check(staged_readback(g,*ready.image)==expected.bytes,"the PNG's pixels arrive as decoded");
         check(failed.state==TextureState::Failed,"a file WIC makes nothing of fails its load");
+        // D-140: a declaration's sRGB colour space is the DDS loader's forceSRGB, another texture of the same file.
+        const auto dds=fixture(98);write_fixture(folder/L"bc7.dds",dds);
+        auto srgb=cache.declare_image(folder/L"bc7.dds",reason,0,png_force_srgb),plain=cache.declare_image(folder/L"bc7.dds",reason);
+        check(srgb && plain && srgb!=plain && cache.demand(srgb) && cache.demand(plain),"a file declared in two colour spaces is two textures");
+        const auto srgb_ready=settle(srgb),plain_ready=settle(plain);
+        const bool formats=srgb_ready.state==TextureState::Ready && plain_ready.state==TextureState::Ready && srgb_ready.image && plain_ready.image &&
+            srgb_ready.image->metadata().format==VK_FORMAT_BC7_SRGB_BLOCK && plain_ready.image->metadata().format==VK_FORMAT_BC7_UNORM_BLOCK;
+        check(formats,"the sRGB declaration loads as BC7_SRGB, the other as BC7_UNORM");
+        if(staged && formats){const std::vector<uint8_t> payload(dds.begin()+srgb_ready.image->metadata().levels[0].offset,dds.end());
+            check(staged_readback(g,*srgb_ready.image)==payload,"the sRGB texture holds the file's blocks as they are");}
         cache.stop();
     }
 }

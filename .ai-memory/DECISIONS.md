@@ -1077,6 +1077,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-140: A texture declaration's colour space, format and size keys as the original takes them (docs/ini-semantics.md)
+
+- Date: 2026-10-28, D-137's gaps. Any of these keys on a texture a replaced draw bound refused the draw.
+- As LoadFromFile and CreateCompatibleView: the colour space is a loader flag (DDS forceSRGB, WIC FORCE/IGNORE_SRGB) and part of the image's identity; the size keys do nothing to a file texture; the declaration's format is the view's, and a typed texture without that format, or a declaration whose bind flags leave out shader_resource, binds nothing.
+
 ## D-139: Image files load as the original loads them (docs/ini-semantics.md)
 
 - Date: 2026-10-28, D-137's gaps. A replaced draw bound DDS files only; a broken texture refused its draws and an F10; owned work took PNG only and refused its Present for a file it could not load.

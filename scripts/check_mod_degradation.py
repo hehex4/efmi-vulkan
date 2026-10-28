@@ -14,7 +14,9 @@ installed Core:
 - a section matched by a buffer's description and a section that changes the game's resources when they
   are created: the layer does not do these, the rest of the Mod loads and the layer says so;
 - a texture the Mod binds given as a PNG: the original loads every file not named .dds with WIC (D-139);
-- a texture file the loader makes nothing of: the original's resource is null and the draw goes on.
+- a texture file the loader makes nothing of: the original's resource is null and the draw goes on;
+- a texture declared with a colour space and a size: the loaders take the first and ignore the second;
+  one whose declared format its file is not: the original's view fails and the slot binds nothing (D-140).
 
 Each must load, and every section must plan in every state. Writes build/mod-degradation/.
 """
@@ -188,6 +190,15 @@ def main() -> int:
     def unloadable(mod: Path) -> None:
         (mod / files[bound[0].lower()].replace("\\", "/")).write_bytes(b"DDS " + bytes(range(60)))
     variant("texture file the loader makes nothing of", unloadable, ("does not load",))
+
+    def insert_key(mod: Path, lines_to_add: list[str]) -> None:
+        lines = text.splitlines()
+        header = next(i for i, line in enumerate(lines) if line.split(";", 1)[0].strip().strip("[]").lower() == bound[0].lower()
+                      and line.strip().startswith("["))
+        lines[header + 1:header + 1] = lines_to_add
+        (mod / ini_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    variant("texture declared with a colour space and a size", lambda mod: insert_key(mod, ["color_space = sRGB", "width = 64"]))
+    variant("texture declared with a format its file is not", lambda mod: insert_key(mod, ["format = R32_FLOAT"]))
     print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
     return 1 if failed else 0
 

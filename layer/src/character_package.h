@@ -132,6 +132,8 @@ struct CharacterPackage {
     bool materials = false;
     uint32_t material_vendor = 0, material_device = 0;
     std::vector<std::string> images; // absolute UTF-8 paths, immutable after load
+    // Per image, the loader flags of its declaration's colour space (D-140); missing ones are 0.
+    std::vector<uint32_t> image_flags;
     std::vector<CharacterMaterialProfile> profiles;
     std::vector<std::vector<CharacterPixel>> pixels; // one binding snapshot per mesh draw
 

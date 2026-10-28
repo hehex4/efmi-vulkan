@@ -47,11 +47,16 @@ int HostResourcePlanTests()
     check(compiler.compile(plan,owned,reason) && owned.items[1].resource==previous && owned.items[1].resource->stride==20,
           "catalog snapshot is immutable across later frontend declaration edits");
     auto bad=plan;
-    for(auto* resource:{unused,changed,pool,relative,srgb}){
+    for(auto* resource:{unused,changed,pool,relative}){
         bad.items.back()={};bad.items.back().operation=PlanOperation::BindPixelResource;bad.items.back().resource=resource;
         check(!compiler.compile(bad,owned,reason) && !reason.empty() && owned.items.size()==6 && owned.items[1].resource==previous,
               "late unsupported used resource refuses atomically while dormant declarations are harmless");
     }
+    // D-140: a texture's colour space is the loaders' flag (and its identity), as LoadFromFile passes it.
+    bad=plan;bad.items.back()={};bad.items.back().operation=PlanOperation::BindPixelResource;bad.items.back().resource=srgb;
+    check(compiler.compile(bad,owned,reason) && owned.items.back().resource && owned.items.back().resource->loader_flags==1u &&
+          !owned.items.back().resource->view_format && owned.items.back().resource->sampled,
+          "a texture's colour space reaches the loader as its flag, the view keeps the texture's format");
     CustomResource foreign;bad=plan;bad.items[1].resource=&foreign;
     check(!compiler.compile(bad,owned,reason),"foreign frontend resource is refused without dereferencing it");
     bad=plan;bad.items[1].slot=32;check(!compiler.compile(bad,owned,reason),"out of range owned binding refuses");

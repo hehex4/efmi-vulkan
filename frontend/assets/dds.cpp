@@ -39,6 +39,27 @@ Format dxgi(uint32_t format)
 }
 }
 
+VkFormat image_vk_format(uint32_t format)
+{
+    switch(format){
+    case 61:return VK_FORMAT_R8_UNORM;
+    case 56:return VK_FORMAT_R16_UNORM;
+    case 11:return VK_FORMAT_R16G16B16A16_UNORM;
+    default:return dxgi(format).vk;
+    }
+}
+VkFormat srgb_format(VkFormat format)
+{
+    switch(format){
+    case VK_FORMAT_R8G8B8A8_UNORM:return VK_FORMAT_R8G8B8A8_SRGB;
+    case VK_FORMAT_B8G8R8A8_UNORM:return VK_FORMAT_B8G8R8A8_SRGB;
+    case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:return VK_FORMAT_BC1_RGBA_SRGB_BLOCK;
+    case VK_FORMAT_BC2_UNORM_BLOCK:return VK_FORMAT_BC2_SRGB_BLOCK;
+    case VK_FORMAT_BC3_UNORM_BLOCK:return VK_FORMAT_BC3_SRGB_BLOCK;
+    case VK_FORMAT_BC7_UNORM_BLOCK:return VK_FORMAT_BC7_SRGB_BLOCK;
+    default:return format;
+    }
+}
 bool decode_dds(const uint8_t* data,size_t size,DdsImage& output,std::string& reason)
 {
     return decode_dds_header(data,size,size,output,reason);

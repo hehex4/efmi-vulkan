@@ -124,9 +124,9 @@ void ResourceCache::publish(const ResourceHandle& entry,ResourceState state,
     entry->value_={state,upload?upload->image:nullptr,upload?upload->buffer:nullptr,std::move(reason),upload?upload->serial:0};
     entry->changed_.notify_all();
 }
-ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason,uint64_t tag)
+ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason,uint64_t tag,uint32_t loader_flags)
 {
-    return declare(path,0,reason,tag);
+    return declare(path,0,reason,tag,loader_flags);
 }
 ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason)
 {
@@ -134,18 +134,20 @@ ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,V
     if(!usage || (usage&~allowed)){reason="Unsupported buffer declaration usage";return {};}
     return declare(path,usage,reason);
 }
-ResourceHandle ResourceCache::declare(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag)
+ResourceHandle ResourceCache::declare(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag,
+                                      uint32_t loader_flags)
 {
     reason.clear();
     if(!path.is_absolute() || path.native().size()>32760 || path.native().find(L'\0')!=std::wstring::npos){
         reason="Resource path must be a bounded absolute path without nulls";return {};
     }
-    const Key key{path.lexically_normal(),usage,tag};
+    const Key key{path.lexically_normal(),usage,tag,loader_flags};
     std::lock_guard<std::mutex> lock(mutex_);
     if(stopped_){reason="Resource cache stopped";return {};}
     auto found=entries_.find(key);if(found!=entries_.end())return found->second;
     if(entries_.size()>=capacity_){reason="Resource declaration capacity exceeded";return {};}
     auto entry=std::make_shared<ResourceRequest>();entry->path_=std::get<0>(key);entry->buffer_usage_=usage;entry->owner_=identity_;
+    entry->loader_flags_=loader_flags;
     entries_.emplace(key,entry);return entry;
 }
 bool ResourceCache::demand(const ResourceHandle& entry,uint32_t skip_levels)
@@ -196,12 +198,14 @@ struct BudgetBusy:std::runtime_error{using std::runtime_error::runtime_error;};
 uint64_t steady_us(){return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());}
 // As the original (CustomResource::LoadFromFile): a file named .dds is a DDS, any other the system's WIC decodes.
 bool wic_image(const std::filesystem::path& path){return _wcsicmp(path.extension().c_str(),L".dds")!=0;}
-PngPixels decoded_wic(const std::vector<uint8_t>& bytes)
+PngPixels decoded_wic(const std::vector<uint8_t>& bytes,uint32_t flags)
 {
     PngPixels pixels;std::string reason;
-    if(!decode_wic(bytes.data(),bytes.size(),pixels,reason))throw std::runtime_error("WIC image: "+reason);
+    if(!decode_wic(bytes.data(),bytes.size(),pixels,reason,{},flags))throw std::runtime_error("WIC image: "+reason);
     return pixels;
 }
+// The DDS loader's forced sRGB (CreateDDSTextureFromFileEx forceSRGB): the levels as they are, read as sRGB.
+void dds_color_space(DdsImage& meta,uint32_t flags){if(flags&png_force_srgb)meta.format=srgb_format(meta.format);}
 constexpr uint64_t kArenaBytes=256ull<<20;      // three loaders' 64 MiB maps at once, an 85 MiB one beside them
 constexpr uint64_t kArenaAlignment=256;
 }
@@ -313,8 +317,9 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
         return ticket;
     }
     DdsImage meta;std::string reason;PngPixels pixels;
-    if(wic_image(entry->path_))meta=(pixels=decoded_wic(bytes)).metadata;
+    if(wic_image(entry->path_))meta=(pixels=decoded_wic(bytes,entry->loader_flags_)).metadata;
     else if(!decode_dds(bytes.data(),bytes.size(),meta,reason))throw std::runtime_error(reason);
+    else dds_color_space(meta,entry->loader_flags_);
     VkFormatProperties features{};device_.format_properties(device_.physical,meta.format,&features);
     VkImageFormatProperties limits{};
     const auto result=device_.image_properties(device_.physical,meta.format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
@@ -322,12 +327,11 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
     if(result!=VK_SUCCESS)throw std::runtime_error("Resource format unsupported for sampled upload");
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);
     if(own_queue)upload->share(device_.graphics_family,device_.upload_family);
-    const bool prepared=pixels.bytes.empty()?
-        upload->prepare(bytes.data(),bytes.size(),device_.memory,limits,features.optimalTilingFeatures,device_.bc_enabled,false,
-                        entry->skip_levels_,device_.memory_priority):
-        upload->prepare_decoded(meta,pixels.bytes.data(),pixels.bytes.size(),device_.memory,limits,features.optimalTilingFeatures,
-                                device_.bc_enabled,false,entry->skip_levels_,device_.memory_priority);
-    if(!prepared || !upload->record(record_family))fail_upload(upload->reason());
+    // The levels as decoded: a DDS's in its file bytes (its format as the colour space has it), a WIC image's pixels.
+    const auto& payload=pixels.bytes.empty()?bytes:pixels.bytes;
+    if(!upload->prepare_decoded(meta,payload.data(),payload.size(),device_.memory,limits,features.optimalTilingFeatures,
+                                device_.bc_enabled,false,entry->skip_levels_,device_.memory_priority) ||
+       !upload->record(record_family))fail_upload(upload->reason());
     ticket->image=std::move(upload);return ticket;
 }
 std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle& entry,Loader& loader,Slice& slice,uint64_t& read_done_us)
@@ -346,12 +350,13 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
         std::vector<uint8_t> bytes(static_cast<size_t>(size.QuadPart));
         if(!ReadFile(file.handle,bytes.data(),static_cast<DWORD>(bytes.size()),&read,nullptr) || read!=bytes.size())
             throw std::runtime_error("Incomplete resource file read");
-        meta=(pixels=decoded_wic(bytes)).metadata;
+        meta=(pixels=decoded_wic(bytes,entry->loader_flags_)).metadata;
     }else{
         uint8_t header[kDdsHeaderBytes]{};
         const DWORD header_bytes=static_cast<DWORD>(std::min<int64_t>(size.QuadPart,static_cast<int64_t>(kDdsHeaderBytes)));
         if(!ReadFile(file.handle,header,header_bytes,&read,nullptr) || read!=header_bytes)throw std::runtime_error("Incomplete resource file read");
         if(!decode_dds_header(header,read,static_cast<uint64_t>(size.QuadPart),meta,reason))throw std::runtime_error(reason);
+        dds_color_space(meta,entry->loader_flags_);
     }
     VkFormatProperties features{};device_.format_properties(device_.physical,meta.format,&features);
     VkImageFormatProperties limits{};

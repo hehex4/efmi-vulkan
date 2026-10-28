@@ -49,6 +49,12 @@ std::wstring stream_key(const std::filesystem::path& path, bool index, uint32_t 
 {
     return key(path) + (index ? L"|index|" : L"|vertex|") + std::to_wstring(stride);
 }
+// An image by its file and the loader flags of its declaration's colour space: the original makes a texture
+// per declaration, and an sRGB one is another texture (D-140).
+std::wstring image_key(const std::filesystem::path& path, uint32_t loader_flags)
+{
+    return loader_flags ? key(path) + L"|" + std::to_wstring(loader_flags) : key(path);
+}
 std::vector<uint8_t> read(const std::filesystem::path& path, uint64_t limit)
 {
     std::ifstream in(path, std::ios::binary | std::ios::ate);
@@ -60,7 +66,7 @@ std::vector<uint8_t> read(const std::filesystem::path& path, uint64_t limit)
 // Whether the original's loader makes a texture of this file (CustomResource::LoadFromFile, D-139): a .dds
 // by its header (its levels inside the file), any other file by the system's WIC decoder (its frame 0,
 // without decoding the pixels); within the size the layer's loader reads.
-bool image_loads(const std::filesystem::path& path, std::string& why)
+bool image_loads(const std::filesystem::path& path, std::string& why, uint32_t loader_flags, VkFormat& format)
 {
     try {
         std::ifstream in(path, std::ios::binary | std::ios::ate);
@@ -73,11 +79,15 @@ bool image_loads(const std::filesystem::path& path, std::string& why)
             in.seekg(0); in.read(reinterpret_cast<char*>(header), std::streamsize(available));
             if (!in) { why = "the file cannot be read"; return false; }
             efmi::assets::DdsImage image;
-            return efmi::assets::decode_dds_header(header, available, size, image, why);
+            if (!efmi::assets::decode_dds_header(header, available, size, image, why)) return false;
+            format = loader_flags & efmi::assets::png_force_srgb ? efmi::assets::srgb_format(image.format) : image.format;
+            return true;
         }
         const auto bytes = read(path, 128ull << 20);
         efmi::assets::PngPixels image;
-        return efmi::assets::decode_wic(bytes.data(), bytes.size(), image, why, {}, 0, false);
+        if (!efmi::assets::decode_wic(bytes.data(), bytes.size(), image, why, {}, loader_flags, false)) return false;
+        format = image.metadata.format;
+        return true;
     } catch (const std::exception& e) { why = e.what(); return false; }
 }
 // An INI's lines without comments, trimmed and in lower case (D-112).
@@ -248,11 +258,12 @@ bool CharacterProgram::owns(const std::filesystem::path& file) const
     const auto name = key(file);
     return std::any_of(folders_.begin(), folders_.end(), [&](const std::wstring& folder) { return !name.compare(0, folder.size(), folder); });
 }
-bool CharacterProgram::image_checked(const std::filesystem::path& path)
+bool CharacterProgram::image_checked(const std::filesystem::path& path, uint32_t loader_flags)
 {
     if (unloadable_.count(key(path))) return false;
     std::string why;
-    if (image_loads(path, why)) return true;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    if (image_loads(path, why, loader_flags, format)) { image_formats_[image_key(path, loader_flags)] = format; return true; }
     // A file the original's loader makes no texture of stays its null resource as well (D-139).
     unloadable_.insert(key(path));
     if (gaps_.size() < 16)
@@ -269,8 +280,9 @@ void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::
     {
         for (uint32_t i = 0; i < package.images.size(); ++i) {
             const auto path = std::filesystem::u8path(package.images[i]);
-            images_.emplace(key(path), i);
-            image_checked(path);
+            const uint32_t flags = i < package.image_flags.size() ? package.image_flags[i] : 0u;
+            images_.emplace(image_key(path, flags), i);
+            image_checked(path, flags);
         }
         for (const auto& file : runtime_->resources()) {
             if (!owns(file->path)) continue; // another Mod's of a folder generation
@@ -290,10 +302,12 @@ void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::
                     throw std::runtime_error("Original file declaration differs from the renderer stream profile");
             } else if (std::error_code error; !std::filesystem::exists(file->path, error)) {
                 continue; // The original's load of it fails and it binds nothing (image_index, BUG-076).
-            } else if (!images_.count(key(file->path)) && !unloadable_.count(key(file->path))) {
-                if (!image_checked(file->path)) continue;
+            } else if (!images_.count(image_key(file->path, file->loader_flags)) && !unloadable_.count(key(file->path))) {
+                if (!image_checked(file->path, file->loader_flags)) continue;
                 if (package.images.size() >= kCharacterImages) throw std::runtime_error("Runtime image catalogue exceeds budget");
-                images_.emplace(key(file->path), uint32_t(package.images.size())); package.images.push_back(file->path.u8string());
+                package.image_flags.resize(package.images.size(), 0u);
+                images_.emplace(image_key(file->path, file->loader_flags), uint32_t(package.images.size()));
+                package.images.push_back(file->path.u8string()); package.image_flags.push_back(file->loader_flags);
             }
         }
         index_bounds_.resize(package.streams.size());
@@ -716,7 +730,8 @@ uint32_t CharacterProgram::image_index(const std::shared_ptr<const efmi::assets:
 {
     const auto cached = image_cache_.find(resource.get());
     if (cached != image_cache_.end()) return cached->second;
-    const auto found = images_.find(key(resource->path));
+    const auto image = image_key(resource->path, resource->loader_flags);
+    const auto found = images_.find(image);
     uint32_t index = found == images_.end() ? kCharacterNone : found->second;
     // The original loads a texture file at its first use; where that fails it warns once and the
     // resource stays null, so every assignment of it binds nothing and the draw goes on
@@ -731,6 +746,19 @@ uint32_t CharacterProgram::image_index(const std::shared_ptr<const efmi::assets:
         index = kCharacterNone; // its load fails as the original's does (D-139)
     } else if (found == images_.end()) {
         throw std::runtime_error("INI image not in prepared resource catalogue");
+    } else if (!resource->sampled) {
+        // Its bind flags leave out the shader resource: the original's view of it is not made (D-140).
+        index = kCharacterNone;
+        logf("INI texture declared without shader_resource binds nothing, as the original's view fails: %s", resource->path.u8string().c_str());
+    } else if (resource->view_format) {
+        // The view takes the declaration's format, which the loaded (typed) texture must have, or
+        // CreateShaderResourceView fails and the slot binds nothing (CreateCompatibleView, D-140).
+        const auto loaded = image_formats_.find(image);
+        if (loaded != image_formats_.end() && efmi::assets::image_vk_format(resource->view_format) != loaded->second) {
+            index = kCharacterNone;
+            logf("INI texture view format %u is not the format its file loads as, so it binds nothing as the original's view: %s",
+                 resource->view_format, resource->path.u8string().c_str());
+        }
     }
     if (image_cache_.size() < 4096) image_cache_.emplace(resource.get(), index);
     return index;

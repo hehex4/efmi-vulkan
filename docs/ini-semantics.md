@@ -179,6 +179,29 @@ before (the candidate dropped, LIMIT-043); now it goes through as the original's
 the null texture's zero, and an F10 after the file is repaired draws it again; a prepared package's own
 images are checked the same way and one that does not load is never declared.
 
+## A texture declaration's keys (D-140)
+
+What the original does with a [Resource] that a replaced draw binds at a pixel slot and that names a file:
+LoadFromFile passes the declaration's bind and misc flags and its colour space (the DDS loader's
+forceSRGB for `color_space = sRGB`; WIC's FORCE_SRGB or IGNORE_SRGB) and nothing of its description:
+width, height, mips, array, msaa, the multipliers and the stride do nothing to a texture DirectXTK makes
+from a file. The binding's view takes the declaration's format (CreateCompatibleView: OverrideOutOfBandInfo,
+FillOutTex2DDesc): a typed texture's view must have its format, or CreateShaderResourceView fails and the
+slot binds nothing; without a format the view is the texture's own. Bind flags without shader_resource
+give no view either.
+
+The layer refused every one of these keys ("Pixel file binding requires an unmodified image", the game's
+mesh drawn). Now the plan carries the colour space as loader flags, the view format and whether the view
+can be made (FileResource); an image is keyed by its file and its loader flags, so a file declared in two
+colour spaces is two textures, as in the original; the loaders apply the flags (DDS: the sRGB twin of its
+format, DirectXTK's MakeSRGB; WIC: the decoder's flags); the size keys are ignored; and a view format the
+loaded texture does not have binds nothing.
+
+Checks: check_mod_degradation's two variants (a bound texture with `color_space = sRGB` and `width = 64`;
+one with `format = R32_FLOAT`), 6 sections refused each on the build before, planned now; asset_gpu (one
+BC7 file declared plain and sRGB loads as two textures, BC7_UNORM and BC7_SRGB, the blocks as the file
+holds them); resource_plan_test (an sRGB declaration was a refusal case; it reaches the loader as its flag).
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

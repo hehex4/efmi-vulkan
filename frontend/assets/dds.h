@@ -22,4 +22,9 @@ bool decode_dds(const uint8_t* data,size_t size,DdsImage& output,std::string& re
 // file) and its size: a loader reads the payload elsewhere (D-130).
 constexpr size_t kDdsHeaderBytes=148;
 bool decode_dds_header(const uint8_t* header,size_t available,uint64_t file_size,DdsImage& output,std::string& reason);
+// The Vulkan format of a DXGI format the image loaders make (DDS levels, WIC pixels); VK_FORMAT_UNDEFINED
+// for any other, typeless ones included.
+VkFormat image_vk_format(uint32_t dxgi);
+// DirectXTK's MakeSRGB, the DDS loader's forced sRGB (D-140): the format's sRGB twin, else the format.
+VkFormat srgb_format(VkFormat);
 }

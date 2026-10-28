@@ -12,6 +12,11 @@ struct FileResource {
     std::wstring name;
     std::filesystem::path path;
     VkBufferUsageFlags usage=0; // Zero means an image file (a .dds, or any WIC container).
+    // An image's (D-140): the original's loader flags from its declaration's colour space (png_force_srgb,
+    // png_ignore_srgb; the DDS loader takes the first), the view format its binding asks for (0: the
+    // texture's own), and whether its bind flags allow a shader resource view.
+    uint32_t loader_flags=0,view_format=0;
+    bool sampled=true;
     uint32_t stride=0;
     VkIndexType index_type=VK_INDEX_TYPE_MAX_ENUM;
 };

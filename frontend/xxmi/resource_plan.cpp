@@ -1,4 +1,5 @@
 #include "resource_plan.h"
+#include "../assets/png.h"
 #include "util.h"
 #include <stdexcept>
 
@@ -13,21 +14,26 @@ std::shared_ptr<const assets::FileResource> describe(const CustomResource& r,uns
     const std::filesystem::path path(r.filename);
     if(!path.is_absolute() || r.filename.size()>32760 || r.filename.find(L'\0')!=std::wstring::npos || r.name.size()>4096)
         return refuse(L"Resource path or name outside owned declaration limits");
+    auto file=std::make_shared<assets::FileResource>();file->name=r.name;file->path=path.lexically_normal();
+    if(role==2){
+        // A .dds by the DDS loader, any other file by WIC, as the original's LoadFromFile (D-139). The loaders
+        // take the declaration's colour space and bind flags and nothing of its description (size, mips,
+        // array, misc, stride: DirectXTK makes the texture from the file); the binding's view takes its
+        // format, which a typed texture must have (CreateCompatibleView), D-140.
+        if(r.override_type!=CustomResourceType::INVALID && r.override_type!=CustomResourceType::TEXTURE2D)
+            return refuse(L"Pixel file binding requires a texture declaration");
+        file->loader_flags=r.override_color_space==CustomColorSpace::SRGB?assets::png_force_srgb:
+                           r.override_color_space==CustomColorSpace::LINEAR?assets::png_ignore_srgb:0u;
+        file->view_format=r.override_format==DXGI_FORMAT(-1)?0u:UINT(r.override_format);
+        file->sampled=r.override_bind_flags==CustomResourceBindFlags::INVALID ||
+                      (UINT(r.override_bind_flags)&D3D11_BIND_SHADER_RESOURCE)!=0;
+        return file;
+    }
     if(r.override_misc_flags!=ResourceMiscFlags::INVALID || r.misc_flags ||
        r.override_width!=-1 || r.override_height!=-1 || r.override_depth!=-1 || r.override_mips!=-1 ||
        r.override_array!=-1 || r.override_msaa!=-1 || r.override_msaa_quality!=-1 ||
        r.override_byte_width!=-1 || r.width_multiply!=1.0f || r.height_multiply!=1.0f)
         return refuse(L"Resource transformation is not supported by immutable file upload");
-    auto file=std::make_shared<assets::FileResource>();file->name=r.name;file->path=path.lexically_normal();
-    if(role==2){
-        // A .dds by the DDS loader, any other file by WIC, as the original's LoadFromFile (D-139).
-        if((r.override_type!=CustomResourceType::INVALID && r.override_type!=CustomResourceType::TEXTURE2D) ||
-           r.override_stride!=-1 ||
-           r.override_format!=DXGI_FORMAT(-1) || r.override_color_space!=CustomColorSpace::DEFAULT ||
-           (r.override_bind_flags!=CustomResourceBindFlags::INVALID && r.override_bind_flags!=CustomResourceBindFlags::SHADER_RESOURCE))
-            return refuse(L"Pixel file binding requires an unmodified image");
-        return file;
-    }
     if(r.override_type!=CustomResourceType::BUFFER)return refuse(L"Mesh file binding requires a plain Buffer declaration");
     const auto flags=static_cast<unsigned>(r.override_bind_flags);
     const auto required=role==0?D3D11_BIND_VERTEX_BUFFER:D3D11_BIND_INDEX_BUFFER;

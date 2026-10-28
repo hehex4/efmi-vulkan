@@ -1734,11 +1734,12 @@ bool CharacterGeneration::init_materials()
     }
     // The images as the device's residency holds them (D-094): declared here, loaded on first bind.
     if (!textures || !textures->usable()) { last_reason = textures ? textures->reason() : "textures need the device's residency"; return false; }
-    for (const auto& path : package.images) {
+    for (size_t i = 0; i < package.images.size(); ++i) {
+        const auto& path = package.images[i];
         // A file that does not load is the original's null resource: no plan binds it (D-139).
         if (program && program->image_unloadable(path)) { image_ids.push_back(TextureResidency::kNone); continue; }
         std::string why;
-        const auto id = textures->declare(path, why);
+        const auto id = textures->declare(path, why, i < package.image_flags.size() ? package.image_flags[i] : 0u);
         if (id == TextureResidency::kNone) { last_reason = why; return false; }
         image_ids.push_back(id);
     }

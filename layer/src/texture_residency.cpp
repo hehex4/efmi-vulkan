@@ -95,7 +95,7 @@ void TextureResidency::stop()
     timeline_ = VK_NULL_HANDLE;
 }
 
-TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason)
+TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags)
 {
     const auto path = std::filesystem::u8path(utf8_path);
     // The file's identity (BUG-061): what did not change on disk is the image the live generation holds.
@@ -110,7 +110,7 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
     if (!usable_) { reason = reason_; return kNone; }
     assets::ResourceHandle handle;
     for (uint64_t attempt = 0;; ++attempt) {
-        handle = cache_->declare_image(path, reason, tag ^ (attempt * 0x94D049BB133111EBull));
+        handle = cache_->declare_image(path, reason, tag ^ (attempt * 0x94D049BB133111EBull), loader_flags);
         if (!handle) return kNone;
         const auto found = by_handle_.find(handle.get());
         if (found == by_handle_.end()) break;

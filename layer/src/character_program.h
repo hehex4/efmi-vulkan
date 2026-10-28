@@ -136,8 +136,9 @@ private:
               const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension>, const GpuFactory&, std::string& reason,
               const std::filesystem::path& mods = {}, bool declarations_only = false);
     void catalogue(CharacterPackage&, const std::map<std::wstring, uint32_t>& remaps);
-    // Whether a texture file loads (D-139); one that does not is recorded, the Mod told.
-    bool image_checked(const std::filesystem::path& path);
+    // Whether a texture file loads (D-139) with these loader flags, and as what format (D-140); one that
+    // does not is recorded, the Mod told.
+    bool image_checked(const std::filesystem::path& path, uint32_t loader_flags);
     std::shared_ptr<efmi::frontend::OwnedRuntime> gpu_;
     std::string gpu_reason_;
     std::vector<std::string> library_notes_;
@@ -150,6 +151,8 @@ private:
     std::set<std::wstring> absent_;
     // Texture files the original's loader makes no texture of (D-139): bound, they bind nothing.
     std::set<std::wstring> unloadable_;
+    // The format each catalogued image loads as, by its key (path and loader flags), D-140.
+    std::map<std::wstring, VkFormat> image_formats_;
     // The stream or image a plan item's resource names, by the resource object the compiler hands
     // out for a declaration (stable for the generation): the path key is made once per resource,
     // not per draw (it cost 10 us per matched draw).
