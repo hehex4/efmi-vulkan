@@ -191,6 +191,17 @@ private:
     uint64_t plans_forgotten_ = 0;
     std::unordered_map<std::string, CharacterList> lists_;
     std::vector<std::pair<uint32_t, uint32_t>> index_bounds_;
+    // Per index stream, the lowest and highest index of each block of kIndexBlock indices (D-148): a draw's
+    // own index range is bounded by its blocks, and read exactly from the file only when that bound
+    // reaches past a vertex stream.
+    static constexpr uint32_t kIndexBlock = 64;
+    std::vector<std::vector<std::pair<uint32_t, uint32_t>>> index_blocks_;
+    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, std::pair<uint32_t, uint32_t>> exact_ranges_;
+    std::set<uint32_t> past_logged_;
+    // The lowest and highest index a draw's own range reads; `exact` reads the file for it. False when the
+    // file cannot be read again.
+    bool index_range(const CharacterPackage&, uint32_t stream, uint32_t first, uint32_t count, bool exact,
+                     std::pair<uint32_t, uint32_t>& range);
     size_t outside_meshes_ = 0, left_to_game_ = 0;
     uint32_t identify_components_ = 0;
     std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets_;

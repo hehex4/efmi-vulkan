@@ -311,12 +311,18 @@ void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::
             }
         }
         index_bounds_.resize(package.streams.size());
+        index_blocks_.assign(package.streams.size(), {});
+        exact_ranges_.clear();
         for (size_t s = 0; s < package.streams.size(); ++s) {
             const auto& stream = package.streams[s]; if (stream.kind != CharacterStream::Index) continue;
             uint32_t low = UINT32_MAX, high = 0;
-            for (uint64_t at = 0; at < stream.size; at += stream.stride) {
+            auto& blocks = index_blocks_[s];
+            uint64_t n = 0;
+            for (uint64_t at = 0; at < stream.size; at += stream.stride, ++n) {
                 uint32_t v = 0; std::memcpy(&v, package.payload.data() + stream.offset + at, stream.stride);
                 low = std::min(low, v); high = std::max(high, v);
+                if (n % kIndexBlock == 0) blocks.push_back({v, v});
+                else { blocks.back().first = std::min(blocks.back().first, v); blocks.back().second = std::max(blocks.back().second, v); }
             }
             index_bounds_[s] = {low, high};
         }
@@ -726,6 +732,31 @@ uint32_t CharacterProgram::stream_index(const std::shared_ptr<const efmi::assets
     if (stream_cache_.size() < 4096) stream_cache_.emplace(resource.get(), index);
     return index;
 }
+bool CharacterProgram::index_range(const CharacterPackage& package, uint32_t stream, uint32_t first, uint32_t count, bool exact,
+                                   std::pair<uint32_t, uint32_t>& range)
+{
+    if (!count) { range = {0, 0}; return true; }
+    const auto& blocks = index_blocks_[stream];
+    if (!exact) {
+        range = {UINT32_MAX, 0};
+        for (uint64_t b = first / kIndexBlock; b <= (uint64_t(first) + count - 1) / kIndexBlock && b < blocks.size(); ++b) {
+            range.first = std::min(range.first, blocks[b].first); range.second = std::max(range.second, blocks[b].second);
+        }
+        return true;
+    }
+    const auto key = std::make_tuple(stream, first, count);
+    if (const auto found = exact_ranges_.find(key); found != exact_ranges_.end()) { range = found->second; return true; }
+    std::vector<uint8_t> bytes; std::string why;
+    if (!package.read_stream(stream, bytes, why)) return false;
+    const uint32_t stride = package.streams[stream].stride;
+    range = {UINT32_MAX, 0};
+    for (uint64_t i = first; i < uint64_t(first) + count && (i + 1) * stride <= bytes.size(); ++i) {
+        uint32_t v = 0; std::memcpy(&v, bytes.data() + i * stride, stride);
+        range.first = std::min(range.first, v); range.second = std::max(range.second, v);
+    }
+    if (exact_ranges_.size() < 4096) exact_ranges_.emplace(key, range);
+    return true;
+}
 uint32_t CharacterProgram::image_index(const std::shared_ptr<const efmi::assets::FileResource>& resource)
 {
     const auto cached = image_cache_.find(resource.get());
@@ -986,22 +1017,44 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 // A non-indexed draw reads the vertices from `first` on (D-142).
                 const bool indexed = bound.indexed;
                 if (indexed) {
+                    // Past the index file the original's input assembler reads index 0 (D3D11's out-of-bounds
+                    // rule): those triangles are one vertex three times and show nothing. The draw keeps its
+                    // whole triangles inside the file (D-148).
                     const auto& index = package.streams[bound.index_stream];
-                    if (uint64_t(bound.first) + bound.count > index.size / index.stride) throw std::runtime_error("Runtime indexed draw exceeds file bounds");
+                    const uint64_t elements = index.size / index.stride;
+                    if (bound.first >= elements) continue;
+                    if (uint64_t(bound.first) + bound.count > elements) {
+                        bound.count = uint32_t((elements - bound.first) / 3 * 3);
+                        if (!bound.count) continue;
+                    }
                 }
-                const auto extrema = indexed ? index_bounds_[bound.index_stream]
-                                             : std::pair<uint32_t, uint32_t>{bound.first, bound.first + bound.count - 1};
+                std::pair<uint32_t, uint32_t> extrema{bound.first, bound.first + bound.count - 1};
+                if (indexed && !index_range(package, bound.index_stream, bound.first, bound.count, false, extrema))
+                    throw std::runtime_error("Runtime index range unknown");
+                auto past = [&](const std::pair<uint32_t, uint32_t>& range) {
+                    for (uint32_t slot = 0; slot < 4; ++slot) {
+                        const uint32_t stream = bound.vb[slot];
+                        if (stream == kCharacterNone) continue;
+                        uint64_t vertices = 0;
+                        if (stream == kCharacterOwned) {
+                            const auto* o = bound.owned_stream(slot);
+                            vertices = o ? o->size / o->stride : 0;
+                        } else vertices = package.streams[stream].size / package.streams[stream].stride;
+                        if (int64_t(range.first) + bound.base < 0 || int64_t(range.second) + bound.base >= int64_t(vertices)) return true;
+                    }
+                    return false;
+                };
+                // The bound of the draw's index blocks first; the file read exactly only where that reaches past
+                // a vertex stream. A draw that does read past one shows vertices of zeros in the original; the
+                // layer leaves that draw out and the list's others go on (D-148).
+                if (past(extrema) && (!indexed || !index_range(package, bound.index_stream, bound.first, bound.count, true, extrema) || past(extrema))) {
+                    if (past_logged_.insert(bound.index_stream).second && past_logged_.size() < 64)
+                        logf("INI draw reads vertices past its files (the original reads zeros there); that draw is left out");
+                    continue;
+                }
                 for (uint32_t slot = 0; slot < 4; ++slot) {
                     const uint32_t stream = bound.vb[slot];
-                    if (stream == kCharacterNone) continue;
-                    uint64_t vertices = 0;
-                    if (stream == kCharacterOwned) {
-                        const auto* o = bound.owned_stream(slot);
-                        vertices = o ? o->size / o->stride : 0;
-                    } else vertices = package.streams[stream].size / package.streams[stream].stride;
-                    if (int64_t(extrema.first) + bound.base < 0 || int64_t(extrema.second) + bound.base >= int64_t(vertices))
-                        throw std::runtime_error("Runtime indexed draw exceeds vertex file bounds");
-                    if (stream != kCharacterOwned) required |= package.streams[stream].components;
+                    if (stream != kCharacterNone && stream != kCharacterOwned) required |= package.streams[stream].components;
                 }
                 // A translucent draw (D-113): captured into a layer at the pass end with its opacity and mask.
                 bound.translucent = item.operation == Op::Translucent;

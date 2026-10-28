@@ -23,7 +23,10 @@ installed Core:
   each slot of the range (D-143);
 - a texture check of the draw's index buffer and of a vertex buffer: the original looks up the resource's
   sections (D-144);
-- a dispatch before a section's first draw: the layer does not issue it there; the draw goes on (D-146).
+- a dispatch before a section's first draw: the layer does not issue it there; the draw goes on (D-146);
+- a draw past its index file and a position file cut in half: the original reads index 0 and zeros past
+  them; the layer keeps the draw's triangles inside the file and leaves out a draw reading past a
+  vertex file, the list's others going on (D-148).
 
 Each must load, and every section must plan in every state. Writes build/mod-degradation/.
 """
@@ -235,6 +238,20 @@ def main() -> int:
     variant("a texture check of the draw's index buffer", lambda mod: before_first_draw(mod, "checktextureoverride = ib"))
     variant("a texture check of a vertex buffer", lambda mod: before_first_draw(mod, "checktextureoverride = vb0"))
     variant("a dispatch in a replaced draw", lambda mod: before_first_draw(mod, "dispatch = 1, 1, 1"))
+
+    # Past the files (D-148): the original reads index 0 past the index file, zeros past a vertex file.
+    variant("a draw past its index file", lambda mod: first_draw_as(mod, lambda a: "drawindexed = %s + 10000000, %s, %s" % (a[0], a[1], a[2])))
+    vb0 = next((m.group(1) for m in re.finditer(r"(?im)^\s*vb0\s*=\s*(?:ref\s+)?(Resource[^\s;]+)", text)
+                if files.get(m.group(1).lower(), "").lower().endswith(".buf")), None)
+
+    def half_positions(mod: Path) -> None:
+        keys = dict(declared)[next(n for n, _ in declared if n.lower() == vb0.lower())]
+        path = mod / keys["filename"].replace("\\", "/")
+        stride = int(keys.get("stride", "1"))
+        data = path.read_bytes()
+        path.write_bytes(data[:len(data) // 2 // stride * stride])
+    if vb0:
+        variant("a draw reading past its vertex file", half_positions)
     print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
     return 1 if failed else 0
 

@@ -301,6 +301,21 @@ the Mod's resources (the game's are not owned work's). A generation without the 
 Check: live INI rendering's fixture Mod stores `ResourceStoreSource` (data 7) in its sections: refused
 on the build before (the whole character stayed the game's), `$stored` is 7 now in every scene.
 
+## Draws past their files (D-148)
+
+D3D11's input assembler reads index 0 past an index buffer and zeros past a vertex buffer. The layer
+refused a list whose draw reached past its index file, or whose index file (all of it) reached past a
+vertex file. Now a draw keeps its whole triangles inside the index file (the ones past it are one vertex
+three times in the original and show nothing; only a triangle across the end differs); a draw's own index
+range is bounded by per-64-index block extrema and read exactly from the file only when that bound reaches
+past a vertex stream (no false refusal for another draw's indices); a draw that does read past a vertex
+file shows vertices of zeros in the original, which the layer leaves out, the list's other draws going on,
+logged once.
+
+Checks: check_mod_degradation's variants (a draw's count far past its index file; a position file cut in
+half), refused before, planned now; a vk04 replay of SiModGB's copy changed that way (validation clean,
+the draw reading past its vertex file left out).
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the
