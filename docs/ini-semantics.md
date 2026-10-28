@@ -316,6 +316,27 @@ Checks: check_mod_degradation's variants (a draw's count far past its index file
 half), refused before, planned now; a vk04 replay of SiModGB's copy changed that way (validation clean,
 the draw reading past its vertex file left out).
 
+## DDS arrays and cubes in a replaced draw (D-149)
+
+DirectXTK's DDS loader makes an array or a cube texture of such a file. The layer can re-point only a
+fragment shader's nonarray 2D images to the Mod's (fragment_images.cpp), and D3D11 leaves undefined what
+a 2D slot reads from a view of another dimension (drivers commonly read the first slice). The layer's
+loader refused these files (the slot bound nothing since D-139). Now a DDS array or cube (every face; DX10
+arrays of either) loads as its first layer, the levels the 2D slot takes; a volume still does not load.
+Check: asset_gpu (a two-slice array and a cube, on the worker's own staging and through the arena, load
+and read back as their first layer; failing before, 297/297 now).
+
+## Sections matching the game's buffers by description (finding, 2026-10-28)
+
+The DX11 catalogue capture (char01) shows the game's index data in shared pools: five 16 MiB DEFAULT
+buffers bound as vertex and index buffers (and one 4 MiB DYNAMIC); a draw's index and vertex offsets are
+the same under Vulkan (draw 130: index offset 44128, vertex offsets 13664 and 35424 in both), so Unity's
+pooling is the API's. A section matching buffers by description (match_type = Buffer, match_byte_width
+...) therefore meets nearly every draw of the game in the original, and the layer would have to run the
+INI generation on every draw to follow it. The Vulkan captures do not record buffer sizes, so the pools'
+descriptions are not shown equal. These sections stay inert and reported per Mod (D-138); no installed or
+disabled Mod has one.
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

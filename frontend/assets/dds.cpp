@@ -76,8 +76,15 @@ bool decode_dds_header(const uint8_t* data,size_t available,uint64_t file_size,D
     const auto flags=word(data+8),width=word(data+16),height=word(data+12);
     if((flags&0x1007)!=0x1007 || !(word(data+108)&0x1000))return fail("DDS required texture flags missing");
     if(!width || !height || width>16384 || height>16384)return fail("DDS dimensions are outside budget");
-    if(word(data+24)>1 || word(data+112)!=0 || (flags&0x800000))
-        return fail("DDS arrays, cubes and volumes require another loader");
+    // A cube (every face) or, in the DX10 header, an array: its layers follow one another, each with its
+    // levels (DirectXTK's DDS loader). A volume needs another loader.
+    if(word(data+24)>1 || (flags&0x800000))return fail("DDS volumes require another loader");
+    const auto caps2=word(data+112);
+    uint32_t layers=1;bool cube=false;
+    if(caps2){
+        if((caps2&0x200)!=0x200 || (caps2&0xFC00)!=0xFC00 || (caps2&~0xFE00u))return fail("DDS cube must contain all faces");
+        layers=6;cube=true;
+    }
     uint32_t count=word(data+28);if(!count)count=1;
     uint32_t maximum=1;for(auto n=std::max(width,height);n>1;n>>=1)++maximum;
     if(count>maximum || (count>1 && !(flags&0x20000)))return fail("DDS mip count is inconsistent");
@@ -86,8 +93,9 @@ bool decode_dds_header(const uint8_t* data,size_t available,uint64_t file_size,D
     if(pf_flags&4){
         if(code==fourcc('D','X','1','0')){
             if(size<148)return fail("DDS DX10 header is truncated");
-            if(word(data+132)!=3 || word(data+136)!=0 || word(data+140)!=1)
-                return fail("DDS DX10 resource is not a single ordinary 2D texture");
+            const auto misc=word(data+136),array=word(data+140);
+            if(word(data+132)!=3 || (misc&~4u) || !array || array>2048)return fail("DDS DX10 resource is not a 2D texture or array");
+            cube=(misc&4)!=0;layers=array*(cube?6:1);
             if(word(data+144)!=0 && word(data+144)!=1 && word(data+144)!=3)
                 return fail("DDS non-straight alpha interpretation is unsupported");
             format=dxgi(word(data+128));offset=148;
@@ -121,7 +129,10 @@ bool decode_dds_header(const uint8_t* data,size_t available,uint64_t file_size,D
         candidate.levels.push_back({w,h,offset,static_cast<size_t>(bytes)});
         offset+=static_cast<size_t>(bytes);w=std::max(1u,w/2);h=std::max(1u,h/2);
     }
-    if(offset!=size)return fail("DDS trailing payload is unsupported");
+    // Every layer as long as the first, and nothing after the last.
+    const uint64_t layer_bytes=offset-candidate.levels[0].offset;
+    if(uint64_t(offset)+uint64_t(layers-1)*layer_bytes!=size)return fail("DDS layers or trailing payload disagree with its size");
+    candidate.layers=layers;candidate.cube=cube;
     output=std::move(candidate);return true;
 }
 }

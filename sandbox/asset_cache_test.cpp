@@ -275,6 +275,40 @@ void wic_tests(Gpu& g)
         cache.stop();
     }
 }
+// D-149: a DDS array (two slices) and a cube (six faces) load as their first layer, on the worker's own
+// staging and through the staging arena.
+void layered_tests(Gpu& g)
+{
+    const auto folder=std::filesystem::current_path()/L"layered-fixtures";std::filesystem::create_directories(folder);
+    auto layered=[](uint32_t layers,bool cube){
+        auto data=staged_fixture(16,5,uint8_t(layers));const std::vector<uint8_t> first(data.begin()+148,data.end());
+        put(data,136,cube?4u:0u);put(data,140,cube?layers/6:layers);
+        for(uint32_t l=1;l<layers;++l)for(auto byte:first)data.push_back(uint8_t(byte+l*31));
+        return std::make_pair(data,first);
+    };
+    const auto array=layered(2,false),cube=layered(6,true);
+    write_fixture(folder/L"array.dds",array.first);write_fixture(folder/L"cube.dds",cube.first);
+    std::mutex queue_mutex;std::string reason;
+    for(const bool staged:{false,true}){
+        TextureDevice device=cache_device(g);
+        if(staged){device.dispatch=g.dispatch;device.dispatch.CreateCommandPool=staged_create_pool;device.upload_queue=g.queue;device.upload_family=g.family;
+            device.upload_mutex=&queue_mutex;device.readback=true;
+#define X(name) device.buffer_dispatch.name=p##name;
+            EFMI_BUFFER_UPLOAD_FUNCS(X)
+#undef X
+        }
+        TextureCache cache(device,{},16,1);
+        for(const auto& [name,file]:{std::make_pair(L"array.dds",&array),std::make_pair(L"cube.dds",&cube)}){
+            auto h=cache.declare_image(folder/name,reason);
+            check(h && cache.demand(h),"a layered DDS declared and demanded");
+            const auto ready=staged?h->wait_until(Clock::now()+std::chrono::seconds(15)):await_texture(cache,h,g,true);
+            const bool loaded=ready.state==TextureState::Ready && ready.image && ready.image->metadata().width==16;
+            check(loaded,staged?"a layered DDS loads through the staging arena":"a layered DDS loads on the worker's staging");
+            if(staged && loaded)check(staged_readback(g,*ready.image)==file->second,"a layered DDS's image is its first layer");
+        }
+        cache.stop();
+    }
+}
 void staged_tests(Gpu& g)
 {
     TextureDevice device;device.device=g.device;device.physical=g.physical;device.graphics_family=g.family;device.bc_enabled=g.bc;

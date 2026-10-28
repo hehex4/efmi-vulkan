@@ -364,7 +364,8 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
                                 VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),0,&limits)!=VK_SUCCESS)
         throw std::runtime_error("Resource format unsupported for sampled upload");
     const auto base=meta.levels[ImageUpload::levels_skipped(meta,entry->skip_levels_)].offset;
-    const uint64_t payload=pixels.bytes.empty()?static_cast<uint64_t>(size.QuadPart)-base:pixels.bytes.size();
+    // The levels the image takes: the first layer's of an array or cube (D-149).
+    const uint64_t payload=pixels.bytes.empty()?uint64_t(meta.levels.back().offset+meta.levels.back().bytes)-base:pixels.bytes.size();
     // The payload straight into the arena: one read, no copy of our own.
     uint64_t offset=0;
     if(!arena_take(payload,offset))throw BudgetBusy("Aggregate staging arena busy");

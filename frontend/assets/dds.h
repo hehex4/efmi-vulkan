@@ -14,8 +14,12 @@ struct DdsImage {
     VkFormat format=VK_FORMAT_UNDEFINED;
     uint32_t width=0, height=0;
     std::vector<DdsLevel> levels;
+    // The file's layers (an array's slices, a cube's faces); `levels` are the first's (D-149).
+    uint32_t layers=1;
+    bool cube=false;
 };
-// Bounded 2D, single-layer DDS. Preserves linear/sRGB formats and BC blocks.
+// Bounded 2D DDS, an array or cube of them too: the first layer's levels, which is what a replaced
+// draw's 2D slot takes (D-149). Preserves linear/sRGB formats and BC blocks.
 // Output stays unchanged on error; no file IO, GPU calls or payload copies.
 bool decode_dds(const uint8_t* data,size_t size,DdsImage& output,std::string& reason);
 // The same from the file's first bytes only (`available` of them, at least kDdsHeaderBytes or the whole
