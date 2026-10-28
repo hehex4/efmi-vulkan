@@ -7,6 +7,7 @@
 #include <chrono>
 #include <climits>
 #include <array>
+#include <map>
 #include "ResourceHash.h"
 #include "Overlay.h"
 #include "globals.h"
@@ -485,6 +486,29 @@ struct DrawPlanAdapter::Runtime {
     // `ResourceX = ref ps-tN` in a matched draw's plan: X refers to the application's texture at
     // pixel slot N of that draw. One stand-in per slot marks it; it never reaches a file plan.
     std::array<CustomResource,128> application_textures;
+    // The same for the application's bindings at other slots (a stage's t or cb, not pixel textures and
+    // not compute): `ResourceX = ref vs-t0`, `vs-t0 = null`, owned work, `vs-t0 = ref ResourceX` leaves
+    // the draw's bindings as the application made them, which the plan expresses by binding nothing
+    // there. A slot left changed at a draw or at the end needs the game's bindings in Vulkan terms (D-152).
+    using OtherSlot=std::tuple<int,wchar_t,unsigned>;
+    std::map<OtherSlot,CustomResource> application_others;
+    std::map<OtherSlot,std::wstring> other_changes; // slot -> the line that changed it
+    static bool other_slot(const ResourceCopyTarget& t){
+        return t.shader_type!=L'c' && ((t.type==ResourceCopyTargetType::SHADER_RESOURCE && t.shader_type!=L'p') ||
+                                       t.type==ResourceCopyTargetType::CONSTANT_BUFFER);
+    }
+    const OtherSlot* application_other(const CustomResource* resource) const {
+        for(const auto& entry:application_others)if(&entry.second==resource)return &entry.first;
+        return nullptr;
+    }
+    OtherSlot other_key(ResourceCopyTarget& t,CommandListState& state,const std::wstring& line){
+        const unsigned slot=t.ResolveSlot(&state);
+        if(slot>=128)refuse(L"Binding slot out of range: "+line);
+        return {int(t.type),t.shader_type,slot};
+    }
+    void others_restored(){
+        if(!other_changes.empty())refuse(L"Unsupported binding destination: "+other_changes.begin()->second);
+    }
     // A slot range's single slot operations, one per slot of the range, kept with the command (D-143).
     std::unordered_map<const SlotRangeCopyOperation*,std::vector<std::shared_ptr<ResourceCopyOperation>>> range_ops;
     std::vector<CustomResource*> range_resources;
@@ -520,10 +544,15 @@ struct DrawPlanAdapter::Runtime {
         }
     }
     // Owned work in a draw's scope stays on the owned side (D-087).
-    void owned_only(CommandListCommand& command,CommandListState&)
+    void owned_only(CommandListCommand& command,CommandListState& state)
     {
         auto check=[&](const ResourceCopyTarget& t){
             if(!owned_side(t))refuse(L"Owned work in a replaced draw reaches the application's resources: "+command.ini_line);
+            // A declaration holding the application's binding at another slot is the application's (D-152).
+            if(t.type==ResourceCopyTargetType::CUSTOM_RESOURCE && !t.custom_resource_pool &&
+               t.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE &&
+               application_other(referenced(const_cast<ResourceCopyTarget&>(t).GetCustomResource(&state))))
+                refuse(L"Owned work in a replaced draw reaches the application's resources: "+command.ini_line);
         };
         if(auto* copy=dynamic_cast<ResourceCopyOperation*>(&command)){check(copy->src);check(copy->dst);}
         else if(auto* range=dynamic_cast<SlotRangeCopyOperation*>(&command)){check(range->src);check(range->dst);}
@@ -761,6 +790,7 @@ struct DrawPlanAdapter::Runtime {
     void indexed(PlanItem& item,CommandListState& state)
     {
         if (++draws > max_draws) refuse(L"Plan draw budget exceeded");
+        others_restored(); // the draw reads the application's other bindings as they are (D-152)
         for (const auto* layout : state.input_layout_overrides) {
             if (!layout || item.layout.size() >= 256) refuse(L"Invalid layout operation list");
             item.layout.push_back(*layout);
@@ -1011,6 +1041,9 @@ struct DrawPlanAdapter::Runtime {
                     const unsigned slot=src.ResolveSlot(state);
                     if(slot>=128)refuse(L"Pixel slot out of range: "+original->ini_line);
                     source=&application_textures[slot];
+                }else if(other_slot(src) && binding->options==ResourceCopyOptions::REFERENCE){
+                    // The application's binding at another slot, held to be put back (D-152).
+                    source=&application_others[other_key(src,*state,original->ini_line)];
                 }else if(src.type!=ResourceCopyTargetType::EMPTY ||
                          (binding->options!=ResourceCopyOptions::REFERENCE && binding->options!=ResourceCopyOptions::COPY))
                     refuse(L"Unsupported declaration reference: "+original->ini_line);
@@ -1025,6 +1058,21 @@ struct DrawPlanAdapter::Runtime {
                 item.operation = PlanOperation::BindIndex;
             else if (dst.type == ResourceCopyTargetType::SHADER_RESOURCE && dst.shader_type == L'p')
                 item.operation = PlanOperation::BindPixelResource;
+            else if (other_slot(dst)) {
+                // Another slot of the application (D-152): put back to what it held, or changed.
+                const auto key = other_key(dst, *state, original->ini_line);
+                const CustomResource* held = nullptr;
+                if (src.type == ResourceCopyTargetType::CUSTOM_RESOURCE && binding->options == ResourceCopyOptions::REFERENCE) {
+                    auto* declaration = src.GetCustomResource(state); direct_resource(declaration); held = referenced(declaration);
+                }
+                const auto* restored = held ? application_other(held) : nullptr;
+                if (restored && *restored == key) other_changes.erase(key);
+                else {
+                    if (other_changes.size() >= max_steps && !other_changes.count(key)) refuse(L"Plan operation budget exceeded");
+                    other_changes[key] = original->ini_line;
+                }
+                return;
+            }
             else refuse(L"Unsupported binding destination: " + original->ini_line);
             item.slot = dst.ResolveSlot(state);
             const unsigned limit = item.operation == PlanOperation::BindVertex ? 32 :
@@ -1531,7 +1579,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     runtime_->keep_original=false;runtime_->shader_depth=0;
-    runtime_->pixel_bindings={};runtime_->vertex_bindings={};runtime_->index_binding={};
+    runtime_->pixel_bindings={};runtime_->vertex_bindings={};runtime_->index_binding={};runtime_->other_changes.clear();
     phase("exec setup");
     try {
         auto run=[&](const auto& lists,CommandListState& phase){for(auto* root:lists){
@@ -1550,6 +1598,8 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         runtime_->flush(state);
         phase("exec flush");
+        // The application's draw, where it stays, reads its other bindings as the pre lists left them (D-152).
+        if(!candidate.skip_original || runtime_->keep_original)runtime_->others_restored();
         candidate.pre_items=candidate.items.size();
         if(between){std::wstring why;if(!between(state,why))refuse(why.empty()?L"Root phase boundary refused":why);}
         if(post){
@@ -1565,6 +1615,8 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
             runtime_->flush(after);
             phase("exec post lists+flush");
         }
+        // The game's later draws read what the lists left bound (D-152).
+        runtime_->others_restored();
         if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         if(runtime_->keep_original)candidate.skip_original=false;
         std::swap(output, candidate); // both keep their capacity
@@ -1592,7 +1644,7 @@ bool DrawPlanAdapter::execute_intercepted(const std::vector<CommandList*>& pre,c
     DrawPlan candidate;candidate.skip_original=state.call_info->skip;
     runtime_->active=&candidate;runtime_->steps=runtime_->draws=runtime_->queries->count=0;
     runtime_->nested_failed=false;runtime_->active_depth=0;runtime_->pixel_bindings={};runtime_->vertex_bindings={};runtime_->index_binding={};
-    runtime_->keep_original=false;
+    runtime_->other_changes.clear();runtime_->keep_original=false;
     runtime_->shader_depth=0;
     try{
         auto fresh=[&](CommandListState& root,bool after){root.mHackerDevice=state.mHackerDevice;root.mHackerContext=state.mHackerContext;
@@ -1606,10 +1658,12 @@ bool DrawPlanAdapter::execute_intercepted(const std::vector<CommandList*>& pre,c
             if(!candidate.items.empty())refuse(L"Intercepted shader calls require immediate resource/draw execution");
         }};
         run(pre,false);
+        if(!candidate.skip_original)runtime_->others_restored(); // D-152
         if(!candidate.skip_original && !state.call_info->hunting_skip){CommandListState caller;fresh(caller,false);
             std::wstring why;if(!original(caller,why))refuse(why.empty()?L"Original call callback refused":why);
             if(runtime_->nested_failed || !candidate.items.empty())refuse(L"Original call callback left failed or deferred work");}
         run(post,true);
+        runtime_->others_restored();
     }catch(const Refused& e){reason=e.reason;}
      catch(const std::exception& e){const std::string text=e.what();reason.assign(text.begin(),text.end());}
     runtime_->active=nullptr;return reason.empty();

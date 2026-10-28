@@ -397,6 +397,25 @@ original in 83 more values, after the gaps they found:
 Checks: the judge's eight cases (105 values, validation clean at 1.3); resource_gpu's raw-view and
 outside-region references bind nothing and the list goes on.
 
+## The application's other bindings put back (D-152)
+
+A replaced draw's plan binds vertex and index buffers and pixel textures; the game's bindings at the
+other slots (a stage's t and cb) are its own, in Vulkan terms the layer has no catalogue for (T-030), and
+a line that bound one refused the draw. The installed Snowshine corrects its LOD 1 coordinates with
+owned work around which it saves the game's vs-t0, nulls it and puts it back (CommandList_CorrectLodCoordinates:
+`Resource_CorrectionSavedSkeleton = ref vs-t0`, `vs-t0 = null`, `run = CustomShader...`,
+`vs-t0 = ref Resource_CorrectionSavedSkeleton`); under DX11 the null only keeps the shader resource out of
+the compute hazard, and the draw that follows reads the game's own vs-t0. The plan now follows that:
+a reference of such a slot into a declaration holds a stand-in for the application's binding there (as
+application_textures do for pixel slots), and binding the slot records a change unless it is the stand-in
+of that very slot, which puts it back. A slot left changed when a draw is planned, when the application's
+draw stays after the pre lists, or at the end (the game's later draws read it) refuses as before; owned
+work that names a declaration holding such a stand-in refuses as owned work reaching the application's
+resources does.
+
+Checks: plan_test (saved, nulled and put back plans the draw; nulled at a draw, moved to another slot,
+or left changed at the end refuses).
+
 ## Freezes (the user's other half, 2026-10-28)
 
 The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the

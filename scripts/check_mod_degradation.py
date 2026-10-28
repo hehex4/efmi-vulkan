@@ -239,6 +239,16 @@ def main() -> int:
     variant("a texture check of a vertex buffer", lambda mod: before_first_draw(mod, "checktextureoverride = vb0"))
     variant("a dispatch in a replaced draw", lambda mod: before_first_draw(mod, "dispatch = 1, 1, 1"))
 
+    # D-152: the application's vs-t0 saved, nulled and put back (Snowshine's LOD 1 correction) leaves the
+    # replaced draw as the application bound it.
+    def saved_and_restored(mod: Path) -> None:
+        lines = text.splitlines()
+        at = next(i for i, l in enumerate(lines) if l.strip().lower().startswith("drawindexed"))
+        indent = lines[at][:len(lines[at]) - len(lines[at].lstrip())]
+        lines[at:at] = [indent + "ResourceEfvkSaved = ref vs-t0", indent + "vs-t0 = null", indent + "vs-t0 = ref ResourceEfvkSaved"]
+        (mod / ini_name).write_text("\n".join(lines) + "\n\n[ResourceEfvkSaved]\n", encoding="utf-8")
+    variant("the application's vs-t0 saved, nulled and put back", saved_and_restored)
+
     # Past the files (D-148): the original reads index 0 past the index file, zeros past a vertex file.
     variant("a draw past its index file", lambda mod: first_draw_as(mod, lambda a: "drawindexed = %s + 10000000, %s, %s" % (a[0], a[1], a[2])))
     vb0 = next((m.group(1) for m in re.finditer(r"(?im)^\s*vb0\s*=\s*(?:ref\s+)?(Resource[^\s;]+)", text)

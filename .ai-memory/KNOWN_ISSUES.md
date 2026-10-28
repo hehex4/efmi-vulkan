@@ -1023,6 +1023,7 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 ## LIMIT-035: Owned GPU work in a replaced draw cannot read the game's bindings
 
 - 2026-10-20 (candidate 1.6.3, D-087). Owned work in a draw refuses when it reads or binds `vs-t0`, `vs-cbN`, render targets or other application bindings, and `store` refuses. Typhoeus' chest physics and detection read the game's bones and camera constant buffers; they stay off (the classification finds no camera pass), so the chest is drawn from the state at rest. Needs the game's bindings in Vulkan terms (shader catalogue, T-030).
+- 2026-10-28: store in a draw reads a frame late instead of refusing (D-147). The application's binding at such a slot saved into a declaration, nulled and put back around owned work leaves the draw as the application bound it (D-152, Snowshine's LOD 1 correction); owned work naming such a declaration, or a slot left changed, still refuses.
 
 ## LIMIT-036: ShaderOverride and ShaderRegex sections are inert under Vulkan
 

@@ -40,7 +40,12 @@ int HostPlanTests()
                      L"[CommandListSlotQuery]\nps-t[rt_width] = ResourceImage\n"
                      L"[CommandListRecursion]\nrun = CommandListRecursion\n"
                      L"[CommandListVertexCopy]\nib = ResourceIndex\nvb0 = ref ResourceVertices\nvb3 = vb0\nvb0 = null\ndrawindexed = 3, 0, 0\n"
-                     L"[CommandListApplicationVertex]\nvb3 = vb1\ndrawindexed = 3, 0, 0\n",
+                     L"[CommandListApplicationVertex]\nvb3 = vb1\ndrawindexed = 3, 0, 0\n"
+                     L"[ResourceSaved]\n"
+                     L"[CommandListRestoredVs]\nResourceSaved = ref vs-t0\nvs-t0 = null\nvs-t0 = ref ResourceSaved\ndrawindexed = 3, 0, 0\n"
+                     L"[CommandListNulledVs]\nvs-t0 = null\ndrawindexed = 3, 0, 0\n"
+                     L"[CommandListMovedVs]\nResourceSaved = ref vs-t0\nvs-t1 = ref ResourceSaved\ndrawindexed = 3, 0, 0\n"
+                     L"[CommandListLeftCb]\nhandling = skip\nvs-cb2 = null\n",
                      L"planner.ini");
     std::wstring budget=L"namespace = planner\n[CommandListBudget]\n";
     for(int i=0;i<257;++i)budget+=L"drawindexed = 3, 0, 0\n";
@@ -49,7 +54,7 @@ int HostPlanTests()
     DrawPlanAdapter adapter;
     adapter.external(explicitCommandListSections.at(L"commandlist\\planner\\native"),L"test/native");
     const wchar_t* names[]={L"draw",L"fail",L"empty",L"unset",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget",
-                            L"vertexcopy",L"applicationvertex"};
+                            L"vertexcopy",L"applicationvertex",L"restoredvs",L"nulledvs",L"movedvs",L"leftcb"};
     for(auto* name:names)HostCompileNamedList((L"commandlist\\planner\\"+std::wstring(name)).c_str());
     optimise_command_lists(nullptr);
     for(auto* name:names)adapter.adapt(explicitCommandListSections.at(L"commandlist\\planner\\"+std::wstring(name)).command_list);
@@ -92,6 +97,16 @@ int HostPlanTests()
     }
     check(!run(L"applicationvertex",plan,reason) && reason.find(L"application's vertex buffer")!=std::wstring::npos,
           "the application's own vertex buffer moved to another slot refuses");
+    // D-152: the application's binding at another slot saved, nulled and put back leaves the draw as the
+    // application bound it; left changed at a draw or at the end, or moved to another slot, it refuses.
+    DrawPlan restored;
+    check(run(L"restoredvs",restored,reason) && restored.items.size()==1 && restored.items[0].operation==PlanOperation::DrawIndexed,
+          "vs-t0 saved, nulled and put back plans the draw with the application's binding");
+    for(auto* name:{L"nulledvs",L"movedvs",L"leftcb"}){
+        DrawPlan changed;
+        check(!run(name,changed,reason) && reason.find(L"Unsupported binding destination")!=std::wstring::npos,
+              "another slot of the application left changed at a draw or at the end refuses");
+    }
     DrawPlan copied;
     check(run(L"vertexcopy",copied,reason) && copied.items.size()==5 && copied.items[1].operation==PlanOperation::BindVertex &&
           copied.items[2].operation==PlanOperation::BindVertex && copied.items[2].slot==3 && copied.items[2].resource &&
