@@ -175,6 +175,8 @@ private:
     std::string scratch_id_;
     uint32_t stream_index(const std::shared_ptr<const efmi::assets::FileResource>& resource);
     uint32_t image_index(const std::shared_ptr<const efmi::assets::FileResource>& resource);
+    bool forget_plans_when_full(CharacterPackage& package, size_t adding);
+    uint64_t plans_forgotten_ = 0;
     std::unordered_map<std::string, CharacterList> lists_;
     std::vector<std::pair<uint32_t, uint32_t>> index_bounds_;
     size_t outside_meshes_ = 0, left_to_game_ = 0;

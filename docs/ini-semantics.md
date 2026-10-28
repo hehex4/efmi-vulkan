@@ -92,7 +92,9 @@ Worked through by impact: first what drops a whole Mod at load, then what the or
 then the gaps (step 3).
 
 - Done: BUG-076 (a missing texture binds nothing), BUG-077 (a missing, short or twice-declared buffer file
-  degrades per draw as the original; check_mod_degradation.py).
+  degrades per draw as the original; the cache of distinct draw lists starts again when full instead of
+  refusing; check_mod_degradation.py). The every-state check also runs 1200 presentations after the keys
+  (a Present that changes state every frame).
 
 ## Status
 

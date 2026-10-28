@@ -688,6 +688,17 @@ uint32_t CharacterProgram::image_index(const std::shared_ptr<const efmi::assets:
     if (image_cache_.size() < 4096) image_cache_.emplace(resource.get(), index);
     return index;
 }
+// The plans of distinct binding states are kept by their signature; a Mod whose keys reach more of them
+// than are kept starts the cache again instead of refusing the next one (the original keeps nothing of
+// the kind). Its caller holds what reads the package's draws (the generation's plan lock) and rebuilds what
+// it keeps by draw index when told a draw was added.
+bool CharacterProgram::forget_plans_when_full(CharacterPackage& package, size_t adding)
+{
+    if (lists_.size() < 1024 && package.draws.size() + adding <= 16384) return false;
+    lists_.clear(); package.draws.clear(); package.pixels.clear();
+    ++plans_forgotten_;
+    return true;
+}
 bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, CharacterPackage& package, CharacterList& output,
                             bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures)
 {
@@ -729,7 +740,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
             auto& id = scratch_id_; id.assign(signature.begin(), signature.end());
             const auto found = lists_.find(id);
             if (found == lists_.end()) {
-                if (lists_.size() >= 1024 || package.draws.size() + 1 > 16384) throw std::runtime_error("Runtime draw-plan cache budget exceeded");
+                forget_plans_when_full(package, 1); // a texture-only plan reports an added draw anyway
                 CharacterDraw draw;
                 draw.index_stream = kCharacterNone; draw.texture_only = true;
                 std::vector<CharacterPixel> material;
@@ -921,11 +932,12 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         auto& id = scratch_id_; id.assign(signature.begin(), signature.end());
         auto found = lists_.find(id);
         if (found != lists_.end()) { output = found->second; return true; }
-        if (lists_.size() >= 1024 || package.draws.size() + draws.size() > 16384) throw std::runtime_error("Runtime draw-plan cache budget exceeded");
+        const bool forgot = forget_plans_when_full(package, draws.size());
         CharacterList result{uint32_t(package.draws.size()), uint32_t(draws.size()), required};
         package.draws.insert(package.draws.end(), draws.begin(), draws.end());
         package.pixels.insert(package.pixels.end(), material.begin(), material.begin() + material_count);
-        lists_.emplace(id, result); added = !draws.empty(); output = result; return true;
+        // After the plans were forgotten the caller rebuilds what it keeps by draw (materials, variants).
+        lists_.emplace(id, result); added = !draws.empty() || forgot; output = result; return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 bool CharacterProgram::present(const efmi::frontend::RuntimeInput& input, uint64_t frame, float seconds, std::string& reason, bool keep_replay_state)

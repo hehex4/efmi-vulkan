@@ -500,6 +500,12 @@ static int plan_folder_states(const std::filesystem::path& mods, const std::file
             if (!seen.insert(snapshot()).second) break;
         }
     }
+    // Then the time a player spends without a key: a Mod's Present may change its state every frame
+    // (timers, transitions), and a long session meets every state that reaches.
+    for (int f = 1; f <= 1200; ++f) {
+        const std::string state = "frame " + std::to_string(f) + " after the keys";
+        present(released, state); plan_all(state);
+    }
     JsonWriter summary; summary.begin_object();
     summary.kn("key_actions", combos.size()); summary.kn("states", states);
     summary.key("present_errors"); summary.begin_array(); for (const auto& e : present_errors) summary.str(e); summary.end_array();

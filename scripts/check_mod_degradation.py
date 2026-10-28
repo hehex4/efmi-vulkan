@@ -104,6 +104,23 @@ def main() -> int:
         lines.insert(last + 1, "vb1 = ResourceEfvkSecondMeaning")
         (mod / ini_name).write_text("\n".join(lines) + "\n" + extra, encoding="utf-8")
     variant("vertex buffer file declared with a second stride", twice)
+
+    def many_lists(mod: Path) -> None:
+        # A draw whose first index follows a counter the Mod's Present advances every frame: 1100 binding
+        # states, more than the layer's cache of distinct draw lists holds (1024).
+        lines = text.splitlines()
+        at = next(i for i, line in enumerate(lines) if line.strip().lower().startswith("drawindexed"))
+        lines[at] = "drawindexed = 3, ($efvk_frame % 1100) * 3, 0"
+        def insert_after(header: str, line: str) -> None:
+            where = next((i for i, l in enumerate(lines) if l.strip().lower() == header.lower()), None)
+            if where is None:
+                lines.extend(["", header, line])
+            else:
+                lines.insert(where + 1, line)
+        insert_after("[Constants]", "global $efvk_frame = 0")
+        insert_after("[Present]", "$efvk_frame = $efvk_frame + 1")
+        (mod / ini_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+    variant("more distinct draw lists than the cache holds", many_lists)
     print("mod degradation: %s (%s)" % ("FAILED" if failed else "passed", source.name))
     return 1 if failed else 0
 
