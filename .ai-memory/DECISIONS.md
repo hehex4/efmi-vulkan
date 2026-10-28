@@ -1077,6 +1077,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-137: The original is the INI's specification, including how it fails (docs/ini-semantics.md)
+
+- Date: 2026-10-28. The user: the INI handling keeps meeting problems; Mods are written every way; think it through, general, never per Mod; then: do all of it.
+- Each of the original's commands is implemented with its D3D11 meaning, or degraded as the original degrades (null resource, command without effect, draw goes on), or listed as impossible under Vulkan and degraded visibly. No refusal of a whole draw for a unit's failure, no budget the original lacks. Degradations are shown as XXMI shows warnings (overlay) and logged. Checks take the original as the judge over every installed Mod in every state its keys reach, and per command against DX11 with XXMI.
+- Order: classify every refusal point and degrade where the original does, with the overlay notices; the checks; the gaps closed by implementing the commands for replaced draws as owned work already does.
+
 ## D-136: The loader is the module that holds the code; meshes in device memory by copy without resizable BAR
 
 - Date: 2026-10-28 (2.1.1, BUG-074, BUG-075), from the review the user asked for.

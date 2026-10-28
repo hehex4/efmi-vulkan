@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-076: A texture file the INI names but the Mod does not ship refused the draw (fixed in the 2.1.1 tree)
+
+- 2026-10-28, in the game (2.0.8 development build, user-started): tangtang Ramune v1.9 drew its arm in broken strips. Status: refused_state 18579 of 92767 matched, "INI plan: INI image not in prepared resource catalogue". Its component 0 at LOD 0 binds `ps-t15 = Resource-9a09f1f0-22587-0-NormalMap`, whose file is not in the Mod.
+- The original resolves the file relative to the INI, else to its own folder (IniHandler.cpp ParseResourceSections), loads it at first use, and where that fails warns in the overlay and leaves the resource null (CustomResource::LoadFromFile); the assignment binds nothing and the draw goes on.
+- The layer: in the folder generation the fallback path lay outside the Mod's folder, so the catalogue left it out and the plan refused the draw; in the Mod's own generation it was catalogued as an image to load. Fixed: a file that is not there is an explicit null binding in both (the catalogue leaves it out, image_index answers none and logs once). Failing check: check_folder_generation.py (the Mod's sections differed alone and in the folder; planned False in the folder).
+
 ## BUG-075: Character meshes in the host's window of device memory, whatever its size (fixed in 2.1.1)
 
 - Found in the review of 2026-10-28. GpuMesh took host-visible device memory first and wrote the mesh through a mapping. With resizable BAR (this machine) that is the whole card; without it (many desktops, AMD without Smart Access Memory) a heap of about 256 MiB the game uses as well: meshes of a few characters (4 were 110 MB here) fill it, and the game's own allocations there or ours fail.

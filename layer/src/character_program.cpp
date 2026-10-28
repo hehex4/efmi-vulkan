@@ -235,6 +235,8 @@ void CharacterProgram::catalogue(CharacterPackage& package, const std::map<std::
                     throw std::runtime_error("Original file declaration differs from the renderer stream profile");
             } else if (_wcsicmp(file->path.extension().c_str(), L".dds")) {
                 continue; // Only owned GPU work reads other image files; a replaced draw binding one refuses.
+            } else if (std::error_code error; !std::filesystem::exists(file->path, error)) {
+                continue; // The original's load of it fails and it binds nothing (image_index, BUG-076).
             } else if (!images_.count(key(file->path))) {
                 if (package.images.size() >= kCharacterImages) throw std::runtime_error("Runtime image catalogue exceeds budget");
                 images_.emplace(key(file->path), uint32_t(package.images.size())); package.images.push_back(file->path.u8string());
@@ -629,9 +631,21 @@ uint32_t CharacterProgram::image_index(const std::shared_ptr<const efmi::assets:
     const auto cached = image_cache_.find(resource.get());
     if (cached != image_cache_.end()) return cached->second;
     const auto found = images_.find(key(resource->path));
-    if (found == images_.end()) throw std::runtime_error("INI image not in prepared resource catalogue");
-    if (image_cache_.size() < 4096) image_cache_.emplace(resource.get(), found->second);
-    return found->second;
+    uint32_t index = found == images_.end() ? kCharacterNone : found->second;
+    // The original loads a texture file at its first use; where that fails it warns once and the
+    // resource stays null, so every assignment of it binds nothing and the draw goes on
+    // (CustomResource::LoadFromFile). A file that is not there is such an explicit null binding, in a
+    // Mod's own generation and in the folder's alike (BUG-076: tangtang Ramune binds a normal map its
+    // author never shipped; the folder generation refused the draw, the Mod's own one bound the file).
+    std::error_code error;
+    if (!std::filesystem::exists(resource->path, error)) {
+        index = kCharacterNone;
+        logf("INI texture file missing, bound as nothing as the original does: %s", resource->path.u8string().c_str());
+    } else if (found == images_.end()) {
+        throw std::runtime_error("INI image not in prepared resource catalogue");
+    }
+    if (image_cache_.size() < 4096) image_cache_.emplace(resource.get(), index);
+    return index;
 }
 bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, CharacterPackage& package, CharacterList& output,
                             bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures)
