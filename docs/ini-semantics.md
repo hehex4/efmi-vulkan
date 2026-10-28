@@ -96,6 +96,15 @@ then the gaps (step 3).
   refusing; check_mod_degradation.py). The every-state check also runs 1200 presentations after the keys
   (a Present that changes state every frame).
 
+## Freezes (the user's other half, 2026-10-28)
+
+The watchdog's lines in every game log (dist/efmi_vk_layer.log): the presentation stopped inside the
+layer's Present work for minutes in 1.9.4 (PID 14500, 285 s) and 1.9.5 (PID 11492, 416 s), BUG-062 and
+BUG-063, fixed in 1.9.6 and by D-129's generations with their own engine state; in 2.0.7 (PID 30992,
+22 s) Unity's crash handler ran after BUG-067, fixed in 2.0.8. In the 2.0.3 and 2.0.8 sessions, today's
+included, no presentation took 1.5 s or more. Most stall lines are threads that did not enter Vulkan for
+a while (idle), not freezes. Each freeze the user meets is to be traced from these lines.
+
 ## Status
 
 - BUG-076 (2.1.1 tree): a texture file that is not there binds nothing, in a Mod's own generation and in
