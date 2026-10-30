@@ -470,6 +470,7 @@ struct DrawPlanAdapter::Runtime {
     DrawPlanAdapter::DrawPrepare draw_prepare;
     DrawPlanAdapter::ShaderCommand shader_command;
     bool nested_failed=false;
+    bool tolerant=false; // a root list's refused command is skipped with a warning (D-155)
     bool keep_original=false; // a native kept the application's draw (DrawPlanAdapter::keep_original)
     const CommandList* root=nullptr; // the matched root whose commands run (DrawPlanAdapter::current_root)
     size_t active_depth=0;
@@ -1044,6 +1045,14 @@ struct DrawPlanAdapter::Runtime {
                 }else if(other_slot(src) && binding->options==ResourceCopyOptions::REFERENCE){
                     // The application's binding at another slot, held to be put back (D-152).
                     source=&application_others[other_key(src,*state,original->ini_line)];
+                }else if(src.type==ResourceCopyTargetType::CUSTOM_RESOURCE && !src.custom_resource_pool &&
+                         (binding->options==ResourceCopyOptions::COPY || binding->options==ResourceCopyOptions::COPY_DESC)){
+                    // A copy between declared resources, which the plan does not make here (`copy`, `copy_desc`):
+                    // the destination stays null, as the original leaves it when the source is null, the warning
+                    // says so once, and the list goes on (D-155). A whole Mod, or the folder, refused for one
+                    // such line before. Every other kind of source keeps refusing below.
+                    if(unknown_identity_logged.size()<64 && unknown_identity_logged.insert(original.get()).second)
+                        LogOverlayW(LOG_WARNING,L"The Vulkan layer does not make this copy; the resource stays null: %ls\n",original->ini_line.c_str());
                 }else if(src.type!=ResourceCopyTargetType::EMPTY ||
                          (binding->options!=ResourceCopyOptions::REFERENCE && binding->options!=ResourceCopyOptions::COPY))
                     refuse(L"Unsupported declaration reference: "+original->ini_line);
@@ -1417,6 +1426,7 @@ void DrawPlanAdapter::owned_bindings(OwnedBinding binding){
     if(runtime_->active || !runtime_->adapted.empty() || !binding || runtime_->owned_binding)refuse(L"Install one owned binding provider before adaptation");
     runtime_->owned_binding=std::move(binding);
 }
+void DrawPlanAdapter::tolerate_refusals(bool on){runtime_->tolerant=on;}
 void DrawPlanAdapter::shader_commands(ShaderCommand callback){
     if(runtime_->active || !runtime_->adapted.empty() || !callback)refuse(L"Install shader execution before adaptation");
     runtime_->shader_command=std::move(callback);
@@ -1588,7 +1598,19 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
             // An earlier source command can change a later list's alias.
             if(!runtime_->adapted.count(resolved))refuse(L"Matched root callback target was not adapted");
             runtime_->root=root;
-            for(auto& command:resolved->commands){if(phase.aborted)break;command->run(&phase);}
+            for(auto& command:resolved->commands){
+                if(phase.aborted)break;
+                if(!runtime_->tolerant){command->run(&phase);continue;}
+                try{command->run(&phase);}
+                catch(const Refused& refused){
+                    // As the original's Present and Constants: the command did nothing, the list goes on.
+                    if(runtime_->unknown_identity_logged.size()<64 && runtime_->unknown_identity_logged.insert(command.get()).second){
+                        const auto* source=original(*command);
+                        LogOverlayW(LOG_WARNING,L"The Vulkan layer does not take this command, which does nothing: %ls (%ls)\n",
+                                    source?source->ini_line.c_str():L"",refused.reason.c_str());
+                    }
+                }
+            }
             runtime_->root=nullptr;
             if(runtime_->nested_failed)refuse(L"Nested native callback failed");
         }};

@@ -241,6 +241,7 @@ struct IniRuntime::Impl {
     HackerDevice device;
     HackerContext context;
     RuntimeStatus stats;
+    size_t diagnostics_base = 0; // the host's diagnostic count when this generation's load began
     RuntimeInput last_input;
     std::array<bool, 256> blocked_keys{};
     bool can_save = true;
@@ -337,6 +338,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         p.settings = config.settings_directory / (config.settings_name + ".ini");
         Scope scope(p.state, Scope::Load); RuntimeResetParser(); RuntimeResetInputDependencies();
         const auto diagnostics = HostDiagnosticCount();
+        p.diagnostics_base = diagnostics;
         HostResourceRoot(config.resource_root.wstring());
         if (!config.installation.empty()) {
             std::error_code error;
@@ -495,6 +497,9 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         auto initial = p.command_state(); DrawPlan unused; std::wstring why;
         if(p.extension && !p.extension->initialize_parameters(initial,why))
             throw std::runtime_error("GPU parameter initialization refused: "+utf8(why));
+        // The original runs each command of [Constants] on its own (D-155): one the planner refuses
+        // does nothing, with its warning, and the rest run.
+        p.adapter.tolerate_refusals(true);
         if (!p.adapter.execute(constants, initial, unused, why) || !unused.items.empty())
             throw std::runtime_error("Constants execution refused: " + utf8(why));
         // Match InitIniParams: defaults and persisted pre values are not dirty;
@@ -503,6 +508,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         auto post_initial=p.command_state();post_initial.post=true;
         if(!p.adapter.execute(post_constants,post_initial,unused,why) || !unused.items.empty())
             throw std::runtime_error("Post-Constants execution refused: "+utf8(why));
+        p.adapter.tolerate_refusals(false);
         if (p.extension && !p.extension->prepare(p.adapter, initial, why))
             throw std::runtime_error("Native generation preparation refused: " + utf8(why));
         // Original warnings (a duplicate section, an unrecognized line, a disabled regex group) do
@@ -691,8 +697,14 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         assets::FilePlan ignored; std::wstring why;
         DrawPlanAdapter::OriginalCall between;
         if(p.config.shader_hooks)between=[&](CommandListState&,std::wstring&){++G->frame_no;p.context.ResetCallCounters();return true;};
-        if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why,std::move(between)) || !ignored.items.empty())
-            throw std::runtime_error("Present requires unavailable render context: " + utf8(why));
+        // As the original's Present: a command the planner refuses does nothing, with its warning, and the
+        // list goes on (D-155). A draw the Present issues outside owned work has nothing to execute it.
+        p.adapter.tolerate_refusals(true);
+        const bool presented = p.execute(G->present_command_list, G->post_present_command_list, ignored, why, std::move(between));
+        p.adapter.tolerate_refusals(false);
+        if (!presented) throw std::runtime_error("Present requires unavailable render context: " + utf8(why));
+        if (!ignored.items.empty())
+            throw std::runtime_error("The Present's draw items have no executor here (" + std::to_string(ignored.items.size()) + ")");
         phase("present execute");
         p.run_gates();
         ++p.stats.presents; p.replayable = keep_replay_state; return true;
@@ -738,8 +750,12 @@ bool IniRuntime::replay(const RuntimeInput& input, uint64_t frame, float seconds
         assets::FilePlan ignored; std::wstring why;
         DrawPlanAdapter::OriginalCall between;
         if(p.config.shader_hooks)between=[&](CommandListState&,std::wstring&){++G->frame_no;p.context.ResetCallCounters();return true;};
-        if (!p.execute(G->present_command_list, G->post_present_command_list, ignored, why,std::move(between)) || !ignored.items.empty())
-            throw std::runtime_error("Present replay requires unavailable render context: " + utf8(why));
+        p.adapter.tolerate_refusals(true);
+        const bool presented = p.execute(G->present_command_list, G->post_present_command_list, ignored, why, std::move(between));
+        p.adapter.tolerate_refusals(false);
+        if (!presented) throw std::runtime_error("Present replay requires unavailable render context: " + utf8(why));
+        if (!ignored.items.empty())
+            throw std::runtime_error("The Present's draw items have no executor here (" + std::to_string(ignored.items.size()) + ")");
         ++p.stats.replays; return true;
     } catch (const std::exception& e) {
         if(impl_->extension)impl_->extension->execution_failed();
@@ -790,6 +806,10 @@ bool IniRuntime::save(std::string& reason)
 RuntimeStatus IniRuntime::status() const
 {
     auto& p = *impl_; Scope scope(p.state); auto result = p.stats;
+    // The original's warnings as they stand now: the load's, and those a Present or a draw raised since
+    // (a command the plan does not take, D-146 and D-155), kept by the host to the last 64.
+    result.diagnostics = HostDiagnosticCount() - p.diagnostics_base;
+    result.diagnostic_messages = HostDiagnosticListSince(p.diagnostics_base);
     result.commands = p.adapter.command_timing();
     result.dirty = G->user_config_dirty; result.reload_requested = G->gReloadConfigPending;
     for (const auto& item : command_list_globals) result.variables[utf8(item.first)] = item.second.fval;

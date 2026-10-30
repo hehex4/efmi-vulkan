@@ -461,16 +461,31 @@ around it is held to the original's code:
 - No budget on the number of INI files (128 per generation and 64 per Mod folder refused a folder with
   many Mods whole).
 
-Left (recorded): enabled INIs of no character Mod, called library or native library are not loaded
-(LIMIT-046); dormant command lists are compiled only when reached, so a typo in one is not warned about
-at load as the original warns; a `condition` line in a file's preamble is honoured by the parser but
-not by the character-Mod detection (such a Mod is left out with a reason, where the original skips it
-silently).
+Every enabled INI of the folder is an input (D-155), as the original's `include_recursive`: a Mod
+that is no character Mod runs its [Present] and keys as owned work, keeps its persistent variables in
+mods-folder.ini, and its TextureOverride sections by texture hash act in replaced draws' pixel slot
+checks; it acts on no other draw (the layer matches none) and is no package. The native libraries'
+files (RabbitFX) still join by their key and ShaderRegex sections only. A copy between declared
+resources the plan does not make (`ResourceA = copy ResourceB`, `= copy_desc`, in a [Constants] list or
+a draw's) no longer refuses the generation or the draw: the destination stays null, as the original
+leaves it when the source is null, the warning names the line once, and the list goes on (the buffer
+such a copy should create, which a Mod's compute then fills, is the next item). The Present and
+[Constants] lists run as the original runs them, each command on its own: one the planner refuses does
+nothing, with its warning once, and the rest run (before, one Mod's `run =
+CommandListUnbindAllRenderTargets` in its Present silenced every Mod's Present lines parsed after it);
+a replaced draw's lists keep their all-or-nothing plan.
+
+Left (recorded): a folder without any character Mod loads nothing; dormant command lists are compiled
+only when reached, so a typo in one is not warned about at load as the original warns; a `condition`
+line in a file's preamble is honoured by the parser but not by the character-Mod detection (such a Mod
+is left out with a reason, where the original skips it silently).
 
 Checks: runtime_test's Mods folder scene (a Mod in `Zeta` parsed after `fixture` and `other` by its
 [Present] order; a `mod.INI` neither a package nor an input, the folder loading without it; a d3dx.ini
-beside Mods whose command list the fixture runs without an unrecognised entry), failing on the build
-before (the `.INI` file refused the whole folder); the judge's `encoding` case.
+beside Mods whose command list the fixture runs without an unrecognised entry; a plain Mod whose
+Present runs and whose texture-hash section acts in the fixture's replaced draw; a plain INI with a
+`copy_desc` in its post-Constants warned about once and loading otherwise), each failing on the build
+before; the judge's `encoding` case.
 
 ## Status
 

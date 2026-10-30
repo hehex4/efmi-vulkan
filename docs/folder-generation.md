@@ -65,12 +65,13 @@ today, carved out of it.
 5. Memory and the payloads (ISSUE-011): mesh payloads freed once on the device, read again from the
    file when a package needs them (re-upload, the first plan's bone stream).
 
-The folder generation's inputs (D-154): the installation's d3dx.ini's own sections first (not its
-[Include] or [Loader]), the four Core files, then the enabled INIs of the Mods folder in the original's
-include order (each folder's `.ini` files sorted without regard to case, then its folders; DISABLED*
-and desktop.ini left out) that belong to a character Mod's folder, are a library a Mod calls by
-namespace, or are a native library's file. Enabled INIs outside those are not loaded (LIMIT-046); that
-a texture replacement or a non-character draw list acts as the original's is a separate step.
+The folder generation's inputs (D-154, D-155): the installation's d3dx.ini's own sections first (not
+its [Include] or [Loader]), the four Core files, then every enabled INI of the Mods folder in the
+original's include order (each folder's `.ini` files sorted without regard to case, then its folders;
+DISABLED* and desktop.ini left out), except the native libraries' files (their key and ShaderRegex
+sections join through the native interface) and the folders of character Mods the isolation left out.
+A Mod that is no character Mod runs its Present and keys, keeps its settings and acts through its
+texture-hash sections in replaced draws; it acts on no other draw and is no package.
 
 ## Status (2026-10-27, 2.0.0)
 

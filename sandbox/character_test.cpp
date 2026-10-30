@@ -58,6 +58,15 @@ template <class T> static void put(std::vector<uint8_t>& data, T value)
     const auto* p = reinterpret_cast<const uint8_t*>(&value);
     data.insert(data.end(), p, p + sizeof(value));
 }
+// A refusal that is this offline stand-in's limit, not the Mod's: what it answers with "offline ...",
+// and the services it has none of (the owned GPU runtime, the game's instance windows, the draw's
+// render targets), which the layer has in the game.
+static bool offline_limit(const std::string& why)
+{
+    for (const char* marker : {"offline ", "needs the owned GPU domain", "Original buffer window unavailable", "render targets are not known"})
+        if (why.find(marker) != std::string::npos) return true;
+    return false;
+}
 template <class T> static void poke(std::vector<uint8_t>& data, size_t offset, T value) { std::memcpy(data.data() + offset, &value, sizeof(value)); }
 
 // Two components (bones 0-1 and 2-4), the first with a LOD 1 remap. One draw list of two draws on
@@ -462,7 +471,8 @@ static int plan_folder_states(const std::filesystem::path& mods, const std::file
     auto present = [&](const efmi::frontend::RuntimeInput& input, const std::string& state) {
         std::string why;
         ++frame;
-        if (!presenter->present(input, frame, float(frame) / 60.0f, why) && present_errors.size() < 16)
+        // A Present whose draws have no executor is this stand-in's limit (no GPU runtime), not the Mods'.
+        if (!presenter->present(input, frame, float(frame) / 60.0f, why) && why.find("no executor") == std::string::npos && present_errors.size() < 16)
             present_errors.push_back(state + ": " + why);
     };
     auto plan_all = [&](const std::string& state) {
@@ -478,7 +488,7 @@ static int plan_folder_states(const std::filesystem::path& mods, const std::file
                 CharacterList list; bool skip = false, added = false, textures = false; std::string why;
                 ++plans[i];
                 if (m.program->plan(request, m.package, list, skip, added, why, nullptr, &textures)) continue;
-                if (why.find("offline ") != std::string::npos) continue; // the stand-ins' limits, not the Mod's
+                if (offline_limit(why)) continue; // the stand-ins' limits, not the Mod's
                 char key[64]; snprintf(key, sizeof(key), "%08x/%u/%u/", s.hash, s.component, lod);
                 if (!seen_refusals[i].insert(key + why).second) continue;
                 refusals[i].push_back({state, why, s.hash, s.component, lod});

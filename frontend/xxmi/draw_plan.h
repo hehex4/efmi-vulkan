@@ -91,6 +91,11 @@ public:
                  std::wstring& reason);
     using OriginalCall=std::function<bool(CommandListState&,std::wstring&)>;
     bool execute_pair(CommandList& pre,CommandList& post,CommandListState&,DrawPlan&,std::wstring& reason,OriginalCall between={});
+    // The original runs each command of its Present and Constants lists on its own: one that cannot act
+    // does nothing and the list goes on. With this set, a command the planner refuses in a root list is
+    // skipped with the original's warning once instead of ending the execution (D-155); a replaced
+    // draw's lists keep their all-or-nothing plan.
+    void tolerate_refusals(bool);
     // Matches of one resource share a phase. Keep every pre list ahead of every
     // post list; abort and budgets belong to the phase/transaction, not a match.
     bool execute_matches(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,CommandListState&,DrawPlan&,std::wstring&);

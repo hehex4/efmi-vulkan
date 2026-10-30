@@ -247,9 +247,11 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
     // The installation's d3dx.ini sits beside the Mods folder; without one, above the Core.
     options.installation = mods.empty() ? core.parent_path().parent_path() : mods.parent_path();
     if (factory) gpu_ = factory(core.parent_path().parent_path(), gpu_reason_);
-    if (gpu_) {
+    if (gpu_ || declarations_only) {
         // The original loads every enabled INI of the Mod folder, in its order; the generation's own
-        // settings are never a Mod input, wherever they are kept.
+        // settings are never a Mod input, wherever they are kept. Offline, with the declarations only,
+        // the same files (their CustomShader sections declared, not compiled), so a Mod alone and in
+        // the folder dry run declare the same images (D-155).
         std::error_code error;
         for (const auto& other : enabled_inis(ini.parent_path(), options.settings_directory))
             if (!std::filesystem::equivalent(other, ini, error)) options.inputs.push_back(other);
@@ -468,17 +470,17 @@ std::vector<std::filesystem::path> CharacterProgram::libraries(const std::filesy
             if (c.done || calls.find("\\" + c.name + "\\") == std::string::npos) continue;
             c.done = true;
             if (std::any_of(characters.begin(), characters.end(), [&](const auto& folder) { return inside(c.path, folder); })) {
-                notes.push_back("library not loaded: " + c.path.u8string() + " (namespace " + c.name + ") belongs to another character Mod");
+                notes.push_back("library not called: " + c.path.u8string() + " (namespace " + c.name + ") belongs to another character Mod");
                 continue;
             }
             // A section acting on the game's resources by hash would act once for every generation that
             // loads the library, where the original acts once.
             if (has_section(c.text, "textureoverride", true)) {
-                notes.push_back("library not loaded: " + c.path.u8string() + " (namespace " + c.name + ") acts on game resources by hash");
+                notes.push_back("library not called: " + c.path.u8string() + " (namespace " + c.name + ") acts on game resources by hash");
                 continue;
             }
-            if (taken.size() >= 16) { notes.push_back("library not loaded: " + c.path.u8string() + ": more than 16 libraries"); continue; }
-            notes.push_back("library loaded: " + c.path.u8string() + " (namespace " + c.name + ")");
+            if (taken.size() >= 16) { notes.push_back("library not called: " + c.path.u8string() + ": more than 16 libraries"); continue; }
+            notes.push_back("library called: " + c.path.u8string() + " (namespace " + c.name + ")");
             taken.push_back(c.path);
             calls += c.text;
             grew = true;
@@ -607,12 +609,6 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 namespace {
-// The enabled INIs of the Mods folder in the original's include order (enabled_inis), those `wanted`
-// keys select.
-void include_order(const std::filesystem::path& folder, const std::set<std::wstring>& wanted, std::vector<std::filesystem::path>& out)
-{
-    for (const auto& ini : enabled_inis(folder)) if (wanted.count(key(ini))) out.push_back(ini);
-}
 std::wstring folder_key(const std::filesystem::path& folder)
 {
     auto name = key(folder);
@@ -670,22 +666,29 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
         for (int attempt = 0;; ++attempt) {
             std::vector<std::pair<std::wstring, std::shared_ptr<efmi::frontend::CharacterDiscovery>>> mods;
             std::vector<size_t> members;
-            std::set<std::wstring> wanted;
+            // Every enabled INI of the Mods folder is an input, in the original's include order, as its
+            // include_recursive takes them (D-155); not the files of the native libraries (their key and
+            // ShaderRegex sections join through native_library_files, the rest is the interface's), and
+            // nothing under the folder of a character Mod left out.
+            std::set<std::wstring> excluded;
+            std::vector<std::wstring> excluded_folders;
             for (size_t i = 0; i < inis.size(); ++i) {
-                if (left_out[i]) continue;
+                if (left_out[i]) { excluded_folders.push_back(folder_key(inis[i].parent_path())); continue; }
                 members.push_back(i);
                 mods.push_back({names[i], std::make_shared<efmi::frontend::CharacterDiscovery>()});
-                for (const auto& input : mod_inputs[i]) wanted.insert(key(input));
-                for (const auto& library : called[i]) wanted.insert(key(library.second));
             }
             if (members.empty()) { reason = "every character Mod of the folder refused"; return false; }
             efmi::frontend::RuntimeConfig options{root, {source.core / "API.ini", source.core / "MergedSkeleton.ini", source.core / "SpatialIdentification.ini",
                                                          source.core / "Helpers.ini"}, source.settings, source.settings_name};
             options.native_library_files = native_library_files(source.mods);
+            for (const auto& native : options.native_library_files) excluded.insert(key(native));
             options.installation = root;
-            std::vector<std::filesystem::path> ordered;
-            include_order(source.mods, wanted, ordered);
-            options.inputs.insert(options.inputs.end(), ordered.begin(), ordered.end());
+            for (const auto& ini : enabled_inis(source.mods, source.settings)) {
+                const auto name = key(ini);
+                if (excluded.count(name)) continue;
+                if (std::any_of(excluded_folders.begin(), excluded_folders.end(), [&](const std::wstring& folder) { return !name.compare(0, folder.size(), folder); })) continue;
+                options.inputs.push_back(ini);
+            }
             CharacterProgram loader;
             if (gpu) loader.gpu_ = factory(source.core.parent_path().parent_path(), loader.gpu_reason_);
             if (loader.start(options, efmi::frontend::character_folder(mods), source.declarations_only, reason)) {

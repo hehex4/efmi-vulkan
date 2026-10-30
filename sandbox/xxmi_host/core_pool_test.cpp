@@ -157,11 +157,16 @@ reset_per_frame_limits = ResourceOne
     }else check(false,"resource reference snapshots available");
     check(run(L"again",plan,reason) && plan.items.size()==1 && plan.items[0].index_count==7,
           "cleared callback returns to its empty declaration and pools persist across transactions");
-    for(auto* name:{L"badindex",L"badread",L"badnested",L"badcopy",L"badpoolcycle",L"badcallbackcycle",L"badexpiring"}){
+    for(auto* name:{L"badindex",L"badread",L"badnested",L"badpoolcycle",L"badcallbackcycle",L"badexpiring"}){
         command_list_globals.at(L"$\\core_pools\\index").fval=1;
         check(!run(name,plan,reason) && !reason.empty() && plan.items.size()==1 && plan.items[0].index_count==7,
               "unsupported pool/resource/callback operations preserve the previous output");
     }
+    // A copy between declared resources the plan does not make leaves the destination null with the
+    // original's warning and the list goes on (D-155); it refused the execution before.
+    command_list_globals.at(L"$\\core_pools\\index").fval=1;
+    check(run(L"badcopy",plan,reason) && customResources.at(L"resource\\core_pools\\alias").is_null,
+          "a copy the plan does not make leaves its destination null and the list goes on");
     auto result=[&]{return command_list_globals.at(L"$\\core_pools\\result").fval;};
     check(run(L"copymetadata",plan,reason) && result()==11,
           "copy_desc changes pool size and defaults while preserving existing elements");

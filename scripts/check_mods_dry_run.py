@@ -26,7 +26,10 @@ CORE = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Core\EFMI")
 # a component's LODs apart by `vbN->stride` is a section per branch (LIMIT-041), each planned with its
 # stride: refused for the stride, it is a regression too.
 KNOWN = ("validated blend-index contract",          # layout edits beyond the blend-index widening and restorable offsets
-         "Shader resource fetch requires a GPU resource adapter")  # GPU work inside a matched draw (P2)
+         "Shader resource fetch requires a GPU resource adapter",  # GPU work inside a matched draw (P2)
+         # What the offline stand-in has no service for: the owned GPU runtime (rt_width and the like), the
+         # game's instance windows (a Mod's own identification), the draw's render targets.
+         "needs the owned GPU domain", "Original buffer window unavailable", "render targets are not known")
 
 
 def main() -> int:
@@ -72,7 +75,10 @@ def main() -> int:
                 totals["drawn by a stride branch"] += "stride" in s
             else:
                 totals["hidden"] += 1
-        if not drawn and not all(not s["planned"] for s in mod["sections"] if "component" in s):
+        # A Mod whose draws the stand-in cannot plan for one of its known limits (its own identification
+        # needs the game's instance windows, its lists the owned GPU runtime) draws nothing offline.
+        offline = any(not s["planned"] and any(k in s["reason"] for k in KNOWN) for s in mod["sections"])
+        if not drawn and not offline and not all(not s["planned"] for s in mod["sections"] if "component" in s):
             problems.append("%s: no section draws the Mod's mesh" % mod["ini"])
     for p in problems[:20]:
         print("  " + p)

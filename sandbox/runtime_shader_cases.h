@@ -109,9 +109,15 @@ $srv_mask = vs->srv_mask
     query.stages[1]={true,true,false,0,{}};query.stages[4]={true,true,true,99,{}};
     check(runtime->bind_source_shaders(query,why) && runtime->present({},2,0,why),"Bound unknown-hash and unmatched source shader queries execute");status=runtime->status();
     check(value("h")==0 && !std::signbit(value("h")) && value("p")==0 && !std::signbit(value("p")),"Unknown hash and unmatched override return positive zero");
-    query.stages[0].declarations.reset();check(runtime->bind_source_shaders(query,why) && !runtime->present({},3,0,why) && why.find("declarations")!=std::string::npos,
-        "Unavailable declaration facts refuse instead of reading scaffolding");
-    query.stages[0]={};check(runtime->bind_source_shaders(query,why) && !runtime->present({},4,0,why),"Unknown stage never becomes an unbound shader");
+    // A query without its declaration facts is refused, never read from scaffolding; as the original runs
+    // each Present command on its own, the refused assignment does nothing (the value stays), the warning
+    // names the reason, and the Present goes on (D-155).
+    auto warnings=[&](const char* text){size_t n=0;for(const auto& m:runtime->status().diagnostic_messages)n+=m.find(text)!=std::string::npos;return n;};
+    query.stages[0].declarations.reset();check(runtime->bind_source_shaders(query,why) && runtime->present({},3,0,why) && warnings("declarations")>=1,
+        "Unavailable declaration facts refuse instead of reading scaffolding; the Present goes on with the warning");
+    status=runtime->status();check(value("cb_type")==1 && value("srv_stride")==16,"A refused query assignment leaves the variable as it was");
+    query.stages[0]={};check(runtime->bind_source_shaders(query,why) && runtime->present({},4,0,why) && warnings("declarations")>=1,
+        "Unknown stage never becomes an unbound shader; the Present goes on with the warning");
     auto conflict=facts;auto changed=std::make_shared<ShaderBindings>(*declarations);changed->constant_buffers[2].size=99;
     check(runtime->bind_source_shaders(facts,why),"Restore known source facts before rejected update");
     conflict.stages[1]={true,true,true,1,changed};check(!runtime->bind_source_shaders(conflict,why) && runtime->present({},5,0,why),"Conflicting declarations refuse without replacing the previous source facts");
@@ -119,7 +125,11 @@ $srv_mask = vs->srv_mask
     for(const char* index:{"14","-1","1 / 0","0 / 0"}){const auto bad=root/"bad-slot.ini";
         const std::string text="namespace = bad_slot\n[Constants]\nglobal $slot = "+std::string(index)+"\nglobal $value = 0\n[Present]\n$value = vs->cb_size($slot)\n";
         write(bad,text.c_str());config.inputs={bad};auto candidate=IniRuntime::load(config,nullptr,why);if(!candidate)throw std::runtime_error(why);
-        check(candidate->bind_source_shaders(facts,why) && !candidate->present({},1,0,why),"Invalid source declaration slot refuses before unsigned conversion");}
+        // Refused before the unsigned conversion; as a Present command on its own, it does nothing (the
+        // value stays) with the warning, and the Present goes on (D-155).
+        const bool presented=candidate->bind_source_shaders(facts,why) && candidate->present({},1,0,why);
+        const auto after=candidate->status();
+        check(presented && after.variables.at("$\\bad_slot\\value")==0 && after.diagnostics>=1,"Invalid source declaration slot refuses before unsigned conversion; the Present goes on with the warning");}
     const auto duplicates=root/"duplicates.ini";
     for(bool allowed:{false,true}){std::string text="namespace = duplicate_shaders\n[Constants]\nglobal $pre = 0\nglobal $post = 0\n";
         for(unsigned i=1;i<=2;++i){text+="[ShaderOverride"+std::to_string(i)+"]\nhash = 1\n";
@@ -180,7 +190,12 @@ post $count = $count + 10
         "Unknown source stage refuses before running any matched root or original work");
     call.shaders.stages[0]={true,true,false,0,{}};
     check(!candidate->intercept(call,why) && originals==2,"Unknown hash cannot silently become a hash0 match");
-    config.shader_hooks=false;config.initial_shaders.reset();check(!IniRuntime::load(config,nullptr,why),"Character-only generations cannot silently load shader hook declarations");
+    // Without shader hooks the `$initial = vs` of [Constants] is refused; as a Constants command on its own it
+    // does nothing (the value stays 0) with the warning, and the generation loads (D-155): not silently.
+    config.shader_hooks=false;config.initial_shaders.reset();
+    {auto hookless=IniRuntime::load(config,nullptr,why);
+     check(hookless && hookless->status().variables.at("$\\shader_zero\\initial")==0 && hookless->status().diagnostics>=1,
+         "Character-only generations load shader hook declarations with the refused query warned about, never evaluated");}
     for(const char* legacy:{"depth_filter = depth_active\n","model = vs_5_0\n"}){
         const std::string text=std::string("[ShaderOverrideLegacy]\nhash = 1\n")+legacy;write(zero,text.c_str());config.shader_hooks=true;
         check(!IniRuntime::load(config,nullptr,why) && why.find("Legacy shader depth/model")!=std::string::npos,

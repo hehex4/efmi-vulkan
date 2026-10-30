@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import subprocess
 from harness import Checks, DIST, INJECT_DLL, Sandbox, inject_env, layer_env, test_dir
-from runtime_fixture import CORE, fixture
+from runtime_fixture import APP_TEXTURE_HASH, CORE, fixture
 from efmi_vk.probe_client import ProbeClient
 
 
@@ -417,6 +417,20 @@ def directory_generation(checks, validation):
     first, rest = (colon / "mod.ini").read_text(encoding="ascii").split("\n", 1)
     assert first == "namespace = runtime_colon"
     (colon / "mod.ini").write_text(rest, encoding="ascii")
+    # Every enabled INI of the Mods folder is an input, as the original's include_recursive (D-155): a Mod
+    # that is no character Mod runs its [Present] and its TextureOverride by texture hash acts in a
+    # replaced draw's pixel slot check; one with a declaration the layer cannot take (ResourceA =
+    # copy_desc ResourceB in its post-Constants) is warned about once and loads otherwise, as the
+    # original warns and goes on; neither is a package, neither is left out.
+    (mods / "plain").mkdir()
+    (mods / "plain" / "plain.ini").write_text(
+        "namespace = runtime_plain\n[Constants]\nglobal persist $presents = 0\nglobal persist $seen = 0\n[Present]\n$presents = 1\n"
+        "[TextureOverride_AppTexture]\nhash = %08x\n$seen = 1\n" % APP_TEXTURE_HASH, encoding="ascii")
+    (mods / "bad").mkdir()
+    (mods / "bad" / "bad.ini").write_text(
+        "namespace = runtime_bad\n[Constants]\nglobal persist $presents = 0\npost ResourceCopied = copy_desc ResourceSource\n"
+        "[ResourceSource]\ntype = Buffer\nstride = 16\nfilename = source.buf\n[ResourceCopied]\n[Present]\n$presents = 1\n", encoding="ascii")
+    (mods / "bad" / "source.buf").write_bytes(bytes(64))
     # A file named .INI is not an INI to the original (its extension test is case-sensitive): neither a
     # character Mod nor an input, and the folder loads without it.
     (mods / "upper").mkdir()
@@ -496,8 +510,15 @@ def directory_generation(checks, validation):
         checks.equal(variables.get("$\\runtime_fixture\\order"), 1, label + ": the [Present] lines of `fixture` ran before those of `Zeta`, the original's include order")
         unrecognised = [m for m in own.get("ini", {}).get("diagnostic_messages", []) if "Unrecognised entry" in m]
         checks.equal(unrecognised, [], label + ": a command list the installation's d3dx.ini declares is known to the Mods (LIMIT-039)")
+        checks.equal((variables.get("$\\runtime_plain\\presents"), variables.get("$\\runtime_plain\\seen")), (1, 1),
+                     label + ": an enabled INI that is no character Mod's is loaded: its [Present] runs and its TextureOverride acts in a replaced draw (D-155)")
+        # With the owned GPU runtime the copy_desc is made as owned work (no warning); offline, without
+        # it, the plan leaves the destination null with a warning once (the dry runs, the Core pools test).
+        checks.equal(variables.get("$\\runtime_bad\\presents"), 1,
+                     label + ": an INI with a copy_desc in its post-Constants loads and its Present runs")
         checks.equal(variables.get("$\\mods\\fixture\\k\\1.ini\\z"), 7,
                      label + ": a panel INI's setting saved by the Mod's own generation is read under the folder's name")
+    checks.check(not any(Path(m.get("ini", "")).parent.name in ("plain", "bad") for m in left_out), label + ": neither plain INI is left out")
     # One generation for the folder (D-131) keeps one settings file for every Mod, as the original's
     # d3dx_user.ini; a generation per Mod kept the namespace and the Mod folder (BUG-039).
     saved = settings / "mods-folder.ini"
