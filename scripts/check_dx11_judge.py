@@ -98,8 +98,19 @@ def png(alpha: bool) -> bytes:
             chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
+def encoding_files() -> dict[str, bytes]:
+    """INI files beside encoding.ini: one with a UTF-8 byte order mark and CRLF line ends; one with a byte
+    sequence that is not UTF-8 on a comment line (a file saved in a legacy code page), a variable set
+    before that line and one after it."""
+    bom = "namespace = judge_bom\r\n[Constants]\r\nglobal persist $crlf = 0\r\n[Present]\r\n$crlf = 1\r\n"
+    invalid = (b"namespace = judge_invalid\n[Constants]\nglobal persist $before = 0\nglobal persist $after = 0\n"
+               b"[Present]\n$before = 1\n; \xb4\xf3 a comment in a legacy code page\n$after = 1\n")
+    return {"encoding.bom.ini": b"\xef\xbb\xbf" + bom.encode("ascii"), "encoding.invalid.ini": invalid}
+
+
 # Files a case reads that the judge writes rather than the repository keeping binaries.
-GENERATED = {"images": lambda: {"images.dds": dds_rgba8(), "images.png": png(True), "images.rgb.png": png(False)}}
+GENERATED = {"images": lambda: {"images.dds": dds_rgba8(), "images.png": png(True), "images.rgb.png": png(False)},
+             "encoding": encoding_files}
 
 
 def stage(case: Path, mods: Path) -> None:

@@ -32,6 +32,16 @@ std::string narrow(const std::wstring& value)
     if (n) WideCharToMultiByte(CP_UTF8, 0, value.data(), int(value.size()), out.data(), n, nullptr, nullptr);
     return out;
 }
+// A name given in UTF-8 (a Mod's namespace from the layer) as the parser spells it. A byte-by-byte
+// widening sign-extended every byte outside ASCII (U+FFE6 for 0xE6), so a Mod named in another script
+// never found its own sections (D-154).
+std::wstring widen(const std::string& value)
+{
+    const int n = MultiByteToWideChar(CP_UTF8, 0, value.data(), int(value.size()), nullptr, 0);
+    std::wstring out(size_t(std::max(n, 0)), L'\0');
+    if (n) MultiByteToWideChar(CP_UTF8, 0, value.data(), int(value.size()), out.data(), n);
+    return out;
+}
 uint32_t integer(float value)
 {
     if (!std::isfinite(value) || value < 0 || value > 65536 || std::floor(value) != value) throw std::runtime_error("Invalid native Core integer");
@@ -86,19 +96,17 @@ class CharacterCore : public RuntimeExtension {
         const auto found = root_mods_.find(root);
         return found == root_mods_.end() ? nullptr : found->second;
     }
-    void add(const std::string& name, const efvk::CharacterPackage& package) { add(std::wstring(name.begin(), name.end()), package, name); }
+    void add(const std::string& name, const efvk::CharacterPackage& package) { add(widen(name), package, name); }
     void add(const std::wstring& name, const efvk::CharacterPackage& package, const std::string& narrow = {})
     {
         // A declared namespace, or the name the runtime parses an INI without one under (its path
         // relative to the Mod folder, as the original names such a file by its path; in a folder
         // generation the path from the root, with its separators): printable ASCII in lower case,
         // without the brackets of section names.
-        // A folder generation's names are the parser's own (the INI's path, any script, lower case as it
-        // lowers them); a generation of one Mod keeps the narrow rule.
-        const bool folder = folder_;
-        if (name.empty() || name.size() > 260 || std::any_of(name.begin(), name.end(), [folder](wchar_t c) {
-                return c < 0x20 || c == L'[' || c == L']' || (!folder && (c > 0x7e || c == L'\\' || (c >= L'A' && c <= L'Z'))); }))
-            throw std::runtime_error("Mod namespace must be lower-case printable ASCII without separators");
+        // The names are the parser's own (a declared namespace, or the INI's path from the original's
+        // root: any script, lower case as it lowers them), for a folder generation and one Mod alike.
+        if (name.empty() || name.size() > 260 || std::any_of(name.begin(), name.end(), [](wchar_t c) { return c < 0x20 || c == L'[' || c == L']'; }))
+            throw std::runtime_error("Mod namespace must be printable without brackets");
         (void)narrow;
         Mod m;
         m.mod = L"\\" + name + L"\\";
@@ -571,7 +579,12 @@ global $mod_id = -1
             });
         // Preparation executes the original mod's bone declarations, including
         // its exact LOD1 file references. Runtime connection executes them too.
-        for (const auto& m : mods_) HostCompileGraph(L"commandlist" + m.mod + L"initializemergedskeleton", boundaries);
+        for (const auto& m : mods_) {
+            // Named when missing (an export of another shape, or a namespace the parser spelled otherwise).
+            const std::wstring root = L"commandlist" + m.mod + L"initializemergedskeleton";
+            if (!explicitCommandListSections.count(root)) throw std::runtime_error(narrow(L"The Mod declares no [" + root + L"]"));
+            HostCompileGraph(root, boundaries);
+        }
         return boundaries;
     }
     // What the original does for a section and the layer does not (D-137): the original's warning, and a
@@ -800,16 +813,33 @@ global $mod_id = -1
     }
     bool prepare_mod(DrawPlanAdapter& a, Mod& m, CommandListState& state, std::wstring& why)
     {
-        auto& init = explicitCommandListSections.at(L"commandlist" + m.mod + L"initializemergedskeleton");
+        // What the Core's contract needs of the Mod's own declarations, each named when it is missing
+        // (an export of another shape refuses with the name, not a map's error).
+        const std::wstring init_name = L"commandlist" + m.mod + L"initializemergedskeleton";
+        const auto init_found = explicitCommandListSections.find(init_name);
+        if (init_found == explicitCommandListSections.end()) return fail(why, (L"The Mod declares no [" + init_name + L"]").c_str());
+        auto& init = init_found->second;
         a.adapt(init.command_list); a.adapt(init.post_command_list);
         DrawPlan plan;
         if (!a.execute_pair(init.command_list, init.post_command_list, state, plan, why) || !m.skeleton || !plan.items.empty()) return false;
         const auto pools = L"pool" + m.mod + L"_mergedskeleton_component_";
         SkeletonFilePlan metadata; FilePlanCompiler files(customResources);
-        if (!read_skeleton_plan(integer(command_list_globals.at(L"$" + m.mod + L"bones_count").fval),
-            integer(command_list_globals.at(L"$" + m.mod + L"max_instance_count").fval), integer(var(L"cfg_ms_max_lod_level_count").fval),
-            customResourcePools.at(pools + L"vertexgroupoffsets"), customResourcePools.at(pools + L"vertexgroupcounts"),
-            customResourcePools.at(pools + L"lodremaps"), a, files, metadata, why)) return false;
+        auto variable_of = [&](const wchar_t* name, float& out) {
+            const auto found = command_list_globals.find(L"$" + m.mod + name);
+            if (found == command_list_globals.end()) return fail(why, (L"The Mod declares no $" + m.mod + name).c_str());
+            out = found->second.fval; return true;
+        };
+        auto pool_of = [&](const wchar_t* name) -> CustomResourcePool* {
+            const auto found = customResourcePools.find(pools + name);
+            if (found == customResourcePools.end()) { fail(why, (L"The Mod declares no [" + pools + name + L"]").c_str()); return nullptr; }
+            return &found->second;
+        };
+        float bones = 0, instances = 0;
+        if (!variable_of(L"bones_count", bones) || !variable_of(L"max_instance_count", instances)) return false;
+        auto* offsets = pool_of(L"vertexgroupoffsets"); auto* counts = pool_of(L"vertexgroupcounts"); auto* remaps = pool_of(L"lodremaps");
+        if (!offsets || !counts || !remaps) return false;
+        if (!read_skeleton_plan(integer(bones), integer(instances), integer(var(L"cfg_ms_max_lod_level_count").fval),
+            *offsets, *counts, *remaps, a, files, metadata, why)) return false;
         core::PaletteDefinition palette; std::string error;
         if (!load_palette_files(metadata, palette, error)) { why.assign(error.begin(), error.end()); return false; }
         if (m.discovery && !discover_contract(m, metadata, palette, why)) return false;

@@ -17,6 +17,8 @@
 #include <unordered_set>
 
 void HostParseExcerpt(const wchar_t*, const wchar_t*);
+void HostParseFile(const wchar_t*, const wchar_t*);
+std::vector<std::wstring> HostReadLines(const wchar_t*);
 void HostParseIncludes();
 void HostInsertBuiltins();
 void HostCompileRemainingLists(const std::vector<std::wstring>&);
@@ -84,19 +86,36 @@ std::string utf8(const std::wstring& value)
 }
 void read_ini(const std::filesystem::path& path, const std::wstring& name)
 {
-    std::ifstream in(path, std::ios::binary | std::ios::ate);
-    if (!in || in.tellg() < 0 || in.tellg() > (32 << 20)) throw std::runtime_error("Cannot read INI or input exceeds budget: " + path.u8string());
-    std::string bytes(size_t(in.tellg()), '\0'); in.seekg(0); in.read(bytes.data(), bytes.size());
-    if (!in) throw std::runtime_error("INI read failed");
-    std::wstring text;
-    if (!bytes.empty()) {
-        int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), int(bytes.size()), nullptr, 0);
-        if (!n) throw std::runtime_error("INI is not valid UTF-8");
-        text.resize(n); MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), int(bytes.size()), text.data(), n);
-        if (!text.empty() && text.front() == 0xfeff) text.erase(text.begin());
-        for (size_t at = 0; (at = text.find(L"\r\n", at)) != std::wstring::npos;) text.erase(at, 1);
+    // The original's own reader (IniHandler.cpp ParseNamespacedIniFile): UTF-8 with a byte order mark
+    // consumed, text mode, and nothing of a file after a byte sequence that is not UTF-8 (the judge's
+    // encoding case: the lines before it are read, those after it are not; the layer refused the whole
+    // file before). An input the generation needs that is not there refuses here; the original warns.
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error)) throw std::runtime_error("Cannot read INI: " + path.u8string());
+    HostParseFile(path.wstring().c_str(), name.empty() ? nullptr : name.c_str());
+}
+// The installation's d3dx.ini, the original's first file (not namespaced): its own sections, except
+// [Include...] (the Core's files and the Mods folder's enabled INIs are the layer's inputs) and
+// [Loader] (the game). What a generation takes from it: a command list Mods call by name
+// (LIMIT-039), the [Rendering] keys the parser and the compiler read (ini_params, recursive_include,
+// track_region_hashes), and a [Constants], [Present] or [Key] the player wrote there.
+void read_installation(const std::filesystem::path& file)
+{
+    std::wstring kept;
+    bool skip = false;
+    for (const auto& line : HostReadLines(file.wstring().c_str())) {
+        const auto first = line.find_first_not_of(L" \t");
+        if (first != std::wstring::npos && line[first] == L'[') {
+            // The name as the original takes it: up to the first `]`, the spaces around left out.
+            auto last = line.find(L']');
+            if (last == std::wstring::npos) last = line.size();
+            const auto end = line.find_last_not_of(L" \t", last - 1);
+            const std::wstring name = end == std::wstring::npos || end < first + 1 ? std::wstring() : line.substr(first + 1, end - first);
+            skip = !_wcsnicmp(name.c_str(), L"Include", 7) || !_wcsicmp(name.c_str(), L"Loader");
+        }
+        if (!skip) kept += line + L'\n';
     }
-    HostParseExcerpt(text.c_str(), name.empty() ? nullptr : name.c_str());
+    HostParseExcerpt(kept.c_str(), nullptr);
 }
 // A generation's original engine: the objects the original keeps in process globals, which
 // engine_globals.h redirects to the generation the calling thread entered (D-129). The state owns
@@ -311,7 +330,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             std::shared_ptr<RuntimeExtension> extension;bool complete=false;
             ~LoadGuard(){if(!complete && extension)extension->execution_failed();}
         } load_guard{p.extension};
-        if ((config.inputs.empty() && config.mods_directory.empty()) || config.inputs.size() > 128 || config.libraries.size() > 16 || !config.resource_root.is_absolute() ||
+        if ((config.inputs.empty() && config.mods_directory.empty()) || config.libraries.size() > 16 || !config.resource_root.is_absolute() ||
             !config.settings_directory.is_absolute() || config.settings_name.empty() || config.settings_name.size() > 80 ||
             config.settings_name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != std::string::npos)
             throw std::runtime_error("Invalid frontend input/settings location");
@@ -319,6 +338,11 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         Scope scope(p.state, Scope::Load); RuntimeResetParser(); RuntimeResetInputDependencies();
         const auto diagnostics = HostDiagnosticCount();
         HostResourceRoot(config.resource_root.wstring());
+        if (!config.installation.empty()) {
+            std::error_code error;
+            const auto d3dx = config.installation / "d3dx.ini";
+            if (std::filesystem::is_regular_file(d3dx, error)) read_installation(d3dx);
+        }
         if (!config.mods_directory.empty()) {
             auto relative = config.mods_directory.lexically_relative(config.resource_root);
             if (!config.mods_directory.is_absolute() || relative.empty() || *relative.begin() == L".." ||

@@ -33,6 +33,9 @@ struct RuntimeConfig {
     // ShaderRegex sections join after the native interface (the key toggles the interface's variables,
     // the ShaderRegex sections give the discard gates, D-133); every other section is the interface's.
     std::vector<std::filesystem::path> native_library_files;
+    // The installation (the folder of the original's d3dx.ini): its own sections join the generation
+    // first, as the original parses that file first; empty for none.
+    std::filesystem::path installation;
 };
 struct RuntimeInput {
     bool foreground = false;

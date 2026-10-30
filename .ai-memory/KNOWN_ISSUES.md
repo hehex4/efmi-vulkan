@@ -25,6 +25,14 @@
 - 2.1.1: a module counts as the loader only when it exports vkGetInstanceProcAddr as code; a proxy's forwarders name the module waited for; every candidate is logged with its path. The sandbox next to a generated forwarding proxy reproduces the AMD log line exactly on 2.1.0.
 - Not verified on the player's machine: which proxy it is is unknown until 2.1.1's log names it.
 
+## BUG-078: The vk01 replay with a library call captures no translucency (found 2026-10-30, pre-existing)
+
+- The suite step "captured frame with a library call" (replay_capture.py on vk01, Yvonne, `--copy-passes --expect-translucency`) fails: `translucency {captures 0, composites 0}` with 3540 draws matched and 2668 replaced, no refusal, no "translucency:" line in the log, the EFMITTL library loaded. The same on HEAD 97aa7f5 built in a worktree of its own (identical counters), so not the INI review's change (D-154). The installed `Mods\EFMITTL\translucency.ini` was modified on 2026-10-29 22:52 (the Yvonne folder's Textures, Meshes and k on 2026-10-28 19:41; yvonne.ini unchanged since 10-16); the step last passed in the suite on 2026-10-27 (2.0.6b). To be traced from what changed in the library's INI against the bridge's requirements (EfmittlBridge::install: its Capture, Draw and Composite lists, its mask resource and eight variables) and the replay's copy-pass detection.
+
+## LIMIT-046: Enabled INIs that belong to no character Mod are not loaded
+
+- Found 2026-10-30 (D-154; docs/folder-generation.md had claimed otherwise). The original loads every enabled INI of the Mods folder into one space. The folder generation takes the character Mods' INIs (those with `[CommandListInitializeMergedSkeleton]` and the other enabled INIs of their folders), the libraries they call by namespace (D-112) and the key and ShaderRegex sections of the native libraries' files (D-133); any other enabled INI (a texture replacement by hash on a draw that is not a character's, a post-process Mod with its own CustomShaders and Present, a standalone key panel) is not read, without a notice. Of the installed folder's 48 enabled INIs none is such a file (EFMITTL is a called library, RabbitFX's three files are native or inert). Its TextureOverride sections by texture hash would act only in replaced draws (the layer matches no other draw); its Present would run as owned work.
+
 ## LIMIT-045: DXGI D24 depth formats where the device has no D24_UNORM_S8_UINT
 
 - AMD GPUs do not support VK_FORMAT_D24_UNORM_S8_UINT as a depth attachment; a CustomResource an INI declares with `format = D24_UNORM_S8_UINT` (or R24/X24 views) is created in it and fails there. DXVK substitutes D32_SFLOAT_S8_UINT. No installed Mod declares one (2026-10-28); copies of the game's depth use the game's own format. Not changed: the substitution touches view and copy compatibility.
@@ -209,7 +217,7 @@
 
 ## LIMIT-040: Fixed budgets that may refuse a Mod
 
-- Constants that stand for a size a Mod declares, to be gone through by D-118: 32 components, 256 streams, 256 sections, 1024 draws, 16 layout edits per package; 64 draws per list; 128 pixel bindings; 256 profiles; 4096 bones (the Core allows 65536 merged bones); 8 image slots per runtime material; 64 INI files per generation; 4096 CustomShaders; 16 identities per package; 1024 jobs per bone submission. A Mod that crosses one is refused as a whole with a message naming it, which the status shows as `last_reason`.
+- Constants that stand for a size a Mod declares, to be gone through by D-118: 32 components, 256 streams, 256 sections, 1024 draws, 16 layout edits per package; 64 draws per list; 128 pixel bindings; 256 profiles; 4096 bones (the Core allows 65536 merged bones); 8 image slots per runtime material; 4096 CustomShaders; 16 identities per package; 1024 jobs per bone submission. A Mod that crosses one is refused as a whole with a message naming it, which the status shows as `last_reason`.
 
 ## BUG-048: A Mod whose skeleton components leave bones between them is refused (fixed in 1.8.1)
 
@@ -245,9 +253,10 @@
 - EFMITTL 0.5.2's unchanged cached alpha pixel shader translates to SPIR-V capability 51 (DerivativeControl). The executor omitted it from the core allowlist and rejected actual drawing although source HLSL compilation passed.
 - The capability is core Vulkan 1.0 and now accepted; stage/instruction validation and optional feature checks remain. Unchanged-library owned GPU tests cover cached/source transparency, nonuniform mip masks and shadows. Full-game transparency is separate (LIMIT-038).
 
-## LIMIT-039: The installation's built-in command lists are not loaded
+## LIMIT-039: The installation's built-in command lists are not loaded (fixed in the 2.1.2 tree, D-154)
 
 - d3dx.ini of the XXMI installation defines `[BuiltInCommandList...]` sections (for example `BuiltInCommandListUnbindAllRenderTargets`) that Mods and libraries run (EFMITTL, the 2026-10-25 Si Mod's watch GUI). A generation parses the Mod's own INIs, the Core and the libraries it calls, not d3dx.ini, so such a `run` line is an unrecognised entry and is skipped. Seen as warnings only; whether a skipped unbind changes a picture is not checked. Lifting it means reading those sections from d3dx.ini read-only.
+- 2026-10-30: the `BuiltIn...` lists themselves were always inserted (HostInsertBuiltins, as the original's InsertBuiltInIniSections); what was missing was d3dx.ini's own `[CommandListUnbindAllRenderTargets]` that wraps one, and every other section the installation's d3dx.ini declares. The generation now reads d3dx.ini's sections first, except [Include...] and [Loader] (D-154); the live INI scene's fixture runs that list.
 
 ## LIMIT-038: EFMITTL's shared, pass-local game integration is not implemented (implemented offline in 1.7.9, game check open)
 

@@ -440,6 +440,38 @@ BUG-063, fixed in 1.9.6 and by D-129's generations with their own engine state; 
 included, no presentation took 1.5 s or more. Most stall lines are threads that did not enter Vulkan for
 a while (idle), not freezes. Each freeze the user meets is to be traced from these lines.
 
+## How the files are read (D-154, 2026-10-30)
+
+The parser is the original's, included unchanged (frontend/xxmi/ini_module.cpp); what the layer does
+around it is held to the original's code:
+
+- A file is read by the original's own reader (IniHandler.cpp ParseNamespacedIniFile): UTF-8, a byte
+  order mark consumed, text mode. A byte sequence that is not UTF-8 ends the stream: the lines before it
+  are read, those after it are not. The judge's `encoding` case states it (`$before` 1, `$after` 0; a file
+  with a BOM and CRLF line ends reads whole). The layer's own decoder refused such a file whole before.
+- The Mods folder is walked as ParseIniFilesRecursive walks it (character_program.cpp enabled_inis): in
+  each folder its files whose last four characters are `.ini` as written (a `.INI` is not an INI to the
+  original), sorted without regard to case, then its folders so sorted; names starting with DISABLED and
+  desktop.ini left out, as EFMI's d3dx.ini excludes them. The character Mods, the libraries, a Mod's
+  other INIs and the generation's inputs all come from that one walk; the packages are in that order.
+- The installation's d3dx.ini is the original's first file, not namespaced: its sections join every
+  generation first, except [Include...] (the layer's inputs stand for it) and [Loader]. So a command list
+  it declares is known to Mods (LIMIT-039), [Rendering]'s recursive_include and track_region_hashes are
+  EFMI's (1 and 1), and a [Constants], [Present] or [Key] the player wrote there exists.
+- No budget on the number of INI files (128 per generation and 64 per Mod folder refused a folder with
+  many Mods whole).
+
+Left (recorded): enabled INIs of no character Mod, called library or native library are not loaded
+(LIMIT-046); dormant command lists are compiled only when reached, so a typo in one is not warned about
+at load as the original warns; a `condition` line in a file's preamble is honoured by the parser but
+not by the character-Mod detection (such a Mod is left out with a reason, where the original skips it
+silently).
+
+Checks: runtime_test's Mods folder scene (a Mod in `Zeta` parsed after `fixture` and `other` by its
+[Present] order; a `mod.INI` neither a package nor an input, the folder loading without it; a d3dx.ini
+beside Mods whose command list the fixture runs without an unrecognised entry), failing on the build
+before (the `.INI` file refused the whole folder); the judge's `encoding` case.
+
 ## Status
 
 - BUG-076 (2.1.1 tree): a texture file that is not there binds nothing, in a Mod's own generation and in

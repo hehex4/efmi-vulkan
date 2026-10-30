@@ -9,6 +9,23 @@ void HostParseExcerpt(const wchar_t* text,const wchar_t* ns)
     std::wstring name=ns?ns:L"";
     ParseIniStream(&stream,ns?&name:nullptr);
 }
+// A file by the original's own reader (ParseNamespacedIniFile): UTF-8 with a byte order mark consumed,
+// text mode, and nothing of the file after a byte sequence that is not UTF-8.
+void HostParseFile(const wchar_t* path,const wchar_t* ns)
+{
+    std::wstring name=ns?ns:L"";
+    ParseNamespacedIniFile(path,ns?&name:nullptr);
+}
+// A file's lines as that reader gives them, for a caller that keeps only some of its sections.
+std::vector<std::wstring> HostReadLines(const wchar_t* path)
+{
+    std::vector<std::wstring> lines;
+    std::wifstream f(path,std::ios::in,_SH_DENYNO);
+    if(!f)return lines;
+    f.imbue(std::locale(f.getloc(),new std::codecvt_utf8<wchar_t,0x10ffff,std::consume_header>));
+    for(std::wstring line;std::getline(f,line);)lines.push_back(line);
+    return lines;
+}
 void HostCompileList(const wchar_t* name,CommandList* pre,CommandList* post)
 {
     ParseCommandList(name,pre,post,nullptr,true);

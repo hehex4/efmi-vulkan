@@ -148,7 +148,7 @@ def main():
                 print(output[-10000:]); print("artifacts:", folder)
             if not report.is_file():
                 continue
-            status = json.loads(report.read_text())["result"]["replacement"]
+            status = json.loads(report.read_text(encoding="utf-8"))["result"]["replacement"]
             checks.equal((status["ini_generation"], status["ini_reloads"], status["ini_reload_rejected"], status["ini_reload_pending"], status["ini_reload_error"]),
                          (4, 4, 0, False, ""), label + " four accepted reloads: an original warning, a texture file that does not "
                          "load (D-139), the file repaired, another branch")
@@ -203,7 +203,7 @@ def several_packages(checks, validation):
     if result.returncode:
         print(output[-6000:]); print("artifacts:", folder)
     report = folder / "runtime-final.json"
-    status = json.loads(report.read_text())["result"]["replacement"] if report.is_file() else {}
+    status = json.loads(report.read_text(encoding="utf-8"))["result"]["replacement"] if report.is_file() else {}
     packages = status.get("packages", [])
     names = [Path(p.get("path", "")).name for p in packages]
     checks.equal(names, ["0-other.bin", "character.bin"], label + ": both packages listed in name order")
@@ -223,9 +223,10 @@ def several_packages(checks, validation):
 
 
 def implicit_namespace(checks):
-    """An INI without a namespace line (D-078): the runtime parses it under its file name, which
-    names its sections and variables as the original's implicit namespace does. The production
-    planner (efmi_vk_character_test --plan-mods, no GPU) must read it and draw its components."""
+    """An INI without a namespace line (D-078, D-154): the runtime parses it under its path from the
+    Mods folder's parent (`Mods\\fixture\\mod.ini`, any script), which names its sections and variables
+    as the original's implicit namespace does. The production planner (efmi_vk_character_test
+    --plan-mods, no GPU) must read it and draw its components."""
     root = Path(test_dir("runtime-implicit-"))
     folder = root / "Mods" / "fixture"
     folder.mkdir(parents=True)
@@ -238,7 +239,7 @@ def implicit_namespace(checks):
                           str(root / "settings")], cwd=root, capture_output=True, text=True, errors="replace", timeout=120)
     rows = [json.loads(line) for line in run.stdout.splitlines() if line.startswith("{")]
     label = "INI without a namespace line"
-    checks.check(run.returncode == 0 and len(rows) == 1 and rows[0].get("loaded"), label + ": read under its file name " +
+    checks.check(run.returncode == 0 and len(rows) == 1 and rows[0].get("loaded"), label + ": read under its path from the Mods folder's parent " +
                  (rows[0].get("reason", "") if rows else run.stderr[-300:]))
     drawn = [s for s in (rows[0].get("sections", []) if rows else []) if s.get("planned") and s.get("skip") and s.get("draws")]
     checks.check(len(drawn) >= 2, label + ": its components are drawn by their live plans")
@@ -392,6 +393,40 @@ def directory_generation(checks, validation):
     # IniParams[172].w`, its section assigns `w172 = $censor`, a persistent toggle the player left on.
     (mods / "RabbitFX -ENDMI-").mkdir()
     (mods / "RabbitFX -ENDMI-" / "RabbitFX.ini").write_text(RABBITFX_SHAPED, encoding="ascii")
+    # The original's include order (IniHandler.cpp ParseIniFilesRecursive) sorts names without regard to
+    # case: a Mod in `Zeta` is parsed after `fixture` and `other`, so its [Present] lines run after theirs.
+    # Both Mods set the fixture's $order when it is still 0; the first parsed wins.
+    (mods / "Zeta").mkdir()
+    fixture(mods / "Zeta", salt=0x7E7E7E7E, settings="zeta", name="zeta.bin", namespace="runtime_zeta")
+    zeta_ini = mods / "Zeta" / "mod.ini"
+    zeta_ini.write_text(zeta_ini.read_text(encoding="ascii").replace(
+        "[Present]\npost $active = 0\n", "[Present]\npost $active = 0\nif $\\runtime_fixture\\order == 0\n$\\runtime_fixture\\order = 2\nendif\n"), encoding="ascii")
+    own_ini = folder / "mod.ini"
+    text = own_ini.read_text(encoding="ascii")
+    assert "[Constants]\nglobal persist $tint = 0\n" in text and "[Present]\npost $active = 0\n" in text
+    # The fixture also runs a command list the installation's d3dx.ini declares (LIMIT-039).
+    own_ini.write_text(text.replace("[Constants]\nglobal persist $tint = 0\n", "[Constants]\nglobal persist $tint = 0\nglobal persist $order = 0\n").replace(
+        "[Present]\npost $active = 0\n", "[Present]\npost $active = 0\nif $order == 0\n$order = 1\nendif\nrun = CommandListUnbindAllRenderTargets\n"),
+        encoding="ascii")
+    # A character Mod in a folder named in another script whose INI declares no namespace: the parser
+    # names it by its path (`Mods\<folder>\mod.ini`), in the folder generation and when tried alone (the
+    # isolation retry `broken` causes); a byte-by-byte widening of that name left it out (D-154).
+    colon = mods / "\uff1aMod"
+    colon.mkdir()
+    fixture(colon, salt=0x2B2B2B2B, settings="colon", name="colon.bin", namespace="runtime_colon")
+    first, rest = (colon / "mod.ini").read_text(encoding="ascii").split("\n", 1)
+    assert first == "namespace = runtime_colon"
+    (colon / "mod.ini").write_text(rest, encoding="ascii")
+    # A file named .INI is not an INI to the original (its extension test is case-sensitive): neither a
+    # character Mod nor an input, and the folder loads without it.
+    (mods / "upper").mkdir()
+    fixture(mods / "upper", salt=0x12121212, settings="upper", name="upper.bin", namespace="runtime_upper")
+    (mods / "upper" / "mod.ini").rename(mods / "upper" / "mod.INI")
+    # The installation's d3dx.ini, the original's first file: its own sections join the generation (a
+    # command list Mods call by name, the compiler's recursive_include); its [Include] is the layer's own.
+    (root / "d3dx.ini").write_text("[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\nexclude_recursive = DISABLED*\n"
+                                   "[Rendering]\nrecursive_include = 1\n[CommandListUnbindAllRenderTargets]\nrun = BuiltInCommandListUnbindAllRenderTargets\n",
+                                   encoding="ascii")
     settings.mkdir()
     header = "; EFMI Vulkan persistent original INI variables\n[Constants]\n"
     (settings / "runtime_fixture-fixture.ini").write_text(header + "$\\k\\1.ini\\z = 7\n", encoding="ascii")
@@ -421,14 +456,15 @@ def directory_generation(checks, validation):
     if result.returncode:
         print(output[-6000:]); print("artifacts:", root)
     report = folder / "runtime-final.json"
-    status = json.loads(report.read_text())["result"]["replacement"] if report.is_file() else {}
+    status = json.loads(report.read_text(encoding="utf-8"))["result"]["replacement"] if report.is_file() else {}
     # D-137: each F10 that reloaded says so as the original's ReloadConfig does.
-    recent = json.loads(report.read_text())["result"].get("notices", {}).get("recent", []) if report.is_file() else []
+    recent = json.loads(report.read_text(encoding="utf-8"))["result"].get("notices", {}).get("recent", []) if report.is_file() else []
     checks.check(any(text.startswith("> Reloaded config in ") and text.endswith("s") for text in recent),
                  label + ": an F10 that reloaded queues the original's notice " + str(recent))
     packages = status.get("packages", [])
     names = [Path(p.get("path", "")).parent.name for p in packages]
-    checks.equal(names, ["fixture", "other"], label + ": both character INIs found, the DISABLED folder skipped")
+    checks.equal(names, ["fixture", "other", "Zeta", "\uff1aMod"],
+                 label + ": the character INIs in the original's include order, the one named in another script among them; the DISABLED folder and the .INI file skipped")
     held = [(p.get("package_bytes", 0) > 0, p.get("payload_held_bytes", -1)) for p in packages]
     checks.equal(held, [(True, 0)] * len(packages), label + ": no package holds its mesh bytes in host memory (ISSUE-011)")
     gates = status.get("folder_generation", {}).get("discard_gates", [])
@@ -446,8 +482,9 @@ def directory_generation(checks, validation):
     left_out = status.get("folder_generation", {}).get("left_out", [])
     checks.equal([Path(m.get("ini", "")).parent.name for m in left_out], ["broken"],
                  label + ": the Mod the layer cannot take is left out alone, with its reason " + str([m.get("reason", "") for m in left_out]))
-    if len(packages) == 2:
-        own, other = packages
+    if len(packages) == 4:
+        own, other, zeta, colon_package = packages
+        checks.check(colon_package.get("lazy") and not colon_package.get("activated"), label + ": the Mod named in another script is a package of the folder, never matched")
         checks.equal((other["lazy"], other["activated"], other.get("images_ready", 0), other["counters"].get("replaced", 0)),
                      (True, False, 0, 0), label + ": the other character's Mod never matched and never went to the GPU")
         checks.check(own["activated"] and own["counters"].get("replaced", 0) > 0 and own["images_ready"] == 2,
@@ -456,6 +493,9 @@ def directory_generation(checks, validation):
         checks.equal((own["ini_generation"], own["ini_reloads"]), (4, 4), label + ": its reloads as with a package")
         variables = own.get("ini", {}).get("variables", {})
         checks.equal(variables.get("$\\runtime_fixture\\tint"), 1, label + ": the persistent variable survives F10")
+        checks.equal(variables.get("$\\runtime_fixture\\order"), 1, label + ": the [Present] lines of `fixture` ran before those of `Zeta`, the original's include order")
+        unrecognised = [m for m in own.get("ini", {}).get("diagnostic_messages", []) if "Unrecognised entry" in m]
+        checks.equal(unrecognised, [], label + ": a command list the installation's d3dx.ini declares is known to the Mods (LIMIT-039)")
         checks.equal(variables.get("$\\mods\\fixture\\k\\1.ini\\z"), 7,
                      label + ": a panel INI's setting saved by the Mod's own generation is read under the folder's name")
     # One generation for the folder (D-131) keeps one settings file for every Mod, as the original's
@@ -470,18 +510,19 @@ def directory_generation(checks, validation):
     # 2.0.7 in the game: F10 after a drawn character's Mod was removed stopped its package twice at
     # once (its controller and the generation it left); the second join's error ended the game.
     removed = folder / "runtime-removed.json"
-    after_removal = json.loads(removed.read_text())["result"]["replacement"] if removed.is_file() else {}
-    checks.equal(after_removal.get("folder_generation", {}).get("packages"), 1,
-                 label + ": F10 after the drawn character's Mod was disabled goes on with the other Mod, the removed package stopped once")
+    after_removal = json.loads(removed.read_text(encoding="utf-8"))["result"]["replacement"] if removed.is_file() else {}
+    checks.equal(after_removal.get("folder_generation", {}).get("packages"), 3,
+                 label + ": F10 after the drawn character's Mod was disabled goes on with the other Mods, the removed package stopped once")
     def report_of(name):
         path = folder / name
-        return json.loads(path.read_text())["result"]["replacement"] if path.is_file() else {}
+        return json.loads(path.read_text(encoding="utf-8"))["result"]["replacement"] if path.is_file() else {}
     removed_packages = [(Path(p.get("path", "")).parent.name, p.get("stopped")) for p in after_removal.get("packages", [])]
-    checks.equal(removed_packages, [("fixture", True), ("other", False)], label + ": the disabled Mod's package shows stopped, in its slot")
+    checks.equal(removed_packages, [("fixture", True), ("other", False), ("Zeta", False), ("\uff1aMod", False)],
+                 label + ": the disabled Mod's package shows stopped, in its slot")
     # BUG-068: enabled again, the Mod takes its slot back (2.0.7 added a third entry, and so on to 64).
     reenabled = report_of("runtime-reenabled.json")
     back = [(Path(p.get("path", "")).parent.name, p.get("stopped"), p.get("activated")) for p in reenabled.get("packages", [])]
-    checks.equal(back, [("fixture", False, True), ("other", False, False)],
+    checks.equal(back, [("fixture", False, True), ("other", False, False), ("Zeta", False, False), ("\uff1aMod", False, False)],
                  label + ": a Mod enabled again by F10 is drawn from the slot it had")
     # D-133, BUG-070: the gate follows the live generation when RabbitFX goes and comes back.
     gates_of = lambda r: [(g.get("index"), g.get("component"), g.get("value")) for g in r.get("folder_generation", {}).get("discard_gates", [])]

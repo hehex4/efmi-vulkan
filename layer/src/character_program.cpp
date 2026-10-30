@@ -37,6 +37,37 @@ bool layer_folder_entry(const std::filesystem::directory_entry& entry)
     return !own.empty() && !_wcsicmp(entry.path().filename().c_str(), own.filename().c_str()) && entry.is_directory(error) &&
            std::filesystem::equivalent(entry.path(), own, error);
 }
+// The enabled INI files under a folder in the original's order (IniHandler.cpp ParseIniFilesRecursive):
+// in each folder its files named `.ini` (the four characters as they are: a `.INI` is not one to the
+// original) sorted without regard to case, then its folders so sorted, each walked the same way; names
+// starting with DISABLED and desktop.ini left out, as the installation's d3dx.ini excludes them
+// (exclude_recursive, matched without regard to case), and the layer's own folder. `skip`, when given, is
+// a folder left out with what is under it (the generation's settings, wherever they are kept).
+void enabled_inis(const std::filesystem::path& folder, std::vector<std::filesystem::path>& out, const std::filesystem::path& skip = {},
+                  unsigned depth = 0)
+{
+    if (depth > 64) return;
+    const auto less = [](const std::wstring& a, const std::wstring& b) { return _wcsicmp(a.c_str(), b.c_str()) < 0; };
+    std::set<std::wstring, decltype(less)> files(less), folders(less);
+    std::error_code error;
+    for (const auto& entry : std::filesystem::directory_iterator(folder, error)) {
+        const auto name = entry.path().filename().wstring();
+        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8) || !_wcsicmp(name.c_str(), L"desktop.ini") || layer_folder_entry(entry)) continue;
+        if (entry.is_directory(error)) {
+            if (skip.empty() || !std::filesystem::equivalent(entry.path(), skip, error)) folders.insert(name);
+        } else if (name.size() >= 4 && !wcscmp(name.c_str() + name.size() - 4, L".ini")) {
+            files.insert(name);
+        }
+    }
+    for (const auto& name : files) out.push_back(folder / name);
+    for (const auto& name : folders) enabled_inis(folder / name, out, skip, depth + 1);
+}
+std::vector<std::filesystem::path> enabled_inis(const std::filesystem::path& folder, const std::filesystem::path& skip = {})
+{
+    std::vector<std::filesystem::path> out;
+    enabled_inis(folder, out, skip);
+    return out;
+}
 std::wstring key(const std::filesystem::path& path)
 {
     auto result = path.lexically_normal().wstring();
@@ -207,24 +238,21 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
                             const std::string& settings_name, std::shared_ptr<efmi::frontend::RuntimeExtension> extension,
                             const GpuFactory& factory, std::string& reason, const std::filesystem::path& mods, bool declarations_only)
 {
-    efmi::frontend::RuntimeConfig options{ini.parent_path(), {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
+    // The original's root, from which an INI without a namespace line is named: the Mods folder's parent;
+    // a Mod given without its Mods folder is named by its file, from its own folder.
+    efmi::frontend::RuntimeConfig options{mods.empty() ? ini.parent_path() : mods.parent_path(),
+                                         {core / "API.ini", core / "MergedSkeleton.ini", core / "SpatialIdentification.ini", core / "Helpers.ini", ini},
                                          settings_folder, settings_name};
     if (!mods.empty()) options.native_library_files = native_library_files(mods);
+    // The installation's d3dx.ini sits beside the Mods folder; without one, above the Core.
+    options.installation = mods.empty() ? core.parent_path().parent_path() : mods.parent_path();
     if (factory) gpu_ = factory(core.parent_path().parent_path(), gpu_reason_);
     if (gpu_) {
-        // The original loads every enabled INI of the Mod folder (DISABLED names excluded).
-        const auto folder = ini.parent_path();
+        // The original loads every enabled INI of the Mod folder, in its order; the generation's own
+        // settings are never a Mod input, wherever they are kept.
         std::error_code error;
-        for (auto it = std::filesystem::recursive_directory_iterator(folder, error); !error && it != std::filesystem::recursive_directory_iterator();
-             it.increment(error)) {
-            const auto name = it->path().filename().wstring();
-            // The generation's own settings are never a Mod input, wherever they are kept.
-            const bool settings = it->is_directory() && std::filesystem::equivalent(it->path(), options.settings_directory, error);
-            if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
-            if (!it->is_regular_file() || _wcsicmp(it->path().extension().c_str(), L".ini") || std::filesystem::equivalent(it->path(), ini, error)) continue;
-            if (options.inputs.size() >= 64) throw std::runtime_error("The Mod folder has too many INI files for one generation");
-            options.inputs.push_back(it->path());
-        }
+        for (const auto& other : enabled_inis(ini.parent_path(), options.settings_directory))
+            if (!std::filesystem::equivalent(other, ini, error)) options.inputs.push_back(other);
         // The libraries the Mod calls by namespace from elsewhere in the Mods folder (D-112), as the
         // original, which loads the whole folder into one space, finds them.
         library_notes_.clear(); libraries_.clear();
@@ -373,17 +401,12 @@ std::string CharacterProgram::declared_namespace(const std::filesystem::path& in
 }
 std::vector<std::filesystem::path> CharacterProgram::mods_characters(const std::filesystem::path& mods, std::string& reason)
 {
+    // In the original's include order, which is the order of the packages and of their sections' candidates.
     std::vector<std::filesystem::path> found;
     std::error_code error;
-    for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
-         it.increment(error)) {
-        const auto name = it->path().filename().wstring();
-        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
-        if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
-        if (has_section(ini_text(it->path()), "commandlistinitializemergedskeleton")) found.push_back(it->path());
-    }
-    if (error) reason = "cannot read the Mods folder " + mods.u8string() + ": " + error.message();
-    std::sort(found.begin(), found.end());
+    if (!std::filesystem::is_directory(mods, error)) { reason = "cannot read the Mods folder " + mods.u8string() + ": " + error.message(); return found; }
+    for (const auto& ini : enabled_inis(mods))
+        if (has_section(ini_text(ini), "commandlistinitializemergedskeleton")) found.push_back(ini);
     return found;
 }
 // The installed files of the libraries the runtime provides natively (RabbitFX, D-082, D-133): enabled
@@ -392,15 +415,10 @@ std::vector<std::filesystem::path> CharacterProgram::native_library_files(const 
 {
     const auto native = efmi::frontend::character_core_libraries();
     std::vector<std::filesystem::path> found;
-    std::error_code error;
-    for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
-         it.increment(error)) {
-        if (!_wcsnicmp(it->path().filename().c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
-        if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
-        const auto name = declared_namespace(it->path());
-        if (!name.empty() && std::find(native.begin(), native.end(), name) != native.end()) found.push_back(it->path());
+    for (const auto& ini : enabled_inis(mods)) {
+        const auto name = declared_namespace(ini);
+        if (!name.empty() && std::find(native.begin(), native.end(), name) != native.end()) found.push_back(ini);
     }
-    std::sort(found.begin(), found.end());
     return found;
 }
 std::vector<std::filesystem::path> CharacterProgram::libraries(const std::filesystem::path& mods, const std::vector<std::filesystem::path>& inputs,
@@ -432,16 +450,13 @@ std::vector<std::filesystem::path> CharacterProgram::libraries(const std::filesy
     std::vector<Candidate> candidates;
     std::vector<std::filesystem::path> characters;
     std::error_code error;
-    for (auto it = std::filesystem::recursive_directory_iterator(mods, error); !error && it != std::filesystem::recursive_directory_iterator();
-         it.increment(error)) {
-        if (!_wcsnicmp(it->path().filename().c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory(error)) it.disable_recursion_pending(); continue; }
-        if (!it->is_regular_file(error) || _wcsicmp(it->path().extension().c_str(), L".ini")) continue;
-        auto text = ini_text(it->path());
-        if (has_section(text, "commandlistinitializemergedskeleton")) { characters.push_back(it->path().parent_path()); continue; }
-        auto name = declared_namespace(it->path());
-        if (!name.empty() && !declared.count(name)) candidates.push_back({it->path(), std::move(name), std::move(text)});
+    if (!std::filesystem::is_directory(mods, error)) { notes.push_back("libraries: cannot read the Mods folder " + mods.u8string() + ": " + error.message()); return {}; }
+    for (const auto& ini : enabled_inis(mods)) {
+        auto text = ini_text(ini);
+        if (has_section(text, "commandlistinitializemergedskeleton")) { characters.push_back(ini.parent_path()); continue; }
+        auto name = declared_namespace(ini);
+        if (!name.empty() && !declared.count(name)) candidates.push_back({ini, std::move(name), std::move(text)});
     }
-    if (error) { notes.push_back("libraries: cannot read the Mods folder " + mods.u8string() + ": " + error.message()); return {}; }
     const auto inside = [](const std::filesystem::path& path, const std::filesystem::path& folder) {
         const auto relative = path.lexically_relative(folder);
         return !relative.empty() && *relative.begin() != "..";
@@ -476,16 +491,15 @@ bool CharacterProgram::discover(const Source& source, CharacterPackage& package,
     try {
         if (!source.ini.is_absolute() || !source.core.is_absolute() || !source.settings.is_absolute())
             throw std::runtime_error("Directory generation paths must be absolute");
-        // Without a namespace line the runtime parses the INI under its file name (its path relative
-        // to the Mod folder), which names its sections and variables as the original's implicit
-        // namespace does. The settings file gets a name of plain characters.
+        // Without a namespace line the parser names the INI by its path from the original's root (the
+        // Mods folder's parent, where d3dx.ini is), in any script, in lower case as it lowers names; a
+        // Mod given without its Mods folder by its file name. The settings file gets a name of plain
+        // characters.
         std::string mod_namespace = source.mod_namespace;
         if (mod_namespace.empty()) {
-            const auto name = source.ini.filename().wstring();
-            if (std::any_of(name.begin(), name.end(), [](wchar_t c) { return c < 0x20 || c > 0x7e; }))
-                throw std::runtime_error("The INI declares no namespace and its file name is not ASCII");
-            mod_namespace.assign(name.begin(), name.end());
-            std::transform(mod_namespace.begin(), mod_namespace.end(), mod_namespace.begin(), ::tolower);
+            auto name = (source.mods.empty() ? source.ini.filename() : source.ini.lexically_relative(source.mods.parent_path())).wstring();
+            std::transform(name.begin(), name.end(), name.begin(), ::towlower);
+            mod_namespace = std::filesystem::path(name).u8string();
         }
         const std::string settings_name = CharacterProgram::settings_name(source.ini, mod_namespace);
         auto found = std::make_shared<efmi::frontend::CharacterDiscovery>();
@@ -593,22 +607,11 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 namespace {
-// The original's include order (IniHandler.cpp ParseIniFilesRecursive): in each folder its `.ini`
-// files by name, then its folders by name, both in ordinal order; names starting with DISABLED and
-// desktop.ini left out (d3dx.ini's exclude_recursive). `wanted` keys select the files kept.
-void include_order(const std::filesystem::path& folder, const std::set<std::wstring>& wanted, std::vector<std::filesystem::path>& out, unsigned depth = 0)
+// The enabled INIs of the Mods folder in the original's include order (enabled_inis), those `wanted`
+// keys select.
+void include_order(const std::filesystem::path& folder, const std::set<std::wstring>& wanted, std::vector<std::filesystem::path>& out)
 {
-    if (depth > 32) return;
-    std::set<std::wstring> files, folders;
-    std::error_code error;
-    for (const auto& entry : std::filesystem::directory_iterator(folder, error)) {
-        const auto name = entry.path().filename().wstring();
-        if (!_wcsnicmp(name.c_str(), L"DISABLED", 8) || !_wcsicmp(name.c_str(), L"desktop.ini") || layer_folder_entry(entry)) continue;
-        if (entry.is_directory(error)) folders.insert(name);
-        else if (name.size() > 4 && !wcscmp(name.c_str() + name.size() - 4, L".ini")) files.insert(name);
-    }
-    for (const auto& name : files) if (wanted.count(key(folder / name))) out.push_back(folder / name);
-    for (const auto& name : folders) include_order(folder / name, wanted, out, depth + 1);
+    for (const auto& ini : enabled_inis(folder)) if (wanted.count(key(ini))) out.push_back(ini);
 }
 std::wstring folder_key(const std::filesystem::path& folder)
 {
@@ -654,15 +657,8 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
                 // As a generation of one Mod: with the owned runtime the Mod folder's other enabled INIs
                 // join, and the libraries it calls by namespace (D-112).
                 std::error_code error;
-                const auto folder = inis[i].parent_path();
-                for (auto it = std::filesystem::recursive_directory_iterator(folder, error); !error && it != std::filesystem::recursive_directory_iterator();
-                     it.increment(error)) {
-                    const auto name = it->path().filename().wstring();
-                    const bool settings = it->is_directory() && std::filesystem::equivalent(it->path(), source.settings, error);
-                    if (settings || !_wcsnicmp(name.c_str(), L"DISABLED", 8) || layer_folder_entry(*it)) { if (it->is_directory()) it.disable_recursion_pending(); continue; }
-                    if (!it->is_regular_file() || _wcsicmp(it->path().extension().c_str(), L".ini") || std::filesystem::equivalent(it->path(), inis[i], error)) continue;
-                    mod_inputs[i].push_back(it->path());
-                }
+                for (const auto& other : enabled_inis(inis[i].parent_path(), source.settings))
+                    if (!std::filesystem::equivalent(other, inis[i], error)) mod_inputs[i].push_back(other);
                 for (const auto& library : libraries(source.mods, mod_inputs[i], efmi::frontend::character_core_libraries(), notes[i]))
                     called[i][declared_namespace(library)] = library;
             }
@@ -686,9 +682,9 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
             efmi::frontend::RuntimeConfig options{root, {source.core / "API.ini", source.core / "MergedSkeleton.ini", source.core / "SpatialIdentification.ini",
                                                          source.core / "Helpers.ini"}, source.settings, source.settings_name};
             options.native_library_files = native_library_files(source.mods);
+            options.installation = root;
             std::vector<std::filesystem::path> ordered;
             include_order(source.mods, wanted, ordered);
-            if (ordered.size() + options.inputs.size() > 128) throw std::runtime_error("The Mods folder has more INI files than one generation takes");
             options.inputs.insert(options.inputs.end(), ordered.begin(), ordered.end());
             CharacterProgram loader;
             if (gpu) loader.gpu_ = factory(source.core.parent_path().parent_path(), loader.gpu_reason_);
