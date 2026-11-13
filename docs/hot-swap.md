@@ -140,3 +140,13 @@ absence of every transient frame during takeover.
   again.
 - A fault in a module is a fault in the game process.
 - The single-component backend is not exchangeable.
+
+
+## Stable installation paths (D-207, 2.3.7)
+
+An exchanged module may be copied to another directory. Its entry obtains the loaded host's
+installation directory from the HostApi log callback address. The module's directory helper returns
+that installation root for configured/default Mods, Core and settings paths. Relative ShaderFixes
+settings use the same base, independent of the process working directory or the replacement DLL's
+location. Validation tools still use the owned toolchain lookup. This adds no HostApi field and does
+not change the ABI stamp. Sandbox exchange is separate from an authorized real-game exchange.

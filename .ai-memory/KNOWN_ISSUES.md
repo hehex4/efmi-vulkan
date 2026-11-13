@@ -1,6 +1,18 @@
 # EFMI Vulkan - Known issues
 
 
+
+## BUG-099: Exchanged code relocated relative Mods/settings and shader paths (fixed offline in D-207, 2.3.7)
+
+- The 2.3.6 relative-path exchange fixture passes only 3/7: the new module activates but loses its
+  configured Mods and ShaderFixes. module_folder used the exchanged DLL's own address; additionally,
+  load_shader_fixes interpreted relative m2_settings against the process working directory. The
+  original IniHandler resolves both configuration and relative shader paths from migoto_handle.
+- D-207 makes the module's existing directory helper return the host installation identified by the
+  host log callback. All backend source paths keep that base, and ShaderFixes uses absolute_folder
+  consistently. Tool lookup remains separate. No module ABI fields, user config or system state change.
+  CURRENT_STATE records the verification scope; no real-game exchange is implied.
+
 ## BUG-098: Exchanged native shaders could not locate the deployed validator (fixed offline in 2.3.6, D-206)
 
 - A backend copied to a test folder still ran native image commands, but its ShaderFixes had loaded=0 and warned Cannot load native SPIR-V validator. load_shader_fixes used module_folder for the validation DLL. Original ReloadShader uses the installed runtime/device; DX11 supplies deferred resource lifetime, hazards and context order independently of configuration reload.

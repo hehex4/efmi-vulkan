@@ -1,6 +1,7 @@
 """Retained references to application images require current GPU layout facts."""
 from pathlib import Path
 import json
+import os
 import shutil
 import struct
 import sys
@@ -99,14 +100,18 @@ def graphics_scene(checks,case):
     env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),
         EFMI_VK_M2_ENABLED="1",EFMI_VK_TEST_NOTICE="> application image",EFMI_VK_TEST_NOTICES_READBACK=str(pixels),
         EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC="1")
-    if case in ("graphics_reload","graphics_swap"):env["EFMI_VK_TEST_NOTICES_READBACK_TRIGGER"]=str(trigger)
+    if case in ("graphics_reload","graphics_swap","graphics_swap_relative"):env["EFMI_VK_TEST_NOTICES_READBACK_TRIGGER"]=str(trigger)
+    if case=="graphics_swap_relative":
+        base=Path(__file__).resolve().parents[1]/"dist"
+        env["EFMI_VK_M2_MODS"]=os.path.relpath(mods,base)
+        env["EFMI_VK_M2_SETTINGS"]=os.path.relpath(settings,base)
     args=["--readable-swapchain"]
     if case=="graphics_push":args += ["--descriptors","push"]
     if case=="graphics_secondary":args += ["--threads","2"]
-    with Sandbox(seconds=6 if case in ("graphics_reload","graphics_swap") else 3,validation=True,env_extra=env,extra_args=args) as sb:
+    with Sandbox(seconds=6 if case in ("graphics_reload","graphics_swap","graphics_swap_relative") else 3,validation=True,env_extra=env,extra_args=args) as sb:
         time.sleep(1)
         with ProbeClient(sb.pid) as probe:
-            if case=="graphics_swap":
+            if case in ("graphics_swap","graphics_swap_relative"):
                 module=root/"native-backend.dll";shutil.copy2(Path(__file__).resolve().parents[1]/"dist/efmi_vk_backend.dll",module)
                 probe.swap_module(str(module))
                 deadline=time.monotonic()+1
@@ -123,8 +128,8 @@ def graphics_scene(checks,case):
         sb.proc.wait(timeout=30);checks.equal(sb.proc.returncode,0,case+": normal exit")
         (root/"layer.log").write_bytes(Path(sb.log_path).read_bytes())
     calls=status.get("replacement",{}).get("shader_overrides",{})
-    if case=="graphics_swap":checks.check(status.get("replacement",{}).get("module",{}).get("generation",0)>0,case+": exchanged backend active")
-    if case=="graphics_swap":
+    if case in ("graphics_swap","graphics_swap_relative"):checks.check(status.get("replacement",{}).get("module",{}).get("generation",0)>0,case+": exchanged backend active")
+    if case in ("graphics_swap","graphics_swap_relative"):
         fixes=status.get("replacement",{}).get("shader_fixes",{})
         checks.check(fixes.get("loaded")==1 and fixes.get("binds",0)>0 and not fixes.get("warnings"),case+": exchanged module validates and binds ShaderFixes")
         checks.check(pixels.is_file(),case+": post-exchange capture completed")
@@ -140,7 +145,7 @@ def main():
         if not selected or case in selected:scene(checks,case)
     for case in ("layout","layout_push","layout_secondary"):
         if not selected or case in selected:layout_scene(checks,case)
-    for case in ("graphics","graphics_push","graphics_secondary","graphics_reload","graphics_swap"):
+    for case in ("graphics","graphics_push","graphics_secondary","graphics_reload","graphics_swap","graphics_swap_relative"):
         if not selected or case in selected:graphics_scene(checks,case)
     return checks.finish()
 

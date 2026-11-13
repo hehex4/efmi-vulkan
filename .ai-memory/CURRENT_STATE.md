@@ -5,6 +5,14 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.3.7: Stable configuration roots across module exchange, D-207 (2026-11-14; sandbox verified)
+
+- D-206 is committed and merged as f5ad8c3. Its final corrected exchange check is 7/7 and the other exact checks are recorded below. Continue without ending at a commit boundary.
+- The new relative Mods/settings exchange baseline is 3/7 (d207-path-before.out): the module activates but loses the original configured sources and ShaderFixes. Read original IniHandler.cpp 4458 and 4681-4690: configuration and relative shader directories are based on migoto_handle, not an exchanged code path. DX11 lifetime/hazards/context order remain supplied by its runtime.
+- Implemented and verified: the module obtains the host directory from the address of HostApi::log and implements the existing module_dir helper; backend source paths use that stable host root. ShaderFixes keeps tool lookup separate and resolves relative/default settings through the same installation base. No ABI fields changed: expected stamp remains 97d3399f4a32ac23. Host/module/tracker built in d207-path-pair.out; stamp bytes verified in layer/inject/backend/tracker and version2.3.7 in the DLLs. The failed case now passes7/7 (d207-path-after.out). Full module-paths checks pass: application images76/76, native files42/42, tracker260/260, text573 (d207-path-regression.out); GPU cases use Vulkan validation and application-image cases also enable synchronization validation.
+- Next: commit and fast-forward this verified change, then continue D-208 indirect GPU capture (the ignored build/d207-plan.md, d207-fixture.py, d207-implement.py and d207-gpu_indirect_test.py drafts predate inserting this path fix; adjust version 2.3.7 to 2.3.8 before using the implementation draft).
+- Root dist2.1.8 and historical game2.1.7 unchanged; no game/deployment/system/remote action.
+
 ## Active source 2.3.6: Retained application sampled images, D-206 (2026-11-14; sandbox)
 
 - D-205 is merged as 04cc6f8. Native application sampled images now use current recording-local layouts, retained original descriptor fallbacks and per-call refresh. Safe read layouts bind directly; known transfer/color layouts can be temporarily sampled outside render passes and restored after compute or the graphics pass. Bound descriptor sets are cloned, never updated in place. Requests survive ordinary/pushed native clones; application rebinding supersedes them.

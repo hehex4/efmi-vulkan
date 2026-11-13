@@ -81,15 +81,8 @@ std::filesystem::path mods_folder()
 }
 std::filesystem::path module_folder()
 {
-    HMODULE module = nullptr;
-    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            reinterpret_cast<LPCWSTR>(&module_folder), &module))
-        return {};
-    std::wstring path(32768, L'\0');
-    const DWORD length = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
-    if (!length || length >= path.size()) return {};
-    path.resize(length);
-    return std::filesystem::path(path).parent_path();
+    // Configuration belongs to the injected host, even when replacement code lives elsewhere.
+    return std::filesystem::path(module_dir());
 }
 CharacterProgram::Source mod_source(const std::string& ini)
 {

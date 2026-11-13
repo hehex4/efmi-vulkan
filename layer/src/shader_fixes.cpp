@@ -14,8 +14,8 @@ std::shared_ptr<const NativeShaderSet> load_shader_fixes(Device* device, const s
     next->compatible = &efmi::gpu::native_shader_interface;
     // Exchanged code can live elsewhere; validators stay with the deployed GPU toolchain.
     const auto tools = owned_tools_directory();
-    const auto folder = (g_cfg.m2_settings.empty() ? tools / "settings" :
-                         std::filesystem::absolute(std::filesystem::u8path(g_cfg.m2_settings))) / "ShaderFixes";
+    const auto folder = (g_cfg.m2_settings.empty() ? module_folder() / "settings" :
+                         absolute_folder(g_cfg.m2_settings)) / "ShaderFixes";
     efmi::gpu::ShaderHost host;
     host.properties = device->physical_properties;
     host.validator = tools / "SPIRV-Tools-shared.dll";

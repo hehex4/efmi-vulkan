@@ -2453,3 +2453,20 @@ Next continue D-207 relative/default configuration roots across module exchange,
 GPU argument/count captures and geometry associations. Draft scripts are ignored under build/;
 establish each failing baseline before implementation. Root dist2.1.8 and historical game2.1.7 remain
 unchanged. No game/deployment/launcher/system/remote operation.
+
+
+## 2026-11-14: D-207 keeps configuration at the host installation, 2.3.7
+
+D-206 was committed and merged as f5ad8c3; work continued immediately. Read original IniHandler
+configuration/override_directory resolution from migoto_handle. The relative Mods/settings exchange
+baseline was3/7 (d207-path-before.out): the code module activated but lost its configured sources.
+The module now derives the host directory from HostApi::log's address and supplies it through the
+existing directory helper. Backend source paths and relative/default ShaderFixes settings keep that
+base. Tool lookup stays separate. No ABI field was added, stamp97d3399f4a32ac23 unchanged.
+
+Host/module/tracker built in d207-path-pair.out, binary stamps and DLL version2.3.7 verified. Failed
+case7/7; module-paths regression passes application images76, native files42, tracker260, text573
+(d207-path-regression.out). GPU cases enable validation; application-image cases enable synchronization
+validation too. BUG-099 fixed offline. Next D-208 indirect argument/count GPU captures and geometry
+associations, using the ignored earlier d207-* indirect drafts with version2.3.8. No game/deployment,
+launcher/system changes or remote actions; root dist2.1.8 and historical game2.1.7 unchanged.

@@ -5,11 +5,15 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <filesystem>
 
 namespace efvk {
 
 Config g_cfg;
 static const HostApi* g_host = nullptr;
+static std::wstring g_host_directory;
+
+const std::wstring& module_dir() { return g_host_directory; }
 
 void logf(const char* fmt, ...)
 {
@@ -48,6 +52,13 @@ extern "C" __declspec(dllexport) const efvk::CharacterModule* efmi_vk_character_
     using namespace efvk;
     if (!host || host->size != sizeof(HostApi) || host->abi != EFVK_ABI || !host->config || !host->log || !host->crc32c ||
         !host->read_buffer_locked || !host->collect_buffer_ranges_locked || !host->notice) return nullptr;
+    // The callback address identifies the actual host even if its DLL was renamed.
+    HMODULE owner=nullptr;
+    if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          reinterpret_cast<LPCWSTR>(host->log),&owner))return nullptr;
+    std::wstring path(32768,L'\0');const DWORD length=GetModuleFileNameW(owner,path.data(),DWORD(path.size()));
+    if(!length || length>=path.size())return nullptr;
+    path.resize(length);g_host_directory=std::filesystem::path(path).parent_path().wstring();
     g_host = host;
     g_cfg = *host->config;
     return builtin_character_module();

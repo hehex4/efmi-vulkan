@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-207: Configuration roots across code exchange (2026-11-14)
+
+- D-206 committed and merged as f5ad8c3. D-207 relative Mods/settings baseline 3/7; fix built and verified in d207-path-pair.out. Failed case now7/7; module-paths regression: application images76, native files42, tracker260, text573 all pass (d207-path-regression.out). Source2.3.7, ABI97d3399f4a32ac23 unchanged. Memory and evidence synchronized; commit and fast-forward main, then continue D-208.
+- Continue D-208 indirect GPU argument/count capture after that commit. Existing ignored d207-* indirect drafts were prepared before D-207 became the module-path correction; use them with source2.3.8. Do not stop at this intermediate milestone.
+
 ## Active continuation: D-206 application images, then module paths and indirect capture (2026-11-14)
 
 - Continue offline implementation after verified commits; the user explicitly rejected stopping at intermediate audits.

@@ -3,6 +3,22 @@
 Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 3. This file records the decisions about how the project is run, and later changes to the design with their reasons.
 
 
+
+## D-207: Exchanging code preserves the host installation root (2026-11-14)
+
+- Original IniHandler resolves d3dx.ini and relative override_directory from migoto_handle (4458,
+  4681-4690). Reloading shaders/configuration does not relocate that installation. DX11 supplies
+  reference-counted deferred GPU lifetime, hazards and context order separately from path resolution.
+- The exchanged module obtains the host directory from HostApi::log's code address during entry,
+  without a new ABI field or reliance on a fixed DLL name. Its module_dir implementation returns
+  that root. Backend Mods/Core/settings discovery and relative paths therefore keep the host's
+  configuration base when the code DLL is copied elsewhere.
+- ShaderFixes resolves relative/default settings through the same base, independently of the owned
+  toolchain directory used for validation. It must not interpret a relative settings path against
+  the sandbox/game process working directory. No launcher/system setting or external file changes.
+- Baseline relative Mods/settings exchange 3/7 (d207-path-before.out), including an active module
+  that lost its sources/ShaderFixes. Final failed case7/7; module-paths checks application images76, native files42, tracker260 and text573 all pass. Pair/tracker are2.3.7, ABI97d3399f4a32ac23 unchanged; see CURRENT_STATE for exact artifacts.
+
 ## D-206: Application image references follow current layouts, with persistent refresh (2026-11-14)
 
 - Read original ResourceCopyTarget::GetResource/SetResource in DirectX11/CommandList.cpp. DX11 supplies deferred reference-counted GPU lifetime, hazard tracking and one-context order. Vulkan must retain image/view/memory and mutable sampler owners, know the image subresources' current layout, and explicitly order newly introduced reads.
