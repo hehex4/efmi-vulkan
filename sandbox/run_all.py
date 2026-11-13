@@ -154,6 +154,7 @@ STEPS = [
     ("native resource slots", [os.path.join(HERE, "native_resource_test.py")]),
     ("native call execution", [os.path.join(HERE, "native_execution_test.py")]),
     ("native descriptor bindings", [os.path.join(HERE, "native_binding_test.py")]),
+    ("native file bindings", [os.path.join(HERE, "native_file_test.py")]),
     ("native compute shaders", [os.path.join(HERE, "native_compute_test.py")]),
     ("native empty inputs", [os.path.join(HERE, "native_input_test.py")]),
     ("native hunting shader modes", [os.path.join(HERE, "hunting_shader_test.py")]),
@@ -183,6 +184,7 @@ GROUPS = {
     "native-slots": ["native resource slots", "live INI rendering", "native tracker", "Vulkan validation", "text check"],
     "native-calls": ["native call execution", "native compute", "native tracker", "Vulkan validation", "text check"],
     "native-bindings": ["native descriptor bindings", "native resource slots", "native call execution", "native tracker", "Vulkan validation", "text check"],
+    "native-files": ["native file bindings", "native descriptor bindings", "native resource slots", "native tracker", "Vulkan validation", "text check"],
     # A minute or so, for every change: text, the Python units, the expression cases, what each command
     # class does in a replaced draw, and the original as the judge.
     "quick": ["text check", "unit tests", "source-defined INI evaluation", "INI execution matrix", "as the judge"],

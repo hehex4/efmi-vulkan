@@ -37,10 +37,14 @@ public:
     // Declaration only, no file IO beyond the file's size and write time; one declaration counted for the
     // caller. kNone with the reason.
     // `loader_flags`: the declaration's colour space as the original's loaders take it (D-140).
-    ImageId declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags = 0);
+    ImageId declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags = 0, VkBufferUsageFlags buffer_usage = 0);
     struct Binding {
         VkImageView view = VK_NULL_HANDLE;                      // null: not resident yet, or failed
         std::shared_ptr<const efmi::assets::ImageUpload> owner; // keeps the image alive while a recording lives
+        std::shared_ptr<const efmi::assets::BufferUpload> buffer; // Published immutable native file buffer.
+        std::shared_ptr<const void> publication;
+        VkSemaphore semaphore=VK_NULL_HANDLE;
+        uint64_t serial=0;
         bool failed = false;
         std::string reason;
     };
@@ -83,6 +87,7 @@ private:
         uint32_t declared = 0;    // declarations of the generations that have not forgotten it
         uint64_t file_bytes = 0;
         uint64_t charged = 0;     // bytes counted while resident: the file's, a quarter per level left out
+        VkBufferUsageFlags buffer_usage = 0; // Buffers share publication/budgets but cannot drop mip levels.
         uint64_t last_bound = 0;  // frame of the last bind
         bool resident = false;    // demanded and not released: loading or Ready
         bool reduce_next = false; // the next load leaves the top level out (demoted under pressure)
@@ -123,6 +128,7 @@ private:
     // Publication: the timeline semaphore every upload signals with its serial; the counter value
     // read at each submission is what is published; per queue the value it waited for.
     VkSemaphore timeline_ = VK_NULL_HANDLE;
+    std::shared_ptr<const void> timeline_owner_; // Recorded native consumers can outlive this backend.
     PFN_vkDestroySemaphore DestroySemaphore_ = nullptr;
     PFN_vkGetSemaphoreCounterValue GetSemaphoreCounterValue_ = nullptr;
     std::atomic<uint64_t> signalled_{0}; // the serial the last upload took (the loaders take the next, D-103)

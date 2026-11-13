@@ -8,6 +8,10 @@
 namespace efvk {
 namespace assets = efmi::assets;
 namespace {
+struct PublishedTimeline {
+    Device* device=nullptr;VkSemaphore semaphore=VK_NULL_HANDLE;PFN_vkDestroySemaphore destroy=nullptr;
+    ~PublishedTimeline(){if(semaphore)retire_semaphore(device,semaphore,destroy);}
+};
 constexpr uint32_t kBudgetSampleFrames = 30; // the device's free memory is read about twice a second
 constexpr uint64_t kIdleFrames = 600;        // an image not bound for this long goes first when the set is over the target
 constexpr uint64_t kProtectedFrames = 8;     // an image bound this recently is never evicted
@@ -58,7 +62,9 @@ TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryP
     type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE; type.initialValue = 0;
     VkSemaphoreCreateInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     info.pNext = &type;
-    if (CreateSemaphore(device->handle, &info, nullptr, &timeline_) != VK_SUCCESS) { reason_ = "cannot create the texture timeline semaphore"; return; }
+    auto publication=std::make_shared<PublishedTimeline>();publication->device=device;publication->destroy=DestroySemaphore_;
+    if (CreateSemaphore(device->handle, &info, nullptr, &publication->semaphore) != VK_SUCCESS) { reason_ = "cannot create the texture timeline semaphore"; return; }
+    timeline_=publication->semaphore;timeline_owner_=std::move(publication);
     try {
         // The ledger never refuses on its own: the target below keeps the residency within the budget.
         assets::ResourceBudgets budgets;
@@ -91,11 +97,11 @@ void TextureResidency::stop()
     if (cache) cache->stop();
     cache.reset();
     // A queue may still hold a wait on it (D-098): destroyed on the presenting thread a few presentations later.
-    if (timeline_ && DestroySemaphore_) retire_semaphore(device_, timeline_, DestroySemaphore_);
+    timeline_owner_.reset();
     timeline_ = VK_NULL_HANDLE;
 }
 
-TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags)
+TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags, VkBufferUsageFlags buffer_usage)
 {
     const auto path = std::filesystem::u8path(utf8_path);
     // The file's identity (BUG-061): what did not change on disk is the image the live generation holds.
@@ -110,7 +116,8 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
     if (!usable_) { reason = reason_; return kNone; }
     assets::ResourceHandle handle;
     for (uint64_t attempt = 0;; ++attempt) {
-        handle = cache_->declare_image(path, reason, tag ^ (attempt * 0x94D049BB133111EBull), loader_flags);
+        const auto revision=tag ^ (attempt * 0x94D049BB133111EBull);
+        handle = buffer_usage ? cache_->declare_buffer(path,buffer_usage,reason,revision) : cache_->declare_image(path, reason, revision, loader_flags);
         if (!handle) return kNone;
         const auto found = by_handle_.find(handle.get());
         if (found == by_handle_.end()) break;
@@ -125,7 +132,7 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
     Image image;
     image.handle = handle; image.tag = tag; image.declared = 1;
     image.path = path.lexically_normal().u8string();
-    image.file_bytes = bytes;
+    image.file_bytes = bytes; image.buffer_usage = buffer_usage;
     const ImageId id = static_cast<ImageId>(images_.size());
     images_.push_back(std::move(image));
     by_handle_.emplace(handle.get(), id);
@@ -135,7 +142,7 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
 bool TextureResidency::large(const Image& image) const
 {
     const uint64_t threshold = g_cfg.m2_texture_reduce_mb << 20;
-    return threshold && image.file_bytes >= threshold;
+    return !image.buffer_usage && threshold && image.file_bytes >= threshold;
 }
 
 void TextureResidency::release(Image& image)
@@ -258,13 +265,15 @@ void TextureResidency::bind(const std::vector<ImageId>& ids, std::vector<Binding
             if (!image.failure_logged) { image.failure_logged = true; logf("texture failed: %s: %s", image.path.c_str(), snapshot.reason.c_str()); }
             out.failed = true; out.reason = snapshot.reason; return true;
         }
-        if (snapshot.state != assets::ResourceState::Ready || !snapshot.serial || !snapshot.image || !snapshot.image->view()) return false;
+        if (snapshot.state != assets::ResourceState::Ready || !snapshot.serial ||
+            !((snapshot.image && snapshot.image->view()) || (snapshot.buffer && snapshot.buffer->buffer()))) return false;
         if (snapshot.serial > published_) {
             uint64_t value = 0;
             if (GetSemaphoreCounterValue_(device_->handle, timeline_, &value) == VK_SUCCESS && value > published_) published_ = value;
         }
         if (snapshot.serial > published_) return false;
-        out.view = snapshot.image->view(); out.owner = snapshot.image; return true;
+        out.view = snapshot.image ? snapshot.image->view() : VK_NULL_HANDLE; out.owner = snapshot.image; out.buffer = snapshot.buffer;
+        out.publication=timeline_owner_;out.semaphore=timeline_;out.serial=snapshot.serial;return true;
     };
     // Queue the whole selected transaction before waiting: all existing loaders can work at once.
     // demand() still enforces the same residency, staging and source budgets. No unused variant loads.
@@ -292,7 +301,7 @@ void TextureResidency::bind(const std::vector<ImageId>& ids, std::vector<Binding
         bool unpublished = false;
         for (const auto& request : waiting) {
             auto& out = bindings[request.slot];
-            if (out.view || out.failed) continue;
+            if (out.view || out.buffer || out.failed) continue;
             const auto snapshot = request.handle->snapshot();
             if (!accept(request.slot, snapshot) && snapshot.state == assets::ResourceState::Ready) unpublished = true;
         }
@@ -304,7 +313,7 @@ void TextureResidency::bind(const std::vector<ImageId>& ids, std::vector<Binding
     wait_sync_max_us_ = std::max(wait_sync_max_us_, waited);
     bool timed_out = false;
     for (const auto& request : waiting)
-        if (!bindings[request.slot].view && !bindings[request.slot].failed) { ++pending_; timed_out = true; }
+        if (!bindings[request.slot].view && !bindings[request.slot].buffer && !bindings[request.slot].failed) { ++pending_; timed_out = true; }
     if (timed_out) ++waits_timed_out_;
 }
 

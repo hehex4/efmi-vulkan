@@ -15,8 +15,8 @@ public:
     std::shared_ptr<const assets::FileResource> binding(const CustomResource*,PlanOperation) const;
 private:
     struct Declaration {
-        std::array<std::shared_ptr<const assets::FileResource>,3> bindings;
-        std::array<std::wstring,3> reasons;
+        std::array<std::shared_ptr<const assets::FileResource>,4> bindings;
+        std::array<std::wstring,4> reasons;
     };
     std::unordered_map<const CustomResource*,Declaration> declarations_;
     mutable assets::FilePlan next_; // kept for its capacity (D-108)

@@ -37,6 +37,17 @@ std::shared_ptr<const assets::FileResource> describe(const CustomResource& r,uns
         return refuse(L"Resource transformation is not supported by immutable file upload");
     if(r.override_type!=CustomResourceType::BUFFER)return refuse(L"Mesh file binding requires a plain Buffer declaration");
     const auto flags=static_cast<unsigned>(r.override_bind_flags);
+    if(role==3){
+        if(flags && (flags&~(D3D11_BIND_CONSTANT_BUFFER|D3D11_BIND_SHADER_RESOURCE)))
+            return refuse(L"Native file buffer supports read-only shader and constant bindings");
+        int stride=r.override_stride;
+        if(stride==-1)stride=r.override_format==DXGI_FORMAT(-1)?16:int(dxgi_format_size(r.override_format));
+        if(stride<=0 || stride>2048)return refuse(L"Native file buffer has an unsupported stride");
+        file->stride=uint32_t(stride);
+        file->usage=(!flags || (flags&D3D11_BIND_CONSTANT_BUFFER)?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:0)|
+                    (!flags || (flags&D3D11_BIND_SHADER_RESOURCE)?VK_BUFFER_USAGE_STORAGE_BUFFER_BIT:0);
+        return file;
+    }
     const auto required=role==0?D3D11_BIND_VERTEX_BUFFER:D3D11_BIND_INDEX_BUFFER;
     if(flags && ((flags&~(D3D11_BIND_VERTEX_BUFFER|D3D11_BIND_INDEX_BUFFER)) || !(flags&required)))
         return refuse(L"Explicit buffer bind flags do not support this binding");
@@ -71,7 +82,7 @@ FilePlanCompiler::FilePlanCompiler(const CustomResources& resources)
     if(resources.size()>4096)throw std::invalid_argument("Frontend resource declaration budget exceeded");
     for(const auto& pair:resources){
         Declaration d;
-        for(unsigned role=0;role<3;++role)d.bindings[role]=describe(pair.second,role,d.reasons[role]);
+        for(unsigned role=0;role<4;++role)d.bindings[role]=describe(pair.second,role,d.reasons[role]);
         declarations_.emplace(&pair.second,std::move(d));
     }
 }
@@ -98,7 +109,13 @@ bool FilePlanCompiler::compile(const DrawPlan& source,assets::FilePlan& output,s
         case PlanOperation::NativeBind:
             own.operation=assets::FileOperation::NativeBind;own.native_target=item.native_target;
             own.native_resource=item.native_resource;
-            if(item.resource || item.owned)return refuse(L"Native file binding requires its upload adapter");
+            if(item.owned)return refuse(L"Native owned-work binding requires its upload adapter");
+            if(item.resource){
+                const auto found=declarations_.find(item.resource);
+                if(found==declarations_.end())return refuse(L"Native resource belongs to another frontend generation");
+                own.resource=found->second.bindings[3];
+                if(!own.resource){reason=found->second.reasons[3];return false;}
+            }
             next.items.push_back(std::move(own));continue;
         case PlanOperation::Caller:case PlanOperation::Dispatch:
             if(++draws>256 || !item.layout.empty())return refuse(L"Invalid native call plan");

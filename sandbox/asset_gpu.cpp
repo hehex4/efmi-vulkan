@@ -21,7 +21,7 @@ static void require(VkResult r,const char* where){if(r!=VK_SUCCESS)throw std::ru
 #define DEVICE_CALLS(X) EFMI_IMAGE_UPLOAD_FUNCS(X) X(DestroyDevice) X(GetDeviceQueue) X(QueueWaitIdle) \
     X(DeviceWaitIdle) X(CmdCopyImageToBuffer) X(CmdBlitImage) \
     X(CreateShaderModule) X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) \
-    X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateGraphicsPipelines) X(DestroyPipeline) \
+    X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateGraphicsPipelines) X(CreateComputePipelines) X(DestroyPipeline) \
     X(CreateRenderPass) X(CreateRenderPass2) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) \
     X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) \
     X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdBindVertexBuffers) \

@@ -517,6 +517,7 @@ void draw_facts(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, bool buffers,
 // (a new one after an F10 exchange), its hunting settings, and the hunting keys its input dispatcher met.
 void shader_hooks_frame(CharacterBackend& b)
 {
+    native_file_frame(b.native_calls,b.textures.get());
     CharacterProgram* program = b.folder ? b.folder->program : nullptr;
     std::shared_ptr<const CharacterBackend::ShaderHooks> current;
     { std::shared_lock<std::shared_mutex> lock(b.index_mx); current = b.shader_hooks; }
@@ -615,7 +616,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
             std::lock_guard<std::mutex> lock(b.shader_note_mx);
             if (b.shader_note.empty()) { b.shader_note = reason; logf("ShaderOverride at a draw no Mod section matched: %s; the game's draw stays", reason.c_str()); }
         } else if (!plan.items.empty()) {
-            if (native_calls(b.native_calls,b.device,cb,r,plan,marked,reason)) {
+            if (native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason)) {
                 ++b.shader_draws_executed; return true;
             }
             b.shader_draws_kept.fetch_add(1, std::memory_order_relaxed);

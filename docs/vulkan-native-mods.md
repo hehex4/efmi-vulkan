@@ -496,3 +496,21 @@ pre-pass dependency. Multiple application queues require cross-queue hazard trac
 refused explicitly. Application images need subresource layout tracking; file uploads and null
 bindings follow separately. The native-bindings group covers GPU destinations, retained refs,
 post persistence, caller replay, indirect calls, late data and descriptor variants.
+
+## Native file buffers and null bindings (D-200)
+
+Plain file-backed Buffer declarations can bind to native uniform and read-only storage descriptors.
+The declaration's stride must fit the byte count and the shader's structured-buffer contract.
+These resources share the existing device cache, budget, upload queue and completed timeline
+publication. Changed files get a new revision on F10. Writable views, transformed or mutable
+resources and typed texel-buffer views need their respective adapters; they are refused explicitly.
+Null bindings use the device's enabled nullDescriptor feature and preserve sampler ownership.
+
+A recording retains its uploaded allocation and completed publication signal, including through
+secondary execution and module exchange. Its host submission issues a satisfied timeline wait on
+each consuming queue. Read-only uploads may use the tracked graphics family's queues; application
+references still need a single application queue until cross-queue hazards are represented.
+A primary's reset releases secondary dependencies without resetting the secondary's own resources.
+The alternating-queue fixture drains each presentation before changing queues; it does not claim
+concurrent presentation coverage. Native-only and empty folder generations can exchange modules
+without adding a placeholder character Mod.

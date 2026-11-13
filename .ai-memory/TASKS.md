@@ -1,12 +1,11 @@
 # EFMI Vulkan - Tasks
 
-## Active continuation after D-199 (2026-11-13)
+## Active continuation after D-200 (2026-11-13)
 
 - The user corrected the early stop: complete feasible offline native work. Intermediate commits do not end this continuation.
-- D-198 178aada is merged. D-199 2.2.9 implements retained refs and persistent ordinary/template/pushed native buffer bindings, pre/post execution and original custom stride queries. Main targeted regression and character checks pass; final single-application-queue refusal and all native binding cases pass 48/48, tracker 202 and text pass (CURRENT_STATE). Unsupported multi-queue and application image hazards remain explicit.
-- D-200 next: native file buffers/textures through the shared residency/cache/upload publication path, null unbinding using the already enabled nullDescriptor feature. Buffer baseline 2/4 in d200-file-before.out. Then host-owned staged GPU frame-analysis exports after completion, with correct pass/barrier placement and module exchange lifetimes. Never report a CPU shadow as post-draw GPU output.
-- Original SetResource/LoadFromFile/FrameAnalysis supply semantics. DX11 contributes deferred reference-counted destruction, hazard tracking and one-context order; Vulkan implements them explicitly. Ordinary descriptor updates after recording invalidate the command buffer, so submission-time snapshot refresh is not a task; that invalid fixture was removed.
-- Root dist stays 2.1.8, last game evidence 2.1.7; no new game load/deployment/session/swap/launcher edit is authorized. No remote is configured. Freeze sources during each build, verify only affected areas, commit and fast-forward main after verification.
+- D-199 is merged as 22cb2fd. D-200 2.3.0 adds native file buffers, null unbinding, retained upload publication across module exchange and secondary commands, plus native-only/empty configuration exchange. Final file cases 42/42, character 115/377, tracker 206, resources 89, validation 76, asset uploads 310 and text 557 pass; exact scopes and the two-queue VVL fixture correction are in CURRENT_STATE.
+- Active next D-201: native sampled file textures through shared residency, with owned views and explicit format/shape checks. Rendered-pixel baseline 2/4 in d201-image-before.out. Then host-owned staged GPU frame-analysis exports after completion, correct pass/barrier placement and exchange lifetimes. Never report a CPU shadow as post-draw GPU output.
+- Application image layouts, mutable file resources and cross-queue application hazards remain explicit boundaries. Root dist stays 2.1.8, historical game evidence 2.1.7; no current deployment or game action authorized.
 
 ## Current priorities after D-195 (2026-11-13)
 

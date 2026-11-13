@@ -1,4 +1,5 @@
 #include "native_descriptors.h"
+#include "../../frontend/gpu/source_registers.h"
 
 namespace efvk {
 namespace {
@@ -28,7 +29,8 @@ bool hold_locked(Device* d,const DescriptorSetInfo& contents,std::vector<std::sh
 {
     for(const auto& pair:contents.values){
         const auto& v=pair.second;if(!v.known)continue;
-        if(v.native){owners.push_back(v.native);continue;}
+        if(v.native)owners.push_back(v.native);
+        else {
         if(v.buffer){
             const auto b=d->bufs.find(v.buffer);
             if(b==d->bufs.end() || b->second.id!=v.buffer_id || !b->second.lifetime || b->second.lifetime->dependencies.empty())return false;
@@ -47,6 +49,7 @@ bool hold_locked(Device* d,const DescriptorSetInfo& contents,std::vector<std::sh
             const auto buffer=d->bufs.find(view->second.buffer);
             if(buffer==d->bufs.end() || !buffer->second.lifetime || buffer->second.lifetime->dependencies.empty())return false;
             owners.push_back(view->second.lifetime);
+        }
         }
         if(v.sampler){
             const auto binding=contents.layout->bindings.find(pair.first.first);
@@ -81,9 +84,27 @@ struct NativeDescriptorSet {
 namespace {
 struct NativeDescriptorOwner:CommandOwner {
     std::vector<std::shared_ptr<NativeDescriptorSet>> sets;
+    std::mutex submit_mutex;
+    std::map<VkSemaphore,uint64_t> publications;
+    std::map<VkQueue,std::map<VkSemaphore,uint64_t>> waited;
     bool sealed=false;
-    void reset_after_completion()override{sets.clear();used=false;sealed=false;}
+    void reset_after_completion()override{sets.clear();publications.clear();waited.clear();used=false;sealed=false;}
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}
+    VkResult before_submit(VkQueue queue)override{
+        std::lock_guard<std::mutex> lock(submit_mutex);
+        if(sets.empty() || publications.empty())return VK_SUCCESS;
+        auto& prior=waited[queue];std::vector<VkSemaphore> semaphores;std::vector<uint64_t> values;
+        for(const auto& p:publications)if(prior[p.first]<p.second){semaphores.push_back(p.first);values.push_back(p.second);}
+        if(semaphores.empty())return VK_SUCCESS;
+        std::vector<VkPipelineStageFlags> stages(values.size(),VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+        VkTimelineSemaphoreSubmitInfo timeline{VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+        timeline.waitSemaphoreValueCount=uint32_t(values.size());timeline.pWaitSemaphoreValues=values.data();
+        VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.pNext=&timeline;
+        submit.waitSemaphoreCount=uint32_t(values.size());submit.pWaitSemaphores=semaphores.data();submit.pWaitDstStageMask=stages.data();
+        const auto result=sets.front()->device->d.QueueSubmit(queue,1,&submit,VK_NULL_HANDLE);
+        if(result==VK_SUCCESS)for(size_t i=0;i<values.size();++i)prior[semaphores[i]]=values[i];
+        return result;
+    }
 };
 const char native_descriptor_owner=0;
 }
@@ -96,7 +117,14 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
     if(!needed){output=std::move(next);return true;}
     // DX11's single context orders references implicitly. Queue-local barriers cannot extend
     // the application's semaphore graph to accesses introduced on another application queue.
-    if(device->application_queue_count!=1)return refuse("Native resource bindings require one application queue until cross-queue hazards are tracked");
+    if(device->application_queue_count!=1){
+        for(const auto& item:plan.items)if(item.operation==efmi::assets::FileOperation::NativeBind &&
+            item.native_resource && item.native_resource->bound){
+            const bool published=item.native_resource->uploaded_readonly && device->application_queue_count &&
+                                 device->material_queues.size()==device->application_queue_count;
+            if(!published)return refuse("Native application references require one application queue until cross-queue hazards are tracked");
+        }
+    }
     auto owner=std::static_pointer_cast<NativeDescriptorOwner>(owner_for(cb->owners,&native_descriptor_owner,[]{
         auto result=std::make_shared<NativeDescriptorOwner>();result->backend=&native_descriptor_owner;return result;
     }));
@@ -156,12 +184,36 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             if((target.kind==Kind::Constant && !constant) || (target.kind==Kind::Resource && !(storage || sampled || type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER)) ||
                (target.kind==Kind::Access && !(storage || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)))
                 return refuse("Native descriptor alias kind differs from its layout type");
-            if(!item.native_resource || !item.native_resource->bound || !item.native_resource->keep)return refuse("Native null descriptors require an enabled null-descriptor contract");
-            const auto& resource=*item.native_resource;
-            if(draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
+            auto replacement=item.native_resource;
+            if(!replacement)replacement=std::make_shared<const Resource>();
+            const auto& resource=*replacement;
+            auto value=set->contents.values[{target.binding,target.element}];value.type=type;value.known=true;value.native=replacement;
+            if(!resource.bound){
+                if(!device->null_descriptors)return refuse("Native null descriptors require the enabled nullDescriptor feature");
+                value.buffer=VK_NULL_HANDLE;value.buffer_view=VK_NULL_HANDLE;value.image_view=VK_NULL_HANDLE;
+                value.buffer_id=value.buffer_view_id=value.image_view_id=0;value.offset=0;value.range=VK_WHOLE_SIZE;
+                value.image_layout=VK_IMAGE_LAYOUT_GENERAL;
+            }else{
+            if(!resource.keep)return refuse("Native resource has no complete retained ownership");
+            if(resource.uploaded_readonly){
+                const auto pipeline=device->pipes.find(draw.pipeline);
+                if(pipeline==device->pipes.end())return refuse("Native file consumer pipeline is unavailable");
+                for(const auto& stage:pipeline->second.shaders){
+                    std::vector<efmi::gpu::SourceRegister> registers;std::string reason;
+                    if(!stage.shader || !efmi::gpu::source_registers(stage.shader->code,registers,reason))
+                        return refuse("Native file consumer resource access is unknown");
+                    for(const auto& r:registers)if(r.set==target.set && r.binding==target.binding){
+                        using R=efmi::gpu::SourceRegister;
+                        if(r.kind==R::BufferUav || r.kind==R::ImageUav || r.kind==R::TexelUav)
+                            return refuse("Native file uploads are read-only; writable views need a mutable resource adapter");
+                        if(storage && r.stride && resource.buffer_stride!=r.stride)
+                            return refuse("Native file stride differs from the shader's structured-buffer stride");
+                    }
+                }
+            }
+            if(!resource.uploaded_readonly && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
                (resource.usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)))
                 return refuse("Native graphics references to writable buffers need in-pass hazard tracking");
-            auto value=set->contents.values[{target.binding,target.element}];value.type=type;value.known=true;value.native=item.native_resource;
             if(constant || storage){
                 const auto usage=constant?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 const auto& limits=device->physical_properties.limits;
@@ -178,6 +230,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                 const auto usage=type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER?VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
                 if(!resource.buffer_view || !(resource.usage&usage))return refuse("Native texel reference has incompatible view usage");
                 value.buffer_view=VkBufferView(resource.buffer_view);
+            }
             }
             set->contents.values[{target.binding,target.element}]=value;
             if(!hold_locked(device,set->contents,set->owners))return refuse("Native descriptor set contains an unretainable application resource");
@@ -224,6 +277,12 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
     const auto& set=plan.items[i];if(!set)return;
     auto owner=std::static_pointer_cast<NativeDescriptorOwner>(plan.owner);
     owner->used=true;owner->sets.push_back(set);
+    for(const auto& value:set->contents.values)if(value.second.native){
+        const auto& resource=*std::static_pointer_cast<const Resource>(value.second.native);
+        if(resource.publication_semaphore && resource.publication_value){
+            auto& serial=owner->publications[VkSemaphore(resource.publication_semaphore)];serial=std::max(serial,resource.publication_value);
+        }
+    }
     const bool compute=draw.kind==DK_DISPATCH || draw.kind==DK_DISPATCH_INDIRECT;
     const auto point=compute?VK_PIPELINE_BIND_POINT_COMPUTE:VK_PIPELINE_BIND_POINT_GRAPHICS;
     if(set->bind.pushed){

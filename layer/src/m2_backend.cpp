@@ -397,6 +397,10 @@ void m2_seal(Device* device,uint32_t count,const VkCommandBuffer* buffers){
         for(auto& owner:cb->owners)if(owner && owner->seal() && device->m2)++device->m2->batches;
 }
 VkResult m2_submit(Device* device,VkQueue queue,SubmitWork& work){
+    for(const auto& batch:work.batches)for(auto* cb:batch.cbs)if(cb)
+        for(const auto* owners:{&cb->owners,&cb->executed_owners})for(const auto& owner:*owners)if(owner && owner->used){
+            const auto result=owner->before_submit(queue);if(result!=VK_SUCCESS)return result;
+        }
     if(!device->character_mode)return VK_SUCCESS;
     std::shared_lock<std::shared_mutex> lock(device->character_mx);
     auto put=[&](const std::shared_ptr<CharacterBackend>& backend,const CharacterModule* module){

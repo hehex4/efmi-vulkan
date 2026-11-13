@@ -1,6 +1,27 @@
 // Native resource-reference ownership checks, included by tracker_test.
 #include "../layer/src/native_resources.h"
+#include "../layer/src/character_module.h"
+#include "../layer/src/m2_backend.h"
 namespace {
+void secondary_publication_dependencies()
+{
+    struct Owner:CommandOwner {
+        unsigned resets=0,submits=0;
+        void reset_after_completion()override{++resets;used=false;}
+        bool seal()override{return used;}
+        VkResult before_submit(VkQueue)override{++submits;return VK_SUCCESS;}
+    };
+    Device device;auto owner=std::make_shared<Owner>();owner->used=true;
+    const auto handle=h<VkCommandBuffer>(0x9400);
+    device.cbs[handle]=std::make_unique<CmdBuf>();auto* child=device.cbs[handle].get();child->owners.push_back(owner);
+    CmdBuf parent;on_execute_commands(&device,&parent,1,&handle);on_execute_commands(&device,&parent,1,&handle);
+    check(parent.executed_owners.size()==1,"secondary publication dependencies are retained once per owner");
+    SubmitWork work;work.batches.resize(1);work.batches[0].cbs.push_back(&parent);
+    check(m2_submit(&device,h<VkQueue>(0x9500),work)==VK_SUCCESS && owner->submits==1,
+          "host submits retained secondary publication even without a live backend");
+    parent.reset_recording();check(!owner->resets && owner->used,"resetting a primary does not reset a reusable secondary's owner");
+    child->reset_recording();check(owner->resets==1 && !owner->used,"only the secondary recording resets its publication owner");
+}
 std::vector<int> resource_destroy_order;
 VKAPI_ATTR void VKAPI_CALL retained_memory_free(VkDevice,VkDeviceMemory,const VkAllocationCallbacks*) { resource_destroy_order.push_back(3); }
 VKAPI_ATTR void VKAPI_CALL retained_buffer_destroy(VkDevice,VkBuffer,const VkAllocationCallbacks*) { resource_destroy_order.push_back(2); }

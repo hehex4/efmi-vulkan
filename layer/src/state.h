@@ -433,6 +433,7 @@ struct CmdBuf {
     // The work of each replacement backend recorded into this command buffer (several character
     // packages share one recording), kept until a legal recording reset/free after GPU completion.
     std::vector<std::shared_ptr<CommandOwner>> owners;
+    std::vector<std::shared_ptr<CommandOwner>> executed_owners; // Secondary dependencies, never reset by this primary.
     uint64_t character_frame = 0;  // the character backend's number for this recording; 0: none yet
 
     // Current bindings while recording. `gfx_bound` is what the driver has (DrawRec::bound).

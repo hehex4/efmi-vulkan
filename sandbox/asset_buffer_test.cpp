@@ -7,12 +7,12 @@ static BufferUploadDispatch buffer_dispatch()
 #undef X
     return d;
 }
-static void buffer_roundtrip(Gpu& g,std::vector<uint8_t> bytes)
+static void buffer_roundtrip(Gpu& g,std::vector<uint8_t> bytes,VkBufferUsageFlags extra_usage=0)
 {
     const auto expected=bytes;auto resident=std::make_shared<AllocationBudget>(160ull<<20),staging=std::make_shared<AllocationBudget>(160ull<<20);
     {
         BufferUpload upload(g.device,buffer_dispatch(),resident,staging);
-        const VkBufferUsageFlags usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+        const VkBufferUsageFlags usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|extra_usage;
         check(upload.prepare(bytes.data(),bytes.size(),usage,g.memory,true) && !upload.buffer() && resident->used() && staging->used(),
               "mesh preparation owns exact source bytes but exposes no buffer");
         if(upload.state()!=UploadState::Prepared)throw std::runtime_error(upload.reason());
@@ -60,7 +60,8 @@ static void buffer_tests(Gpu& g)
         buffer_roundtrip(g,std::move(data));
     }
     auto d=buffer_dispatch();uint8_t data[8]={};
-    for(auto usage:{0u,uint32_t(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),uint32_t(VK_BUFFER_USAGE_TRANSFER_DST_BIT)}){
+    buffer_roundtrip(g,std::vector<uint8_t>(16,0x35),VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    for(auto usage:{0u,uint32_t(VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT),uint32_t(VK_BUFFER_USAGE_TRANSFER_DST_BIT)}){
         BufferUpload invalid(g.device,d);check(!invalid.prepare(data,sizeof(data),usage,g.memory) && !invalid.buffer(),"unsupported mesh usages refuse before allocation");
     }
     for(unsigned invalid: {0u,1u,2u}){
@@ -105,8 +106,11 @@ static void resource_cache_tests(Gpu& g)
           "resource cache keys include normalized path and buffer usage or image kind");
     check(dormant && dormant->snapshot().state==ResourceState::Dormant && !cache.stats().file_reads,
           "unused missing mesh declarations remain dormant");
-    check(!cache.declare_buffer(path,0,reason) && !cache.declare_buffer(path,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,reason),
+    check(!cache.declare_buffer(path,0,reason) && !cache.declare_buffer(path,VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,reason),
           "unsupported buffer usage cannot alias image or another buffer request");
+    auto revision=cache.declare_buffer(path,VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,reason,7);
+    check(revision && revision!=a && cache.declare_buffer(path,VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,reason,7)==revision,
+          "buffer file revisions separate changed bytes and deduplicate the same publication key");
     std::vector<std::thread> callers;std::atomic<unsigned> accepted{0};
     for(unsigned i=0;i<4;++i)callers.emplace_back([&]{for(unsigned j=0;j<32;++j)if(cache.demand(a))++accepted;});
     for(auto& t:callers)t.join();

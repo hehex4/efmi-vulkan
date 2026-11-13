@@ -1133,6 +1133,8 @@ struct DrawPlanAdapter::Runtime {
                 refuse_draw(why.empty()?L"Native resource assignment has no descriptor address":why);
             else if(value.kind==SlotValue::Kind::Native || value.null()){
                 item.native_resource=value.native;append(std::move(item));
+            }else if(value.kind==SlotValue::Kind::Resource && value.resource){
+                item.resource=value.resource;append(std::move(item));
             }else refuse_draw(L"Native resource assignment needs a retained application reference or file upload");
         }
         context.set(id,std::move(value));

@@ -2,6 +2,7 @@
 #pragma once
 #include <memory>
 #include <vector>
+#include <vulkan/vulkan.h>
 
 namespace efvk {
 
@@ -15,6 +16,9 @@ struct CommandOwner {
     virtual ~CommandOwner() = default;
     virtual void reset_after_completion() = 0;
     virtual bool seal() = 0; // true when this call sealed it
+    // Called under the application's queue synchronization before its submitted recordings.
+    // Only completed upload publication may be waited here; no host wait or pending producer.
+    virtual VkResult before_submit(VkQueue) { return VK_SUCCESS; }
 };
 
 // This backend's owner in a command buffer's owners, made with `make` when the recording has none

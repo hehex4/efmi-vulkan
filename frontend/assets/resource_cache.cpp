@@ -128,11 +128,12 @@ ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,st
 {
     return declare(path,0,reason,tag,loader_flags);
 }
-ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason)
+ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag)
 {
-    const VkBufferUsageFlags allowed=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    const VkBufferUsageFlags allowed=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     if(!usage || (usage&~allowed)){reason="Unsupported buffer declaration usage";return {};}
-    return declare(path,usage,reason);
+    return declare(path,usage,reason,tag);
 }
 ResourceHandle ResourceCache::declare(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag,
                                       uint32_t loader_flags)

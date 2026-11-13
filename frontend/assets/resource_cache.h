@@ -96,7 +96,7 @@ public:
     ResourceHandle declare_image(const std::filesystem::path&,std::string& reason,uint64_t tag=0,uint32_t loader_flags=0);
     // Equal path + usage share one immutable buffer. A different usage or an
     // image declaration is a distinct request, never an unsafe type alias.
-    ResourceHandle declare_buffer(const std::filesystem::path&,VkBufferUsageFlags,std::string& reason);
+    ResourceHandle declare_buffer(const std::filesystem::path&,VkBufferUsageFlags,std::string& reason,uint64_t tag=0);
     // Safe for an already resolved draw binding: enqueue once, never wait for
     // file IO/driver/fence. Failure is sticky until a new generation is made.
     bool demand(const ResourceHandle&,uint32_t skip_levels=0);

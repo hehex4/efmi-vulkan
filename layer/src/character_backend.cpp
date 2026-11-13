@@ -300,7 +300,8 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
             controller->active = package;
             backend->controllers.push_back(std::move(controller));
         }
-        if (backend->controllers.empty()) backend->reason = backend->folder->reason.empty() ? "no character Mod in the folder generation" : backend->folder->reason;
+        if (backend->controllers.empty() && !backend->folder->program && !backend->folder->empty)
+            backend->reason = backend->folder->reason.empty() ? "no usable folder generation" : backend->folder->reason;
         backend->folder->announce();
         logf("character packages: %zu from the folder generation of %s", backend->controllers.size(), mods_folder().u8string().c_str());
         backend->rebuild_index();
@@ -505,7 +506,9 @@ void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
 bool character_usable(CharacterBackend& b, std::string& reason)
 {
     reason = b.reason;
-    bool any = false;
+    // LoadConfigFile/ReloadConfig does not require a character package. A native-only or empty
+    // installation generation still owns its ShaderOverride, hunting and ShaderFixes state.
+    bool any = b.controllers.empty() && b.folder && (b.folder->program || b.folder->empty);
     for (auto& c : b.controllers) {
         std::shared_lock<std::shared_mutex> lock(c->mutex);
         std::string why;
@@ -518,7 +521,7 @@ bool character_usable(CharacterBackend& b, std::string& reason)
 // Every usable package is ready; a lazy one counts as ready, it prepares on its first match.
 bool character_ready(CharacterBackend& b)
 {
-    bool any = false;
+    bool any = b.controllers.empty() && b.folder && (b.folder->program || b.folder->empty);
     for (auto& c : b.controllers) {
         std::shared_lock<std::shared_mutex> lock(c->mutex);
         std::string why;

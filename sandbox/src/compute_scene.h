@@ -4,6 +4,8 @@ struct ComputeScene {
     std::wstring shader_path, output_path;
     bool indirect = false;
     bool binding_scene = false, late_update = false;
+    bool secondary = false;
+    VkCommandBuffer command = VK_NULL_HANDLE;
     unsigned repeat = 1;
     Buffer data, arguments;
     Buffer alternate, input;

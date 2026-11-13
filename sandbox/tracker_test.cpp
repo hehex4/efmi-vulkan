@@ -942,6 +942,7 @@ int main()
     immutable_sampler_lifetime();
     native_resource_lifetimes();
     native_descriptor_references();
+    secondary_publication_dependencies();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

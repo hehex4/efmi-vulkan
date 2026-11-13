@@ -1,5 +1,6 @@
 #include "native_execution.h"
 #include "native_descriptors.h"
+#include "texture_residency.h"
 #include "../../frontend/gpu/source_registers.h"
 
 namespace efvk {
@@ -41,7 +42,62 @@ void compute_order(PFN_vkCmdPipelineBarrier command, CmdBuf* cb)
 }
 }
 
-bool native_calls(NativeCallCache& cache, Device* device, CmdBuf* cb, const DrawRec& r, const efmi::assets::FilePlan& plan,
+void native_file_frame(NativeCallCache& cache,TextureResidency* residency)
+{
+    if(!residency)return;
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    for(auto it=cache.files.begin();it!=cache.files.end();){
+        if(!it->second.declaration.expired()){++it;continue;}
+        residency->forget({it->second.id});it=cache.files.erase(it);
+    }
+}
+namespace {
+bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi::assets::FilePlan& input,
+                  efmi::assets::FilePlan& output,std::string& why)
+{
+    output=input;
+    std::vector<uint32_t> ids;std::vector<size_t> indices;
+    {
+        std::lock_guard<std::mutex> lock(cache.mutex);
+        for(size_t i=0;i<input.items.size();++i){
+            const auto& file=input.items[i].resource;if(!file)continue;
+            if(!residency){why="Native file residency is unavailable";return false;}
+            auto found=cache.files.find(file.get());
+            if(found!=cache.files.end() && found->second.declaration.expired()){
+                residency->forget({found->second.id});cache.files.erase(found);found=cache.files.end();
+            }
+            if(found==cache.files.end()){
+                if(cache.files.size()>=4096){why="Native file declaration budget exceeded";return false;}
+                const auto id=residency->declare(file->path.u8string(),why,file->loader_flags,file->usage);
+                if(id==TextureResidency::kNone)return false;
+                found=cache.files.emplace(file.get(),NativeCallCache::File{file,id}).first;
+            }
+            ids.push_back(found->second.id);indices.push_back(i);
+        }
+    }
+    if(ids.empty())return true;
+    std::vector<TextureResidency::Binding> bindings;residency->bind(ids,bindings);
+    for(size_t i=0;i<indices.size();++i){
+        auto& item=output.items[indices[i]];const auto& file=*item.resource;const auto& binding=bindings[i];
+        if(binding.failed){why="Native file upload failed: "+binding.reason;return false;}
+        if(!binding.buffer){why="Native file upload is pending publication";return false;}
+        const auto& buffer=binding.buffer;
+        if(!file.stride || buffer->size()%file.stride){why="Native file byte count is not a multiple of its stride";return false;}
+        auto resource=std::make_shared<efmi::frontend::NativeResource>();
+        resource->bound=true;resource->format_known=true;resource->dimension=1;
+        resource->identity=reinterpret_cast<uint64_t>(buffer.get())|3;
+        resource->buffer=uint64_t(buffer->buffer());resource->size=resource->range=buffer->size();
+        resource->usage=buffer->usage();resource->buffer_stride=resource->stride=file.stride;
+        resource->bind_flags=((file.usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)?4u:0u)|((file.usage&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)?8u:0u);
+        struct Owners {std::shared_ptr<const efmi::assets::BufferUpload> buffer;std::shared_ptr<const void> publication;};
+        resource->uploaded_readonly=true;resource->keep=std::make_shared<const Owners>(Owners{buffer,binding.publication});
+        resource->publication_semaphore=uint64_t(binding.semaphore);resource->publication_value=binding.serial;
+        item.native_resource=std::move(resource);item.resource.reset();
+    }
+    return true;
+}
+}
+bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* device, CmdBuf* cb, const DrawRec& r, const efmi::assets::FilePlan& plan,
                   bool hunting_skip, std::string& why)
 {
     using O = efmi::assets::FileOperation;
@@ -97,7 +153,7 @@ bool native_calls(NativeCallCache& cache, Device* device, CmdBuf* cb, const Draw
         if(!known->second.empty()){why=known->second;return false;}
     }
     for (const auto& item : plan.items) {
-        if (!item.layout.empty() || item.automatic || item.resource || item.owned)
+        if (!item.layout.empty() || item.automatic || (item.resource && item.operation!=O::NativeBind) || item.owned)
             return refuse("Native call plan contains an unsupported layout or resource operation");
         if (item.operation == O::Caller || item.operation == O::NativeBind) continue;
         if (item.operation == O::Dispatch) {
@@ -117,7 +173,10 @@ bool native_calls(NativeCallCache& cache, Device* device, CmdBuf* cb, const Draw
     }
     lock.unlock();
     NativeDescriptorPlan descriptors;
-    if(!hunting_skip && !prepare_native_descriptors(device,cb,r,plan,descriptors,why))return false;
+    if(!hunting_skip){
+        efmi::assets::FilePlan resolved;
+        if(!native_files(cache,residency,plan,resolved,why) || !prepare_native_descriptors(device,cb,r,resolved,descriptors,why))return false;
+    }
     const size_t split = std::min(plan.pre_items,plan.items.size());
     auto record = [&](size_t index) {
         if (hunting_skip) return;

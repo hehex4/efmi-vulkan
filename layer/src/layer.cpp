@@ -1347,6 +1347,9 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
         // The application idled the device before destroying it; retired semaphores may still sit in
         // batches of queues it did not idle (a test's second queue), so the device waits once more.
         if (const auto wait_idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(dev->next_gdpa(device, "vkDeviceWaitIdle"))) wait_idle(device);
+        // The application's pools may be implicitly freed by DestroyDevice. Release recorded
+        // publication owners while the device and its semaphore retirement ledger still exist.
+        {std::unique_lock<std::shared_mutex> lock(dev->cb_mx);dev->cbs.clear();}
         destroy_retired(dev, true);
         logf("device destroyed after %llu frames", static_cast<unsigned long long>(dev->frame_no));
         dev_destroy(dev);

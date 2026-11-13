@@ -231,6 +231,7 @@ struct App {
     uint32_t queue_family = 0;
     bool two_queues = false;
     VkQueue queue = VK_NULL_HANDLE;
+    VkQueue other_queue = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties mem_props = {};
 
     VkSurfaceKHR surface = VK_NULL_HANDLE;
@@ -542,6 +543,7 @@ static bool create_device()
     if (g.draw_kind == 3) { X(CmdDrawIndexedIndirectCountKHR) }
 #undef X
     vkGetDeviceQueue(g.device, g.queue_family, 0, &g.queue);
+    if(g.two_queues)vkGetDeviceQueue(g.device,g.queue_family,1,&g.other_queue);
     return true;
 }
 
@@ -1482,6 +1484,7 @@ static bool render_frame()
     // The burst of the frame before has left the queue: its command buffers and semaphores are free.
     if (g.present_burst) CHECK(vkQueueWaitIdle(g.queue));
     CHECK(vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX));
+    if(g.other_queue)std::swap(g.queue,g.other_queue);
     read_compute_scene();
     uint32_t image = 0;
     VkResult acquired = vkAcquireNextImageKHR(g.device, g.swapchain, UINT64_MAX, g.sem_acquire, VK_NULL_HANDLE, &image);
@@ -1528,7 +1531,18 @@ static bool render_frame()
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     CHECK(vkBeginCommandBuffer(g.primary, &begin));
     if (g.present_burst) record_load(g.primary, g.load_blits);
-    record_compute_scene(g.primary);
+    if(compute_scene.secondary){
+        if(!compute_scene.command){
+            VkCommandBufferAllocateInfo allocate{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};allocate.commandPool=g.pool;
+            allocate.level=VK_COMMAND_BUFFER_LEVEL_SECONDARY;allocate.commandBufferCount=1;
+            CHECK(vkAllocateCommandBuffers(g.device,&allocate,&compute_scene.command));
+        }
+        CHECK(vkResetCommandBuffer(compute_scene.command,0));
+        VkCommandBufferInheritanceInfo inheritance{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
+        auto secondary_begin=begin;secondary_begin.pInheritanceInfo=&inheritance;
+        CHECK(vkBeginCommandBuffer(compute_scene.command,&secondary_begin));record_compute_scene(compute_scene.command);
+        CHECK(vkEndCommandBuffer(compute_scene.command));vkCmdExecuteCommands(g.primary,1,&compute_scene.command);
+    }else record_compute_scene(g.primary);
 
     if (rewrite_now) {
         VkBufferCopy region = {0, 3 * sizeof(uint16_t), sizeof(kRewriteA)};
@@ -1609,6 +1623,10 @@ static bool render_frame()
         printf("FAILED: vkQueuePresentKHR = %d\n", static_cast<int>(presented));
         return false;
     }
+    // This fixture tests bindings on two queues, with one completed frame at a time. Also drain
+    // presentation helpers before switching queues: VVL 1.4.321 compares binary semaphore payloads
+    // in its asynchronous timeline-signal validator when retirement races between those queues.
+    if(g.other_queue)CHECK(vkQueueWaitIdle(g.queue));
     // Further images presented while the frame's work is still running on the GPU: each of them is
     // queued behind it, and so is whatever a layer adds to each presentation.
     for (int k = 0; k < g.present_burst && !g.quit; k++) {
@@ -1778,6 +1796,8 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.repeat = std::max(1,std::min(16,_wtoi(argv[++i])));
         else if (a == L"--compute-indirect")
             compute_scene.indirect = true;
+        else if (a == L"--compute-secondary")
+            compute_scene.secondary = true;
         else if (a == L"--geometry-shader" && i + 1 < argc)
             g.geometry_shader = argv[++i];
         else if (a == L"--hull-shader" && i + 1 < argc)

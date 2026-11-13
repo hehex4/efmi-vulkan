@@ -306,6 +306,7 @@ DeviceRef::DeviceRef() : lock(g_dev_mx)
 
 void CmdBuf::reset_recording()
 {
+    executed_owners.clear();
     for (auto& owner : owners) if (owner) owner->reset_after_completion();
     character_frame = 0;
     m2_extended_bind = false;
@@ -957,6 +958,9 @@ void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkComman
         }
         if (!s)
             continue;
+        for(const auto* list:{&s->owners,&s->executed_owners})for(const auto& owner:*list)
+            if(owner && owner->used && std::find(cb->executed_owners.begin(),cb->executed_owners.end(),owner)==cb->executed_owners.end())
+                cb->executed_owners.push_back(owner);
         uint32_t dyn_base = static_cast<uint32_t>(cb->dyn.size());
         uint32_t draw_base = static_cast<uint32_t>(cb->draws.size());
         const uint32_t targets_base = uint32_t(cb->target_contexts.size());

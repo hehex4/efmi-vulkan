@@ -55,7 +55,8 @@ bool BufferUpload::prepare(const uint8_t* data,size_t size,VkBufferUsageFlags us
 #define X(name) if(!d_.name){reason_="Missing buffer upload entry: vk" #name;state_=UploadState::Failed;return false;}
     EFMI_BUFFER_UPLOAD_FUNCS(X)
 #undef X
-    const VkBufferUsageFlags supported=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    const VkBufferUsageFlags supported=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     if(!data || !size || size>(128ull<<20) || !usage || (usage&~supported)){
         reason_="Mesh bytes or usage outside supported limits";state_=UploadState::Failed;return false;
     }
@@ -107,10 +108,13 @@ bool BufferUpload::record(uint32_t family,bool graphics)
     VkBufferCopy copy{0,0,size_};d_.CmdCopyBuffer(command_,stage_,buffer_,1,&copy);
     VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask=((usage_&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)?VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT:0)|
-                          ((usage_&VK_BUFFER_USAGE_INDEX_BUFFER_BIT)?VK_ACCESS_INDEX_READ_BIT:0);
+                          ((usage_&VK_BUFFER_USAGE_INDEX_BUFFER_BIT)?VK_ACCESS_INDEX_READ_BIT:0)|
+                          ((usage_&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)?VK_ACCESS_UNIFORM_READ_BIT:0)|
+                          ((usage_&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)?VK_ACCESS_SHADER_READ_BIT:0);
+    if(!graphics)barrier.dstAccessMask=0; // The publication semaphore supplies the consumer dependency.
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;barrier.buffer=buffer_;barrier.size=size_;
     // A transfer queue knows no vertex input stage; the semaphore orders the consumer's queue (D-103).
-    d_.CmdPipelineBarrier(command_,VK_PIPELINE_STAGE_TRANSFER_BIT,graphics?VK_PIPELINE_STAGE_VERTEX_INPUT_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+    d_.CmdPipelineBarrier(command_,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                           0,0,nullptr,1,&barrier,0,nullptr);
     if(!result(d_.EndCommandBuffer(command_),"end mesh upload"))return false;
     VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};

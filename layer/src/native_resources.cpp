@@ -45,7 +45,7 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
         output=*std::static_pointer_cast<const efmi::frontend::NativeResource>(value.native);
         output.descriptor_type=value.type;
         if(uniform || storage){
-            output.offset=value.offset;output.range=value.range;output.stride=uniform?16u:0u;
+            output.offset=value.offset;output.range=value.range;output.stride=uniform?16u:output.buffer_stride;
             output.format=0;output.format_known=true;output.buffer_view=0;
         }
         return true;
