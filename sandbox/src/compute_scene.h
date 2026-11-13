@@ -4,7 +4,11 @@ struct ComputeScene {
     std::wstring shader_path, output_path;
     bool indirect = false;
     bool binding_scene = false, late_update = false;
-    bool secondary = false, image_input = false;
+    bool secondary = false, image_input = false, capture_usage = false, storage_image = false;
+    bool reusable = false;
+    VkImage writable_image = VK_NULL_HANDLE;
+    VkImageView writable_view = VK_NULL_HANDLE;
+    VkDeviceMemory writable_memory = VK_NULL_HANDLE;
     VkCommandBuffer command = VK_NULL_HANDLE;
     unsigned repeat = 1;
     Buffer data, arguments;
@@ -27,7 +31,7 @@ static bool create_compute_scene()
     if (size < 20 || size > (16 << 20) || size % 4) { fclose(file); return false; }
     std::vector<uint32_t> code(size / 4);
     const bool read = fread(code.data(), 1, size, file) == size; fclose(file);
-    if (!read || !make_buffer(c.data, 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true, true) ||
+    if (!read || !make_buffer(c.data, 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true) ||
         !make_buffer(c.arguments, 12, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, true, true)) return false;
     memset(c.data.map, 0, 16);
     if(c.binding_scene){
@@ -36,11 +40,23 @@ static bool create_compute_scene()
         memset(c.alternate.map,0,16);memset(c.input.map,0,16);
         *static_cast<uint32_t*>(c.input.map)=7;
     }
+    if(c.storage_image){
+        VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};image.imageType=VK_IMAGE_TYPE_2D;image.format=VK_FORMAT_R32_UINT;image.extent={4,4,1};
+        image.mipLevels=image.arrayLayers=1;image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
+        image.usage=VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(c.capture_usage?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
+        CHECK(vkCreateImage(g.device,&image,nullptr,&c.writable_image));
+        VkMemoryRequirements requirements{};vkGetImageMemoryRequirements(g.device,c.writable_image,&requirements);uint32_t index=0;
+        if(!find_memory_type(requirements.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,0,&index))return false;
+        VkMemoryAllocateInfo memory{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};memory.allocationSize=requirements.size;memory.memoryTypeIndex=index;
+        CHECK(vkAllocateMemory(g.device,&memory,nullptr,&c.writable_memory));CHECK(vkBindImageMemory(g.device,c.writable_image,c.writable_memory,0));
+        VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=c.writable_image;view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=VK_FORMAT_R32_UINT;
+        view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};CHECK(vkCreateImageView(g.device,&view,nullptr,&c.writable_view));
+    }
     const uint32_t groups[3] = {1, 1, 1}; memcpy(c.arguments.map, groups, 12);
     VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     VkDescriptorSetLayoutCreateInfo si = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     VkDescriptorSetLayoutBinding bindings[3]={binding,binding,binding};bindings[1].binding=1;bindings[2].binding=2;
-    if(c.image_input)bindings[2].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    if(c.image_input)bindings[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     si.bindingCount = c.binding_scene?3:1; si.pBindings = bindings;
     if(c.binding_scene && g.descriptor_mode>=2)si.flags=VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
     CHECK(vkCreateDescriptorSetLayout(g.device, &si, nullptr, &c.set_layout));
@@ -66,7 +82,7 @@ static bool create_compute_scene()
         CHECK(vkCreateDescriptorUpdateTemplate(g.device,&t,nullptr,&c.update_template));
     }
     if(c.binding_scene && g.descriptor_mode>=2)return true;
-    VkDescriptorPoolSize capacities[2]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, c.binding_scene?3u:1u},{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1}};
+    VkDescriptorPoolSize capacities[2]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, c.binding_scene?3u:1u},{c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1}};
     VkDescriptorPoolCreateInfo pool = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pool.maxSets = 1; pool.poolSizeCount = c.image_input?2:1; pool.pPoolSizes = capacities;
     CHECK(vkCreateDescriptorPool(g.device, &pool, nullptr, &c.pool));
@@ -80,8 +96,8 @@ static bool create_compute_scene()
     if(c.binding_scene){
         buffer.buffer=c.alternate.buf;write.dstBinding=1;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
         buffer.buffer=c.input.buf;write.dstBinding=2;
-        VkDescriptorImageInfo image{VK_NULL_HANDLE,g.texture_view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        if(c.image_input){write.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.pImageInfo=&image;write.pBufferInfo=nullptr;}
+        VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        if(c.image_input){write.descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.pImageInfo=&image;write.pBufferInfo=nullptr;}
         vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
     }
     return true;
@@ -102,6 +118,15 @@ static void record_compute_scene(VkCommandBuffer cmd)
     VkMemoryBarrier host = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     host.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT; host.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &host, 0, nullptr, 0, nullptr);
+    if(c.storage_image){
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;barrier.image=c.writable_image;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+        VkClearColorValue zero{};vkCmdClearColorImage(cmd,c.writable_image,VK_IMAGE_LAYOUT_GENERAL,&zero,1,&barrier.subresourceRange);
+        barrier.oldLayout=VK_IMAGE_LAYOUT_GENERAL;barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+    }
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, c.pipeline);
     if(c.binding_scene && g.descriptor_mode>=2){
         VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.input.buf,0,16}};
@@ -110,8 +135,8 @@ static void record_compute_scene(VkCommandBuffer cmd)
             VkWriteDescriptorSet writes[3]{};
             for(uint32_t i=0;i<3;++i){writes[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[i].dstBinding=i;
                 writes[i].descriptorCount=1;writes[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;writes[i].pBufferInfo=&buffers[i];}
-            VkDescriptorImageInfo image{VK_NULL_HANDLE,g.texture_view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-            if(c.image_input){writes[2].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[2].pImageInfo=&image;writes[2].pBufferInfo=nullptr;}
+            VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            if(c.image_input){writes[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[2].pImageInfo=&image;writes[2].pBufferInfo=nullptr;}
             vkCmdPushDescriptorSetKHR(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,c.layout,0,3,writes);
         }
     }else vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, c.layout, 0, 1, &c.set, 0, nullptr);
@@ -154,4 +179,7 @@ static void destroy_compute_scene()
     if(c.update_template)vkDestroyDescriptorUpdateTemplate(g.device,c.update_template,nullptr);
     destroy_buffer(c.data); destroy_buffer(c.arguments);
     destroy_buffer(c.alternate);destroy_buffer(c.input);
+    if(c.writable_view)vkDestroyImageView(g.device,c.writable_view,nullptr);
+    if(c.writable_image)vkDestroyImage(g.device,c.writable_image,nullptr);
+    if(c.writable_memory)vkFreeMemory(g.device,c.writable_memory,nullptr);
 }

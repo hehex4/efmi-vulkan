@@ -131,6 +131,7 @@ void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info, cons
     image.samples = info->samples;
     image.usage = info->usage;
     image.flags = info->flags;
+    image.capture_safe = !info->pNext && !info->flags;
     dev->images[h] = image;
 }
 

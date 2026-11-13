@@ -154,6 +154,21 @@ bool validate_native_shader(const std::vector<uint32_t>& words, VkShaderStageFla
     } catch (const std::exception& e) { reason = e.what(); return false; }
 }
 
+bool native_shader_image_bindings(const std::vector<uint32_t>& words,const std::string& entry,
+                                  std::vector<std::pair<uint32_t,uint32_t>>& bindings,std::string& reason) {
+    SpvReflectShaderModule module{};
+    if(words.size()<5 || words.size()>(4u<<20) || spvReflectCreateShaderModule(words.size()*4,words.data(),&module)!=SPV_REFLECT_RESULT_SUCCESS){reason="Cannot reflect image consumers";return false;}
+    struct Release {SpvReflectShaderModule* module;~Release(){spvReflectDestroyShaderModule(module);}} release{&module};
+    uint32_t count=0;
+    if(spvReflectEnumerateEntryPointDescriptorBindings(&module,entry.c_str(),&count,nullptr)!=SPV_REFLECT_RESULT_SUCCESS || count>4096){reason="Image entry point bindings unavailable";return false;}
+    std::vector<SpvReflectDescriptorBinding*> descriptors(count);
+    if(count && spvReflectEnumerateEntryPointDescriptorBindings(&module,entry.c_str(),&count,descriptors.data())!=SPV_REFLECT_RESULT_SUCCESS){reason="Image entry point reflection failed";return false;}
+    bindings.clear();
+    for(const auto* b:descriptors)if(b->descriptor_type==SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE || b->descriptor_type==SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER || b->descriptor_type==SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+        bindings.emplace_back(b->set,b->binding);
+    return true;
+}
+
 bool native_shader_interface(const std::vector<uint32_t>& original, const std::vector<uint32_t>& replacement,
                              VkShaderStageFlagBits stage, const std::string& entry, std::string& reason) {
     struct Reflection {

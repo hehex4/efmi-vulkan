@@ -1,3 +1,4 @@
+#include "gpu_analysis.h"
 // Entry points and the intercepted Vulkan functions.
 //
 // Ordinary probe hooks observe and forward. An explicitly configured M2 package can replace
@@ -369,6 +370,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_BeginCommandBuffer(VkCommandBuffer cmd, const 
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_RESET);
         cb->reset_recording();
+        cb->begin_flags = info ? info->flags : 0;
         cb->inherited_rp = cb->secondary && info && (info->flags & VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT);
         cb->tid = GetCurrentThreadId();
         cb->threads.push_back(cb->tid);
@@ -531,6 +533,7 @@ struct DrawPipelineRestore {
     DrawPipelineRestore(Device* dev, VkCommandBuffer cmd, bool comp = false) : device(dev), cb(cb_of(dev, cmd)),
         pipeline(cb ? (comp ? cb->comp_bound : cb->gfx_bound) : VK_NULL_HANDLE), compute(comp) {}
     ~DrawPipelineRestore() {
+        if (compute && cb && !cb->draws.empty()) gpu_analysis_dispatch(device, cb);
         if (cb && pipeline && (compute ? cb->comp_bound : cb->gfx_bound) != pipeline) {
             device->d.CmdBindPipeline(cb->handle, compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
             (compute ? cb->comp_bound : cb->gfx_bound) = pipeline;
@@ -819,7 +822,7 @@ void rp_end(Device* dev, VkCommandBuffer cmd)
 void rp_ended(Device* dev, VkCommandBuffer cmd)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
-        if (cb->pass.render_pass) m2_pass_end(dev, cb);
+        if (cb->pass.render_pass) { m2_pass_end(dev, cb); gpu_analysis_pass(dev, cb); }
         cb->pass = CmdBuf::PassInstance{};
     }
 }
@@ -986,7 +989,7 @@ template <class Each>
 SubmitWork& submit_work(Device* dev, uint32_t count, Each each)
 {
     thread_local SubmitWork work;
-    work.batches.resize(dev->character_mode ? count : 0); work.signals.clear(); work.owners.clear();
+    work.batches.resize(dev->character_mode ? count : 0); work.signals.clear(); work.owners.clear(); work.analysis_ticket.reset();
     for (uint32_t i = 0; i < work.batches.size(); i++) {
         auto& batch = work.batches[i]; batch.cbs.clear(); batch.prefix.clear();
         each(i, [&](VkCommandBuffer handle) { if (CmdBuf* cb = cb_of(dev, handle)) batch.cbs.push_back(cb); });
@@ -1120,6 +1123,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
         const auto result = m2_submit(dev, queue, work);
         if (result != VK_SUCCESS) { m2_submitted(dev, queue, work, result); return result; }
     }
+    gpu_analysis_prepare(dev, work);
     {
         StageMark stage(thread_trace(), "submission tracking");
         for (uint32_t i = 0; i < count; i++) {
@@ -1132,6 +1136,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
     const VkResult result = work.any_prefix() || !work.signals.empty() ? submit_with_work(dev, queue, count, submits, fence, work)
                                                                        : dev->d.QueueSubmit(queue, count, submits, fence);
     m2_submitted(dev, queue, work, result);
+    gpu_analysis_submitted(work, result);
     return result;
 }
 
@@ -1157,10 +1162,12 @@ VkResult queue_submit2(Device* dev, VkQueue queue, uint32_t count, const VkSubmi
     });
     const auto result = m2_submit(dev, queue, work);
     if (result != VK_SUCCESS) { m2_submitted(dev, queue, work, result); return result; }
+    gpu_analysis_prepare(dev, work);
     track_submit2(dev, count, submits);
     const VkResult done = work.any_prefix() || !work.signals.empty() ? submit2_with_work(dev, queue, count, submits, fence, work, call)
                                                                      : call(queue, count, submits, fence);
     m2_submitted(dev, queue, work, done);
+    gpu_analysis_submitted(work, done);
     return done;
 }
 
@@ -1350,6 +1357,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
         // The application's pools may be implicitly freed by DestroyDevice. Release recorded
         // publication owners while the device and its semaphore retirement ledger still exist.
         {std::unique_lock<std::shared_mutex> lock(dev->cb_mx);dev->cbs.clear();}
+        gpu_analysis_stop(dev);
         destroy_retired(dev, true);
         logf("device destroyed after %llu frames", static_cast<unsigned long long>(dev->frame_no));
         dev_destroy(dev);
@@ -1748,6 +1756,13 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     dev->phys = phys;
     dev->next_gdpa = gdpa;
     dev->owned_gdpa = owned_gdpa;
+    dev->analysis_frame = gpu_analysis_frame;
+    for (auto node = static_cast<const VkBaseInStructure*>(info->pNext); node; node = node->pNext) {
+        if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES)
+            dev->synchronization2_enabled = reinterpret_cast<const VkPhysicalDeviceSynchronization2Features*>(node)->synchronization2 != VK_FALSE;
+        if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES)
+            dev->synchronization2_enabled = reinterpret_cast<const VkPhysicalDeviceVulkan13Features*>(node)->synchronization2 != VK_FALSE;
+    }
     dev->set_loader_data = set_loader_data;
     dev->null_descriptors = null_descriptors;
     dev->null_descriptors_added = null_descriptors_added;

@@ -64,6 +64,7 @@ using SetLayoutLifetime = ResourceLifetime<VkDescriptorSetLayout, PFN_vkDestroyD
 
 struct ImageInfo {
     std::shared_ptr<ImageLifetime> lifetime;
+    bool capture_safe = false;
     VkDeviceMemory mem = VK_NULL_HANDLE;
     uint64_t mem_off = 0;
     uint32_t id = 0;

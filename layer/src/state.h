@@ -18,6 +18,7 @@
 #include <vector>
 
 namespace efvk {
+class GpuAnalysis;
 
 class M2Backend;
 class CharacterBackend;
@@ -203,6 +204,7 @@ struct MemInfo {
 
 struct BufInfo {
     std::shared_ptr<BufferLifetime> lifetime;
+    bool capture_safe = false;
     uint32_t id = 0;
     uint64_t size = 0;
     uint32_t usage = 0;
@@ -447,6 +449,7 @@ struct CmdBuf {
     VbBind vb[kMaxVb];
     SetBind sets[kMaxSets];
     bool in_rp = false;
+    VkCommandBufferUsageFlags begin_flags = 0;
     bool inherited_rp = false; // Secondary recorded with RENDER_PASS_CONTINUE, including dynamic rendering.
     uint32_t active_targets = 0;
     std::vector<RenderTargets> target_contexts;
@@ -592,6 +595,9 @@ struct Device {
     // The character backend in use and the functions of the code it belongs to. Calls into it hold
     // character_mx shared; exchanging it (m2_backend.cpp) takes the lock exclusively. `staged` is a
     // backend of other code that is getting ready to take over.
+    std::shared_ptr<GpuAnalysis> gpu_analysis;
+    void (*analysis_frame)(Device*, const char*) = nullptr;
+    bool synchronization2_enabled = false;
     bool character_mode = false; // set once at device creation
     bool character_stopped = false; // the device is going: no backend is staged any more
     std::shared_mutex character_mx;

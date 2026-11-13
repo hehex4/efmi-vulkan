@@ -373,9 +373,9 @@ void Hunting::analyse(const DrawRec& r, const DrawFacts& facts)
     analysis_ += line;
 }
 
-void Hunting::frame(const std::filesystem::path& folder)
+void Hunting::frame(const std::filesystem::path& folder, Device* device)
 {
-    std::string written, failed;
+    std::string written, failed, capture;
     {
         std::lock_guard<std::mutex> lock(mx_);
         // TimeoutHuntingBuffers: after a minute without a hunting key the sets start again (the selection stays).
@@ -403,12 +403,14 @@ void Hunting::frame(const std::filesystem::path& folder)
             std::error_code error;
             std::filesystem::create_directories(folder, error);
             if (std::filesystem::create_directory(analysis_path_, error)) {
-                analysis_ = "analyse_options: the draws' shaders, index and vertex buffer hashes and render targets (no resource dumps yet)\n";
+                analysis_ = "analyse_options: the draws' shaders, index and vertex buffer hashes and render targets (GPU resource copies and explicit refusals in resources.jsonl)\n";
                 analysed_draws_ = 0;
                 analysing_.store(true, std::memory_order_relaxed);
             } else failed = analysis_path_.u8string();
         }
+        if (analysing_.load(std::memory_order_relaxed)) capture = analysis_path_.u8string();
     }
+    if (device && device->analysis_frame) device->analysis_frame(device, capture.empty() ? nullptr : capture.c_str());
     if (!written.empty()) {
         logf("Frame analysis saved to %s", written.c_str());
         notice(NoticeLevel::Info, "", ("Frame analysis saved to " + written).c_str());
@@ -564,7 +566,7 @@ void shader_hooks_frame(CharacterBackend& b)
     const auto folder = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
     if (program && program->runtime())
         for (const auto action : program->runtime()->take_hunting_actions()) b.hunting.act(action, b.device, folder);
-    b.hunting.frame(folder);
+    b.hunting.frame(folder, b.device);
     // The `hunting` operand reads the original's mode (docs/vulkan-native-mods.md section 6).
     if (program && program->runtime()) program->runtime()->hunting_mode(b.hunting.operand());
     if (b.device)

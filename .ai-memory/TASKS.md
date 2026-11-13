@@ -1,11 +1,11 @@
 # EFMI Vulkan - Tasks
 
-## Active continuation after D-201 (2026-11-13)
+## Active continuation after D-202 (2026-11-13)
 
-- The user corrected the early stop: complete feasible offline native work. Intermediate commits do not end this continuation.
-- D-200 is merged as ed66f6d. D-201 2.3.1 implements sampled native DDS/WIC file images and typed read-only views, including Depth=2 compatibility and retained native push-layout variants. Final images 46/46, native shaders 92/92, character 115/377, tracker 206 and text pass. Exact verification scope and prior runs are in CURRENT_STATE.
-- Active next D-202: staged GPU frame-analysis exports after completion, distinct per-call buffers and images, owned by the host across module exchange. GPU baseline 3/5 (no exports). Draft implementation and two integration scripts are in build; the untracked gpu_analysis_test.py and gpu_analysis.h belong to the next change. Never report CPU shadow bytes as GPU output.
-- Remaining boundaries include application-image layout moves, mutable/array file resources, cross-queue hazards, broader capture scopes and real-game acceptance. Root dist stays 2.1.8, historical game evidence 2.1.7; no current deployment or game action authorized.
+- Intermediate commits do not end the user's requested offline continuation. D-201 is merged as c1fe437.
+- D-202 2.3.2 adds host-owned completed GPU buffer/image exports for newly recorded hunting analyses, separate staging per operation, resource manifests and explicit scope refusals. Final GPU cases 55/55 with synchronization validation, tracker 206, character 115/377, standard validation 76, text 560 and historical analysis compatibility 12/12 pass. Exact builds and scope are in CURRENT_STATE.
+- Active next D-203: export captured vertex/index bindings and their geometry metadata at pass end, then audit the offline native deliverables. Current buffer export covers descriptor ranges; it does not yet export IA bindings. Do not confuse end-of-pass data with per-draw snapshots or CPU upload shadows.
+- Capture remains one application graphics queue, one-time recordings, synchronization2 disabled, transfer-source resources with retained ownership. The real game's multiple queues are outside this adapter. Application image relocation, mutable/array file resources and general cross-queue hazards remain separate architectural work. Root dist 2.1.8 and historical game evidence 2.1.7 remain unchanged; no deployment/game action authorized.
 
 ## Current priorities after D-195 (2026-11-13)
 

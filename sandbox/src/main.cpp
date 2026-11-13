@@ -209,6 +209,7 @@ struct App {
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
+    bool sync2 = false;
     int present_burst = 0;           // --present-burst: further presentations behind each frame's GPU work
     int load_blits = 0;              // the blits that make a frame's GPU work about 300 ms long
     VkImage load_src = VK_NULL_HANDLE, load_dst = VK_NULL_HANDLE;
@@ -519,6 +520,7 @@ static bool create_device()
     qinfo.pQueuePriorities = priorities;
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    if(g.sync2 && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if(g.descriptor_mode>=2)exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
     if(g.draw_kind==3)exts.push_back(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
     VkDeviceCreateInfo dinfo = {};
@@ -531,6 +533,8 @@ static bool create_device()
     features.geometryShader = !g.geometry_shader.empty();
     features.tessellationShader = !g.hull_shader.empty() || !g.domain_shader.empty();
     dinfo.pEnabledFeatures = &features;
+    VkPhysicalDeviceSynchronization2Features sync2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
+    if(g.sync2){sync2.synchronization2=VK_TRUE;dinfo.pNext=&sync2;}
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
 
 #define X(n)                                                                                                           \
@@ -996,7 +1000,7 @@ static bool create_resources()
     image.mipLevels = image.arrayLayers = 1;
     image.samples = VK_SAMPLE_COUNT_1_BIT;
     image.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    image.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | (compute_scene.capture_usage ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
     CHECK(vkCreateImage(g.device, &image, nullptr, &g.texture));
     VkMemoryRequirements req;
     vkGetImageMemoryRequirements(g.device, g.texture, &req);
@@ -1120,7 +1124,7 @@ static bool create_resources()
     // Initial upload of index buffer A. The staging memory stays mapped.
     VkCommandBufferBeginInfo begin = {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    begin.flags = compute_scene.reusable ? 0 : VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     CHECK(vkBeginCommandBuffer(g.primary, &begin));
     VkImageMemoryBarrier barrier = {};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1431,7 +1435,7 @@ static bool prepare_present_burst()
     const VkCommandBuffer cb = g.burst_cbs[0];
     VkCommandBufferBeginInfo begin = {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    begin.flags = compute_scene.reusable ? 0 : VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VkSubmitInfo submit = {};
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
@@ -1529,7 +1533,7 @@ static bool render_frame()
     CHECK(vkResetCommandBuffer(g.primary, 0));
     VkCommandBufferBeginInfo begin = {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    begin.flags = compute_scene.reusable ? 0 : VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     CHECK(vkBeginCommandBuffer(g.primary, &begin));
     if (g.present_burst) record_load(g.primary, g.load_blits);
     if(compute_scene.secondary){
@@ -1789,6 +1793,14 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.output_path = argv[++i];
         else if (a == L"--two-queues")
             g.two_queues = true;
+        else if (a == L"--sync2")
+            g.sync2 = true;
+        else if (a == L"--compute-capture")
+            compute_scene.capture_usage = true;
+        else if (a == L"--compute-storage-image")
+            compute_scene.image_input = compute_scene.storage_image = compute_scene.binding_scene = true;
+        else if (a == L"--reusable-recording")
+            compute_scene.reusable = true;
         else if (a == L"--mutable-sampler")
             g.mutable_sampler = true;
         else if (a == L"--compute-image")

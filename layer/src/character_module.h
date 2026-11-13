@@ -66,6 +66,7 @@ struct SubmitWork {
     struct Signal { VkSemaphore semaphore = VK_NULL_HANDLE; uint64_t value = 0; };
     std::vector<Batch> batches;
     std::vector<Signal> signals;
+    std::shared_ptr<void> analysis_ticket; // Host-owned completion work, independent of a module exchange.
     // The backends whose command buffers are in the call, and their code: kept by the host until it
     // reported the call, so an exchange in between cannot free what the queue is about to run.
     std::vector<std::pair<std::shared_ptr<CharacterBackend>, const CharacterModule*>> owners;

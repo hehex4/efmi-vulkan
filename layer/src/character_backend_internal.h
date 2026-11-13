@@ -745,7 +745,7 @@ public:
     bool analysing() const { return analysing_.load(std::memory_order_relaxed); }
     void analyse(const DrawRec& r, const DrawFacts& facts);
     // Once per presentation: the original's TimeoutHuntingBuffers; a frame analysis begun or written.
-    void frame(const std::filesystem::path& folder);
+    void frame(const std::filesystem::path& folder, Device* device = nullptr);
     void status(JsonWriter& w);
 private:
     std::string line_locked(int kind) const;

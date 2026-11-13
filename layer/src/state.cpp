@@ -307,6 +307,7 @@ DeviceRef::DeviceRef() : lock(g_dev_mx)
 void CmdBuf::reset_recording()
 {
     executed_owners.clear();
+    begin_flags = 0;
     for (auto& owner : owners) if (owner) owner->reset_after_completion();
     character_frame = 0;
     m2_extended_bind = false;
@@ -498,6 +499,7 @@ void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info,
     }
     b.id = dev->next_buf_id++;
     b.size = info->size;
+    b.capture_safe = !info->pNext && !info->flags;
     b.usage = info->usage;
     dev->buf_by_id[b.id] = buf;
 }
