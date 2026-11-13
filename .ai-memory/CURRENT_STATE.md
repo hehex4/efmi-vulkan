@@ -4,6 +4,13 @@
 
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
+## 2.2.4: Installation inputs with empty Mods, D-194 (2026-11-13; sandbox verified, not deployed)
+
+- Removed the early empty-Mods return that skipped installation input registration. The original LoadConfigFile/ParseHuntingSection is independent of recursive Mod content. The normal configured-Core generation now loads with zero Mod packages, retaining root ShaderOverride commands and hunting/F10. Adding/removing the last Mod exchanges the generation without placeholder files in Mods. A failed Core load retains the previous empty-folder shader/F10 fallback; it is not reported as a loaded command generation.
+- Baseline 7/16 for empty hunting/root override; after the change, five GPU/input scenes pass 45/45, including root overrides, removing the last INI, config/shader F10 and adding/removing the first Mod. The three native-input regression steps pass (text, live INI 221/221, new inputs 45/45), and existing empty graphics files/F10 pass 11/11. Logs: build/d194-inputs-before.out, d194-pair.out, d194-regression.out, d194-empty-shaders.out. No repeated whole native-shaders suite or installed plan sweep for this initialization change.
+- Worktree host/inject and backend are 2.2.4; shared stamp remains 0xcc281dc02e01cddc. Root dist remains 2.1.8; last recorded game evidence 2.1.7. No deployment, game launch/attachment/module exchange, launcher change or remote operation.
+- D-193 is committed as fb474f8 and merged to main. Continue the offline shader-replacement milestone: the graphics recipe still only captures VS/PS, so GS/HS/DS native files cannot yet make a replacement pipeline. Then the separate native slot/resource boundaries remain (LIMIT-048).
+
 ## 2.2.3: Native compute replacement and hunting, D-193 (2026-11-13; sandbox verified, not deployed)
 
 - Continued the user's instruction to finish work possible without entering the game. Compute ShaderFixes, direct/indirect ShaderOverride lists and cs filters, skip/original hunting, CS dumps and frame-analysis dispatch logs now share the graphics route's immutable generations, async variant cache and recorded owners. Compute ignores graphics depth filters; hunting skip returns before lists. Character draw hooks do not run for compute. Arbitrary native resource bindings/draws remain separate work.

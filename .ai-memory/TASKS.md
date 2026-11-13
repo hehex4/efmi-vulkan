@@ -1,5 +1,12 @@
 # EFMI Vulkan - Tasks
 
+## Current priorities after D-194 (2026-11-13)
+
+- Worktree source/binaries 2.2.4, ABI 0xcc281dc02e01cddc. Root dist 2.1.8, last recorded game 2.1.7; no deployment or game session in this continuation.
+- Done D-194: empty Mods retains installation hunting/root ShaderOverride/F10 through a configured-Core generation, without synthetic Mod files. Baseline 7/16; final empty-input scenes 45/45, live INI 221/221 and empty graphics files/F10 11/11. D-193 compute is fb474f8, merged; its 14 selected steps passed (CURRENT_STATE).
+- Active next: capture/rebuild geometry and tessellation stages (GS/HS/DS) and verify native replacement/hunting in sandbox. The file loader/compiler already names them, but the graphics recipe still only supports VS/PS. Read the original stage setters/BeforeDraw and preserve owned layouts/state.
+- Later native slot work remains arbitrary native bindings/draws, original resource slots and frame-analysis resource data. No sandbox result is real-game acceptance.
+
 ## Current priorities after D-193 (2026-11-13)
 
 - Source and worktree binaries are 2.2.3, shared stamp 0xcc281dc02e01cddc; main dist remains 2.1.8 and the latest game evidence is 2.1.7. No deployment or game session was requested in this offline continuation.

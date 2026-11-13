@@ -142,14 +142,10 @@ std::shared_ptr<FolderGeneration> folder_create(Device* device, const VkPhysical
     source.left_inputs = &left_inputs;
     source.generation = &folder->generation;
     const auto began = host_time_us();
-    // Every INI gone (removed, disabled): the original's reload gives a configuration without them, and
-    // so does this one. A folder without a character Mod is a folder as any other (D-174).
-    if (!CharacterProgram::folder_has_inputs(source.mods)) {
-        folder->empty = true; folder->reason = "the Mods folder holds no enabled INI";
-        logf("folder generation: %s", folder->reason.c_str());
-        load_fixes();
-        return folder;
-    }
+    // LoadConfigFile registers the installation's keys and overrides even with no recursive Mod inputs.
+    // An empty folder still clears previous Mods; retain that fallback if its configured Core cannot load.
+    folder->empty = !CharacterProgram::folder_has_inputs(source.mods);
+    if (folder->empty) logf("folder generation: no enabled Mod INI; loading installation inputs");
     if (!CharacterProgram::discover_folder(source, mods, folder->reason, gpu) || !folder->generation) {
         if (folder->reason.empty()) folder->reason = "the folder's generation was not made";
         logf("folder generation refused: %s", folder->reason.c_str());

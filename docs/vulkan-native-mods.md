@@ -319,7 +319,7 @@ that a replacement was drawn. Current boundaries: graphics pipelines captured by
 tracker; a single matching entry point; supported core capabilities and fully tracked layouts. Layout
 binding flags, unsupported extension state, and immutable samplers/layouts created with custom host
 allocators remain refused. An empty Mods folder supports initial ShaderFixes loading and F10 via the
-existing host input fallback (verified in D-192). Hunting keys still require a loaded INI generation.
+existing host input fallback (verified in D-192). D-194 loads the installation generation even without a Mod INI, so hunting keys and root ShaderOverride sections remain active with the configured Core.
 D-193 adds compute shader replacement and hunting (below). Native arbitrary resource/draw lists remain pending. D-191 publishes
 depth filters with the INI/shader generation; a filter-only F10 changes the revision and invalidates
 cached variants. Depth presence means an attachment, independently of the pipeline's depth-test switch.
@@ -372,3 +372,18 @@ and context order; here these are explicit interface constraints and retained Vu
 `sandbox/native_compute_test.py` runs real application dispatches, reads the storage buffer only
 after a fence and exercises both entry methods, replacement/fallback, commands, hunting and F10.
 The native-shaders group includes it. These checks establish sandbox behavior, not game acceptance.
+
+
+## 9. Empty Mod inputs (D-194, 2.2.4)
+
+An existing empty Mods directory still has an installation configuration. The folder loads the
+configured Core and d3dx.ini, registers hunting/F10, and runs root ShaderOverride sections. Adding
+or removing the last Mod exchanges that same generation; removal clears its commands while keeping
+installation keys. No placeholder INI is generated in Mods. If the configured Core cannot load,
+the existing empty-folder fallback still loads shader files and supports the host's F10 fallback;
+it does not claim to have loaded installation commands.
+
+`sandbox/native_input_test.py` covers initial empty inputs, removing the last INI, root overrides,
+shader/config reload and adding/removing the first Mod, with compute GPU readback and validation.
+`--only native-input` runs this plus the existing live INI step and text check. Empty graphics
+ShaderFixes/F10 are checked separately with `native_shader_test.py empty f10:empty`.

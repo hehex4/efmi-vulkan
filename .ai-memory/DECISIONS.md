@@ -1077,6 +1077,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-194: Empty Mods keeps the installation configuration generation
+
+- Date: 2026-11-13. The original LoadConfigFile calls ParseHuntingSection independently of recursive Mod inputs. The native folder's early empty-input return lost both hunting keys and root ShaderOverride commands; baseline 7/16 for those two scenes.
+- An empty Mods directory now loads a normal generation using the configured Core and installation configuration, with zero Mod packages. F10 can add/remove the last Mod, update root settings and shader files, while keys remain registered. If the configured Core cannot load, retain the previous empty-folder fallback for shader files/clearing. No synthetic INI is written into Mods.
+- Generation locks and retained owners remain the explicit Vulkan equivalents of the original's one-context order and deferred object lifetime. No change to resource access or synchronization. This is initialization/input work, not a deployment.
+
 ## D-193: Native compute shares immutable shader generations and retained pipeline variants
 
 - Date: 2026-11-13. Continues the user's native-route work without entering the game.

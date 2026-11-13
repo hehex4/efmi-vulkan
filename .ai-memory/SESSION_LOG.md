@@ -2332,3 +2332,10 @@ Continued the user's request to finish the offline native route. Read the origin
 The baseline was 7/14. The initial focused GPU run passed 22/22; final compute regression 83/83 plus 8/8 separate shared-memory checks, graphics 92/92, hunting 45/45, recipes 175, tracker 185, cache 61, snapshots 52, GPU variants 63, character package/replacement 115/377 and live INI 221. All 14 quick/native-shaders/character replacement steps passed, including Vulkan validation 76/76; not the whole suite or installed plan sweep. Final pair: worktree 2.2.3, ABI 0xcc281dc02e01cddc, both verified from binary bytes; root dist still 2.1.8. Logs are build/d193-*.out.
 
 No deployment, game load/attachment/module exchange, launcher changes or remote operation. Next is empty-Mods hunting: reproduced 3/6 with the current native compute scene and no Mod INI (build/d194-empty-before.out). Original installation input parsing does not depend on recursive Mod content.
+
+
+## 2026-11-13: D-194, empty Mods still has installation inputs
+
+Read original LoadConfigFile/ParseHuntingSection and reproduced missing empty-folder hunting/root overrides (7/16). Removed the folder's early return: the normal configured-Core generation can have zero Mod inputs, with installation keys and commands intact. F10 adds/removes the last Mod without synthetic INIs; the existing shader-only fallback remains if the Core cannot load.
+
+Built the worktree pair as 2.2.4, same ABI 0xcc281dc02e01cddc. Native-input group three steps pass: text, live INI 221/221, five new GPU/input scenes 45/45. Existing empty graphics ShaderFixes/F10 11/11. Logs: build/d194-*.out. No full suite, deployment, game session or remote operation; root dist remains 2.1.8. Next offline shader milestone gap: GS/HS/DS recipes and replacement/hunting.
