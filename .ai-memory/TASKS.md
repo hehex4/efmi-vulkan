@@ -1,5 +1,11 @@
 # EFMI Vulkan - Tasks
 
+## Active continuation after D-203 (2026-11-13)
+
+- D-202 is merged as 132d8e8. D-203 adds GPU vertex/index allocation exports and draw metadata; source/worktree pair 2.3.3, same ABI. Geometry baseline 2/6, first result 65/65; existing GPU analysis 55/55. Final guarded host passes geometry 65/65 and text 561 (CURRENT_STATE).
+- Continue D-204 owned-render-target coverage: clear-only passes and primary state after secondary execution must export their stored attachments without requiring shader reflection. Read original DumpRenderTargets first. Then audit offline delivery and update stale route descriptions.
+- Preserve all D-202 capture boundaries. The remaining queue/layout adapters are architecture work, not items silently accepted by sandbox tests or automatically deferred to the game. Game appearance/performance acceptance, deployment and launcher changes require the user's separate authorization. Intermediate commits are not a stopping point.
+
 ## Active continuation after D-202 (2026-11-13)
 
 - Intermediate commits do not end the user's requested offline continuation. D-201 is merged as c1fe437.

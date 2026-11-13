@@ -4,6 +4,13 @@
 
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
+## Active source 2.3.3: GPU geometry analysis, D-203 (2026-11-13; sandbox scope)
+
+- D-202 is committed and merged as 132d8e8. Host/module built in d203-pair.out and sandbox in d203-sandbox.out; shared ABI remains 0xc5ec321d7d0c1a3f, verified in both DLLs with version 2.3.3. Final host adds a conservative incomplete-pipeline-recipe guard (d203-final-host.out).
+- End-of-classic-pass analysis exports complete original application vertex/index allocations, deduplicated per buffer/kind, with per-draw binding offsets, counts, instance/base-vertex values, topology, slot/stride and attribute format metadata. Secondary recording identities survive flattening; non-indexed draws do not capture a merely bound IB. No CPU shadow is used, and odd byte lengths are preserved without rounding.
+- Baseline geometry 2/6 (d203-before.out). Initial geometry 65/65 and existing GPU analysis 55/55 pass with synchronization validation, text 561 (d203-regression.out). Final guard geometry 65/65 and text 561 pass (d203-final-checks.out). This is end-of-pass application data, not per-draw output or private replacement geometry. Indirect argument snapshots, dynamic input/topology, incomplete pipeline extensions and vertex slots beyond the four tracked slots remain refused, alongside D-202 queue/usage/completion limits.
+- Continue D-204: dedicated owned-render-target capture tests, including clear-only passes without a primary graphics pipeline. Original DumpRenderTargets reads output attachments independently of shader state; current images() returns early without a pipeline. Then finish the offline delivery audit. Root dist 2.1.8 and historical game evidence 2.1.7 are unchanged; no deployment/game action.
+
 ## Active source 2.3.2: Host-owned GPU frame analysis, D-202 (2026-11-13; sandbox verified)
 
 - D-201 is committed and merged as c1fe437. Host/module/tracker rebuilt in d202-fixed-pair.out after fixing the initial include/dispatch compile errors. Final host adds the core/KHR timeline query fallback in d202-timeline-host.out; sandbox rebuilt in d202-sync2-sandbox.out, character in d202-character.out. ABI 0xc5ec321d7d0c1a3f verified in host/module/tracker.

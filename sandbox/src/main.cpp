@@ -195,6 +195,7 @@ struct App {
     int draws = kDrawCount;
     int draw_kind = 0; // 0 indexed, 1 non-indexed, 2 indexed indirect, 3 indexed indirect count
     bool indirect_zero_count = false;
+    bool geometry_capture = false, geometry_odd = false;
     std::wstring geometry_shader, hull_shader, domain_shader;
     Buffer draw_arguments;
     int warmup = 30, measured_frames = 120;
@@ -937,11 +938,13 @@ static bool create_resources()
         for (int i = 0; i < kDrawCount; ++i) args[i] = {kDraws[i].count, kDraws[i].instances, kDraws[i].first, 0, 0};
         *reinterpret_cast<uint32_t*>(args+kDrawCount)=g.indirect_zero_count?0u:1u;
     }
-    if (!make_buffer(g.vb, sizeof(kVertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true, true))
+    const auto capture_usage = g.geometry_capture ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0;
+    if (!make_buffer(g.vb, sizeof(kVertices) + (g.geometry_odd ? 1 : 0), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | capture_usage, true, true))
         return false;
     memcpy(g.vb.map, kVertices, sizeof(kVertices));
+    if (g.geometry_odd) static_cast<uint8_t*>(g.vb.map)[sizeof(kVertices)] = 0x5a;
 
-    if (!make_buffer(g.ib_a, sizeof(kIndicesA), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false,
+    if (!make_buffer(g.ib_a, sizeof(kIndicesA), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | capture_usage, false,
                      false))
         return false;
     if (!make_buffer(g.staging, sizeof(kIndicesA), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true, true))
@@ -950,7 +953,7 @@ static bool create_resources()
     if (!make_buffer(g.staging2, sizeof(kRewriteA), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true, false))
         return false;
 
-    if (!make_buffer(g.ib_b, kPadB + sizeof(kIndicesB), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, true, true))
+    if (!make_buffer(g.ib_b, kPadB + sizeof(kIndicesB), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | capture_usage, true, true))
         return false;
     memset(g.ib_b.map, 0xFF, kPadB);
     memcpy(static_cast<uint8_t*>(g.ib_b.map) + kPadB, kIndicesB, sizeof(kIndicesB));
@@ -1797,6 +1800,10 @@ int wmain(int argc, wchar_t** argv)
             g.sync2 = true;
         else if (a == L"--compute-capture")
             compute_scene.capture_usage = true;
+        else if (a == L"--geometry-capture")
+            g.geometry_capture = true;
+        else if (a == L"--geometry-odd")
+            g.geometry_odd = true;
         else if (a == L"--compute-storage-image")
             compute_scene.image_input = compute_scene.storage_image = compute_scene.binding_scene = true;
         else if (a == L"--reusable-recording")

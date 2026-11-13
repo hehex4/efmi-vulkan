@@ -5,7 +5,8 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers these implemented shader steps through D-195; section 8 lists the remaining native slot work.
+covers the implemented shader, resource-binding and capture steps through D-203. Section 8 separates
+those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
 
@@ -234,14 +235,14 @@ does (the user, 2026-11-12: consider the compatibility with the existing DX11 ro
   two presentations into `FrameAnalysis-<time>/log.txt` in the layer's settings folder: per draw its
   number, command buffer and pipeline, `VSSetShader hash=...` and the other stages, the index region
   hash, the vertex buffers' region hashes, the colour targets, then the call as the original names it
-  (`DrawIndexedInstanced(...)`, `DrawInstanced(...)`, the indirect forms); a notice says where. Dumping
-  the resources (`analyse_options` dump_rt, dump_tex, dump_cb, dump_vb, dump_ib) needs reading the game's
-  images and buffers back after the frame: not yet.
+  (`DrawIndexedInstanced(...)`, `DrawInstanced(...)`, the indirect forms); a notice says where.
+  D-202 adds completed GPU buffer/image exports and D-203 adds geometry, within the explicit capture
+  scope described below. The original's full `analyse_options` selection semantics are not implemented.
 - **What the player sees**: a notice per key with the selection (`PS 3/40: 8a1b2c3d`, `IB 2/5: ...`,
   `RT 1/1: image 7`) in place of the overlay's line. The status has a `hunting` object (mode, marking
   mode, the visited counts and selections of the nine kinds, the vertex buffer slot, draws skipped,
   marks, dumps, frame analyses).
-- **Not yet**: dumping resources in a frame analysis, the overlay's steady line. D-193 adds compute
+- **Not yet**: unrestricted resource capture, the overlay's steady line. D-193 adds compute
   hunting and D-195 adds geometry, hull and domain stages (sections 10 and 12).
 
 ## 7. What needs the game
@@ -252,16 +253,24 @@ meets per frame and what its lists cost there; hunting over the game's thousand-
 visited sets, the order a player cycles through them, the frame time while enabled); the clipboard and
 notices while playing; whether any game pipeline has no module hash (inline modules).
 
-## 8. What comes after this step
+## 8. Delivery status and remaining work
 
 1. Replacing game shaders: D-190 implements the SPIR-V files and an offline HLSL compiler (section 9).
    D-191 adds `depth_filter`; D-192 adds `pink` and `original` marking; D-193 adds compute;
    D-195 completes the classic graphics stages with geometry and tessellation;
    the compiler's explicit `--model` chooses the native HLSL target, not an INI `model` directive.
-2. Slots of other stages and render targets by (set, binding) for Vulkan-native lists, and the
-   bindings and draws of a ShaderOverride's lists at any draw.
-3. Frame analysis's resource dumps. Compute shader hunting is D-193. (Index and vertex
-   buffers, render targets, the `hunting` value, dumping a marked module and frame analysis's log: D-189.)
+2. D-196 adds explicit (set, binding) aliases and queries; D-197 executes native draw/dispatch lists;
+   D-198/D-199 retain and bind application buffers with persistent context semantics;
+   D-200/D-201 add published file buffers, null descriptors and sampled 2D file images.
+   Moving application images, mutable/array/cube file resources and general cross-queue hazards
+   still need adapters. Render-target rebinding is not implemented.
+3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
+   metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
+   transfer-source resources and supported owned layouts. Broader capture synchronization,
+   indirect argument snapshots, dynamic vertex input and the original analyse_options remain work.
+4. Real-game shader/hunting/replacement acceptance and performance measurements require the user's
+   authorization for that session. Sandbox results cannot settle them. See the current state and
+   session log for the exact source, binary and historical game versions.
 
 ## 9. Native game shader replacement (D-190)
 
@@ -527,4 +536,20 @@ The analysis directory now includes resources.jsonl, buffer-N.buf and image-N.bi
 
 The current scope is new one-time, non-simultaneous recordings on one unprotected application graphics queue, with synchronization2 disabled. Compute snapshots follow the application call and its replacement plan; graphics snapshots are at classic pass end. Only transfer-source resources with retained allocation chains and supported creation/descriptor state are copied. Image descriptors must be statically accessed; known owned single-sample color attachments can use their final layout. Raw .bin images require the manifest's format/extent. This is not per-internal-draw capture or a screenshot.
 
-Refusals appear in the manifest, with no fabricated bytes. Current exclusions include multiple queues (including the real game's current arrangement), stage-limited synchronization2 signals, replay, swapchain ownership, depth, array/multimip/image-descriptor arrays and external/extension resources. Source usage flags are never changed. Budgets are 8 MiB per copy, 64 MiB/256 jobs per analysis, and 128 MiB retained staging. Vertex/index data follows separately.
+Refusals appear in the manifest, with no fabricated bytes. Current exclusions include multiple queues (including the real game's current arrangement), stage-limited synchronization2 signals, replay, swapchain ownership, depth, array/multimip/image-descriptor arrays and external/extension resources. Source usage flags are never changed. Budgets are 8 MiB per copy, 64 MiB/256 jobs per analysis, and 128 MiB retained staging.
+
+### GPU geometry exports (D-203, 2.3.3; sandbox scope)
+
+At classic pass end, vertex-N.buf and index-N.buf hold complete application IA buffer allocations,
+copied once per resource/kind in that pass. The manifest's uses array preserves each direct draw's
+recording command buffer, pipeline, binding offset, first/count, instance range and base vertex.
+Vertex uses include slot, stride, input rate and attribute locations/formats/offsets; index uses give
+the index element size. Only vertex slots used by the pipeline's attributes are exported. Indexed
+draw counts are index counts, including in the associated vertex use; operation identifies that
+interpretation. A non-indexed draw does not export an index buffer merely because one is bound.
+
+These bytes are end-of-pass data for the original application's bindings, not per-draw snapshots or
+the replacement engine's private mesh buffers. Secondary recording identities are retained in uses.
+Indirect calls, dynamic input/topology and vertex slots beyond the four tracked slots are explicitly
+refused. All D-202 ownership, usage, queue and completion restrictions still apply. Buffer copies
+preserve every byte, including sizes not divisible by four; VkBufferCopy has no such alignment rule.

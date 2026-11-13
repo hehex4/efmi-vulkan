@@ -2,6 +2,12 @@
 
 Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 3. This file records the decisions about how the project is run, and later changes to the design with their reasons.
 
+## D-203: Complete GPU IA allocations with separate draw-use metadata (2026-11-13)
+
+- Read original FrameAnalysisContext::DumpVBs, DumpIB and DumpBuffer. It stages complete resources and retains input-layout attributes, buffer strides/offsets, topology and draw ranges. DX11 supplies reference-counted deferred GPU destruction, hazard tracking and one-context order. Vulkan reuses D-202 retained staging, explicit barriers and completed timeline publication.
+- At classic pass end, capture each original application's used vertex/index buffer once per kind and attach all direct draw uses, retaining secondary command identities. Keep complete bytes; interpret index regions through bind_offset + first * index_size and count * index_size. Indexed vertex-use first/count fields describe the index range. Do not label this per-draw snapshots or replacement mesh output.
+- Static pipeline attributes decide which VB slots are used. Incomplete pipeline recipes, dynamic input/topology, indirect argument ranges and untracked VB slots are explicit refusals. Resource usage and creation flags are never changed by capture. Copy sizes need not be divisible by four (https://docs.vulkan.org/refpages/latest/refpages/source/VkBufferCopy.html); the odd-sized allocation fixture checks its final byte.
+
 ## D-202: Host-owned completed staging exports for newly recorded analysis work (2026-11-13)
 
 - Original FrameAnalysisContext::DumpBufferImmediateCtx maps completed staging, then writes GPU data. Deferred contexts retain their resources with COM ownership. DX11 supplies deferred GPU destruction, hazard tracking and one-context order; Vulkan must explicitly retain source allocations and staging, put copies after the relevant work, restore image layouts, and wait for completion before reading.

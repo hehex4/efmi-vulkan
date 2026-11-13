@@ -55,6 +55,8 @@ struct BufferRequest {
     uint64_t offset = 0, bytes = 0;
     std::shared_ptr<void> owner;
     std::string reason;
+    std::string kind = "buffer";
+    std::vector<std::string> uses;
 };
 }
 
@@ -152,12 +154,79 @@ public:
                             if(!b.capture_safe)r.reason="Buffer extensions or flags require a capture adapter";
                             else if (!(b.usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) r.reason = "Buffer was not created with TRANSFER_SRC usage";
                             else if (!b.lifetime || b.lifetime->dependencies.empty()) r.reason = "Buffer allocation lifetime cannot be retained";
-                            else if (!r.bytes || r.offset > b.size || r.bytes > b.size - r.offset || r.offset % 4 || r.bytes % 4) r.reason = "Buffer copy range is invalid or unaligned";
+                            else if (!r.bytes || r.offset > b.size || r.bytes > b.size - r.offset) r.reason = "Buffer copy range is invalid";
                         }
                         requests.push_back(std::move(r));
                     }
                     if (adjusted) dynamic += binding.second.count;
                 }
+            }
+            // DumpBuffer in the original stages the complete IA allocation. Keep draw
+            // bindings separately: this snapshot is at pass end, not at each draw.
+            std::map<std::pair<VkBuffer, std::string>, size_t> geometry;
+            if (!compute) for (size_t call = cb->pass.first_draw; call < cb->draws.size(); ++call) {
+                const auto& draw = cb->draws[call];
+                if (draw.kind > DK_INDEXED) {
+                    refuse(session, point, "Indirect geometry requires captured GPU draw arguments");
+                    continue;
+                }
+                const auto pipeline = device->pipes.find(draw.pipeline);
+                if (pipeline == device->pipes.end()) {
+                    refuse(session, point, "Geometry pipeline metadata is unavailable"); continue;
+                }
+                const auto& pipe = pipeline->second;
+                if (!pipe.recipe || !pipe.recipe->complete) {
+                    refuse(session, point, "Geometry pipeline extension state is not fully tracked"); continue;
+                }
+                bool dynamic = false;
+                for (const auto state : pipe.dynamic_states)
+                    dynamic |= state == VK_DYNAMIC_STATE_VERTEX_INPUT_EXT || state == VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE ||
+                               state == VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
+                if (dynamic) { refuse(session, point, "Dynamic vertex input or topology requires a geometry adapter"); continue; }
+                auto add = [&](VkBuffer buffer, const char* kind, uint64_t offset, const PipeInfo::Binding* binding) {
+                    if (!buffer) return;
+                    const auto key = std::make_pair(buffer, std::string(kind));
+                    auto found = geometry.find(key);
+                    if (found == geometry.end()) {
+                        BufferRequest r; r.buffer = buffer; r.kind = kind;
+                        const auto source = device->bufs.find(buffer);
+                        if (source == device->bufs.end()) r.reason = "Geometry buffer identity is unavailable";
+                        else {
+                            const auto& b = source->second; r.id = b.id; r.bytes = b.size; r.owner = b.lifetime;
+                            if (!b.capture_safe) r.reason = "Buffer extensions or flags require a capture adapter";
+                            else if (!(b.usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) r.reason = "Geometry buffer was not created with TRANSFER_SRC usage";
+                            else if (!b.lifetime || b.lifetime->dependencies.empty()) r.reason = "Geometry allocation lifetime cannot be retained";
+                            else if (!r.bytes) r.reason = "Geometry buffer is empty";
+                        }
+                        found = geometry.emplace(key, requests.size()).first;
+                        requests.push_back(std::move(r));
+                    }
+                    auto& request = requests[found->second];
+                    if (offset >= request.bytes) request.reason = "Geometry binding offset is outside its allocation";
+                    JsonWriter use; use.begin_object(); use.kn("command_buffer", draw.cb_id); use.kn("call", call + 1);
+                    use.kv("operation", draw.kind == DK_INDEXED ? "indexed" : "draw"); use.kn("pipeline", pipe.id);
+                    use.kn("bind_offset", offset); use.kn("first", draw.first); use.kn("count", draw.count);
+                    use.kn("instances", draw.instances); use.kn("first_instance", draw.first_instance);
+                    use.ki("vertex_offset", draw.vertex_offset); use.kn("topology", pipe.topology);
+                    if (binding) {
+                        use.kn("slot", binding->binding); use.kn("stride", binding->stride); use.kb("per_instance", binding->per_instance != 0);
+                        use.key("attributes"); use.begin_array();
+                        for (const auto& attribute : pipe.attributes) if (attribute.binding == binding->binding) {
+                            use.begin_object(); use.kn("location", attribute.location); use.kn("format", attribute.format);
+                            use.kn("offset", attribute.offset); use.end_object();
+                        }
+                        use.end_array();
+                    } else use.kn("index_size", draw.index_size);
+                    use.end_object(); request.uses.push_back(std::move(use.out));
+                };
+                for (const auto& binding : pipe.bindings) {
+                    bool used = false;
+                    for (const auto& attribute : pipe.attributes) used |= attribute.binding == binding.binding;
+                    if (!used) continue;
+                    if (binding.binding >= kMaxVb) { refuse(session, point, "Vertex binding exceeds tracked slots"); continue; }
+                    add(draw.vb[binding.binding].buf, "vertex", draw.vb[binding.binding].off, &binding);
+                }
+                if (draw.kind == DK_INDEXED) add(draw.ib, "index", draw.ib_off, nullptr);
             }
         }
         auto owner = std::static_pointer_cast<CaptureOwner>(owner_for(cb->owners, &capture_owner_key, [] {
@@ -167,9 +236,11 @@ public:
             if (!r.reason.empty()) { refuse(session, point, r.reason); continue; }
             std::string reason; auto job = allocate(session, r.bytes, reason);
             if (!job) { refuse(session, point, reason); continue; }
-            job->source = std::move(r.owner); job->file = "buffer-" + std::to_string(++session->next) + ".buf";
+            job->source = std::move(r.owner); job->file = r.kind + "-" + std::to_string(++session->next) + ".buf";
             JsonWriter w; w.begin_object(); w.kv("point", point); w.kn("command_buffer", cb->id); w.kn("call", cb->draws.size());
             w.kn("resource", r.id); w.kn("set", r.set); w.kn("binding", r.binding); w.kn("element", r.element);
+            w.kv("kind", r.kind);
+            if (!r.uses.empty()) { w.key("uses"); w.begin_array(); for (const auto& use : r.uses) w.raw(use); w.end_array(); }
             w.kn("offset", r.offset); w.kn("bytes", r.bytes); w.kv("file", job->file); w.end_object(); job->metadata = w.out;
             VkMemoryBarrier before{VK_STRUCTURE_TYPE_MEMORY_BARRIER}; before.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT; before.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
             CmdPipelineBarrier(cb->handle, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
