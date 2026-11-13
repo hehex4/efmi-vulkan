@@ -9,6 +9,7 @@ bool binding(FileOperation op)
 bool valid(const FilePlanItem& item)
 {
     if(item.layout.size()>256)return false;
+    if(item.operation==FileOperation::NativeBind)return !item.resource && !item.owned && item.layout.empty();
     if(item.operation==FileOperation::Caller || item.operation==FileOperation::Dispatch)return !item.resource && item.layout.empty();
     if(item.operation==FileOperation::DrawIndexed)return !item.resource && item.index_count && item.instance_count;
     if(item.operation==FileOperation::Translucent)

@@ -132,6 +132,7 @@ struct PipelineLayoutInfo {
 };
 
 struct DescriptorElement {
+    std::shared_ptr<const void> native; // Native replacement's owned descriptor payload; opaque to the tracker.
     uint32_t type = 0;
     bool known = false;
     VkBuffer buffer = VK_NULL_HANDLE;

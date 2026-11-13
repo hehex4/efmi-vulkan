@@ -568,6 +568,7 @@ void shader_hooks_frame(CharacterBackend& b)
     if (program && program->runtime()) program->runtime()->hunting_mode(b.hunting.operand());
     if (b.device)
         b.device->shader_draws.store((current && !current->hashes.empty()) || b.hunting.enabled() || b.hunting.analysing(), std::memory_order_relaxed);
+    if(b.device)b.device->native_binding_order.store(program && program->runtime() && !program->runtime()->native_bindings().empty(),std::memory_order_relaxed);
 }
 
 // A draw no Mod section made the Mod's (it matched none, or its lists left it to the game): hunting's mark, and the

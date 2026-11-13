@@ -21,17 +21,25 @@ def run_compute(checks, case):
     alias = "cs-cb0" if case == "kind" else "cs-u0"
     address = "0, 0, 1" if case == "element" else "0, 0"
     binding = "vk_binding = %s, %s\n" % (alias, address)
+    if case == "alias": binding += "vk_binding = cs-u1, 0, 0\n"
     if case == "conflict": binding += "vk_binding = cs-u0, 0, 1\n"
     if case == "duplicate": binding += binding
     body = "$size = %s->size\n$width = %s->width\nchecktextureoverride = %s\n" % (alias, alias, alias)
     if case == "alias":
         body = "cs-u1 = ref cs-u0\n$size = cs-u1->size\n$width = cs-u1->width\nchecktextureoverride = cs-u1\n"
-    if case in ("reference", "reference_flags"):
+    if case in ("reference", "reference_flags", "reference_stride", "reference_stride_override", "reference_stride_format", "retained"):
         body = "ResourceSaved = ref cs-u0\n$size = ResourceSaved->size\n$width = ResourceSaved->width\nchecktextureoverride = cs-u0\n"
-    text = ("namespace = native_resources\n[Constants]\nglobal $size = -99\nglobal $width = -99\nglobal $matched = 0\n"
+    if case == "retained":
+        body = "if $saved == 0\nResourceSaved = ref cs-u0\n$saved = 1\nendif\n$size = ResourceSaved->size\n$width = ResourceSaved->width\nchecktextureoverride = ResourceSaved\n"
+    text = ("namespace = native_resources\n[Constants]\nglobal $size = -99\nglobal $width = -99\nglobal $matched = 0\nglobal $saved = 0\n"
             "[ResourceSaved]\n[ShaderOverrideCompute]\nhash = %08x\n" % crc32c(original.read_bytes()) + binding + body +
             "if $size == 16 && $width == -4 && $matched == 1\nhandling = skip\nendif\n"
             "[TextureOverrideBuffer]\nmatch_type = Buffer\nmatch_byte_width = 16\n$matched = 1\n")
+    if case.startswith("reference_stride"):
+        stride = 12 if case.endswith("override") else 8 if case.endswith("format") else 16
+        text = text.replace("$matched == 1", "$matched == 1 && ResourceSaved->stride == %d" % stride)
+        if case.endswith("override"): text = text.replace("[ResourceSaved]", "[ResourceSaved]\nstride = 12")
+        if case.endswith("format"): text = text.replace("[ResourceSaved]", "[ResourceSaved]\nformat = R32G32_FLOAT")
     if case == "flags": text = text.replace("$matched == 1", "$matched == 1 && cs-u0->bindflags == 136")
     if case == "reference_flags":
         text = text.replace("global $matched = 0", "global $matched = 0\nglobal $flags = -99")
@@ -60,7 +68,7 @@ def run_compute(checks, case):
         sb.proc.wait(timeout=30)
         checks.equal(sb.proc.returncode, 0, case + ": normal exit")
         (root / "layer.log").write_bytes(Path(sb.log_path).read_bytes())
-    checks.equal(status.get("shader_overrides", {}).get("native_bindings", 0), 0 if case in ("conflict", "reload_conflict") else 1, case + ": native alias generation loaded")
+    checks.equal(status.get("shader_overrides", {}).get("native_bindings", 0), 0 if case in ("conflict", "reload_conflict") else 2 if case == "alias" else 1, case + ": native alias generation loaded")
     if case in ("conflict", "reload_conflict"):
         folder = status.get("folder_generation", {})
         checks.check(any("Conflicting vk_binding" in item.get("reason", "") for item in folder.get("left_inputs", [])), case + ": invalid input isolated with its reason")
@@ -76,7 +84,7 @@ def run_graphics(checks, mode, vertex, fragment, srgb=False):
     root = Path(test_dir("native-resources-graphics-"))
     mods = root / "Mods"; mods.mkdir()
     (mods / "mod.ini").write_text(
-        "namespace = native_resources\n[Constants]\nglobal $matched = 0\n"
+        "namespace = native_resources\n[Constants]\nglobal $matched = 0\nglobal $saved = 0\n"
         "[ShaderOverrideVertex]\nhash = %08x\nvk_binding = vs-cb0, 0, 0\n"
         "[ShaderOverridePixel]\nhash = %08x\nvk_binding = ps-t0, 1, 5\nvk_binding = ps-t2, 1, 2, 0\nvk_binding = ps-t3, 1, 2, 1\n"
         "checktextureoverride = ps-t0\n"
@@ -97,7 +105,7 @@ def run_graphics(checks, mode, vertex, fragment, srgb=False):
 
 def main():
     checks = Checks("native resources"); selected = set(sys.argv[1:])
-    for case in ("direct", "flags", "indirect", "inject", "alias", "reference", "reference_flags", "kind", "element", "duplicate", "conflict", "reload", "reload_conflict"):
+    for case in ("direct", "flags", "indirect", "inject", "alias", "reference", "reference_flags", "reference_stride", "reference_stride_override", "reference_stride_format", "retained", "kind", "element", "duplicate", "conflict", "reload", "reload_conflict"):
         if not selected or case in selected: run_compute(checks, case)
     if not selected or "graphics" in selected or "srgb" in selected:
         vertex, fragment = sandbox_shader_hashes()

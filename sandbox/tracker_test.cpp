@@ -941,6 +941,7 @@ int main()
     render_target_cases();
     immutable_sampler_lifetime();
     native_resource_lifetimes();
+    native_descriptor_references();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

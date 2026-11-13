@@ -789,6 +789,13 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdFillBuffer(VkCommandBuffer cmd, VkBuffer dst, V
 template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dynamic, const Info* info)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        if(dev->native_binding_order.load(std::memory_order_relaxed)){
+            std::call_once(dev->native_barrier_load,[&]{if(dev->owned_gdpa)dev->native_barrier=reinterpret_cast<PFN_vkCmdPipelineBarrier>(dev->owned_gdpa(dev->handle,"vkCmdPipelineBarrier"));});
+            if(dev->native_barrier){
+                VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT;
+                dev->native_barrier(cmd,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&barrier,0,nullptr,0,nullptr);
+            }
+        }
         cb->in_rp = true;
         if (dynamic)
             cb->dyn_rp_count++;

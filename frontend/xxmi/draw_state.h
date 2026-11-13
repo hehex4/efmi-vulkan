@@ -19,6 +19,7 @@
 // neither: its values name declarations of the generation, which outlive the plan, and slots of the
 // matched draw, which mean something for the length of that draw's lists only (SlotValue::Foreign after).
 #include "CommandList.h"
+#include "native_bindings.h"
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -55,6 +56,7 @@ struct SlotValue {
         Application, // the application's binding of slot `source` of the matched draw
         Resource,    // a resource of the Mod: `resource`, a file or what the generation declares
         Owned,       // a buffer the draw's owned GPU work wrote: `owned`, of the declaration `resource`
+        Native,      // an owned application descriptor captured by a native reference assignment
         Null,        // nothing
         Foreign      // a resource the plan does not hold: IniParams, the cursor, the back buffer, a
                      // view of a region, or an application binding taken in an earlier draw
@@ -63,6 +65,7 @@ struct SlotValue {
     SlotId source{};
     CustomResource* resource = nullptr;
     std::shared_ptr<const OwnedPlanBuffer> owned;
+    std::shared_ptr<const NativeResource> native;
     const CommandListCommand* by = nullptr; // the command that put it, for the notice
     bool null() const { return kind == Kind::Null; }
     bool same(const SlotValue& o) const
@@ -72,6 +75,7 @@ struct SlotValue {
         case Kind::Application: return source == o.source;
         case Kind::Resource: return resource == o.resource;
         case Kind::Owned: return owned == o.owned;
+        case Kind::Native: return native == o.native;
         default: return true;
         }
     }

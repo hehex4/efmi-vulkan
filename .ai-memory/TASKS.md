@@ -1,12 +1,12 @@
 # EFMI Vulkan - Tasks
 
-## Active continuation after D-198 (2026-11-13)
+## Active continuation after D-199 (2026-11-13)
 
-- The user corrected the early stop: finish feasible offline native work, including persistent bindings and resource frame analysis. An intermediate commit is not a stopping condition.
-- D-196 96b6ac6 and D-197 76011e4 are merged. D-198 verified pair 2.2.8, ABI 0x59f7c3b4b31c25f1: tracker 198, resources 73, calls 60, validation 76 and text pass; compute's final case retried 4/4 after fixing a read/write sharing race in its fixture. See CURRENT_STATE for precise scope.
-- Active D-199: source draft 2.2.9; retained resource metadata/reference values and ordered native descriptor assignment plans are being implemented, not built yet. The cross-draw retained-reference baseline is 3/4. Need finish descriptor execution, persistent pre/post context state, submission-time untouched descriptor updates, resource/type/layout/hazard checks, and file uploads; then staged GPU frame-analysis exports. Keep source frozen during each build.
-- Original SetResource CUSTOM_RESOURCE retains view/resource with AddRef. DX11 also supplies deferred GPU destruction, hazards and one-context order. Vulkan must explicitly provide all three, not claim a one-draw bind/restore as context semantics. Historical target metadata must never pin GPU allocations.
-- Root dist stays 2.1.8; last recorded real-game evidence 2.1.7. No new deployment, game session/load/module exchange or launcher edit is authorized. No remote is configured.
+- The user corrected the early stop: complete feasible offline native work. Intermediate commits do not end this continuation.
+- D-198 178aada is merged. D-199 2.2.9 implements retained refs and persistent ordinary/template/pushed native buffer bindings, pre/post execution and original custom stride queries. Main targeted regression and character checks pass; final single-application-queue refusal and all native binding cases pass 48/48, tracker 202 and text pass (CURRENT_STATE). Unsupported multi-queue and application image hazards remain explicit.
+- D-200 next: native file buffers/textures through the shared residency/cache/upload publication path, null unbinding using the already enabled nullDescriptor feature. Buffer baseline 2/4 in d200-file-before.out. Then host-owned staged GPU frame-analysis exports after completion, with correct pass/barrier placement and module exchange lifetimes. Never report a CPU shadow as post-draw GPU output.
+- Original SetResource/LoadFromFile/FrameAnalysis supply semantics. DX11 contributes deferred reference-counted destruction, hazard tracking and one-context order; Vulkan implements them explicitly. Ordinary descriptor updates after recording invalidate the command buffer, so submission-time snapshot refresh is not a task; that invalid fixture was removed.
+- Root dist stays 2.1.8, last game evidence 2.1.7; no new game load/deployment/session/swap/launcher edit is authorized. No remote is configured. Freeze sources during each build, verify only affected areas, commit and fast-forward main after verification.
 
 ## Current priorities after D-195 (2026-11-13)
 

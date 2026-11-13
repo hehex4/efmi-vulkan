@@ -15,7 +15,7 @@ struct SourceResourceMatch;
 // the owning generation's globals installed; the original engine owns mapping.
 void validate_pool_runtime(CustomResourcePool&);
 
-enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent, Caller, Dispatch };
+enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent, Caller, Dispatch, NativeBind };
 
 // Resource pointers borrow declarations from a retained frontend generation.
 // This CPU plan has no GPU readiness, resource lifetime or pipeline guarantee.
@@ -44,6 +44,8 @@ struct PlanItem {
     // allocation while the item lives.
     using OwnedBuffer = OwnedPlanBuffer;
     std::shared_ptr<const OwnedBuffer> owned;
+    NativeBinding native_target;
+    std::shared_ptr<const NativeResource> native_resource;
     std::shared_ptr<const core::PaletteSnapshot> palette; // Optional owned native Core draw data.
     // Translucent (D-113): a DrawIndexed of the current bindings that a library captures into a
     // translucency layer rather than drawing it in the pass, with this opacity and, when `resource`
@@ -159,6 +161,10 @@ public:
     // False with an empty reason means this target is outside the provider's domain.
     using ApplicationQuery = std::function<bool(ResourceCopyTarget&,CommandListState&,ApplicationResource&,std::wstring&)>;
     void application_resources(ApplicationQuery);
+    using NativeCapture = std::function<bool(const SlotId&,NativeResource&,std::wstring&)>;
+    void capture_resources(NativeCapture);
+    using NativeAddress = std::function<bool(const SlotId&,NativeBinding&,std::wstring&)>;
+    void native_addresses(NativeAddress);
     // During a plan: the application's draw runs after all, whatever `handling = skip` the matched
     // lists execute, as a native command decides when the original Core draws the original instance
     // (its explicit draw with the application's bindings).

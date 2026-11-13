@@ -229,6 +229,7 @@ struct App {
     VkPhysicalDevice phys = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     uint32_t queue_family = 0;
+    bool two_queues = false;
     VkQueue queue = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties mem_props = {};
 
@@ -503,12 +504,17 @@ static bool create_device()
     printf("device: %s\n", props.deviceName);
     vkGetPhysicalDeviceMemoryProperties(g.phys, &g.mem_props);
 
-    float priority = 1.0f;
+    float priorities[2] = {1.0f, 1.0f};
+    if(g.two_queues){
+        uint32_t count=0;vkGetPhysicalDeviceQueueFamilyProperties(g.phys,&count,nullptr);
+        std::vector<VkQueueFamilyProperties> families(count);vkGetPhysicalDeviceQueueFamilyProperties(g.phys,&count,families.data());
+        if(families[g.queue_family].queueCount<2){printf("FAILED: two-queue fixture needs two graphics queues\n");return false;}
+    }
     VkDeviceQueueCreateInfo qinfo = {};
     qinfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     qinfo.queueFamilyIndex = g.queue_family;
-    qinfo.queueCount = 1;
-    qinfo.pQueuePriorities = &priority;
+    qinfo.queueCount = g.two_queues ? 2 : 1;
+    qinfo.pQueuePriorities = priorities;
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     if(g.descriptor_mode>=2)exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
@@ -1568,6 +1574,7 @@ static bool render_frame()
     vkCmdEndRenderPass(g.primary);
     CHECK(vkEndCommandBuffer(g.primary));
     const double record_end = clock_ms();
+    late_compute_data();
 
     // Data that arrives after the draws were recorded and before they are submitted: legal, and what
     // a reader at record time would miss. Odd slots only, so that both outcomes occur in one frame.
@@ -1761,6 +1768,14 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.shader_path = argv[++i];
         else if (a == L"--compute-output" && i + 1 < argc)
             compute_scene.output_path = argv[++i];
+        else if (a == L"--two-queues")
+            g.two_queues = true;
+        else if (a == L"--compute-bindings")
+            compute_scene.binding_scene = true;
+        else if (a == L"--compute-late-data")
+            compute_scene.late_update = true;
+        else if (a == L"--compute-repeat" && i + 1 < argc)
+            compute_scene.repeat = std::max(1,std::min(16,_wtoi(argv[++i])));
         else if (a == L"--compute-indirect")
             compute_scene.indirect = true;
         else if (a == L"--geometry-shader" && i + 1 < argc)

@@ -32,6 +32,7 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
     const auto found = contents->values.find({alias.binding, alias.element});
     if (found == contents->values.end() || !found->second.known) return refuse("Native descriptor element has no known value");
     const auto& value = found->second;
+    output.descriptor_type=value.type;output.image_layout=value.image_layout;
     const bool uniform = value.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || value.type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     const bool storage = value.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || value.type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
     const bool sampled = value.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE || value.type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -40,6 +41,15 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
     if ((alias.kind == B::Constant && !uniform) || (alias.kind == B::Resource && !(sampled || storage || value.type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER)) ||
         (alias.kind == B::Access && !(storage || value.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || value.type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)))
         return refuse("Native alias kind does not match the descriptor type");
+    if(value.native){
+        output=*std::static_pointer_cast<const efmi::frontend::NativeResource>(value.native);
+        output.descriptor_type=value.type;
+        if(uniform || storage){
+            output.offset=value.offset;output.range=value.range;output.stride=uniform?16u:0u;
+            output.format=0;output.format_known=true;output.buffer_view=0;
+        }
+        return true;
+    }
     if (uniform || storage || texel) {
         VkBuffer handle = value.buffer; uint32_t id = value.buffer_id; uint64_t offset = 0, range = 0;
         if (texel) {
@@ -65,7 +75,15 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
         if (offset > buffer->second.size || !range || range > buffer->second.size - offset) return refuse("Native descriptor buffer range exceeds its allocation");
         output.bound = true; output.dimension = 1; output.identity = uint64_t(id) << 2;
         output.size = buffer->second.size; output.offset = offset; output.range = range;
+        output.buffer=uint64_t(handle);output.buffer_view=uint64_t(value.buffer_view);
+        if(buffer->second.lifetime && !buffer->second.lifetime->dependencies.empty()){
+            if(texel){
+                const auto& owner=device->buffer_views.at(value.buffer_view).lifetime;
+                if(owner && !owner->dependencies.empty())output.keep=owner;
+            }else output.keep=buffer->second.lifetime;
+        }
         const auto usage = buffer->second.usage;
+        output.usage=usage;
         output.bind_flags = ((usage & VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) ? 1u : 0u) |
             ((usage & VK_BUFFER_USAGE_INDEX_BUFFER_BIT) ? 2u : 0u) | ((usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) ? 4u : 0u) |
             ((usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT)) ? 8u : 0u) |
@@ -79,6 +97,9 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
         const auto found_image = device->images.find(view->second.image);
         if (found_image == device->images.end() || found_image->second.id != view->second.image_id) return refuse("Native descriptor image was destroyed");
         const auto& resource = found_image->second;
+        output.image_view=uint64_t(value.image_view);output.usage=resource.usage;
+        if(resource.lifetime && !resource.lifetime->dependencies.empty() && view->second.lifetime && !view->second.lifetime->dependencies.empty())
+            output.keep=view->second.lifetime;
         output.bound = true; output.dimension = uint32_t(resource.type) + 2;
         output.identity = (uint64_t(resource.id) << 2) | 2;
         output.width = resource.extent.width; output.height = resource.extent.height; output.depth = resource.extent.depth;

@@ -819,7 +819,7 @@ struct DrawPlanAdapter::Runtime {
             // other slots and the independent resource half of a mixed element.
             if(resource->is_null)return value;
             value=found->second.value;
-            if(found->second.execution && found->second.execution!=execution){value.kind=SlotValue::Kind::Foreign;value.owned.reset();}
+            if(found->second.execution && found->second.execution!=execution){value.kind=SlotValue::Kind::Foreign;value.owned.reset();value.native.reset();}
             return value;
         }
         // An empty original Resource declaration has no object until assigned; nor has a pool element its
@@ -859,9 +859,19 @@ struct DrawPlanAdapter::Runtime {
             }}
         }
         // A view of a region of the resource (`ref vs-cb0->Region(a, b)`) is another view than the plan binds.
-        if(source.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE && !value.null()){value.kind=SlotValue::Kind::Foreign;value.owned.reset();}
+        if(source.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE && !value.null()){value.kind=SlotValue::Kind::Foreign;value.owned.reset();value.native.reset();}
+        if(value.kind==SlotValue::Kind::Application && capture_resource){
+            NativeResource captured;std::wstring why;
+            if(capture_resource(value.source,captured,why)){
+                if(!captured.bound)value.kind=SlotValue::Kind::Null;
+                else if(captured.keep){value.kind=SlotValue::Kind::Native;value.native=std::make_shared<const NativeResource>(std::move(captured));}
+                else {value.kind=SlotValue::Kind::Foreign;refuse_draw(L"Native resource reference has no retained allocation owner");}
+            }else if(!why.empty()){value.kind=SlotValue::Kind::Foreign;refuse_draw(why);}
+        }
         return value;
     }
+    DrawPlanAdapter::NativeCapture capture_resource;
+    DrawPlanAdapter::NativeAddress native_address;
     // A declaration takes a value (ResourceCopyTarget::SetResource for a custom resource).
     void store(CustomResource* destination,SlotValue value)
     {
@@ -894,6 +904,7 @@ struct DrawPlanAdapter::Runtime {
     bool issue(bool application)
     {
         const PipelineFacts pipeline=facts?facts():PipelineFacts{};
+        if(pipeline.native_calls)return true; // Native assignments are ordered events, including bind-only post lists.
         auto& entries=context.entries();
         auto& wanted=scratch_wanted;wanted.resize(entries.size());
         for(size_t i=0;i<entries.size();++i){
@@ -1115,6 +1126,14 @@ struct DrawPlanAdapter::Runtime {
             if(id.kind==SlotKind::Vertex && owned_binding && drawing() && owned_binding(op.src,state,buffer,why)){
                 value.kind=SlotValue::Kind::Owned;value.owned=std::make_shared<const PlanItem::OwnedBuffer>(std::move(buffer));
             }else value.kind=SlotValue::Kind::Foreign;
+        }
+        if(facts && facts().native_calls){
+            PlanItem item;item.operation=PlanOperation::NativeBind;std::wstring why;
+            if(!native_address || !native_address(id,item.native_target,why))
+                refuse_draw(why.empty()?L"Native resource assignment has no descriptor address":why);
+            else if(value.kind==SlotValue::Kind::Native || value.null()){
+                item.native_resource=value.native;append(std::move(item));
+            }else refuse_draw(L"Native resource assignment needs a retained application reference or file upload");
         }
         context.set(id,std::move(value));
     }
@@ -1957,6 +1976,14 @@ void DrawPlanAdapter::application_resources(ApplicationQuery query)
         ApplicationResource info;
         if(!owner->application_query(target,state,info,why))return false;
         const auto mode=target.evaluation_mode;
+        if(mode==ResourceCopyTargetEvaluationMode::RESOURCE_STRIDE && target.type==ResourceCopyTargetType::CUSTOM_RESOURCE){
+            auto* declaration=target.GetCustomResource(&state);
+            if(!declaration){value=-2.0f;return true;}
+            value=declaration->override_stride!=-1?float(declaration->override_stride):
+                declaration->override_format!=DXGI_FORMAT(-1) && declaration->override_format!=DXGI_FORMAT_UNKNOWN?
+                float(dxgi_format_size(declaration->override_format)):16.0f;
+            return true;
+        }
         if(mode==ResourceCopyTargetEvaluationMode::RESOURCE_STRIDE && target.type==ResourceCopyTargetType::CONSTANT_BUFFER){value=16.0f;return true;}
         if(texture_property_mode(mode))return texture_property(mode,info.source.bound,info.properties,value,why);
         if(mode==ResourceCopyTargetEvaluationMode::RESOURCE){
@@ -1983,6 +2010,18 @@ void DrawPlanAdapter::application_resources(ApplicationQuery query)
         default:why=L"This native descriptor property is not represented by its Vulkan metadata";return false;
         }
     };
+}
+void DrawPlanAdapter::capture_resources(NativeCapture capture)
+{
+    if(runtime_->active || !runtime_->adapted.empty() || !capture || runtime_->capture_resource)
+        refuse(L"Install one native resource capture provider before adapting command lists");
+    runtime_->capture_resource=std::move(capture);
+}
+void DrawPlanAdapter::native_addresses(NativeAddress address)
+{
+    if(runtime_->active || !runtime_->adapted.empty() || !address || runtime_->native_address)
+        refuse(L"Install one native descriptor address provider before adapting command lists");
+    runtime_->native_address=std::move(address);
 }
 const CommandList* DrawPlanAdapter::current_root() const { return runtime_->root; }
 const std::wstring* DrawPlanAdapter::current_line() const { return runtime_->calling_line; }

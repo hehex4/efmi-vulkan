@@ -1,4 +1,5 @@
 #include "native_execution.h"
+#include "native_descriptors.h"
 #include "../../frontend/gpu/source_registers.h"
 
 namespace efvk {
@@ -98,7 +99,7 @@ bool native_calls(NativeCallCache& cache, Device* device, CmdBuf* cb, const Draw
     for (const auto& item : plan.items) {
         if (!item.layout.empty() || item.automatic || item.resource || item.owned)
             return refuse("Native call plan contains an unsupported layout or resource operation");
-        if (item.operation == O::Caller) continue;
+        if (item.operation == O::Caller || item.operation == O::NativeBind) continue;
         if (item.operation == O::Dispatch) {
             if (!compute) return refuse("Native dispatch cannot run in the application's graphics pass");
             const auto* limit = device->physical_properties.limits.maxComputeWorkGroupCount;
@@ -115,18 +116,22 @@ bool native_calls(NativeCallCache& cache, Device* device, CmdBuf* cb, const Draw
         } else return refuse("Native resource bindings require the descriptor executor");
     }
     lock.unlock();
+    NativeDescriptorPlan descriptors;
+    if(!hunting_skip && !prepare_native_descriptors(device,cb,r,plan,descriptors,why))return false;
     const size_t split = std::min(plan.pre_items,plan.items.size());
-    auto record = [&](const efmi::assets::FilePlanItem& item) {
+    auto record = [&](size_t index) {
         if (hunting_skip) return;
+        const auto& item=plan.items[index];
+        if(item.operation==O::NativeBind){record_native_descriptor(device,cb,r,descriptors,index);return;}
         if (compute) compute_order(cache.barrier,cb);
         if (item.operation == O::Caller) caller(device,cb,r);
         else if (item.operation == O::Dispatch) device->d.CmdDispatch(cb->handle,item.index_count,item.instance_count,item.first_index);
         else if (item.indexed) device->d.CmdDrawIndexed(cb->handle,item.index_count,item.instance_count,item.first_index,item.vertex_offset,item.first_instance);
         else device->d.CmdDraw(cb->handle,item.index_count,item.instance_count,item.first_index,item.first_instance);
     };
-    for (size_t i=0;i<split;++i) record(plan.items[i]);
+    for (size_t i=0;i<split;++i) record(i);
     if (!plan.skip_original && !hunting_skip) { if (compute) compute_order(cache.barrier,cb); caller(device,cb,r); }
-    for (size_t i=split;i<plan.items.size();++i) record(plan.items[i]);
+    for (size_t i=split;i<plan.items.size();++i) record(i);
     if (compute && !hunting_skip) compute_order(cache.barrier,cb);
     return true;
 }

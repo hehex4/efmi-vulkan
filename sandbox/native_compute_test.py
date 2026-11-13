@@ -27,7 +27,7 @@ def compile_compute(root, name, value, binding=0, threads=1):
 
 def read_compute_result(path):
     # The sandbox publishes a fenced four-word result repeatedly. Its writer can briefly own
-    # the Windows file or have truncated it; wait for a complete publication, never for a value.
+    # a Windows replacement in progress; wait for a complete publication, never for a value.
     deadline = time.monotonic() + .5
     while True:
         try:

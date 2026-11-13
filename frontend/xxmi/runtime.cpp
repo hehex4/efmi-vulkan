@@ -504,7 +504,31 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             }
             return facts;
         });
-        p.adapter.application_resources([&p](ResourceCopyTarget& target,CommandListState& state,
+        auto native_address=[&p](const SlotId& id,NativeBinding& address,std::wstring& why){
+            if(!p.current_draw || !p.current_draw->native_calls || !p.current_draw->native_resource)return false;
+            NativeBinding::Kind kind;
+            if(id.kind==SlotKind::ShaderResource)kind=NativeBinding::Resource;
+            else if(id.kind==SlotKind::ConstantBuffer)kind=NativeBinding::Constant;
+            else if(id.kind==SlotKind::UnorderedAccess)kind=NativeBinding::Access;
+            else return false;
+            const auto& draw=*p.current_draw;
+            const auto binding=std::find_if(p.native_bindings.begin(),p.native_bindings.end(),[&](const NativeBinding& b){
+                return b.stage==id.stage && b.kind==kind && b.slot==id.slot && (draw.stage_hash_mask>>b.stage&1u) && draw.stage_hashes[b.stage]==b.hash;
+            });
+            if(binding==p.native_bindings.end()){why=L"Native resource slot has no vk_binding for this shader";return false;}
+            address=*binding;return true;
+        };
+        p.adapter.native_addresses(native_address);
+        auto native_capture=[&p,native_address](const SlotId& id,NativeResource& resource,std::wstring& why){
+            NativeBinding address;
+            if(!native_address(id,address,why))return false;
+            std::string reason;
+            if(!p.current_draw->native_resource(address,resource,reason)){why.assign(reason.begin(),reason.end());return false;}
+            if(resource.size>UINT32_MAX || resource.offset>UINT32_MAX){why=L"Native resource exceeds original 32-bit description limits";return false;}
+            return true;
+        };
+        p.adapter.capture_resources(native_capture);
+        p.adapter.application_resources([&p,native_capture](ResourceCopyTarget& target,CommandListState& state,
                                              DrawPlanAdapter::ApplicationResource& output,std::wstring& why){
             if (!p.current_draw || !p.current_draw->native_resource) return false;
             SlotValue value;SlotId id;
@@ -516,25 +540,15 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                     output.source.bound=true;D3D11_BUFFER_DESC desc{};desc.BindFlags=declaration->bind_flags;
                     output.source.description=desc;return true;
                 }
+                // The original custom-resource stride reads the declaration before asking for an object.
+                if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_STRIDE)return true;
                 float ignored=0;
                 if(declared_texture_property(target.evaluation_mode,*declaration,ignored))return false;
                 value=p.adapter.held(declaration);
             } else if (!p.adapter.held(target,state,value,id)) return false;
-            if(value.kind != SlotValue::Kind::Application) return false;
-            id=value.source;
-            NativeBinding::Kind kind;
-            if(id.kind==SlotKind::ShaderResource)kind=NativeBinding::Resource;
-            else if(id.kind==SlotKind::ConstantBuffer)kind=NativeBinding::Constant;
-            else if(id.kind==SlotKind::UnorderedAccess)kind=NativeBinding::Access;
-            else return false;
-            const auto& draw=*p.current_draw;
-            const auto binding=std::find_if(p.native_bindings.begin(),p.native_bindings.end(),[&](const NativeBinding& b){
-                return b.stage==id.stage && b.kind==kind && b.slot==id.slot && (draw.stage_hash_mask>>b.stage&1u) && draw.stage_hashes[b.stage]==b.hash;
-            });
-            if(binding==p.native_bindings.end()){why=L"Native resource slot has no vk_binding for this shader";return false;}
-            NativeResource resource;std::string reason;
-            if(!draw.native_resource(*binding,resource,reason)){why.assign(reason.begin(),reason.end());return false;}
-            if(resource.size>UINT32_MAX || resource.offset>UINT32_MAX){why=L"Native resource exceeds original 32-bit description limits";return false;}
+            NativeResource resource;
+            if(value.kind==SlotValue::Kind::Native && value.native)resource=*value.native;
+            else if(value.kind!=SlotValue::Kind::Application || !native_capture(value.source,resource,why))return false;
             auto& source=output.source;source.bound=resource.bound;source.stride=resource.stride;source.offset=UINT(resource.offset);
             source.format=DXGI_FORMAT(resource.format);source.identity.tracking=SourceResourceIdentity::Tracking::Tracked;
             if(resource.dimension==1 && !source.stride && source.format!=DXGI_FORMAT_UNKNOWN)source.stride=dxgi_format_size(source.format);

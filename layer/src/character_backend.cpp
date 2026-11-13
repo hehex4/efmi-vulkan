@@ -187,6 +187,7 @@ CharacterBackend::~CharacterBackend()
 
 void character_device_setup(Device* device, const VkDeviceCreateInfo* info, VkInstance instance, PFN_vkGetInstanceProcAddr gipa)
 {
+    for(uint32_t i=0;i<info->queueCreateInfoCount;++i)device->application_queue_count+=info->pQueueCreateInfos[i].queueCount;
     device->material_queue_reason = "material queue discovery unavailable";
     if (!gipa) return;
     const auto families = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(gipa(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));

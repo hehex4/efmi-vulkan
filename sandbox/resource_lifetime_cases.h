@@ -1,4 +1,5 @@
 // Native resource-reference ownership checks, included by tracker_test.
+#include "../layer/src/native_resources.h"
 namespace {
 std::vector<int> resource_destroy_order;
 VKAPI_ATTR void VKAPI_CALL retained_memory_free(VkDevice,VkDeviceMemory,const VkAllocationCallbacks*) { resource_destroy_order.push_back(3); }
@@ -52,5 +53,38 @@ void native_resource_lifetimes()
     check(!d.images.at(image).lifetime && !on_destroy_image(&d,image),"swapchain-owned images never acquire a DestroyImage owner");
     on_alloc_memory(&d,memory,&allocation);on_create_buffer(&d,buffer,&buffer_info);on_bind_buffer(&d,buffer,memory,0);
     d.bufs.clear();d.mems.clear();check(resource_destroy_order.empty(),"metadata teardown never destroys objects still owned by the application");
+}
+
+void native_descriptor_references()
+{
+    Device d;d.d.FreeMemory=retained_memory_free;d.d.DestroyBuffer=retained_buffer_destroy;
+    const auto memory=h<VkDeviceMemory>(451);const auto buffer=h<VkBuffer>(452);const auto set=h<VkDescriptorSet>(453);const auto pipe=h<VkPipeline>(454);
+    VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};allocation.allocationSize=1024;
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};info.size=512;info.usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    on_alloc_memory(&d,memory,&allocation);on_create_buffer(&d,buffer,&info);on_bind_buffer(&d,buffer,memory,0);
+    auto layout=std::make_shared<DescriptorLayoutInfo>();layout->bindings[0]={VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,2,VK_SHADER_STAGE_COMPUTE_BIT};
+    auto pipeline=std::make_shared<PipelineLayoutInfo>();pipeline->sets.push_back(layout);pipeline->prefix.push_back(100);
+    d.pipes[pipe].layout=pipeline;
+    DescriptorSetInfo source;source.id=455;source.layout=layout;source.counts[0]=2;source.generation=1;
+    DescriptorElement value;value.known=true;value.type=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+    value.buffer=buffer;value.buffer_id=d.bufs.at(buffer).id;value.offset=16;value.range=32;
+    source.values[{0,0}]=value;source.values[{0,1}]=value;d.descriptor_sets[set]=source;
+    CmdBuf cb;cb.dyn={99,64,128};DrawRec draw;draw.pipeline=pipe;
+    auto& bound=draw.sets[0];bound.set=set;bound.id=455;bound.layout=pipeline;bound.dyn_first=1;bound.dyn_count=2;
+    efmi::frontend::NativeBinding alias;alias.stage=5;alias.kind=efmi::frontend::NativeBinding::Access;
+    efmi::frontend::NativeResource reference;std::string why;
+    check(native_resource(&d,&cb,draw,alias,reference,why) && reference.keep && reference.buffer==uint64_t(buffer) && reference.offset==80 && reference.range==32,
+          "native reference retains its allocation and resolved dynamic range");
+    auto prior=reference;prior.descriptor_type=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;prior.stride=16;prior.format=42;prior.buffer_view=123;
+    auto& rebound=d.descriptor_sets[set].values[{0,0}];rebound.native=std::make_shared<const efmi::frontend::NativeResource>(prior);rebound.offset=256;
+    cb.dyn[1]=cb.dyn[2]=0; // Private copies normalize offsets into the descriptors and bind zero dynamic offsets.
+    efmi::frontend::NativeResource rebound_query;
+    check(native_resource(&d,&cb,draw,alias,rebound_query,why) && rebound_query.descriptor_type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC &&
+          rebound_query.offset==256 && !rebound_query.stride && !rebound_query.format && !rebound_query.buffer_view,
+          "rebound native metadata follows the destination descriptor instead of the captured source view");
+    rebound.native.reset();prior={};rebound_query={};
+    resource_destroy_order.clear();on_destroy_buffer(&d,buffer);on_free_memory(&d,memory);
+    check(resource_destroy_order.empty() && reference.range==32,"retained native descriptor remains owned after logical application destruction");
+    reference={};check(resource_destroy_order==std::vector<int>({2,3}),"native descriptor releases its buffer then allocation after the last reference");
 }
 }
