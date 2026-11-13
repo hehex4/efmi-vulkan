@@ -189,7 +189,12 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
             reason = "layout_requires_complete_sets_and_one_free_slot"; return false;
         }
         for (const auto& s : source.sets) {
-            if (!s || !s->complete || s->flags) { reason = "set_layout_unsupported"; return false; }
+            // A native shader twin keeps the application's exact retained push layout. Other
+            // variant routes allocate/extend sets and retain their existing layout restrictions.
+            if (!s || !s->complete || (s->flags && !(patch.native_only &&
+                s->flags == VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR && s->lifetime))) {
+                reason = "set_layout_unsupported"; return false;
+            }
             for (const auto& pair : s->bindings) {
                 const auto& b = pair.second;
                 if (b.flags) { reason = "binding_flags_unsupported"; return false; }

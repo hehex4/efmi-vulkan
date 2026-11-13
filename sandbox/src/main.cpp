@@ -208,6 +208,7 @@ struct App {
     bool primary_screen = false;
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
+    bool mutable_sampler = false;
     int present_burst = 0;           // --present-burst: further presentations behind each frame's GPU work
     int load_blits = 0;              // the blits that make a frame's GPU work about 300 ms long
     VkImage load_src = VK_NULL_HANDLE, load_dst = VK_NULL_HANDLE;
@@ -697,7 +698,7 @@ static bool create_pipeline()
 
     // Deliberately unsorted bindings: dynamic offsets follow binding numbers, not creation order.
     VkDescriptorSetLayoutBinding material[2] = {};
-    material[0] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, &g.sampler};
+    material[0] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, g.mutable_sampler ? nullptr : &g.sampler};
     material[1] = {2, g.descriptor_mode >= 2 ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
                    2, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
     sl.flags = g.descriptor_mode >= 2 ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
@@ -1037,7 +1038,7 @@ static bool create_resources()
     g.material_set = sets[1];
     VkDescriptorBufferInfo bi = {g.ubo.buf, 0, kUboRange};
     VkDescriptorBufferInfo storage[] = {{g.storage.buf, kUboSlot, 16}, {g.storage.buf, 0, 16}};
-    VkDescriptorImageInfo texture = {VK_NULL_HANDLE, g.texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo texture = {g.mutable_sampler ? g.sampler : VK_NULL_HANDLE, g.texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     VkWriteDescriptorSet writes[3] = {};
     for (auto& w : writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = g.desc_set;
@@ -1156,7 +1157,7 @@ static bool create_resources()
     barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+    vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &barrier);
     VkBufferCopy region = {0, 0, sizeof(kIndicesA)};
     vkCmdCopyBuffer(g.primary, g.staging.buf, g.ib_a.buf, 1, &region);
@@ -1280,7 +1281,7 @@ static void record_draw(VkCommandBuffer cb, int i)
         MaterialData data = {};
         data.storage[0].buffer = {g.storage.buf, g.material_base + dyn[1], 16};
         data.storage[1].buffer = {g.storage.buf, dyn[2], 16};
-        data.texture = {VK_NULL_HANDLE, g.texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        data.texture = {g.mutable_sampler ? g.sampler : VK_NULL_HANDLE, g.texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         if (g.descriptor_mode == 3)
             vkCmdPushDescriptorSetWithTemplateKHR(cb, g.material_template, g.layout, 1, &data);
         else {
@@ -1788,6 +1789,10 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.output_path = argv[++i];
         else if (a == L"--two-queues")
             g.two_queues = true;
+        else if (a == L"--mutable-sampler")
+            g.mutable_sampler = true;
+        else if (a == L"--compute-image")
+            compute_scene.image_input = compute_scene.binding_scene = true;
         else if (a == L"--compute-bindings")
             compute_scene.binding_scene = true;
         else if (a == L"--compute-late-data")

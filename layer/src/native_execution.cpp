@@ -1,6 +1,7 @@
 #include "native_execution.h"
 #include "native_descriptors.h"
 #include "texture_residency.h"
+#include "texture_identity.h"
 #include "../../frontend/gpu/source_registers.h"
 
 namespace efvk {
@@ -80,17 +81,31 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
     for(size_t i=0;i<indices.size();++i){
         auto& item=output.items[indices[i]];const auto& file=*item.resource;const auto& binding=bindings[i];
         if(binding.failed){why="Native file upload failed: "+binding.reason;return false;}
-        if(!binding.buffer){why="Native file upload is pending publication";return false;}
-        const auto& buffer=binding.buffer;
-        if(!file.stride || buffer->size()%file.stride){why="Native file byte count is not a multiple of its stride";return false;}
+        if(!binding.buffer && !binding.owner){why="Native file upload is pending publication";return false;}
         auto resource=std::make_shared<efmi::frontend::NativeResource>();
-        resource->bound=true;resource->format_known=true;resource->dimension=1;
-        resource->identity=reinterpret_cast<uint64_t>(buffer.get())|3;
-        resource->buffer=uint64_t(buffer->buffer());resource->size=resource->range=buffer->size();
-        resource->usage=buffer->usage();resource->buffer_stride=resource->stride=file.stride;
-        resource->bind_flags=((file.usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)?4u:0u)|((file.usage&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)?8u:0u);
-        struct Owners {std::shared_ptr<const efmi::assets::BufferUpload> buffer;std::shared_ptr<const void> publication;};
-        resource->uploaded_readonly=true;resource->keep=std::make_shared<const Owners>(Owners{buffer,binding.publication});
+        resource->bound=true;resource->format_known=true;
+        if(binding.buffer){
+            const auto& buffer=binding.buffer;
+            if(!file.stride || buffer->size()%file.stride){why="Native file byte count is not a multiple of its stride";return false;}
+            resource->dimension=1;resource->identity=reinterpret_cast<uint64_t>(buffer.get())|3;
+            resource->buffer=uint64_t(buffer->buffer());resource->size=resource->range=buffer->size();
+            resource->usage=buffer->usage();resource->buffer_stride=resource->stride=file.stride;
+            resource->bind_flags=((file.usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)?4u:0u)|((file.usage&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)?8u:0u);
+        }else{
+            const auto& image=*binding.owner;const auto& metadata=image.metadata();
+            if(!file.sampled || metadata.layers!=1 || metadata.cube){why="Native file image requires a sampled non-array 2D view";return false;}
+            if(file.view_format && efmi::assets::image_vk_format(file.view_format)!=metadata.format){why="Native file view format differs from the uploaded typed image";return false;}
+            const auto skipped=image.skipped_levels();
+            if(skipped>=metadata.levels.size()){why="Native file image has no published mip levels";return false;}
+            resource->dimension=3;resource->identity=reinterpret_cast<uint64_t>(binding.owner.get())|3;
+            resource->width=metadata.levels[skipped].width;resource->height=metadata.levels[skipped].height;resource->depth=1;
+            resource->levels=uint32_t(metadata.levels.size())-skipped;resource->layers=1;
+            resource->format=resource->resource_format=dxgi_format(metadata.format);resource->format_known=resource->format!=0;
+            resource->image_view=uint64_t(binding.view);resource->usage=VK_IMAGE_USAGE_SAMPLED_BIT;resource->bind_flags=8;
+            resource->image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        }
+        struct Owners {std::shared_ptr<const efmi::assets::BufferUpload> buffer;std::shared_ptr<const efmi::assets::ImageUpload> image;std::shared_ptr<const void> publication;};
+        resource->uploaded_readonly=true;resource->keep=std::make_shared<const Owners>(Owners{binding.buffer,binding.owner,binding.publication});
         resource->publication_semaphore=uint64_t(binding.semaphore);resource->publication_value=binding.serial;
         item.native_resource=std::move(resource);item.resource.reset();
     }

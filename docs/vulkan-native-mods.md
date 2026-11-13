@@ -514,3 +514,9 @@ A primary's reset releases secondary dependencies without resetting the secondar
 The alternating-queue fixture drains each presentation before changing queues; it does not claim
 concurrent presentation coverage. Native-only and empty folder generations can exchange modules
 without adding a placeholder character Mod.
+
+### Native sampled file images (D-201, 2.3.1; sandbox only)
+
+A filename Resource, with default type or Texture2D, can bind through an explicit native vk_binding alias. DDS/WIC decoding, color-space flags, shared upload budgets and F10 file revisions follow the existing loader. Uploaded 2D color views retain their allocation and publication through recorded commands and backend exchange. The shader must use a compatible float sampled view; arrays/cubes, writable or depth-comparison consumers, incompatible explicit formats and missing shader-resource bind flags are reported.
+
+Ordinary and pushed graphics bindings, null with an enabled device feature, and compute/secondary bindings have GPU coverage. Native-only shader twins now preserve retained push layouts. Depth=2 compiler uncertainty is compatible with color sampling when neither module uses depth-reference operations. These changes do not move arbitrary application image layouts or add mutable file textures. No real-game acceptance is implied.

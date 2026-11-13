@@ -20,6 +20,18 @@ enum : uint32_t {
 struct Type { uint32_t op = 0; std::vector<uint32_t> operands; };
 } // namespace
 
+bool image_depth_reference(const std::vector<uint32_t>& code)
+{
+    if(code.size()<5 || code[0]!=kMagic)return true;
+    for(size_t i=5;i<code.size();){
+        const uint32_t n=code[i]>>16,op=code[i]&65535;
+        if(!n || n>code.size()-i)return true;
+        if(op==89 || op==90 || op==93 || op==94 || op==97 || op==307 || op==308 || op==311 || op==312 || op==315)return true;
+        i+=n;
+    }
+    return false;
+}
+
 bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegister>& out, std::string& reason)
 {
     reason.clear();
@@ -122,6 +134,10 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
             if (image->operands.size() < 6) { reason = "malformed image type"; return false; }
             // OpTypeImage: sampled type, Dim, Depth, Arrayed, MS, Sampled (2: storage).
             r.dim = image->operands[1];
+            r.depth = image->operands[2];
+            const auto numeric = types.find(image->operands[0]);
+            r.sampled_float32 = numeric != types.end() && numeric->second.op == OpTypeFloat &&
+                                !numeric->second.operands.empty() && numeric->second.operands[0] == 32;
             r.arrayed = image->operands[3] != 0;
             r.multisampled = image->operands[4] != 0;
             const bool storage = image->operands[5] == 2;

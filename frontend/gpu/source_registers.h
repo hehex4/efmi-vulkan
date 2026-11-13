@@ -20,6 +20,8 @@ struct SourceRegister {
     uint32_t index = 0, count = 1, set = 0, binding = 0;
     uint32_t dim = 0;       // SPIR-V Dim of an image: 0 1D, 1 2D, 2 3D, 3 Cube, 5 Buffer
     bool arrayed = false, multisampled = false;
+    uint32_t depth = 0;
+    bool sampled_float32 = false; // Numeric type required by normalized/float file-image views.
     uint32_t bytes = 0;     // a constant buffer: its block's size (last member's offset plus its size)
     uint32_t stride = 0;    // a buffer view: the array stride of its block's last member, 0 when none
     bool words = false;     // a buffer view whose elements are single 32-bit unsigned integers
@@ -28,6 +30,9 @@ struct SourceRegister {
 // Every resource variable with a binding, numbered by the rule. False (output unchanged) for input
 // this does not read: malformed words, a runtime-sized array, a resource of unknown type.
 bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegister>& out, std::string& reason);
+
+// Conservative whole-module depth-comparison use, including sparse operations.
+bool image_depth_reference(const std::vector<uint32_t>& code);
 
 // The resource that holds a register, or nullptr. A register inside an array returns the array;
 // the caller decides whether it can address one element.

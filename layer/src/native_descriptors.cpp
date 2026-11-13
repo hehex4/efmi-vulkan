@@ -206,6 +206,8 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                         using R=efmi::gpu::SourceRegister;
                         if(r.kind==R::BufferUav || r.kind==R::ImageUav || r.kind==R::TexelUav)
                             return refuse("Native file uploads are read-only; writable views need a mutable resource adapter");
+                        if(resource.image_view && (r.kind!=R::ImageSrv || r.dim!=1 || r.depth==1 || efmi::gpu::image_depth_reference(stage.shader->code) || r.arrayed || r.multisampled || !r.sampled_float32))
+                            return refuse("Native file image consumer requires a non-depth float 2D sampled view");
                         if(storage && r.stride && resource.buffer_stride!=r.stride)
                             return refuse("Native file stride differs from the shader's structured-buffer stride");
                     }
@@ -223,9 +225,11 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                     return refuse("Native buffer reference violates descriptor usage, range or alignment");
                 value.buffer=VkBuffer(resource.buffer);value.buffer_id=uint32_t(resource.identity>>2);value.offset=resource.offset;value.range=resource.range;
             }else if(sampled || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE){
-                // Retained image references need subresource layout tracking before they can move
-                // between calls. File uploads have a fixed published layout and are added separately.
-                return refuse("Native application image bindings require tracked subresource layouts");
+                if(!sampled || !resource.uploaded_readonly || !resource.image_view || !(resource.usage&VK_IMAGE_USAGE_SAMPLED_BIT) ||
+                   resource.image_layout!=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                    return refuse("Native application image bindings require tracked subresource layouts");
+                value.image_view=VkImageView(resource.image_view);value.image_view_id=0;
+                value.image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             }else{
                 const auto usage=type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER?VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
                 if(!resource.buffer_view || !(resource.usage&usage))return refuse("Native texel reference has incompatible view usage");

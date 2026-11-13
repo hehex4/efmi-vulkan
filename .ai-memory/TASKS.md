@@ -1,11 +1,11 @@
 # EFMI Vulkan - Tasks
 
-## Active continuation after D-200 (2026-11-13)
+## Active continuation after D-201 (2026-11-13)
 
 - The user corrected the early stop: complete feasible offline native work. Intermediate commits do not end this continuation.
-- D-199 is merged as 22cb2fd. D-200 2.3.0 adds native file buffers, null unbinding, retained upload publication across module exchange and secondary commands, plus native-only/empty configuration exchange. Final file cases 42/42, character 115/377, tracker 206, resources 89, validation 76, asset uploads 310 and text 557 pass; exact scopes and the two-queue VVL fixture correction are in CURRENT_STATE.
-- Active next D-201: native sampled file textures through shared residency, with owned views and explicit format/shape checks. Rendered-pixel baseline 2/4 in d201-image-before.out. Then host-owned staged GPU frame-analysis exports after completion, correct pass/barrier placement and exchange lifetimes. Never report a CPU shadow as post-draw GPU output.
-- Application image layouts, mutable file resources and cross-queue application hazards remain explicit boundaries. Root dist stays 2.1.8, historical game evidence 2.1.7; no current deployment or game action authorized.
+- D-200 is merged as ed66f6d. D-201 2.3.1 implements sampled native DDS/WIC file images and typed read-only views, including Depth=2 compatibility and retained native push-layout variants. Final images 46/46, native shaders 92/92, character 115/377, tracker 206 and text pass. Exact verification scope and prior runs are in CURRENT_STATE.
+- Active next D-202: staged GPU frame-analysis exports after completion, distinct per-call buffers and images, owned by the host across module exchange. GPU baseline 3/5 (no exports). Draft implementation and two integration scripts are in build; the untracked gpu_analysis_test.py and gpu_analysis.h belong to the next change. Never report CPU shadow bytes as GPU output.
+- Remaining boundaries include application-image layout moves, mutable/array file resources, cross-queue hazards, broader capture scopes and real-game acceptance. Root dist stays 2.1.8, historical game evidence 2.1.7; no current deployment or game action authorized.
 
 ## Current priorities after D-195 (2026-11-13)
 

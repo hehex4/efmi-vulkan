@@ -16,7 +16,7 @@ std::shared_ptr<const assets::FileResource> describe(const CustomResource& r,uns
     if(!path.is_absolute() || r.filename.size()>32760 || r.filename.find(L'\0')!=std::wstring::npos || r.name.size()>4096)
         return refuse(L"Resource path or name outside owned declaration limits");
     auto file=std::make_shared<assets::FileResource>();file->name=r.name;file->path=path.lexically_normal();
-    if(role==2){
+    if(role==2 || (role==3 && r.override_type!=CustomResourceType::BUFFER)){
         // A .dds by the DDS loader, any other file by WIC, as the original's LoadFromFile (D-139). The loaders
         // take the declaration's colour space and bind flags and nothing of its description (size, mips,
         // array, misc, stride: DirectXTK makes the texture from the file); the binding's view takes its

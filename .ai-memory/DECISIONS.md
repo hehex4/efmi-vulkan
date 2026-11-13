@@ -2,6 +2,14 @@
 
 Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 3. This file records the decisions about how the project is run, and later changes to the design with their reasons.
 
+## D-201: Native sampled file images use published owned 2D views (2026-11-13)
+
+- Original CustomResource::LoadFromFile selects DirectXTK DDS/WIC, loader colour space and bind flags; CreateCompatibleView checks view/resource types. DX11 supplies reference-counted deferred GPU destruction, hazard tracking and one-context order. Vulkan reuses bounded asynchronous residency and explicit completed-publication semaphore waits, retaining view/image/allocation and publication owners for recorded commands.
+- Accept typed non-array 2D sampled images whose consumer expects float32 color data. Preserve actual uploaded mip dimensions and shader-read layout. Refuse arrays/cubes, writable images, incompatible explicit view formats and non-sampled declarations. Arbitrary application images still require subresource layout tracking. This is shared behavior without character tables.
+- Verification is rendered pixel and compute data, including F10, pushed and secondary commands. Source-register metadata now also records image numeric/depth type without changing DX11 register inference. This decision is source work until CURRENT_STATE lists completed checks.
+
+- Depth=2 means unknown, not a depth image (SPIR-V OpTypeImage, https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html). Permit 0/2 native shader compatibility and color uploads only with no depth-reference instructions, including sparse operations. Native-only twins may retain the exact application's push layout; no private set is appended. BUG-096 records the regressions and final verification.
+
 ## D-001: Changes stay inside the project; EFMI, the game and EFMI MCP are read-only
 
 - Date: 2026-10-11.

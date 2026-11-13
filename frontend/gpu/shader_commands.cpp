@@ -1,5 +1,6 @@
 #include "shader_commands_internal.h"
 #include "native_shader.h"
+#include "source_registers.h"
 #include "image_formats.h"
 #include "shader_usage.h"
 #include "driver_workarounds.h"
@@ -191,7 +192,10 @@ bool native_shader_interface(const std::vector<uint32_t>& original, const std::v
                     "Native shader changes a descriptor interface");
             require(!next.accessed || old->accessed, "Native shader accesses a previously unused descriptor");
             require(old->resource_type == next.resource_type && old->input_attachment_index == next.input_attachment_index &&
-                    old->image.dim == next.image.dim && old->image.depth == next.image.depth && old->image.arrayed == next.image.arrayed &&
+                    old->image.dim == next.image.dim &&
+                    (old->image.depth == next.image.depth ||
+                     (old->image.depth != 1 && next.image.depth != 1 && !image_depth_reference(original) && !image_depth_reference(replacement))) &&
+                    old->image.arrayed == next.image.arrayed &&
                     old->image.ms == next.image.ms && old->image.sampled == next.image.sampled && old->image.image_format == next.image.image_format,
                     "Native shader changes an image type or resource access class");
             if (old->type_description && next.type_description &&
