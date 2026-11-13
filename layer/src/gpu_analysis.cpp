@@ -161,72 +161,89 @@ public:
                     if (adjusted) dynamic += binding.second.count;
                 }
             }
-            // DumpBuffer in the original stages the complete IA allocation. Keep draw
-            // bindings separately: this snapshot is at pass end, not at each draw.
-            std::map<std::pair<VkBuffer, std::string>, size_t> geometry;
-            if (!compute) for (size_t call = cb->pass.first_draw; call < cb->draws.size(); ++call) {
-                const auto& draw = cb->draws[call];
-                if (draw.kind > DK_INDEXED) {
-                    refuse(session, point, "Indirect geometry requires captured GPU draw arguments");
-                    continue;
+            // Full allocations, with indirect arguments kept separate from unknown GPU draw counts.
+            std::map<std::pair<VkBuffer,std::string>,size_t> allocations;
+            auto allocation=[&](VkBuffer buffer,const char* kind){
+                const auto key=std::make_pair(buffer,std::string(kind));const auto prior=allocations.find(key);
+                if(prior!=allocations.end())return prior->second;
+                BufferRequest r;r.buffer=buffer;r.kind=kind;
+                const auto source=device->bufs.find(buffer);
+                if(source==device->bufs.end())r.reason="Analysis buffer identity is unavailable";
+                else{
+                    const auto& b=source->second;r.id=b.id;r.bytes=b.size;r.owner=b.lifetime;
+                    if(!b.capture_safe)r.reason="Buffer extensions or flags require a capture adapter";
+                    else if(!(b.usage&VK_BUFFER_USAGE_TRANSFER_SRC_BIT))r.reason="Analysis buffer was not created with TRANSFER_SRC usage";
+                    else if(!b.lifetime || b.lifetime->dependencies.empty())r.reason="Analysis allocation lifetime cannot be retained";
+                    else if(!r.bytes)r.reason="Analysis buffer is empty";
                 }
-                const auto pipeline = device->pipes.find(draw.pipeline);
-                if (pipeline == device->pipes.end()) {
-                    refuse(session, point, "Geometry pipeline metadata is unavailable"); continue;
-                }
-                const auto& pipe = pipeline->second;
-                if (!pipe.recipe || !pipe.recipe->complete) {
-                    refuse(session, point, "Geometry pipeline extension state is not fully tracked"); continue;
-                }
-                bool dynamic = false;
-                for (const auto state : pipe.dynamic_states)
-                    dynamic |= state == VK_DYNAMIC_STATE_VERTEX_INPUT_EXT || state == VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE ||
-                               state == VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
-                if (dynamic) { refuse(session, point, "Dynamic vertex input or topology requires a geometry adapter"); continue; }
-                auto add = [&](VkBuffer buffer, const char* kind, uint64_t offset, const PipeInfo::Binding* binding) {
-                    if (!buffer) return;
-                    const auto key = std::make_pair(buffer, std::string(kind));
-                    auto found = geometry.find(key);
-                    if (found == geometry.end()) {
-                        BufferRequest r; r.buffer = buffer; r.kind = kind;
-                        const auto source = device->bufs.find(buffer);
-                        if (source == device->bufs.end()) r.reason = "Geometry buffer identity is unavailable";
-                        else {
-                            const auto& b = source->second; r.id = b.id; r.bytes = b.size; r.owner = b.lifetime;
-                            if (!b.capture_safe) r.reason = "Buffer extensions or flags require a capture adapter";
-                            else if (!(b.usage & VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) r.reason = "Geometry buffer was not created with TRANSFER_SRC usage";
-                            else if (!b.lifetime || b.lifetime->dependencies.empty()) r.reason = "Geometry allocation lifetime cannot be retained";
-                            else if (!r.bytes) r.reason = "Geometry buffer is empty";
-                        }
-                        found = geometry.emplace(key, requests.size()).first;
-                        requests.push_back(std::move(r));
+                const auto index=requests.size();allocations.emplace(key,index);requests.push_back(std::move(r));return index;
+            };
+            const auto first=compute?(cb->draws.empty()?0:cb->draws.size()-1):cb->pass.first_draw;
+            for(size_t call=first;call<cb->draws.size();++call){
+                const auto& draw=cb->draws[call];
+                const bool indirect=draw.kind==DK_INDIRECT || draw.kind==DK_INDEXED_INDIRECT || draw.kind==DK_DISPATCH_INDIRECT;
+                const bool indexed=draw.kind==DK_INDEXED || draw.kind==DK_INDEXED_INDIRECT;
+                if(compute?draw.kind!=DK_DISPATCH_INDIRECT:draw.kind>=DK_DISPATCH)continue;
+                const char* operation=compute?"dispatch_indirect":indirect?(indexed?"indexed_indirect":"indirect"):(indexed?"indexed":"draw");
+                const uint32_t command_bytes=compute?sizeof(VkDispatchIndirectCommand):indexed?sizeof(VkDrawIndexedIndirectCommand):sizeof(VkDrawIndirectCommand);
+                uint32_t argument_id=0,count_id=0;
+                auto describe=[&](JsonWriter& use){
+                    use.kn("command_buffer",draw.cb_id);use.kn("call",call+1);use.kv("operation",operation);
+                    if(indirect){
+                        use.kn("argument_resource",argument_id);use.kn("argument_offset",draw.indirect_off);
+                        use.kn("argument_stride",compute?command_bytes:draw.indirect_stride);use.kn("command_bytes",command_bytes);
+                        use.kn("max_draws",compute?1:draw.count);
+                        if(draw.indirect_count){use.kn("count_resource",count_id);use.kn("count_offset",draw.indirect_count_off);}
+                    }else{
+                        use.kn("first",draw.first);use.kn("count",draw.count);use.kn("instances",draw.instances);
+                        use.kn("first_instance",draw.first_instance);use.ki("vertex_offset",draw.vertex_offset);
                     }
-                    auto& request = requests[found->second];
-                    if (offset >= request.bytes) request.reason = "Geometry binding offset is outside its allocation";
-                    JsonWriter use; use.begin_object(); use.kn("command_buffer", draw.cb_id); use.kn("call", call + 1);
-                    use.kv("operation", draw.kind == DK_INDEXED ? "indexed" : "draw"); use.kn("pipeline", pipe.id);
-                    use.kn("bind_offset", offset); use.kn("first", draw.first); use.kn("count", draw.count);
-                    use.kn("instances", draw.instances); use.kn("first_instance", draw.first_instance);
-                    use.ki("vertex_offset", draw.vertex_offset); use.kn("topology", pipe.topology);
-                    if (binding) {
-                        use.kn("slot", binding->binding); use.kn("stride", binding->stride); use.kb("per_instance", binding->per_instance != 0);
-                        use.key("attributes"); use.begin_array();
-                        for (const auto& attribute : pipe.attributes) if (attribute.binding == binding->binding) {
-                            use.begin_object(); use.kn("location", attribute.location); use.kn("format", attribute.format);
-                            use.kn("offset", attribute.offset); use.end_object();
+                };
+                if(indirect){
+                    const auto arguments=allocation(draw.indirect,"indirect");argument_id=requests[arguments].id;
+                    const uint64_t count=compute?1:draw.count;
+                    const uint64_t required=count?(count-1)*draw.indirect_stride+command_bytes:0;
+                    auto& r=requests[arguments];
+                    if(r.reason.empty() && (draw.indirect_off>r.bytes || required>r.bytes-draw.indirect_off))r.reason="Indirect argument range exceeds its allocation";
+                    size_t counter=SIZE_MAX;
+                    if(draw.indirect_count){
+                        counter=allocation(draw.indirect_count,"indirect-count");auto& c=requests[counter];count_id=c.id;
+                        if(c.reason.empty() && (draw.indirect_count_off>c.bytes || 4>c.bytes-draw.indirect_count_off))c.reason="Indirect count range exceeds its allocation";
+                    }
+                    JsonWriter use;use.begin_object();describe(use);use.end_object();requests[arguments].uses.push_back(use.out);
+                    if(counter!=SIZE_MAX)requests[counter].uses.push_back(use.out);
+                    if(compute || !requests[arguments].reason.empty() || (counter!=SIZE_MAX && !requests[counter].reason.empty()))continue;
+                }
+                const auto pipeline=device->pipes.find(draw.pipeline);
+                if(pipeline==device->pipes.end()){refuse(session,point,"Geometry pipeline metadata is unavailable");continue;}
+                const auto& pipe=pipeline->second;
+                if(!pipe.recipe || !pipe.recipe->complete){refuse(session,point,"Geometry pipeline extension state is not fully tracked");continue;}
+                bool dynamic=false;
+                for(const auto state:pipe.dynamic_states)dynamic|=state==VK_DYNAMIC_STATE_VERTEX_INPUT_EXT ||
+                    state==VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE || state==VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
+                if(dynamic){refuse(session,point,"Dynamic vertex input or topology requires a geometry adapter");continue;}
+                auto add=[&](VkBuffer buffer,const char* kind,uint64_t offset,const PipeInfo::Binding* binding){
+                    if(!buffer)return;
+                    auto& request=requests[allocation(buffer,kind)];
+                    if(request.reason.empty() && offset>=request.bytes)request.reason="Geometry binding offset is outside its allocation";
+                    JsonWriter use;use.begin_object();describe(use);use.kn("pipeline",pipe.id);use.kn("bind_offset",offset);use.kn("topology",pipe.topology);
+                    if(binding){
+                        use.kn("slot",binding->binding);use.kn("stride",binding->stride);use.kb("per_instance",binding->per_instance!=0);
+                        use.key("attributes");use.begin_array();
+                        for(const auto& attribute:pipe.attributes)if(attribute.binding==binding->binding){
+                            use.begin_object();use.kn("location",attribute.location);use.kn("format",attribute.format);use.kn("offset",attribute.offset);use.end_object();
                         }
                         use.end_array();
-                    } else use.kn("index_size", draw.index_size);
-                    use.end_object(); request.uses.push_back(std::move(use.out));
+                    }else use.kn("index_size",draw.index_size);
+                    use.end_object();request.uses.push_back(std::move(use.out));
                 };
-                for (const auto& binding : pipe.bindings) {
-                    bool used = false;
-                    for (const auto& attribute : pipe.attributes) used |= attribute.binding == binding.binding;
-                    if (!used) continue;
-                    if (binding.binding >= kMaxVb) { refuse(session, point, "Vertex binding exceeds tracked slots"); continue; }
-                    add(draw.vb[binding.binding].buf, "vertex", draw.vb[binding.binding].off, &binding);
+                for(const auto& binding:pipe.bindings){
+                    bool used=false;for(const auto& attribute:pipe.attributes)used|=attribute.binding==binding.binding;
+                    if(!used)continue;
+                    if(binding.binding>=kMaxVb){refuse(session,point,"Vertex binding exceeds tracked slots");continue;}
+                    add(draw.vb[binding.binding].buf,"vertex",draw.vb[binding.binding].off,&binding);
                 }
-                if (draw.kind == DK_INDEXED) add(draw.ib, "index", draw.ib_off, nullptr);
+                if(indexed)add(draw.ib,"index",draw.ib_off,nullptr);
             }
         }
         auto owner = std::static_pointer_cast<CaptureOwner>(owner_for(cb->owners, &capture_owner_key, [] {

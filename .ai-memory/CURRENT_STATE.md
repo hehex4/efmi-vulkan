@@ -5,6 +5,14 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.3.8: GPU indirect arguments and geometry, D-208 (2026-11-14; sandbox verified)
+
+- D-207 is committed and merged as 213d17d. Original FrameAnalysis.cpp DispatchIndirect/DrawIndexedInstancedIndirect/DrawInstancedIndirect logs argument buffers and offsets, while DumpBuffer stages full allocations. DX11 supplies deferred reference-counted lifetime, hazards and one-context order.
+- Export full GPU argument/count allocations through the existing retained staging/completion path. Per-call metadata names argument/count resource IDs, offsets, stride, command bytes and max_draws; associated indirect vertex/index uses omit unknown first/count/instance values. Allocation and range guards remain. Snapshots are end-of-pass or post-dispatch, not historical per-draw values.
+- Fixture baseline7/11 (d208-before.out); failed cases now39/39 (d208-after.out). Host/module built in d208-pair.out as2.3.8, ABI97d3399f4a32ac23 unchanged and verified in host/inject/backend. Tracker is unchanged D-207 with the same ABI. Final --only gpu-analysis passes: GPU resources55, geometry65, indirect121, targets22, tracker260, Vulkan validation76 and text574 (d208-regression.out). GPU capture fixtures enable synchronization validation in their child processes. Both draw types, count/zero/secondary forms, dispatch arguments and missing-transfer-usage refusals are covered.
+- Next commit/fast-forward this change, then continue D-209 native file arrays/cubes. Original LoadFromFile/FillOutTex2DDesc preserves resource shapes; implement a distinct upload/cache mode so legacy D-149 first-layer textures stay unchanged. Draft fixture/implementation/test are in build/d209-*.py, not yet applied.
+- Root dist2.1.8 and historical game2.1.7 unchanged. No game/deployment/system/remote action.
+
 ## Active source 2.3.7: Stable configuration roots across module exchange, D-207 (2026-11-14; sandbox verified)
 
 - D-206 is committed and merged as f5ad8c3. Its final corrected exchange check is 7/7 and the other exact checks are recorded below. Continue without ending at a commit boundary.

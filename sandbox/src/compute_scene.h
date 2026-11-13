@@ -36,7 +36,7 @@ static bool create_compute_scene()
     std::vector<uint32_t> code(size / 4);
     const bool read = fread(code.data(), 1, size, file) == size; fclose(file);
     if (!read || !make_buffer(c.data, 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true) ||
-        !make_buffer(c.arguments, 12, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, true, true)) return false;
+        !make_buffer(c.arguments, 12, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true)) return false;
     memset(c.data.map, 0, 16);
     if(c.binding_scene){
         if(!make_buffer(c.alternate,16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,true,true) ||

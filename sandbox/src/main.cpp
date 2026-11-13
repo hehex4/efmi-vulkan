@@ -74,7 +74,7 @@
     X(GetBufferMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) X(MapMemory) X(UnmapMemory)     \
     X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer)     \
     X(ResetCommandBuffer) X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindVertexBuffers)         \
-    X(CmdBindIndexBuffer) X(CmdBindDescriptorSets) X(CmdDrawIndexed) X(CmdDraw) X(CmdDrawIndexedIndirect) X(CmdCopyBuffer) X(CmdExecuteCommands) \
+    X(CmdBindIndexBuffer) X(CmdBindDescriptorSets) X(CmdDrawIndexed) X(CmdDraw) X(CmdDrawIndexedIndirect) X(CmdDrawIndirect) X(CmdCopyBuffer) X(CmdExecuteCommands) \
     X(CmdSetViewport) X(CmdSetScissor) X(QueueSubmit) X(QueueWaitIdle) X(CreateSemaphore) X(DestroySemaphore)          \
     X(CreateFence) X(DestroyFence) X(WaitForFences) X(ResetFences) X(CmdBlitImage) X(CmdClearColorImage)
 
@@ -86,6 +86,7 @@ static PFN_vkCreateInstance vkCreateInstance;
 static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
 static PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
 static PFN_vkCmdDrawIndexedIndirectCountKHR vkCmdDrawIndexedIndirectCountKHR;
+static PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
 static std::atomic<uint32_t> validation_errors{0}, validation_warnings{0};
 static std::atomic<bool> validation_canary_seen{false};
 #define X(n) static PFN_vk##n vk##n;
@@ -193,7 +194,7 @@ struct App {
     int seconds = 30;
     int threads = 2;
     int draws = kDrawCount;
-    int draw_kind = 0; // 0 indexed, 1 non-indexed, 2 indexed indirect, 3 indexed indirect count
+    int draw_kind = 0; // 0 indexed, 1 non-indexed, 2/3 indexed indirect/count, 4/5 non-indexed indirect/count
     bool indirect_zero_count = false;
     bool geometry_capture = false, geometry_odd = false;
     std::wstring geometry_shader, hull_shader, domain_shader;
@@ -523,7 +524,7 @@ static bool create_device()
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     if(g.sync2 && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if(g.descriptor_mode>=2)exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
-    if(g.draw_kind==3)exts.push_back(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
+    if(g.draw_kind==3 || g.draw_kind==5)exts.push_back(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
     VkDeviceCreateInfo dinfo = {};
     dinfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     dinfo.queueCreateInfoCount = 1;
@@ -546,7 +547,7 @@ static bool create_device()
     }
     VK_DEVICE_FUNCS(X)
     if (g.descriptor_mode >= 2) { VK_PUSH_FUNCS(X) }
-    if (g.draw_kind == 3) { X(CmdDrawIndexedIndirectCountKHR) }
+    if (g.draw_kind == 3 || g.draw_kind == 5) { X(CmdDrawIndexedIndirectCountKHR) X(CmdDrawIndirectCountKHR) }
 #undef X
     vkGetDeviceQueue(g.device, g.queue_family, 0, &g.queue);
     if(g.two_queues)vkGetDeviceQueue(g.device,g.queue_family,1,&g.other_queue);
@@ -934,7 +935,7 @@ static bool create_resources()
 {
     if (g.draw_kind >= 2) {
         if (!make_buffer(g.draw_arguments, sizeof(VkDrawIndexedIndirectCommand) * kDrawCount + sizeof(uint32_t),
-                         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, true, true)) return false;
+                         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | (g.geometry_capture ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true)) return false;
         auto* args = static_cast<VkDrawIndexedIndirectCommand*>(g.draw_arguments.map);
         for (int i = 0; i < kDrawCount; ++i) args[i] = {kDraws[i].count, kDraws[i].instances, kDraws[i].first, 0, 0};
         *reinterpret_cast<uint32_t*>(args+kDrawCount)=g.indirect_zero_count?0u:1u;
@@ -1310,6 +1311,9 @@ static void record_draw(VkCommandBuffer cb, int i)
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 1, 1, sets + 1, 2, dyn + 1);
     }
     if (g.draw_kind == 1) vkCmdDraw(cb, 3, d.instances, 0, 0);
+    else if (g.draw_kind == 5) vkCmdDrawIndirectCountKHR(cb,g.draw_arguments.buf,i*sizeof(VkDrawIndexedIndirectCommand),
+        g.draw_arguments.buf,kDrawCount*sizeof(VkDrawIndexedIndirectCommand),1,sizeof(VkDrawIndexedIndirectCommand));
+    else if (g.draw_kind == 4) vkCmdDrawIndirect(cb,g.draw_arguments.buf,i*sizeof(VkDrawIndexedIndirectCommand),1,sizeof(VkDrawIndexedIndirectCommand));
     else if (g.draw_kind == 3) vkCmdDrawIndexedIndirectCountKHR(cb,g.draw_arguments.buf,i*sizeof(VkDrawIndexedIndirectCommand),
                                                               g.draw_arguments.buf,kDrawCount*sizeof(VkDrawIndexedIndirectCommand),1,sizeof(VkDrawIndexedIndirectCommand));
     else if (g.draw_kind == 2) vkCmdDrawIndexedIndirect(cb, g.draw_arguments.buf, i * sizeof(VkDrawIndexedIndirectCommand), 1, sizeof(VkDrawIndexedIndirectCommand));
@@ -1849,6 +1853,10 @@ int wmain(int argc, wchar_t** argv)
             g.draw_kind = 2;
         else if (a == L"--indexed-indirect-count")
             g.draw_kind = 3;
+        else if (a == L"--non-indexed-indirect")
+            g.draw_kind = 4;
+        else if (a == L"--non-indexed-indirect-count")
+            g.draw_kind = 5;
         else if (a == L"--indirect-zero-count")
             g.indirect_zero_count = true;
         else if (a == L"--present-burst" && i + 1 < argc)

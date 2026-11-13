@@ -1,6 +1,12 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-208: GPU indirect capture verified; continue D-209 (2026-11-14)
+
+- Source2.3.8/pair ABI97d3399f4a32ac23. Full capture-area regression passes: resources55, geometry65, indirect121, targets22, tracker260, validation76, text574. CURRENT_STATE records exact evidence. Review/commit/fast-forward, then continue without ending the turn.
+- Next D-209 native file arrays/cubes: separate upload mode/cache identity from legacy D-149 first-layer views. Original LoadFromFile and FillOutTex2DDesc read; drafts build/d209-fixture.py, d209-native-shapes.py, d209-implement.py. Build fixture, establish failing actual GPU baseline, then implement full-layer uploads and shader-consumer shape checks; validate mip/layer bytes, cache separation, publication, F10, push/secondary and legacy texture behavior.
+- Broader resource/layout/queue graphs, writable resources, render-target rebinding and capture boundaries remain offline engineering. No game/deployment action authorized.
+
 ## Active D-207: Configuration roots across code exchange (2026-11-14)
 
 - D-206 committed and merged as f5ad8c3. D-207 relative Mods/settings baseline 3/7; fix built and verified in d207-path-pair.out. Failed case now7/7; module-paths regression: application images76, native files42, tracker260, text573 all pass (d207-path-regression.out). Source2.3.7, ABI97d3399f4a32ac23 unchanged. Memory and evidence synchronized; commit and fast-forward main, then continue D-208.

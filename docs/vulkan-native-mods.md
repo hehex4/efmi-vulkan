@@ -550,7 +550,7 @@ interpretation. A non-indexed draw does not export an index buffer merely becaus
 
 These bytes are end-of-pass data for the original application's bindings, not per-draw snapshots or
 the replacement engine's private mesh buffers. Secondary recording identities are retained in uses.
-Indirect calls, dynamic input/topology and vertex slots beyond the four tracked slots are explicitly
+D-208 adds indirect calls below; dynamic input/topology and vertex slots beyond the four tracked slots remain
 refused. All D-202 ownership, usage, queue and completion restrictions still apply. Buffer copies
 preserve every byte, including sizes not divisible by four; VkBufferCopy has no such alignment rule.
 
@@ -599,3 +599,16 @@ queue/signal graphs, mutable/storage images and broader view shapes remain separ
 Tests check actual distinct image values across GPU writes, temporary layout restoration, GENERAL
 descriptor refresh, unmatched pipelines, application rebinding, push/secondary paths, rendered
 pixels, F10 and code-module exchange. Exchanged ShaderFixes locate the validator through the owned GPU toolchain directory. No game acceptance or deployment is implied.
+
+### GPU indirect argument snapshots (D-208, 2.3.8; sandbox only)
+
+Analysis exports indirect-N.buf and, when used, indirect-count-N.buf as full GPU allocations.
+Their uses record command buffer/call, operation, argument/count resource IDs and offsets, stride,
+command_bytes and max_draws. Indirect vertex/index uses carry the same association and omit unknown
+first/count/instance values. Decode the GPU command at its recorded offset to interpret geometry;
+max_draws is a recording-time limit, not a fabricated GPU count. Zero counts still retain arguments.
+
+Graphics arguments are snapshots at classic pass end; compute arguments follow each indirect dispatch.
+Changes made to arguments inside the pass cannot be reconstructed as earlier per-draw values.
+All transfer-source, retained-owner, queue, synchronization and geometry recipe limits still apply.
+The121 checks cover indexed/non-indexed/count/zero/secondary forms, dispatches and usage refusals.

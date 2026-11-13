@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-208: Capture GPU indirect arguments without inventing draw counts (2026-11-14)
+
+- Original FrameAnalysisContext logs indirect argument resource/offset and DumpBuffer copies full allocations. DX11 owns deferred resource lifetime, hazard tracking and immediate-context order. Vulkan uses the existing retained host staging and completed submission publication.
+- Export full argument and optional count allocations once per resource/kind at each graphics pass end; compute captures follow each indirect dispatch. Geometry uses name their GPU argument snapshots, byte offsets, command size, stride and maximum draw count, instead of treating recording-time max counts as actual GPU draw values. Secondary recording identities remain intact.
+- Overflow-safe argument/count ranges, transfer usage, resource owners, pipeline recipes, static vertex input and all D-202 queue/completion constraints remain required. End-of-pass bytes do not reconstruct earlier argument values modified in the pass. No source usage flags or application queue features are changed.
+- Baseline7/11, failed cases39/39 after. Final capture-area checks all pass, including121 indirect checks and clean core/synchronization validation; CURRENT_STATE lists exact builds/artifacts. No real-game or deployment claim.
+
 ## D-207: Exchanging code preserves the host installation root (2026-11-14)
 
 - Original IniHandler resolves d3dx.ini and relative override_directory from migoto_handle (4458,

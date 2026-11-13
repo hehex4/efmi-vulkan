@@ -2470,3 +2470,9 @@ case7/7; module-paths regression passes application images76, native files42, tr
 validation too. BUG-099 fixed offline. Next D-208 indirect argument/count GPU captures and geometry
 associations, using the ignored earlier d207-* indirect drafts with version2.3.8. No game/deployment,
 launcher/system changes or remote actions; root dist2.1.8 and historical game2.1.7 unchanged.
+
+## 2026-11-14: D-208 GPU indirect argument/count capture, 2.3.8
+
+Continued after D-207. Read original FrameAnalysis indirect calls and DumpBuffer. Added complete GPU argument/count allocation snapshots with resource/offset/stride/max metadata and indirect geometry associations. Preserve end-of-pass/post-dispatch semantics, retained lifetime and all queue/usage/completion guards; do not fabricate CPU-visible draw counts. Explicit fixture transfer usage only.
+
+Baseline7/11 (d208-before.out); host/module built d208-pair.out, same ABI97d3399f4a32ac23, DLL versions/stamps verified. Failed cases39/39 (d208-after.out); capture-area regression passes resources55, geometry65, indirect121, targets22, tracker260, validation76, text574 (d208-regression.out). Review/commit/fast-forward then continue D-209 full native file shapes through a distinct upload/cache mode, preserving legacy first-layer textures. Root dist2.1.8, historical game2.1.7 unchanged. No deployment/game/system/remote action.
