@@ -1,5 +1,6 @@
 #pragma once
 #include "../assets/file_plan.h"
+#include "native_bindings.h"
 #include <cmath>
 #include <limits>
 #include <tuple>
@@ -101,6 +102,7 @@ constexpr uint32_t kWordBufferDeclaration = 0xFFFFFFFFu;
 // EFMITTL's vertex shader groups a draw's vertex shader stands for (D-113, D-171, D-185).
 enum class VertexHook : uint32_t { None = 0, Lit = 1, LitSkin = 2, Outline = 3, ShadowPlain = 4, ShadowFading = 5 };
 struct RuntimeDraw {
+    std::function<bool(const NativeBinding&, NativeResource&, std::string&)> native_resource;
     uint32_t hash = 0, count = 0, first = 0, instances = 1, first_instance = 0;
     int32_t base = 0;
     uint64_t frame = 0;
@@ -242,6 +244,7 @@ public:
     std::vector<uint32_t> shader_hashes() const;
     // Original DepthBufferFilter values: 1 needs a depth target, 2 needs no depth target.
     std::map<uint32_t, int> shader_depth_filters() const;
+    const std::vector<NativeBinding>& native_bindings() const;
     // The installation's [Hunting] settings as the generation read them, and the hunting keys its presentations
     // dispatched since the last call, in order.
     HuntingSettings hunting() const;

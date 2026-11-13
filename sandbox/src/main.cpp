@@ -205,6 +205,7 @@ struct App {
     VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
     bool primary_screen = false;
     bool readable_swapchain = false; // test readback of what the layer drew into the image
+    bool srgb_texture_view = false;
     int present_burst = 0;           // --present-burst: further presentations behind each frame's GPU work
     int load_blits = 0;              // the blits that make a frame's GPU work about 300 ms long
     VkImage load_src = VK_NULL_HANDLE, load_dst = VK_NULL_HANDLE;
@@ -975,6 +976,7 @@ static bool create_resources()
     image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image.imageType = VK_IMAGE_TYPE_2D;
     image.format = VK_FORMAT_R8G8B8A8_UNORM;
+    image.flags = g.srgb_texture_view ? VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT : 0;
     image.extent = {kTexSize, kTexSize, 1};
     image.mipLevels = image.arrayLayers = 1;
     image.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -995,7 +997,7 @@ static bool create_resources()
     view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view.image = g.texture;
     view.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view.format = image.format;
+    view.format = g.srgb_texture_view ? VK_FORMAT_R8G8B8A8_SRGB : image.format;
     view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     CHECK(vkCreateImageView(g.device, &view, nullptr, &g.texture_view));
 
@@ -1730,6 +1732,7 @@ int wmain(int argc, wchar_t** argv)
             g.warmup = _wtoi(argv[++i]);
         else if (a == L"--frames" && i + 1 < argc)
             g.measured_frames = _wtoi(argv[++i]);
+        else if (a == L"--srgb-texture-view") g.srgb_texture_view = true;
         else if (a == L"--descriptors" && i + 1 < argc) {
             std::wstring mode = argv[++i];
             if (mode == L"ordinary") g.descriptor_mode = 0;

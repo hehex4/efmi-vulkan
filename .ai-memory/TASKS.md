@@ -1,5 +1,11 @@
 # EFMI Vulkan - Tasks
 
+## Active continuation, D-196 and remaining offline native work (2026-11-13)
+
+- The user explicitly corrected the early stop after D-195: continue all feasible offline native work, including slots/bindings/draws and resource frame analysis. Completing an intermediate milestone is not a stopping condition. Do not end this continuation merely by listing still-actionable offline work.
+- D-196 is verified: worktree pair 2.2.6, ABI 0x3cab9df2f4f8b9fa. Eleven targeted regression steps pass, including live INI 221, character replacement 377, tracker 185 and validation 76. Final native-resource cases total 73 passing checks across d196-final-properties.out and d196-reference-flags-final.out; the declaration flags fixture was corrected from override flags to the original's accumulated flags. See CURRENT_STATE for evidence and intermediate build/test mistakes.
+- Active D-197: native draw/dispatch plan execution on the application pipeline with real pre/original/post placement, complete indirect-call arguments, compute barriers and graphics access checks. GPU counter baseline 8/12 in build/d197-execution-before.out. Native execution draft files and frontend/host integration are still unverified and unstaged, separate from D-196. Finish and commit, then descriptor/resource bindings with persistent pre/post state and owned lifetimes, then frame-analysis staging/export. No game activity is authorized; root dist remains 2.1.8.
+
 ## Current priorities after D-195 (2026-11-13)
 
 - Source and worktree pair 2.2.5, shared ABI 0x3cab9df2f4f8b9fa. Root dist remains 2.1.8; latest recorded game 2.1.7. No deployment/game session is part of this offline continuation.

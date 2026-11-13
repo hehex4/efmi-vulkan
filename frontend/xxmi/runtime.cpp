@@ -33,6 +33,7 @@ void HostParseTextureOverrides();
 void HostParseResourceMatching();
 void HostParseShaderOverrides();
 void RuntimeParseSpirvShaderOverrides();
+std::vector<efmi::frontend::NativeBinding> RuntimeNativeBindings();
 void RuntimeParseHunting(int&, int&, unsigned&, bool&, InputCallback);
 void HostParseShaderRegex();
 void HostCompileRoots(const std::vector<CommandList*>&, const std::vector<std::wstring>&);
@@ -286,6 +287,7 @@ struct IniRuntime::Impl {
     // and the hunting keys the presentations dispatched, until the host takes them.
     std::vector<uint32_t> shader_hashes;
     std::map<uint32_t, int> shader_depth_filters;
+    std::vector<NativeBinding> native_bindings;
     HuntingSettings hunting;
     size_t hunting_keys_first = 0, hunting_keys_last = 0; // the hunting keys among the original's key actions
     std::atomic<int> hunting_mode{0}; // the host's hunting mode for G->hunting, 0 until the host says
@@ -501,6 +503,54 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             }
             return facts;
         });
+        p.adapter.application_resources([&p](ResourceCopyTarget& target,CommandListState& state,
+                                             DrawPlanAdapter::ApplicationResource& output,std::wstring& why){
+            if (!p.current_draw || !p.current_draw->native_resource) return false;
+            SlotValue value;SlotId id;
+            if(target.type==ResourceCopyTargetType::CUSTOM_RESOURCE){
+                auto* declaration=target.GetCustomResource(&state);
+                if(!declaration)return false;
+                // GetResourceBindFlags reads the declaration even before it has a resource or after a reference.
+                if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_BIND_FLAGS){
+                    output.source.bound=true;D3D11_BUFFER_DESC desc{};desc.BindFlags=declaration->bind_flags;
+                    output.source.description=desc;return true;
+                }
+                float ignored=0;
+                if(declared_texture_property(target.evaluation_mode,*declaration,ignored))return false;
+                value=p.adapter.held(declaration);
+            } else if (!p.adapter.held(target,state,value,id)) return false;
+            if(value.kind != SlotValue::Kind::Application) return false;
+            id=value.source;
+            NativeBinding::Kind kind;
+            if(id.kind==SlotKind::ShaderResource)kind=NativeBinding::Resource;
+            else if(id.kind==SlotKind::ConstantBuffer)kind=NativeBinding::Constant;
+            else if(id.kind==SlotKind::UnorderedAccess)kind=NativeBinding::Access;
+            else return false;
+            const auto& draw=*p.current_draw;
+            const auto binding=std::find_if(p.native_bindings.begin(),p.native_bindings.end(),[&](const NativeBinding& b){
+                return b.stage==id.stage && b.kind==kind && b.slot==id.slot && (draw.stage_hash_mask>>b.stage&1u) && draw.stage_hashes[b.stage]==b.hash;
+            });
+            if(binding==p.native_bindings.end()){why=L"Native resource slot has no vk_binding for this shader";return false;}
+            NativeResource resource;std::string reason;
+            if(!draw.native_resource(*binding,resource,reason)){why.assign(reason.begin(),reason.end());return false;}
+            if(resource.size>UINT32_MAX || resource.offset>UINT32_MAX){why=L"Native resource exceeds original 32-bit description limits";return false;}
+            auto& source=output.source;source.bound=resource.bound;source.stride=resource.stride;source.offset=UINT(resource.offset);
+            source.format=DXGI_FORMAT(resource.format);source.identity.tracking=SourceResourceIdentity::Tracking::Tracked;
+            if(resource.dimension==1 && !source.stride && source.format!=DXGI_FORMAT_UNKNOWN)source.stride=dxgi_format_size(source.format);
+            source.identity.hash_known=resource.hash_known;source.identity.hash=resource.hash;
+            auto& properties=output.properties;properties.dimension=D3D11_RESOURCE_DIMENSION(resource.dimension);
+            properties.format_known=resource.format_known;properties.format=source.format;properties.width=resource.width;
+            properties.height=resource.height;properties.mips=resource.levels;properties.array=resource.layers;
+            output.identity=resource.identity;output.size=resource.range;
+            switch(properties.dimension){
+            case D3D11_RESOURCE_DIMENSION_BUFFER:{D3D11_BUFFER_DESC d{};d.ByteWidth=UINT(resource.size);d.BindFlags=resource.bind_flags;d.StructureByteStride=resource.stride;source.description=d;break;}
+            case D3D11_RESOURCE_DIMENSION_TEXTURE1D:{D3D11_TEXTURE1D_DESC d{};d.Width=resource.width;d.MipLevels=resource.levels;d.ArraySize=resource.layers;d.Format=DXGI_FORMAT(resource.resource_format);d.BindFlags=resource.bind_flags;source.description=d;break;}
+            case D3D11_RESOURCE_DIMENSION_TEXTURE2D:{D3D11_TEXTURE2D_DESC d{};d.Width=resource.width;d.Height=resource.height;d.MipLevels=resource.levels;d.ArraySize=resource.layers;d.Format=DXGI_FORMAT(resource.resource_format);d.SampleDesc.Count=resource.samples;d.BindFlags=resource.bind_flags;source.description=d;break;}
+            case D3D11_RESOURCE_DIMENSION_TEXTURE3D:{D3D11_TEXTURE3D_DESC d{};d.Width=resource.width;d.Height=resource.height;d.Depth=resource.depth;d.MipLevels=resource.levels;d.Format=DXGI_FORMAT(resource.resource_format);d.BindFlags=resource.bind_flags;source.description=d;break;}
+            default:break;
+            }
+            return true;
+        });
         auto boundaries = p.extension ? p.extension->install(p.adapter) : std::vector<std::wstring>{};
         if(config.shader_hooks){HostParseShaderOverrides();HostParseShaderRegex();
             for(const auto& entry:G->mShaderOverrideMap)
@@ -509,6 +559,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         } else {
             // Route 2 (docs/vulkan-native-mods.md): the sections that name a SPIR-V module act at its draws; the
             // DX11-hash ones stay out, as the compatibility route keeps them.
+            p.native_bindings = RuntimeNativeBindings();
             RuntimeParseSpirvShaderOverrides();
             for (const auto& entry : G->mShaderOverrideMap) {
                 p.shader_hashes.push_back(uint32_t(entry.first));
@@ -795,6 +846,7 @@ void RuntimePublishTransitionParameters()
 bool IniRuntime::replayable() const { return impl_->replayable; }
 std::vector<uint32_t> IniRuntime::shader_hashes() const { return impl_->shader_hashes; }
 std::map<uint32_t, int> IniRuntime::shader_depth_filters() const { return impl_->shader_depth_filters; }
+const std::vector<NativeBinding>& IniRuntime::native_bindings() const { return impl_->native_bindings; }
 HuntingSettings IniRuntime::hunting() const { return impl_->hunting; }
 void IniRuntime::hunting_mode(int mode) { if (mode == 1 || mode == 2) impl_->hunting_mode.store(mode, std::memory_order_relaxed); }
 std::vector<HuntingAction> IniRuntime::take_hunting_actions()

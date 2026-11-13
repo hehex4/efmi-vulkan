@@ -151,6 +151,7 @@ STEPS = [
     ("live INI rendering", [os.path.join(HERE, "runtime_test.py")]),
     ("native game shader replacement", [os.path.join(HERE, "native_shader_test.py")]),
     ("native graphics stages", [os.path.join(HERE, "native_graphics_stages_test.py")]),
+    ("native resource slots", [os.path.join(HERE, "native_resource_test.py")]),
     ("native compute shaders", [os.path.join(HERE, "native_compute_test.py")]),
     ("native empty inputs", [os.path.join(HERE, "native_input_test.py")]),
     ("native hunting shader modes", [os.path.join(HERE, "hunting_shader_test.py")]),
@@ -177,6 +178,7 @@ GROUPS = {
     "owned": ["owned", "GPU resources", "HLSL", "Present compute", "as the judge"],
     "native-shaders": ["native game shader", "native graphics stages", "native compute", "native empty inputs", "native hunting", "native tracker", "pipeline recipes and variants", "live INI rendering", "Vulkan validation"],
     "native-input": ["native empty inputs", "live INI rendering", "text check"],
+    "native-slots": ["native resource slots", "live INI rendering", "native tracker", "Vulkan validation", "text check"],
     # A minute or so, for every change: text, the Python units, the expression cases, what each command
     # class does in a replaced draw, and the original as the judge.
     "quick": ["text check", "unit tests", "source-defined INI evaluation", "INI execution matrix", "as the judge"],

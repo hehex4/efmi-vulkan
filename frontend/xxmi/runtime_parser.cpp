@@ -2,6 +2,7 @@
 #include "ini_module.cpp"
 #include "runtime_host.h"
 #include "layer_gap.h"
+#include "native_bindings.h"
 #include <regex>
 #include <cmath>
 #include <limits>
@@ -134,6 +135,43 @@ void RuntimeParseSpirvShaderOverrides()
         ~Restore() { for (auto& node : nodes) ini_sections.insert(std::move(node)); }
     } restore{aside};
     HostParseShaderOverrides();
+}
+
+// Consume only the native metadata key before the original compiles the remaining commands.
+// Repeated keys declare multiple aliases; duplicate identities must agree across merged sections.
+std::vector<efmi::frontend::NativeBinding> RuntimeNativeBindings()
+{
+    using B = efmi::frontend::NativeBinding;
+    std::vector<B> result;
+    const std::wregex syntax(LR"(^\s*([vhdgpc])s-(t|cb|u)([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)(?:\s*,\s*([0-9]+))?\s*$)", std::regex::icase);
+    for (auto& section : ini_sections) {
+        uint64_t hash = 0;
+        if (_wcsnicmp(section.first.c_str(), L"ShaderOverride", 14) || !RuntimeSpirvShaderHash(section.second, &hash)) continue;
+        auto& lines = section.second.kv_vec;
+        for (auto it = lines.begin(); it != lines.end();) {
+            if (_wcsicmp(it->first.c_str(), L"vk_binding")) { ++it; continue; }
+            std::wsmatch match;
+            if (!std::regex_match(it->second, match, syntax)) throw std::runtime_error("vk_binding requires stage-slot, set, binding[, element]");
+            B b; b.hash = uint32_t(hash);
+            b.stage = uint8_t(std::wstring(L"vhdgpc").find(wchar_t(towlower(match[1].str()[0]))));
+            const auto kind = wchar_t(towlower(match[2].str()[0]));
+            b.kind = kind == L't' ? B::Resource : kind == L'c' ? B::Constant : B::Access;
+            const auto number = [&](unsigned i) { const auto n = std::stoull(match[i].str());
+                if (n > UINT32_MAX) throw std::runtime_error("vk_binding integer exceeds 32 bits"); return uint32_t(n); };
+            b.slot = number(3); b.set = number(4); b.binding = number(5); b.element = match[6].matched ? number(6) : 0;
+            if (b.stage >= 6 || b.slot >= (b.kind == B::Resource ? 128u : b.kind == B::Constant ? 14u : 64u) ||
+                (b.kind == B::Access && b.stage != 4 && b.stage != 5) || b.set >= 32)
+                throw std::runtime_error("vk_binding alias or set is outside the supported range");
+            const auto old = std::find_if(result.begin(), result.end(), [&](const B& x) {
+                return x.hash == b.hash && x.stage == b.stage && x.kind == b.kind && x.slot == b.slot; });
+            if (old == result.end()) result.push_back(b);
+            else if (old->set != b.set || old->binding != b.binding || old->element != b.element)
+                throw std::runtime_error("Conflicting vk_binding aliases for one shader");
+            it = lines.erase(it);
+        }
+        section.second.kv_map.erase(L"vk_binding");
+    }
+    return result;
 }
 // The installation's [Hunting] section as the original's ParseHuntingSection reads it (Hunting.cpp), its keys
 // registered through the original's RegisterIniKeyBinding with `callback` and the action as private data. `hunting = 0`

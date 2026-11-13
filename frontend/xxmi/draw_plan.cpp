@@ -48,7 +48,7 @@ constexpr size_t max_active_depth = 64;
 // references (D-112).
 // property: `ps-tN->Format` and the like of a pixel slot or a declaration in a replaced draw's plan, from the
 // texture provider's description of what the target holds (D-170).
-struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read,declared,property;DrawPlanAdapter::ShaderQuery shader,plan_shader;size_t count=0;bool general_matches=false;
+struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read,declared,property,application;DrawPlanAdapter::ShaderQuery shader,plan_shader;size_t count=0;bool general_matches=false;
     float vertex_filter=std::numeric_limits<float>::quiet_NaN(); // BUG-090
     // Registers whose declaration is one of two (undecided_words), as the running command asked them, and
     // which of them take the second answer in this evaluation (bit i for the i-th).
@@ -233,6 +233,10 @@ public:
         return Answer::None;
     }
     bool answer(CommandListState* state,ResourceCopyTarget& target,float& result,std::wstring& reason,OperandGap& gap){
+        if (service->application) {
+            if (service->application(target,*state,result,reason)) return true;
+            if (!reason.empty()) return false;
+        }
         // `null` (`X === null`): the original finds no resource, -0 as a resource, 0 as an identity.
         if(target.type==ResourceCopyTargetType::EMPTY && !target.custom_resource_pool){
             if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE){result=-0.0f;return true;}
@@ -717,6 +721,7 @@ struct DrawPlanAdapter::Runtime {
     size_t active_depth=0;
     DrawPlanAdapter::TextureQuery texture_query;
     DrawPlanAdapter::ResourceMatchQuery resource_match;
+    DrawPlanAdapter::ApplicationQuery application_query;
     // The context the lists of an execution run against (D-161, draw_state.h): every slot they set. It is
     // the one structure in place of the six the plan kept before: the pixel bindings and what a reference of
     // a pixel slot held, the vertex and index bindings, the stand-ins of the application's textures and of
@@ -1117,7 +1122,12 @@ struct DrawPlanAdapter::Runtime {
         if(resolved.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE || resolved.IsRange())
             refuse(L"Resource matching requires an adapted single resource target");
         matches.clear();bound=false;
-        if(resource_match && gpu()){
+        ApplicationResource application; std::wstring application_why;
+        const bool native = application_query && application_query(resolved,state,application,application_why);
+        if (!native && !application_why.empty()) refuse(application_why);
+        if (native) {
+            bound=application.source.bound; native_resource_matches(application.source,state,matches);
+        } else if(resource_match && gpu()){
             SourceResourceMatch source;std::wstring why;
             if(!resource_match(resolved,state,source,why))refuse(why.empty()?L"Original resource identity is unknown":why);
             // Native THIS delegates resource resolution but keeps its own type
@@ -1924,6 +1934,43 @@ void DrawPlanAdapter::plan_resource_queries(ResourceQuery query)
 {
     if(runtime_->active || !runtime_->adapted.empty() || !query)refuse(L"Install plan resource queries before adapting command lists");
     runtime_->queries->plan_read=std::move(query);
+}
+void DrawPlanAdapter::application_resources(ApplicationQuery query)
+{
+    if(runtime_->active || !runtime_->adapted.empty() || !query || runtime_->application_query)
+        refuse(L"Install one application resource provider before adapting command lists");
+    runtime_->application_query=std::move(query);std::weak_ptr<Runtime> weak=runtime_;
+    runtime_->queries->application=[weak](ResourceCopyTarget& target,CommandListState& state,float& value,std::wstring& why){
+        auto owner=weak.lock();if(!owner || !owner->active)return false;
+        ApplicationResource info;
+        if(!owner->application_query(target,state,info,why))return false;
+        const auto mode=target.evaluation_mode;
+        if(mode==ResourceCopyTargetEvaluationMode::RESOURCE_STRIDE && target.type==ResourceCopyTargetType::CONSTANT_BUFFER){value=16.0f;return true;}
+        if(texture_property_mode(mode))return texture_property(mode,info.source.bound,info.properties,value,why);
+        if(mode==ResourceCopyTargetEvaluationMode::RESOURCE){
+            if(!info.source.bound){value=-0.0f;return true;}
+            TextureOverrideMatches matches;native_resource_matches(info.source,state,matches);
+            value=matches.empty()?0.0f:1.0f;
+            for(auto it=matches.rbegin();it!=matches.rend();++it)if((*it)->filter_index!=FLT_MAX){value=(*it)->filter_index;break;}
+            return true;
+        }
+        if(mode==ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY){
+            value=info.source.bound?EncodeFloat30(uint32_t(info.identity^(info.identity>>32))|1u):0.0f;return true;
+        }
+        if(!info.source.bound){value=NativeResourceQuery::nothing_bound(mode);return true;}
+        switch(mode){
+        case ResourceCopyTargetEvaluationMode::RESOURCE_SIZE:
+            value=info.properties.dimension==D3D11_RESOURCE_DIMENSION_BUFFER?float(info.size):-3.0f;return true;
+        case ResourceCopyTargetEvaluationMode::RESOURCE_STRIDE:
+            value=info.source.stride?float(info.source.stride):info.properties.dimension==D3D11_RESOURCE_DIMENSION_BUFFER?-1.0f:-3.0f;return true;
+        case ResourceCopyTargetEvaluationMode::RESOURCE_OFFSET:
+            value=info.properties.dimension==D3D11_RESOURCE_DIMENSION_BUFFER?float(info.source.offset):-3.0f;return true;
+        case ResourceCopyTargetEvaluationMode::RESOURCE_BIND_FLAGS:
+            value=std::visit([](const auto& desc)->float{using T=std::decay_t<decltype(desc)>;
+                if constexpr(std::is_same_v<T,std::monostate>)return 0.0f;else return float(desc.BindFlags);},info.source.description);return true;
+        default:why=L"This native descriptor property is not represented by its Vulkan metadata";return false;
+        }
+    };
 }
 const CommandList* DrawPlanAdapter::current_root() const { return runtime_->root; }
 const std::wstring* DrawPlanAdapter::current_line() const { return runtime_->calling_line; }

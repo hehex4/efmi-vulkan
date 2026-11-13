@@ -2,6 +2,7 @@
 #include "CommandList.h"
 #include "draw_state.h"
 #include "texture_properties.h"
+#include "resource_match.h"
 #include <tuple>
 #include <cstdint>
 #include <functional>
@@ -150,6 +151,14 @@ public:
     // Queries the host answers on the CPU where the owned GPU callbacks are absent (a replaced
     // draw's plan): a false answer refuses as before. Install before adaptation.
     void plan_resource_queries(ResourceQuery);
+    struct ApplicationResource {
+        SourceResourceMatch source;
+        TextureProperties properties;
+        uint64_t identity = 0, size = 0;
+    };
+    // False with an empty reason means this target is outside the provider's domain.
+    using ApplicationQuery = std::function<bool(ResourceCopyTarget&,CommandListState&,ApplicationResource&,std::wstring&)>;
+    void application_resources(ApplicationQuery);
     // During a plan: the application's draw runs after all, whatever `handling = skip` the matched
     // lists execute, as a native command decides when the original Core draws the original instance
     // (its explicit draw with the application's bindings).

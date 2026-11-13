@@ -415,3 +415,35 @@ together, replacement, original-hash skipping, original/pink hunting and dumps, 
 a changed primitive contract. GPU image readback and validation establish sandbox behavior only.
 Arbitrary native slot bindings/draws, frame-analysis resource dumps and real-game acceptance remain
 separate work.
+
+## 13. Explicit descriptor aliases (D-196, 2.2.6)
+
+A native ShaderOverride may repeat `vk_binding = ps-t3, 1, 5, 0`: original logical slot,
+Vulkan descriptor set, binding and optional array element (default zero). The alias belongs to
+that original SPIR-V hash and stage. All six stages support t/cb aliases; pixel and compute also
+support u aliases. These are Mod-authored addresses, never guessed DX11 registers or per-character
+runtime profiles. Duplicate identical aliases coalesce; conflicting aliases or invalid metadata
+isolate that INI through the normal input loader, including F10. Other valid INIs remain active.
+
+Queries resolve ordinary, template and pushed descriptors, including dynamic offsets and array
+elements. They validate the current layout, stage visibility, descriptor type and object identity.
+Size is the visible buffer range; image dimensions describe the resource, while Format describes
+the bound view. Buffer-only properties return the original's non-buffer sentinel for images.
+Native Offset additionally exposes the Vulkan descriptor byte offset for t/u buffers. BindFlags
+translates creation usage, with storage buffers exposing SRV and UAV capability. Fuzzy texture
+matching uses the resource format, independently of a differently formatted view. References
+between logical slots or declarations retain these queries within the current list execution.
+As in the original, `ResourceX->bindflags` reads the declaration's own flags even when it holds
+a reference to an application resource; direct slot queries read that resource's creation usage.
+
+Only known, read-only image upload content supplies a content hash. GPU-writable resources are
+not assigned a recording-time content hash. Resource-description matching works without a hash;
+this does not claim that a Vulkan identity is the game's old DX11 hash. Queries borrow metadata
+only and introduce no GPU work or resource retention. Binding execution and references beyond
+the current execution require the following native execution work.
+
+The original ResourceCopyTarget getters and resource matcher supply the property/sentinel rules.
+DX11 provides reference-counted deferred destruction, hazard tracking and one-context order;
+those guarantees must be explicit when Vulkan starts executing resource operations. The
+`native-slots` regression group exercises real compute and graphics queries, descriptor forms,
+dynamic offsets, resource/view formats, refusal, declaration references and F10 in the sandbox.

@@ -2,6 +2,7 @@
 // every draw of every pipeline with that module as 3DMigoto runs them at every draw of a shader (HackerContext.cpp
 // BeforeDraw and AfterDraw), and hunting over the frame's modules as Hunting.cpp hunts over its shaders.
 #include "character_backend_internal.h"
+#include "native_resources.h"
 
 namespace efvk {
 
@@ -582,6 +583,9 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
             named = (modules.mask >> i & 1u) && std::binary_search(hooks->hashes.begin(), hooks->hashes.end(), modules.hashes[i]);
     if (named) {
         efmi::frontend::RuntimeDraw request;
+        request.native_resource = [&](const efmi::frontend::NativeBinding& binding, efmi::frontend::NativeResource& resource, std::string& why) {
+            return native_resource(b.device, cb, r, binding, resource, why);
+        };
         request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
         request.instances = r.instances; request.first_instance = r.first_instance;
         request.compute = r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT;
@@ -632,6 +636,7 @@ void shader_hooks_status(CharacterBackend& b, JsonWriter& w)
     w.key("hashes"); w.begin_array();
     if (hooks) for (const uint32_t hash : hooks->hashes) w.hex32(hash);
     w.end_array();
+    w.kn("native_bindings", hooks && hooks->program && hooks->program->runtime() ? hooks->program->runtime()->native_bindings().size() : 0);
     w.kn("draws", b.shader_draws_run.load()); w.kn("skipped", b.shader_draws_skipped.load());
     w.kn("kept", b.shader_draws_kept.load()); w.kn("refused", b.shader_draws_refused.load());
     { std::lock_guard<std::mutex> lock(b.shader_note_mx); w.kv("last_reason", b.shader_note); }

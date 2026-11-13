@@ -1286,6 +1286,7 @@ global $mod_id = -1
     {
         // The host's answers refer to its draw: none of them outlives it.
         current.pixel_texture = nullptr; current.texture_roles = nullptr; current.source_srv = nullptr; current.handed_component = nullptr;
+        current.native_resource = nullptr;
         instance_queries.clear(); if (efmittl) efmittl->after_draw();
     }
     void after_dispatch() noexcept override { current = {}; instance_queries.clear(); }
