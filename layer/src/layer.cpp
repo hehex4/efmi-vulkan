@@ -351,6 +351,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_BeginCommandBuffer(VkCommandBuffer cmd, const 
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_RESET);
         cb->reset_recording();
+        cb->inherited_rp = cb->secondary && info && (info->flags & VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT);
         cb->tid = GetCurrentThreadId();
         cb->threads.push_back(cb->tid);
     }
@@ -562,7 +563,8 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indic
 }
 
 // True when the draw is to be dropped (a ShaderOverride or hunting, docs/vulkan-native-mods.md).
-bool track_indirect(Device* dev, VkCommandBuffer cmd, uint8_t kind, VkBuffer buf, VkDeviceSize off, uint32_t count)
+bool track_indirect(Device* dev, VkCommandBuffer cmd, uint8_t kind, VkBuffer buf, VkDeviceSize off, uint32_t count,
+                    uint32_t stride = 0, VkBuffer count_buf = VK_NULL_HANDLE, VkDeviceSize count_off = 0)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         WorkScope work(dev->work, WK_DRAW);
@@ -571,6 +573,7 @@ bool track_indirect(Device* dev, VkCommandBuffer cmd, uint8_t kind, VkBuffer buf
         r.count = count;
         r.indirect = buf;
         r.indirect_off = off;
+        r.indirect_stride = stride; r.indirect_count = count_buf; r.indirect_count_off = count_off;
         if (kind == DK_INDIRECT || kind == DK_INDEXED_INDIRECT) return m2_shader_draw(dev, cb, r);
     }
     return false;
@@ -582,7 +585,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirect(VkCommandBuffer cmd, VkBuffer buf,
     count_call(HI_CmdDrawIndirect);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
-    if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, count)) return;
+    if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, count, stride)) return;
     dev->d.CmdDrawIndirect(cmd, buf, off, count, stride);
 }
 
@@ -592,7 +595,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirect(VkCommandBuffer cmd, VkBuff
     count_call(HI_CmdDrawIndexedIndirect);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
-    if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, count)) return;
+    if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, count, stride)) return;
     dev->d.CmdDrawIndexedIndirect(cmd, buf, off, count, stride);
 }
 
@@ -602,7 +605,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCount(VkCommandBuffer cmd, VkBuffer
     count_call(HI_CmdDrawIndirectCount);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
-    if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count)) return;
+    if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count, stride, count_buf, count_off)) return;
     dev->d.CmdDrawIndirectCount(cmd, buf, off, count_buf, count_off, max_count, stride);
 }
 
@@ -612,7 +615,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCountKHR(VkCommandBuffer cmd, VkBuf
     count_call(HI_CmdDrawIndirectCountKHR);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
-    if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count)) return;
+    if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count, stride, count_buf, count_off)) return;
     dev->d.CmdDrawIndirectCountKHR(cmd, buf, off, count_buf, count_off, max_count, stride);
 }
 
@@ -623,7 +626,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCount(VkCommandBuffer cmd, V
     count_call(HI_CmdDrawIndexedIndirectCount);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
-    if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count)) return;
+    if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count, stride, count_buf, count_off)) return;
     dev->d.CmdDrawIndexedIndirectCount(cmd, buf, off, count_buf, count_off, max_count, stride);
 }
 
@@ -634,7 +637,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCountKHR(VkCommandBuffer cmd
     count_call(HI_CmdDrawIndexedIndirectCountKHR);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
-    if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count)) return;
+    if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count, stride, count_buf, count_off)) return;
     dev->d.CmdDrawIndexedIndirectCountKHR(cmd, buf, off, count_buf, count_off, max_count, stride);
 }
 

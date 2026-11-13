@@ -498,6 +498,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         p.adapter.pipeline([&p] {
             PipelineFacts facts;
             if (p.current_draw) {
+                facts.native_calls = p.current_draw->native_calls;
                 facts.stages = p.current_draw->shader_stages; facts.vertex_slots = p.current_draw->vertex_slots;
                 if (p.current_draw->targets_known) facts.targets = p.current_draw->render_targets;
             }

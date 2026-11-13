@@ -15,7 +15,7 @@ struct SourceResourceMatch;
 // the owning generation's globals installed; the original engine owns mapping.
 void validate_pool_runtime(CustomResourcePool&);
 
-enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent };
+enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent, Caller, Dispatch };
 
 // Resource pointers borrow declarations from a retained frontend generation.
 // This CPU plan has no GPU readiness, resource lifetime or pipeline guarantee.

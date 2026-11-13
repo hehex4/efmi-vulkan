@@ -353,6 +353,9 @@ struct DrawRec {
     uint64_t ib_off = 0;
     VkBuffer indirect = VK_NULL_HANDLE;
     uint64_t indirect_off = 0;
+    VkBuffer indirect_count = VK_NULL_HANDLE;
+    uint64_t indirect_count_off = 0;
+    uint32_t indirect_stride = 0;
     VbBind vb[kMaxVb];
     SetBind sets[kMaxSets];
 };
@@ -439,6 +442,7 @@ struct CmdBuf {
     VbBind vb[kMaxVb];
     SetBind sets[kMaxSets];
     bool in_rp = false;
+    bool inherited_rp = false; // Secondary recorded with RENDER_PASS_CONTINUE, including dynamic rendering.
     uint32_t active_targets = 0;
     std::vector<RenderTargets> target_contexts;
     // The first viewport and scissor of the dynamic state (D-113): a draw the replacement records

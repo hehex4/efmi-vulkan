@@ -898,6 +898,8 @@ struct DrawPlanAdapter::Runtime {
         auto& wanted=scratch_wanted;wanted.resize(entries.size());
         for(size_t i=0;i<entries.size();++i){
             const auto& entry=entries[i];
+            if(pipeline.native_calls && !entry.value.same(SlotValue::application(DrawState::slot(entry.cell))))
+                refuse_draw(L"Native resource binding needs the descriptor executor: "+slot_name(DrawState::slot(entry.cell)));
             const Honour outcome=settle(entry,pipeline,wanted[i]);
             if(outcome==Honour::NotDrawable){
                 if(entry.value.by && unknown_identity_logged.size()<64 && unknown_identity_logged.insert(entry.value.by).second)
@@ -1362,7 +1364,7 @@ struct DrawPlanAdapter::Runtime {
             if (!layout || item.layout.size() >= 256) refuse(L"Invalid layout operation list");
             item.layout.push_back(*layout);
         }
-        if(palette_source){
+        if(palette_source && !(facts && facts().native_calls)){
             // The draw's bone data is the renderer's: without it the Mod's mesh cannot be posed.
             std::wstring reason;
             if(!palette_source(state,item.palette,reason))refuse_draw(reason.empty()?L"Native draw palette unavailable":reason);
@@ -1541,6 +1543,16 @@ struct DrawPlanAdapter::Runtime {
             if (state->call_info && state->call_info->hunting_skip) return;
             PlanItem item; item.operation = PlanOperation::DrawIndexed;
             const auto* info = state->call_info;
+            if(facts && facts().native_calls){
+                if(draw->type==DrawCommandType::FROM_CALLER){
+                    if(!info)return;item.operation=PlanOperation::Caller;indexed(item,*state);return;
+                }
+                if(draw->type==DrawCommandType::DISPATCH){
+                    item.operation=PlanOperation::Dispatch;item.index_count=positive(draw->args[0],state);
+                    item.instance_count=positive(draw->args[1],state);item.first_index=positive(draw->args[2],state);
+                    indexed(item,*state);return;
+                }
+            }
             // DrawCommand::run, case by case (D-142). A Draw's vertex count and first vertex take the
             // indexed fields with `indexed` false.
             switch (draw->type) {

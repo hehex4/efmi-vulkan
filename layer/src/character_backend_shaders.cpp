@@ -3,6 +3,7 @@
 // BeforeDraw and AfterDraw), and hunting over the frame's modules as Hunting.cpp hunts over its shaders.
 #include "character_backend_internal.h"
 #include "native_resources.h"
+#include "native_execution.h"
 
 namespace efvk {
 
@@ -583,6 +584,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
             named = (modules.mask >> i & 1u) && std::binary_search(hooks->hashes.begin(), hooks->hashes.end(), modules.hashes[i]);
     if (named) {
         efmi::frontend::RuntimeDraw request;
+        request.native_calls = true;
         request.native_resource = [&](const efmi::frontend::NativeBinding& binding, efmi::frontend::NativeResource& resource, std::string& why) {
             return native_resource(b.device, cb, r, binding, resource, why);
         };
@@ -612,13 +614,16 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
             std::lock_guard<std::mutex> lock(b.shader_note_mx);
             if (b.shader_note.empty()) { b.shader_note = reason; logf("ShaderOverride at a draw no Mod section matched: %s; the game's draw stays", reason.c_str()); }
         } else if (!plan.items.empty()) {
-            // Bindings and draws of the lists at such a draw are a later step's (route 2's slots): the game's draw stays.
+            if (native_calls(b.native_calls,b.device,cb,r,plan,marked,reason)) {
+                ++b.shader_draws_executed; return true;
+            }
             b.shader_draws_kept.fetch_add(1, std::memory_order_relaxed);
             std::lock_guard<std::mutex> lock(b.shader_note_mx);
             if (!b.shader_bindings_told) {
                 b.shader_bindings_told = true;
+                b.shader_note = reason;
                 notice(NoticeLevel::Warning, "shader override bindings",
-                       "A ShaderOverride binds or draws at a draw no Mod section matched: not done yet, the game's draw stays as it is");
+                       reason.c_str());
             }
         } else if (plan.skip_original) {
             skip = true;
@@ -639,6 +644,7 @@ void shader_hooks_status(CharacterBackend& b, JsonWriter& w)
     w.kn("native_bindings", hooks && hooks->program && hooks->program->runtime() ? hooks->program->runtime()->native_bindings().size() : 0);
     w.kn("draws", b.shader_draws_run.load()); w.kn("skipped", b.shader_draws_skipped.load());
     w.kn("kept", b.shader_draws_kept.load()); w.kn("refused", b.shader_draws_refused.load());
+    w.kn("executed", b.shader_draws_executed.load());
     { std::lock_guard<std::mutex> lock(b.shader_note_mx); w.kv("last_reason", b.shader_note); }
     w.end_object();
     const auto fixes = b.variants ? b.variants->native_shaders() : nullptr;

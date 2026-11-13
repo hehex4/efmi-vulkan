@@ -447,3 +447,34 @@ DX11 provides reference-counted deferred destruction, hazard tracking and one-co
 those guarantees must be explicit when Vulkan starts executing resource operations. The
 `native-slots` regression group exercises real compute and graphics queries, descriptor forms,
 dynamic offsets, resource/view formats, refusal, declaration references and F10 in the sandbox.
+
+## 14. Native application calls (D-197, 2.2.7; sandbox verified)
+
+At an unmatched native application call, ShaderOverride lists preserve `draw = from_caller` as
+an actual caller replay, including indirect/count-buffer addresses and stride. Explicit direct
+draw/drawindexed/instanced calls and dispatches use the bound application pipeline and resources.
+The executor places pre calls, the original call (unless skipped), and post calls in that order.
+A post `handling = skip` arrives too late to remove the original call. Hunting skip suppresses
+custom calls as well. Secondary command buffers retain whether they inherited a render-pass scope.
+
+As in original DrawCommand::run, these commands use the original context's current state. DX11
+supplies reference-counted deferred lifetime, resource hazard tracking and one-context order.
+Here calls reuse the application's already-recorded object lifetimes, including retained temporary
+shader variants. Compute calls insert memory dependencies before, between and after the calls;
+no new queue or asynchronous resource upload is involved. Graphics calls require known read-only
+shader resources: storage side effects need an explicit compatible render-pass dependency. The
+resource-access decision is cached by pipeline identity. Render-pass barriers have restrictions
+described in the [Vulkan command specification](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdPipelineBarrier.html).
+
+The entire call plan is checked before GPU recording, including execution domain, compute limits,
+index-buffer bounds and unsupported resource/layout work. A refused plan retains the application's
+call and reports its reason. Resource binding changes still require the descriptor executor;
+they must not silently execute a custom draw with the old bindings. Native automatic/stream-output
+draws, explicit indirect-resource commands, and graphics storage-write hazards are not implemented
+by this call-only step. `shader_overrides.executed` counts consumed native call plans.
+
+The `native-calls` group contains GPU invocation-count and geometry cases, existing native compute
+scenes, tracker, Vulkan validation and text checks. It is sandbox evidence only.
+The call scenes pass 60/60, including indirect-count replay with a nonzero count-buffer offset and
+a zero GPU count. Six selected regression steps pass: native compute 91, native resource queries
+73, tracker 185, character package/replacement 115/377, validation 76 and text.

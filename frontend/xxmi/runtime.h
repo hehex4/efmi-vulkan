@@ -103,6 +103,7 @@ constexpr uint32_t kWordBufferDeclaration = 0xFFFFFFFFu;
 enum class VertexHook : uint32_t { None = 0, Lit = 1, LitSkin = 2, Outline = 3, ShadowPlain = 4, ShadowFading = 5 };
 struct RuntimeDraw {
     std::function<bool(const NativeBinding&, NativeResource&, std::string&)> native_resource;
+    bool native_calls = false; // Unmatched application pipeline; preserve caller and dispatch operations.
     uint32_t hash = 0, count = 0, first = 0, instances = 1, first_instance = 0;
     int32_t base = 0;
     uint64_t frame = 0;

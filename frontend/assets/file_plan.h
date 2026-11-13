@@ -4,7 +4,7 @@
 namespace efmi::core {struct PaletteSnapshot;}
 
 namespace efmi::assets {
-enum class FileOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent };
+enum class FileOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent, Caller, Dispatch };
 
 // Owned frontend data. The byte uploader does not infer stride/index format
 // from a filename. Neither this data nor its loader executes native Core calls.

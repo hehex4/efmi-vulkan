@@ -16,6 +16,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VULKAN_ROOT = os.environ.get("EFMI_VK_VULKAN_ROOT", r"F:\vulkan")
@@ -71,9 +72,12 @@ def run_cl(vcvars: str, cwd: str, args: list[str]) -> None:
     # vcvars64.bat has to run in the same cmd instance as cl. The command line is
     # written to a temporary batch file so that no quoting passes through cmd /c.
     quoted = " ".join('"%s"' % a if (" " in a or "(" in a) else a for a in args)
-    script = os.path.join(cwd, "build", "_build.bat")
-    os.makedirs(os.path.dirname(script), exist_ok=True)
-    with open(script, "w", encoding="ascii", newline="\r\n") as f:
+    script_dir = os.path.join(cwd, "build")
+    os.makedirs(script_dir, exist_ok=True)
+    # Separate targets may share cwd (sandbox and tracker). vcvars can still be running when
+    # another compiler starts: a fixed batch path lets the latter replace the former's cl line.
+    descriptor, script = tempfile.mkstemp(prefix="_build-", suffix=".bat", dir=script_dir)
+    with os.fdopen(descriptor, "w", encoding="ascii", newline="\r\n") as f:
         f.write("@echo off\n")
         f.write('call "%s" >nul 2>&1\n' % vcvars)
         f.write("if errorlevel 1 exit /b 1\n")
@@ -83,7 +87,10 @@ def run_cl(vcvars: str, cwd: str, args: list[str]) -> None:
     scratch = os.path.join(cwd, "build", "tmp")
     os.makedirs(scratch, exist_ok=True)
     env.update(TEMP=scratch, TMP=scratch)
-    proc = subprocess.run(["cmd.exe", "/d", "/c", script], cwd=cwd, env=env, capture_output=True, text=True, errors="replace")
+    try:
+        proc = subprocess.run(["cmd.exe", "/d", "/c", script], cwd=cwd, env=env, capture_output=True, text=True, errors="replace")
+    finally:
+        os.unlink(script)
     output = (proc.stdout or "") + (proc.stderr or "")
     lines = [ln for ln in output.splitlines() if ln.strip()]
     noise = (".cpp", "Generating Code...", "Compiling...", "Creating library")
@@ -121,7 +128,7 @@ BACKEND_SOURCES = [
     "character_backend.cpp", "character_backend_controller.cpp", "character_backend_folder.cpp",
     "character_backend_generation.cpp", "character_backend_identity.cpp", "character_backend_index.cpp",
     "character_backend_materials.cpp", "character_backend_mesh.cpp", "character_backend_record.cpp",
-    "character_backend_status.cpp", "character_backend_twins.cpp", "character_backend_shaders.cpp", "shader_fixes.cpp", "native_resources.cpp",
+    "character_backend_status.cpp", "character_backend_twins.cpp", "character_backend_shaders.cpp", "shader_fixes.cpp", "native_resources.cpp", "native_execution.cpp",
 ]
 MODULE_SOURCES = [
     "module/module_main.cpp", *["src/" + name for name in BACKEND_SOURCES], "src/translucency.cpp", "src/shader_hooks.cpp", "src/character_package.cpp", "src/character_materials.cpp",

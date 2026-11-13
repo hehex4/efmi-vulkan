@@ -95,6 +95,11 @@ bool FilePlanCompiler::compile(const DrawPlan& source,assets::FilePlan& output,s
             own.owned=std::make_shared<const assets::OwnedBuffer>(assets::OwnedBuffer{o.buffer,o.offset,o.size,o.stride,o.keep});
         }
         switch(item.operation){
+        case PlanOperation::Caller:case PlanOperation::Dispatch:
+            if(++draws>256 || !item.layout.empty())return refuse(L"Invalid native call plan");
+            own.operation=item.operation==PlanOperation::Caller?assets::FileOperation::Caller:assets::FileOperation::Dispatch;
+            own.index_count=item.index_count;own.instance_count=item.instance_count;own.first_index=item.first_index;
+            next.items.push_back(std::move(own));continue;
         case PlanOperation::BindVertex: own.operation=assets::FileOperation::BindVertex;break;
         case PlanOperation::BindIndex: own.operation=assets::FileOperation::BindIndex;break;
         case PlanOperation::BindPixelResource: own.operation=assets::FileOperation::BindPixelResource;break;

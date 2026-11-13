@@ -11,7 +11,7 @@ finds the draws of characters that an installed EFMI Mod replaces, runs the Mod'
 original 3DMigoto (XXMI) parser and interpreter, and draws the Mod's meshes and textures in the game's
 own render passes. Nothing of the game, the launcher or the Mods is changed on disk.
 
-The native route (D-187 to D-196) adds SPIR-V-hash ShaderOverride lists, hunting/dumps and native
+The native route (D-187 to D-197) adds SPIR-V-hash ShaderOverride lists, hunting/dumps and native
 ShaderFixes. `shader_fixes.cpp` loads an immutable shader revision with the folder generation; the
 variant cache applies it to game twins and character variants. Recorded command owners retain the
 actual pipelines, and resource metadata retains original descriptor-layout/immutable-sampler handles
@@ -25,7 +25,9 @@ installation's configured-Core generation for root commands and keys. Explicit `
 scope logical slots to a shader's Vulkan descriptor address. `native_resources.cpp` validates and
 answers current metadata; the original getters/matcher handle queries and fuzzy matches, preserving
 resource/view formats and dynamic ranges. GPU-writable content is not read through a CPU shadow.
-Actual native binding/draw execution and frame-analysis resource staging are separate work.
+`native_execution.cpp` records direct call plans and complete caller replays around the original
+call, with compute dependencies and cached graphics access checks. Resource binding edits and
+frame-analysis staging remain separate work.
 The precise supported interfaces and remaining route-2 work are in
 `docs/vulkan-native-mods.md`; sandbox verification and game acceptance stay separate.
 

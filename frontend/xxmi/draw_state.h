@@ -141,6 +141,7 @@ struct PipelineFacts {
     uint32_t vertex_slots = UINT32_MAX;
     // Bit N: its pass has colour target N (DX11's oN); bit 8: a depth target (oD). Every bit when not known.
     uint32_t targets = UINT32_MAX;
+    bool native_calls = false;
 };
 enum class SlotClass : uint8_t { VertexBuffer, UnreadVertex, IndexBuffer, PixelTexture, StageBinding, AbsentStage, Compute, Output, AbsentOutput, PixelAccess, StreamOutput, Count };
 enum class ValueClass : uint8_t { InPlace, ModResource, Null, MovedAlike, Other, Count };
