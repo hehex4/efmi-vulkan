@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-205. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-206. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -262,7 +262,7 @@ notices while playing; whether any game pipeline has no module hash (inline modu
 2. D-196 adds explicit (set, binding) aliases and queries; D-197 executes native draw/dispatch lists;
    D-198/D-199 retain and bind application buffers with persistent context semantics;
    D-200/D-201 add published file buffers, null descriptors and sampled 2D file images.
-   Moving application images, mutable/array/cube file resources and general cross-queue hazards
+   D-206 adds guarded retained application sampled images. Mutable/array/cube file resources and general cross-queue hazards
    still need adapters. Render-target rebinding is not implemented.
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
@@ -574,7 +574,28 @@ Framebuffer layer counts and the union of multiview masks bound implicit transit
 state outside the current subpass is conservatively unknown. Unknown ownership/extensions fail
 closed. No global layout is inferred from CPU recording order.
 
-This is the foundation for native application-image execution. Binding remains refused until
-layout-aware scope handling and persistent descriptor refresh are implemented; existing file-image
-bindings are unchanged. Tracker 252/252, live INI 221/221, native resources 89/89 and Vulkan validation
-76/76 pass with the 2.3.5 host/module pair. Continue implementation after this commit.
+This is the foundation for D-206 native application-image execution below; existing file-image
+bindings keep their publication path. Tracker 252/252, live INI 221/221, native resources 89/89 and Vulkan validation
+76/76 pass with the 2.3.5 host/module pair. The execution extension follows below.
+
+
+### Retained application sampled images (D-206, 2.3.6; sandbox only)
+
+Native references retain the application view/image/memory chain and use current recording-local
+subresource layouts. Each descriptor keeps its desired image and original application fallback.
+Every application call refreshes persistent requests, including shaders without an override;
+changed descriptors are cloned and rebound. Application rebinding supersedes the request.
+
+GENERAL and SHADER_READ_ONLY_OPTIMAL bind directly. Known transfer/color layouts may be temporarily
+sampled outside render passes, then restored after compute or the pass. Transition cells are
+deduplicated and their owners survive until recording completion. New in-pass transitions, active
+attachment overlap and unknown scope/layout refuse or suspend the replacement. Original statically
+used descriptors can establish a valid-application layout precondition, never a circular proof from
+the native override. Allocation failures do not forward calls with stale descriptors.
+
+The supported scope is one application graphics queue, synchronization2 disabled, retained optimal
+non-depth float32 2D sampled views with supported creation/usage state. Cross-recording layout and
+queue/signal graphs, mutable/storage images and broader view shapes remain separate engineering.
+Tests check actual distinct image values across GPU writes, temporary layout restoration, GENERAL
+descriptor refresh, unmatched pipelines, application rebinding, push/secondary paths, rendered
+pixels, F10 and code-module exchange. Exchanged ShaderFixes locate the validator through the owned GPU toolchain directory. No game acceptance or deployment is implied.

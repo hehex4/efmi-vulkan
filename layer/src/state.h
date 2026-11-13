@@ -20,6 +20,8 @@
 
 namespace efvk {
 class GpuAnalysis;
+struct NativeImageState;
+struct NativeImageCache;
 
 class M2Backend;
 class CharacterBackend;
@@ -440,6 +442,10 @@ struct CmdBuf {
     std::vector<std::shared_ptr<CommandOwner>> owners;
     std::vector<std::shared_ptr<CommandOwner>> executed_owners; // Secondary dependencies, never reset by this primary.
     ImageLayouts image_layouts;
+    std::shared_ptr<NativeImageState> native_image_state;
+    bool native_images = false;
+    bool native_image_blocked = false;
+    std::string native_image_reason;
     uint64_t character_frame = 0;  // the character backend's number for this recording; 0: none yet
 
     // Current bindings while recording. `gfx_bound` is what the driver has (DrawRec::bound).
@@ -697,6 +703,9 @@ struct Device {
     std::atomic<bool> shader_draws{false};
     std::atomic<bool> native_binding_order{false};
     std::atomic<bool> track_image_layouts{false}; // Enabled by native application-image use; no global layout guess.
+    std::mutex native_images_mx;
+    std::shared_ptr<NativeImageCache> native_image_cache;
+    std::atomic<uint64_t> native_image_transitions{0}, native_image_refreshes{0}, native_image_refused{0};
     uint32_t application_queue_count=0; // Excludes queues added by the layer for owned uploads.
     std::once_flag native_barrier_load;
     PFN_vkCmdPipelineBarrier native_barrier=nullptr;

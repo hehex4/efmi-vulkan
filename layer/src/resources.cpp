@@ -131,6 +131,7 @@ void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info, cons
     image.samples = info->samples;
     image.usage = info->usage;
     image.flags = info->flags;
+    image.tiling = info->tiling;
     image.capture_safe = !info->pNext && !info->flags;
     dev->images[h] = image;
 }
@@ -140,6 +141,7 @@ void on_create_image_view(Device* dev, VkImageView h, const VkImageViewCreateInf
     if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     ImageViewInfo view;
+    view.native_safe = !info->pNext && !info->flags;
     if(!alloc && dev->d.DestroyImageView){
         view.lifetime=std::make_shared<ImageViewLifetime>();view.lifetime->device=dev->handle;
         view.lifetime->handle=h;view.lifetime->destroy=dev->d.DestroyImageView;

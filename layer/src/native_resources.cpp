@@ -44,6 +44,7 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
     if(value.native){
         output=*std::static_pointer_cast<const efmi::frontend::NativeResource>(value.native);
         output.descriptor_type=value.type;
+        output.image_layout=value.image_layout;
         if(uniform || storage){
             output.offset=value.offset;output.range=value.range;output.stride=uniform?16u:output.buffer_stride;
             output.format=0;output.format_known=true;output.buffer_view=0;
@@ -99,6 +100,12 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
         if (found_image == device->images.end() || found_image->second.id != view->second.image_id) return refuse("Native descriptor image was destroyed");
         const auto& resource = found_image->second;
         output.image_view=uint64_t(value.image_view);output.usage=resource.usage;
+        output.image=uint64_t(view->second.image);output.image_view_id=view->second.id;
+        output.view_type=view->second.type;output.view_format=view->second.format;
+        const auto& range=view->second.range;
+        output.aspect=range.aspectMask;output.base_mip=range.baseMipLevel;output.mip_count=range.levelCount;
+        output.base_layer=range.baseArrayLayer;output.layer_count=range.layerCount;
+        output.image_safe=resource.capture_safe && resource.tiling==VK_IMAGE_TILING_OPTIMAL && view->second.native_safe;
         if(resource.lifetime && !resource.lifetime->dependencies.empty() && view->second.lifetime && !view->second.lifetime->dependencies.empty())
             output.keep=view->second.lifetime;
         output.bound = true; output.dimension = uint32_t(resource.type) + 2;

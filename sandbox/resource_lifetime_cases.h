@@ -1,5 +1,6 @@
 // Native resource-reference ownership checks, included by tracker_test.
 #include "../layer/src/native_resources.h"
+#include "../layer/src/native_images.h"
 #include "../layer/src/character_module.h"
 #include "../layer/src/m2_backend.h"
 namespace {
@@ -23,6 +24,10 @@ void secondary_publication_dependencies()
     child->reset_recording();check(owner->resets==1 && !owner->used,"only the secondary recording resets its publication owner");
 }
 std::vector<int> resource_destroy_order;
+std::vector<VkImageMemoryBarrier> retained_image_barriers;
+VKAPI_ATTR void VKAPI_CALL retained_image_barrier(VkCommandBuffer,VkPipelineStageFlags,VkPipelineStageFlags,VkDependencyFlags,
+    uint32_t,const VkMemoryBarrier*,uint32_t,const VkBufferMemoryBarrier*,uint32_t count,const VkImageMemoryBarrier* barriers)
+{ for(uint32_t i=0;i<count;++i)retained_image_barriers.push_back(barriers[i]); }
 VKAPI_ATTR void VKAPI_CALL retained_memory_free(VkDevice,VkDeviceMemory,const VkAllocationCallbacks*) { resource_destroy_order.push_back(3); }
 VKAPI_ATTR void VKAPI_CALL retained_buffer_destroy(VkDevice,VkBuffer,const VkAllocationCallbacks*) { resource_destroy_order.push_back(2); }
 VKAPI_ATTR void VKAPI_CALL retained_image_destroy(VkDevice,VkImage,const VkAllocationCallbacks*) { resource_destroy_order.push_back(2); }
@@ -107,5 +112,29 @@ void native_descriptor_references()
     resource_destroy_order.clear();on_destroy_buffer(&d,buffer);on_free_memory(&d,memory);
     check(resource_destroy_order.empty() && reference.range==32,"retained native descriptor remains owned after logical application destruction");
     reference={};check(resource_destroy_order==std::vector<int>({2,3}),"native descriptor releases its buffer then allocation after the last reference");
+}
+void native_image_scope_lifetime()
+{
+    Device d;d.d.FreeMemory=retained_memory_free;d.d.DestroyImage=retained_image_destroy;
+    d.d.DestroyImageView=retained_image_view_destroy;d.d.CmdPipelineBarrier=retained_image_barrier;
+    const auto memory=h<VkDeviceMemory>(501);const auto image=h<VkImage>(502);const auto view=h<VkImageView>(503);
+    VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};allocation.allocationSize=4096;on_alloc_memory(&d,memory,&allocation);
+    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};info.imageType=VK_IMAGE_TYPE_2D;info.extent={4,4,1};info.format=VK_FORMAT_R8G8B8A8_UNORM;
+    info.mipLevels=info.arrayLayers=1;info.samples=VK_SAMPLE_COUNT_1_BIT;info.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    on_create_image(&d,image,&info);on_bind_image(&d,image,memory,0);
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};vi.image=image;vi.viewType=VK_IMAGE_VIEW_TYPE_2D;vi.format=info.format;
+    vi.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};on_create_image_view(&d,view,&vi);
+    auto resource=std::make_shared<efmi::frontend::NativeResource>();resource->image=uint64_t(image);resource->image_view=uint64_t(view);
+    resource->identity=(uint64_t(d.images.at(image).id)<<2)|2;resource->keep=d.image_views.at(view).lifetime;
+    CmdBuf cb;cb.handle=h<VkCommandBuffer>(504);NativeImagePlan plan;
+    plan.cells[{resource->identity,0,0}]={resource,0,0,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL};
+    retained_image_barriers.clear();record_native_images(&d,&cb,plan);record_native_images(&d,&cb,plan);
+    check(retained_image_barriers.size()==1,"overlapping image requests emit one transition per subresource");
+    resource_destroy_order.clear();on_destroy_image_view(&d,view);on_destroy_image(&d,image);on_free_memory(&d,memory);
+    plan.cells.clear();resource.reset();native_images_end(&d,&cb);
+    check(retained_image_barriers.size()==2 && retained_image_barriers.back().oldLayout==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL &&
+        retained_image_barriers.back().newLayout==VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,"native image scope restores the exact application layout");
+    check(resource_destroy_order.empty(),"ending an image scope retains the allocation for queued GPU work");
+    cb.reset_recording();check(resource_destroy_order==std::vector<int>({1,2,3}),"completed recording reset releases image view, image and memory once");
 }
 }

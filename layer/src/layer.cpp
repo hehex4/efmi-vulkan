@@ -1,3 +1,4 @@
+#include "native_images.h"
 #include "gpu_analysis.h"
 // Entry points and the intercepted Vulkan functions.
 //
@@ -531,9 +532,9 @@ struct DrawPipelineRestore {
     VkPipeline pipeline;
     bool compute;
     DrawPipelineRestore(Device* dev, VkCommandBuffer cmd, bool comp = false) : device(dev), cb(cb_of(dev, cmd)),
-        pipeline(cb ? (comp ? cb->comp_bound : cb->gfx_bound) : VK_NULL_HANDLE), compute(comp) {}
+        pipeline(cb ? (comp ? cb->comp_bound : cb->gfx_bound) : VK_NULL_HANDLE), compute(comp) { if(cb)native_images_call(device,cb,comp); }
     ~DrawPipelineRestore() {
-        if (compute && cb && !cb->draws.empty()) gpu_analysis_dispatch(device, cb);
+        if (compute && cb) { if(!cb->native_image_blocked && !cb->draws.empty())gpu_analysis_dispatch(device, cb); native_images_end(device,cb); }
         if (cb && pipeline && (compute ? cb->comp_bound : cb->gfx_bound) != pipeline) {
             device->d.CmdBindPipeline(cb->handle, compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
             (compute ? cb->comp_bound : cb->gfx_bound) = pipeline;
@@ -547,6 +548,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDraw(VkCommandBuffer cmd, uint32_t vertices, ui
     count_call(HI_CmdDraw);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (CmdBuf* cb = restore.cb) {
         WorkScope work(dev->work, WK_DRAW);
         cb->draws.push_back(make_rec(cb, DK_DRAW, false));
@@ -566,6 +568,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexed(VkCommandBuffer cmd, uint32_t indic
     count_call(HI_CmdDrawIndexed);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (CmdBuf* cb = restore.cb) {
         WorkScope work(dev->work, WK_DRAW);
         // Moved in and filled there: a copy would count every bound set's shared layout twice more.
@@ -606,6 +609,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirect(VkCommandBuffer cmd, VkBuffer buf,
     count_call(HI_CmdDrawIndirect);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, count, stride)) return;
     dev->d.CmdDrawIndirect(cmd, buf, off, count, stride);
 }
@@ -616,6 +620,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirect(VkCommandBuffer cmd, VkBuff
     count_call(HI_CmdDrawIndexedIndirect);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, count, stride)) return;
     dev->d.CmdDrawIndexedIndirect(cmd, buf, off, count, stride);
 }
@@ -626,6 +631,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCount(VkCommandBuffer cmd, VkBuffer
     count_call(HI_CmdDrawIndirectCount);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count, stride, count_buf, count_off)) return;
     dev->d.CmdDrawIndirectCount(cmd, buf, off, count_buf, count_off, max_count, stride);
 }
@@ -636,6 +642,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndirectCountKHR(VkCommandBuffer cmd, VkBuf
     count_call(HI_CmdDrawIndirectCountKHR);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (track_indirect(dev, cmd, DK_INDIRECT, buf, off, max_count, stride, count_buf, count_off)) return;
     dev->d.CmdDrawIndirectCountKHR(cmd, buf, off, count_buf, count_off, max_count, stride);
 }
@@ -647,6 +654,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCount(VkCommandBuffer cmd, V
     count_call(HI_CmdDrawIndexedIndirectCount);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count, stride, count_buf, count_off)) return;
     dev->d.CmdDrawIndexedIndirectCount(cmd, buf, off, count_buf, count_off, max_count, stride);
 }
@@ -658,6 +666,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDrawIndexedIndirectCountKHR(VkCommandBuffer cmd
     count_call(HI_CmdDrawIndexedIndirectCountKHR);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (track_indirect(dev, cmd, DK_INDEXED_INDIRECT, buf, off, max_count, stride, count_buf, count_off)) return;
     dev->d.CmdDrawIndexedIndirectCountKHR(cmd, buf, off, count_buf, count_off, max_count, stride);
 }
@@ -667,6 +676,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDispatch(VkCommandBuffer cmd, uint32_t x, uint3
     count_call(HI_CmdDispatch);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd, true);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     if (CmdBuf* cb = restore.cb) {
         WorkScope work(dev->work, WK_DRAW);
         cb->draws.push_back(make_rec(cb, DK_DISPATCH, true));
@@ -684,6 +694,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDispatchIndirect(VkCommandBuffer cmd, VkBuffer 
     count_call(HI_CmdDispatchIndirect);
     Device* dev = dev_of(cmd);
     DrawPipelineRestore restore(dev, cmd, true);
+    if(restore.cb && restore.cb->native_image_blocked)return;
     track_indirect(dev, cmd, DK_DISPATCH_INDIRECT, buf, off, 1);
     if (restore.cb && !restore.cb->draws.empty() && m2_shader_draw(dev, restore.cb, restore.cb->draws.back())) return;
     dev->d.CmdDispatchIndirect(cmd, buf, off);
@@ -793,13 +804,14 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdFillBuffer(VkCommandBuffer cmd, VkBuffer dst, V
 template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dynamic, const Info* info)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
-        if(dev->native_binding_order.load(std::memory_order_relaxed)){
+        if(cb->native_images || dev->native_binding_order.load(std::memory_order_relaxed)){
             std::call_once(dev->native_barrier_load,[&]{if(dev->owned_gdpa)dev->native_barrier=reinterpret_cast<PFN_vkCmdPipelineBarrier>(dev->owned_gdpa(dev->handle,"vkCmdPipelineBarrier"));});
             if(dev->native_barrier){
                 VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT;
                 dev->native_barrier(cmd,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&barrier,0,nullptr,0,nullptr);
             }
         }
+        native_images_begin(dev,cb,info);
         cb->in_rp = true;
         if (dynamic)
             cb->dyn_rp_count++;
@@ -825,6 +837,7 @@ void rp_ended(Device* dev, VkCommandBuffer cmd)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         if (cb->pass.render_pass) { on_image_pass(dev, cb, true); m2_pass_end(dev, cb); gpu_analysis_pass(dev, cb); }
+        native_images_end(dev,cb);
         cb->pass = CmdBuf::PassInstance{};
     }
 }
@@ -923,6 +936,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRendering(VkCommandBuffer cmd)
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRendering(cmd);
+    if(auto cb=cb_of(dev,cmd))native_images_end(dev,cb);
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
@@ -931,6 +945,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
     Device* dev = dev_of(cmd);
     rp_end(dev, cmd);
     dev->d.CmdEndRenderingKHR(cmd);
+    if(auto cb=cb_of(dev,cmd))native_images_end(dev,cb);
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdNextSubpass(VkCommandBuffer cmd, VkSubpassContents contents)

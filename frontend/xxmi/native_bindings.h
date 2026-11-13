@@ -20,6 +20,10 @@ struct NativeResource {
     uint32_t stride = 0;
     uint64_t identity = 0, size = 0, offset = 0, range = 0;
     uint64_t buffer = 0, image_view = 0, buffer_view = 0;
+    uint64_t image = 0;
+    uint32_t image_view_id = 0, view_type = 0, view_format = 0;
+    uint32_t aspect = 0, base_mip = 0, mip_count = 0, base_layer = 0, layer_count = 0;
+    bool image_safe = false;
     uint32_t descriptor_type = 0, usage = 0, image_layout = 0;
     bool uploaded_readonly = false; // Published immutable file upload; every consumer must be read-only.
     uint32_t buffer_stride = 0; // File-declared structure stride, independent of the bound view.

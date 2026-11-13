@@ -2,6 +2,17 @@
 
 Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 3. This file records the decisions about how the project is run, and later changes to the design with their reasons.
 
+
+## D-206: Application image references follow current layouts, with persistent refresh (2026-11-14)
+
+- Read original ResourceCopyTarget::GetResource/SetResource in DirectX11/CommandList.cpp. DX11 supplies deferred reference-counted GPU lifetime, hazard tracking and one-context order. Vulkan must retain image/view/memory and mutable sampler owners, know the image subresources' current layout, and explicitly order newly introduced reads.
+- Each native descriptor element preserves the desired image and its retained original application value. Refresh before every draw/dispatch, including unmatched shaders; clone/rebind changed descriptors without mutating sets referenced by recorded commands. Suspend only the unsafe element, keep its desired request, and allow a later safe layout to resume it. A new application bind supersedes the request. Allocation failure suppresses the affected call rather than issue it against stale descriptors.
+- The application's statically accessed original descriptor may establish a recording-local valid-application layout precondition, never overwrite contradictory facts. Follow the original element through native clones; the replacement's requested layout is not evidence. Current GENERAL/SRO bind exactly. Temporary transitions normalize overlapping views to unique image/mip/layer cells, use retained command owners, leave application facts unchanged and restore at compute/pass end. Mixed GENERAL layouts are not converted to satisfy a wider view.
+- First scope is one application graphics queue without synchronization2, owned optimal float32 non-depth 2D sampled views and supported usage/creation state. New graphics transitions must be prepared outside the pass; attachment overlap or unresolved attachment scope refuses. Unknown fresh-recording layouts require future submission-graph work. Existing file-image uploads remain on their publication path.
+- Shared image scope and reflection-cache metadata participate in the host/module ABI. Source/reflection caches are bounded, barrier tracking remains opt-in, and no game load or deployment is part of this work. Baselines and exact verification are in CURRENT_STATE.
+
+- Module exchange exposed BUG-098: use the existing owned GPU tools directory for ShaderFixes validation, rather than the exchanged DLL directory. Observe new-module shader binds before the test screenshot; an expired test notice must not be mistaken for bad image pixels. Final evidence includes 62 non-swap application image checks and 7 exchange checks, with separate build/regression scopes recorded in CURRENT_STATE.
+
 ## D-205: Image layout facts belong to a command recording (2026-11-13)
 
 - Original ResourceCopyTarget::GetResource/SetResource obtains and retains views while DX11 supplies deferred reference-counted GPU lifetime, hazard tracking and one-context order. Vulkan cannot infer an image's current layout from the last descriptor update or the order CPU threads record command buffers.

@@ -12,7 +12,8 @@ std::shared_ptr<const NativeShaderSet> load_shader_fixes(Device* device, const s
     auto next = std::make_shared<NativeShaderSet>();
     next->depth_filters = depth_filters;
     next->compatible = &efmi::gpu::native_shader_interface;
-    const auto tools = module_folder();
+    // Exchanged code can live elsewhere; validators stay with the deployed GPU toolchain.
+    const auto tools = owned_tools_directory();
     const auto folder = (g_cfg.m2_settings.empty() ? tools / "settings" :
                          std::filesystem::absolute(std::filesystem::u8path(g_cfg.m2_settings))) / "ShaderFixes";
     efmi::gpu::ShaderHost host;

@@ -192,6 +192,7 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         efmi::assets::FilePlan resolved;
         if(!native_files(cache,residency,plan,resolved,why) || !prepare_native_descriptors(device,cb,r,resolved,descriptors,why))return false;
     }
+    record_native_images(device,cb,descriptors.images);
     const size_t split = std::min(plan.pre_items,plan.items.size());
     auto record = [&](size_t index) {
         if (hunting_skip) return;

@@ -2429,3 +2429,27 @@ Fixture built in d204-fixture.out, pair in d204-pair.out. Both DLLs contain 2.3.
 The user again rejected stopping while offline work remained. Read original GetResource/SetResource and preserved the distinction between DX11's deferred reference lifetime/hazard tracking/context order and Vulkan's explicit state. Added bounded recording-local identity/aspect/mip/layer facts, legacy/core/KHR barrier/event hooks, secondary composition/reset, and classic subpass/final transitions. Synchronization2 memory-only equal-layout barriers preserve unknown/actual state; multiview and framebuffer layer ranges follow the specification. Attachments outside the current subpass are not assumed to remain in their prior layout. No global record-order layout cache or ownership graph is claimed.
 
 Standalone stub baseline 10/21, implementation 28/28. Host/module/tracker built in d205-pair.out, ABI 0x57e127df66d4e6fc; final native-slots regression d205-regression.out passes tracker 252/252, live INI 221/221, native resources 89/89, Vulkan validation 76/76 and text 569. ABI bytes verified in host/module/tracker, and 2.3.5 in both DLLs. Continue D-206 after this commit without ending the turn. Draft next design is build/d206-design.md; separate native_application_image_test.py is not part of this change. Root dist remains 2.1.8, historical game evidence 2.1.7; no deployment/game/launcher/system/remote actions.
+
+
+## 2026-11-14: D-206 retained application images and exchanged shader validation, 2.3.6
+
+Continued after the user again rejected stopping at intermediate offline work. D-205 was already merged
+as 04cc6f8. Read original ResourceCopyTarget::GetResource/SetResource and ReloadShader; DX11 supplies
+deferred reference lifetime, hazard tracking and one-context order. Added owned application sampled
+image metadata, persistent per-element requests/fallbacks, descriptor cloning/refresh on every call,
+bounded local layout proofs, unique temporary transition cells and restoration at compute/pass end.
+Owners survive the scope until completed recording reset. Shared scope/cache layouts are ABI stamped.
+
+The initial reference baseline was 16/20; distinct-image/layout baseline 3/6 returned 14801 instead
+of 5601. Final host/module: d206-swap-pair.out, ABI97d3399f4a32ac23; tracker: d206-cache-pair.out.
+Before the final validator-path correction, native-area checks passed tracker260, bindings48,
+fileimages46 and VVL76. The corrected pair passes shaders92 and all62 non-swap image checks;
+corrected exchange capture passes7/7 (d206-swap-capture.out). Earlier native files42 passed before
+private cache/loader fixes. Text573 clean; stamp/version bytes verified. Full image tests exposed
+BUG-098 (validator path after exchange), then a test-overlay expiry causing no screenshot; both are
+corrected, with the exact scopes recorded in CURRENT_STATE. No in-flight or real-game swap claimed.
+
+Next continue D-207 relative/default configuration roots across module exchange, then D-208 indirect
+GPU argument/count captures and geometry associations. Draft scripts are ignored under build/;
+establish each failing baseline before implementation. Root dist2.1.8 and historical game2.1.7 remain
+unchanged. No game/deployment/launcher/system/remote operation.

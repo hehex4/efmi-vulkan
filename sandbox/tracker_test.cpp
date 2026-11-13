@@ -944,6 +944,7 @@ int main()
     immutable_sampler_lifetime();
     native_resource_lifetimes();
     native_descriptor_references();
+    native_image_scope_lifetime();
     secondary_publication_dependencies();
     image_layout_cases(check);
     image_layout_tracker_cases();

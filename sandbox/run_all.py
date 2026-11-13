@@ -158,6 +158,7 @@ STEPS = [
     ("GPU geometry analysis", [os.path.join(HERE, "gpu_geometry_test.py")]),
     ("GPU target analysis", [os.path.join(HERE, "gpu_target_test.py")]),
     ("native image bindings", [os.path.join(HERE, "native_image_test.py")]),
+    ("native application images", [os.path.join(HERE, "native_application_image_test.py")]),
     ("native file bindings", [os.path.join(HERE, "native_file_test.py")]),
     ("native compute shaders", [os.path.join(HERE, "native_compute_test.py")]),
     ("native empty inputs", [os.path.join(HERE, "native_input_test.py")]),
@@ -190,6 +191,7 @@ GROUPS = {
     "native-bindings": ["native descriptor bindings", "native resource slots", "native call execution", "native tracker", "Vulkan validation", "text check"],
     "gpu-analysis": ["GPU frame analysis", "GPU geometry analysis", "GPU target analysis", "native tracker", "Vulkan validation", "text check"],
     "native-images": ["native image bindings", "native file bindings", "native descriptor bindings", "character replacement", "native tracker", "Vulkan validation", "text check"],
+    "native-application-images": ["native application images", "native image bindings", "native descriptor bindings", "native tracker", "Vulkan validation", "text check"],
     "native-files": ["native file bindings", "native descriptor bindings", "native resource slots", "native tracker", "Vulkan validation", "text check"],
     # A minute or so, for every change: text, the Python units, the expression cases, what each command
     # class does in a replaced draw, and the original as the judge.

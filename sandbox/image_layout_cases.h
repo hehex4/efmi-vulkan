@@ -59,4 +59,9 @@ static void image_layout_cases(void (*check)(bool, const char*))
     check(state.get(1, 3, 4, one, layout) && layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "legacy equal-layout barriers assert their required layout");
     state.barrier(1, 3, 4, one, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, 0, 0, false);
     check(!state.get(1, 3, 4, one, layout), "contradictory recorded layout requirements fail closed");
+    check(state.require(10,3,4,one,VK_IMAGE_LAYOUT_GENERAL), "original application use establishes a local layout precondition");
+    check(!state.require(10,3,4,one,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL), "application use does not overwrite contradictory observed state");
+    check(state.get(10,3,4,one,layout) && layout==VK_IMAGE_LAYOUT_GENERAL, "rejected use preserves the known layout");
+    state.invalidate_all();
+    check(!state.require(10,3,4,one,VK_IMAGE_LAYOUT_GENERAL), "application use cannot bypass an exhausted or unsupported recording");
 }

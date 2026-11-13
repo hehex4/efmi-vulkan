@@ -1,5 +1,14 @@
 # EFMI Vulkan - Tasks
 
+
+## Active continuation: D-206 application images, then module paths and indirect capture (2026-11-14)
+
+- Continue offline implementation after verified commits; the user explicitly rejected stopping at intermediate audits.
+- D-206 implements retained application sampled images, current-layout descriptors, persistent refresh/fallback and temporary layout restoration. Final scoped regression and loader correction are complete: CURRENT_STATE lists the exact builds, 260 tracker, 48 bindings, 46 file images, 76 VVL, 92 game shaders, 62 non-swap application image checks and 7 post-exchange checks. BUG-098 fixes the exchanged validator path. Current source 2.3.6; D-205 committed as 04cc6f8.
+- Next D-207: test/fix relative/default paths across module exchange. Original IniHandler resolves configuration and override_directory relative to migoto_handle; the code module must not move that root. Draft fixture/fix scripts: build/d207-path-fixture.py and build/d207-path-fix.py. Establish the failing relative-path case before applying the fix.
+- Then D-208: original FrameAnalysisContext logs indirect argument buffer/offset and passes indirect DrawCallInfo to analysis. Capture actual GPU argument/count allocations and associate indirect geometry without fabricating recording-time counts. Keep end-of-pass versus per-draw snapshots distinct, retain D-202 queue/completion/usage guards, and establish a failing fixture first.
+- Later offline architecture: cross-recording/multiple-queue/synchronization2 resource graphs, mutable/array/cube file resources, dynamic vertex input, analyse_options selection and render-target rebinding. No game/deployment/launcher action is authorized.
+
 ## Active continuation: D-205 image layout tracking, then native application images (2026-11-13)
 
 - The user again rejected stopping at an intermediate offline audit. Continue implementing remaining offline work after each verified commit; do not end the turn with another list of actionable offline tasks.

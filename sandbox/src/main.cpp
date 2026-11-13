@@ -1822,6 +1822,9 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.reusable = true;
         else if (a == L"--mutable-sampler")
             g.mutable_sampler = true;
+        else if (a == L"--compute-image-reference" && i + 1 < argc){
+            compute_scene.reference_shader_path=argv[++i];compute_scene.image_input=compute_scene.binding_scene=true;
+        }
         else if (a == L"--compute-image")
             compute_scene.image_input = compute_scene.binding_scene = true;
         else if (a == L"--compute-bindings")

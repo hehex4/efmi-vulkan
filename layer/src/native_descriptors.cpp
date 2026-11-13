@@ -1,4 +1,5 @@
 #include "native_descriptors.h"
+#include "native_resources.h"
 #include "../../frontend/gpu/source_registers.h"
 
 namespace efvk {
@@ -25,38 +26,42 @@ struct Writes {
         }
     }
 };
-bool hold_locked(Device* d,const DescriptorSetInfo& contents,std::vector<std::shared_ptr<const void>>& owners)
+bool hold_locked(Device* d,DescriptorSetInfo& contents,std::vector<std::shared_ptr<const void>>& owners)
 {
-    for(const auto& pair:contents.values){
-        const auto& v=pair.second;if(!v.known)continue;
+    for(auto& pair:contents.values){
+        auto& v=pair.second;if(!v.known)continue;
+        if(v.native_image_request)owners.push_back(v.native_image_request);
+        if(v.application)owners.push_back(v.application);
         if(v.native)owners.push_back(v.native);
+        else if(v.retained)owners.push_back(v.retained);
         else {
         if(v.buffer){
             const auto b=d->bufs.find(v.buffer);
             if(b==d->bufs.end() || b->second.id!=v.buffer_id || !b->second.lifetime || b->second.lifetime->dependencies.empty())return false;
-            owners.push_back(b->second.lifetime);
+            v.retained=b->second.lifetime;owners.push_back(v.retained);
         }
         if(v.image_view){
             const auto view=d->image_views.find(v.image_view);
             if(view==d->image_views.end() || view->second.id!=v.image_view_id || !view->second.lifetime || view->second.lifetime->dependencies.empty())return false;
             const auto image=d->images.find(view->second.image);
             if(image==d->images.end() || !image->second.lifetime || image->second.lifetime->dependencies.empty())return false;
-            owners.push_back(view->second.lifetime);
+            v.retained=view->second.lifetime;owners.push_back(v.retained);
         }
         if(v.buffer_view){
             const auto view=d->buffer_views.find(v.buffer_view);
             if(view==d->buffer_views.end() || view->second.id!=v.buffer_view_id || !view->second.lifetime || view->second.lifetime->dependencies.empty())return false;
             const auto buffer=d->bufs.find(view->second.buffer);
             if(buffer==d->bufs.end() || !buffer->second.lifetime || buffer->second.lifetime->dependencies.empty())return false;
-            owners.push_back(view->second.lifetime);
+            v.retained=view->second.lifetime;owners.push_back(v.retained);
         }
         }
         if(v.sampler){
             const auto binding=contents.layout->bindings.find(pair.first.first);
             if(binding!=contents.layout->bindings.end() && !binding->second.immutable_samplers.empty())continue;
+            if(v.retained_sampler){owners.push_back(v.retained_sampler);continue;}
             const auto sampler=d->samplers.find(v.sampler);
             if(sampler==d->samplers.end() || sampler->second.id!=v.sampler_id || !sampler->second.lifetime)return false;
-            owners.push_back(sampler->second.lifetime);
+            v.retained_sampler=sampler->second.lifetime;owners.push_back(v.retained_sampler);
         }
     }
     return true;
@@ -106,6 +111,44 @@ struct NativeDescriptorOwner:CommandOwner {
         return result;
     }
 };
+bool materialize(Device* device,CmdBuf* cb,const std::shared_ptr<NativeDescriptorSet>& set,std::string& why)
+{
+    auto refuse=[&](const char* reason){why=reason;return false;};
+    const auto bound=set->bind;
+        // The application may destroy its pipeline-layout handle after recording its bind. Retained
+        // set layouts and push ranges reproduce the full compatibility contract for our new bind.
+        std::vector<VkDescriptorSetLayout> layouts;
+        for(const auto& layout:bound.layout->sets){
+            if(!layout || !layout->complete || !layout->lifetime)return refuse("Native pipeline layout cannot be reproduced with retained set layouts");
+            layouts.push_back(layout->lifetime->handle);
+        }
+        VkPipelineLayoutCreateInfo pipeline_layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};pipeline_layout.flags=bound.layout->flags;
+        pipeline_layout.setLayoutCount=uint32_t(layouts.size());pipeline_layout.pSetLayouts=layouts.data();
+        pipeline_layout.pushConstantRangeCount=uint32_t(bound.layout->pushes.size());pipeline_layout.pPushConstantRanges=bound.layout->pushes.data();
+        if(device->d.CreatePipelineLayout(device->handle,&pipeline_layout,nullptr,&set->owned_layout)!=VK_SUCCESS)return refuse("Native compatible pipeline layout allocation failed");
+        set->bind.layout_handle=set->owned_layout;
+        if(bound.pushed){
+            if(!device->d.CmdPushDescriptorSetKHR && !device->d.CmdPushDescriptorSet)return refuse("Native push-descriptor command is unavailable");
+            set->bind.pushed=std::make_shared<const DescriptorSetInfo>(set->contents);
+        }else{
+            std::map<uint32_t,uint32_t> counts;
+            for(const auto& binding:set->contents.layout->bindings)if(binding.second.count)counts[binding.second.type]+=binding.second.count;
+            std::vector<VkDescriptorPoolSize> sizes;for(const auto& count:counts)sizes.push_back({VkDescriptorType(count.first),count.second});
+            VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pool.maxSets=1;pool.poolSizeCount=uint32_t(sizes.size());pool.pPoolSizes=sizes.data();
+            if(device->d.CreateDescriptorPool(device->handle,&pool,nullptr,&set->pool)!=VK_SUCCESS)return refuse("Native descriptor pool allocation failed");
+            const auto layout=set->contents.layout->lifetime->handle;
+            VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};allocation.descriptorPool=set->pool;allocation.descriptorSetCount=1;allocation.pSetLayouts=&layout;
+            set->bind.set=VK_NULL_HANDLE;set->bind.id=0;
+            if(device->d.AllocateDescriptorSets(device->handle,&allocation,&set->bind.set)!=VK_SUCCESS)return refuse("Native descriptor allocation failed");
+            {std::unique_lock<std::shared_mutex> lock(device->res_mx);set->contents.id=device->next_resource_id++;set->contents.pool=set->pool;set->bind.id=set->contents.id;
+             device->descriptor_sets[set->bind.set]=set->contents;}
+            Writes writes(set->contents,set->bind.set);device->d.UpdateDescriptorSets(device->handle,uint32_t(writes.writes.size()),writes.writes.data(),0,nullptr);
+        }
+        // Dynamic buffer offsets have already been folded into the copied values.
+        set->bind.dyn_first=uint32_t(cb->dyn.size());set->bind.dyn_count=uint32_t(set->zero_offsets.size());
+        cb->dyn.insert(cb->dyn.end(),set->zero_offsets.begin(),set->zero_offsets.end());
+    return true;
+}
 const char native_descriptor_owner=0;
 }
 bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,
@@ -115,6 +158,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
     NativeDescriptorPlan next;next.items.resize(plan.items.size());
     bool needed=false;for(const auto& item:plan.items)needed|=item.operation==efmi::assets::FileOperation::NativeBind;
     if(!needed){output=std::move(next);return true;}
+    native_images_observe(device,cb,draw);
     // DX11's single context orders references implicitly. Queue-local barriers cannot extend
     // the application's semaphore graph to accesses introduced on another application queue.
     if(device->application_queue_count!=1){
@@ -141,6 +185,9 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
         if(bound.unsupported || !bound.layout || target.set>=bound.layout->prefix.size() || !expected->prefix[target.set] ||
            bound.layout->prefix[target.set]!=expected->prefix[target.set])return refuse("Native descriptor target layout is incompatible");
         auto set=std::make_shared<NativeDescriptorSet>();set->device=device;set->slot=target.set;set->bind=bound;
+        DrawRec before=draw;std::copy(state.begin(),state.end(),std::begin(before.sets));
+        auto fallback=std::make_shared<Resource>();std::string fallback_reason;
+        const bool fallback_known=native_resource(device,cb,before,target,*fallback,fallback_reason);
         {
             std::shared_lock<std::shared_mutex> lock(device->res_mx);
             const DescriptorSetInfo* original=bound.pushed.get();
@@ -187,7 +234,13 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             auto replacement=item.native_resource;
             if(!replacement)replacement=std::make_shared<const Resource>();
             const auto& resource=*replacement;
-            auto value=set->contents.values[{target.binding,target.element}];value.type=type;value.known=true;value.native=replacement;
+            auto value=set->contents.values[{target.binding,target.element}];
+            if(sampled && !value.application){
+                if(!fallback_known || (fallback->bound && !fallback->keep))return refuse("Native image fallback has no retained application resource");
+                auto original=value;original.native=fallback;original.native_image_request.reset();original.application.reset();
+                value.application=std::make_shared<const DescriptorElement>(std::move(original));
+            }
+            value.type=type;value.known=true;value.native=replacement;value.retained.reset();value.native_image_request.reset();
             if(!resource.bound){
                 if(!device->null_descriptors)return refuse("Native null descriptors require the enabled nullDescriptor feature");
                 value.buffer=VK_NULL_HANDLE;value.buffer_view=VK_NULL_HANDLE;value.image_view=VK_NULL_HANDLE;
@@ -213,7 +266,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                     }
                 }
             }
-            if(!resource.uploaded_readonly && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
+            if(resource.buffer && !resource.uploaded_readonly && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
                (resource.usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)))
                 return refuse("Native graphics references to writable buffers need in-pass hazard tracking");
             if(constant || storage){
@@ -225,11 +278,17 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                     return refuse("Native buffer reference violates descriptor usage, range or alignment");
                 value.buffer=VkBuffer(resource.buffer);value.buffer_id=uint32_t(resource.identity>>2);value.offset=resource.offset;value.range=resource.range;
             }else if(sampled || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE){
-                if(!sampled || !resource.uploaded_readonly || !resource.image_view || !(resource.usage&VK_IMAGE_USAGE_SAMPLED_BIT) ||
-                   resource.image_layout!=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-                    return refuse("Native application image bindings require tracked subresource layouts");
-                value.image_view=VkImageView(resource.image_view);value.image_view_id=0;
-                value.image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                if(!sampled || !resource.image_view)return refuse("Native writable image references require a separate executor");
+                VkImageLayout image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                if(resource.uploaded_readonly){
+                    if(!(resource.usage&VK_IMAGE_USAGE_SAMPLED_BIT) || resource.image_layout!=image_layout)
+                        return refuse("Native file image is not published for sampling");
+                }else{
+                    if(!native_image_binding(device,cb,draw,target,replacement,next.images,image_layout,why))return false;
+                    value.native_image_request=replacement;
+                }
+                value.image_view=VkImageView(resource.image_view);value.image_view_id=resource.image_view_id;
+                value.image_layout=image_layout;
             }else{
                 const auto usage=type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER?VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
                 if(!resource.buffer_view || !(resource.usage&usage))return refuse("Native texel reference has incompatible view usage");
@@ -239,38 +298,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             set->contents.values[{target.binding,target.element}]=value;
             if(!hold_locked(device,set->contents,set->owners))return refuse("Native descriptor set contains an unretainable application resource");
         }
-        // The application may destroy its pipeline-layout handle after recording its bind. Retained
-        // set layouts and push ranges reproduce the full compatibility contract for our new bind.
-        std::vector<VkDescriptorSetLayout> layouts;
-        for(const auto& layout:bound.layout->sets){
-            if(!layout || !layout->complete || !layout->lifetime)return refuse("Native pipeline layout cannot be reproduced with retained set layouts");
-            layouts.push_back(layout->lifetime->handle);
-        }
-        VkPipelineLayoutCreateInfo pipeline_layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};pipeline_layout.flags=bound.layout->flags;
-        pipeline_layout.setLayoutCount=uint32_t(layouts.size());pipeline_layout.pSetLayouts=layouts.data();
-        pipeline_layout.pushConstantRangeCount=uint32_t(bound.layout->pushes.size());pipeline_layout.pPushConstantRanges=bound.layout->pushes.data();
-        if(device->d.CreatePipelineLayout(device->handle,&pipeline_layout,nullptr,&set->owned_layout)!=VK_SUCCESS)return refuse("Native compatible pipeline layout allocation failed");
-        set->bind.layout_handle=set->owned_layout;
-        if(bound.pushed){
-            if(!device->d.CmdPushDescriptorSetKHR && !device->d.CmdPushDescriptorSet)return refuse("Native push-descriptor command is unavailable");
-            set->bind.pushed=std::make_shared<const DescriptorSetInfo>(set->contents);
-        }else{
-            std::map<uint32_t,uint32_t> counts;
-            for(const auto& binding:set->contents.layout->bindings)if(binding.second.count)counts[binding.second.type]+=binding.second.count;
-            std::vector<VkDescriptorPoolSize> sizes;for(const auto& count:counts)sizes.push_back({VkDescriptorType(count.first),count.second});
-            VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pool.maxSets=1;pool.poolSizeCount=uint32_t(sizes.size());pool.pPoolSizes=sizes.data();
-            if(device->d.CreateDescriptorPool(device->handle,&pool,nullptr,&set->pool)!=VK_SUCCESS)return refuse("Native descriptor pool allocation failed");
-            const auto layout=set->contents.layout->lifetime->handle;
-            VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};allocation.descriptorPool=set->pool;allocation.descriptorSetCount=1;allocation.pSetLayouts=&layout;
-            set->bind.set=VK_NULL_HANDLE;set->bind.id=0;
-            if(device->d.AllocateDescriptorSets(device->handle,&allocation,&set->bind.set)!=VK_SUCCESS)return refuse("Native descriptor allocation failed");
-            {std::unique_lock<std::shared_mutex> lock(device->res_mx);set->contents.id=device->next_resource_id++;set->contents.pool=set->pool;set->bind.id=set->contents.id;
-             device->descriptor_sets[set->bind.set]=set->contents;}
-            Writes writes(set->contents,set->bind.set);device->d.UpdateDescriptorSets(device->handle,uint32_t(writes.writes.size()),writes.writes.data(),0,nullptr);
-        }
-        // Later assignment events are planned against the earlier event's actual descriptor state.
-        set->bind.dyn_first=uint32_t(cb->dyn.size());set->bind.dyn_count=uint32_t(set->zero_offsets.size());
-        cb->dyn.insert(cb->dyn.end(),set->zero_offsets.begin(),set->zero_offsets.end());
+        if(!materialize(device,cb,set,why))return false;
         state[target.set]=set->bind;next.items[i]=std::move(set);
     }
     owner->sets.reserve(owner->sets.size()+plan.items.size());
@@ -280,7 +308,9 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
 {
     const auto& set=plan.items[i];if(!set)return;
     auto owner=std::static_pointer_cast<NativeDescriptorOwner>(plan.owner);
+    if(std::find(cb->owners.begin(),cb->owners.end(),owner)==cb->owners.end())cb->owners.push_back(owner);
     owner->used=true;owner->sets.push_back(set);
+    for(const auto& value:set->contents.values)if(value.second.native_image_request)cb->native_images=true;
     for(const auto& value:set->contents.values)if(value.second.native){
         const auto& resource=*std::static_pointer_cast<const Resource>(value.second.native);
         if(resource.publication_semaphore && resource.publication_value){
@@ -295,5 +325,63 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
         push(cb->handle,point,set->bind.layout_handle,set->slot,uint32_t(writes.writes.size()),writes.writes.data());
     }else device->d.CmdBindDescriptorSets(cb->handle,point,set->bind.layout_handle,set->slot,1,&set->bind.set,uint32_t(set->zero_offsets.size()),set->zero_offsets.data());
     (compute?cb->comp_sets:cb->sets)[set->slot]=set->bind;
+}
+bool refresh_native_images(Device* device,CmdBuf* cb,const DrawRec& draw,std::string& why)
+{
+    auto owner=std::static_pointer_cast<NativeDescriptorOwner>(owner_for(cb->owners,&native_descriptor_owner,[]{
+        auto result=std::make_shared<NativeDescriptorOwner>();result->backend=&native_descriptor_owner;return result;
+    }));
+    NativeDescriptorPlan plan;plan.owner=owner;
+    bool supported=true;
+    for(uint32_t slot=0;slot<kMaxSets;++slot){
+        const auto& bound=draw.sets[slot];
+        auto set=std::make_shared<NativeDescriptorSet>();set->device=device;set->slot=slot;set->bind=bound;
+        bool changed=false;
+        {
+            std::shared_lock<std::shared_mutex> lock(device->res_mx);
+            const auto pipeline=device->pipes.find(draw.pipeline);
+            if(pipeline==device->pipes.end() || !pipeline->second.layout || !bound.layout || bound.unsupported ||
+               slot>=bound.layout->prefix.size() || slot>=pipeline->second.layout->prefix.size() ||
+               bound.layout->prefix[slot]!=pipeline->second.layout->prefix[slot])continue;
+            const DescriptorSetInfo* source=bound.pushed.get();
+            const auto found=device->descriptor_sets.find(bound.set);
+            if(!source && found!=device->descriptor_sets.end() && found->second.id==bound.id)source=&found->second;
+            if(!source)continue;
+            bool pending=false;for(const auto& entry:source->values)pending|=bool(entry.second.native_image_request);
+            if(!pending)continue;
+            set->contents=*source;
+            for(auto& entry:set->contents.values){
+                auto& value=entry.second;if(!value.native_image_request)continue;
+                const auto request=std::static_pointer_cast<const Resource>(value.native_image_request);
+                efmi::frontend::NativeBinding target;target.set=slot;target.binding=entry.first.first;target.element=entry.first.second;
+                VkImageLayout layout;std::string reason;
+                auto replacement=value;
+                if(native_image_binding(device,cb,draw,target,request,plan.images,layout,reason)){
+                    replacement.native=request;replacement.retained.reset();replacement.image_view=VkImageView(request->image_view);
+                    replacement.image_view_id=request->image_view_id;replacement.image_layout=layout;
+                }else{
+                    supported=false;why=reason;
+                    if(!value.application){cb->native_image_blocked=true;return false;}
+                    replacement=*value.application;replacement.application=value.application;
+                    replacement.native_image_request=request;replacement.retained_sampler=value.retained_sampler;
+                }
+                changed|=replacement.image_view!=value.image_view || replacement.image_layout!=value.image_layout || replacement.native!=value.native;
+                value=std::move(replacement);
+            }
+            if(!changed)continue;
+            if(owner->sealed || owner->sets.size()+plan.items.size()>=4096 || bound.dyn_first>cb->dyn.size() ||
+               bound.dyn_count>cb->dyn.size()-bound.dyn_first || !hold_locked(device,set->contents,set->owners)){
+                why="Native image refresh cannot retain or allocate a safe descriptor state";cb->native_image_blocked=true;return false;
+            }
+            set->zero_offsets.assign(cb->dyn.begin()+bound.dyn_first,cb->dyn.begin()+bound.dyn_first+bound.dyn_count);
+        }
+        if(!materialize(device,cb,set,why)){cb->native_image_blocked=true;return false;}
+        plan.items.push_back(std::move(set));
+    }
+    // A descriptor whose layout is unchanged can still need a fresh temporary transition.
+    record_native_images(device,cb,plan.images);
+    for(size_t i=0;i<plan.items.size();++i)record_native_descriptor(device,cb,draw,plan,i);
+    device->native_image_refreshes.fetch_add(plan.items.size());
+    return supported;
 }
 }

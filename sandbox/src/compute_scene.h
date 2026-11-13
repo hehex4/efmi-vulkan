@@ -1,7 +1,9 @@
 // Optional application compute work, with host readback after the submission fence.
 // Included after the sandbox's buffer helpers; no layer-specific calls.
 struct ComputeScene {
-    std::wstring shader_path, output_path;
+    std::wstring shader_path, output_path, reference_shader_path;
+    struct ReferenceImage { VkImage image=VK_NULL_HANDLE; VkImageView view=VK_NULL_HANDLE; VkDeviceMemory memory=VK_NULL_HANDLE; } reference_images[2];
+    VkPipeline reference_pipeline=VK_NULL_HANDLE;
     bool indirect = false;
     bool binding_scene = false, late_update = false;
     bool secondary = false, image_input = false, capture_usage = false, storage_image = false;
@@ -20,6 +22,8 @@ struct ComputeScene {
     VkDescriptorSet set = VK_NULL_HANDLE;
     VkDescriptorUpdateTemplate update_template = VK_NULL_HANDLE;
 } compute_scene;
+
+#include "compute_image_reference.h"
 
 static bool create_compute_scene()
 {
@@ -55,9 +59,9 @@ static bool create_compute_scene()
     const uint32_t groups[3] = {1, 1, 1}; memcpy(c.arguments.map, groups, 12);
     VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     VkDescriptorSetLayoutCreateInfo si = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    VkDescriptorSetLayoutBinding bindings[3]={binding,binding,binding};bindings[1].binding=1;bindings[2].binding=2;
+    VkDescriptorSetLayoutBinding bindings[4]={binding,binding,binding,binding};bindings[1].binding=1;bindings[2].binding=2;bindings[3].binding=3;bindings[3].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     if(c.image_input)bindings[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    si.bindingCount = c.binding_scene?3:1; si.pBindings = bindings;
+    si.bindingCount = !c.reference_shader_path.empty()?4:c.binding_scene?3:1; si.pBindings = bindings;
     if(c.binding_scene && g.descriptor_mode>=2)si.flags=VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
     CHECK(vkCreateDescriptorSetLayout(g.device, &si, nullptr, &c.set_layout));
     VkPipelineLayoutCreateInfo li = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -71,6 +75,7 @@ static bool create_compute_scene()
     pi.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT; pi.stage.module = module; pi.stage.pName = "main";
     const auto made = vkCreateComputePipelines(g.device, VK_NULL_HANDLE, 1, &pi, nullptr, &c.pipeline);
     vkDestroyShaderModule(g.device, module, nullptr); CHECK(made);
+    if(!c.reference_shader_path.empty() && !create_reference_images())return false;
     if(c.image_input && (g.descriptor_mode==1 || g.descriptor_mode==3))return false;
     if(c.binding_scene && (g.descriptor_mode==1 || g.descriptor_mode==3)){
         VkDescriptorUpdateTemplateEntry entries[3]{};
@@ -82,7 +87,7 @@ static bool create_compute_scene()
         CHECK(vkCreateDescriptorUpdateTemplate(g.device,&t,nullptr,&c.update_template));
     }
     if(c.binding_scene && g.descriptor_mode>=2)return true;
-    VkDescriptorPoolSize capacities[2]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, c.binding_scene?3u:1u},{c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1}};
+    VkDescriptorPoolSize capacities[2]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, c.binding_scene?3u:1u},{c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,c.reference_shader_path.empty()?1u:2u}};
     VkDescriptorPoolCreateInfo pool = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pool.maxSets = 1; pool.poolSizeCount = c.image_input?2:1; pool.pPoolSizes = capacities;
     CHECK(vkCreateDescriptorPool(g.device, &pool, nullptr, &c.pool));
@@ -96,11 +101,31 @@ static bool create_compute_scene()
     if(c.binding_scene){
         buffer.buffer=c.alternate.buf;write.dstBinding=1;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
         buffer.buffer=c.input.buf;write.dstBinding=2;
-        VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:c.reference_images[0].view?c.reference_images[0].view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         if(c.image_input){write.descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.pImageInfo=&image;write.pBufferInfo=nullptr;}
         vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
+        if(c.reference_images[1].view){write.dstBinding=3;image.imageView=c.reference_images[1].view;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);}
     }
     return true;
+}
+
+static void bind_compute_descriptors(VkCommandBuffer cmd)
+{
+    auto& c=compute_scene;
+    if(c.binding_scene && g.descriptor_mode>=2){
+        VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.input.buf,0,16}};
+        if(g.descriptor_mode==3)vkCmdPushDescriptorSetWithTemplateKHR(cmd,c.update_template,c.layout,0,buffers);
+        else{
+            VkWriteDescriptorSet writes[4]{};
+            for(uint32_t i=0;i<3;++i){writes[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[i].dstBinding=i;
+                writes[i].descriptorCount=1;writes[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;writes[i].pBufferInfo=&buffers[i];}
+            VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:c.reference_images[0].view?c.reference_images[0].view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            if(c.image_input){writes[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[2].pImageInfo=&image;writes[2].pBufferInfo=nullptr;}
+            VkDescriptorImageInfo destination{VK_NULL_HANDLE,c.reference_images[1].view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            if(destination.imageView){writes[3]=writes[2];writes[3].dstBinding=3;writes[3].pImageInfo=&destination;}
+            vkCmdPushDescriptorSetKHR(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,c.layout,0,destination.imageView?4:3,writes);
+        }
+    }else vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, c.layout, 0, 1, &c.set, 0, nullptr);
 }
 
 static void record_compute_scene(VkCommandBuffer cmd)
@@ -127,19 +152,10 @@ static void record_compute_scene(VkCommandBuffer cmd)
         barrier.oldLayout=VK_IMAGE_LAYOUT_GENERAL;barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
         vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
     }
+    if(c.reference_pipeline)initialize_reference_images(cmd);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, c.pipeline);
-    if(c.binding_scene && g.descriptor_mode>=2){
-        VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.input.buf,0,16}};
-        if(g.descriptor_mode==3)vkCmdPushDescriptorSetWithTemplateKHR(cmd,c.update_template,c.layout,0,buffers);
-        else{
-            VkWriteDescriptorSet writes[3]{};
-            for(uint32_t i=0;i<3;++i){writes[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[i].dstBinding=i;
-                writes[i].descriptorCount=1;writes[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;writes[i].pBufferInfo=&buffers[i];}
-            VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-            if(c.image_input){writes[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[2].pImageInfo=&image;writes[2].pBufferInfo=nullptr;}
-            vkCmdPushDescriptorSetKHR(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,c.layout,0,3,writes);
-        }
-    }else vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, c.layout, 0, 1, &c.set, 0, nullptr);
+    bind_compute_descriptors(cmd);
+    if(c.reference_pipeline){record_reference_images(cmd);return;}
     for(unsigned i=0;i<c.repeat;++i){
         if(c.indirect)vkCmdDispatchIndirect(cmd,c.arguments.buf,0);else vkCmdDispatch(cmd,1,1,1);
         host.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;host.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
@@ -172,6 +188,7 @@ static void read_compute_scene()
 static void destroy_compute_scene()
 {
     auto& c = compute_scene;
+    destroy_reference_images();
     if (c.pipeline) vkDestroyPipeline(g.device, c.pipeline, nullptr);
     if (c.layout) vkDestroyPipelineLayout(g.device, c.layout, nullptr);
     if (c.pool) vkDestroyDescriptorPool(g.device, c.pool, nullptr);

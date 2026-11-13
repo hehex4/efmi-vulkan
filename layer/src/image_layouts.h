@@ -54,6 +54,17 @@ public:
         return valid && !first;
     }
     bool exhausted() const { return exhausted_; }
+    bool require(uint32_t id, uint32_t levels, uint32_t layers, VkImageSubresourceRange range, VkImageLayout layout) {
+        if (exhausted_ || !id || !normalize(levels, layers, range)) return false;
+        bool valid = true;
+        visit(id, range, [&](const Key& key) {
+            const auto cell = cells_.find(key);
+            if (cell != cells_.end() && cell->second != VK_IMAGE_LAYOUT_MAX_ENUM && cell->second != layout) valid = false;
+        });
+        if (!valid) return false;
+        set(id, levels, layers, range, layout);
+        return !exhausted_;
+    }
     void invalidate_all() { overflow(); }
 private:
     using Key = std::tuple<uint32_t, uint32_t, uint32_t, uint32_t>;

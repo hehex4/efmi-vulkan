@@ -72,6 +72,7 @@ struct ImageInfo {
     VkFormat format = VK_FORMAT_UNDEFINED;
     VkExtent3D extent = {};
     uint32_t levels = 0, layers = 0, samples = 0, usage = 0, flags = 0;
+    VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
     uint8_t content = IMG_NONE;
     uint32_t content_crc = 0;
     // With IMG_HASHED: the original's data hash of the same upload (D-077): the first
@@ -83,6 +84,7 @@ struct ImageInfo {
 
 struct ImageViewInfo {
     std::shared_ptr<ImageViewLifetime> lifetime;
+    bool native_safe = false;
     uint32_t id = 0, image_id = 0;
     VkImage image = VK_NULL_HANDLE;
     VkImageViewType type = VK_IMAGE_VIEW_TYPE_2D;
@@ -134,6 +136,9 @@ struct PipelineLayoutInfo {
 
 struct DescriptorElement {
     std::shared_ptr<const void> native; // Native replacement's owned descriptor payload; opaque to the tracker.
+    std::shared_ptr<const void> native_image_request; // Desired app-image reference, even while its actual value falls back.
+    std::shared_ptr<const void> retained, retained_sampler;
+    std::shared_ptr<const DescriptorElement> application; // Retained original value, never another pending request.
     uint32_t type = 0;
     bool known = false;
     VkBuffer buffer = VK_NULL_HANDLE;

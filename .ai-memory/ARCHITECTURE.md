@@ -11,7 +11,7 @@ finds the draws of characters that an installed EFMI Mod replaces, runs the Mod'
 original 3DMigoto (XXMI) parser and interpreter, and draws the Mod's meshes and textures in the game's
 own render passes. Nothing of the game, the launcher or the Mods is changed on disk.
 
-The native route (D-187 to D-197) adds SPIR-V-hash ShaderOverride lists, hunting/dumps and native
+The native route (D-187 onward) adds SPIR-V-hash ShaderOverride lists, hunting/dumps and native
 ShaderFixes. `shader_fixes.cpp` loads an immutable shader revision with the folder generation; the
 variant cache applies it to game twins and character variants. Recorded command owners retain the
 actual pipelines, and resource metadata retains original descriptor-layout/immutable-sampler handles
@@ -26,8 +26,14 @@ scope logical slots to a shader's Vulkan descriptor address. `native_resources.c
 answers current metadata; the original getters/matcher handle queries and fuzzy matches, preserving
 resource/view formats and dynamic ranges. GPU-writable content is not read through a CPU shadow.
 `native_execution.cpp` records direct call plans and complete caller replays around the original
-call, with compute dependencies and cached graphics access checks. Resource binding edits and
-frame-analysis staging remain separate work.
+call, with compute dependencies and cached graphics access checks. `native_descriptors.cpp` clones
+retained descriptor sets for persistent buffer/file/image bindings and upload publication. Application
+image requests preserve original fallback elements; `native_images.cpp` refreshes them per call,
+uses recording-local `ImageLayouts` and restores temporary layouts outside render passes. Scope and
+reflection-cache structures shared by the host and exchangeable module participate in the ABI stamp.
+`gpu_analysis.cpp` owns bounded staging copies and completed timeline publication independently of
+module lifetime. Its scope is post-dispatch/end-of-pass data on supported application queue graphs;
+unknown synchronization, usage and image ownership/layouts are explicit refusals.
 The precise supported interfaces and remaining route-2 work are in
 `docs/vulkan-native-mods.md`; sandbox verification and game acceptance stay separate.
 
