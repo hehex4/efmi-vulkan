@@ -306,6 +306,7 @@ DeviceRef::DeviceRef() : lock(g_dev_mx)
 
 void CmdBuf::reset_recording()
 {
+    image_layouts.reset();
     executed_owners.clear();
     begin_flags = 0;
     for (auto& owner : owners) if (owner) owner->reset_after_completion();
@@ -960,6 +961,7 @@ void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkComman
         }
         if (!s)
             continue;
+        cb->image_layouts.merge(s->image_layouts);
         for(const auto* list:{&s->owners,&s->executed_owners})for(const auto& owner:*list)
             if(owner && owner->used && std::find(cb->executed_owners.begin(),cb->executed_owners.end(),owner)==cb->executed_owners.end())
                 cb->executed_owners.push_back(owner);

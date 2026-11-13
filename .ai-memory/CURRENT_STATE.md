@@ -4,6 +4,14 @@
 
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
+## Active source 2.3.5: Recording-local application image layouts, D-205 (2026-11-13; sandbox verified)
+
+- D-204 is merged as 43e8542. The user rejected stopping at the intermediate audit again; continue offline implementation after each verified commit. This foundation precedes native application-image binding, not a claim that binding is already implemented.
+- ImageLayouts records image identity/aspect/mip/layer facts in each command recording, with bounded memory, explicit unknowns, reset and secondary composition. Track legacy/core/KHR synchronization2 barriers and event dependencies; equal-layout barriers on synchronization2 devices preserve the actual state without inventing a layout. Classic pass facts follow current subpass uses, framebuffer layer counts, the union of multiview masks and final layouts. Out-of-subpass attachment layouts stay unknown; unsupported pass descriptions fail closed. No global state is inferred from recording order.
+- Tracking activates on a native application-image query; unrelated configurations pay no resource-map/transition tracking cost in barrier hooks. Read original GetResource/SetResource; DX11 supplies reference lifetime/deferred destruction, hazard tracking and context order. Vulkan retains the existing owned resource chain while adding explicit local layout knowledge.
+- Standalone missing-state baseline 10/21 (d205-layout-before.out); range/barrier implementation 28/28 (d205-layout-after.out). Host/module/tracker built in d205-pair.out, ABI 0x57e127df66d4e6fc. Final native-slots regression passes (d205-regression.out): tracker 252/252, live INI 221/221, native resources 89/89, Vulkan validation 76/76 and text 569. ABI bytes verified in host/module/tracker and version 2.3.5 in both DLLs. The current capture scope and native image refusal have not been relaxed.
+- Continue D-206 without ending the turn: draft implementation notes build/d206-design.md; separate untracked native_application_image_test.py is the initial reference baseline and must not be staged in D-205. Persistent descriptor refresh and temporary layouts must preserve app bindings and restore app layout state. Root dist 2.1.8 and historical game evidence 2.1.7 remain unchanged; no deployment/game/system/remote actions.
+
 ## Active source 2.3.4: Shader-independent attachment analysis, D-204 (2026-11-13; sandbox verified)
 
 - D-203 is committed and merged as 8c1567b. Its final guarded host passes geometry 65/65; existing GPU resources 55/55 were verified before the geometry-only guard. D-204 baseline target capture is 9/15: ordinary-graphics control passes, clear-only and after-secondary cases produce no attachment files (d204-before.out).

@@ -126,6 +126,7 @@ void on_begin_targets(Device* dev, CmdBuf* cb, const VkRenderingInfo* info)
 }
 void on_next_targets(Device* dev, CmdBuf* cb)
 {
+    ++cb->pass.subpass;
     if (!cb->active_targets || cb->active_targets > cb->target_contexts.size()) return;
     auto out = cb->target_contexts[cb->active_targets - 1]; ++out.subpass;
     if (out.dynamic || !out.recipe || out.subpass >= out.recipe->subpasses.size()) {

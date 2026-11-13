@@ -1,5 +1,12 @@
 # EFMI Vulkan - Tasks
 
+## Active continuation: D-205 image layout tracking, then native application images (2026-11-13)
+
+- The user again rejected stopping at an intermediate offline audit. Continue implementing remaining offline work after each verified commit; do not end the turn with another list of actionable offline tasks.
+- D-204 is merged as 43e8542. Current work: recording-local image layout facts, range/aspect/layer handling, legacy and synchronization2 barriers/events, classic pass transitions, secondary composition and reset. No global layout guess based on command recording order. Baseline standalone tracker 10/21; implemented range/barrier cases 28/28. Host callback/pass cases and the 2.3.5 pair/tracker build are verified: tracker 252, live INI 221, native resources 89 and Vulkan validation 76 all pass (d205-regression.out).
+- Next, without stopping: integrate retained native application-image bindings using known local layout and ownership facts, with rendered/compute failing cases first. Persistent bindings must be revalidated when application layouts change; do not merely remove the old refusal. Original GetResource/SetResource and DX11 lifetime/hazard/context guarantees were read. Follow with the remaining offline capture/resource adapters.
+- No game, deployment, launcher edit, system change or remote operation is authorized. Root dist stays 2.1.8; historical game evidence stays 2.1.7.
+
 ## Current offline delivery audit through D-204 (2026-11-13)
 
 - D-203 is merged as 8c1567b. D-204 is verified: owned output attachments are independent of primary shader state. Baseline 9/15; final targets 22/22, GPU resources 55/55, geometry 65/65, tracker 206, Vulkan validation 76 and text 564 all pass (CURRENT_STATE).

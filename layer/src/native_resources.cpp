@@ -91,6 +91,7 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
         return true;
     }
     if (image) {
+        device->track_image_layouts.store(true, std::memory_order_relaxed);
         if (!value.image_view) return true;
         const auto view = device->image_views.find(value.image_view);
         if (view == device->image_views.end() || view->second.id != value.image_view_id) return refuse("Native image view was destroyed");

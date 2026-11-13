@@ -2,6 +2,14 @@
 
 Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 3. This file records the decisions about how the project is run, and later changes to the design with their reasons.
 
+## D-205: Image layout facts belong to a command recording (2026-11-13)
+
+- Original ResourceCopyTarget::GetResource/SetResource obtains and retains views while DX11 supplies deferred reference-counted GPU lifetime, hazard tracking and one-context order. Vulkan cannot infer an image's current layout from the last descriptor update or the order CPU threads record command buffers.
+- Track explicit image barriers/event waits and implicit classic-pass transitions per resource identity, aspect, mip and array layer inside each recording. ExecuteCommands composes secondary effects at the execution point; resetting either recording cannot mutate a prior composition. Unknown ownership transfers/extensions or bounded-state exhaustion refuse knowledge rather than fabricate a shader-read layout. Activate this additional state only when native application-image use asks for it.
+- Synchronization2 equal-layout barriers with equal queue-family fields ignore their layout values, including legacy VkImageMemoryBarrier calls on a synchronization2-enabled device (https://docs.vulkan.org/refpages/latest/refpages/source/VkImageMemoryBarrier.html). Event source halves do not publish a completed transition. A later known local transition can reestablish facts.
+- Classic implicit transitions affect framebuffer layers, or the union of used multiview layer bits (https://docs.vulkan.org/spec/latest/chapters/renderpass.html). A pass attachment outside the current subpass may be before/after an automatic transition, so it is unknown until a current use or pass end. Never transition unused attachments merely because their description has a finalLayout. Dynamic rendering does not implicitly transition layouts.
+- This is the foundation for D-206, not a cross-queue synchronization graph or native application-image binding acceptance. Initial standalone baseline 10/21; implementation range/barrier checks 28/28. Host callback/pass cases bring the tracker to 252/252; live INI 221/221, native resources 89/89 and Vulkan validation 76/76 pass with the 2.3.5 pair. See CURRENT_STATE for exact artifacts.
+
 ## D-204: Output attachment capture is independent of shader reflection (2026-11-13)
 
 - Original FrameAnalysisContext::DumpRenderTargets obtains OM output views/resources directly. A shader is not a prerequisite for their identity. DX11 supplies reference-counted deferred GPU lifetime, hazard tracking and one-context order; Vulkan obtains owned views and final layouts from the retained classic-pass description and uses D-202 staging/barriers/completion ownership.

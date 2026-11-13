@@ -787,6 +787,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdFillBuffer(VkCommandBuffer cmd, VkBuffer dst, V
 }
 
 // ---------------------------------------------------------------------------
+#include "image_layout_hooks.h"
 // Render passes
 
 template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dynamic, const Info* info)
@@ -806,6 +807,7 @@ template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dy
             cb->rp_count++;
         on_begin_targets(dev, cb, info);
         on_begin_pass(dev, cb, info);
+        on_image_pass(dev, cb);
     }
 }
 
@@ -822,7 +824,7 @@ void rp_end(Device* dev, VkCommandBuffer cmd)
 void rp_ended(Device* dev, VkCommandBuffer cmd)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
-        if (cb->pass.render_pass) { m2_pass_end(dev, cb); gpu_analysis_pass(dev, cb); }
+        if (cb->pass.render_pass) { on_image_pass(dev, cb, true); m2_pass_end(dev, cb); gpu_analysis_pass(dev, cb); }
         cb->pass = CmdBuf::PassInstance{};
     }
 }
@@ -934,13 +936,13 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
 VKAPI_ATTR void VKAPI_CALL hk_CmdNextSubpass(VkCommandBuffer cmd, VkSubpassContents contents)
 {
     count_call(HI_CmdNextSubpass); Device* dev = dev_of(cmd);
-    if (CmdBuf* cb = cb_of(dev, cmd)) on_next_targets(dev, cb);
+    if (CmdBuf* cb = cb_of(dev, cmd)) { on_next_targets(dev, cb); on_image_pass(dev, cb); }
     dev->d.CmdNextSubpass(cmd, contents);
 }
 #define NEXT_SUBPASS2(Name) \
     VKAPI_ATTR void VKAPI_CALL hk_##Name(VkCommandBuffer cmd, const VkSubpassBeginInfo* begin, const VkSubpassEndInfo* end) { \
         count_call(HI_##Name); Device* dev = dev_of(cmd); \
-        if (CmdBuf* cb = cb_of(dev, cmd)) on_next_targets(dev, cb); \
+        if (CmdBuf* cb = cb_of(dev, cmd)) { on_next_targets(dev, cb); on_image_pass(dev, cb); } \
         dev->d.Name(cmd, begin, end); \
     }
 NEXT_SUBPASS2(CmdNextSubpass2)

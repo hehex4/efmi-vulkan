@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-204. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-205. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -563,3 +563,18 @@ reflection do not remove independently known output attachments from analysis. A
 stores excluded. All D-202 queue, source ownership, layout and completion boundaries remain.
 
 The consolidated delivery/evidence audit is [native-offline-delivery-2.3.4.md](native-offline-delivery-2.3.4.md).
+
+### Application image layout facts (D-205, 2.3.5)
+
+Native application-image queries enable bounded recording-local image state. Facts are keyed by
+image identity, aspect, mip and array layer; explicit barriers and event waits, classic subpass/final
+transitions and executed secondary effects update them. Reset starts a new independent record.
+Synchronization2 equal-layout barriers do not invent a new layout, even through the legacy API.
+Framebuffer layer counts and the union of multiview masks bound implicit transitions; attachment
+state outside the current subpass is conservatively unknown. Unknown ownership/extensions fail
+closed. No global layout is inferred from CPU recording order.
+
+This is the foundation for native application-image execution. Binding remains refused until
+layout-aware scope handling and persistent descriptor refresh are implemented; existing file-image
+bindings are unchanged. Tracker 252/252, live INI 221/221, native resources 89/89 and Vulkan validation
+76/76 pass with the 2.3.5 host/module pair. Continue implementation after this commit.

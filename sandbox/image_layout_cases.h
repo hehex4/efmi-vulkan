@@ -1,0 +1,62 @@
+#include "../layer/src/image_layouts.h"
+
+static void image_layout_cases(void (*check)(bool, const char*))
+{
+    using efvk::ImageLayouts;
+    ImageLayouts state;
+    const VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 3, 0, 4};
+    const VkImageSubresourceRange tail{VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_REMAINING_MIP_LEVELS, 2, VK_REMAINING_ARRAY_LAYERS};
+    const VkImageSubresourceRange one{VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, 2, 1};
+    VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    check(!state.get(1, 3, 4, all, layout), "unobserved layouts remain unknown");
+    state.set(1, 3, 4, all, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    check(state.get(1, 3, 4, all, layout) && layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, "whole image transition covers every mip and layer");
+    state.set(1, 3, 4, tail, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    check(state.get(1, 3, 4, tail, layout) && layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "remaining mip and array ranges are normalized");
+    check(!state.get(1, 3, 4, all, layout), "mixed subresource layouts are not collapsed to one value");
+    check(state.get(1, 3, 4, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 4}, layout) && layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, "partial transitions preserve other mips");
+    state.set(1, 3, 4, one, VK_IMAGE_LAYOUT_MAX_ENUM);
+    check(!state.get(1, 3, 4, one, layout), "unavailable ownership invalidates only the affected range");
+    check(state.get(1, 3, 4, {VK_IMAGE_ASPECT_COLOR_BIT, 2, 1, 2, 1}, layout), "unknown range leaves other levels usable");
+    state.set(1, 3, 4, one, VK_IMAGE_LAYOUT_GENERAL);
+    check(state.get(1, 3, 4, one, layout) && layout == VK_IMAGE_LAYOUT_GENERAL, "a later transition reestablishes a known range");
+    check(!state.get(2, 3, 4, one, layout), "resource identities prevent handle-reuse aliases");
+    check(!state.get(1, 3, 4, {VK_IMAGE_ASPECT_COLOR_BIT, 3, 1, 0, 1}, layout), "out-of-bounds mip is unavailable");
+    check(!state.get(1, 3, 4, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 4, 1}, layout), "out-of-bounds layer is unavailable");
+    check(!state.get(1, 3, 4, {0, 0, 1, 0, 1}, layout), "empty aspect mask is unavailable");
+    state.set(3, 1, 1, {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1}, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    state.set(3, 1, 1, {VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1}, VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL);
+    check(state.get(3, 1, 1, {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1}, layout) && layout == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, "depth state is independent of stencil");
+    check(!state.get(3, 1, 1, {VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1}, layout), "different aspect layouts are not conflated");
+    ImageLayouts secondary;
+    secondary.set(1, 3, 4, one, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    secondary.set(3, 1, 1, {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1}, VK_IMAGE_LAYOUT_MAX_ENUM);
+    state.merge(secondary);
+    check(state.get(1, 3, 4, one, layout) && layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, "executed secondary transitions replace parent facts");
+    check(!state.get(3, 1, 1, {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1}, layout), "secondary invalidation cannot resurrect stale parent state");
+    check(state.get(1, 3, 4, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}, layout), "secondary composition preserves unrelated parent facts");
+    secondary.reset();
+    check(state.get(1, 3, 4, one, layout), "secondary reset does not mutate a prior primary composition");
+    state.reset();
+    check(!state.get(1, 3, 4, one, layout), "recording reset clears layout facts");
+    state.set(4, 1, uint32_t(ImageLayouts::limit + 1), {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, VK_REMAINING_ARRAY_LAYERS}, VK_IMAGE_LAYOUT_GENERAL);
+    check(state.exhausted() && !state.get(4, 1, uint32_t(ImageLayouts::limit + 1), {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}, layout), "state budget exhaustion fails closed");
+    state.reset();
+    state.set(5, 1, 1, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}, VK_IMAGE_LAYOUT_GENERAL);
+    check(!state.exhausted() && state.get(5, 1, 1, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}, layout), "new recordings recover their independent budget");
+    state.set(1, 3, 4, one, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    state.barrier(1, 3, 4, one, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
+    check(state.get(1, 3, 4, one, layout) && layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, "synchronization2 equal-layout barriers preserve the actual layout");
+    state.barrier(9, 3, 4, one, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
+    check(!state.get(9, 3, 4, one, layout), "synchronization2 memory-only barriers cannot invent layout knowledge");
+    state.barrier(1, 3, 4, one, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 1, true);
+    check(!state.get(1, 3, 4, one, layout), "ownership transfers do not imply locally available resources");
+    state.barrier(1, 3, 4, one, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, 0, true);
+    check(state.get(1, 3, 4, one, layout) && layout == VK_IMAGE_LAYOUT_GENERAL, "valid local transitions reestablish post-transfer facts");
+    state.barrier(1, 3, 4, one, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, false, true);
+    check(!state.get(1, 3, 4, one, layout), "unknown barrier extensions invalidate affected layouts");
+    state.barrier(1, 3, 4, one, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0, 0, false);
+    check(state.get(1, 3, 4, one, layout) && layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, "legacy equal-layout barriers assert their required layout");
+    state.barrier(1, 3, 4, one, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL, 0, 0, false);
+    check(!state.get(1, 3, 4, one, layout), "contradictory recorded layout requirements fail closed");
+}

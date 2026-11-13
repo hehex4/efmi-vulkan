@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "resources.h"
+#include "image_layouts.h"
 #include "pipeline_recipe.h"
 #include "pacing.h"
 #include "work.h"
@@ -62,6 +63,8 @@ struct CharacterModule;
     X(CmdDispatch) X(CmdDispatchIndirect)                                                                              \
     X(CmdCopyBuffer) X(CmdCopyBuffer2) X(CmdCopyBuffer2KHR) X(CmdUpdateBuffer) X(CmdFillBuffer)                        \
     X(CmdCopyBufferToImage) X(CmdCopyBufferToImage2) X(CmdCopyBufferToImage2KHR)                                       \
+    X(CmdPipelineBarrier) X(CmdPipelineBarrier2) X(CmdPipelineBarrier2KHR)                                          \
+    X(CmdWaitEvents) X(CmdWaitEvents2) X(CmdWaitEvents2KHR) X(CmdSetEvent2) X(CmdSetEvent2KHR)                        \
     X(CmdBeginRenderPass) X(CmdBeginRenderPass2) X(CmdBeginRenderPass2KHR)                                             \
     X(CmdEndRenderPass) X(CmdEndRenderPass2) X(CmdEndRenderPass2KHR)                                                   \
     X(CmdNextSubpass) X(CmdNextSubpass2) X(CmdNextSubpass2KHR)                                                          \
@@ -436,6 +439,7 @@ struct CmdBuf {
     // packages share one recording), kept until a legal recording reset/free after GPU completion.
     std::vector<std::shared_ptr<CommandOwner>> owners;
     std::vector<std::shared_ptr<CommandOwner>> executed_owners; // Secondary dependencies, never reset by this primary.
+    ImageLayouts image_layouts;
     uint64_t character_frame = 0;  // the character backend's number for this recording; 0: none yet
 
     // Current bindings while recording. `gfx_bound` is what the driver has (DrawRec::bound).
@@ -467,6 +471,7 @@ struct CmdBuf {
         std::shared_ptr<const RenderPassRecipe> recipe;
         VkRect2D area{};
         uint32_t serial = 0;
+        uint32_t subpass = 0;
         size_t first_draw = 0; // the first of `draws` recorded inside the instance
     } pass;
     SetBind comp_sets[kMaxSets];
@@ -691,6 +696,7 @@ struct Device {
     // module, or hunting is enabled); set by the module on the presenting thread, read at every draw.
     std::atomic<bool> shader_draws{false};
     std::atomic<bool> native_binding_order{false};
+    std::atomic<bool> track_image_layouts{false}; // Enabled by native application-image use; no global layout guess.
     uint32_t application_queue_count=0; // Excludes queues added by the layer for owned uploads.
     std::once_flag native_barrier_load;
     PFN_vkCmdPipelineBarrier native_barrier=nullptr;
