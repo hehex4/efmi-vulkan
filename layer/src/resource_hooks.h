@@ -16,9 +16,6 @@
         dev->d.Destroy##Name(device, handle, alloc); \
     }
 RESOURCE_HOOKS(ShaderModule, VkShaderModule, VkShaderModuleCreateInfo, on_create_shader, on_destroy_shader)
-RESOURCE_HOOKS(Image, VkImage, VkImageCreateInfo, on_create_image, on_destroy_image)
-RESOURCE_HOOKS(ImageView, VkImageView, VkImageViewCreateInfo, on_create_image_view, on_destroy_image_view)
-RESOURCE_HOOKS(BufferView, VkBufferView, VkBufferViewCreateInfo, on_create_buffer_view, on_destroy_buffer_view)
 RESOURCE_HOOKS(PipelineLayout, VkPipelineLayout, VkPipelineLayoutCreateInfo, on_create_pipeline_layout, on_destroy_pipeline_layout)
 RESOURCE_HOOKS(RenderPass, VkRenderPass, VkRenderPassCreateInfo, on_create_render_pass, on_destroy_render_pass)
 RESOURCE_HOOKS(Framebuffer, VkFramebuffer, VkFramebufferCreateInfo, on_create_framebuffer, on_destroy_framebuffer)
@@ -27,6 +24,21 @@ RESOURCE_HOOKS(DescriptorUpdateTemplate, VkDescriptorUpdateTemplate, VkDescripto
 RESOURCE_HOOKS(DescriptorUpdateTemplateKHR, VkDescriptorUpdateTemplate, VkDescriptorUpdateTemplateCreateInfo,
                on_create_descriptor_template, on_destroy_descriptor_template)
 #undef RESOURCE_HOOKS
+
+#define RETAINED_RESOURCE_HOOKS(Name, Handle, Info, create_fn, destroy_fn) \
+    VKAPI_ATTR VkResult VKAPI_CALL hk_Create##Name(VkDevice device,const Info* info,const VkAllocationCallbacks* alloc,Handle* handle){ \
+        count_call(HI_Create##Name);Device* dev=dev_of(device); \
+        const auto result=dev->d.Create##Name(device,info,alloc,handle); \
+        if(result==VK_SUCCESS)create_fn(dev,*handle,info,alloc);return result; \
+    } \
+    VKAPI_ATTR void VKAPI_CALL hk_Destroy##Name(VkDevice device,Handle handle,const VkAllocationCallbacks* alloc){ \
+        count_call(HI_Destroy##Name);Device* dev=dev_of(device); \
+        if(!handle || !destroy_fn(dev,handle))dev->d.Destroy##Name(device,handle,alloc); \
+    }
+RETAINED_RESOURCE_HOOKS(Image,VkImage,VkImageCreateInfo,on_create_image,on_destroy_image)
+RETAINED_RESOURCE_HOOKS(ImageView,VkImageView,VkImageViewCreateInfo,on_create_image_view,on_destroy_image_view)
+RETAINED_RESOURCE_HOOKS(BufferView,VkBufferView,VkBufferViewCreateInfo,on_create_buffer_view,on_destroy_buffer_view)
+#undef RETAINED_RESOURCE_HOOKS
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSampler(VkDevice device, const VkSamplerCreateInfo* info,
                                                const VkAllocationCallbacks* alloc, VkSampler* sampler)

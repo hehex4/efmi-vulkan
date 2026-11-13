@@ -131,7 +131,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_AllocateMemory(VkDevice device, const VkMemory
     Device* dev = dev_of(device);
     VkResult r = dev->d.AllocateMemory(device, info, alloc, mem);
     if (r == VK_SUCCESS)
-        on_alloc_memory(dev, *mem, info);
+        on_alloc_memory(dev, *mem, info, alloc);
     return r;
 }
 
@@ -139,9 +139,7 @@ VKAPI_ATTR void VKAPI_CALL hk_FreeMemory(VkDevice device, VkDeviceMemory mem, co
 {
     count_call(HI_FreeMemory);
     Device* dev = dev_of(device);
-    if (mem)
-        on_free_memory(dev, mem);
-    dev->d.FreeMemory(device, mem, alloc);
+    if (!mem || !on_free_memory(dev, mem))dev->d.FreeMemory(device, mem, alloc);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_MapMemory(VkDevice device, VkDeviceMemory mem, VkDeviceSize off, VkDeviceSize size,
@@ -211,7 +209,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateBuffer(VkDevice device, const VkBufferCr
     Device* dev = dev_of(device);
     VkResult r = dev->d.CreateBuffer(device, info, alloc, buf);
     if (r == VK_SUCCESS)
-        on_create_buffer(dev, *buf, info);
+        on_create_buffer(dev, *buf, info, alloc);
     return r;
 }
 
@@ -219,9 +217,7 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyBuffer(VkDevice device, VkBuffer buf, const
 {
     count_call(HI_DestroyBuffer);
     Device* dev = dev_of(device);
-    if (buf)
-        on_destroy_buffer(dev, buf);
-    dev->d.DestroyBuffer(device, buf, alloc);
+    if (!buf || !on_destroy_buffer(dev, buf))dev->d.DestroyBuffer(device, buf, alloc);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_BindBufferMemory(VkDevice device, VkBuffer buf, VkDeviceMemory mem, VkDeviceSize off)
@@ -255,6 +251,28 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_BindBufferMemory2KHR(VkDevice device, uint32_t
     count_call(HI_BindBufferMemory2KHR);
     Device* dev = dev_of(device);
     return bind2(dev, dev->d.BindBufferMemory2KHR, device, count, infos);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL hk_BindImageMemory(VkDevice device,VkImage image,VkDeviceMemory memory,VkDeviceSize offset)
+{
+    count_call(HI_BindImageMemory);auto* dev=dev_of(device);
+    const auto result=dev->d.BindImageMemory(device,image,memory,offset);
+    if(result==VK_SUCCESS)on_bind_image(dev,image,memory,offset);
+    return result;
+}
+VkResult bind_images2(Device* dev,PFN_vkBindImageMemory2 next,VkDevice device,uint32_t count,const VkBindImageMemoryInfo* infos)
+{
+    const auto result=next(device,count,infos);
+    if(result==VK_SUCCESS)for(uint32_t i=0;i<count;++i)on_bind_image(dev,infos[i].image,infos[i].memory,infos[i].memoryOffset);
+    return result;
+}
+VKAPI_ATTR VkResult VKAPI_CALL hk_BindImageMemory2(VkDevice device,uint32_t count,const VkBindImageMemoryInfo* infos)
+{
+    count_call(HI_BindImageMemory2);auto* dev=dev_of(device);return bind_images2(dev,dev->d.BindImageMemory2,device,count,infos);
+}
+VKAPI_ATTR VkResult VKAPI_CALL hk_BindImageMemory2KHR(VkDevice device,uint32_t count,const VkBindImageMemoryInfo* infos)
+{
+    count_call(HI_BindImageMemory2KHR);auto* dev=dev_of(device);return bind_images2(dev,dev->d.BindImageMemory2KHR,device,count,infos);
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL hk_CreateGraphicsPipelines(VkDevice device, VkPipelineCache cache, uint32_t count,
@@ -1273,7 +1291,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSwapchainKHR(VkDevice device, const VkSw
     image.mipLevels = 1; image.arrayLayers = info->imageArrayLayers;
     image.samples = VK_SAMPLE_COUNT_1_BIT; image.usage = info->imageUsage;
     if (info->flags & VK_SWAPCHAIN_CREATE_MUTABLE_FORMAT_BIT_KHR) image.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
-    for (const auto handle : s.images) on_create_image(dev, handle, &image);
+    for (const auto handle : s.images) on_create_image(dev, handle, &image, nullptr, false);
     logf("swapchain created: format=%d color_space=%d %ux%u usage=0x%x flags=0x%x images=%zu window=%s", int(s.format),
          int(s.color_space), s.extent.width, s.extent.height, unsigned(s.usage), unsigned(s.flags), s.images.size(),
          s.window ? "known" : "unknown");

@@ -372,31 +372,44 @@ static void add_thread(std::vector<uint32_t>& list, uint32_t tid)
 // ---------------------------------------------------------------------------
 // Resources
 
-void on_alloc_memory(Device* dev, VkDeviceMemory mem, const VkMemoryAllocateInfo* info)
+void on_alloc_memory(Device* dev, VkDeviceMemory mem, const VkMemoryAllocateInfo* info, const VkAllocationCallbacks* alloc)
 {
     if (dev->passive)
         return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     MemInfo& m = dev->mems[mem];
     m = MemInfo();
+    if(!alloc && dev->d.FreeMemory){
+        m.lifetime=std::make_shared<MemoryLifetime>();m.lifetime->device=dev->handle;
+        m.lifetime->handle=mem;m.lifetime->destroy=dev->d.FreeMemory;
+    }
     m.size = info->allocationSize;
     m.type_index = info->memoryTypeIndex;
 }
 
-void on_free_memory(Device* dev, VkDeviceMemory mem)
+bool on_free_memory(Device* dev, VkDeviceMemory mem)
 {
     if (dev->passive)
-        return;
-    std::unique_lock<std::shared_mutex> lock(dev->res_mx);
-    auto it = dev->mems.find(mem);
-    if (it == dev->mems.end())
-        return;
-    for (VkBuffer b : it->second.buffers) {
-        auto bit = dev->bufs.find(b);
-        if (bit != dev->bufs.end() && bit->second.mem == mem)
-            bit->second.mem = VK_NULL_HANDLE;
+        return false;
+    std::shared_ptr<MemoryLifetime> owner;
+    {
+        std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+        auto it = dev->mems.find(mem);
+        if (it == dev->mems.end())
+            return false;
+        owner=it->second.lifetime;if(owner)owner->requested=true;
+        for (VkBuffer b : it->second.buffers) {
+            auto bit = dev->bufs.find(b);
+            if (bit != dev->bufs.end() && bit->second.mem == mem)
+                bit->second.mem = VK_NULL_HANDLE;
+        }
+        for(VkImage image:it->second.images){
+            auto found=dev->images.find(image);
+            if(found!=dev->images.end() && found->second.mem==mem)found->second.mem=VK_NULL_HANDLE;
+        }
+        dev->mems.erase(it);
     }
-    dev->mems.erase(it);
+    return bool(owner);
 }
 
 void on_map_memory(Device* dev, VkDeviceMemory mem, uint64_t off, uint64_t size, void* data)
@@ -469,7 +482,7 @@ void on_unmap_memory(Device* dev, VkDeviceMemory mem)
     m.write_combined = false;
 }
 
-void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info)
+void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info, const VkAllocationCallbacks* alloc)
 {
     if (dev->passive)
         return;
@@ -478,29 +491,38 @@ void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info)
     if (b.id)
         dev->buf_by_id.erase(b.id);
     b = BufInfo();
+    if(!alloc && dev->d.DestroyBuffer && !(info->flags & VK_BUFFER_CREATE_SPARSE_BINDING_BIT)){
+        b.lifetime=std::make_shared<BufferLifetime>();b.lifetime->device=dev->handle;
+        b.lifetime->handle=buf;b.lifetime->destroy=dev->d.DestroyBuffer;
+    }
     b.id = dev->next_buf_id++;
     b.size = info->size;
     b.usage = info->usage;
     dev->buf_by_id[b.id] = buf;
 }
 
-void on_destroy_buffer(Device* dev, VkBuffer buf)
+bool on_destroy_buffer(Device* dev, VkBuffer buf)
 {
     if (dev->passive)
-        return;
-    std::unique_lock<std::shared_mutex> lock(dev->res_mx);
-    auto it = dev->bufs.find(buf);
-    if (it == dev->bufs.end())
-        return;
-    if (it->second.mem) {
-        auto mit = dev->mems.find(it->second.mem);
-        if (mit != dev->mems.end()) {
-            auto& list = mit->second.buffers;
-            list.erase(std::remove(list.begin(), list.end(), buf), list.end());
+        return false;
+    std::shared_ptr<BufferLifetime> owner;
+    {
+        std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+        auto it = dev->bufs.find(buf);
+        if (it == dev->bufs.end())
+            return false;
+        owner=it->second.lifetime;if(owner)owner->requested=true;
+        if (it->second.mem) {
+            auto mit = dev->mems.find(it->second.mem);
+            if (mit != dev->mems.end()) {
+                auto& list = mit->second.buffers;
+                list.erase(std::remove(list.begin(), list.end(), buf), list.end());
+            }
         }
+        dev->buf_by_id.erase(it->second.id);
+        dev->bufs.erase(it);
     }
-    dev->buf_by_id.erase(it->second.id);
-    dev->bufs.erase(it);
+    return bool(owner);
 }
 
 void on_bind_buffer(Device* dev, VkBuffer buf, VkDeviceMemory mem, uint64_t off)
@@ -514,6 +536,10 @@ void on_bind_buffer(Device* dev, VkBuffer buf, VkDeviceMemory mem, uint64_t off)
     it->second.mem = mem;
     it->second.mem_off = off;
     auto mit = dev->mems.find(mem);
+    if(it->second.lifetime){
+        it->second.lifetime->dependencies.clear();
+        if(mit!=dev->mems.end() && mit->second.lifetime)it->second.lifetime->dependencies.push_back(mit->second.lifetime);
+    }
     if (mit != dev->mems.end())
         mit->second.buffers.push_back(buf);
 }

@@ -25,6 +25,20 @@ def compile_compute(root, name, value, binding=0, threads=1):
     return output
 
 
+def read_compute_result(path):
+    # The sandbox publishes a fenced four-word result repeatedly. Its writer can briefly own
+    # the Windows file or have truncated it; wait for a complete publication, never for a value.
+    deadline = time.monotonic() + .5
+    while True:
+        try:
+            data = path.read_bytes()
+            if len(data) == 16: return data
+        except (PermissionError, FileNotFoundError):
+            pass
+        if time.monotonic() >= deadline: return b""
+        time.sleep(.01)
+
+
 def main():
     checks = Checks("native compute")
     selected = set(sys.argv[1:])
@@ -108,7 +122,7 @@ def main():
                     keys.write_text("1 121\n", encoding="ascii"); time.sleep(.25); keys.write_text("1\n", encoding="ascii")
                 time.sleep(1)
                 status = probe.status().get("replacement", {})
-                data = output.read_bytes() if output.exists() else b""
+                data = read_compute_result(output)
                 observed = struct.unpack_from("<I", data)[0] if len(data) >= 4 else None
                 expected = 0 if case in ("skip", "skip_indirect", "lists", "hunt_skip") else 7 if case in ("interface", "workgroup", "builtin_changed", "builtin_specialized", "shared_limit", "original", "removed") else 91 if case == "reload" else 42
                 checks.equal(observed, expected, case + ": fenced GPU result")

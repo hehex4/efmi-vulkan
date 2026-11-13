@@ -920,6 +920,8 @@ static void immutable_sampler_lifetime()
     check(sampler_destroys == 1, "metadata alone never destroys an application-owned sampler");
 }
 
+#include "resource_lifetime_cases.h"
+
 int main()
 {
     util_init(GetModuleHandleW(nullptr));
@@ -938,6 +940,7 @@ int main()
     capture_empty_intervals();
     render_target_cases();
     immutable_sampler_lifetime();
+    native_resource_lifetimes();
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

@@ -1077,6 +1077,11 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-198: Native resource references retain the entire allocation chain
+
+- Date: 2026-11-13. Original ResourceCopyTarget::SetResource retains resource/view references; DX11 owns deferred GPU destruction, resource hazards and immediate-context order. Vulkan default-allocator resources get explicit same-handle owners: view -> buffer/image -> memory, armed by application destruction, with immediate logical tracker removal. A new reference must require the complete chain; custom allocators and unsupported allocation bindings stay unretainable.
+- Image-memory binds are tracked. Swapchain images never get DestroyImage owners. Historical attachment facts clear ownership so capture/framebuffer metadata cannot retain VRAM. No new GPU access or implicit synchronization is introduced by this foundation. Tracker tests verify delayed and exactly-once dependency-ordered destruction, allocator refusal and history independence.
+
 ## D-197: Execute native call plans in the application's scope with explicit order
 
 - Date: 2026-11-13. Original DrawCommand::run uses the context's current pipeline and resources; its pre/original/post boundaries and hunting skip apply to custom calls. Native plans preserve caller replay separately from explicit draw/dispatch arguments. The host records all indirect/count arguments and secondary render-pass inheritance, instead of reconstructing incomplete calls.

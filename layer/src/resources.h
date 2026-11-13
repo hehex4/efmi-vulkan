@@ -44,7 +44,28 @@ enum ImageContent : uint8_t {
     IMG_STATES = 6,
 };
 
+// Same-handle ownership, armed only when the application destroys an object. Dependencies outlive
+// the driver's destroy call: views release resources, resources release their allocation.
+template<class Handle, class Destroy> struct ResourceLifetime {
+    VkDevice device = VK_NULL_HANDLE;
+    Handle handle = VK_NULL_HANDLE;
+    Destroy destroy = nullptr;
+    bool requested = false;
+    std::vector<std::shared_ptr<void>> dependencies;
+    ~ResourceLifetime() { if (requested && destroy) destroy(device, handle, nullptr); }
+};
+using MemoryLifetime = ResourceLifetime<VkDeviceMemory, PFN_vkFreeMemory>;
+using BufferLifetime = ResourceLifetime<VkBuffer, PFN_vkDestroyBuffer>;
+using ImageLifetime = ResourceLifetime<VkImage, PFN_vkDestroyImage>;
+using ImageViewLifetime = ResourceLifetime<VkImageView, PFN_vkDestroyImageView>;
+using BufferViewLifetime = ResourceLifetime<VkBufferView, PFN_vkDestroyBufferView>;
+using SamplerLifetime = ResourceLifetime<VkSampler, PFN_vkDestroySampler>;
+using SetLayoutLifetime = ResourceLifetime<VkDescriptorSetLayout, PFN_vkDestroyDescriptorSetLayout>;
+
 struct ImageInfo {
+    std::shared_ptr<ImageLifetime> lifetime;
+    VkDeviceMemory mem = VK_NULL_HANDLE;
+    uint64_t mem_off = 0;
     uint32_t id = 0;
     VkImageType type = VK_IMAGE_TYPE_2D;
     VkFormat format = VK_FORMAT_UNDEFINED;
@@ -60,6 +81,7 @@ struct ImageInfo {
 };
 
 struct ImageViewInfo {
+    std::shared_ptr<ImageViewLifetime> lifetime;
     uint32_t id = 0, image_id = 0;
     VkImage image = VK_NULL_HANDLE;
     VkImageViewType type = VK_IMAGE_VIEW_TYPE_2D;
@@ -69,23 +91,12 @@ struct ImageViewInfo {
 };
 
 struct BufferViewInfo {
+    std::shared_ptr<BufferViewLifetime> lifetime;
     uint32_t id = 0, buffer_id = 0;
     VkBuffer buffer = VK_NULL_HANDLE;
     VkFormat format = VK_FORMAT_UNDEFINED;
     uint64_t offset = 0, range = 0;
 };
-
-// Same-handle ownership for immutable samplers in asynchronous pipeline variants.
-// Armed only when the application destroys the sampler; released before device destruction.
-template<class Handle, class Destroy> struct ResourceLifetime {
-    VkDevice device = VK_NULL_HANDLE;
-    Handle handle = VK_NULL_HANDLE;
-    Destroy destroy = nullptr;
-    bool requested = false;
-    ~ResourceLifetime() { if (requested && destroy) destroy(device, handle, nullptr); }
-};
-using SamplerLifetime = ResourceLifetime<VkSampler, PFN_vkDestroySampler>;
-using SetLayoutLifetime = ResourceLifetime<VkDescriptorSetLayout, PFN_vkDestroyDescriptorSetLayout>;
 
 struct SamplerInfo {
     uint32_t id = 0;
@@ -165,12 +176,13 @@ void track_stages_locked(Device*, PipeInfo&, uint32_t, const VkPipelineShaderSta
 // Ids of the shaders a pipeline refers to; pass them to forget_shaders_locked after dropping the pipeline.
 std::vector<uint32_t> shader_ids_of(const PipeInfo&);
 void forget_shaders_locked(Device*, const std::vector<uint32_t>& ids);
-void on_create_image(Device*, VkImage, const VkImageCreateInfo*);
-void on_destroy_image(Device*, VkImage);
-void on_create_image_view(Device*, VkImageView, const VkImageViewCreateInfo*);
-void on_destroy_image_view(Device*, VkImageView);
-void on_create_buffer_view(Device*, VkBufferView, const VkBufferViewCreateInfo*);
-void on_destroy_buffer_view(Device*, VkBufferView);
+void on_create_image(Device*, VkImage, const VkImageCreateInfo*, const VkAllocationCallbacks* = nullptr, bool application_owned = true);
+bool on_destroy_image(Device*, VkImage);
+void on_bind_image(Device*, VkImage, VkDeviceMemory, uint64_t offset);
+void on_create_image_view(Device*, VkImageView, const VkImageViewCreateInfo*, const VkAllocationCallbacks* = nullptr);
+bool on_destroy_image_view(Device*, VkImageView);
+void on_create_buffer_view(Device*, VkBufferView, const VkBufferViewCreateInfo*, const VkAllocationCallbacks* = nullptr);
+bool on_destroy_buffer_view(Device*, VkBufferView);
 void on_create_sampler(Device*, VkSampler, const VkSamplerCreateInfo*, const VkAllocationCallbacks* = nullptr);
 bool on_destroy_sampler(Device*, VkSampler);
 void on_create_set_layout(Device*, VkDescriptorSetLayout, const VkDescriptorSetLayoutCreateInfo*, const VkAllocationCallbacks* = nullptr);

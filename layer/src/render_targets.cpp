@@ -9,10 +9,10 @@ TargetView view_locked(const Device* dev, VkImageView handle)
     TargetView out;
     const auto v = dev->image_views.find(handle);
     if (v == dev->image_views.end()) return out;
-    out.view = v->second; out.handle = handle;
+    out.view = v->second; out.view.lifetime.reset(); out.handle = handle;
     const auto image = dev->images.find(v->second.image);
     if (image == dev->images.end() || image->second.id != v->second.image_id) return out;
-    out.image = image->second; out.known = true; return out;
+    out.image = image->second; out.image.lifetime.reset(); out.known = true; return out;
 }
 void append(CmdBuf* cb, RenderTargets state)
 {

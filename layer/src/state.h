@@ -34,6 +34,7 @@ struct CharacterModule;
     X(AllocateMemory) X(FreeMemory) X(MapMemory) X(UnmapMemory)                                                        \
     X(MapMemory2) X(MapMemory2KHR) X(UnmapMemory2) X(UnmapMemory2KHR)                                                  \
     X(CreateBuffer) X(DestroyBuffer) X(BindBufferMemory) X(BindBufferMemory2) X(BindBufferMemory2KHR)                  \
+    X(BindImageMemory) X(BindImageMemory2) X(BindImageMemory2KHR)                                                      \
     X(CreateGraphicsPipelines) X(CreateComputePipelines) X(DestroyPipeline)                                            \
     X(CreateRenderPass) X(CreateRenderPass2) X(CreateRenderPass2KHR) X(DestroyRenderPass)                               \
     X(CreateFramebuffer) X(DestroyFramebuffer)                                                                         \
@@ -189,6 +190,7 @@ struct SwapchainInfo {
 };
 
 struct MemInfo {
+    std::shared_ptr<MemoryLifetime> lifetime;
     uint64_t size = 0;
     uint32_t type_index = 0;
     uint8_t* mapped = nullptr;
@@ -196,9 +198,11 @@ struct MemInfo {
     uint64_t map_size = 0;
     bool write_combined = false; // OS page policy of the current mapped range
     std::vector<VkBuffer> buffers;
+    std::vector<VkImage> images;
 };
 
 struct BufInfo {
+    std::shared_ptr<BufferLifetime> lifetime;
     uint32_t id = 0;
     uint64_t size = 0;
     uint32_t usage = 0;
@@ -768,12 +772,12 @@ struct DeviceRef {
 CmdBuf* cb_of(Device* dev, VkCommandBuffer cb);
 
 // Resources.
-void on_alloc_memory(Device* dev, VkDeviceMemory mem, const VkMemoryAllocateInfo* info);
-void on_free_memory(Device* dev, VkDeviceMemory mem);
+void on_alloc_memory(Device* dev, VkDeviceMemory mem, const VkMemoryAllocateInfo* info, const VkAllocationCallbacks* = nullptr);
+bool on_free_memory(Device* dev, VkDeviceMemory mem);
 void on_map_memory(Device* dev, VkDeviceMemory mem, uint64_t off, uint64_t size, void* data);
 void on_unmap_memory(Device* dev, VkDeviceMemory mem);
-void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info);
-void on_destroy_buffer(Device* dev, VkBuffer buf);
+void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info, const VkAllocationCallbacks* = nullptr);
+bool on_destroy_buffer(Device* dev, VkBuffer buf);
 void on_bind_buffer(Device* dev, VkBuffer buf, VkDeviceMemory mem, uint64_t off);
 void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsPipelineCreateInfo* info);
 void on_create_compute_pipeline(Device* dev, VkPipeline pipe, const VkComputePipelineCreateInfo* info);

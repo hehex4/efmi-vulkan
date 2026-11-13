@@ -113,11 +113,15 @@ void track_stages_locked(Device* dev, PipeInfo& pipe, uint32_t count, const VkPi
     }
 }
 
-void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info)
+void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info, const VkAllocationCallbacks* alloc, bool application_owned)
 {
     if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     ImageInfo image;
+    if(application_owned && !alloc && dev->d.DestroyImage && !(info->flags & (VK_IMAGE_CREATE_SPARSE_BINDING_BIT | VK_IMAGE_CREATE_DISJOINT_BIT))){
+        image.lifetime=std::make_shared<ImageLifetime>();image.lifetime->device=dev->handle;
+        image.lifetime->handle=h;image.lifetime->destroy=dev->d.DestroyImage;
+    }
     image.id = dev->next_resource_id++;
     image.type = info->imageType;
     image.format = info->format;
@@ -130,11 +134,17 @@ void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info)
     dev->images[h] = image;
 }
 
-void on_create_image_view(Device* dev, VkImageView h, const VkImageViewCreateInfo* info)
+void on_create_image_view(Device* dev, VkImageView h, const VkImageViewCreateInfo* info, const VkAllocationCallbacks* alloc)
 {
     if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     ImageViewInfo view;
+    if(!alloc && dev->d.DestroyImageView){
+        view.lifetime=std::make_shared<ImageViewLifetime>();view.lifetime->device=dev->handle;
+        view.lifetime->handle=h;view.lifetime->destroy=dev->d.DestroyImageView;
+        const auto image=dev->images.find(info->image);
+        if(image!=dev->images.end() && image->second.lifetime)view.lifetime->dependencies.push_back(image->second.lifetime);
+    }
     view.id = dev->next_resource_id++;
     view.image = info->image;
     view.image_id = resource_id(dev->images, info->image);
@@ -145,11 +155,17 @@ void on_create_image_view(Device* dev, VkImageView h, const VkImageViewCreateInf
     dev->image_views[h] = view;
 }
 
-void on_create_buffer_view(Device* dev, VkBufferView h, const VkBufferViewCreateInfo* info)
+void on_create_buffer_view(Device* dev, VkBufferView h, const VkBufferViewCreateInfo* info, const VkAllocationCallbacks* alloc)
 {
     if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     BufferViewInfo view;
+    if(!alloc && dev->d.DestroyBufferView){
+        view.lifetime=std::make_shared<BufferViewLifetime>();view.lifetime->device=dev->handle;
+        view.lifetime->handle=h;view.lifetime->destroy=dev->d.DestroyBufferView;
+        const auto buffer=dev->bufs.find(info->buffer);
+        if(buffer!=dev->bufs.end() && buffer->second.lifetime)view.lifetime->dependencies.push_back(buffer->second.lifetime);
+    }
     view.id = dev->next_resource_id++;
     view.buffer = info->buffer;
     view.buffer_id = resource_id(dev->bufs, info->buffer);
@@ -201,12 +217,52 @@ bool on_destroy_sampler(Device* dev, VkSampler h)
         std::unique_lock<std::shared_mutex> lock(dev->res_mx); \
         dev->map.erase(h); \
     }
-DESTROY_RESOURCE(on_destroy_image, VkImage, images)
-DESTROY_RESOURCE(on_destroy_image_view, VkImageView, image_views)
-DESTROY_RESOURCE(on_destroy_buffer_view, VkBufferView, buffer_views)
 DESTROY_RESOURCE(on_destroy_pipeline_layout, VkPipelineLayout, pipeline_layouts)
 DESTROY_RESOURCE(on_destroy_descriptor_template, VkDescriptorUpdateTemplate, descriptor_templates)
 #undef DESTROY_RESOURCE
+
+#define DESTROY_RETAINED(fn, Handle, map, Owner) \
+    bool fn(Device* dev, Handle h) { \
+        if(skip(dev))return false; \
+        std::shared_ptr<Owner> owner; \
+        { std::unique_lock<std::shared_mutex> lock(dev->res_mx); \
+          auto it=dev->map.find(h);if(it==dev->map.end())return false; \
+          owner=it->second.lifetime;if(owner)owner->requested=true;dev->map.erase(it); } \
+        return bool(owner); \
+    }
+DESTROY_RETAINED(on_destroy_image_view,VkImageView,image_views,ImageViewLifetime)
+DESTROY_RETAINED(on_destroy_buffer_view,VkBufferView,buffer_views,BufferViewLifetime)
+#undef DESTROY_RETAINED
+
+bool on_destroy_image(Device* dev,VkImage image)
+{
+    if(skip(dev))return false;
+    std::shared_ptr<ImageLifetime> owner;
+    {
+        std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+        auto found=dev->images.find(image);if(found==dev->images.end())return false;
+        const auto allocation=dev->mems.find(found->second.mem);
+        if(allocation!=dev->mems.end()){
+            auto& images=allocation->second.images;images.erase(std::remove(images.begin(),images.end(),image),images.end());
+        }
+        owner=found->second.lifetime;if(owner)owner->requested=true;dev->images.erase(found);
+    }
+    return bool(owner);
+}
+
+void on_bind_image(Device* dev,VkImage image,VkDeviceMemory memory,uint64_t offset)
+{
+    if(skip(dev))return;
+    std::unique_lock<std::shared_mutex> lock(dev->res_mx);
+    auto found=dev->images.find(image);if(found==dev->images.end())return;
+    auto& info=found->second;info.mem=memory;info.mem_off=offset;
+    const auto allocation=dev->mems.find(memory);
+    if(allocation!=dev->mems.end())allocation->second.images.push_back(image);
+    if(info.lifetime){
+        info.lifetime->dependencies.clear();
+        if(allocation!=dev->mems.end() && allocation->second.lifetime)info.lifetime->dependencies.push_back(allocation->second.lifetime);
+    }
+}
 
 static bool is_dynamic(uint32_t type)
 {
