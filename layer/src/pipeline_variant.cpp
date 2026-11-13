@@ -176,6 +176,10 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
                                    const FragmentPatch& patch,const VkPhysicalDeviceLimits& limits)
 {
     clear(); reason.clear(); result = VK_SUCCESS;
+    if (recipe.compute && (!patch.native_only || !patch.keep_vertex || patch.no_dither || patch.pink ||
+                           !patch.images.empty() || !patch.nulls.empty())) {
+        reason = "compute_requires_native_stage_only"; return false;
+    }
     VertexRepoint rewritten;
     if (patch.keep_vertex) {
         // Only the layout: the private set above the pipeline's own sets, no vertex rewrite.
@@ -249,7 +253,7 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
     layout_info.pushConstantRangeCount = static_cast<uint32_t>(source.pushes.size()); layout_info.pPushConstantRanges = source.pushes.data();
     if (!good(d_.CreatePipelineLayout(dev_, &layout_info, nullptr, &layout), "create_pipeline_layout")) { clear(); return false; }
     VkRenderPass pass = VK_NULL_HANDLE;
-    if (!good(recipe.render_pass->create(dev_, d_.CreateRenderPass, d_.CreateRenderPass2, &pass), "create_render_pass")) {
+    if (!recipe.compute && !good(recipe.render_pass->create(dev_, d_.CreateRenderPass, d_.CreateRenderPass2, &pass), "create_render_pass")) {
         clear(); return false;
     }
     std::vector<VkShaderModule> modules;
@@ -261,13 +265,25 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
         if (!good(d_.CreateShaderModule(dev_, &ci, nullptr, &module), "create_shader_module")) break;
         modules.push_back(module);
     }
-    if (modules.size() == recipe.stages.size())
+    if (modules.size() == recipe.stages.size()) {
+        if (recipe.compute) {
+            const auto& stage = recipe.stages[0];
+            VkSpecializationInfo spec = {static_cast<uint32_t>(stage.entries.size()), stage.entries.data(), stage.data.size(), stage.data.data()};
+            VkComputePipelineCreateInfo ci = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+            ci.layout = layout; ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT; ci.stage.module = modules[0]; ci.stage.pName = stage.entry.c_str();
+            ci.stage.pSpecializationInfo = stage.entries.empty() ? nullptr : &spec;
+            good(d_.CreateComputePipelines ? d_.CreateComputePipelines(dev_, cache_, 1, &ci, nullptr, &pipeline) : VK_ERROR_FEATURE_NOT_PRESENT,
+                 "create_compute_variant");
+        } else {
         // The recipe takes a creation function of the Vulkan shape; the variant's pipeline cache (D-101)
         // reaches it through this thread's slot, the recipe's signature being one host and module share.
         t_create = d_.CreateGraphicsPipelines; t_cache = cache_;
         good(recipe.create(dev_, &create_through_cache, layout, pass, modules, &pipeline, &vertex), "create_variant_pipeline");
+        }
+    }
     for (auto m : modules) d_.DestroyShaderModule(dev_, m, nullptr);
-    d_.DestroyRenderPass(dev_, pass, nullptr);
+    if (pass) d_.DestroyRenderPass(dev_, pass, nullptr);
     if (result != VK_SUCCESS) { clear(); return false; }
     return true;
 }

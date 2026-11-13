@@ -101,13 +101,13 @@ struct CharacterModule {
     // After the application's vkCmdEndRenderPass of the instance `cb->pass` names (D-113): work that
     // belongs to that pass and needs targets of its own (the translucent captures and composite).
     void (*pass_end)(CharacterBackend&, CmdBuf*) = nullptr;
-    // At the application's vkCmdBindPipeline (graphics), on its recording thread: the pipeline to bind in
+    // At the application's vkCmdBindPipeline (graphics or compute), on its recording thread: the pipeline to bind in
     // its place, or `pipeline` (D-133: its twin without the character dither while a discard gate is set).
     VkPipeline (*bind)(CharacterBackend&, CmdBuf*, VkPipeline pipeline) = nullptr;
-    // After the application created a graphics pipeline, its record in Device::pipes complete (D-133:
+    // After the application created a graphics or compute pipeline, its record in Device::pipes complete (D-133:
     // the twin a discard gate needs is prepared then). The creating thread.
     void (*created)(CharacterBackend&, VkPipeline pipeline) = nullptr;
-    // A non-indexed or indirect draw, while Device::shader_draws is set (docs/vulkan-native-mods.md): true when it is
+    // A non-indexed/indirect draw or direct/indirect dispatch, while Device::shader_draws is set (docs/vulkan-native-mods.md): true when it is
     // to be dropped (a ShaderOverride's `handling = skip`, hunting's skip). Indexed draws reach the same through record.
     bool (*shader_draw)(CharacterBackend&, CmdBuf*, const DrawRec&) = nullptr;
 };

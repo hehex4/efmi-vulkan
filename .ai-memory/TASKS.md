@@ -1,5 +1,13 @@
 # EFMI Vulkan - Tasks
 
+## Current priorities after D-193 (2026-11-13)
+
+- Source and worktree binaries are 2.2.3, shared stamp 0xcc281dc02e01cddc; main dist remains 2.1.8 and the latest game evidence is 2.1.7. No deployment or game session was requested in this offline continuation.
+- Done: D-193 native compute shader files/compiler, retained compute recipes/variants, direct/indirect ShaderOverride command lists and cs filters, compute hunting/dumps/logging, F10 and fixed workgroup/device-limit checks. Compute scenes 83/83 plus shared-memory cases 8/8; graphics 92/92, hunting 45/45, existing character/INI checks pass (CURRENT_STATE). The captured corpus and installed-Mod plan sweep were not repeated.
+- Active next: empty-Mods hunting, already failing 3/6 (build/d194-empty-before.out). The original registers the installation's hunting keys independently of Mod INIs. Preserve empty-folder clearing/F10 while loading those keys.
+- Remaining native slot work: arbitrary bindings/draws at unmatched game draws, explicit Vulkan set/binding slots for other stages and original resources, frame-analysis resource data. Compute currently supports fixed local sizes and supported classic pipeline state; arbitrary commands in its lists retain the existing explicit boundary.
+- Real-game acceptance remains the user's separately authorized session: D-185 shadows, D-186 dash, and D-187 through D-193 native routes. Current sandbox evidence is not real-game acceptance.
+
 ## Current priorities after D-189 through D-192 (2026-11-13)
 
 - Verified source and worktree binaries are 2.2.2 with D-185 through D-192; main dist is still 2.1.8 and the latest recorded game session is 2.1.7. The host/backend stamp is 0x18c15c5e4050e73d: the new host restoration contract requires the pair together, only with the game closed and when deployment is requested. No deployment was requested or done in this round.

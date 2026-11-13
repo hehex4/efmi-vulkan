@@ -10,7 +10,7 @@ namespace efvk {
 #define EFVK_VARIANT_FUNCS(X) \
     X(CreateShaderModule) X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) \
     X(CreatePipelineLayout) X(DestroyPipelineLayout) X(CreateRenderPass) X(CreateRenderPass2) X(DestroyRenderPass) \
-    X(CreateGraphicsPipelines) X(DestroyPipeline) \
+    X(CreateGraphicsPipelines) X(CreateComputePipelines) X(DestroyPipeline) \
     X(CmdBindPipeline) X(CmdBindVertexBuffers) X(CmdBindIndexBuffer) X(CmdBindDescriptorSets) X(CmdDrawIndexed) X(CmdDraw)
 
 struct VariantDispatch {
@@ -27,6 +27,7 @@ struct NativeShaderSet {
     // The original's DepthBufferFilter values: 1 active, 2 inactive. The captured subpass owns this state.
     std::map<uint32_t, int> depth_filters;
     bool allows(uint32_t hash, const GraphicsRecipe& recipe) const {
+        if (recipe.compute) return true; // BeforeDispatch deliberately bypasses ProcessShaderOverride's depth rule.
         const auto filter = depth_filters.find(hash);
         if (filter == depth_filters.end()) return true;
         const bool depth = recipe.render_pass && recipe.subpass < recipe.render_pass->subpasses.size() &&

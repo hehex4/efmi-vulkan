@@ -104,6 +104,7 @@ DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
     r.targets = !compute && cb->in_rp ? cb->active_targets : 0;
     if (compute) {
         r.pipeline = cb->comp_pipeline;
+        r.bound = cb->comp_bound;
         for (uint32_t i = 0; i < kMaxSets; i++)
             r.sets[i] = cb->comp_sets[i];
         return r;
@@ -280,8 +281,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateComputePipelines(VkDevice device, VkPipe
     Device* dev = dev_of(device);
     VkResult r = dev->d.CreateComputePipelines(device, cache, count, infos, alloc, pipes);
     for (uint32_t i = 0; i < count; i++)
-        if (pipes[i])
+        if (pipes[i]) {
             on_create_compute_pipeline(dev, pipes[i], &infos[i]);
+            m2_created(dev, pipes[i]);
+        }
     return r;
 }
 
@@ -388,8 +391,11 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindPipeline(VkCommandBuffer cmd, VkPipelineBin
             cb->gfx_pipeline = pipeline;
             bound = m2_bind(dev, cb, pipeline);
             cb->gfx_bound = bound;
-        } else if (point == VK_PIPELINE_BIND_POINT_COMPUTE)
+        } else if (point == VK_PIPELINE_BIND_POINT_COMPUTE) {
             cb->comp_pipeline = pipeline;
+            bound = m2_bind(dev, cb, pipeline);
+            cb->comp_bound = bound;
+        }
     }
     dev->d.CmdBindPipeline(cmd, point, bound);
 }
@@ -502,11 +508,13 @@ struct DrawPipelineRestore {
     Device* device;
     CmdBuf* cb;
     VkPipeline pipeline;
-    DrawPipelineRestore(Device* dev, VkCommandBuffer cmd) : device(dev), cb(cb_of(dev, cmd)), pipeline(cb ? cb->gfx_bound : VK_NULL_HANDLE) {}
+    bool compute;
+    DrawPipelineRestore(Device* dev, VkCommandBuffer cmd, bool comp = false) : device(dev), cb(cb_of(dev, cmd)),
+        pipeline(cb ? (comp ? cb->comp_bound : cb->gfx_bound) : VK_NULL_HANDLE), compute(comp) {}
     ~DrawPipelineRestore() {
-        if (cb && pipeline && cb->gfx_bound != pipeline) {
-            device->d.CmdBindPipeline(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-            cb->gfx_bound = pipeline;
+        if (cb && pipeline && (compute ? cb->comp_bound : cb->gfx_bound) != pipeline) {
+            device->d.CmdBindPipeline(cb->handle, compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            (compute ? cb->comp_bound : cb->gfx_bound) = pipeline;
         }
     }
 };
@@ -634,13 +642,15 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDispatch(VkCommandBuffer cmd, uint32_t x, uint3
 {
     count_call(HI_CmdDispatch);
     Device* dev = dev_of(cmd);
-    if (CmdBuf* cb = cb_of(dev, cmd)) {
+    DrawPipelineRestore restore(dev, cmd, true);
+    if (CmdBuf* cb = restore.cb) {
         WorkScope work(dev->work, WK_DRAW);
         cb->draws.push_back(make_rec(cb, DK_DISPATCH, true));
         DrawRec& r = cb->draws.back();
         r.count = x;
         r.instances = y;
         r.first = z;
+        if (m2_shader_draw(dev, cb, r)) return;
     }
     dev->d.CmdDispatch(cmd, x, y, z);
 }
@@ -649,7 +659,9 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdDispatchIndirect(VkCommandBuffer cmd, VkBuffer 
 {
     count_call(HI_CmdDispatchIndirect);
     Device* dev = dev_of(cmd);
+    DrawPipelineRestore restore(dev, cmd, true);
     track_indirect(dev, cmd, DK_DISPATCH_INDIRECT, buf, off, 1);
+    if (restore.cb && !restore.cb->draws.empty() && m2_shader_draw(dev, restore.cb, restore.cb->draws.back())) return;
     dev->d.CmdDispatchIndirect(cmd, buf, off);
 }
 

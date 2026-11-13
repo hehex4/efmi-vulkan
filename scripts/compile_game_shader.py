@@ -13,8 +13,8 @@ VALIDATOR = Path("F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-To
 
 def compile_shader(source: Path, folder: Path, shader_hash: str, stage: str, *, entry="main",
                    model="6_0", target="vulkan1.1", dxc=DXC, validator=VALIDATOR) -> Path:
-    if not re.fullmatch(r"[0-9a-fA-F]{8}", shader_hash) or stage not in ("vs", "hs", "ds", "gs", "ps"):
-        raise ValueError("Use the original eight-digit SPIR-V hash and a graphics stage")
+    if not re.fullmatch(r"[0-9a-fA-F]{8}", shader_hash) or stage not in ("vs", "hs", "ds", "gs", "ps", "cs"):
+        raise ValueError("Use the original eight-digit SPIR-V hash and a Vulkan shader stage")
     folder.mkdir(parents=True, exist_ok=True)
     output = folder / (shader_hash.lower() + "-" + stage + "_replace.spv")
     # No legacy register shifts or DX11 layout assumptions: declare Vulkan set/binding explicitly.
@@ -35,7 +35,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("--hash", required=True, help="original SPIR-V CRC-32C from hunting")
-    parser.add_argument("--stage", required=True, choices=("vs", "hs", "ds", "gs", "ps"))
+    parser.add_argument("--stage", required=True, choices=("vs", "hs", "ds", "gs", "ps", "cs"))
     parser.add_argument("--output-dir", required=True, type=Path, help="the layer settings/ShaderFixes directory")
     parser.add_argument("--entry", default="main", help="must match the game's entry point")
     parser.add_argument("--model", default="6_0", choices=("6_0", "6_1", "6_2", "6_3", "6_4", "6_5", "6_6", "6_7", "6_8"))

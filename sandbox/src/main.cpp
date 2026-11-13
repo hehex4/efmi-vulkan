@@ -66,7 +66,7 @@
     X(GetSwapchainImagesKHR) X(AcquireNextImageKHR) X(QueuePresentKHR) X(CreateImageView) X(DestroyImageView)          \
     X(CreateRenderPass) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer) X(CreateShaderModule)          \
     X(DestroyShaderModule) X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout) X(CreatePipelineLayout)          \
-    X(DestroyPipelineLayout) X(CreateGraphicsPipelines) X(DestroyPipeline) X(CreateDescriptorPool)                     \
+    X(DestroyPipelineLayout) X(CreateGraphicsPipelines) X(CreateComputePipelines) X(CmdDispatch) X(CmdDispatchIndirect) X(DestroyPipeline) X(CreateDescriptorPool)                     \
     X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets) X(CreateBuffer) X(DestroyBuffer) \
     X(CreateDescriptorUpdateTemplate) X(DestroyDescriptorUpdateTemplate) X(UpdateDescriptorSetWithTemplate)           \
     X(CreateImage) X(DestroyImage) X(GetImageMemoryRequirements) X(BindImageMemory) X(CreateSampler) X(DestroySampler) \
@@ -845,6 +845,8 @@ static void destroy_buffer(Buffer& b)
     b = Buffer();
 }
 
+#include "compute_scene.h"
+
 // Padded application data deliberately differs from a packed Vulkan array.
 struct PaddedDescriptor { VkDescriptorBufferInfo buffer; uint64_t padding; };
 struct MaterialData {
@@ -1435,6 +1437,7 @@ static bool render_frame()
     // The burst of the frame before has left the queue: its command buffers and semaphores are free.
     if (g.present_burst) CHECK(vkQueueWaitIdle(g.queue));
     CHECK(vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX));
+    read_compute_scene();
     uint32_t image = 0;
     VkResult acquired = vkAcquireNextImageKHR(g.device, g.swapchain, UINT64_MAX, g.sem_acquire, VK_NULL_HANDLE, &image);
     if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -1480,6 +1483,7 @@ static bool render_frame()
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     CHECK(vkBeginCommandBuffer(g.primary, &begin));
     if (g.present_burst) record_load(g.primary, g.load_blits);
+    record_compute_scene(g.primary);
 
     if (rewrite_now) {
         VkBufferCopy region = {0, 3 * sizeof(uint16_t), sizeof(kRewriteA)};
@@ -1612,6 +1616,8 @@ static void cleanup()
     if (!g.device)
         return;
     vkDeviceWaitIdle(g.device);
+    read_compute_scene();
+    destroy_compute_scene();
     vkDestroyFence(g.device, g.fence, nullptr);
     for (auto semaphore : g.burst_acquire) vkDestroySemaphore(g.device, semaphore, nullptr);
     if (g.load_src) vkDestroyImage(g.device, g.load_src, nullptr);
@@ -1711,6 +1717,12 @@ int wmain(int argc, wchar_t** argv)
             g.primary_screen = true;
         else if (a == L"--readable-swapchain")
             g.readable_swapchain = true;
+        else if (a == L"--compute-shader" && i + 1 < argc)
+            compute_scene.shader_path = argv[++i];
+        else if (a == L"--compute-output" && i + 1 < argc)
+            compute_scene.output_path = argv[++i];
+        else if (a == L"--compute-indirect")
+            compute_scene.indirect = true;
         else if (a == L"--non-indexed")
             g.draw_kind = 1;
         else if (a == L"--indexed-indirect")
@@ -1752,7 +1764,7 @@ int wmain(int argc, wchar_t** argv)
     if (!g.inject_path.empty() && !g.inject_late)
         ok = load_injected();
     ok = ok && load_vulkan() && create_instance() && create_window() && create_device() && create_swapchain() &&
-         create_pipeline() && create_resources() && prepare_present_burst();
+         create_pipeline() && create_resources() && create_compute_scene() && prepare_present_burst();
     if (ok && !g.inject_path.empty() && g.inject_late)
         ok = load_injected();
     if (ok && g.reresolve_exports)

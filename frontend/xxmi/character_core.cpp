@@ -664,8 +664,8 @@ global $mod_id = -1
             const auto& t = operand.shader_target;
             if (!current.shader_stages) return fail(why, L"The replaced draw's shader stages are not known");
             const uint32_t bit = t.shader_type == L'v' ? 0x1u : t.shader_type == L'h' ? 0x2u : t.shader_type == L'd' ? 0x4u :
-                                 t.shader_type == L'g' ? 0x8u : t.shader_type == L'p' ? 0x10u : 0u;
-            if (!bit) return fail(why, L"A draw has no compute shader");
+                                 t.shader_type == L'g' ? 0x8u : t.shader_type == L'p' ? 0x10u : t.shader_type == L'c' ? 0x20u : 0u;
+            if (!bit) return fail(why, L"Unknown shader stage");
             // No shader bound: -0 whatever is asked.
             if (!(current.shader_stages & bit)) { value = -0.0f; return true; }
             switch (t.evaluation_mode) {
@@ -673,7 +673,7 @@ global $mod_id = -1
                 // A module a ShaderOverride names by its SPIR-V hash (docs/vulkan-native-mods.md): process_shader_filter's
                 // value of its entry, the filter_index or 1 without one; for a vertex module without one the Core's
                 // patternless ShaderRegex sets it, as its link does under the original.
-                const unsigned stage = t.shader_type == L'v' ? 0 : t.shader_type == L'h' ? 1 : t.shader_type == L'd' ? 2 : t.shader_type == L'g' ? 3 : 4;
+                const unsigned stage = t.shader_type == L'v' ? 0 : t.shader_type == L'h' ? 1 : t.shader_type == L'd' ? 2 : t.shader_type == L'g' ? 3 : t.shader_type == L'p' ? 4 : 5;
                 const float vertex_filter = adapter->vertex_shader_filter();
                 if (current.stage_hash_mask >> stage & 1u) {
                     const auto entry = G->mShaderOverrideMap.find(uint64_t(current.stage_hashes[stage]));
@@ -1267,6 +1267,7 @@ global $mod_id = -1
             return fail(why, L"Unsupported original Core instance-config constant slot");
         current = draw;
         instance_queries.clear();
+        if (draw.compute) return true;
         if (draw.instance_entry && draw.instance_entry_size) {
             if (!original_vs_cb_known_) {
                 const auto vs_cb = customResources.find(L"resource" + core_namespace + L"original_vs_cb");
@@ -1287,6 +1288,7 @@ global $mod_id = -1
         current.pixel_texture = nullptr; current.texture_roles = nullptr; current.source_srv = nullptr; current.handed_component = nullptr;
         instance_queries.clear(); if (efmittl) efmittl->after_draw();
     }
+    void after_dispatch() noexcept override { current = {}; instance_queries.clear(); }
     void library_hook(LibraryHook hook) noexcept override { if (efmittl) efmittl->library_hook(hook); }
 };
 }

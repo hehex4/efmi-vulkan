@@ -432,6 +432,7 @@ struct CmdBuf {
     VkPipeline gfx_pipeline = VK_NULL_HANDLE;
     VkPipeline gfx_bound = VK_NULL_HANDLE;
     VkPipeline comp_pipeline = VK_NULL_HANDLE;
+    VkPipeline comp_bound = VK_NULL_HANDLE;
     VkBuffer ib = VK_NULL_HANDLE;
     uint64_t ib_off = 0;
     uint8_t index_size = 0;

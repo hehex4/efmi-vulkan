@@ -160,10 +160,10 @@ struct RuntimeDraw {
     // it), in the original's stage order: vertex (vs), tessellation control (hs), tessellation evaluation (ds),
     // geometry (gs), fragment (ps); bit i of `stage_hash_mask` when stage i has one. The ShaderOverride sections that
     // name a module act at the draw (docs/vulkan-native-mods.md).
-    uint32_t stage_hashes[5] = {};
+    uint32_t stage_hashes[6] = {};
     uint32_t stage_hash_mask = 0;
     // The application's call, as the original's DRAW_TYPE takes it: indexed or not, direct or indirect.
-    bool indexed = true, indirect = false;
+    bool indexed = true, indirect = false, compute = false;
     // Bit N: the pipeline's vertex input reads binding N, DX11's input slot N (D-161: a buffer the lists
     // bind at a slot the pipeline does not read is nothing to the draw, as under D3D11). Every bit when
     // the host does not know the pipeline's vertex input.
@@ -192,7 +192,7 @@ enum class LibraryHook : uint32_t { CopyShader = 1 };
 enum class HuntingAction : uint32_t {
     Toggle = 1, NextMarkingMode, NextPixel, PreviousPixel, MarkPixel, NextVertex, PreviousVertex, MarkVertex, Done,
     NextIndex, PreviousIndex, MarkIndex, NextVertexBuffer, PreviousVertexBuffer, MarkVertexBuffer, NextVertexBufferSlot,
-    PreviousVertexBufferSlot, NextRenderTarget, PreviousRenderTarget, MarkRenderTarget, AnalyseFrame
+    PreviousVertexBufferSlot, NextRenderTarget, PreviousRenderTarget, MarkRenderTarget, AnalyseFrame, NextCompute, PreviousCompute, MarkCompute
 };
 struct HuntingSettings {
     bool keys = false;             // the section registered a hunting key (its `hunting` is 1 or 2)

@@ -305,6 +305,30 @@ VkResult RenderPassRecipe::create(VkDevice dev, PFN_vkCreateRenderPass create1,
     return create1(dev, &info, nullptr, out);
 }
 
+GraphicsRecipe GraphicsRecipe::capture(const VkComputePipelineCreateInfo& info, const std::vector<ShaderStage>& shaders)
+{
+    GraphicsRecipe r; r.compute = true; r.flags = info.flags;
+    if (info.pNext || info.flags) { r.reason = "compute_pipeline_extension_or_flags"; return r; }
+    const auto& stage = info.stage;
+    if (stage.pNext || stage.flags || stage.stage != VK_SHADER_STAGE_COMPUTE_BIT) {
+        r.reason = "compute_stage_extension_or_type"; return r;
+    }
+    if (shaders.size() != 1 || !shaders[0].shader || shaders[0].shader->code.empty()) {
+        r.reason = "shader_code_unavailable"; return r;
+    }
+    RecipeStage saved; saved.stage = stage.stage; saved.entry = shaders[0].entry; saved.shader = shaders[0].shader;
+    if (stage.pSpecializationInfo) {
+        const auto& spec = *stage.pSpecializationInfo;
+        if (spec.mapEntryCount > 4096 || spec.dataSize > kMaxSpecialization) {
+            r.reason = "specialization_retention_limit"; return r;
+        }
+        copy_array(saved.entries, spec.mapEntryCount, spec.pMapEntries);
+        copy_array(saved.data, static_cast<uint32_t>(spec.dataSize), static_cast<const uint8_t*>(spec.pData));
+    }
+    r.stages.push_back(std::move(saved)); r.complete = true;
+    return r;
+}
+
 GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
                                        const std::vector<ShaderStage>& shaders,
                                        std::shared_ptr<const RenderPassRecipe> pass)
@@ -471,7 +495,7 @@ void RenderPassRecipe::write(JsonWriter& w) const
 
 void GraphicsRecipe::write(JsonWriter& w) const
 {
-    w.begin_object(); w.kb("complete", complete); w.kv("reason", reason); w.kv("float_encoding", "ieee754_bits");
+    w.begin_object(); w.kb("complete", complete); w.kb("compute", compute); w.kv("reason", reason); w.kv("float_encoding", "ieee754_bits");
     w.key("render_pass"); if (render_pass) render_pass->write(w); else w.null();
     // Partial fields must never masquerade as a usable recipe.
     if (!complete) { w.end_object(); return; }

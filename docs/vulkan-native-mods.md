@@ -320,7 +320,7 @@ tracker; a single matching entry point; supported core capabilities and fully tr
 binding flags, unsupported extension state, and immutable samplers/layouts created with custom host
 allocators remain refused. An empty Mods folder supports initial ShaderFixes loading and F10 via the
 existing host input fallback (verified in D-192). Hunting keys still require a loaded INI generation.
-Compute shader replacement and native arbitrary resource/draw lists remain pending. D-191 publishes
+D-193 adds compute shader replacement and hunting (below). Native arbitrary resource/draw lists remain pending. D-191 publishes
 depth filters with the INI/shader generation; a filter-only F10 changes the revision and invalidates
 cached variants. Depth presence means an attachment, independently of the pipeline's depth-test switch.
 
@@ -337,3 +337,38 @@ The routine pipeline step runs deterministic fixtures. Historical captured-shade
 separate `sandbox/run_all.py --no-build --only shader-corpus` step, also in the full suite and the
 bones group; it retains the capture checks without scanning the entire capture tree for every native
 pipeline change. This separation avoids the old 30-second cold-read timeout.
+
+
+## 8. Native compute modules (D-193, 2.2.3)
+
+`ShaderFixes/<original-hash>-cs_replace.spv` uses the same file generation, F10 and last-good
+rules as graphics. The offline compiler accepts `--stage cs`. Owned compute recipes retain the
+entry point, specialization entries/data and module bytes after application shader destruction.
+The shared variant queue creates a compute pipeline with the original descriptor layout and push
+ranges, without a render pass or private set. Recording owners retain it until completion.
+
+Direct and indirect dispatches run matching ShaderOverride command lists with the original hash,
+`draw_type` 8/9 and the `cs` filter value. The existing variables/conditions/run/skip boundary still
+applies: arbitrary resource bindings or dispatch commands in these lists need the native slot
+adapter and are reported as unavailable. A compute list does not enter the character draw's
+EFMITTL hooks or restore a draw's input layout when it ends.
+
+The original's `BeforeDispatch` deliberately bypasses `ProcessShaderOverride`: graphics depth
+filters do not apply, and hunting skip returns before the lists. `next_computeshader`,
+`previous_computeshader` and `mark_computeshader` select original module hashes; skip omits the
+dispatch, original uses the application's shader, and pink has no compute pixel output to change.
+Mark dumps the original as `<hash>-cs.spv`; frame-analysis logs include CS identity and dispatches.
+The host restores the previous compute binding after a temporarily marked dispatch.
+
+Native compute modules must preserve resource access and the original fixed local workgroup size.
+Device limits for dimensions, invocation count and shared memory are checked before publication.
+Fixed `WorkgroupSize` constants are resolved because they override `LocalSize`, as defined by the
+[Vulkan shader interface specification](https://docs.vulkan.org/spec/latest/chapters/interfaces.html#interfaces-builtin-variables-workgroupsize).
+Specialized local sizes, unsupported pipeline flags/extensions, inline modules and shader objects
+are not covered. No resource upload or new access is introduced: application barriers/order remain
+in force. Under DX11 the runtime supplies hazard tracking, reference-counted deferred destruction
+and context order; here these are explicit interface constraints and retained Vulkan owners.
+
+`sandbox/native_compute_test.py` runs real application dispatches, reads the storage buffer only
+after a fence and exercises both entry methods, replacement/fallback, commands, hunting and F10.
+The native-shaders group includes it. These checks establish sandbox behavior, not game acceptance.

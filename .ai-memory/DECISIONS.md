@@ -1077,6 +1077,15 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-193: Native compute shares immutable shader generations and retained pipeline variants
+
+- Date: 2026-11-13. Continues the user's native-route work without entering the game.
+- Original first: HackerContext.cpp BeforeDispatch/AfterDispatch, Dispatch/DispatchIndirect and CSSetShader. Compute bypasses ProcessShaderOverride's depth filter, hunting skip returns before lists, and original selection uses the original shader. DX11 provides reference-counted deferred destruction, hazard tracking and one-context order. Vulkan retains owned recipes, layouts and recorded variant owners and preserves the application's resource access contract and synchronization.
+- Capture compute entry/module/specialization in the owned recipe envelope; share variant jobs, cache/revision invalidation and command ownership with graphics. Compute variants use the original layout, no render pass or private set. Host hooks replace compute binds and restore temporary selection after direct/indirect dispatches. Unsupported pipeline flags/extensions are refused.
+- Add cs ShaderFixes, offline compilation, direct/indirect ShaderOverride lists and original-hash cs filters, compute hunting keys/dumps and frame-analysis call logs. Compute lists use dispatch call info and completion; character draw hooks do not act on them. Arbitrary list bindings/draws retain their existing explicit unsupported boundary.
+- Require unchanged fixed local workgroup size and resource access, validate physical workgroup/shared-memory limits, and retain the last good file on failed F10. Pink has no effect on compute, as the original has no fragment shader to replace there.
+- The shared header stamp changes; a later deployment must use the matching host/backend pair. No deployment or game acceptance is part of this decision.
+
 ## D-192: Hunting shader modes are per-draw pipeline state with host restoration
 
 - Date: 2026-11-13. Read the original HackerContext::SetShader, BeforeDraw and AfterDraw, and HackerDevice::CreatePinkHuntingResources first. Original mode selects the original VS/PS stage; pink uses a resource-free float4(1,0,1,1) pixel shader; AfterDraw restores the saved shader. DX11 supplies reference-counted deferred destruction, hazard tracking and one-context order. Vulkan instead keeps immutable variant requests, command owners, and explicit ordered binds/restoration. No resource upload dependency is added by pink.

@@ -701,7 +701,7 @@ public:
 // original's stage order (vs, hs, ds, gs, ps), bit i of `mask` when stage i has one; its stages as Vulkan bits; its
 // subpass's targets as a replaced draw's (bit i colour i, bit 8 depth).
 struct PipelineModules {
-    uint32_t hashes[5] = {};
+    uint32_t hashes[6] = {};
     uint32_t mask = 0, stages = 0, targets = 0;
     bool targets_known = false;
     uint64_t render_pass = 0;
@@ -728,7 +728,7 @@ struct DrawFacts {
 // index buffer regions, vertex buffer regions, render targets.
 class Hunting {
 public:
-    enum Kind { Vertex = 0, Pixel = 1, Index = 2, Buffer = 3, Target = 4, Kinds = 5 };
+    enum Kind { Vertex = 0, Pixel = 1, Index = 2, Buffer = 3, Target = 4, Compute = 5, Kinds = 6 };
     // At a folder generation's load and after every F10 exchange, as the original's reload reads [Hunting] again.
     void configure(const efmi::frontend::HuntingSettings& settings);
     // A hunting key, on the presenting thread. `device` finds a marked module's bytes for its dump; `folder` is where

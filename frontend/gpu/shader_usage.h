@@ -18,4 +18,6 @@ struct ShaderUsage {
 // Bounded analysis of a validated executable, independent of caller metadata.
 // Unknown resource provenance/layout refuses instead of silently losing uses.
 ShaderUsage shader_usage(const HlslProgram&);
+// Shared storage only; native modules need no owned-descriptor reflection to check this limit.
+uint64_t shader_workgroup_bytes(const HlslProgram&);
 }

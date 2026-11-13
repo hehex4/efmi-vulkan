@@ -114,6 +114,52 @@ static void rewrite_tests()
     check(!repoint_vertex(broken, 3, out) && out.reason == "spirv_duplicate_decoration", "reject duplicate descriptor decorations");
 }
 
+static VKAPI_ATTR VkResult VKAPI_CALL create_compute_layout(VkDevice, const VkPipelineLayoutCreateInfo* p,
+                                                           const VkAllocationCallbacks*, VkPipelineLayout* out)
+{
+    check(p->setLayoutCount == 0, "native compute adds no private descriptor set"); return allocate(out);
+}
+static VKAPI_ATTR VkResult VKAPI_CALL create_compute(VkDevice, VkPipelineCache, uint32_t count,
+                                                    const VkComputePipelineCreateInfo* p, const VkAllocationCallbacks*, VkPipeline* out)
+{
+    check(count == 1 && p->stage.stage == VK_SHADER_STAGE_COMPUTE_BIT && !strcmp(p->stage.pName, "compute_entry") &&
+          p->stage.pSpecializationInfo && p->stage.pSpecializationInfo->pMapEntries[0].constantID == 7 &&
+          static_cast<const uint8_t*>(p->stage.pSpecializationInfo->pData)[1] == 6,
+          "compute creation preserves the original entry and owned specialization");
+    return allocate(out);
+}
+static void compute_recipe_tests()
+{
+    auto shader = std::make_shared<ShaderInfo>(); shader->code = variant_fixture::shader(true);
+    VkSpecializationMapEntry entry = {7, 1, 2}; uint8_t bytes[4] = {5, 6, 7, 8};
+    VkSpecializationInfo spec = {1, &entry, sizeof(bytes), bytes};
+    VkComputePipelineCreateInfo ci = {VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT; ci.stage.pName = "compute_entry"; ci.stage.pSpecializationInfo = &spec;
+    ShaderStage stage; stage.stage = VK_SHADER_STAGE_COMPUTE_BIT; stage.entry = "compute_entry"; stage.shader = shader;
+    auto recipe = GraphicsRecipe::capture(ci, {stage});
+    check(recipe.complete && recipe.compute && !recipe.render_pass, "compute recipe needs no render pass or vertex state");
+    entry.constantID = 42; bytes[1] = 0; shader.reset(); stage.shader.reset();
+    check(recipe.stages[0].entries[0].constantID == 7 && recipe.stages[0].data[1] == 6 && recipe.stages[0].shader,
+          "compute capture owns shader and specialization after source destruction");
+    PipelineLayoutInfo layout; layout.complete = true;
+    FragmentPatch patch; patch.keep_vertex = patch.native_only = true;
+    auto funcs = dispatch(); funcs.CreatePipelineLayout = create_compute_layout; funcs.CreateComputePipelines = create_compute;
+    for (int failure = 1; failure <= 4; ++failure) {
+        allocation = 0; fail_at = failure == 4 ? 0 : failure;
+        {
+            PipelineVariant variant(h<VkDevice>(2), funcs);
+            check(variant.build(recipe, layout, {}, 4, patch) == (failure == 4), "compute variant reports allocation failures");
+        }
+        check(live.empty(), "compute pipeline, module and layout released after failure or destruction");
+    }
+    fail_at = 0;
+    ci.flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+    check(!GraphicsRecipe::capture(ci, {stage}).complete, "unsupported compute flags refuse before borrowing ignored state");
+    NativeShaderSet fixes; fixes.depth_filters[1] = 1;
+    check(fixes.allows(1, recipe), "compute ignores the graphics depth filter as BeforeDispatch does");
+}
+
 static void ownership_tests()
 {
     GraphicsRecipe owned;
@@ -457,7 +503,7 @@ int main(int argc, char** argv)
         return output ? 0 : 2;
     }
     util_init(GetModuleHandleW(nullptr));
-    rewrite_tests(); ownership_tests(); ignored_pointer_tests(); tracked_lifetime_tests(); draw_sequence_tests();
+    rewrite_tests(); ownership_tests(); compute_recipe_tests(); ignored_pointer_tests(); tracked_lifetime_tests(); draw_sequence_tests();
     const bool corpus = argc == 2 && !strcmp(argv[1], "--corpus");
     dither_tests(corpus);
     constant_bones_tests(corpus);

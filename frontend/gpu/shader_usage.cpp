@@ -114,6 +114,17 @@ public:
         }
         for(const auto& binding:p.bindings)require(bindings.emplace(binding.binding,&binding).second,"Repeated shader reflection binding");
     }
+    uint64_t workgroup_bytes(){
+        uint64_t bytes=0;
+        for(const auto& instruction:instructions){step();
+            if(instruction.op!=SpvOpVariable || instruction.at(3)!=SpvStorageClassWorkgroup)continue;
+            require(instruction.count==4 && decoration(instruction.at(2),SpvDecorationAliased)==UINT32_MAX,"Initialized/aliased shared storage is unsupported");
+            const auto& pointer=def(instruction.at(1));
+            require(pointer.op==SpvOpTypePointer,"Invalid shared storage pointer");
+            bytes=add(bytes,size(pointer.at(3)));
+        }
+        return bytes;
+    }
     ShaderUsage run(){
         ShaderUsage usage;std::set<std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>> pairs;
         std::map<std::pair<uint32_t,uint32_t>,StorageImageUse> storage;
@@ -148,4 +159,5 @@ public:
 };
 }
 ShaderUsage shader_usage(const HlslProgram& program){return Analysis(program).run();}
+uint64_t shader_workgroup_bytes(const HlslProgram& program){return Analysis(program).workgroup_bytes();}
 }

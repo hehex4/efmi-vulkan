@@ -16,6 +16,7 @@ std::shared_ptr<const NativeShaderSet> load_shader_fixes(Device* device, const s
     const auto folder = (g_cfg.m2_settings.empty() ? tools / "settings" :
                          std::filesystem::absolute(std::filesystem::u8path(g_cfg.m2_settings))) / "ShaderFixes";
     efmi::gpu::ShaderHost host;
+    host.properties = device->physical_properties;
     host.validator = tools / "SPIRV-Tools-shared.dll";
     host.float_controls = device->float_controls; host.float_properties = device->float_properties;
     host.shader_draw_parameters = device->draw_parameters;
@@ -30,7 +31,7 @@ std::shared_ptr<const NativeShaderSet> load_shader_fixes(Device* device, const s
             for (const auto& stage : pipe.second.recipe->stages) if (stage.shader)
                 interfaces[(uint64_t(stage.stage) << 32) | stage.shader->hash].push_back({stage.shader, stage.entry});
     }
-    const std::regex naming("^([0-9a-fA-F]{8})-(vs|hs|ds|gs|ps)_replace\\.spv$", std::regex::icase);
+    const std::regex naming("^([0-9a-fA-F]{8})-(vs|hs|ds|gs|ps|cs)_replace\\.spv$", std::regex::icase);
     std::filesystem::directory_iterator it(folder, error), end;
     while (!error && it != end) {
         const auto path = it->path();
@@ -41,7 +42,7 @@ std::shared_ptr<const NativeShaderSet> load_shader_fixes(Device* device, const s
             const char letter = char(std::tolower(match[2].str()[0]));
             const auto stage = letter == 'v' ? VK_SHADER_STAGE_VERTEX_BIT : letter == 'h' ? VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT :
                                letter == 'd' ? VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT : letter == 'g' ? VK_SHADER_STAGE_GEOMETRY_BIT :
-                               VK_SHADER_STAGE_FRAGMENT_BIT;
+                               letter == 'c' ? VK_SHADER_STAGE_COMPUTE_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
             const uint64_t key = (uint64_t(stage) << 32) | hash;
             std::string reason;
             const auto size = std::filesystem::file_size(path, error);

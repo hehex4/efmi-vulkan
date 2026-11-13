@@ -7,6 +7,7 @@
 #include <spirv-tools/libspirv.h>
 #include <windows.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numeric>
 #include <set>
@@ -80,6 +81,39 @@ ComputePipeline::~ComputePipeline()=default;
 const HlslProgram& ComputePipeline::program() const {return impl_->programs.front();}
 ShaderSampler::ShaderSampler(std::shared_ptr<Impl> impl):impl_(std::move(impl)){}
 ShaderSampler::~ShaderSampler()=default;
+// WorkgroupSize takes precedence over LocalSize. Reflection alone in the pinned library does not
+// account for that decoration. Resolve fixed constants and refuse specialized dimensions.
+static std::array<uint32_t, 3> native_local_size(const std::vector<uint32_t>& words)
+{
+    std::map<uint32_t, uint32_t> constants;
+    std::map<uint32_t, std::array<uint32_t, 3>> composites;
+    std::array<uint32_t, 3> size{}, ids{};
+    uint32_t builtin = 0; bool indirect = false;
+    for (size_t at = 5; at < words.size();) {
+        const uint32_t count = words[at] >> 16, op = words[at] & 65535;
+        require(count && count <= words.size() - at, "Truncated native compute module");
+        const auto* w = words.data() + at;
+        if (op == SpvOpConstant && count == 4) constants[w[2]] = w[3];
+        if (op == SpvOpConstantComposite && count == 6) composites[w[2]] = {w[3], w[4], w[5]};
+        if (op == SpvOpDecorate && count == 4 && w[2] == SpvDecorationBuiltIn && w[3] == SpvBuiltInWorkgroupSize) builtin = w[1];
+        if (op == SpvOpExecutionMode && count == 6 && w[2] == SpvExecutionModeLocalSize) size = {w[3], w[4], w[5]};
+        if (op == SpvOpExecutionModeId && count == 6 && w[2] == SpvExecutionModeLocalSizeId) { ids = {w[3], w[4], w[5]}; indirect = true; }
+        at += count;
+    }
+    if (builtin) {
+        const auto found = composites.find(builtin);
+        require(found != composites.end(), "Native compute requires a fixed WorkgroupSize constant");
+        ids = found->second; indirect = true;
+    }
+    if (indirect) for (unsigned i = 0; i < 3; ++i) {
+        const auto found = constants.find(ids[i]);
+        require(found != constants.end(), "Native compute requires fixed local size constants");
+        size[i] = found->second;
+    }
+    require(size[0] && size[1] && size[2], "Native compute local size is unavailable");
+    return size;
+}
+
 bool validate_native_shader(const std::vector<uint32_t>& words, VkShaderStageFlagBits stage,
                             const ShaderHost& host, const VkPhysicalDeviceFeatures& features, uint32_t api, std::string& reason) {
     try {
@@ -104,6 +138,16 @@ bool validate_native_shader(const std::vector<uint32_t>& words, VkShaderStageFla
         const bool correct_stage = reflected.entry_point_count == 1 && uint32_t(reflected.shader_stage) == uint32_t(stage);
         spvReflectDestroyShaderModule(&reflected);
         require(correct_stage, "Native shader must have one entry point of the named stage");
+        if (stage == VK_SHADER_STAGE_COMPUTE_BIT) {
+            const auto local = native_local_size(words);
+            uint64_t threads = 1;
+            for (unsigned i = 0; i < 3; ++i) {
+                require(local[i] && local[i] <= host.properties.limits.maxComputeWorkGroupSize[i], "Native compute local size exceeds device limits or is specialized");
+                threads *= local[i];
+            }
+            require(threads <= host.properties.limits.maxComputeWorkGroupInvocations, "Native compute invocation count exceeds device limits");
+            require(shader_workgroup_bytes(program) <= host.properties.limits.maxComputeSharedMemorySize, "Native compute shared storage exceeds device limits");
+        }
         reason.clear();
         return true;
     } catch (const std::exception& e) { reason = e.what(); return false; }
@@ -126,6 +170,9 @@ bool native_shader_interface(const std::vector<uint32_t>& original, const std::v
         const auto& a = before.module; const auto& b = after.module;
         require(a.entry_point_count == 1 && b.entry_point_count == 1 && b.entry_point_name && entry == b.entry_point_name &&
                 uint32_t(b.shader_stage) == uint32_t(stage), "Native shader entry point or stage differs");
+        if (stage == VK_SHADER_STAGE_COMPUTE_BIT) {
+            require(native_local_size(original) == native_local_size(replacement), "Native compute changes the dispatch workgroup size");
+        }
         for (uint32_t i = 0; i < b.descriptor_binding_count; ++i) {
             const auto& next = b.descriptor_bindings[i];
             const SpvReflectDescriptorBinding* old = nullptr;

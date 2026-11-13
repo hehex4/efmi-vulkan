@@ -638,7 +638,7 @@ bool IniRuntime::shader_draw(const RuntimeDraw& input, assets::FilePlan& output,
 // entries of its modules (docs/vulkan-native-mods.md).
 bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason, bool texture_overrides)
 {
-    struct Completion {RuntimeExtension* extension;~Completion(){if(extension)extension->after_draw();}} completion{impl_->extension.get()};
+    struct Completion {RuntimeExtension* extension;bool compute;~Completion(){if(extension){if(compute)extension->after_dispatch();else extension->after_draw();}}} completion{impl_->extension.get(),input.compute};
     try {
         if(impl_->config.shader_hooks)throw std::runtime_error("Shader hook generation requires the intercepted call entry");
         if(!std::isfinite(input.frame_seconds) || input.frame_seconds<0)throw std::runtime_error("Original frame duration is invalid");
@@ -656,20 +656,26 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         struct Current {Impl& p; Current(Impl& owner, const RuntimeDraw& draw):p(owner){p.current_draw=&draw;} ~Current(){p.current_draw=nullptr;}} current(p, input);
         G->frame_no = unsigned(input.frame); G->gTime = input.seconds; G->gFrameTime = input.frame_seconds;
         // DRAW_NUMBER: the Core's identification tells a second identifier call within one draw by it.
-        ++p.context.draw_number;
+        if (input.compute) ++p.context.dispatch_number; else ++p.context.draw_number;
         // The call as the original's DRAW_TYPE has it (an indirect call's counts are in its buffer).
-        const DrawCall type = input.indirect ? (input.indexed ? DrawCall::DrawIndexedInstancedIndirect : DrawCall::DrawInstancedIndirect)
+        const DrawCall type = input.compute ? (input.indirect ? DrawCall::DispatchIndirect : DrawCall::Dispatch) : input.indirect ? (input.indexed ? DrawCall::DrawIndexedInstancedIndirect : DrawCall::DrawInstancedIndirect)
                                              : (input.indexed ? DrawCall::DrawIndexedInstanced : DrawCall::DrawInstanced);
         DrawCallInfo call = input.indexed ? DrawCallInfo(type, 0, input.count, input.instances, uint32_t(input.base), input.first, input.first_instance, nullptr, 0)
                                           : DrawCallInfo(type, input.count, 0, input.instances, input.first, 0, input.first_instance, nullptr, 0);
+        if (input.compute) {
+            call.VertexCount = call.IndexCount = call.InstanceCount = 0;
+            call.ThreadGroupCountX = input.indirect ? 0 : input.count;
+            call.ThreadGroupCountY = input.indirect ? 0 : input.instances;
+            call.ThreadGroupCountZ = input.indirect ? 0 : input.first;
+        }
         if (input.indirect) call.VertexCount = call.IndexCount = call.InstanceCount = 0;
         TextureOverrideMatches& matches = p.draw_matches; matches.clear();
         if (texture_overrides) find_texture_override_for_hash(input.hash, &matches, &call);
         // The ShaderOverride entries of the draw's modules (docs/vulkan-native-mods.md), by stage: vs, hs, ds, gs, ps.
-        ShaderOverride* shaders[5] = {};
+        ShaderOverride* shaders[6] = {};
         bool shader_lists = false;
         if (!p.shader_hashes.empty())
-            for (unsigned i = 0; i < 5; ++i) {
+            for (unsigned i = 0; i < 6; ++i) {
                 if (!(input.stage_hash_mask >> i & 1u)) continue;
                 const auto found = G->mShaderOverrideMap.find(uint64_t(input.stage_hashes[i]));
                 if (found != G->mShaderOverrideMap.end()) { shaders[i] = &found->second; shader_lists = true; }
@@ -700,7 +706,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             stages.checked_last = post.size();
             // The hull, domain, geometry and pixel stages, each a list of its own; the library's pixel groups are linked
             // into the pixel stage's.
-            for (unsigned i = 1; i < 5; ++i) {
+            for (unsigned i = 1; i < 6; ++i) {
                 if (!shaders[i]) continue;
                 stages.pre_starts.push_back(pre.size()); stages.post_starts.push_back(post.size());
                 pre.push_back(&shaders[i]->command_list); post.push_back(&shaders[i]->post_command_list);

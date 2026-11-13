@@ -70,6 +70,8 @@ bool patch_vertex_streams(const VertexInputRecipe&, const std::vector<VertexStre
                           VertexInputRecipe& output, std::string& reason);
 
 struct GraphicsRecipe {
+    // Compute uses only stages/flags. Keeping the owned envelope lets it share the variant queue and lifetime.
+    bool compute = false;
     bool complete = false;
     std::string reason;
     uint32_t subpass = 0;
@@ -92,6 +94,7 @@ struct GraphicsRecipe {
 
     static GraphicsRecipe capture(const VkGraphicsPipelineCreateInfo&, const std::vector<ShaderStage>&,
                                   std::shared_ptr<const RenderPassRecipe>);
+    static GraphicsRecipe capture(const VkComputePipelineCreateInfo&, const std::vector<ShaderStage>&);
     // Pointers are baked only on the stack during this call; copies/moves of the recipe are safe.
     // All handles here must be owned by the caller, not borrowed application creation handles.
     VkResult create(VkDevice, PFN_vkCreateGraphicsPipelines, VkPipelineLayout, VkRenderPass,

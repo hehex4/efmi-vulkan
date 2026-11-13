@@ -14,6 +14,7 @@ static int original_stage(uint32_t bit)
     case VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT: return 2;
     case VK_SHADER_STAGE_GEOMETRY_BIT: return 3;
     case VK_SHADER_STAGE_FRAGMENT_BIT: return 4;
+    case VK_SHADER_STAGE_COMPUTE_BIT: return 5;
     default: return -1;
     }
 }
@@ -22,7 +23,7 @@ bool pipeline_modules(Device* device, VkPipeline pipeline, PipelineModules& out)
 {
     std::shared_lock<std::shared_mutex> lock(device->res_mx);
     const auto pipe = device->pipes.find(pipeline);
-    if (pipe == device->pipes.end() || pipe->second.compute) return false;
+    if (pipe == device->pipes.end()) return false;
     const PipeInfo& info = pipe->second;
     out = {};
     for (const auto& stage : info.shaders) {
@@ -45,10 +46,10 @@ bool pipeline_modules(Device* device, VkPipeline pipeline, PipelineModules& out)
 // Hunting (Hunting.cpp): the selection runs over what the frame's draws used while hunting is enabled.
 
 namespace {
-const char* const kKindName[Hunting::Kinds] = {"vertex shader", "pixel shader", "index buffer", "vertex buffer", "render target"};
-const char* const kKindShort[Hunting::Kinds] = {"VS", "PS", "IB", "VB", "RT"};
+const char* const kKindName[Hunting::Kinds] = {"vertex shader", "pixel shader", "index buffer", "vertex buffer", "render target", "compute shader"};
+const char* const kKindShort[Hunting::Kinds] = {"VS", "PS", "IB", "VB", "RT", "CS"};
 const char* const kMarkingNames[4] = {"skip", "original", "pink", "mono"};
-const char* const kStageName[5] = {"vs", "hs", "ds", "gs", "ps"};
+const char* const kStageName[6] = {"vs", "hs", "ds", "gs", "ps", "cs"};
 
 // HashToClipboard with the eight digits; the player's own clipboard, as the original's.
 bool hash_to_clipboard(uint32_t hash)
@@ -72,7 +73,7 @@ bool hash_to_clipboard(uint32_t hash)
 // to write; `already` when the file is there.
 bool dump_module(Device* device, int kind, uint32_t hash, const std::filesystem::path& folder, std::string& text, bool& already)
 {
-    const uint32_t stage = kind == Hunting::Vertex ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+    const uint32_t stage = kind == Hunting::Vertex ? VK_SHADER_STAGE_VERTEX_BIT : kind == Hunting::Compute ? VK_SHADER_STAGE_COMPUTE_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
     std::shared_ptr<const ShaderInfo> module;
     {
         std::shared_lock<std::shared_mutex> lock(device->res_mx);
@@ -83,7 +84,7 @@ bool dump_module(Device* device, int kind, uint32_t hash, const std::filesystem:
         }
     }
     char name[64];
-    snprintf(name, sizeof(name), "%08x-%s.spv", hash, kind == Hunting::Vertex ? "vs" : "ps");
+    snprintf(name, sizeof(name), "%08x-%s.spv", hash, kind == Hunting::Vertex ? "vs" : kind == Hunting::Compute ? "cs" : "ps");
     const auto path = folder / "ShaderFixes" / name;
     std::error_code error;
     already = std::filesystem::exists(path, error);
@@ -152,6 +153,9 @@ void Hunting::act(efmi::frontend::HuntingAction action, Device* device, const st
         const int mode = mode_.load(std::memory_order_relaxed);
         int kind = -1; bool next = false, mark = false;
         switch (action) {
+        case A::NextCompute: kind = Compute; next = true; break;
+        case A::PreviousCompute: kind = Compute; break;
+        case A::MarkCompute: kind = Compute; mark = true; break;
         case A::NextPixel: kind = Pixel; next = true; break;
         case A::PreviousPixel: kind = Pixel; break;
         case A::MarkPixel: kind = Pixel; mark = true; break;
@@ -218,7 +222,7 @@ void Hunting::act(efmi::frontend::HuntingAction action, Device* device, const st
                 told.push_back(text);
             }
             // CopyToFixes for `hlsl`, `asm` or `regex` (the original's DUMP_MASK): a module's SPIR-V into ShaderFixes.
-            if ((actions_ & 0xEu) && (kind == Vertex || kind == Pixel) && device) {
+            if ((actions_ & 0xEu) && (kind == Vertex || kind == Pixel || kind == Compute) && device) {
                 std::string where; bool already = false;
                 if (dump_module(device, kind, hash, folder, where, already)) {
                     if (!already) ++dumps_;
@@ -250,6 +254,8 @@ bool Hunting::visit(DrawFacts& facts)
     auto insert = [&](int kind, uint32_t value) { if (visited_[kind].size() < 65536) visited_[kind].insert(value); };
     if (has_vs) insert(Vertex, m.hashes[0]);
     if (has_ps) insert(Pixel, m.hashes[4]);
+    const bool has_cs = (m.mask & 0x20u) != 0;
+    if (has_cs) insert(Compute, m.hashes[5]);
     if (facts.index_known) insert(Index, facts.index_hash);
     for (uint32_t slot = 0; slot < kMaxVb; ++slot)
         if ((facts.vertex_mask >> slot & 1u) && (buffer_slot_ < 0 || int(slot) == buffer_slot_)) insert(Buffer, facts.vertex_hashes[slot]);
@@ -269,6 +275,7 @@ bool Hunting::visit(DrawFacts& facts)
         if (has_ps && peers_[kind][1].size() < 256 && kind != Pixel) peers_[kind][1].insert(m.hashes[4]);
         marked = true;
     };
+    if (has_cs && selected(Compute, m.hashes[5])) peers(Compute);
     if (has_vs && selected(Vertex, m.hashes[0])) peers(Vertex);
     if (has_ps && selected(Pixel, m.hashes[4])) peers(Pixel);
     if (facts.index_known && selected(Index, facts.index_hash)) peers(Index);
@@ -280,10 +287,11 @@ bool Hunting::visit(DrawFacts& facts)
         if (selected(Target, facts.targets[i])) { peers(Target); break; }
     if (marked && marking_mode_ == 0) { ++skipped_; return true; }
     if (marking_mode_ == 1) {
+        if (has_cs && selected(Compute, m.hashes[5])) facts.marking |= VK_SHADER_STAGE_COMPUTE_BIT;
         if (has_vs && selected(Vertex, m.hashes[0])) facts.marking |= VK_SHADER_STAGE_VERTEX_BIT;
         if (has_ps && selected(Pixel, m.hashes[4])) facts.marking |= VK_SHADER_STAGE_FRAGMENT_BIT;
     }
-    if (marked && marking_mode_ == 2) facts.marking |= kHuntingPink;
+    if (marked && !has_cs && marking_mode_ == 2) facts.marking |= kHuntingPink;
     if (marked && marking_mode_ == 3 && !told_mode_) {
         told_mode_ = true; logf("hunting: mono marking has no stereo separation to change");
     }
@@ -302,9 +310,9 @@ void Hunting::analyse(const DrawRec& r, const DrawFacts& facts)
     snprintf(line, sizeof(line), "%06llu command buffer %u, pipeline %llx\n", static_cast<unsigned long long>(n), r.cb_id,
              static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(r.pipeline)));
     analysis_ += line;
-    for (unsigned i = 0; i < 5; ++i) {
+    for (unsigned i = 0; i < 6; ++i) {
         if (!(m.mask >> i & 1u)) continue;
-        snprintf(line, sizeof(line), "%06llu %sSetShader hash=%08x\n", static_cast<unsigned long long>(n), i == 0 ? "VS" : i == 1 ? "HS" : i == 2 ? "DS" : i == 3 ? "GS" : "PS",
+        snprintf(line, sizeof(line), "%06llu %sSetShader hash=%08x\n", static_cast<unsigned long long>(n), i == 0 ? "VS" : i == 1 ? "HS" : i == 2 ? "DS" : i == 3 ? "GS" : i == 4 ? "PS" : "CS",
                  m.hashes[i]);
         analysis_ += line;
     }
@@ -323,6 +331,12 @@ void Hunting::analyse(const DrawRec& r, const DrawFacts& facts)
         analysis_ += line;
     }
     switch (r.kind) {
+    case DK_DISPATCH:
+        snprintf(line, sizeof(line), "%06llu Dispatch(%u,%u,%u)\n", static_cast<unsigned long long>(n), r.count, r.instances, r.first);
+        break;
+    case DK_DISPATCH_INDIRECT:
+        snprintf(line, sizeof(line), "%06llu DispatchIndirect()\n", static_cast<unsigned long long>(n));
+        break;
     case DK_INDEXED:
         snprintf(line, sizeof(line), "%06llu DrawIndexedInstanced(IndexCountPerInstance:%u, InstanceCount:%u, StartIndexLocation:%u, BaseVertexLocation:%d, StartInstanceLocation:%u)\n",
                  static_cast<unsigned long long>(n), r.count, r.instances, r.first, r.vertex_offset, r.first_instance);
@@ -386,7 +400,7 @@ void Hunting::frame(const std::filesystem::path& folder)
 void Hunting::status(JsonWriter& w)
 {
     std::lock_guard<std::mutex> lock(mx_);
-    static const char* const keys[Kinds] = {"vertex", "pixel", "index", "buffer", "target"};
+    static const char* const keys[Kinds] = {"vertex", "pixel", "index", "buffer", "target", "compute"};
     w.key("hunting"); w.begin_object();
     w.kb("keys", keys_); w.kn("mode", uint64_t(mode_.load(std::memory_order_relaxed)));
     w.kv("marking_mode", kMarkingNames[marking_mode_]); w.kn("marking_actions", actions_);
@@ -418,6 +432,7 @@ void Hunting::status(JsonWriter& w)
 // What hunting and frame analysis read of a draw (its modules are in `facts` already).
 void draw_facts(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, bool buffers, DrawFacts& facts)
 {
+    if (r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT) return;
     facts.indexed = r.kind == DK_INDEXED;
     Device* device = b.device;
     // The colour targets the pipeline's subpass writes, as the pass instance names their images.
@@ -545,18 +560,19 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
     if (run_lists) { std::shared_lock<std::shared_mutex> lock(b.index_mx); hooks = b.shader_hooks; }
     bool named = false;
     if (hooks && hooks->program)
-        for (unsigned i = 0; i < 5 && !named; ++i)
+        for (unsigned i = 0; i < 6 && !named; ++i)
             named = (modules.mask >> i & 1u) && std::binary_search(hooks->hashes.begin(), hooks->hashes.end(), modules.hashes[i]);
     if (named) {
         efmi::frontend::RuntimeDraw request;
         request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
         request.instances = r.instances; request.first_instance = r.first_instance;
+        request.compute = r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT;
         request.indexed = r.kind == DK_INDEXED || r.kind == DK_INDEXED_INDIRECT;
-        request.indirect = r.kind == DK_INDIRECT || r.kind == DK_INDEXED_INDIRECT;
+        request.indirect = r.kind == DK_INDIRECT || r.kind == DK_INDEXED_INDIRECT || r.kind == DK_DISPATCH_INDIRECT;
         request.frame = hooks->folder->frame.load(std::memory_order_relaxed); request.seconds = ini_seconds();
         request.frame_seconds = hooks->folder->frame_seconds.load(std::memory_order_relaxed);
         request.shader_stages = modules.stages;
-        for (unsigned i = 0; i < 5; ++i) request.stage_hashes[i] = modules.hashes[i];
+        for (unsigned i = 0; i < 6; ++i) request.stage_hashes[i] = modules.hashes[i];
         request.stage_hash_mask = modules.mask;
         request.targets_known = modules.targets_known; request.render_targets = modules.targets; request.render_pass = modules.render_pass;
         efmi::assets::FilePlan plan;
@@ -629,6 +645,9 @@ bool character_shader_draw(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
     DrawFacts facts;
     if (!pipeline_modules(b.device, r.pipeline, facts.modules)) return false;
     const bool skip = hunting_draw(b, cb, r, facts);
+    if (skip && (r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT)) {
+        ++b.shader_draws_skipped; return true; // BeforeDispatch returns before command lists when hunting skips.
+    }
     HuntingDrawScope marking(b, cb, r, facts.marking);
     return shader_draw_unmatched(b, cb, marking.draw(), facts.modules, true, skip);
 }
@@ -639,9 +658,11 @@ HuntingDrawScope::HuntingDrawScope(CharacterBackend& b, CmdBuf* cb, const DrawRe
     t_hunting_marking = marking;
     if (!marking || !cb) return;
     const auto pipeline = character_bind(b, cb, r.pipeline, marking);
-    if (pipeline != cb->gfx_bound) {
-        b.device->d.CmdBindPipeline(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        cb->gfx_bound = pipeline;
+    const bool compute = r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT;
+    auto& bound = compute ? cb->comp_bound : cb->gfx_bound;
+    if (pipeline != bound) {
+        b.device->d.CmdBindPipeline(cb->handle, compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        bound = pipeline;
     }
     marked_ = std::make_unique<DrawRec>(r);
     marked_->bound = pipeline;

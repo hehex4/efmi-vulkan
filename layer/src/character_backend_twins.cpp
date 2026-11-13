@@ -80,7 +80,7 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline, 
         id = pipe->second.id; recipe = pipe->second.recipe; layout = pipe->second.layout;
     }
     const bool native = b.enabled.load(std::memory_order_relaxed) && (pink || has_native_shader(fixes, *recipe, marking));
-    const bool dither = dither_off && pipeline_dither(id, *recipe);
+    const bool dither = !recipe->compute && dither_off && pipeline_dither(id, *recipe);
     if (!native && !dither) return pipeline;
     const CharacterBackend::TwinKey key{fixes ? fixes->revision : 0, id, dither, marking};
     std::shared_ptr<const PipelineVariant> twin;
@@ -129,7 +129,7 @@ void prepare_twin(CharacterBackend& b, uint32_t id, const std::shared_ptr<const 
     if (!recipe || !layout) return;
     const auto fixes = b.variants->native_shaders();
     const bool native = has_native_shader(fixes, *recipe);
-    const bool dither = g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(id, *recipe);
+    const bool dither = !recipe->compute && g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(id, *recipe);
     for (int state = 0; state < 2; ++state) {
         if ((!state && !native) || (state && !dither)) continue;
         const auto result = b.variants->prepare(twin_identity(id), recipe, layout, recipe->vertex, game_shader_patch(fixes, native, state != 0));

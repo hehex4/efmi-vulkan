@@ -312,6 +312,7 @@ void CmdBuf::reset_recording()
     gfx_pipeline = VK_NULL_HANDLE;
     gfx_bound = VK_NULL_HANDLE;
     comp_pipeline = VK_NULL_HANDLE;
+    comp_bound = VK_NULL_HANDLE;
     ib = VK_NULL_HANDLE;
     ib_off = 0;
     index_size = 0;
@@ -704,6 +705,7 @@ void on_create_compute_pipeline(Device* dev, VkPipeline pipe, const VkComputePip
     auto layout = dev->pipeline_layouts.find(info->layout);
     if (layout != dev->pipeline_layouts.end()) p.layout = layout->second;
     track_stages_locked(dev, p, 1, &info->stage);
+    p.recipe = std::make_shared<GraphicsRecipe>(GraphicsRecipe::capture(*info, p.shaders));
     dev->pipe_by_id[p.id] = pipe;
 }
 
