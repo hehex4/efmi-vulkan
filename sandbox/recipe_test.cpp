@@ -203,6 +203,52 @@ static void ownership_tests()
           "recipe export preserves floats losslessly");
 }
 
+static VKAPI_ATTR VkResult VKAPI_CALL create_extended_layout(VkDevice, const VkPipelineLayoutCreateInfo* p,
+                                                            const VkAllocationCallbacks*, VkPipelineLayout* out)
+{
+    check(p->setLayoutCount == 3, "native extended stages retain the three original sets"); return allocate(out);
+}
+static VKAPI_ATTR VkResult VKAPI_CALL create_extended_pipe(VkDevice, VkPipelineCache, uint32_t count,
+                                                          const VkGraphicsPipelineCreateInfo* p, const VkAllocationCallbacks*, VkPipeline* out)
+{
+    check(count == 1 && p->stageCount == 5 && p->pTessellationState && p->pTessellationState->patchControlPoints == 3,
+          "driver sees every graphics stage and owned patch state");
+    return allocate(out);
+}
+static void extended_stage_tests()
+{
+    RecipeFixture f;
+    std::vector<VkPipelineShaderStageCreateInfo> stages{f.stages[0], f.stages[1]};
+    for (auto bit : {VK_SHADER_STAGE_GEOMETRY_BIT, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT}) {
+        auto stage = f.stages[0]; stage.stage = bit; stages.push_back(stage);
+        auto shader = f.shaders[0]; shader.stage = bit; f.shaders.push_back(shader);
+    }
+    f.gp.pStages = stages.data(); f.gp.stageCount = static_cast<uint32_t>(stages.size());
+    VkPipelineTessellationStateCreateInfo tess = {VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
+    tess.patchControlPoints = 3; f.gp.pTessellationState = &tess;
+    f.ia.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+    auto owned = f.capture(); tess.patchControlPoints = 7;
+    check(owned.complete && owned.stages.size() == 5 && owned.has_tessellation && owned.tessellation.patchControlPoints == 3,
+          "capture geometry and both tessellation stages with independent patch storage");
+    auto funcs = dispatch(); funcs.CreatePipelineLayout = create_extended_layout; funcs.CreateGraphicsPipelines = create_extended_pipe;
+    FragmentPatch patch; patch.keep_vertex = patch.native_only = true;
+    {
+        PipelineVariant variant(h<VkDevice>(2), funcs);
+        check(variant.build(owned, f.layout, owned.vertex, 4, patch), "native variant rebuilds every classic graphics stage");
+    }
+    check(live.empty(), "extended graphics stages release every temporary module and private object");
+    f.gp.pTessellationState = nullptr;
+    check(!f.capture().complete, "a tessellation pair requires patch state");
+    f.gp.pTessellationState = &tess; tess.pNext = h<const void*>(1);
+    check(!f.capture().complete, "unsupported tessellation extension state refuses");
+    stages.pop_back(); f.shaders.pop_back(); f.gp.stageCount = static_cast<uint32_t>(stages.size());
+    check(!f.capture().complete && f.capture().reason == "tessellation_stage_pair_missing", "one tessellation stage alone refuses");
+    stages.pop_back(); f.shaders.pop_back(); f.gp.stageCount = static_cast<uint32_t>(stages.size());
+    f.gp.pTessellationState = h<const VkPipelineTessellationStateCreateInfo*>(1);
+    f.ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    check(f.capture().complete && !f.capture().has_tessellation, "geometry-only pipeline ignores absent tessellation state");
+}
+
 static void ignored_pointer_tests()
 {
     RecipeFixture f;
@@ -503,7 +549,7 @@ int main(int argc, char** argv)
         return output ? 0 : 2;
     }
     util_init(GetModuleHandleW(nullptr));
-    rewrite_tests(); ownership_tests(); compute_recipe_tests(); ignored_pointer_tests(); tracked_lifetime_tests(); draw_sequence_tests();
+    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); tracked_lifetime_tests(); draw_sequence_tests();
     const bool corpus = argc == 2 && !strcmp(argv[1], "--corpus");
     dither_tests(corpus);
     constant_bones_tests(corpus);

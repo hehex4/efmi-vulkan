@@ -158,7 +158,7 @@ struct RuntimeDraw {
     uint32_t shader_stages = 0;
     // The SPIR-V module of each stage of the draw's pipeline by its hash (the CRC-32C of its bytes, as the probe shows
     // it), in the original's stage order: vertex (vs), tessellation control (hs), tessellation evaluation (ds),
-    // geometry (gs), fragment (ps); bit i of `stage_hash_mask` when stage i has one. The ShaderOverride sections that
+    // geometry (gs), fragment (ps), compute (cs); bit i of `stage_hash_mask` when stage i has one. The ShaderOverride sections that
     // name a module act at the draw (docs/vulkan-native-mods.md).
     uint32_t stage_hashes[6] = {};
     uint32_t stage_hash_mask = 0;
@@ -192,7 +192,8 @@ enum class LibraryHook : uint32_t { CopyShader = 1 };
 enum class HuntingAction : uint32_t {
     Toggle = 1, NextMarkingMode, NextPixel, PreviousPixel, MarkPixel, NextVertex, PreviousVertex, MarkVertex, Done,
     NextIndex, PreviousIndex, MarkIndex, NextVertexBuffer, PreviousVertexBuffer, MarkVertexBuffer, NextVertexBufferSlot,
-    PreviousVertexBufferSlot, NextRenderTarget, PreviousRenderTarget, MarkRenderTarget, AnalyseFrame, NextCompute, PreviousCompute, MarkCompute
+    PreviousVertexBufferSlot, NextRenderTarget, PreviousRenderTarget, MarkRenderTarget, AnalyseFrame, NextCompute, PreviousCompute, MarkCompute,
+    NextGeometry, PreviousGeometry, MarkGeometry, NextHull, PreviousHull, MarkHull, NextDomain, PreviousDomain, MarkDomain
 };
 struct HuntingSettings {
     bool keys = false;             // the section registered a hunting key (its `hunting` is 1 or 2)

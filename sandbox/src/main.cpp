@@ -193,6 +193,7 @@ struct App {
     int threads = 2;
     int draws = kDrawCount;
     int draw_kind = 0; // 0 indexed, 1 non-indexed, 2 indexed indirect (one call per draw)
+    std::wstring geometry_shader, hull_shader, domain_shader;
     Buffer draw_arguments;
     int warmup = 30, measured_frames = 120;
     std::wstring timings_path;
@@ -513,6 +514,10 @@ static bool create_device()
     dinfo.pQueueCreateInfos = &qinfo;
     dinfo.enabledExtensionCount = g.descriptor_mode >= 2 ? 2 : 1;
     dinfo.ppEnabledExtensionNames = exts;
+    VkPhysicalDeviceFeatures features = {};
+    features.geometryShader = !g.geometry_shader.empty();
+    features.tessellationShader = !g.hull_shader.empty() || !g.domain_shader.empty();
+    dinfo.pEnabledFeatures = &features;
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
 
 #define X(n)                                                                                                           \
@@ -701,9 +706,11 @@ static bool create_pipeline()
     g.shader_sizes[1] = static_cast<uint32_t>(fs_code.size() * 4);
     struct Modules {
         VkShaderModule vs = VK_NULL_HANDLE, fs = VK_NULL_HANDLE;
+        std::vector<VkShaderModule> extra;
         ~Modules() {
             if (vs) vkDestroyShaderModule(g.device, vs, nullptr);
             if (fs) vkDestroyShaderModule(g.device, fs, nullptr);
+            for (auto module : extra) vkDestroyShaderModule(g.device, module, nullptr);
         }
     } modules;
     VkShaderModule &vs = modules.vs, &fs = modules.fs;
@@ -716,7 +723,7 @@ static bool create_pipeline()
     sm.pCode = fs_code.data();
     CHECK(vkCreateShaderModule(g.device, &sm, nullptr, &fs));
 
-    VkPipelineShaderStageCreateInfo stages[2] = {};
+    VkPipelineShaderStageCreateInfo stages[5] = {};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
     stages[0].module = vs;
@@ -725,6 +732,24 @@ static bool create_pipeline()
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
     stages[1].module = fs;
     stages[1].pName = "main";
+    uint32_t stage_count = 2;
+    const std::pair<const std::wstring*, VkShaderStageFlagBits> extras[] = {
+        {&g.geometry_shader, VK_SHADER_STAGE_GEOMETRY_BIT}, {&g.hull_shader, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT},
+        {&g.domain_shader, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT}};
+    for (const auto& extra : extras) {
+        if (extra.first->empty()) continue;
+        FILE* file = nullptr; _wfopen_s(&file, extra.first->c_str(), L"rb");
+        if (!file) return false;
+        fseek(file, 0, SEEK_END); const long size = ftell(file); rewind(file);
+        if (size < 20 || size > (16 << 20) || size % 4) { fclose(file); return false; }
+        std::vector<uint32_t> code(size / 4);
+        const bool read = fread(code.data(), 1, size, file) == size; fclose(file);
+        if (!read) return false;
+        sm.codeSize = size; sm.pCode = code.data(); VkShaderModule module = VK_NULL_HANDLE;
+        CHECK(vkCreateShaderModule(g.device, &sm, nullptr, &module)); modules.extra.push_back(module);
+        auto& stage = stages[stage_count++]; stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage.stage = extra.second; stage.module = module; stage.pName = "main";
+    }
 
     VkVertexInputBindingDescription vbind = {0, 8, VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription vattr = {0, 0, VK_FORMAT_R32G32_SFLOAT, 0};
@@ -737,7 +762,10 @@ static bool create_pipeline()
 
     VkPipelineInputAssemblyStateCreateInfo ia = {};
     ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    const bool tessellation = !g.hull_shader.empty() && !g.domain_shader.empty();
+    ia.topology = tessellation ? VK_PRIMITIVE_TOPOLOGY_PATCH_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineTessellationStateCreateInfo tess = {VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
+    tess.patchControlPoints = 3;
 
     VkPipelineViewportStateCreateInfo vp = {};
     vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -771,10 +799,11 @@ static bool create_pipeline()
 
     VkGraphicsPipelineCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    info.stageCount = 2;
+    info.stageCount = stage_count;
     info.pStages = stages;
     info.pVertexInputState = &vi;
     info.pInputAssemblyState = &ia;
+    info.pTessellationState = tessellation ? &tess : nullptr;
     info.pViewportState = &vp;
     info.pRasterizationState = &rs;
     info.pMultisampleState = &ms;
@@ -1723,6 +1752,12 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.output_path = argv[++i];
         else if (a == L"--compute-indirect")
             compute_scene.indirect = true;
+        else if (a == L"--geometry-shader" && i + 1 < argc)
+            g.geometry_shader = argv[++i];
+        else if (a == L"--hull-shader" && i + 1 < argc)
+            g.hull_shader = argv[++i];
+        else if (a == L"--domain-shader" && i + 1 < argc)
+            g.domain_shader = argv[++i];
         else if (a == L"--non-indexed")
             g.draw_kind = 1;
         else if (a == L"--indexed-indirect")

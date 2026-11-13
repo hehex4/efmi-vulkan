@@ -173,6 +173,15 @@ bool native_shader_interface(const std::vector<uint32_t>& original, const std::v
         if (stage == VK_SHADER_STAGE_COMPUTE_BIT) {
             require(native_local_size(original) == native_local_size(replacement), "Native compute changes the dispatch workgroup size");
         }
+        if (stage == VK_SHADER_STAGE_GEOMETRY_BIT || stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT ||
+            stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) {
+            const auto& x = a.entry_points[0]; const auto& y = b.entry_points[0];
+            std::vector<SpvExecutionMode> before_modes(x.execution_modes, x.execution_modes + x.execution_mode_count);
+            std::vector<SpvExecutionMode> after_modes(y.execution_modes, y.execution_modes + y.execution_mode_count);
+            std::sort(before_modes.begin(), before_modes.end()); std::sort(after_modes.begin(), after_modes.end());
+            require(before_modes == after_modes && x.output_vertices == y.output_vertices && x.invocations == y.invocations,
+                    "Native graphics stage changes its primitive, patch or invocation contract");
+        }
         for (uint32_t i = 0; i < b.descriptor_binding_count; ++i) {
             const auto& next = b.descriptor_bindings[i];
             const SpvReflectDescriptorBinding* old = nullptr;
@@ -218,6 +227,8 @@ bool native_shader_interface(const std::vector<uint32_t>& original, const std::v
             require(covered, "Native shader expands push constants");
         }
         const auto same_variable = [](const auto& self, const SpvReflectInterfaceVariable& x, const SpvReflectInterfaceVariable& y) -> bool {
+            constexpr uint32_t rate = SPV_REFLECT_DECORATION_PATCH | SPV_REFLECT_DECORATION_PER_VERTEX | SPV_REFLECT_DECORATION_PER_TASK;
+            if ((x.decoration_flags & rate) != (y.decoration_flags & rate)) return false;
             if (x.built_in != y.built_in || (x.built_in < 0 && (x.location != y.location || x.component != y.component)) || x.format != y.format ||
                 x.array.dims_count != y.array.dims_count || x.member_count != y.member_count ||
                 x.numeric.scalar.width != y.numeric.scalar.width || x.numeric.vector.component_count != y.numeric.vector.component_count) return false;

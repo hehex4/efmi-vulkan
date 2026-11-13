@@ -1,11 +1,11 @@
-# Vulkan-native Mods, first step: ShaderOverride by SPIR-V hash, and hunting
+# Vulkan-native Mods: ShaderOverride, hunting and native shader replacement
 
 Route 2 of the project (the user, 2026-11-10, restated 2026-11-12): a version of 3DMigoto for this
 game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (installed DX11-written
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-is about this step only; the last section lists what comes after it.
+covers these implemented shader steps through D-195; section 8 lists the remaining native slot work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
 
@@ -239,9 +239,10 @@ does (the user, 2026-11-12: consider the compatibility with the existing DX11 ro
   images and buffers back after the frame: not yet.
 - **What the player sees**: a notice per key with the selection (`PS 3/40: 8a1b2c3d`, `IB 2/5: ...`,
   `RT 1/1: image 7`) in place of the overlay's line. The status has a `hunting` object (mode, marking
-  mode, the visited counts and selections of the five kinds, the vertex buffer slot, draws skipped,
+  mode, the visited counts and selections of the nine kinds, the vertex buffer slot, draws skipped,
   marks, dumps, frame analyses).
-- **Not yet**: compute hunting, dumping resources in a frame analysis, the overlay's steady line.
+- **Not yet**: dumping resources in a frame analysis, the overlay's steady line. D-193 adds compute
+  hunting and D-195 adds geometry, hull and domain stages (sections 10 and 12).
 
 ## 7. What needs the game
 
@@ -254,11 +255,12 @@ notices while playing; whether any game pipeline has no module hash (inline modu
 ## 8. What comes after this step
 
 1. Replacing game shaders: D-190 implements the SPIR-V files and an offline HLSL compiler (section 9).
-   D-191 adds `depth_filter`; D-192 adds `pink` and `original` marking;
+   D-191 adds `depth_filter`; D-192 adds `pink` and `original` marking; D-193 adds compute;
+   D-195 completes the classic graphics stages with geometry and tessellation;
    the compiler's explicit `--model` chooses the native HLSL target, not an INI `model` directive.
 2. Slots of other stages and render targets by (set, binding) for Vulkan-native lists, and the
    bindings and draws of a ShaderOverride's lists at any draw.
-3. Hunting of compute shaders (dispatches hooked); frame analysis's resource dumps. (Index and vertex
+3. Frame analysis's resource dumps. Compute shader hunting is D-193. (Index and vertex
    buffers, render targets, the `hunting` value, dumping a marked module and frame analysis's log: D-189.)
 
 ## 9. Native game shader replacement (D-190)
@@ -339,7 +341,7 @@ bones group; it retains the capture checks without scanning the entire capture t
 pipeline change. This separation avoids the old 30-second cold-read timeout.
 
 
-## 8. Native compute modules (D-193, 2.2.3)
+## 10. Native compute modules (D-193, 2.2.3)
 
 `ShaderFixes/<original-hash>-cs_replace.spv` uses the same file generation, F10 and last-good
 rules as graphics. The offline compiler accepts `--stage cs`. Owned compute recipes retain the
@@ -374,7 +376,7 @@ after a fence and exercises both entry methods, replacement/fallback, commands, 
 The native-shaders group includes it. These checks establish sandbox behavior, not game acceptance.
 
 
-## 9. Empty Mod inputs (D-194, 2.2.4)
+## 11. Empty Mod inputs (D-194, 2.2.4)
 
 An existing empty Mods directory still has an installation configuration. The folder loads the
 configured Core and d3dx.ini, registers hunting/F10, and runs root ShaderOverride sections. Adding
@@ -387,3 +389,29 @@ it does not claim to have loaded installation commands.
 shader/config reload and adding/removing the first Mod, with compute GPU readback and validation.
 `--only native-input` runs this plus the existing live INI step and text check. Empty graphics
 ShaderFixes/F10 are checked separately with `native_shader_test.py empty f10:empty`.
+
+## 12. Geometry and tessellation modules (D-195, 2.2.5)
+
+Native graphics recipes retain all five classic stages (VS, HS, DS, GS, PS), including the
+tessellation patch state. HS and DS must be present together. Ignored tessellation pointers are
+not read without that pair; unsupported extension state remains refused. A rebuilt pipeline uses
+the original layout and owned shader/entry/specialization data, with no private descriptor set.
+
+`ShaderFixes/<original-hash>-gs_replace.spv`, `-hs_replace.spv` and `-ds_replace.spv` use the same
+compiler, generation, F10 and fallback rules as VS/PS. Replacements preserve the original primitive,
+patch, output-vertex and invocation contracts and input/output rate decorations. This retains the
+application's valid inter-stage/resource interface and synchronization contract. No GPU upload or
+new access dependency is introduced. Pipeline and module lifetimes remain explicit Vulkan owners;
+the original DX11 runtime instead supplies reference-counted deferred destruction, hazard tracking
+and one-context order for its generic SetShader path.
+
+The original `next_`, `previous_` and `mark_` keys for `geometryshader`, `hullshader` and
+`domainshader` select original hashes. Original mode restores only the selected stage; pink changes
+the draw's pixel shader; marking dumps the original stage's SPIR-V. Status exposes geometry, hull
+and domain selections alongside the existing kinds.
+
+`sandbox/native_graphics_stages_test.py` checks real GS/HS/DS pipelines, all five graphics stages
+together, replacement, original-hash skipping, original/pink hunting and dumps, F10, and refusal of
+a changed primitive contract. GPU image readback and validation establish sandbox behavior only.
+Arbitrary native slot bindings/draws, frame-analysis resource dumps and real-game acceptance remain
+separate work.

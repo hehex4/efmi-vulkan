@@ -1077,6 +1077,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 - Measured: one map 20 ms, the ten together 99 ms; in the vk03 replay the draws' texture waits at startup 120 to 46 ms (median of three interleaved pairs), the longest startup frame 207 to 127 ms, pictures identical.
 - Enforced: the suite step "texture first-use loads against the original" (bench_texture_load.py --check) fails when one map alone or all of them take longer than the original's loads; the asset tests read every level of arena loads back (including one without its top level) and check one arena per busy period, one command pool per worker and the arena's release.
 
+## D-195: Own every classic graphics stage and its tessellation state
+
+- Date: 2026-11-13. Completes the offline native shader-stage gap after D-193/D-194. Read the original generic SetShader, HSSetShader/DSSetShader and geometry/hull/domain hunting registration first. DX11 provides reference-counted deferred destruction, hazard tracking and one-context order; Vulkan uses retained recipes/layouts/modules/recorded variant owners and preserves the application's resource access and synchronization contract.
+- The graphics recipe captures up to five unique classic stages, requires the HS/DS pair, and owns patchControlPoints. Ignored tessellation pointers are never read without the pair; unsupported extension state is refused. Native variants rebuild all stages against the original layout without a private set.
+- GS/HS/DS replacements must preserve execution modes, output vertices, invocation count and input/output rate decorations in addition to the existing resource/type interface. An incompatible replacement keeps the original shader. Generic hunting stage metadata adds selection, original restoration, pink marking and SPIR-V dumps without changing existing action numbers.
+- Real sandbox GS, HS/DS and five-stage pipelines check image output, F10 and hunting. The host/backend shared stamp changes to 0x3cab9df2f4f8b9fa; the worktree pair is 2.2.5. Arbitrary native resource bindings/draws and frame-analysis resource dumps remain later native-slot work. No deployment or real-game acceptance is included.
+
 ## D-194: Empty Mods keeps the installation configuration generation
 
 - Date: 2026-11-13. The original LoadConfigFile calls ParseHuntingSection independently of recursive Mod inputs. The native folder's early empty-input return lost both hunting keys and root ShaderOverride commands; baseline 7/16 for those two scenes.

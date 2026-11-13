@@ -1,5 +1,13 @@
 # EFMI Vulkan - Tasks
 
+## Current priorities after D-195 (2026-11-13)
+
+- Source and worktree pair 2.2.5, shared ABI 0x3cab9df2f4f8b9fa. Root dist remains 2.1.8; latest recorded game 2.1.7. No deployment/game session is part of this offline continuation.
+- Done: D-193 compute (fb474f8), D-194 empty-Mod installation inputs (d368e2c), D-195 GS/HS/DS recipes/replacement/hunting. Native ShaderFixes now covers all six classic stages. D-195's eight selected regression steps pass, including 80/80 new stage checks, 92/92 existing shader checks, 45/45 hunting, retained pipeline/character checks and clean Vulkan validation (CURRENT_STATE).
+- Next native implementation phase: explicit (set, binding) resource slots and original-resource queries, then ShaderOverride resource bindings/custom draws at unmatched application draws. Preserve pre/post command semantics, context binding persistence, descriptor-layout compatibility, retained ownership and explicit GPU synchronization. Do not treat a temporary one-draw bind/restore as full original semantics.
+- Frame-analysis resource data is separate from the implemented shader dumps/log. Original FrameAnalysis stages GPU resources and maps only when ready; a recording-time CPU shadow must not be presented as post-draw GPU output. A Vulkan capture needs owned staging, correct render-pass/barrier placement and completion tracking before export.
+- Real-game acceptance remains separate: D-185 shadows, D-186 dash, native replacement/hunting appearance, scale and performance. Only the user can authorize a new game load/session on the spot. Later native-slot work can continue offline; current sandbox evidence does not close it.
+
 ## Current priorities after D-194 (2026-11-13)
 
 - Worktree source/binaries 2.2.4, ABI 0xcc281dc02e01cddc. Root dist 2.1.8, last recorded game 2.1.7; no deployment or game session in this continuation.

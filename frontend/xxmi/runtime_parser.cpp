@@ -160,6 +160,9 @@ void RuntimeParseHunting(int& hunting, int& marking_mode, unsigned& marking_acti
         {L"next_rendertarget", 18, true}, {L"previous_rendertarget", 19, true}, {L"mark_rendertarget", 20, false},
         {L"analyse_frame", 21, false},
         {L"next_computeshader", 22, true}, {L"previous_computeshader", 23, true}, {L"mark_computeshader", 24, false},
+        {L"next_geometryshader", 25, true}, {L"previous_geometryshader", 26, true}, {L"mark_geometryshader", 27, false},
+        {L"next_hullshader", 28, true}, {L"previous_hullshader", 29, true}, {L"mark_hullshader", 30, false},
+        {L"next_domainshader", 31, true}, {L"previous_domainshader", 32, true}, {L"mark_domainshader", 33, false},
     };
     for (const auto& b : bindings)
         keys |= RegisterIniKeyBinding(L"Hunting", b.key, callback, nullptr, b.repeats ? repeat : 0, reinterpret_cast<void*>(uintptr_t(b.action)));

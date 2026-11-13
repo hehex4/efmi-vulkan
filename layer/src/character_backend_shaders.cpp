@@ -46,10 +46,20 @@ bool pipeline_modules(Device* device, VkPipeline pipeline, PipelineModules& out)
 // Hunting (Hunting.cpp): the selection runs over what the frame's draws used while hunting is enabled.
 
 namespace {
-const char* const kKindName[Hunting::Kinds] = {"vertex shader", "pixel shader", "index buffer", "vertex buffer", "render target", "compute shader"};
-const char* const kKindShort[Hunting::Kinds] = {"VS", "PS", "IB", "VB", "RT", "CS"};
+const char* const kKindName[Hunting::Kinds] = {"vertex shader", "pixel shader", "index buffer", "vertex buffer", "render target", "compute shader", "geometry shader", "hull shader", "domain shader"};
+const char* const kKindShort[Hunting::Kinds] = {"VS", "PS", "IB", "VB", "RT", "CS", "GS", "HS", "DS"};
 const char* const kMarkingNames[4] = {"skip", "original", "pink", "mono"};
 const char* const kStageName[6] = {"vs", "hs", "ds", "gs", "ps", "cs"};
+struct ShaderHuntKind { int kind; unsigned index; VkShaderStageFlagBits stage; const char* suffix; };
+const ShaderHuntKind kShaderKinds[] = {
+    {Hunting::Vertex, 0, VK_SHADER_STAGE_VERTEX_BIT, "vs"}, {Hunting::Pixel, 4, VK_SHADER_STAGE_FRAGMENT_BIT, "ps"},
+    {Hunting::Compute, 5, VK_SHADER_STAGE_COMPUTE_BIT, "cs"}, {Hunting::Geometry, 3, VK_SHADER_STAGE_GEOMETRY_BIT, "gs"},
+    {Hunting::Hull, 1, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, "hs"}, {Hunting::Domain, 2, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, "ds"}};
+const ShaderHuntKind* shader_kind(int kind) {
+    for (const auto& shader : kShaderKinds) if (shader.kind == kind) return &shader;
+    return nullptr;
+}
+
 
 // HashToClipboard with the eight digits; the player's own clipboard, as the original's.
 bool hash_to_clipboard(uint32_t hash)
@@ -73,7 +83,9 @@ bool hash_to_clipboard(uint32_t hash)
 // to write; `already` when the file is there.
 bool dump_module(Device* device, int kind, uint32_t hash, const std::filesystem::path& folder, std::string& text, bool& already)
 {
-    const uint32_t stage = kind == Hunting::Vertex ? VK_SHADER_STAGE_VERTEX_BIT : kind == Hunting::Compute ? VK_SHADER_STAGE_COMPUTE_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+    const auto* shader = shader_kind(kind);
+    if (!shader) return false;
+    const uint32_t stage = shader->stage;
     std::shared_ptr<const ShaderInfo> module;
     {
         std::shared_lock<std::shared_mutex> lock(device->res_mx);
@@ -84,7 +96,7 @@ bool dump_module(Device* device, int kind, uint32_t hash, const std::filesystem:
         }
     }
     char name[64];
-    snprintf(name, sizeof(name), "%08x-%s.spv", hash, kind == Hunting::Vertex ? "vs" : kind == Hunting::Compute ? "cs" : "ps");
+    snprintf(name, sizeof(name), "%08x-%s.spv", hash, shader->suffix);
     const auto path = folder / "ShaderFixes" / name;
     std::error_code error;
     already = std::filesystem::exists(path, error);
@@ -153,6 +165,15 @@ void Hunting::act(efmi::frontend::HuntingAction action, Device* device, const st
         const int mode = mode_.load(std::memory_order_relaxed);
         int kind = -1; bool next = false, mark = false;
         switch (action) {
+        case A::NextGeometry: kind = Geometry; next = true; break;
+        case A::PreviousGeometry: kind = Geometry; break;
+        case A::MarkGeometry: kind = Geometry; mark = true; break;
+        case A::NextHull: kind = Hull; next = true; break;
+        case A::PreviousHull: kind = Hull; break;
+        case A::MarkHull: kind = Hull; mark = true; break;
+        case A::NextDomain: kind = Domain; next = true; break;
+        case A::PreviousDomain: kind = Domain; break;
+        case A::MarkDomain: kind = Domain; mark = true; break;
         case A::NextCompute: kind = Compute; next = true; break;
         case A::PreviousCompute: kind = Compute; break;
         case A::MarkCompute: kind = Compute; mark = true; break;
@@ -222,7 +243,7 @@ void Hunting::act(efmi::frontend::HuntingAction action, Device* device, const st
                 told.push_back(text);
             }
             // CopyToFixes for `hlsl`, `asm` or `regex` (the original's DUMP_MASK): a module's SPIR-V into ShaderFixes.
-            if ((actions_ & 0xEu) && (kind == Vertex || kind == Pixel || kind == Compute) && device) {
+            if ((actions_ & 0xEu) && shader_kind(kind) && device) {
                 std::string where; bool already = false;
                 if (dump_module(device, kind, hash, folder, where, already)) {
                     if (!already) ++dumps_;
@@ -252,10 +273,9 @@ bool Hunting::visit(DrawFacts& facts)
     if (mode_.load(std::memory_order_relaxed) != 1) return false;
     const bool has_vs = (m.mask & 1u) != 0, has_ps = (m.mask & 0x10u) != 0;
     auto insert = [&](int kind, uint32_t value) { if (visited_[kind].size() < 65536) visited_[kind].insert(value); };
-    if (has_vs) insert(Vertex, m.hashes[0]);
-    if (has_ps) insert(Pixel, m.hashes[4]);
     const bool has_cs = (m.mask & 0x20u) != 0;
-    if (has_cs) insert(Compute, m.hashes[5]);
+    for (const auto& shader : kShaderKinds)
+        if (m.mask >> shader.index & 1u) insert(shader.kind, m.hashes[shader.index]);
     if (facts.index_known) insert(Index, facts.index_hash);
     for (uint32_t slot = 0; slot < kMaxVb; ++slot)
         if ((facts.vertex_mask >> slot & 1u) && (buffer_slot_ < 0 || int(slot) == buffer_slot_)) insert(Buffer, facts.vertex_hashes[slot]);
@@ -275,9 +295,8 @@ bool Hunting::visit(DrawFacts& facts)
         if (has_ps && peers_[kind][1].size() < 256 && kind != Pixel) peers_[kind][1].insert(m.hashes[4]);
         marked = true;
     };
-    if (has_cs && selected(Compute, m.hashes[5])) peers(Compute);
-    if (has_vs && selected(Vertex, m.hashes[0])) peers(Vertex);
-    if (has_ps && selected(Pixel, m.hashes[4])) peers(Pixel);
+    for (const auto& shader : kShaderKinds)
+        if ((m.mask >> shader.index & 1u) && selected(shader.kind, m.hashes[shader.index])) peers(shader.kind);
     if (facts.index_known && selected(Index, facts.index_hash)) peers(Index);
     for (uint32_t slot = 0; slot < kMaxVb; ++slot)
         if ((facts.vertex_mask >> slot & 1u) && (buffer_slot_ < 0 || int(slot) == buffer_slot_) && selected(Buffer, facts.vertex_hashes[slot])) {
@@ -287,9 +306,8 @@ bool Hunting::visit(DrawFacts& facts)
         if (selected(Target, facts.targets[i])) { peers(Target); break; }
     if (marked && marking_mode_ == 0) { ++skipped_; return true; }
     if (marking_mode_ == 1) {
-        if (has_cs && selected(Compute, m.hashes[5])) facts.marking |= VK_SHADER_STAGE_COMPUTE_BIT;
-        if (has_vs && selected(Vertex, m.hashes[0])) facts.marking |= VK_SHADER_STAGE_VERTEX_BIT;
-        if (has_ps && selected(Pixel, m.hashes[4])) facts.marking |= VK_SHADER_STAGE_FRAGMENT_BIT;
+        for (const auto& shader : kShaderKinds)
+            if ((m.mask >> shader.index & 1u) && selected(shader.kind, m.hashes[shader.index])) facts.marking |= shader.stage;
     }
     if (marked && !has_cs && marking_mode_ == 2) facts.marking |= kHuntingPink;
     if (marked && marking_mode_ == 3 && !told_mode_) {
@@ -400,7 +418,7 @@ void Hunting::frame(const std::filesystem::path& folder)
 void Hunting::status(JsonWriter& w)
 {
     std::lock_guard<std::mutex> lock(mx_);
-    static const char* const keys[Kinds] = {"vertex", "pixel", "index", "buffer", "target", "compute"};
+    static const char* const keys[Kinds] = {"vertex", "pixel", "index", "buffer", "target", "compute", "geometry", "hull", "domain"};
     w.key("hunting"); w.begin_object();
     w.kb("keys", keys_); w.kn("mode", uint64_t(mode_.load(std::memory_order_relaxed)));
     w.kv("marking_mode", kMarkingNames[marking_mode_]); w.kn("marking_actions", actions_);

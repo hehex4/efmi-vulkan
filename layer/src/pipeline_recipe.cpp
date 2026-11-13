@@ -339,16 +339,16 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
     if (info.pNext || info.flags) { r.reason = "pipeline_extension_or_flags"; return r; }
     if (!r.render_pass || !r.render_pass->complete) { r.reason = "render_pass_unavailable"; return r; }
     if (info.subpass >= r.render_pass->subpasses.size()) { r.reason = "subpass_unavailable"; return r; }
-    if (info.stageCount == 0 || info.stageCount > 2 || shaders.size() != info.stageCount) {
+    if (info.stageCount == 0 || info.stageCount > 5 || shaders.size() != info.stageCount) {
         r.reason = "shader_stages_unsupported"; return r;
     }
-    bool vertex = false;
+    uint32_t stage_mask = 0;
     for (uint32_t i = 0; i < info.stageCount; i++) {
         const auto& s = info.pStages[i];
-        if (s.stage != VK_SHADER_STAGE_VERTEX_BIT && s.stage != VK_SHADER_STAGE_FRAGMENT_BIT) {
+        if (!(s.stage & VK_SHADER_STAGE_ALL_GRAPHICS) || (s.stage & (s.stage - 1)) || (stage_mask & s.stage)) {
             r.reason = "shader_stage_unsupported"; return r;
         }
-        vertex |= s.stage == VK_SHADER_STAGE_VERTEX_BIT;
+        stage_mask |= s.stage;
         if (s.pNext || s.flags) { r.reason = "shader_stage_extension"; return r; }
         if (!shaders[i].shader || shaders[i].shader->code.empty()) { r.reason = "shader_code_unavailable"; return r; }
         RecipeStage d;
@@ -363,7 +363,15 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
         }
         r.stages.push_back(std::move(d));
     }
-    if (!vertex) { r.reason = "vertex_stage_missing"; return r; }
+    if (!(stage_mask & VK_SHADER_STAGE_VERTEX_BIT)) { r.reason = "vertex_stage_missing"; return r; }
+    const bool control = (stage_mask & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != 0;
+    const bool evaluation = (stage_mask & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) != 0;
+    if (control != evaluation) { r.reason = "tessellation_stage_pair_missing"; return r; }
+    if (control) {
+        if (!info.pTessellationState || info.pTessellationState->pNext || info.pTessellationState->flags ||
+            !info.pTessellationState->patchControlPoints) { r.reason = "tessellation_state_unsupported"; return r; }
+        r.has_tessellation = true; r.tessellation = *info.pTessellationState;
+    }
     if (info.pDynamicState) {
         const auto& d = *info.pDynamicState;
         if (d.pNext || d.flags || d.dynamicStateCount > kMaxDynamic) { r.reason = "dynamic_state_extension"; return r; }
@@ -387,7 +395,7 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
     r.assembly = *info.pInputAssemblyState;
     if (info.pRasterizationState->pNext || info.pRasterizationState->flags) { r.reason = "raster_extension"; return r; }
     r.raster = *info.pRasterizationState;
-    // No tessellation stages: pTessellationState is ignored and must not be dereferenced.
+    // With no tessellation stages its ignored state pointer was not dereferenced.
     if (!r.raster.rasterizerDiscardEnable) {
         if (!info.pViewportState || !info.pMultisampleState) { r.reason = "raster_state_missing"; return r; }
         const auto& vp = *info.pViewportState;
@@ -455,6 +463,7 @@ VkResult GraphicsRecipe::create(VkDevice dev, PFN_vkCreateGraphicsPipelines crea
     VkGraphicsPipelineCreateInfo info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     info.flags = flags; info.stageCount = static_cast<uint32_t>(ss.size()); info.pStages = ss.data();
     info.pVertexInputState = &vi; info.pInputAssemblyState = &assembly; info.pRasterizationState = &raster;
+    info.pTessellationState = has_tessellation ? &tessellation : nullptr;
     info.pViewportState = raster.rasterizerDiscardEnable ? nullptr : &vp;
     info.pMultisampleState = raster.rasterizerDiscardEnable ? nullptr : &ms;
     info.pDepthStencilState = has_depth ? &depth : nullptr; info.pColorBlendState = has_blend ? &cb : nullptr;
@@ -500,6 +509,7 @@ void GraphicsRecipe::write(JsonWriter& w) const
     // Partial fields must never masquerade as a usable recipe.
     if (!complete) { w.end_object(); return; }
     w.kn("flags", flags); w.kn("subpass", subpass);
+    w.kn("patch_control_points", has_tessellation ? tessellation.patchControlPoints : 0);
     w.key("stages"); w.begin_array();
     for (const auto& s : stages) {
         w.begin_object(); w.kn("stage", s.stage); w.kv("entry", s.entry); w.kn("shader", s.shader->id);

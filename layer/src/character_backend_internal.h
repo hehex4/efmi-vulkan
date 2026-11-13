@@ -698,7 +698,7 @@ public:
 };
 
 // Route 2 (docs/vulkan-native-mods.md, character_backend_shaders.cpp): a pipeline's SPIR-V modules by hash in the
-// original's stage order (vs, hs, ds, gs, ps), bit i of `mask` when stage i has one; its stages as Vulkan bits; its
+// original's stage order (vs, hs, ds, gs, ps, cs), bit i of `mask` when stage i has one; its stages as Vulkan bits; its
 // subpass's targets as a replaced draw's (bit i colour i, bit 8 depth).
 struct PipelineModules {
     uint32_t hashes[6] = {};
@@ -728,7 +728,7 @@ struct DrawFacts {
 // index buffer regions, vertex buffer regions, render targets.
 class Hunting {
 public:
-    enum Kind { Vertex = 0, Pixel = 1, Index = 2, Buffer = 3, Target = 4, Compute = 5, Kinds = 6 };
+    enum Kind { Vertex = 0, Pixel = 1, Index = 2, Buffer = 3, Target = 4, Compute = 5, Geometry = 6, Hull = 7, Domain = 8, Kinds = 9 };
     // At a folder generation's load and after every F10 exchange, as the original's reload reads [Hunting] again.
     void configure(const efmi::frontend::HuntingSettings& settings);
     // A hunting key, on the presenting thread. `device` finds a marked module's bytes for its dump; `folder` is where
