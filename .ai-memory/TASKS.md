@@ -1,5 +1,12 @@
 # EFMI Vulkan - Tasks
 
+## Current offline delivery audit through D-204 (2026-11-13)
+
+- D-203 is merged as 8c1567b. D-204 is verified: owned output attachments are independent of primary shader state. Baseline 9/15; final targets 22/22, GPU resources 55/55, geometry 65/65, tracker 206, Vulkan validation 76 and text 564 all pass (CURRENT_STATE).
+- Audit document: docs/native-offline-delivery-2.3.4.md. Source/pair versions and evidence are reconciled; preserve the distinction between current capture checks and earlier native shader/Mod checks. Do not repeat a full suite or installed-Mod sweep for the private capture-only change.
+- Remaining engineering: application image layout/ownership and render-target rebinding; multiple application queues and synchronization2 capture graphs; mutable/array/cube resources; indirect/dynamic-input capture and analyse_options selection. These are actual unfinished architecture, not work claimed to require game access.
+- Separate game acceptance: D-185 shadows, D-186 dash, native shader/hunting behavior and performance. No game load/deployment/session or launcher edit is authorized by this offline continuation. Root dist stays 2.1.8; historical game evidence stays 2.1.7.
+
 ## Active continuation after D-203 (2026-11-13)
 
 - D-202 is merged as 132d8e8. D-203 adds GPU vertex/index allocation exports and draw metadata; source/worktree pair 2.3.3, same ABI. Geometry baseline 2/6, first result 65/65; existing GPU analysis 55/55. Final guarded host passes geometry 65/65 and text 561 (CURRENT_STATE).

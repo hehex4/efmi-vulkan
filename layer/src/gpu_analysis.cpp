@@ -260,11 +260,14 @@ public:
         {
             std::shared_lock<std::shared_mutex> resources(device->res_mx);
             const auto pipeline=device->pipes.find(compute?cb->comp_pipeline:cb->gfx_pipeline);
-            if(pipeline==device->pipes.end()){refuse(session,point,"Image consumer pipeline is unavailable");return;}
-            for(const auto& stage:pipeline->second.shaders){
+            // Output attachments belong to the pass, independently of shader state.
+            // Clear-only passes and primaries executing secondaries need no bound pipeline.
+            if(pipeline==device->pipes.end()) {
+                if(compute) refuse(session,point,"Image consumer pipeline is unavailable");
+            } else for(const auto& stage:pipeline->second.shaders){
                 std::vector<std::pair<uint32_t,uint32_t>> bindings;std::string reason;
                 if(!stage.shader || !efmi::gpu::native_shader_image_bindings(stage.shader->code,stage.entry,bindings,reason)){
-                    refuse(session,point,"Image consumer reflection is unavailable");return;
+                    refuse(session,point,"Image consumer reflection is unavailable");accessed.clear();break;
                 }
                 accessed.insert(bindings.begin(),bindings.end());
             }

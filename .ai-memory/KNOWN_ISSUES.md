@@ -1,5 +1,10 @@
 # EFMI Vulkan - Known issues
 
+## BUG-097: Frame analysis dropped known output attachments without a primary shader pipeline (fixed offline in 2.3.4, D-204)
+
+- D-202 images() returned before gathering render-pass attachments when no current graphics pipeline existed; reflection failures had the same premature return. A clear-only pass and a primary that only executes secondary draws both legitimately lack that pipeline. Dedicated baseline 9/15 produces zero owned target exports in those two cases while the ordinary-graphics control passes. This is sandbox evidence, not a real-game diagnosis.
+- Original DumpRenderTargets reads output views independently. D-204 separates pass attachments from descriptor reflection and preserves retained source/staging lifetime, explicit barriers and GPU completion. Known stored targets still need transfer usage and all existing capture guards. Final targets 22/22, GPU resources 55/55, geometry 65/65 and Vulkan validation 76/76 pass; target/resource/geometry fixtures also enable synchronization validation. No game acceptance is implied.
+
 ## BUG-096: Native color texture shaders rejected DXC depth uncertainty and push layouts (fixed offline in 2.3.1, D-201)
 
 - Native file-image tests exposed two preexisting variant boundaries: OpTypeImage Depth=2 from ordinary DXC Texture2D did not match the application's Depth=0, and native-only twins refused retained push descriptor layouts. Original DeferredShaderReplacementBeforeDraw/SetShader uses the device context with its current resource bindings; DX11 supplies lifetime, hazards and context order. Vulkan keeps those owned layouts and permits 0/2 compatibility only when neither module uses a depth-reference opcode. Other view types/access classes and non-native variant restrictions remain.

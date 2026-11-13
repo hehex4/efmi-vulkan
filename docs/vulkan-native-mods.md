@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-203. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-204. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -553,3 +553,13 @@ the replacement engine's private mesh buffers. Secondary recording identities ar
 Indirect calls, dynamic input/topology and vertex slots beyond the four tracked slots are explicitly
 refused. All D-202 ownership, usage, queue and completion restrictions still apply. Buffer copies
 preserve every byte, including sizes not divisible by four; VkBufferCopy has no such alignment rule.
+
+### Shader-independent output attachments (D-204, 2.3.4; sandbox scope)
+
+Stored classic-pass output attachments are collected independently of shader descriptor reflection.
+Clear-only passes, primary command buffers after secondary graphics execution, and failed descriptor
+reflection do not remove independently known output attachments from analysis. A dedicated owned
+4x4 fixture checks separate completed green/magenta clears, with missing transfer usage and discarded
+stores excluded. All D-202 queue, source ownership, layout and completion boundaries remain.
+
+The consolidated delivery/evidence audit is [native-offline-delivery-2.3.4.md](native-offline-delivery-2.3.4.md).

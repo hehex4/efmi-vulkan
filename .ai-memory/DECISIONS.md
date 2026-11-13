@@ -2,6 +2,12 @@
 
 Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 3. This file records the decisions about how the project is run, and later changes to the design with their reasons.
 
+## D-204: Output attachment capture is independent of shader reflection (2026-11-13)
+
+- Original FrameAnalysisContext::DumpRenderTargets obtains OM output views/resources directly. A shader is not a prerequisite for their identity. DX11 supplies reference-counted deferred GPU lifetime, hazard tracking and one-context order; Vulkan obtains owned views and final layouts from the retained classic-pass description and uses D-202 staging/barriers/completion ownership.
+- A primary can have no graphics pipeline during a clear-only pass or after executing secondary graphics commands. Missing/failed shader reflection suppresses unresolved descriptor image captures, but never prevents independently known stored output attachments from being considered. Store-discard targets are not exported, missing TRANSFER_SRC still refuses, and no scope/queue/layout guard is relaxed.
+- Dedicated two-clear GPU baseline 9/15 confirms both missing-pipeline paths with a passing ordinary-graphics control. Final 2.3.4 target checks pass 22/22 with synchronization validation; existing GPU resources 55/55, geometry 65/65, tracker 206 and standard validation 76 also pass. See CURRENT_STATE for the exact builds.
+
 ## D-203: Complete GPU IA allocations with separate draw-use metadata (2026-11-13)
 
 - Read original FrameAnalysisContext::DumpVBs, DumpIB and DumpBuffer. It stages complete resources and retains input-layout attributes, buffer strides/offsets, topology and draw ranges. DX11 supplies reference-counted deferred GPU destruction, hazard tracking and one-context order. Vulkan reuses D-202 retained staging, explicit barriers and completed timeline publication.

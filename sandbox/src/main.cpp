@@ -895,6 +895,7 @@ static void destroy_buffer(Buffer& b)
 }
 
 #include "compute_scene.h"
+#include "capture_target_scene.h"
 
 // Padded application data deliberately differs from a packed Vulkan array.
 struct PaddedDescriptor { VkDescriptorBufferInfo buffer; uint64_t padding; };
@@ -1563,6 +1564,7 @@ static bool render_frame()
                              0, 1, &uploaded, 0, nullptr, 0, nullptr);
     }
 
+    record_capture_target(g.primary, false);
     VkClearValue clear = {};
     clear.color.float32[0] = 0.05f;
     clear.color.float32[1] = 0.05f;
@@ -1594,6 +1596,7 @@ static bool render_frame()
         vkCmdExecuteCommands(g.primary, static_cast<uint32_t>(list.size()), list.data());
     }
     vkCmdEndRenderPass(g.primary);
+    record_capture_target(g.primary, true);
     CHECK(vkEndCommandBuffer(g.primary));
     const double record_end = clock_ms();
     late_compute_data();
@@ -1690,6 +1693,7 @@ static void cleanup()
     vkDeviceWaitIdle(g.device);
     read_compute_scene();
     destroy_compute_scene();
+    destroy_capture_target();
     vkDestroyFence(g.device, g.fence, nullptr);
     for (auto semaphore : g.burst_acquire) vkDestroySemaphore(g.device, semaphore, nullptr);
     if (g.load_src) vkDestroyImage(g.device, g.load_src, nullptr);
@@ -1804,6 +1808,14 @@ int wmain(int argc, wchar_t** argv)
             g.geometry_capture = true;
         else if (a == L"--geometry-odd")
             g.geometry_odd = true;
+        else if (a == L"--capture-target")
+            capture_target.enabled = true;
+        else if (a == L"--capture-target-after")
+            capture_target.after_graphics = true;
+        else if (a == L"--capture-target-no-transfer")
+            capture_target.transfer = false;
+        else if (a == L"--capture-target-discard")
+            capture_target.store = false;
         else if (a == L"--compute-storage-image")
             compute_scene.image_input = compute_scene.storage_image = compute_scene.binding_scene = true;
         else if (a == L"--reusable-recording")
@@ -1873,7 +1885,7 @@ int wmain(int argc, wchar_t** argv)
     if (!g.inject_path.empty() && !g.inject_late)
         ok = load_injected();
     ok = ok && load_vulkan() && create_instance() && create_window() && create_device() && create_swapchain() &&
-         create_pipeline() && create_resources() && create_compute_scene() && prepare_present_burst();
+         create_pipeline() && create_resources() && create_compute_scene() && create_capture_target() && prepare_present_burst();
     if (ok && !g.inject_path.empty() && g.inject_late)
         ok = load_injected();
     if (ok && g.reresolve_exports)

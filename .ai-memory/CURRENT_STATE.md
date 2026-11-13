@@ -4,6 +4,13 @@
 
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
+## Active source 2.3.4: Shader-independent attachment analysis, D-204 (2026-11-13; sandbox verified)
+
+- D-203 is committed and merged as 8c1567b. Its final guarded host passes geometry 65/65; existing GPU resources 55/55 were verified before the geometry-only guard. D-204 baseline target capture is 9/15: ordinary-graphics control passes, clear-only and after-secondary cases produce no attachment files (d204-before.out).
+- Original DumpRenderTargets reads output attachments independently of shader bindings. The host now gathers stored classic-pass attachments even without a primary graphics pipeline or when descriptor reflection is unavailable; unresolved shader descriptors are still not guessed. The new fixture clears one owned 4x4 image twice and checks distinct completed results, plus missing transfer usage and discarded stores.
+- Fixture built in d204-fixture.out, host/module in d204-pair.out. Both DLLs contain 2.3.4 and ABI 0xc5ec321d7d0c1a3f. Final capture-area checks all pass (d204-regression.out): GPU resources 55/55, geometry 65/65, targets 22/22, tracker 206/206, Vulkan validation 76/76 and text 564. Capture fixtures enable synchronization validation in their child processes. No broader capture queues/layouts or native binding adapter is implied by this fix.
+- Delivery audit: docs/native-offline-delivery-2.3.4.md separates implemented features, their actual check versions, remaining architecture, and separate game acceptance. Root dist remains 2.1.8; historical game evidence remains 2.1.7. No deployment, game action, launcher/system change or remote operation.
+
 ## Active source 2.3.3: GPU geometry analysis, D-203 (2026-11-13; sandbox scope)
 
 - D-202 is committed and merged as 132d8e8. Host/module built in d203-pair.out and sandbox in d203-sandbox.out; shared ABI remains 0xc5ec321d7d0c1a3f, verified in both DLLs with version 2.3.3. Final host adds a conservative incomplete-pipeline-recipe guard (d203-final-host.out).
