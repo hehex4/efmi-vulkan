@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-216. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-217. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -615,13 +615,34 @@ Each cell uses GENERAL for storage access. Known layouts can transition outside 
 and are restored after the call, including persistent references used by unmatched pipelines.
 Every native descriptor reserves its selected layout even when no transition is needed; a later
 alias cannot invalidate an earlier descriptor. Application rebinding still replaces the request.
-The same one-application-queue and synchronization2 boundaries apply. Graphics storage writes,
-formatless storage features and mutable file uploads need further adapters.
+The same one-application-queue and synchronization2 boundaries apply. D-217 adds formatless
+storage checks below. Graphics storage writes and mutable file uploads need further adapters.
 
 The storage fixture checks fenced GPU values for ordinary/push/secondary calls, explicit dispatch,
 post restore, arrays, temporary layouts and original rebinding. Tracker cases cover conflicting
 sampled/storage aliases. Vulkan rules: [storage images](https://docs.vulkan.org/spec/latest/chapters/descriptors.html)
 and [format compatibility](https://docs.vulkan.org/spec/latest/chapters/interfaces.html).
+
+### Native formatless storage images (D-217, 2.4.7; verification in CURRENT_STATE)
+
+An Unknown SPIR-V image format can bind when the device's enabled read/write-without-format
+features and that view format's optimal-tiling features cover its executable accesses. Queries
+require Vulkan 1.3 or enabled KHR_format_feature_flags2 and are cached per device and format.
+Read-only and write-only uses require their respective capabilities independently. Numeric class,
+view shape, usage, retained ownership, queue and layout checks remain unchanged.
+
+The bounded storage provenance analyzer uses a private copy with normalized descriptor identities;
+the executable and its native set/binding interface stay intact. Returned access identities use
+the original sets, including repeated binding numbers in different sets. Unknown provenance is
+refused. A ShaderFix cannot add formatless reads or writes beyond the original executable: the
+resource compatibility cache describes the original pipeline. Vulkan requires a declared format
+for image atomics; this adapter does not treat Unknown-format atomics as valid.
+
+GPU checks cover ordinary/push/secondary, arrays, post restore and core/extension query paths.
+Tracker checks independently cover device features, per-format support, read/write separation,
+numeric/typed format mismatches and ShaderFix access expansion. Rules:
+[format features](https://docs.vulkan.org/spec/latest/chapters/formats.html) and
+[shader image interfaces](https://docs.vulkan.org/spec/latest/chapters/interfaces.html).
 
 ### GPU indirect argument snapshots (D-208, 2.3.8; sandbox only)
 

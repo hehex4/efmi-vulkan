@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-217: Native formatless views require precise executable access and format capabilities (2026-11-14)
+
+- Original UAV GetResource/SetResource retains exact views; DX11 supplies deferred lifetime, resource hazards and context order. Keep explicit Vulkan owners/barriers/layout reservations.
+- Reuse bounded storage provenance analysis. Normalize set/binding decorations only in an analysis-owned code copy; executable interfaces are untouched. Return original identities and actual read/write/atomic access. Unknown provenance refuses. Sparse image reads count as reads. Typed formats still match exactly; Unknown-format atomics remain invalid by Vulkan's OpImageTexelPointer rule.
+- Formatless views require enabled device features and enabled Vulkan1.3 or KHR_format_feature_flags2 queries. VkFormatProperties3 optimal-tiling flags must cover actual reads/writes, cached per device/format. Numeric class, shape, usage, queue and layout guards remain.
+- The resource cache sees the original pipeline, so a ShaderFix must not expand actual formatless storage access, even when the original omits NonReadable/NonWritable annotations. Other typed compatibility remains unchanged. Tests/evidence in CURRENT_STATE; no game acceptance.
+
 ## D-216: Typed compute storage images use retained references and explicit writable layouts (2026-11-14)
 
 - Original UAV GetResource/SetResource uses retained CSGetUnorderedAccessViews/GetResource and CSSetUnorderedAccessViews. DX11 provides deferred reference ownership, hazard tracking and context order. Native compute already surrounds calls with explicit memory dependencies; extend its retained image plans and persistent fallback mechanism.

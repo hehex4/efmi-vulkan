@@ -7,7 +7,7 @@ static bool create_reference_images()
     auto& c=compute_scene;
     for(auto& result:c.reference_images){
         VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};image.imageType=VK_IMAGE_TYPE_2D;
-        image.format=g.reference_storage?VK_FORMAT_R32_UINT:VK_FORMAT_R8G8B8A8_UNORM;image.extent={g.texture_shape?4u:1u,g.texture_shape?4u:1u,1};
+        image.format=g.reference_storage?(g.reference_float_source && &result==&c.reference_images[0]?VK_FORMAT_R32_SFLOAT:VK_FORMAT_R32_UINT):VK_FORMAT_R8G8B8A8_UNORM;image.extent={g.texture_shape?4u:1u,g.texture_shape?4u:1u,1};
         image.mipLevels=reference_mips();image.arrayLayers=reference_layers();
         if(g.texture_shape>=2)image.flags=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
         image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
@@ -50,7 +50,7 @@ static void reference_transition(VkCommandBuffer cmd,VkImage image,VkImageLayout
 static void reference_clear(VkCommandBuffer cmd,VkImage image,float value)
 {
     for(uint32_t layer=0;layer<reference_layers();++layer)for(uint32_t mip=0;mip<reference_mips();++mip){
-        VkClearColorValue color{};if(g.reference_storage)color.uint32[0]=uint32_t(value)+layer*3+mip;else{color.float32[0]=(value+layer*3+mip)/255.0f;color.float32[3]=1;}
+        VkClearColorValue color{};if(g.reference_storage){if(g.reference_float_source && image==compute_scene.reference_images[0].image)color.float32[0]=value+layer*3+mip;else color.uint32[0]=uint32_t(value)+layer*3+mip;}else{color.float32[0]=(value+layer*3+mip)/255.0f;color.float32[3]=1;}
         const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT,mip,1,layer,1};
         vkCmdClearColorImage(cmd,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&color,1,&range);
     }

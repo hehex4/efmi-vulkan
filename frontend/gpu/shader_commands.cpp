@@ -169,6 +169,43 @@ bool native_shader_image_bindings(const std::vector<uint32_t>& words,const std::
     return true;
 }
 
+bool native_shader_storage_usage(const std::vector<uint32_t>& words,
+                                 std::vector<NativeStorageUse>& out,std::string& reason) {
+    SpvReflectShaderModule module{};
+    if(words.size()<5 || words.size()>(4u<<20) || spvReflectCreateShaderModule(words.size()*4,words.data(),&module)!=SPV_REFLECT_RESULT_SUCCESS){reason="Cannot reflect native storage access";return false;}
+    struct Release {SpvReflectShaderModule* module;~Release(){spvReflectDestroyShaderModule(module);}} release{&module};
+    try {
+        require(module.descriptor_binding_count<=4096,"Native storage binding budget exceeded");
+        HlslProgram analysis;analysis.spirv=words;
+        std::map<uint32_t,uint32_t> variables;
+        for(uint32_t i=0;i<module.descriptor_binding_count;++i){
+            const auto& descriptor=module.descriptor_bindings[i];ShaderBinding binding;
+            binding.binding=i;binding.count=descriptor.count;binding.type=VkDescriptorType(descriptor.descriptor_type);
+            analysis.bindings.push_back(binding);variables.emplace(descriptor.spirv_id,i);
+        }
+        // Normalize only the analysis copy. Application executable/interface stays unchanged.
+        for(size_t at=5;at<analysis.spirv.size();){
+            auto* instruction=analysis.spirv.data()+at;const uint32_t count=instruction[0]>>16;
+            require(count && count<=analysis.spirv.size()-at,"Truncated native storage module");
+            if((instruction[0]&65535)==SpvOpDecorate && count>=4){
+                const auto variable=variables.find(instruction[1]);
+                if(variable!=variables.end()){
+                    if(instruction[2]==SpvDecorationDescriptorSet)instruction[3]=0;
+                    else if(instruction[2]==SpvDecorationBinding)instruction[3]=variable->second;
+                }
+            }
+            at+=count;
+        }
+        std::vector<NativeStorageUse> uses;
+        for(const auto& use:shader_storage_usage(analysis)){
+            require(use.binding<module.descriptor_binding_count,"Native storage identity was lost");
+            const auto& original=module.descriptor_bindings[use.binding];
+            uses.push_back({original.set,original.binding,use.element,use.read,use.write,use.atomic});
+        }
+        out=std::move(uses);reason.clear();return true;
+    }catch(const std::exception& e){reason=e.what();return false;}
+}
+
 bool native_shader_interface(const std::vector<uint32_t>& original, const std::vector<uint32_t>& replacement,
                              VkShaderStageFlagBits stage, const std::string& entry, std::string& reason) {
     struct Reflection {
@@ -235,6 +272,26 @@ bool native_shader_interface(const std::vector<uint32_t>& original, const std::v
                 return true;
             };
             require(block_access(block_access, old->block, next.block), "Native shader expands storage block access");
+        }
+        bool formatless=false;
+        for(uint32_t i=0;i<b.descriptor_binding_count;++i){const auto& binding=b.descriptor_bindings[i];
+            formatless|=binding.accessed && binding.descriptor_type==SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE && !binding.image.image_format;}
+        if(formatless){
+            std::vector<NativeStorageUse> prior,after;std::string detail;
+            require(native_shader_storage_usage(original,prior,detail) && native_shader_storage_usage(replacement,after,detail),
+                "Native formatless storage access provenance is unavailable");
+            for(const auto& use:after){
+                bool unformatted=false;
+                for(uint32_t i=0;i<b.descriptor_binding_count;++i){const auto& binding=b.descriptor_bindings[i];
+                    if(binding.set==use.set && binding.binding==use.binding)
+                        unformatted=binding.descriptor_type==SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE && !binding.image.image_format;
+                }
+                if(!unformatted)continue;
+                bool covered=false;
+                for(const auto& old:prior)if(old.set==use.set && old.binding==use.binding && old.element==use.element)
+                    covered=(!use.read || old.read) && (!use.write || old.write) && (!use.atomic || old.atomic);
+                require(covered,"Native shader expands formatless storage access beyond the original executable");
+            }
         }
         for (uint32_t i = 0; i < b.push_constant_block_count; ++i) {
             const auto& next = b.push_constant_blocks[i];

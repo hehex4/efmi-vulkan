@@ -125,11 +125,12 @@ public:
         }
         return bytes;
     }
-    ShaderUsage run(){
+    ShaderUsage run(bool storage_only=false){
         ShaderUsage usage;std::set<std::tuple<uint32_t,uint32_t,uint32_t,uint32_t>> pairs;
         std::map<std::pair<uint32_t,uint32_t>,StorageImageUse> storage;
         for(const auto& instruction:instructions){step();
-            const bool reads=instruction.op==SpvOpImageRead,writes=instruction.op==SpvOpImageWrite,atomic=instruction.op==SpvOpImageTexelPointer;
+            const bool reads=instruction.op==SpvOpImageRead || instruction.op==SpvOpImageSparseRead,
+                writes=instruction.op==SpvOpImageWrite,atomic=instruction.op==SpvOpImageTexelPointer;
             if(reads || writes || atomic){const auto refs=trace(instruction.at(writes?1:3));
                 for(const auto& ref:refs){const auto binding=bindings.at(ref.binding);
                     require(def(ref.type).op==SpvOpTypeImage && (binding->type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
@@ -138,12 +139,12 @@ public:
                     use.read|=reads || atomic;use.write|=writes || atomic;use.atomic|=atomic;
                 }
             }
-            if(instruction.op==SpvOpVariable && instruction.at(3)==SpvStorageClassWorkgroup){
+            if(!storage_only && instruction.op==SpvOpVariable && instruction.at(3)==SpvStorageClassWorkgroup){
                 require(instruction.count==4 && decoration(instruction.at(2),SpvDecorationAliased)==UINT32_MAX,"Initialized/aliased workgroup storage requires an enabled adapter");
                 const auto& pointer=def(instruction.at(1));require(pointer.op==SpvOpTypePointer,"Shared storage has no pointer type");
                 usage.workgroup_bytes=add(usage.workgroup_bytes,size(pointer.at(3)));
             }
-            if(instruction.op==SpvOpSampledImage){const auto images=trace(instruction.at(3)),samplers=trace(instruction.at(4));
+            if(!storage_only && instruction.op==SpvOpSampledImage){const auto images=trace(instruction.at(3)),samplers=trace(instruction.at(4));
                 for(const auto& image:images)for(const auto& sampler:samplers){step();
                     require(def(image.type).op==SpvOpTypeImage && def(sampler.type).op==SpvOpTypeSampler &&
                         bindings.at(image.binding)->type==VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && bindings.at(sampler.binding)->type==VK_DESCRIPTOR_TYPE_SAMPLER,
@@ -159,5 +160,6 @@ public:
 };
 }
 ShaderUsage shader_usage(const HlslProgram& program){return Analysis(program).run();}
+std::vector<StorageImageUse> shader_storage_usage(const HlslProgram& program){return Analysis(program).run(true).storage_images;}
 uint64_t shader_workgroup_bytes(const HlslProgram& program){return Analysis(program).workgroup_bytes();}
 }

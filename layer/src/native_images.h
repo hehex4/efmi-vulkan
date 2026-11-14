@@ -11,9 +11,10 @@ struct NativeImageCache {
         bool sampled = false, arrayed = false, multisampled = false, sampled_float32 = false;
         uint32_t scalar_type = 0, image_format = 0;
     };
-    struct Use { Resource resource; bool depth_reference = false; };
+    struct Use { Resource resource; bool depth_reference = false, read = false, write = false, atomic = false; };
     struct Access { std::vector<Use> images; std::string reason; };
     std::map<uint32_t, std::shared_ptr<const Access>> pipelines;
+    std::map<uint32_t, VkFormatFeatureFlags2> storage_formats;
 };
 struct NativeImagePlan {
     struct Cell {

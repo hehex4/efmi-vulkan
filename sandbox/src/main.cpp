@@ -56,7 +56,7 @@
 // Vulkan functions, loaded at run time from vulkan-1.dll
 
 #define VK_INSTANCE_FUNCS(X)                                                                                           \
-    X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties)                                      \
+    X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) X(GetPhysicalDeviceFeatures)                                      \
     X(GetPhysicalDeviceQueueFamilyProperties) X(GetPhysicalDeviceMemoryProperties) X(CreateDevice)                     \
     X(CreateWin32SurfaceKHR) X(DestroySurfaceKHR) X(GetPhysicalDeviceSurfaceSupportKHR)                                \
     X(GetPhysicalDeviceSurfaceCapabilitiesKHR) X(GetPhysicalDeviceSurfaceFormatsKHR) X(GetDeviceProcAddr)
@@ -211,7 +211,7 @@ struct App {
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
-    bool reference_storage = false;
+    bool reference_storage = false, storage_formatless = false, reference_float_source = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
     int texture_shape = 0; // 0 2D, 1 array, 2 cube, 3 cube array
@@ -528,6 +528,7 @@ static bool create_device()
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     if(g.sync2 && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+    if(g.storage_formatless && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
     if(g.descriptor_mode>=2)exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
     if(g.draw_kind==3 || g.draw_kind==5)exts.push_back(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
     VkDeviceCreateInfo dinfo = {};
@@ -538,6 +539,12 @@ static bool create_device()
     dinfo.ppEnabledExtensionNames = exts.data();
     VkPhysicalDeviceFeatures features = {};
     features.imageCubeArray = g.texture_shape == 3;
+    if(g.storage_formatless){
+        VkPhysicalDeviceFeatures supported{};vkGetPhysicalDeviceFeatures(g.phys,&supported);
+        if(!supported.shaderStorageImageReadWithoutFormat || !supported.shaderStorageImageWriteWithoutFormat){
+            printf("FAILED: formatless fixture needs storage read/write features\n");return false;}
+        features.shaderStorageImageReadWithoutFormat=features.shaderStorageImageWriteWithoutFormat=VK_TRUE;
+    }
     features.geometryShader = !g.geometry_shader.empty();
     features.tessellationShader = !g.hull_shader.empty() || !g.domain_shader.empty();
     dinfo.pEnabledFeatures = &features;
@@ -1856,6 +1863,10 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.reusable = true;
         else if (a == L"--reference-storage")
             g.reference_storage = true;
+        else if (a == L"--storage-formatless")
+            g.storage_formatless = true;
+        else if (a == L"--reference-float-source")
+            g.reference_float_source = true;
         else if (a == L"--reference-remaining")
             g.reference_remaining = true;
         else if (a == L"--reference-layers" && i + 1 < argc)

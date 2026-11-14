@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-217: Formatless storage and precise access compatibility (2026-11-14)
+
+- D-216 merged ae3134f. Source2.4.7/pair ABI d74cbbb6395229ac verified. Baseline8/14, corrected14/14, final tracker277, storage75, application76/shapes53, bindings48, character115+377, GPU55, validation76/text583 and game shaders92/compute91 all pass. Exact evidence in CURRENT_STATE.
+- Review/sync/commit/FF, continue D-218 from build/d218-plan.md. Draft idle baseline is building in isolated build/d218-baseline (session27822), no tracked D-218 source applied. Next persistent overlay baseline, implementation and affected checks. Continue file/target/queue work after verified commits; do not end here.
+
 ## Active D-216: Native compute storage-image references (2026-11-14)
 
 - D-215 merged58924d2. D-216 source2.4.6 fully verified with final ABI0fb4637af70f4449. Final storage42/application76/shapes53/bindings48/character115+377/GPU55/tracker264/validation76/text582 pass. BUG-101 conflicting alias baseline263/264 now passes. Exact builds/evidence in CURRENT_STATE.

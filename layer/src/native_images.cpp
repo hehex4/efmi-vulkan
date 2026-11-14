@@ -35,14 +35,48 @@ std::shared_ptr<const NativeImageCache::Access> access_locked(Device* device, Vk
             result->reason = "Native application image consumer reflection is unavailable"; break;
         }
         const bool depth = efmi::gpu::image_depth_reference(stage.shader->code);
+        std::vector<efmi::gpu::NativeStorageUse> storage;
+        const bool formatless=std::any_of(registers.begin(),registers.end(),[](const auto& r){
+            return r.kind==efmi::gpu::SourceRegister::ImageUav && !r.image_format;
+        });
+        if(formatless && !efmi::gpu::native_shader_storage_usage(stage.shader->code,storage,result->reason))break;
         for (const auto& resource : registers)
-            if (std::find(used.begin(), used.end(), std::make_pair(resource.set, resource.binding)) != used.end())
-                result->images.push_back({{resource.set,resource.binding,resource.dim,resource.depth,
+            if (std::find(used.begin(), used.end(), std::make_pair(resource.set, resource.binding)) != used.end()){
+                NativeImageCache::Use consumer{{resource.set,resource.binding,resource.dim,resource.depth,
                     resource.kind==efmi::gpu::SourceRegister::ImageSrv,resource.arrayed,resource.multisampled,resource.sampled_float32,
-                    resource.scalar_type,resource.image_format},depth});
+                    resource.scalar_type,resource.image_format},depth};
+                for(const auto& use:storage)if(use.set==resource.set && use.binding==resource.binding){
+                    consumer.read|=use.read;consumer.write|=use.write;consumer.atomic|=use.atomic;
+                }
+                result->images.push_back(consumer);
+            }
     }
     entries[found->second.id] = result;
     return result;
+}
+bool formatless_binding(Device* device,uint32_t format,const NativeImageCache::Use& use,std::string& why)
+{
+    auto refuse=[&](const char* text){why=text;return false;};
+    if(use.atomic)return refuse("Native image atomics require a declared storage format");
+    const VkFormatFeatureFlags2 required=(use.read?VK_FORMAT_FEATURE_2_STORAGE_READ_WITHOUT_FORMAT_BIT:0)|
+        (use.write?VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT:0);
+    if(!required)return true;
+    if((use.read && !device->enabled_features.shaderStorageImageReadWithoutFormat) ||
+        (use.write && !device->enabled_features.shaderStorageImageWriteWithoutFormat))
+        return refuse("Native formatless storage access feature is not enabled");
+    const uint32_t api=std::min(device->app_api_version?device->app_api_version:VK_API_VERSION_1_0,device->api_version);
+    if(!device->format_properties2 || (api<VK_API_VERSION_1_3 &&
+        std::find(device->extensions.begin(),device->extensions.end(),VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME)==device->extensions.end()))
+        return refuse("Native formatless storage requires enabled format feature queries");
+    std::lock_guard<std::mutex> lock(device->native_images_mx);
+    auto& formats=device->native_image_cache->storage_formats;
+    auto found=formats.find(format);
+    if(found==formats.end()){
+        VkFormatProperties3 extra{VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3};VkFormatProperties2 properties{VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2};
+        properties.pNext=&extra;device->format_properties2(device->phys,VkFormat(format),&properties);
+        found=formats.emplace(format,extra.optimalTilingFeatures).first;
+    }
+    return (found->second&required)==required || refuse("Native storage image format does not support the required unformatted access");
 }
 bool range_of(const ImageResource& resource, VkImageSubresourceRange& range)
 {
@@ -164,8 +198,11 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
         if (r.sampled == storage || r.dim != (cube?3u:1u) || r.depth == 1 || use.depth_reference ||
             r.arrayed != array || r.multisampled || r.scalar_type!=format.scalar_type)
             return refuse("Native application image shape differs from its non-depth typed consumer or numeric class");
-        if(storage && (!r.image_format || !format.storage_format || r.image_format!=format.storage_format))
-            return refuse("Native storage image requires an exact declared format; formatless access needs a per-format feature adapter");
+        if(storage){
+            if(r.image_format && (!format.storage_format || r.image_format!=format.storage_format))
+                return refuse("Native storage image view differs from the declared shader format");
+            if(!r.image_format && !formatless_binding(device,image.view_format,use,why))return false;
+        }
     }
     if (!used) { layout = VK_IMAGE_LAYOUT_GENERAL; return true; }
     auto state = scope(cb, compute);

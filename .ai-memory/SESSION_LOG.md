@@ -2593,3 +2593,12 @@ Original CommandList GetResource/CSGetUnorderedAccessViews and SetResource/CSSet
 Review then reproduced BUG-101: a sampled alias needing no transition lost its layout contract to a later storage alias (tracker263/264). All descriptor cells now reserve layouts; compatible GENERAL sharing remains. Final pair/tracker/planner d216-final-pair.out, ABI0fb4637af70f4449/version2.4.6 verified in layer/inject/module/tracker. Failed tracker now264/264. Final d216-final-regression.out passes storage42, application76, application shapes53, bindings48, character115/377, GPU analysis55, tracker264, validation76 and text582. No game/deployment/system/remote action; root dist2.1.8 and historical game2.1.7 unchanged.
 
 Continue D-217 formatless storage (build/d217-plan.md and unapplied drafts), including actual access compatibility under ShaderFix; then queue/file/target adapters. A commit is not the end of this authorized offline continuation.
+
+
+## 2026-11-14: Native formatless storage access, D-217, source 2.4.7
+
+D-216 merged ae3134f. Kept original UAV reference/persistence and explicit Vulkan lifetime/hazard/order mechanisms. Fixture built d217-fixture.out; baseline8/14 in d217-before.out correctly rejected numeric mismatch but formatless normal/push remained original19801 instead of8106. Added bounded actual storage provenance with analysis-only set normalization, independently required device/per-format read/write flags and cached enabled queries. ShaderFix compatibility forbids expanded actual formatless access behind the original-pipeline resource cache. Unknown-format atomics are invalid (validator VUID04658), not a supported fixture.
+
+Pair/tracker/planner built d217-pair.out; ABI d74cbbb6395229ac/version2.4.7 verified. Failed cases now14/14. d217-regression.out passes storage75, application76/shapes53, bindings48, character115/377, GPU55, tracker277, validation76/text583. Initial extra --only arguments were ignored; corrected separate comma-delimited d217-shaders.out passes game shaders92 and compute91. No game/deployment/system/remote action; root dist2.1.8/historical game2.1.7 unchanged.
+
+Continue D-218 hunting idle and persistent counts. Original RunFrameActions/Input/Overlay was read; the original counts registered action events and clears every idle frame, not arbitrary OS keystrokes or one clear per minute. Ignored drafts and baseline build are listed in CURRENT_STATE. A verified commit does not end this continuation.
