@@ -413,7 +413,11 @@ static void draw_sequence_tests()
         check(emitted[10].op=='p' && emitted[10].handle==5 && emitted[11].op=='v' && emitted[11].handle==6 &&
               emitted[12].op=='i' && emitted[12].handle==8,"application pipeline and geometry restored once after all draws");
     }
-    emitted.clear();
+    emitted.clear();items[0].compatible_pipeline=h<VkPipeline>(93);
+    check(emit_variant_draws(d,cmd,items,2,original_pipe,original) && emitted.size()==13 && emitted[0].handle==93 &&
+        emitted[3].op=='s' && emitted[3].first==variant.own_set && emitted[3].handle==14 && emitted[3].instances==256 &&
+        emitted[5].handle==2 && emitted[10].handle==5,"compatible pass pipeline preserves private binding metadata and final application restoration");
+    items[0].compatible_pipeline=VK_NULL_HANDLE;emitted.clear();
     check(emit_variant_draws(d,cmd,nullptr,0,original_pipe,original) && emitted.empty(),"explicit empty transaction skips without state changes");
     d.CmdDrawIndexed=nullptr;reject(items,2,"incomplete dispatch rejected before binding");
     // These are nonowned test handles, not objects allocated by PipelineVariant::build.

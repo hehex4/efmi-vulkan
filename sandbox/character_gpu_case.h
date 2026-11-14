@@ -9,6 +9,11 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     // character's (B's own) and another object's, which the application draws at (-.3,-.35).
     const bool instanced=[]{char value[4]={};return GetEnvironmentVariableA("EFMI_VK_TEST_INSTANCED",value,sizeof(value)) && value[0]=='1';}();
     auto recipe=m2_fixture::recipe(instanced);
+    // D-251: an optional stored depth attachment lets the INI fixture unbind it before Mod draws.
+    if(GetEnvironmentVariableA("EFMI_VK_TEST_CLASSIC_NULL",nullptr,0)){
+        auto pass=std::make_shared<RenderPassRecipe>(*recipe.render_pass);
+        pass->attachments[1].storeOp=VK_ATTACHMENT_STORE_OP_STORE;recipe.render_pass=std::move(pass);
+    }
     RecipeFixture layout_fixture(material);auto layout=layout_fixture.layout;
     // D-133: the application's fragment shader with the character dither, for the scene that runs RabbitFX's
     // anti-dither (EFMI_VK_TEST_DITHER=1 in this process's environment): its pictures must be the same.
@@ -284,6 +289,9 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
             vkCmdDrawIndexed(cmd,count,1,first,0,0);
             vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
         };
+        if(GetEnvironmentVariableA("EFMI_VK_TEST_CLASSIC_NULL",nullptr,0)){
+            bind(E_A);vkCmdDraw(cmd,0,1,0,0); // Run the output list before any indexed Mod plan.
+        }
         if(four_sets){
             // The application draws with its four-set pipeline, then switches to the character's
             // pipeline and binds only sets 0 to 2: its set 3 stays bound and valid.

@@ -32,9 +32,9 @@ static void effective_pipeline_cases(){
             const auto frozen=variant.effective_recipe;bool same=frozen && frozen->stages.size()==effective_driver_words.size();
             if(same)for(size_t i=0;i<frozen->stages.size();++i)same&=frozen->stages[i].shader && frozen->stages[i].shader->code==effective_driver_words[i];
             check(same,"frozen effective stages exactly match every module submitted to the driver");
-            check(frozen && variant.effective_layout && variant.effective_layout->sets.size()==fixture.layout.sets.size() &&
+            check(frozen && variant.effective_layout && variant.effective_layout->sets.size()==effective_expected_sets &&
                 frozen->stages[0].entries[0].constantID==7 && frozen->stages[0].data[1]==6 && frozen->vertex.bindings[0].stride==12 && frozen->dynamic==source.dynamic,
-                "effective snapshot owns original layout prefix, specialization, geometry and dynamic state");
+                "effective snapshot owns the complete layout, specialization, geometry and dynamic state");
             if(mode==0){retained=frozen;retained_layout=variant.effective_layout;}
             if(mode==1)check(frozen && frozen->stages[1].shader->code==recipe.stages[1].shader->code,"hunting original snapshot freezes the original stage");
             if(mode==2)check(frozen && frozen->stages[1].shader->code!=replacement->code && frozen->stages[1].data.empty(),"pink snapshot freezes generated code without stale specialization");
@@ -50,9 +50,35 @@ static void effective_pipeline_cases(){
     check(retained && retained_layout && retained->stages[1].shader->code==expected_replacement &&
         retained->stages[0].data==std::vector<uint8_t>({5,6,7,8}) && retained_layout->sets.size()==3,
         "retained replacement and specialization survive source, publication and variant destruction");
-    // A mesh variant has a new vertex interface and must not advertise application-geometry cloning.
-    allocation=0;fail_at=0;{PipelineVariant mesh(h<VkDevice>(2),dispatch());auto original=fixture.capture();
-        check(mesh.build(original,fixture.layout,RecipeFixture::mod_vertex(),4) && !mesh.effective_recipe && !mesh.effective_layout,
-            "mesh interface rewrite does not publish a native effective recipe");}
+    // Rebuilt passes must retain every final shader interface, including private images and bones.
+    for(int mode=0;mode<4;++mode){
+        RecipeFixture mesh_fixture(mode>=2);auto source=mesh_fixture.capture();
+        auto input=mode==2?source.vertex:RecipeFixture::mod_vertex();
+        auto dispatches=dispatch();dispatches.CreateShaderModule=effective_shader;
+        dispatches.CreateGraphicsPipelines=[](VkDevice,VkPipelineCache,uint32_t,const VkGraphicsPipelineCreateInfo*,const VkAllocationCallbacks*,VkPipeline* out){return allocate(out);};
+        FragmentPatch mesh_patch;mesh_patch.keep_vertex=mode==1 || mode==2;mesh_patch.own_geometry=mode==1;
+        if(mode>=2)mesh_patch.images.push_back({1,6});
+        allocation=0;fail_at=0;effective_driver_words.clear();
+        {PipelineVariant mesh(h<VkDevice>(2),dispatches);
+            VkPhysicalDeviceLimits limits{};limits.maxDescriptorSetSampledImages=limits.maxPerStageDescriptorSampledImages=32;limits.maxPerStageResources=128;
+            const bool built=mesh.build(source,mesh_fixture.layout,input,5,mesh_patch,limits);
+            check(built,"merged, own-mesh, texture-only and combined effective fixtures build");
+            const auto frozen=mesh.effective_recipe;bool same=frozen && frozen->stages.size()==effective_driver_words.size();
+            if(same)for(size_t i=0;i<frozen->stages.size();++i)same&=frozen->stages[i].shader->code==effective_driver_words[i];
+            check(same,"complete Mod snapshot freezes both rewritten driver stages exactly");
+            check(frozen && frozen->vertex.attributes[1].format==input.attributes[1].format && frozen->dynamic==source.dynamic,
+                "complete Mod snapshot retains actual vertex input and dynamic state");
+            const auto layout=mesh.effective_layout;
+            bool complete=layout && layout->sets.size()==4 && mesh.own_set==3;
+            if(complete){const auto& bindings=layout->sets[3]->bindings;const auto expected=private_draw_bindings(mode>=2?1:0);
+                complete=bindings.size()==expected.size();
+                for(const auto& binding:expected){const auto found=bindings.find(binding.binding);
+                    complete&=found!=bindings.end() && found->second.type==binding.descriptorType && found->second.count==binding.descriptorCount && found->second.stages==binding.stageFlags;}}
+            check(complete,"complete Mod snapshot owns exact private bones, instance and image bindings");
+            check(frozen && (mesh_patch.keep_vertex || !frozen->stages[0].shader->retained_total),
+                "rewritten vertex words have no borrowed capture-budget owner");
+        }
+        check(live.empty(),"Mod effective metadata owns no unretained Vulkan handles");
+    }
     check(live.empty(),"effective snapshot tests release all Vulkan objects");
 }

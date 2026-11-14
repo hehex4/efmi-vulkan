@@ -294,18 +294,29 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
     for (auto m : modules) d_.DestroyShaderModule(dev_, m, nullptr);
     if (pass) d_.DestroyRenderPass(dev_, pass, nullptr);
     if (result != VK_SUCCESS) { clear(); return false; }
-    if (!recipe.compute && patch.keep_vertex && !patch.own_geometry &&
-        patch.images.empty() && patch.nulls.empty() && !patch.replacement_images) {
-        // Freeze the stages selected for this draw, after native/hunting and dither changes.
-        // A pure dither twin adds an unused private set; its shaders still use only source.
+    if (!recipe.compute) {
+        // Freeze exactly what reached the driver; rebuilding must not repeat shader selection or rewriting.
         auto frozen = std::make_shared<GraphicsRecipe>(recipe);
         if (!native_geometry) frozen->vertex = vertex;
-        if (fs_index < frozen->stages.size() && fragment != frozen->stages[fs_index].shader->code) {
+        for (size_t i = 0; i < frozen->stages.size(); ++i) {
+            const auto& code = i == vs_index && !patch.keep_vertex ? rewritten.words : (i == fs_index ? fragment : recipe.stages[i].shader->code);
+            if (code == frozen->stages[i].shader->code) continue;
             auto shader = std::make_shared<ShaderInfo>();
-            shader->code = std::move(fragment); shader->size = static_cast<uint32_t>(shader->code.size() * sizeof(uint32_t));
-            frozen->stages[fs_index].shader = std::move(shader);
+            shader->code = code; shader->size = static_cast<uint32_t>(code.size() * sizeof(uint32_t));
+            frozen->stages[i].shader = std::move(shader);
         }
-        effective_layout = std::make_shared<PipelineLayoutInfo>(source);
+        auto full_layout = std::make_shared<PipelineLayoutInfo>(source);
+        if (!patch.native_only) {
+            auto own = std::make_shared<DescriptorLayoutInfo>();
+            for (const auto& binding : private_draw_bindings(image_count)) {
+                auto& owned = own->bindings[binding.binding];
+                owned.type = binding.descriptorType; owned.count = binding.descriptorCount; owned.stages = binding.stageFlags;
+            }
+            full_layout->sets.push_back(std::move(own));
+            full_layout->id = 0;
+            full_layout->prefix.resize(full_layout->sets.size(),0); // No interned identity for the private layout.
+        }
+        effective_layout = std::move(full_layout);
         effective_recipe = std::move(frozen);
     }
     return true;
@@ -342,7 +353,7 @@ bool emit_variant_draws(const VariantDispatch& d, VkCommandBuffer cmd, const Var
     if (!count) return true;
     for (size_t i = 0; i < count; ++i) {
         const auto& item = items[i]; const auto& replacement = *item.geometry; const auto& draw = item.draw;
-        d.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, item.variant->pipeline);
+        d.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, item.compatible_pipeline ? item.compatible_pipeline : item.variant->pipeline);
         d.CmdBindVertexBuffers(cmd, replacement.first_binding, static_cast<uint32_t>(replacement.buffers.size()),
                               replacement.buffers.data(), replacement.offsets.data());
         d.CmdBindIndexBuffer(cmd, replacement.index, replacement.index_offset, replacement.index_type);

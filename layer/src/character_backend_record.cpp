@@ -199,7 +199,6 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     const uint64_t entered_us = host_time_us();
     StageMark locking(trace, "character draw (generation lock)");
     std::lock_guard<std::mutex> mod_lock(mod_mx);
-    if(native_target_masked(cb))return refuse(C_STATE,"Mod mesh and image-interface variants need compatible null-output pipelines");
     ScratchScope scratch_scope{*this};
     StageMark stage(trace, "character draw (plan, variants, recording)");
     uint64_t mark_us = host_time_us();
@@ -871,6 +870,15 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         else if (!identity->skeleton.patch_entry(0, entry, patched, reason)) return refuse(C_IMPORT, reason);
     }
 
+    std::vector<VkPipeline> compatible;
+    if(native_target_masked(cb)){
+        compatible.resize(list->count);
+        for(uint32_t i=0;i<list->count;++i)if(!capturing[i]){
+            std::string reason;
+            if(!variants[i] || !(compatible[i]=native_target_variant(device,cb,*variants[i],reason)))
+                return refuse(C_VARIANT,"character compatible pass: "+reason);
+        }
+    }
     lap(S_VARIANTS);
     // A recording that holds work of other replacement code keeps it to its end. What that code
     // left in a command buffer from earlier recordings gives way.
@@ -972,7 +980,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             if (!capture(cb, r, capture_sets, d, i, slot, g, args, append_bones, command_owner)) return false;
             continue;
         }
-        items.push_back({variants[i].get(), slot.set, slot.offset, &g, args});
+        items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});
     }
     // The captures go to the pass's queue once every draw of the list was decided.
     for (auto& c : scratch_pending_captures) {
@@ -1062,6 +1070,9 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
         return refuse(C_VARIANT, "texture-only variant: " + result.reason);
     }
     // Every character package that replaces draws of a recording has its own owner in it.
+    std::string compatibility_reason;
+    const auto compatible=native_target_variant(device,cb,*result.variant,compatibility_reason);
+    if(!compatible)return refuse(C_VARIANT,"texture-only compatible pass: "+compatibility_reason);
     const auto held = character_owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
     if (!held) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
     CharacterCommand* const command_owner = static_cast<CharacterCommand*>(held.get());
@@ -1074,7 +1085,7 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     IndexedDraw args;
     args.count = r.count; args.instances = r.instances; args.first = r.first; args.vertex_offset = r.vertex_offset;
     args.first_instance = r.first_instance;
-    const VariantDraw item{result.variant.get(), slot.set, slot.offset, &original, args};
+    const VariantDraw item{result.variant.get(), slot.set, slot.offset, &original, args, compatible};
     command_owner->variants.push_back(result.variant);
     if (!emit_variant_draws(draw, cb->handle, &item, 1, r.bound ? r.bound : r.pipeline, original))
         return refuse(C_VARIANT, "texture-only draw transaction refused");
@@ -1170,6 +1181,15 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     if (pending) { gate_open = false; frame_variants_pending = true; ++counters[C_PENDING]; return false; }
     // Images and variants were asked for above, so a closed frame still brings them up.
     if (!gate_open) return gated();
+    std::vector<VkPipeline> compatible;
+    if(native_target_masked(cb)){
+        compatible.resize(list.count);
+        for(uint32_t i=0;i<list.count;++i){
+            std::string reason;
+            if(!(compatible[i]=native_target_variant(device,cb,*variants[i],reason)))
+                return refuse(C_VARIANT,"own mesh compatible pass: "+reason);
+        }
+    }
     const auto held = character_owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
     if (!held) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
     CharacterCommand* const command_owner = static_cast<CharacterCommand*>(held.get());
@@ -1206,7 +1226,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         }
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         args.instances = d.instances; args.first_instance = d.first_instance; args.indexed = d.indexed;
-        items.push_back({variants[i].get(), slot.set, slot.offset, &g, args});
+        items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});
     }
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
     if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.bound ? r.bound : r.pipeline, original))

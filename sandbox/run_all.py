@@ -155,6 +155,8 @@ STEPS = [
     ("native dynamic depth", [os.path.join(HERE, "native_dynamic_depth_test.py")]),
     ("native classic attachments", [os.path.join(HERE, "native_classic_attachment_test.py")]),
     ("native classic null", [os.path.join(HERE, "native_classic_null_test.py")]),
+    ("native classic Mod geometry", [os.path.join(HERE, "native_classic_mod_test.py")]),
+    ("native classic Mod character", [os.path.join(HERE, "native_classic_mod_character_test.py")]),
     ("native classic outputs", [os.path.join(HERE, "native_classic_output_test.py")]),
     ("native depth destinations", [os.path.join(HERE, "native_depth_destination_test.py")]),
     ("native depth only", [os.path.join(HERE, "native_depth_only_test.py")]),
@@ -220,6 +222,7 @@ STEPS = [
 GROUPS = {
     "native-classic-attachments": ["native classic attachments", "native classic outputs", "native MRT outputs", "native tracker", "Vulkan validation", "text check"],
     "native-classic-null": ["native classic null", "native classic attachments", "native classic outputs", "native depth null", "native hunting", "native tracker", "Vulkan validation", "text check"],
+    "native-classic-mod": ["native classic Mod", "pipeline recipes and variants", "native hunting", "native tracker", "Vulkan validation", "text check"],
     "native-classic-outputs": ["native classic outputs", "native output destinations", "native depth destinations", "GPU imageless target analysis", "native tracker", "Vulkan validation", "text check"],
     "native-depth-destinations": ["native depth destinations", "native depth only", "native depth null", "native MRT outputs", "native tracker", "Vulkan validation", "text check"],
     "native-depth-only": ["native depth only", "native depth null", "native MRT outputs", "native tracker", "Vulkan validation", "text check"],

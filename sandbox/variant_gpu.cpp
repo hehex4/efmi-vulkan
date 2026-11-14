@@ -570,6 +570,11 @@ int wmain(int argc, wchar_t** argv)
     uint32_t character_assets=0;
     uint32_t graphics_queues=1, queue_index=0, submit_kind=0;
     for (int i = 1; i < argc; i++) {
+        if (!wcscmp(argv[i], L"--character-vertex") && i+1<argc) {
+            const auto code=m2_fixture::shader(true);
+            std::ofstream file(argv[++i],std::ios::binary);file.write(reinterpret_cast<const char*>(code.data()),code.size()*4);
+            return file.good()?0:2;
+        }
         if (!wcscmp(argv[i], L"--inject") && i + 1 < argc) {
             if (!LoadLibraryW(argv[++i])) return 2;
         } else if (!wcscmp(argv[i], L"--renderpass2")) rp2 = true;

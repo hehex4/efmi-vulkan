@@ -470,6 +470,19 @@ VkPipeline native_target_bind(Device* device,CmdBuf* cb,VkPipeline pipeline){
     if(!held)owner->pipelines.push_back(variant);
     cb->native_target_blocked=false;selected->bound=variant->pipeline;return variant->pipeline;
 }
+VkPipeline native_target_variant(Device* device,CmdBuf* cb,const PipelineVariant& source,std::string& why){
+    if(!native_target_masked(cb))return source.pipeline;
+    NativePipelineSelection selected;selected.source=selected.bound=source.pipeline;
+    selected.recipe=source.effective_recipe;selected.layout=source.effective_layout;
+    const auto variant=classic_pipeline(device,*cb->native_target_state,selected,cb->pass.recipe,why);
+    if(!variant)return VK_NULL_HANDLE;
+    auto owner=target_owner(cb);
+    const bool held=std::find(owner->pipelines.begin(),owner->pipelines.end(),variant)!=owner->pipelines.end();
+    if(owner->sealed || (!held && owner->pipelines.size()>=4096)){
+        why="Native classic Mod pipeline retention budget or sealed recording";return VK_NULL_HANDLE;
+    }
+    owner->used=true;if(!held)owner->pipelines.push_back(variant);return variant->pipeline;
+}
 bool native_target_masked(const CmdBuf* cb){
     return cb && cb->native_target_state && cb->native_target_state->classic && cb->native_target_state->private_pass &&
         classic_mask(*cb->pass.recipe)!=classic_mask(*cb->native_target_state->classic_recipe);

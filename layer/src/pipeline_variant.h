@@ -90,8 +90,8 @@ public:
     std::string reason;
     std::string native_warning;
     uint32_t native_replaced = 0;
-    // Frozen final stage bytes for compatible render-pass adaptations of application geometry.
-    // These are published only after a successful build; mesh/interface rewrites do not qualify.
+    // Frozen final stages, actual vertex input and complete layout for compatible render passes.
+    // Published only after a successful graphics build, including all private interface rewrites.
     std::shared_ptr<const GraphicsRecipe> effective_recipe;
     std::shared_ptr<const PipelineLayoutInfo> effective_layout;
     VkResult result = VK_SUCCESS;
@@ -130,6 +130,8 @@ struct VariantDraw {
     uint32_t instance_offset = 0;
     const DrawGeometry* geometry = nullptr;
     IndexedDraw draw;
+    // An identically laid-out pipeline for the actual pass; variant still owns private binding metadata.
+    VkPipeline compatible_pipeline = VK_NULL_HANDLE;
 };
 
 // Executes one frontend-resolved transaction. Validate the whole bounded sequence before

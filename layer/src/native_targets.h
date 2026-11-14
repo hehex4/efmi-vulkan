@@ -73,4 +73,6 @@ void native_targets_end(Device*,CmdBuf*);
 // Resolve the exact selected stages, then adapt to an active private classic pass if needed.
 VkPipeline native_target_bind(Device*,CmdBuf*,VkPipeline);
 bool native_target_masked(const CmdBuf*);
+// Prepare and retain a Mod variant for the active pass without changing the application selection.
+VkPipeline native_target_variant(Device*,CmdBuf*,const PipelineVariant&,std::string&);
 }

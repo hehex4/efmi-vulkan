@@ -60,6 +60,21 @@ static void native_classic_null_cases(){
     check(!native_target_bind(&d,&cb,h<VkPipeline>(12999)) && cb.native_target_blocked,"unknown later pipeline is blocked instead of forwarded into an incompatible pass");
     check(native_target_bind(&d,&cb,draw.pipeline)==cb.gfx_bound && !cb.native_target_blocked,"known later pipeline recovers through the compatibility cache");
     const auto built=made;native_target_bind(&d,&cb,draw.pipeline);check(made==built,"repeated draws reuse the exact source and actual-pass pipeline");
+    VariantDispatch funcs;
+#define X(n) funcs.n=d.d.n;
+    EFVK_VARIANT_FUNCS(X)
+#undef X
+    auto mod=std::make_shared<PipelineVariant>(d.handle,funcs);
+    check(mod->build(*recipe,*source_layout,variant_fixture::RecipeFixture::mod_vertex(),8),"merged interface prepares the private bone and instance descriptors");
+    const auto selected=cb.native_pipeline;
+    output_commands.clear();fail_pipeline=true;
+    check(!native_target_variant(&d,&cb,*mod,why) && output_commands.empty() && cb.native_pipeline==selected,
+        "failed Mod pass clone emits nothing and retains the application's selected shaders");
+    fail_pipeline=false;const auto compatible=native_target_variant(&d,&cb,*mod,why);
+    check(compatible && compatible!=mod->pipeline && cb.native_pipeline==selected && !cb.native_target_blocked,
+        "Mod pass clone retains the complete interface without replacing application selection");
+    const auto with_mod=made;
+    check(native_target_variant(&d,&cb,*mod,why)==compatible && made==with_mod,"Mod pass clone reuses its immutable interface cache identity");
     plan.items[0].native_target.kind=Binding::DepthTarget;ready=prepare();check(ready,"classic depth null follows color null in the same pass");if(!ready)return;
     record_native_target(&d,&cb,prepared,0);
     check(cb.pass.info->views.empty() && cb.pass.recipe->attachments.empty(),"fully unused classic output has no placeholder image or layout transition");
@@ -69,5 +84,6 @@ static void native_classic_null_cases(){
     prepared={};cache.classic.clear();cache.pipeline_cache->pipelines.clear();
     check(made>0 && destroyed==0,"recording owners retain all compatible pipelines after cache eviction");
     native_targets_end(&d,&cb);check(cb.gfx_bound==draw.pipeline && !cb.native_target_blocked,"host End restores the selected source pipeline for the next application pass");
-    cb.reset_recording();check(destroyed==made,"legal recording reset releases compatible pipeline handles after completion");
+    check(native_target_variant(&d,&cb,*mod,why)==mod->pipeline,"outside a masked pass the Mod uses its original variant");
+    cb.reset_recording();mod.reset();check(destroyed==made,"legal recording reset releases compatible pipeline handles after completion");
 }
