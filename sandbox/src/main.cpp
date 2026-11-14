@@ -237,6 +237,7 @@ struct App {
     bool imageless = false;
     int dynamic_rendering = 0;
     int dynamic_depth = 0;
+    bool native_output_depth = false;
     bool unused_attachments = false;
     VkImage depth_image = VK_NULL_HANDLE;
     VkDeviceMemory depth_memory = VK_NULL_HANDLE;
@@ -955,6 +956,7 @@ static bool create_pipeline()
     VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&g.format;
     VkPipelineDepthStencilStateCreateInfo depth{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};depth.depthCompareOp=VK_COMPARE_OP_ALWAYS;
+    if(g.native_output_depth)depth.depthTestEnable=depth.depthWriteEnable=VK_TRUE;
     if(g.dynamic_depth){rendering.depthAttachmentFormat=VK_FORMAT_D32_SFLOAT;info.pDepthStencilState=&depth;}
     if(g.dynamic_rendering){info.renderPass=VK_NULL_HANDLE;info.pNext=&rendering;}
     CHECK(vkCreateGraphicsPipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &g.pipeline));
@@ -2063,6 +2065,7 @@ int wmain(int argc, wchar_t** argv)
             capture_target.enabled = capture_target.draw = true;
         else if (a == L"--unused-attachments")
             g.unused_attachments = true;
+        else if (a == L"--native-output-depth"){g.native_output_depth=true;g.dynamic_depth=1;}
         else if (a == L"--native-output-query")
             native_output.query = true;
         else if (a == L"--native-output" && i + 1 < argc)

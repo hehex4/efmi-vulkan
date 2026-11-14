@@ -943,3 +943,9 @@ The original `BuiltInCommandListUnbindAllRenderTargets` also executes here: the 
 Null assignments to outputs already proven absent emit no rendering, ownership, layout or dependency work. This lets the original all-output unbind run in compute lists, including non-inherited secondary recordings and supported Submit2 calls. Complete classic unused references and dynamic null slots supply the same proof. Unknown/inherited attachment contexts, unmodeled mappings and external-format null-source resolves remain unavailable.
 
 The entire plan is checked for nonnull writes before removing any null event. An initially null slot that is bound and then unbound keeps both ordered changes. Proven no-ops can accompany descriptor work; actual output changes retain the pass and alias restrictions. GPU coverage verifies three dependent dispatches produce3 after the built-in unbind, plus core/KHR/inject/push/secondary and legacy descriptor assignments.
+
+## Preserved depth during color changes (D-241)
+
+Ordinary single-color output changes can preserve a known stored single-sample depth attachment without depth resolve. Every private continuation keeps its exact view/layout and uses LOAD, including after null color assignments. The complete pipeline depth format must match the actual attachment; a declared but absent depth format needs the application's enabled unused-attachments feature. The unchanged depth image remains in attachment-conflict checks, and a new color target cannot alias it.
+
+Active depth rebinding, stencil, discarded depth and unsupported pass/queue scopes remain guarded. The optional depth fixture writes actual D32 values and reads them back after completion. Repeated post-list null/restore boundaries must preserve all earlier depth geometry; color readbacks independently verify the destination and command order.

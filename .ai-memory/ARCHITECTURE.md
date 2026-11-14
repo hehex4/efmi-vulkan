@@ -75,6 +75,10 @@ owner, layout or dependency work for them. Plan-wide nonnull writes prevent drop
 events based on initial absence. These no-ops can coexist with separately validated descriptors;
 real mixed output/descriptor changes still need sequential alias planning.
 
+D-241 output continuation preserves a known stored single-sample depth attachment without resolve
+while moving a color target. Exact view/layout and LOAD retain earlier writes; every actual attachment
+stays in conflict proof. Active depth replacement and stencil still need their own adapters.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

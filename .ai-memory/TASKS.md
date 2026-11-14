@@ -1,6 +1,10 @@
 # EFMI Vulkan - Tasks
 
 
+## D-241 verified; continue multiple color destinations (2026-11-14)
+
+- D-240 mergedd133748. Valid depth baseline14/20 recorded before D-241 source2.7.1. Production/fixture/cases drafts applied; full pair/four stamps/tracker499/failed GPU20 and native-output-depth area pass (depth filters48/preserved41/null38/output52/dynamic targets30/validation76/text634). Review/memory/commit/FF, then continue remaining output/pass and queue engineering without stopping at the commit.
+
 ## D-240 verified; continue preserved depth (2026-11-14)
 
 - D-239 merged5c3bd5d. Valid baseline7/11, source2.7.0 applied after baseline. Full pair/four stamps/tracker487/failed GPU11 and native-absent-outputs area pass (absent27/null38/output52/calls60/bindings48/validation76/text633). Reviewed diff/memory for commit/FF. Continue D-241 preserved-depth fixture/adapter and broader offline output/pass/queue work without stopping at the commit.

@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-241: Color output changes preserve actual stored depth (2026-11-14)
+
+- Original SetResource changes one RTV while preserving DSV; DX11 provides retained/deferred lifetime, hazards and one-context order. A private Vulkan Begin must keep the same known depth view/layout and use LOAD after the prior STORE. Existing legacy one-queue dependencies cover depth read/write access; no Submit2 expansion follows from this.
+- Support an unchanged stored single-sample depth attachment without resolve/stencil, with the exact complete pipeline format contract. Actual null depth is distinct from a declared format; an unused declared format needs the application's enabled unused-attachments feature. No allocation owner is invented for original app attachments whose use remains inside the same app pass lifetime.
+- Reconstruct attachment conflicts from every actual retained attachment after each color event; null color must not erase the depth image from that proof. Refuse destination/depth image aliases and active depth rebinding before any command emits. GPU evidence requires actual depth writes and fenced readback across repeated post-list null/restore boundaries, not only validation or metadata checks.
+
 ## D-240: Proven absent output assignments emit no pass work (2026-11-14)
 
 - Original all-output unbind is legal without an actual output, including compute command lists. DX11 supplies retained/deferred lifetime, hazards and context order; a proven absent null binding requires none of the accesses of a real output replacement. Prove actual slot absence from recording-local metadata before applying private-pass or mixed-descriptor restrictions.

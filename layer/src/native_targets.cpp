@@ -35,7 +35,7 @@ bool null_output(const efmi::assets::FilePlanItem& item){
 
 bool color_context(const RenderTargets& targets,const NativeTargetState* state,std::string& why){
     if(!targets.known || !targets.dynamic || targets.flags || targets.view_mask || targets.layers!=1 ||
-       targets.has_depth || targets.has_stencil || targets.dynamic_colors.size()!=1 || targets.views.size()!=2){
+       targets.has_stencil || targets.dynamic_colors.size()!=1 || targets.views.size()!=2+2*size_t(targets.has_depth)){
         why="Native output destinations need an ordinary single-color dynamic pass";return false;
     }
     const auto& color=targets.dynamic_colors[0];const auto& view=targets.views[0];
@@ -45,7 +45,26 @@ bool color_context(const RenderTargets& targets,const NativeTargetState* state,s
        color.imageLayout!=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL || targets.area.offset.x<0 || targets.area.offset.y<0){
         why="Native output pass must retain single-sample stored color contents without resolve";return false;
     }
+    if(targets.has_depth && targets.depth.imageView){
+        const auto& depth=targets.depth;const auto& actual=targets.views[2];
+        if(!actual.known || actual.handle!=depth.imageView || actual.image.samples!=VK_SAMPLE_COUNT_1_BIT ||
+           depth.storeOp!=VK_ATTACHMENT_STORE_OP_STORE || depth.resolveMode!=VK_RESOLVE_MODE_NONE ||
+           depth.imageLayout!=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL){
+            why="Native output preserved depth needs a known stored single-sample attachment without resolve";return false;
+        }
+    }
     return true;
+}
+void continue_targets(RenderTargets& targets){
+    targets.dynamic_colors[0].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
+    if(targets.has_depth && targets.depth.imageView)targets.depth.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
+}
+std::shared_ptr<NativeImageState> target_images(const CmdBuf* cb,const RenderTargets& targets){
+    if(!cb->native_image_state)return {};
+    auto images=std::make_shared<NativeImageState>(*cb->native_image_state);images->attachments.clear();images->attachments_known=true;
+    if(targets.dynamic_colors[0].imageView)images->attachments.insert(targets.views[0].image.id);
+    if(targets.has_depth && targets.depth.imageView)images->attachments.insert(targets.views[2].image.id);
+    return images;
 }
 VkImageMemoryBarrier transition(const NativeTargetState::Saved& saved,VkImageLayout before,VkImageLayout after){
     VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.image=saved.view.view.image;
@@ -123,17 +142,21 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     const auto recipe=pipeline==device->pipes.end()?nullptr:pipeline->second.recipe;
     if(!recipe || !recipe->geometry_complete || !recipe->dynamic_rendering || recipe->rendering_view_mask ||
        recipe->rendering_colors.size()!=1 || recipe->rendering_colors[0]!=next.state->format ||
-       recipe->rendering_depth!=VK_FORMAT_UNDEFINED || recipe->rendering_stencil!=VK_FORMAT_UNDEFINED)
+       recipe->rendering_stencil!=VK_FORMAT_UNDEFINED)
         return refuse("Native output pipeline attachment contract is unavailable");
+    const bool depth_bound=targets.has_depth && targets.depth.imageView;
+    if(depth_bound?recipe->rendering_depth!=targets.views[2].view.format:
+       (recipe->rendering_depth!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
+        return refuse("Native output pipeline depth contract is unavailable");
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || no_op[i])continue;
         const auto& resource=item.native_resource;
         const bool empty=!resource || !resource->bound;
         const auto& binding=item.native_target;
         if(binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot!=0){
-            // This complete single-color/no-depth context proves these original built-in entries are already absent.
+            // Only entries proven absent in this complete context are original built-in no-ops.
             const bool absent=(binding.kind==efmi::frontend::NativeBinding::ColorTarget && binding.slot>0 && binding.slot<8) ||
-                              (binding.kind==efmi::frontend::NativeBinding::DepthTarget && binding.slot==0);
+                              (binding.kind==efmi::frontend::NativeBinding::DepthTarget && binding.slot==0 && !depth_bound);
             if(empty && !item.resource && absent)continue;
             return refuse("Native output destination slot needs a separate pass adapter");
         }
@@ -141,10 +164,9 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             if(targets.dynamic_colors[0].imageView && !device->dynamic_unused_attachments)
                 return refuse("Native null outputs require the application's enabled unused attachments feature");
             auto event=std::make_shared<NativeTargetPlan::Event>();event->change=targets.dynamic_colors[0].imageView!=VK_NULL_HANDLE;
-            targets.dynamic_colors[0].imageView=VK_NULL_HANDLE;targets.dynamic_colors[0].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
+            targets.dynamic_colors[0].imageView=VK_NULL_HANDLE;continue_targets(targets);
             targets.views[0]=TargetView{};targets.views[1]=TargetView{};
-            if(cb->native_image_state){event->images=std::make_shared<NativeImageState>(*cb->native_image_state);
-                event->images->attachments.clear();event->images->attachments_known=true;}
+            event->images=target_images(cb,targets);
             event->targets=targets;next.events[i]=std::move(event);continue;
         }
         if(!resource || !resource->bound || !resource->keep || !resource->image_safe || !resource->image_view ||
@@ -167,6 +189,8 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(uint64_t(targets.area.offset.x)+targets.area.extent.width>width || uint64_t(targets.area.offset.y)+targets.area.extent.height>height)
             return refuse("Native output destination does not cover the render area");
         if(descriptor_conflict(device,cb,view->second.image,why))return false;
+        if(depth_bound && view->second.image==targets.views[2].view.image)
+            return refuse("Native output color destination aliases the preserved depth image");
         const auto handle=view->first;
         if(handle!=next.state->original && view->second.image==next.state->original_image)
             return refuse("Native output aliases of the original image need subresource transition planning");
@@ -183,11 +207,10 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         }
         auto event=std::make_shared<NativeTargetPlan::Event>();event->resource=resource;
         event->change=handle!=targets.dynamic_colors[0].imageView;
-        targets.dynamic_colors[0].imageView=handle;targets.dynamic_colors[0].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
+        targets.dynamic_colors[0].imageView=handle;continue_targets(targets);
         targets.views[0].handle=handle;targets.views[0].view=view->second;targets.views[0].image=image->second;targets.views[0].known=true;
         targets.views[0].view.lifetime.reset();targets.views[0].image.lifetime.reset();targets.views[0].view.range=range;
-        if(cb->native_image_state){event->images=std::make_shared<NativeImageState>(*cb->native_image_state);
-            event->images->attachments.clear();event->images->attachments.insert(image->second.id);event->images->attachments_known=true;}
+        event->images=target_images(cb,targets);
         event->targets=targets;next.events[i]=std::move(event);
     }
     lock.unlock();
@@ -215,7 +238,8 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     cb->native_image_state=event->images;const auto& targets=cb->target_contexts.back();
     cb->native_graphics_ordered=true;
     VkRenderingInfo info{VK_STRUCTURE_TYPE_RENDERING_INFO};info.renderArea=targets.area;info.layerCount=1;
-    info.colorAttachmentCount=1;info.pColorAttachments=targets.dynamic_colors.data();begin(cb->handle,&info);
+    info.colorAttachmentCount=1;info.pColorAttachments=targets.dynamic_colors.data();
+    info.pDepthAttachment=targets.has_depth?&targets.depth:nullptr;begin(cb->handle,&info);
 }
 void native_targets_end(Device* device,CmdBuf* cb)
 {

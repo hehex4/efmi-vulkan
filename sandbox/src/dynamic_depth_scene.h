@@ -3,7 +3,7 @@ static bool create_dynamic_depth()
     if(!g.dynamic_depth)return true;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};image.imageType=VK_IMAGE_TYPE_2D;image.format=VK_FORMAT_D32_SFLOAT;
     image.extent={g.extent.width,g.extent.height,1};image.mipLevels=image.arrayLayers=1;image.samples=VK_SAMPLE_COUNT_1_BIT;
-    image.tiling=VK_IMAGE_TILING_OPTIMAL;image.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    image.tiling=VK_IMAGE_TILING_OPTIMAL;image.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|(g.native_output_depth?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
     CHECK(vkCreateImage(g.device,&image,nullptr,&g.depth_image));
     VkMemoryRequirements requirements{};vkGetImageMemoryRequirements(g.device,g.depth_image,&requirements);
     VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};allocation.allocationSize=requirements.size;

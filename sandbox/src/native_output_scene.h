@@ -5,13 +5,13 @@ struct NativeOutputScene {
     VkImage image=VK_NULL_HANDLE;
     VkImageView view=VK_NULL_HANDLE;
     VkDeviceMemory memory=VK_NULL_HANDLE;
-    Buffer readback;
+    Buffer readback,depth_readback;
 } native_output;
 
 static bool create_native_output()
 {
     auto& s=native_output;if(s.output.empty())return true;
-    if(!g.dynamic_rendering || g.threads || g.rendering_split || g.dynamic_depth)return false;
+    if(!g.dynamic_rendering || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth))return false;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType=VK_IMAGE_TYPE_2D;image.format=g.format;image.extent={g.extent.width,g.extent.height,1};
     image.mipLevels=image.arrayLayers=1;image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
@@ -26,7 +26,8 @@ static bool create_native_output()
     CHECK(vkCreateImageView(g.device,&view,nullptr,&s.view));
     if(s.query){VkQueryPoolCreateInfo pool{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};pool.queryType=VK_QUERY_TYPE_OCCLUSION;pool.queryCount=uint32_t(g.draws);
         CHECK(vkCreateQueryPool(g.device,&pool,nullptr,&s.queries));}
-    return make_buffer(s.readback,VkDeviceSize(g.extent.width)*g.extent.height*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true,true);
+    if(!make_buffer(s.readback,VkDeviceSize(g.extent.width)*g.extent.height*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true,true))return false;
+    return !g.native_output_depth || make_buffer(s.depth_readback,VkDeviceSize(g.extent.width)*g.extent.height*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true,true);
 }
 static VkImageMemoryBarrier native_output_barrier()
 {
@@ -65,6 +66,19 @@ static void record_native_output_readback(VkCommandBuffer command)
     barrier.srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     buffer.dstAccessMask=VK_ACCESS_HOST_READ_BIT;
     vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT|VK_PIPELINE_STAGE_HOST_BIT,0,0,nullptr,1,&buffer,1,&barrier);
+    if(s.depth_readback.buf){
+        barrier.image=g.depth_image;barrier.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
+        barrier.oldLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
+        buffer.buffer=s.depth_readback.buf;buffer.srcAccessMask=buffer.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,1,&buffer,1,&barrier);
+        copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
+        vkCmdCopyImageToBuffer(command,g.depth_image,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,s.depth_readback.buf,1,&copy);
+        barrier.oldLayout=barrier.newLayout;barrier.newLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        barrier.srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;barrier.dstAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        buffer.dstAccessMask=VK_ACCESS_HOST_READ_BIT;
+        vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_HOST_BIT,0,0,nullptr,1,&buffer,1,&barrier);
+    }
 }
 static void destroy_native_output()
 {
@@ -75,6 +89,11 @@ static void destroy_native_output()
         const auto metadata=s.output+L".json";_wfopen_s(&file,metadata.c_str(),L"wb");
         if(file){fprintf(file,"{\"width\":%u,\"height\":%u,\"format\":%u}",g.extent.width,g.extent.height,unsigned(g.format));fclose(file);}
     }
+    if(s.depth_readback.map){
+        FILE* file=nullptr;const auto path=s.output+L".depth.raw";_wfopen_s(&file,path.c_str(),L"wb");
+        if(file){fwrite(s.depth_readback.map,1,size_t(s.depth_readback.size),file);fclose(file);}
+    }
+    destroy_buffer(s.depth_readback);
     if(s.queries)vkDestroyQueryPool(g.device,s.queries,nullptr);
     destroy_buffer(s.readback);
     if(s.view)vkDestroyImageView(g.device,s.view,nullptr);
