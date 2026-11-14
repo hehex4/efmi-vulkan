@@ -459,10 +459,11 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
 VkResult GraphicsRecipe::create(VkDevice dev, PFN_vkCreateGraphicsPipelines create_fn,
                                 VkPipelineLayout layout, VkRenderPass pass,
                                 const std::vector<VkShaderModule>& modules, VkPipeline* out,
-                                const VertexInputRecipe* override_vertex) const
+                                const VertexInputRecipe* override_vertex, bool keep_geometry) const
 {
     *out = VK_NULL_HANDLE;
-    if (!complete || !create_fn || !layout || !pass || modules.size() != stages.size())
+    if ((!complete && !(keep_geometry && geometry_complete)) || (keep_geometry && override_vertex) ||
+        !create_fn || !layout || !pass || modules.size() != stages.size())
         return VK_ERROR_FEATURE_NOT_PRESENT;
     std::vector<VkSpecializationInfo> specs(stages.size());
     std::vector<VkPipelineShaderStageCreateInfo> ss;
@@ -491,7 +492,8 @@ VkResult GraphicsRecipe::create(VkDevice dev, PFN_vkCreateGraphicsPipelines crea
     dyn.dynamicStateCount = static_cast<uint32_t>(dynamic.size()); dyn.pDynamicStates = dynamic.data();
     VkGraphicsPipelineCreateInfo info = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     info.flags = flags; info.stageCount = static_cast<uint32_t>(ss.size()); info.pStages = ss.data();
-    info.pVertexInputState = &vi; info.pInputAssemblyState = &assembly; info.pRasterizationState = &raster;
+    info.pVertexInputState = dynamic_has(*this,VK_DYNAMIC_STATE_VERTEX_INPUT_EXT) ? nullptr : &vi;
+    info.pInputAssemblyState = &assembly; info.pRasterizationState = &raster;
     info.pTessellationState = has_tessellation ? &tessellation : nullptr;
     info.pViewportState = raster.rasterizerDiscardEnable ? nullptr : &vp;
     info.pMultisampleState = raster.rasterizerDiscardEnable ? nullptr : &ms;

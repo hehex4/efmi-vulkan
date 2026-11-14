@@ -590,6 +590,8 @@ static void constant_bones_tests(bool corpus)
     check(in_block >= 3 && agree == in_block, "every captured vertex module with its bones in a block names the block the Core's facts name");
 }
 
+#include "native_dynamic_recipe_cases.h"
+
 int main(int argc, char** argv)
 {
     // Cross-check the production rewriter on previously exported, local SPIR-V modules.
@@ -608,7 +610,7 @@ int main(int argc, char** argv)
         return output ? 0 : 2;
     }
     util_init(GetModuleHandleW(nullptr));
-    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); multiview_recipe_tests(); tracked_lifetime_tests(); draw_sequence_tests();
+    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); native_dynamic_recipe_tests(); multiview_recipe_tests(); tracked_lifetime_tests(); draw_sequence_tests();
     const bool corpus = argc == 2 && !strcmp(argv[1], "--corpus");
     dither_tests(corpus);
     constant_bones_tests(corpus);

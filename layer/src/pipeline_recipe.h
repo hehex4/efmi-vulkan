@@ -73,7 +73,7 @@ struct GraphicsRecipe {
     // Compute uses only stages/flags. Keeping the owned envelope lets it share the variant queue and lifetime.
     bool compute = false;
     bool complete = false;
-    // Capture may understand geometry state that replacement pipelines cannot yet restore.
+    // Capture/native twins can retain geometry state that mesh replacements cannot yet restore.
     bool geometry_complete = false;
     std::string reason;
     uint32_t subpass = 0;
@@ -102,7 +102,8 @@ struct GraphicsRecipe {
     // Pointers are baked only on the stack during this call; copies/moves of the recipe are safe.
     // All handles here must be owned by the caller, not borrowed application creation handles.
     VkResult create(VkDevice, PFN_vkCreateGraphicsPipelines, VkPipelineLayout, VkRenderPass,
-                    const std::vector<VkShaderModule>&, VkPipeline*, const VertexInputRecipe* override_vertex = nullptr) const;
+                    const std::vector<VkShaderModule>&, VkPipeline*, const VertexInputRecipe* override_vertex = nullptr,
+                    bool keep_geometry = false) const;
     void write(JsonWriter&) const;
 };
 

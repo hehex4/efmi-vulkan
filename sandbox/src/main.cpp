@@ -215,6 +215,7 @@ struct App {
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
     int dynamic_geometry = 0;
+    bool geometry_shader_scene = false;
     bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
@@ -1326,17 +1327,17 @@ static void record_draw(VkCommandBuffer cb, int i)
     i %= kDrawCount;
     const DrawDef& d = kDraws[i];
     if(g.dynamic_geometry){
-        const VkDeviceSize offset=0,size=sizeof(kVertices),stride=d.count==3?0:8;
+        const VkDeviceSize offset=0,size=sizeof(kVertices),stride=!g.geometry_shader_scene && d.count==3?0:8;
         const uint32_t slot=g.dynamic_geometry>=4 && d.count==3?1:0;
         if(g.dynamic_geometry>=4){
             VkVertexInputBindingDescription2EXT binding{VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT};
-            binding.binding=slot;binding.stride=uint32_t(stride);binding.inputRate=d.instances==2?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX;binding.divisor=1;
+            binding.binding=slot;binding.stride=uint32_t(stride);binding.inputRate=!g.geometry_shader_scene && d.instances==2?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX;binding.divisor=1;
             VkVertexInputAttributeDescription2EXT attribute{VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT};
-            attribute.binding=slot;attribute.format=slot?VK_FORMAT_R32_SFLOAT:VK_FORMAT_R32G32_SFLOAT;attribute.offset=slot?4:0;
+            attribute.binding=slot;attribute.format=slot && !g.geometry_shader_scene?VK_FORMAT_R32_SFLOAT:VK_FORMAT_R32G32_SFLOAT;attribute.offset=slot && !g.geometry_shader_scene?4:0;
             dynamic_vertex_input(cb,1,&binding,1,&attribute);
             binding.stride=123;attribute.offset=123; // Source arrays are no longer valid metadata after the call.
         }
-        const VkDeviceSize override_stride=d.count==3?8:0;
+        const VkDeviceSize override_stride=g.geometry_shader_scene || d.count==3?8:0;
         dynamic_bind_vertices(cb,slot,1,&g.vb.buf,&offset,&size,g.dynamic_geometry==4?nullptr:g.dynamic_geometry==5?&override_stride:&stride);
         // Neither this null-stride rebind nor the legacy rebind changes dynamic stride.
         if(i%2)dynamic_bind_vertices(cb,slot,1,&g.vb.buf,&offset,nullptr,nullptr);
@@ -1908,6 +1909,8 @@ int wmain(int argc, wchar_t** argv)
             g.reference_cube_arrays = true;
         else if (a == L"--reference-sampled-source")
             g.reference_sampled_source = true;
+        else if (a == L"--geometry-shader")
+            g.geometry_shader_scene = true;
         else if (a == L"--geometry-dynamic" && i + 1 < argc)
             g.dynamic_geometry = _wtoi(argv[++i]);
         else if (a == L"--reference-rgba")

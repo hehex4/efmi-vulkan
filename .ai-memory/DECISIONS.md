@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-225: Native-only shader twins preserve the game's dynamic geometry (2026-11-14)
+
+- Original HackerContext SwitchVSShader/SwitchPSShader and shader patch getter/setter paths replace shader stages without changing IA/raster state. DX11 supplies retained/deferred lifetime, hazard tracking and context order. Vulkan recreates an owned pipeline with the exact dynamic declaration and retains its existing command owner/revision lifetime.
+- GraphicsRecipe.create has explicit keep_geometry mode: understood geometry-complete recipes may create native twins, but any vertex override is rejected. Full dynamic vertex input recreates with a null static input description. PipelineVariant enables this only for native_only plus keep_vertex and without own_geometry, image/null remaps or private replacement images. Mesh and texture-only routes retain complete checks; unknown extended states still refuse.
+- Primary/secondary calls, original/pink hunting, F10 shader changes/removal and module exchange use the same route and retain the application's dynamic values. No added setter can invalidate the game's state; the twin and original have matching declarations. Vulkan dynamic lifetime reference: https://docs.vulkan.org/guide/latest/dynamic_state.html . Baseline and exact scoped verification are in CURRENT_STATE.
+
 ## D-224: Full dynamic vertex input uses immutable draw declarations (2026-11-14)
 
 - Original FrameAnalysis reads its input-layout descriptors and live context IA buffers/strides/topology. DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan records owned bounded declarations at CmdSetVertexInputEXT and retains the immutable snapshot with each draw and secondary execution; existing capture owners/dependencies publish bytes only after GPU completion.

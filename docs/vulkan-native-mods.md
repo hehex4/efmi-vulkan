@@ -828,3 +828,15 @@ queue and the existing synchronization2 boundary remain required. Attachment bin
 writable access, transformed/pooled/initialized resources and cross-queue graphs need further adapters.
 Sandbox results cover actual completed bytes and allocation/publication lifetime; no game acceptance
 is implied. CURRENT_STATE distinguishes failures in the feature baseline from fixture/integration corrections.
+
+### Native shader twins with dynamic geometry (D-225, 2.5.5)
+
+Native ShaderFixes and hunting can keep core/EXT dynamic stride/topology and full dynamic vertex
+input. The owned twin reproduces the exact dynamic declaration and the original static state;
+full dynamic input has no invented static layout. Its creation mode forbids a vertex override.
+Mesh replacement retains its earlier completeness and binding-state restrictions. Unknown
+extended dynamic states still refuse; extending raster dynamics is the next offline step.
+
+The scoped GPU fixture proves replacement pixels, original restoration, F10 change/removal,
+secondary recording, injection, module exchange and original/pink hunting. CURRENT_STATE separates
+the failing baseline, matching build/ABI and exact verified area. No game verification is implied.

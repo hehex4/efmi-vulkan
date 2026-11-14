@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-225 verified; continue D-226 extended raster dynamics (2026-11-14)
+
+- D-224 mergeda555396. D-225 baseline8/16 already reproduced, then source2.5.5/ABI93576afe91aa4431 applied. Pair/sandbox/recipe/planner build d225-pair.out and area d225-regression.out pass: tracker328, recipe218, shader92, dynamic49, hunting45, validation76/text597; all integration scripts APPLIED. CURRENT_STATE has exact originals, fixture/baseline and verification sequence.
+- After affected checks/commit/FF continue D-226 extended raster dynamics (unapplied build/d226-plan.md/fixture.py; isolated GPU baseline4/8 already recorded in d226-before.out) and remaining target/queue adapters. Do not end at an intermediate milestone. No game/deployment authorization.
+
 ## D-224 verified; continue D-225 native dynamic shaders (2026-11-14)
 
 - D-223 merged08ed82c. D-224 baseline20/33; source2.5.4/ABIc9a3c97753f6da04 final build d224-final-pair.out and affected area d224-regression.out pass. Tracker328, recipe209, selection94, geometry65, dynamic56, full input60, indirect121, validation76/text595. CURRENT_STATE records exact fixture/source/build/verification and D-225 baseline8/16. All D-224 fixture/integration scripts applied.

@@ -181,9 +181,11 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
         reason = "compute_requires_native_stage_only"; return false;
     }
     VertexRepoint rewritten;
+    const bool native_geometry = !recipe.compute && patch.native_only && patch.keep_vertex && !patch.own_geometry &&
+        patch.images.empty() && patch.nulls.empty() && !patch.replacement_images;
     if (patch.keep_vertex) {
         // Only the layout: the private set above the pipeline's own sets, no vertex rewrite.
-        if (!recipe.complete) { reason = "recipe:" + recipe.reason; return false; }
+        if (!recipe.complete && !(native_geometry && recipe.geometry_complete)) { reason = "recipe:" + recipe.reason; return false; }
         if (!source.complete || source.flags || (!patch.native_only && source.sets.empty()) || source.sets.size() > 8 ||
             source.sets.size() + (patch.native_only ? 0 : 1) > max_sets) {
             reason = "layout_requires_complete_sets_and_one_free_slot"; return false;
@@ -284,7 +286,8 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
         // The recipe takes a creation function of the Vulkan shape; the variant's pipeline cache (D-101)
         // reaches it through this thread's slot, the recipe's signature being one host and module share.
         t_create = d_.CreateGraphicsPipelines; t_cache = cache_;
-        good(recipe.create(dev_, &create_through_cache, layout, pass, modules, &pipeline, &vertex), "create_variant_pipeline");
+        good(recipe.create(dev_, &create_through_cache, layout, pass, modules, &pipeline,
+                           native_geometry ? nullptr : &vertex, native_geometry), "create_variant_pipeline");
         }
     }
     for (auto m : modules) d_.DestroyShaderModule(dev_, m, nullptr);

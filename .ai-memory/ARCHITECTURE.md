@@ -10,6 +10,10 @@ stride; caller arrays and later setters cannot mutate earlier snapshots. Recipes
 cannot authorize pipeline cloning. Static pipeline geometry and existing capture ownership,
 submission limits and completion publication remain authoritative.
 
+D-225 native shader twins explicitly retain original geometry and exact dynamic declarations.
+This construction mode rejects vertex-stream overrides; mesh replacement still requires the
+stricter complete recipe. Full dynamic vertex input recreates without a static input description.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,
