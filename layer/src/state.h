@@ -23,6 +23,7 @@ namespace efvk {
 class GpuAnalysis;
 struct NativeImageState;
 struct NativeTargetState;
+struct NativePipelineSelection;
 struct NativeImageCache;
 
 class M2Backend;
@@ -466,6 +467,8 @@ struct CmdBuf {
     ImageLayouts image_layouts;
     ExecutionScopes execution_scopes;
     std::shared_ptr<NativeTargetState> native_target_state;
+    std::shared_ptr<NativePipelineSelection> native_pipeline;
+    bool native_target_blocked = false;
     std::shared_ptr<NativeImageState> native_image_state;
     bool native_images = false;
     bool native_mutable = false; // This recording carries mutable file bindings and their compute hazards.

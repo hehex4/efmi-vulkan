@@ -59,7 +59,7 @@ static void native_classic_output_cases(){
         prepared.events[0]->targets.framebuffer->views[0].handle==views[1].handle,"classic actual metadata stays classic and names the new framebuffer attachment");
     check(prepare() && classic_creates==1 && classic_fb_creates==1,"classic repeated preparation reuses the bounded identity-keyed object cache");
     auto saved=plan;plan.items.push_back(item);plan.items.back().native_resource={};
-    check(!prepare() && output_commands.empty() && classic_creates==1,"later classic null binding refuses the whole plan before its first split or allocation");plan=saved;
+    check(!prepare() && output_commands.empty() && classic_creates==1,"unproven selected pipeline refuses a later classic null before its first split or allocation");plan=saved;
     attachment.storeOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;check(!prepare(),"classic discarded color cannot be recovered by LOAD");attachment.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
     pass->subpasses.push_back(pass->subpasses[0]);check(!prepare(),"classic multi-subpass output needs its own split adapter");pass->subpasses.pop_back();
     d.image_views[views[1].handle].id++;check(!prepare() && output_commands.empty(),"classic cache reuse still proves the destination's live view identity");d.image_views[views[1].handle].id--;

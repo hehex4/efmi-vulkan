@@ -1,21 +1,8 @@
-// Private classic-pass objects. NativeTargetState is the complete host/module boundary.
+// Classic pass preparation. Shared object layouts are defined in native_targets.h.
 #pragma once
 #include "native_targets.h"
+#include "pipeline_variant.h"
 namespace efvk {
-struct NativeClassicTarget {
-    VkDevice device=VK_NULL_HANDLE;
-    VkRenderPass pass=VK_NULL_HANDLE;
-    VkFramebuffer framebuffer=VK_NULL_HANDLE;
-    PFN_vkDestroyFramebuffer destroy_framebuffer=nullptr;
-    PFN_vkDestroyRenderPass destroy_pass=nullptr;
-    std::shared_ptr<const RenderPassRecipe> original,recipe;
-    std::shared_ptr<const FramebufferInfo> info;
-    std::vector<std::shared_ptr<ImageViewLifetime>> views;
-    ~NativeClassicTarget(){
-        if(framebuffer)destroy_framebuffer(device,framebuffer,nullptr);
-        if(pass)destroy_pass(device,pass,nullptr);
-    }
-};
 namespace {
 VkImageAspectFlags depth_aspects(VkFormat);
 bool classic_recipe(const RenderPassRecipe& recipe){
@@ -80,17 +67,20 @@ bool classic_context(RenderTargets& targets,std::string& why){
     targets.has_stencil=classic_depth_format(*targets.recipe,VK_IMAGE_ASPECT_STENCIL_BIT)!=VK_FORMAT_UNDEFINED;
     if(targets.has_depth)targets.depth=attachment(sub.depth);if(targets.has_stencil)targets.stencil=attachment(sub.depth);return true;
 }
-std::vector<TargetView> classic_views(const RenderTargets& targets){
-    std::vector<TargetView> views(targets.recipe->attachments.size());const auto& sub=targets.recipe->subpasses[0];
+std::vector<TargetView> classic_views(const RenderTargets& targets,const RenderPassRecipe* mapping=nullptr){
+    const auto& recipe=mapping?*mapping:*targets.recipe;
+    std::vector<TargetView> views(recipe.attachments.size());const auto& sub=recipe.subpasses[0];
     for(size_t i=0;i<sub.colors.size();++i)if(sub.colors[i].attachment!=VK_ATTACHMENT_UNUSED)views[sub.colors[i].attachment]=targets.views[2*i];
-    if(sub.has_depth && sub.depth.attachment!=VK_ATTACHMENT_UNUSED)views[sub.depth.attachment]=targets.views[2*sub.colors.size()];return views;
+    if(sub.has_depth && sub.depth.attachment!=VK_ATTACHMENT_UNUSED && (targets.has_depth || targets.has_stencil))
+        views[sub.depth.attachment]=targets.views[2*sub.colors.size()];return views;
 }
 std::shared_ptr<NativeClassicTarget> classic_target(Device* device,NativeTargetCache& cache,
-    const std::shared_ptr<const RenderPassRecipe>& original,const std::vector<TargetView>& views,std::string& why){
+    const std::shared_ptr<const RenderPassRecipe>& original,const std::vector<TargetView>& views,VkRect2D area,std::string& why){
     std::vector<std::shared_ptr<ImageViewLifetime>> keep;
     {
         std::shared_lock<std::shared_mutex> lock(device->res_mx);
         for(const auto& view:views){
+            if(!view.handle)continue;
             const auto live=device->image_views.find(view.handle);const auto image=device->images.find(view.view.image);
             if(live==device->image_views.end() || live->second.id!=view.view.id || live->second.image_id!=view.image.id ||
                image==device->images.end() || image->second.id!=view.image.id || !live->second.lifetime){
@@ -103,15 +93,26 @@ std::shared_ptr<NativeClassicTarget> classic_target(Device* device,NativeTargetC
     }
     std::lock_guard<std::mutex> lock(cache.mutex);
     for(const auto& entry:cache.classic){
-        if(entry->original!=original || entry->info->views.size()!=views.size())continue;
-        bool same=true;for(size_t i=0;i<views.size();++i){const auto& previous=entry->info->views[i];
+        if(entry->original!=original || entry->bindings.size()!=views.size() ||
+           entry->info->width<uint64_t(area.offset.x)+area.extent.width || entry->info->height<uint64_t(area.offset.y)+area.extent.height)continue;
+        bool same=true;for(size_t i=0;i<views.size();++i){const auto& previous=entry->bindings[i];
             same&=previous.view.id==views[i].view.id && previous.image.id==views[i].image.id && previous.handle==views[i].handle;}
         if(same)return entry;
     }
     auto entry=std::make_shared<NativeClassicTarget>();entry->device=device->handle;
     entry->destroy_framebuffer=device->d.DestroyFramebuffer;entry->destroy_pass=device->d.DestroyRenderPass;
-    entry->original=original;entry->views=std::move(keep);
+    entry->original=original;entry->views=std::move(keep);entry->bindings=views;
     auto recipe=std::make_shared<RenderPassRecipe>(*original);
+    // Unused descriptions still perform initial/final transitions. Remove them entirely,
+    // retaining slot contracts in NativeTargetState and remapping only active references.
+    recipe->attachments.clear();std::vector<uint32_t> remap(views.size(),VK_ATTACHMENT_UNUSED);
+    std::vector<TargetView> active;
+    for(size_t i=0;i<views.size();++i)if(views[i].handle){
+        remap[i]=uint32_t(active.size());active.push_back(views[i]);recipe->attachments.push_back(original->attachments[i]);
+    }
+    auto relocate=[&](VkAttachmentReference2& ref){if(ref.attachment!=VK_ATTACHMENT_UNUSED)ref.attachment=remap[ref.attachment];};
+    for(auto& ref:recipe->subpasses[0].colors)relocate(ref);
+    if(recipe->subpasses[0].has_depth)relocate(recipe->subpasses[0].depth);
     for(size_t i=0;i<recipe->attachments.size();++i){auto& attachment=recipe->attachments[i];const auto aspects=depth_aspects(attachment.format);
         if(!aspects || (aspects&VK_IMAGE_ASPECT_DEPTH_BIT))attachment.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
         if(aspects&VK_IMAGE_ASPECT_STENCIL_BIT)attachment.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -122,9 +123,10 @@ std::shared_ptr<NativeClassicTarget> classic_target(Device* device,NativeTargetC
        recipe->create(device->handle,device->d.CreateRenderPass,create2,&entry->pass)!=VK_SUCCESS){
         why="Native classic continuation render pass creation failed";return {};
     }
-    auto info=std::make_shared<FramebufferInfo>();info->known=true;info->layers=1;info->attachment_count=uint32_t(views.size());
-    info->width=info->height=UINT32_MAX;info->views=views;std::vector<VkImageView> handles;
-    for(const auto& view:views){handles.push_back(view.handle);
+    auto info=std::make_shared<FramebufferInfo>();info->known=true;info->layers=1;info->attachment_count=uint32_t(active.size());
+    info->width=active.empty()?uint32_t(area.offset.x)+area.extent.width:UINT32_MAX;
+    info->height=active.empty()?uint32_t(area.offset.y)+area.extent.height:UINT32_MAX;info->views=active;std::vector<VkImageView> handles;
+    for(const auto& view:active){handles.push_back(view.handle);
         info->width=std::min(info->width,std::max(1u,view.image.extent.width>>std::min(view.view.range.baseMipLevel,31u)));
         info->height=std::min(info->height,std::max(1u,view.image.extent.height>>std::min(view.view.range.baseMipLevel,31u)));}
     VkFramebufferCreateInfo create{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};create.renderPass=entry->pass;
@@ -134,6 +136,41 @@ std::shared_ptr<NativeClassicTarget> classic_target(Device* device,NativeTargetC
     }
     entry->recipe=std::move(recipe);entry->info=std::move(info);
     if(cache.classic.size()>=64)cache.classic.erase(cache.classic.begin());cache.classic.push_back(entry);return entry;
+}
+uint32_t classic_mask(const RenderPassRecipe& recipe){
+    uint32_t mask=0;const auto& sub=recipe.subpasses[0];
+    for(size_t i=0;i<sub.colors.size();++i)if(sub.colors[i].attachment!=VK_ATTACHMENT_UNUSED)mask|=1u<<i;
+    if(sub.has_depth && sub.depth.attachment!=VK_ATTACHMENT_UNUSED)mask|=1u<<8;return mask;
+}
+std::shared_ptr<const PipelineVariant> classic_pipeline(Device* device,NativeTargetState& state,
+    const NativePipelineSelection& source,const std::shared_ptr<const RenderPassRecipe>& pass,std::string& why){
+    if(!source.recipe || !source.layout || !source.recipe->geometry_complete || source.recipe->dynamic_rendering ||
+       !source.recipe->render_pass || source.recipe->subpass || !classic_recipe(*source.recipe->render_pass) ||
+       classic_color_formats(*source.recipe->render_pass)!=classic_color_formats(*state.classic_recipe) ||
+       classic_depth_format(*source.recipe->render_pass,VK_IMAGE_ASPECT_DEPTH_BIT)!=state.depth.format ||
+       classic_depth_format(*source.recipe->render_pass,VK_IMAGE_ASPECT_STENCIL_BIT)!=state.stencil_format){
+        why="Native classic selected pipeline contract is unavailable";return {};
+    }
+    if(!state.compatibility)state.compatibility=std::make_shared<NativePipelineCache>();
+    auto& cache=*state.compatibility;std::lock_guard<std::mutex> lock(cache.mutex);
+    for(const auto& entry:cache.pipelines)if(entry->source==source.recipe && entry->layout==source.layout && entry->pass==pass)return entry->variant;
+    VariantDispatch funcs;
+#define X(n) funcs.n=device->d.n;
+    EFVK_VARIANT_FUNCS(X)
+#undef X
+    if(!funcs.CreateShaderModule || !funcs.DestroyShaderModule || !funcs.CreatePipelineLayout || !funcs.DestroyPipelineLayout ||
+       !funcs.CreateDescriptorSetLayout || !funcs.DestroyDescriptorSetLayout || !funcs.CreateGraphicsPipelines || !funcs.DestroyPipeline || !funcs.DestroyRenderPass){
+        why="Native classic compatible pipeline creation entries are unavailable";return {};
+    }
+    if(!funcs.CreateRenderPass2)funcs.CreateRenderPass2=device->d.CreateRenderPass2KHR;
+    auto recipe=*source.recipe;recipe.render_pass=pass;
+    auto variant=std::make_shared<PipelineVariant>(device->handle,funcs);
+    FragmentPatch patch;patch.keep_vertex=patch.native_only=true;
+    if(!variant->build(recipe,*source.layout,recipe.vertex,device->physical_properties.limits.maxBoundDescriptorSets,patch,device->physical_properties.limits)){
+        why="Native classic compatible pipeline creation failed: "+variant->reason;return {};
+    }
+    auto entry=std::make_shared<NativeClassicPipeline>();entry->source=source.recipe;entry->layout=source.layout;entry->pass=pass;entry->variant=variant;
+    if(cache.pipelines.size()>=64)cache.pipelines.erase(cache.pipelines.begin());cache.pipelines.push_back(entry);return variant;
 }
 }
 }

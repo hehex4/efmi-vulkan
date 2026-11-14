@@ -24,14 +24,14 @@ struct NativeShaderSet {
     uint64_t revision = 0;
     // (Vulkan stage << 32) | original SPIR-V CRC-32C. A shader's original identity never changes.
     std::map<uint64_t, std::shared_ptr<const ShaderInfo>> modules;
-    // The original's DepthBufferFilter values: 1 active, 2 inactive. Dynamic rendering needs actual views.
+    // The original's DepthBufferFilter values: 1 active, 2 inactive. Changed outputs need actual views.
     std::map<uint32_t, int> depth_filters;
     bool allows(uint32_t hash, const GraphicsRecipe& recipe, int dynamic_depth = -1) const {
         if (recipe.compute) return true; // BeforeDispatch deliberately bypasses ProcessShaderOverride's depth rule.
         const auto filter = depth_filters.find(hash);
         if (filter == depth_filters.end()) return true;
         if (recipe.dynamic_rendering && dynamic_depth < 0 && (filter->second == 1 || filter->second == 2)) return false;
-        const bool depth = recipe.dynamic_rendering ? dynamic_depth == 1 :
+        const bool depth = dynamic_depth >= 0 ? dynamic_depth == 1 :
             recipe.render_pass && recipe.subpass < recipe.render_pass->subpasses.size() &&
             recipe.render_pass->subpasses[recipe.subpass].uses_depth();
         return filter->second == 1 ? depth : filter->second == 2 ? !depth : true;
@@ -59,7 +59,7 @@ struct FragmentPatch {
     bool own_geometry = false;
     // A game pipeline with only its shaders replaced: keep the application's complete layout, with no private set.
     bool native_only = false;
-    // Actual dynamic depth/stencil view presence: unknown (-1), absent (0), present (1).
+    // Actual output depth/stencil view presence: unknown (-1), absent (0), present (1).
     int dynamic_depth = -1;
     // Hunting uses original Vulkan stage bits; pink overrides the fragment output for this draw only.
     uint32_t original_stages = 0;

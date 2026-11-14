@@ -2,6 +2,7 @@
 // pipeline whose fragment stage has the dither is bound as its twin.
 #include "character_backend_internal.h"
 #include "native_resources.h"
+#include "native_targets.h"
 
 namespace efvk {
 namespace character_internal {
@@ -82,7 +83,10 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline, 
         id = pipe->second.id; recipe = pipe->second.recipe; layout = pipe->second.layout;
     }
     uint32_t targets = 0;
-    const int depth = recipe->dynamic_rendering && native_dynamic_outputs(cb, cb->active_targets, targets) ? int((targets >> 8) & 1) : -1;
+    int depth = recipe->dynamic_rendering && native_dynamic_outputs(cb, cb->active_targets, targets) ? int((targets >> 8) & 1) : -1;
+    if(!recipe->compute && !recipe->dynamic_rendering && cb->native_target_state && cb->native_target_state->classic &&
+       cb->in_rp && cb->pass.recipe && cb->pass.recipe->complete && cb->pass.recipe->subpasses.size()==1)
+        depth=cb->pass.recipe->subpasses[0].uses_depth()?1:0;
     const bool native = b.enabled.load(std::memory_order_relaxed) && (pink || has_native_shader(fixes, *recipe, marking, depth));
     const bool dither = !recipe->compute && dither_off && pipeline_dither(id, *recipe);
     if (!native && !dither) return pipeline;
@@ -122,6 +126,10 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline, 
     if (std::find(owner.held.begin(), owner.held.end(), twin) == owner.held.end()) owner.held.push_back(twin);
     ++b.twin_binds;
     if (native && twin->native_replaced) ++b.shader_fix_binds;
+    if(!recipe->compute){
+        auto selection=std::make_shared<NativePipelineSelection>();selection->source=selection->bound=twin->pipeline;
+        selection->recipe=twin->effective_recipe;selection->layout=twin->effective_layout;cb->native_pipeline=std::move(selection);
+    }
     return twin->pipeline;
 }
 // At the application's graphics pipeline creation (D-133): when the Mods have a discard gate, the twin of a

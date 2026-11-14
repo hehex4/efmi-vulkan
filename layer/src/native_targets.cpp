@@ -9,10 +9,16 @@ constexpr uint32_t depth_slot=8; // The original DSV binding represents both dep
 struct TargetOwner:CommandOwner {
     std::vector<std::shared_ptr<const Resource>> resources;
     std::vector<std::shared_ptr<NativeClassicTarget>> classic;
+    std::vector<std::shared_ptr<const PipelineVariant>> pipelines;
     bool sealed=false;
-    void reset_after_completion()override{resources.clear();classic.clear();used=false;sealed=false;}
+    void reset_after_completion()override{resources.clear();classic.clear();pipelines.clear();used=false;sealed=false;}
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}
 };
+std::shared_ptr<TargetOwner> target_owner(CmdBuf* cb){
+    // Binding a twin must not discard another package's unused snapshot arena (BUG-089).
+    for(const auto& owner:cb->owners)if(owner && owner->backend==&target_owner_key)return std::static_pointer_cast<TargetOwner>(owner);
+    auto owner=std::make_shared<TargetOwner>();owner->backend=&target_owner_key;cb->owners.push_back(owner);return owner;
+}
 bool absent_output(const CmdBuf* cb,const efmi::frontend::NativeBinding& binding){
     const bool depth=binding.kind==efmi::frontend::NativeBinding::DepthTarget;
     if((depth && binding.slot) || (!depth && (binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot>=8)))return false;
@@ -203,16 +209,16 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     for(size_t slot=0;slot<count;++slot){
         if(color_formats[slot]!=next.state->colors[slot].format ||
            (targets.dynamic_colors[slot].imageView?color_formats[slot]!=targets.views[2*slot].view.format:
-            (color_formats[slot]!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments)))
+            (color_formats[slot]!=VK_FORMAT_UNDEFINED && !classic && !device->dynamic_unused_attachments)))
             return refuse("Native output pipeline color contract is unavailable");
     }
     const bool depth_bound=targets.has_depth && targets.depth.imageView;
     const bool stencil_bound=targets.has_stencil && targets.stencil.imageView;
     if(depth_bound?depth_format!=targets.views[depth_index].view.format:
-       (depth_format!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
+       (depth_format!=VK_FORMAT_UNDEFINED && !classic && !device->dynamic_unused_attachments))
         return refuse("Native output pipeline depth contract is unavailable");
     if(stencil_bound?stencil_format!=targets.views[stencil_index].view.format:
-       (stencil_format!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
+       (stencil_format!=VK_FORMAT_UNDEFINED && !classic && !device->dynamic_unused_attachments))
         return refuse("Native output pipeline stencil contract is unavailable");
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || no_op[i])continue;
@@ -220,7 +226,9 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         const auto& binding=item.native_target;const bool depth=binding.kind==efmi::frontend::NativeBinding::DepthTarget;
         if(depth?binding.slot!=0:(binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot>=count))
             return refuse("Native output destination slot needs a separate pass adapter");
-        if(classic && empty)return refuse("Native classic null outputs need a compatible attachment adapter");
+        if(classic && empty && (!cb->native_pipeline || cb->native_pipeline->bound!=draw.bound ||
+           !cb->native_pipeline->recipe || !cb->native_pipeline->layout))
+            return refuse("Native classic null outputs require the actual selected pipeline snapshot");
         bool roles_changed=false;
         if(depth && !empty){
             if(!targets.has_depth && next.state->depth.format!=VK_FORMAT_UNDEFINED){
@@ -238,7 +246,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         const auto current=depth?(targets.has_depth && targets.depth.imageView?targets.depth.imageView:
             targets.has_stencil?targets.stencil.imageView:VK_NULL_HANDLE):targets.dynamic_colors[slot].imageView;
         if(empty && !item.resource){
-            if(current && !device->dynamic_unused_attachments)
+            if(current && !classic && !device->dynamic_unused_attachments)
                 return refuse("Native null outputs require the application's enabled unused attachments feature");
             auto event=std::make_shared<NativeTargetPlan::Event>();event->slot=uint32_t(slot);event->change=current!=VK_NULL_HANDLE;
             if(depth){
@@ -321,18 +329,29 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     }
     lock.unlock();
     if(classic){
+        if(!next.state->compatibility){
+            std::lock_guard<std::mutex> cache_lock(cache->mutex);
+            if(!cache->pipeline_cache)cache->pipeline_cache=std::make_shared<NativePipelineCache>();
+            next.state->compatibility=cache->pipeline_cache;
+        }
         // All binding proofs precede allocation, and all allocations precede the first End.
         for(auto& event:next.events)if(event && event->change){
-            event->classic=classic_target(device,*cache,next.state->classic_recipe,classic_views(event->targets),why);
+            event->classic=classic_target(device,*cache,next.state->classic_recipe,classic_views(event->targets,next.state->classic_recipe.get()),event->targets.area,why);
             if(!event->classic)return false;
+            if(classic_mask(*event->classic->recipe)!=classic_mask(*next.state->classic_recipe)){
+                if(!cb->native_pipeline || cb->native_pipeline->bound!=draw.bound)return refuse("Native classic selected pipeline identity is unavailable");
+                event->pipeline=classic_pipeline(device,*next.state,*cb->native_pipeline,event->classic->recipe,why);
+                if(!event->pipeline)return false;event->bound=event->pipeline->pipeline;
+            }else if(cb->native_pipeline)event->bound=cb->native_pipeline->source;
             auto& actual=event->targets;actual.dynamic=false;actual.dynamic_colors.clear();actual.views.clear();
             actual.recipe=event->classic->recipe;actual.framebuffer=event->classic->info;
         }
     }
-    auto owner=std::static_pointer_cast<TargetOwner>(owner_for(cb->owners,&target_owner_key,[]{auto owner=std::make_shared<TargetOwner>();owner->backend=&target_owner_key;return owner;}));
+    auto owner=target_owner(cb);
     if(owner->sealed || owner->resources.size()+plan.items.size()>4096)return refuse("Native output retention budget or sealed recording");
     owner->resources.reserve(owner->resources.size()+plan.items.size());cb->target_contexts.reserve(cb->target_contexts.size()+plan.items.size());
     owner->classic.reserve(owner->classic.size()+plan.items.size());
+    owner->pipelines.reserve(owner->pipelines.size()+plan.items.size());
     next.owner=owner;output=std::move(next);return true;
 }
 namespace {
@@ -349,14 +368,15 @@ void record_classic_target(Device* device,CmdBuf* cb,const NativeTargetPlan& pla
         barriers[count++]=transition(saved,before,after);layout(cb,saved,after);
     };
     const auto& next=event->classic->info->views;
-    for(size_t i=0;i<next.size();++i){
-        const auto old=state.private_pass?cb->pass.info->views[i].handle:state.classic_originals[i].view.handle;
-        const auto work=classic_work_layout(*state.classic_recipe,i);const auto& before=classic_saved(state,old);
-        if(!state.private_pass)layout(cb,before,before.layout); // The first End performs all original final transitions.
-        if(old!=next[i].handle){
-            if(state.private_pass)move(before,work,before.layout);
-            const auto& after=classic_saved(state,next[i].handle);move(after,after.layout,work);
-        }else if(!state.private_pass)move(before,before.layout,work);
+    const auto previous=state.private_pass?cb->pass.info->views:std::vector<TargetView>{};
+    auto work=[](const TargetView& view){return depth_aspects(view.view.format)?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;};
+    auto contains=[](const std::vector<TargetView>& views,VkImageView handle){return std::any_of(views.begin(),views.end(),[&](const TargetView& view){return view.handle==handle;});};
+    if(!state.private_pass)for(const auto& original:state.classic_originals)layout(cb,original,original.layout);
+    for(const auto& old:previous)if(!contains(next,old.handle)){
+        const auto& saved=classic_saved(state,old.handle);move(saved,work(old),saved.layout);
+    }
+    for(const auto& view:next)if(!contains(previous,view.handle)){
+        const auto& saved=classic_saved(state,view.handle);move(saved,saved.layout,work(view));
     }
     auto& attachment=event->slot==depth_slot?state.depth:state.colors[event->slot];
     attachment.active=event->target!=attachment.original?event->target:VK_NULL_HANDLE;
@@ -368,6 +388,10 @@ void record_classic_target(Device* device,CmdBuf* cb,const NativeTargetPlan& pla
     cb->pass.recipe=targets.recipe;cb->pass.info=targets.framebuffer;
     VkRenderPassBeginInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};info.renderPass=cb->pass.render_pass;
     info.framebuffer=cb->pass.framebuffer;info.renderArea=targets.area;device->d.CmdBeginRenderPass(cb->handle,&info,VK_SUBPASS_CONTENTS_INLINE);
+    if(event->bound){
+        if(event->bound!=cb->gfx_bound)device->d.CmdBindPipeline(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,event->bound);
+        cb->gfx_bound=event->bound;if(cb->native_pipeline)cb->native_pipeline->bound=event->bound;
+    }
 }
 }
 
@@ -376,7 +400,7 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     const auto& event=plan.events[index];if(!event)return;
     auto owner=std::static_pointer_cast<TargetOwner>(plan.owner);owner->used=true;owner->resources.push_back(event->resource);
     cb->native_target_state=plan.state;if(!event->change)return;
-    if(event->classic){owner->classic.push_back(event->classic);record_classic_target(device,cb,plan,event);return;}
+    if(event->classic){owner->classic.push_back(event->classic);if(event->pipeline)owner->pipelines.push_back(event->pipeline);record_classic_target(device,cb,plan,event);return;}
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
     end(cb->handle);
@@ -408,12 +432,47 @@ void native_targets_end(Device* device,CmdBuf* cb)
     if(state->classic){
         if(state->private_pass)for(size_t i=0;i<cb->pass.info->views.size();++i){
             const auto& saved=classic_saved(*state,cb->pass.info->views[i].handle);
-            barriers[count++]=transition(saved,classic_work_layout(*state->classic_recipe,i),saved.layout);layout(cb,saved,saved.layout);
+            barriers[count++]=transition(saved,depth_aspects(saved.view.view.format)?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,saved.layout);layout(cb,saved,saved.layout);
         }
     }else{
         for(const auto& color:state->colors)restore(color,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         restore(state->depth,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     }
     if(count)device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,count,barriers);
+    if(state->classic && state->private_pass){
+        const auto source=cb->native_pipeline?cb->native_pipeline->source:cb->gfx_pipeline;
+        if(source && source!=cb->gfx_bound){device->d.CmdBindPipeline(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,source);cb->gfx_bound=source;}
+        if(cb->native_pipeline)cb->native_pipeline->bound=source;cb->native_target_blocked=false;
+    }
 }
+VkPipeline native_target_bind(Device* device,CmdBuf* cb,VkPipeline pipeline){
+    if(!cb)return pipeline;
+    auto selected=cb->native_pipeline;
+    if(!selected || selected->source!=pipeline){
+        selected=std::make_shared<NativePipelineSelection>();selected->source=selected->bound=pipeline;
+        std::shared_lock<std::shared_mutex> lock(device->res_mx);const auto found=device->pipes.find(pipeline);
+        if(found!=device->pipes.end()){selected->recipe=found->second.recipe;selected->layout=found->second.layout;}
+    }
+    cb->native_pipeline=selected;
+    const auto state=cb->native_target_state;
+    if(!state || !state->classic || !state->private_pass ||
+       classic_mask(*cb->pass.recipe)==classic_mask(*state->classic_recipe)){
+        cb->native_target_blocked=false;selected->bound=pipeline;return pipeline;
+    }
+    std::string why;const auto variant=classic_pipeline(device,*state,*selected,cb->pass.recipe,why);
+    auto owner=target_owner(cb);
+    const bool held=std::find(owner->pipelines.begin(),owner->pipelines.end(),variant)!=owner->pipelines.end();
+    if(!variant || owner->sealed || (!held && owner->pipelines.size()>=4096)){
+        if(!cb->native_target_blocked)logf("Native classic draw blocked: %s",why.empty()?"pipeline retention budget or sealed recording":why.c_str());
+        cb->native_target_blocked=true;selected->bound=VK_NULL_HANDLE;return VK_NULL_HANDLE;
+    }
+    owner->used=true;
+    if(!held)owner->pipelines.push_back(variant);
+    cb->native_target_blocked=false;selected->bound=variant->pipeline;return variant->pipeline;
+}
+bool native_target_masked(const CmdBuf* cb){
+    return cb && cb->native_target_state && cb->native_target_state->classic && cb->native_target_state->private_pass &&
+        classic_mask(*cb->pass.recipe)!=classic_mask(*cb->native_target_state->classic_recipe);
+}
+
 }

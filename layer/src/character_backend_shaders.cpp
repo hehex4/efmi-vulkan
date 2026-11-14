@@ -4,6 +4,7 @@
 #include "character_backend_internal.h"
 #include "native_resources.h"
 #include "native_execution.h"
+#include "native_targets.h"
 
 namespace efvk {
 
@@ -724,6 +725,7 @@ bool character_shader_draw(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
         ++b.shader_draws_skipped; return true; // BeforeDispatch returns before command lists when hunting skips.
     }
     HuntingDrawScope marking(b, cb, r, facts.marking);
+    if(cb->native_target_blocked)return true;
     return shader_draw_unmatched(b, cb, marking.draw(), facts.modules, true, skip);
 }
 
@@ -732,10 +734,11 @@ HuntingDrawScope::HuntingDrawScope(CharacterBackend& b, CmdBuf* cb, const DrawRe
 {
     t_hunting_marking = marking;
     if (!marking || !cb) return;
-    const auto pipeline = character_bind(b, cb, r.pipeline, marking);
     const bool compute = r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT;
+    auto pipeline = character_bind(b, cb, r.pipeline, marking);
+    if(!compute)pipeline=native_target_bind(b.device,cb,pipeline);
     auto& bound = compute ? cb->comp_bound : cb->gfx_bound;
-    if (pipeline != bound) {
+    if (pipeline && pipeline != bound) {
         b.device->d.CmdBindPipeline(cb->handle, compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         bound = pipeline;
     }

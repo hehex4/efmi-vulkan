@@ -4,6 +4,7 @@
 #include "character_package.h"
 #include "m2_mesh.h"
 #include "state.h"
+#include "native_targets.h"
 #include "json.h"
 #include <algorithm>
 #include <filesystem>
@@ -314,9 +315,12 @@ bool m2_shader_draw(Device* device,CmdBuf* cb,const DrawRec& r){
 }
 
 VkPipeline m2_bind(Device* device,CmdBuf* cb,VkPipeline pipeline){
-    if(!device->character_mode)return pipeline;
-    std::shared_lock<std::shared_mutex> lock(device->character_mx);
-    return device->character && device->character_module->bind ? device->character_module->bind(*device->character,cb,pipeline) : pipeline;
+    VkPipeline selected=pipeline;
+    if(device->character_mode){
+        std::shared_lock<std::shared_mutex> lock(device->character_mx);
+        if(device->character && device->character_module->bind)selected=device->character_module->bind(*device->character,cb,pipeline);
+    }
+    return cb && cb->gfx_pipeline==pipeline?native_target_bind(device,cb,selected):selected;
 }
 
 void m2_created(Device* device,VkPipeline pipeline){

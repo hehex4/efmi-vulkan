@@ -2,6 +2,7 @@
 // their owned work, its variants, snapshots and emission, the translucent captures, the application's
 // draw made again with the Mod's textures, and the owned work submitted before the application's.
 #include "character_backend_internal.h"
+#include "native_targets.h"
 
 namespace efvk {
 // One captured call (D-113): its opacity set and parameter layer, the game's sets and dynamic
@@ -198,6 +199,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     const uint64_t entered_us = host_time_us();
     StageMark locking(trace, "character draw (generation lock)");
     std::lock_guard<std::mutex> mod_lock(mod_mx);
+    if(native_target_masked(cb))return refuse(C_STATE,"Mod mesh and image-interface variants need compatible null-output pipelines");
     ScratchScope scratch_scope{*this};
     StageMark stage(trace, "character draw (plan, variants, recording)");
     uint64_t mark_us = host_time_us();

@@ -995,3 +995,13 @@ Ordinary one-subpass classic continuations retain all stored single-sample color
 Cached framebuffers revalidate and retain every view, not only the changed destination. Preserving the application's original image stays within its existing acquired/render-pass scope; it does not make a swapchain reference transferable or remove the allocation-owner requirement for new resource bindings. Null, resolve, segmented and broader queue scopes keep separate guards.
 
 Original classic layout restoration follows image identity across all original attachments. Moving an original into another vacated compatible slot does not replace its own implicit final-layout contract with the new slot's contract (BUG-111).
+
+## Exact selected stages and classic null outputs (D-249 / D-250)
+
+Application-geometry twins retain the final selected stage bytes and compatible layout metadata. Classic null-output continuations rebuild those exact stages against the actual private pass; shader replacement, hunting and depth filtering are not reevaluated during this adaptation. Filtering refreshes on subsequent application draws from actual output presence.
+
+Supported stored single-sample classic passes can remove color or depth/stencil outputs, including MRT, combined aspects and all-output unbind. Private passes omit unused attachment descriptions and compact active references, because even unused descriptions would retain implicit layout transitions. Empty framebuffers use the original valid render area. Returning outputs and host End restore image layouts by identity, and host End restores the selected source pipeline.
+
+All preparation happens before the first End. Later binds also require a compatible pipeline; failed or unknown selections block the affected draw. Bounded caches retain immutable recipes and live views, and recording owners retain evicted objects until completion. Complete shared cache object layouts participate in the module ABI, including pipeline-variant metadata; an incompatible module is refused before exchange.
+
+Sandbox coverage includes independent original/source colors and aspects, shader replacement, hunting, following draws without another list, RenderPass2, imageless attachments, injection and completed module exchange. These results do not establish real-game acceptance. Mod mesh and image-interface variants in masked classic passes remain explicitly refused pending the next compatible-interface adapter. Resolve, segmented and broader queue contexts retain their separate guards.
