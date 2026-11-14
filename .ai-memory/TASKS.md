@@ -1,6 +1,10 @@
 # EFMI Vulkan - Tasks
 
 
+## D-246 verified; continue classic output destinations (2026-11-14)
+
+- D-245 merged7f90211. Valid independent aspect baseline55/69 and absent-role baseline29/35 precede source2.7.6 edits. Production/fixture/CPU/GPU drafts APPLIED; shared ABIf832abddfc8e2e49 full pair/four stamps/tracker570 pass. Initial area depth-target173/177 has correct GPU bytes/validation but four fixture source-post refusals. Original IfCommand reevaluation explains the test error; per-draw source gate corrected, production unchanged. All verification completed on the unchanged2.7.6/ABIf832abddfc8e2e49 production pair: tracker570/four stamps; full corrected depth targets177 (d246-targets-final.out), zero-color76/null DSV92/MRT39/validation76/text640 (d246-regression.out). The first full-area report remains failed only because of the documented old fixture; rerunning its corrected depth-target step passes and untouched steps are not duplicated. All processes exited; diff reviewed and memory synchronized for local commit/FF. Baseline post/restore cases excluded from intended-order evidence; unaffected control/core42/51 and absent-role29/35 remain valid. Finish review/memory/commit/FF. Continue remaining offline pass/resolve/queue adapters without stopping at the commit.
+
 ## D-245 verified; continue retained depth destinations (2026-11-14)
 
 - D-244 merged27f6df5. Valid zero-color baseline26/34 before source2.7.5. Full pair/initial tracker542 pass. BUG-110 isolated CPU543/544 proves stale ignored resolve fields; normalization fix applied; changed-object same-ABI pair/final tracker544/four stamps pass. Initial failed zero-color GPU34/34 passes. Final d245-final-pair.out completed, four2.7.5/ABI8af8de0e24586cd2 stamps and tracker544 pass. Native-depth-only area d245-regression.out passes zero-color76/null DSV92/MRT39/tracker544/validation76/text639. All processes exited; diff reviewed and memory synchronized for local commit/FF. Review/memory/commit/FF, then validate D-246 independent original/source depth baseline before applying its drafts. Do not stop at the commit.

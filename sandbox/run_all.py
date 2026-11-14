@@ -153,6 +153,7 @@ STEPS = [
     ("native compute uniform aliases", [os.path.join(HERE, "native_compute_uniform_test.py")]),
     ("native Submit2 resources", [os.path.join(HERE, "native_submit2_test.py")]),
     ("native dynamic depth", [os.path.join(HERE, "native_dynamic_depth_test.py")]),
+    ("native depth destinations", [os.path.join(HERE, "native_depth_destination_test.py")]),
     ("native depth only", [os.path.join(HERE, "native_depth_only_test.py")]),
     ("native depth null", [os.path.join(HERE, "native_depth_null_test.py")]),
     ("native preserved stencil", [os.path.join(HERE, "native_preserved_stencil_test.py")]),
@@ -214,6 +215,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "native-depth-destinations": ["native depth destinations", "native depth only", "native depth null", "native MRT outputs", "native tracker", "Vulkan validation", "text check"],
     "native-depth-only": ["native depth only", "native depth null", "native MRT outputs", "native tracker", "Vulkan validation", "text check"],
     "native-depth-null": ["native depth null", "native preserved stencil", "native null outputs", "native dynamic depth", "native tracker", "Vulkan validation", "text check"],
     "native-output-stencil": ["native preserved stencil", "native MRT outputs", "native preserved depth", "native dynamic depth", "native tracker", "Vulkan validation", "text check"],

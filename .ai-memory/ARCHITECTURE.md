@@ -96,6 +96,11 @@ D-245 zero-color dynamic passes carry their actual empty color set through null-
 and host End. New actual color bindings establish no-resolve LOAD/STORE state explicitly, clearing
 ordinary resolve fields and metadata that a previously null attachment made irrelevant.
 
+D-246 retains independent original/active DSV state beside colors. Introduced depth/stencil views
+use exact per-role formats, common all-format-aspect layout proof and completion owners; null,
+original restoration and host End restore their preceding layouts. Missing roles arise only from
+defined pipeline formats. Explicit initialization keeps DSV state across zero-color plans.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

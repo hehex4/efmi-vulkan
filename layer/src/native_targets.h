@@ -14,6 +14,9 @@ struct NativeTargetState {
         VkFormat format=VK_FORMAT_UNDEFINED;
         VkImageView original=VK_NULL_HANDLE,active=VK_NULL_HANDLE;
     };
+    bool initialized=false;
+    Color depth;
+    VkFormat stencil_format=VK_FORMAT_UNDEFINED;
     std::vector<Color> colors; // Original per-slot contracts survive temporary null views.
     std::map<VkImageView,Saved> restore;
 };

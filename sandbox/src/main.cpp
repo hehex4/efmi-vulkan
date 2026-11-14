@@ -238,6 +238,11 @@ struct App {
     int dynamic_rendering = 0;
     int dynamic_depth = 0;
     bool native_output_depth = false;
+    bool native_depth_destination = false;
+    bool native_depth_absent = false;
+    VkImage native_depth_source = VK_NULL_HANDLE;
+    VkImageView native_depth_source_view = VK_NULL_HANDLE;
+    VkDeviceMemory native_depth_source_memory = VK_NULL_HANDLE;
     bool native_output_no_color = false;
     VkPipeline depth_only_pipeline = VK_NULL_HANDLE;
     int native_output_stencil = 0;
@@ -1808,6 +1813,13 @@ static bool render_frame()
         if(g.native_output_mrt){auto extra=attachment_barrier;extra.image=native_output_extra.image;
             extra.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
             vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&extra);}
+        if(g.native_depth_absent){
+            dynamic_begin_rendering(g.primary,&rendering);dynamic_end_rendering(g.primary);
+            VkMemoryBarrier preserve{VK_STRUCTURE_TYPE_MEMORY_BARRIER};preserve.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
+            preserve.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+            vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&preserve,0,nullptr,0,nullptr);
+            rendering.pDepthAttachment=nullptr;rendering.pStencilAttachment=nullptr;
+        }
         if(g.native_output_no_color){
             auto background=rendering;background.pDepthAttachment=nullptr;background.pStencilAttachment=nullptr;
             dynamic_begin_rendering(g.primary,&background);dynamic_end_rendering(g.primary);
@@ -2094,6 +2106,8 @@ int wmain(int argc, wchar_t** argv)
         else if (a == L"--native-output-stencil"){g.native_output_stencil=1;g.dynamic_depth=1;}
         else if (a == L"--native-output-depth-stencil"){g.native_output_stencil=2;g.dynamic_depth=1;}
         else if (a == L"--native-output-no-color")g.native_output_no_color=true;
+        else if (a == L"--native-depth-destination")g.native_depth_destination=true;
+        else if (a == L"--native-depth-absent")g.native_depth_absent=true;
         else if (a == L"--native-output-depth"){g.native_output_depth=true;g.dynamic_depth=1;}
         else if (a == L"--native-output-query")
             native_output.query = true;

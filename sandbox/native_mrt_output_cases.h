@@ -1,12 +1,13 @@
 #include "../layer/src/native_targets.h"
 #include "../layer/src/native_images.h"
+static std::vector<VkImageMemoryBarrier> mrt_image_barriers;
 static VkImageView mrt_views[8];static uint32_t mrt_count=0,mrt_barriers=0;
 static void VKAPI_CALL mrt_begin(VkCommandBuffer cmd,const VkRenderingInfo* info){
     output_begin(cmd,info);mrt_count=info->colorAttachmentCount;
     for(uint32_t i=0;i<mrt_count;++i)mrt_views[i]=info->pColorAttachments[i].imageView;
 }
 static void VKAPI_CALL mrt_barrier(VkCommandBuffer cmd,VkPipelineStageFlags src,VkPipelineStageFlags dst,VkDependencyFlags flags,uint32_t memory_count,const VkMemoryBarrier* memory,uint32_t buffer_count,const VkBufferMemoryBarrier* buffers,uint32_t image_count,const VkImageMemoryBarrier* images){
-    output_barrier(cmd,src,dst,flags,memory_count,memory,buffer_count,buffers,image_count,images);mrt_barriers=image_count;
+    output_barrier(cmd,src,dst,flags,memory_count,memory,buffer_count,buffers,image_count,images);mrt_barriers=image_count;mrt_image_barriers.clear();for(uint32_t i=0;i<image_count;++i)mrt_image_barriers.push_back(images[i]);
 }
 static void native_mrt_output_cases()
 {
@@ -156,5 +157,107 @@ static void native_mrt_output_cases()
           actual_color.resolveImageLayout==VK_IMAGE_LAYOUT_UNDEFINED && !prepared.events[0]->targets.views[3].known &&
           actual_color.loadOp==VK_ATTACHMENT_LOAD_OP_LOAD && actual_color.storeOp==VK_ATTACHMENT_STORE_OP_STORE,
           "new actual color binding normalizes previously ignored resolve fields instead of activating them");
+
+    auto make_depth=[&](uint32_t image_id,uint32_t view_id,VkFormat format,VkImageAspectFlags aspects){
+        ImageInfo image;image.id=image_id;image.format=format;image.type=VK_IMAGE_TYPE_2D;image.samples=VK_SAMPLE_COUNT_1_BIT;
+        image.levels=image.layers=1;image.extent={64,32,1};image.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        ImageViewInfo view;view.id=view_id;view.image=h<VkImage>(image_id);view.image_id=image_id;view.format=format;view.type=VK_IMAGE_VIEW_TYPE_2D;
+        view.range={aspects,0,1,0,1};d.images[view.image]=image;d.image_views[h<VkImageView>(view_id)]=view;
+        cb.image_layouts.set(image_id,1,1,view.range,VK_IMAGE_LAYOUT_GENERAL);
+        auto resource=std::make_shared<Resource>();resource->bound=resource->image_safe=true;resource->keep=std::make_shared<int>(1);
+        resource->image=uint64_t(view.image);resource->image_view=uint64_t(h<VkImageView>(view_id));resource->image_view_id=view_id;
+        resource->identity=(uint64_t(image_id)<<2)|2;resource->usage=image.usage;return resource;
+    };
+    auto actual_view=[&](const std::shared_ptr<Resource>& resource){
+        TargetView view;view.known=true;view.handle=VkImageView(resource->image_view);view.view=d.image_views.at(view.handle);view.image=d.images.at(view.view.image);return view;
+    };
+    auto depth_item=[&](std::shared_ptr<Resource> resource){auto item=unbind;item.native_resource=std::move(resource);return item;};
+    auto original_depth=make_depth(9731,9730,VK_FORMAT_D32_SFLOAT,VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto introduced_depth=make_depth(9810,9811,VK_FORMAT_D32_SFLOAT,VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto depth_targets=targets;depth_targets.views[4]=actual_view(original_depth);
+    auto reset_depth=[&](const RenderTargets& context){cb.target_contexts={context};cb.active_targets=1;cb.native_target_state.reset();output_commands.clear();};
+    reset_depth(depth_targets);plan.items={depth_item(introduced_depth)};
+    ready=prepare();check(ready && prepared.state->initialized && prepared.state->depth.original==depth_targets.depth.imageView &&
+        prepared.events[0]->targets.depth.imageView==VkImageView(introduced_depth->image_view),"retained DSV preflight keeps exact original and introduced view identities");if(!ready)return;
+    check(prepared.events[0]->images->attachments.count(9810) && !prepared.events[0]->images->attachments.count(9731) &&
+        prepared.events[0]->targets.depth.loadOp==VK_ATTACHMENT_LOAD_OP_LOAD,"introduced DSV replaces the actual conflict image and loads its stored contents");
+    record_native_target(&d,&cb,prepared,0);
+    VkImageSubresourceRange depth_range{VK_IMAGE_ASPECT_DEPTH_BIT,0,1,0,1};
+    check(output_depth==VkImageView(introduced_depth->image_view) && cb.image_layouts.get(9810,1,1,depth_range,first) &&
+        first==VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,"introduced DSV records a real depth attachment and explicit attachment layout");
+    native_targets_end(&d,&cb);check(mrt_barriers==1 && cb.image_layouts.get(9810,1,1,depth_range,first) && first==VK_IMAGE_LAYOUT_GENERAL,
+        "host End restores introduced DSV to its exact preceding layout");
+    reset_depth(depth_targets);plan.items={depth_item(introduced_depth),unbind,depth_item(original_depth),depth_item(introduced_depth)};
+    ready=prepare();check(ready && !prepared.events[1]->targets.depth.imageView && prepared.events[2]->targets.depth.imageView==depth_targets.depth.imageView,
+        "whole-plan DSV redirect null original restore and redirect retain sequential actual views");if(!ready)return;
+    for(size_t i=0;i<plan.items.size();++i)record_native_target(&d,&cb,prepared,i);
+    check(cb.native_target_state->depth.active==VkImageView(introduced_depth->image_view),"final introduced DSV remains active for host completion");native_targets_end(&d,&cb);
+    reset_depth(depth_targets);plan.items={depth_item(introduced_depth)};
+    auto bad_depth=std::make_shared<Resource>(*introduced_depth);++bad_depth->image_view_id;plan.items[0].native_resource=bad_depth;
+    check(!prepare() && output_commands.empty(),"stale DSV view identity refuses without commands");plan.items[0].native_resource=introduced_depth;
+    auto& depth_image=d.images[VkImage(introduced_depth->image)];auto saved_depth_image=depth_image;
+    depth_image.samples=VK_SAMPLE_COUNT_4_BIT;check(!prepare(),"new DSV sample count must match exact single-sample pipeline");depth_image=saved_depth_image;
+    depth_image.extent.width=1;check(!prepare(),"new DSV must cover the full active render area");depth_image=saved_depth_image;
+    auto& depth_view=d.image_views[VkImageView(introduced_depth->image_view)];const auto saved_depth_view=depth_view;
+    depth_view.format=VK_FORMAT_D16_UNORM;check(!prepare(),"new DSV format must match the exact actual role contract");depth_view=saved_depth_view;
+    depth_view.range.levelCount=2;check(!prepare(),"multi-mip DSV replacement needs separate subresource planning");depth_view=saved_depth_view;
+    auto& original_depth_view=d.image_views[VkImageView(original_depth->image_view)];const auto saved_original_view=original_depth_view;
+    original_depth_view.id=9999;plan.items={depth_item(introduced_depth),depth_item(original_depth)};
+    check(!prepare() && output_commands.empty() && !cb.native_target_state,"later stale original DSV restore refuses the earlier valid redirect atomically");original_depth_view=saved_original_view;
+
+    auto combined_original=make_depth(9820,9821,VK_FORMAT_D32_SFLOAT_S8_UINT,VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto combined_source=make_depth(9830,9831,VK_FORMAT_D32_SFLOAT_S8_UINT,VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto ds_targets=combined;ds_targets.depth.imageView=ds_targets.stencil.imageView=VkImageView(combined_original->image_view);
+    ds_targets.views[4]=ds_targets.views[6]=actual_view(combined_original);
+    recipe->rendering_depth=recipe->rendering_stencil=VK_FORMAT_D32_SFLOAT_S8_UINT;
+    VkImageSubresourceRange stencil_range{VK_IMAGE_ASPECT_STENCIL_BIT,0,1,0,1},both_range{VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT,0,1,0,1};
+    reset_depth(ds_targets);plan.items={depth_item(combined_source)};
+    check(!prepare(),"a depth-only view range cannot prove the ignored stencil aspect's layout for DSV transitions");
+    cb.image_layouts.set(9830,1,1,stencil_range,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    check(!prepare(),"separate differing depth and stencil layouts cannot be silently merged");
+    cb.image_layouts.set(9830,1,1,both_range,VK_IMAGE_LAYOUT_GENERAL);
+    ready=prepare();check(ready && prepared.state->restore.at(VkImageView(combined_source->image_view)).view.view.range.aspectMask==both_range.aspectMask,
+        "combined DSV transitions use image format aspects even when view mask lists only depth");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);
+    check(output_depth==output_stencil && output_depth==VkImageView(combined_source->image_view) && mrt_image_barriers.size()==1 &&
+        mrt_image_barriers[0].subresourceRange.aspectMask==both_range.aspectMask,"actual combined DSV Begin and transition cover both aspects together");
+    native_targets_end(&d,&cb);check(cb.image_layouts.get(9830,1,1,both_range,first) && first==VK_IMAGE_LAYOUT_GENERAL &&
+        mrt_image_barriers[0].subresourceRange.aspectMask==both_range.aspectMask,"host restores both combined aspects to the preceding common layout");
+    reset_depth(ds_targets);auto& empty_targets=cb.target_contexts[0];empty_targets.depth.imageView=empty_targets.stencil.imageView=VK_NULL_HANDLE;
+    empty_targets.views[4]={};empty_targets.views[6]={};
+    empty_targets.depth.resolveMode=empty_targets.stencil.resolveMode=VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+    empty_targets.depth.resolveImageView=empty_targets.stencil.resolveImageView=ds_targets.depth.imageView;
+    empty_targets.views[5]=empty_targets.views[7]=ds_targets.views[4];
+    ready=prepare();check(ready && !prepared.state->depth.original && prepared.events[0]->targets.depth.resolveMode==VK_RESOLVE_MODE_NONE &&
+        prepared.events[0]->targets.stencil.resolveMode==VK_RESOLVE_MODE_NONE && !prepared.events[0]->targets.depth.resolveImageView &&
+        !prepared.events[0]->targets.views[5].known && !prepared.events[0]->targets.views[7].known,
+        "initially null DSV roles normalize ignored resolve state when a retained view becomes active");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);native_targets_end(&d,&cb);
+    auto only_depth=ds_targets;only_depth.dynamic_colors.clear();only_depth.views.erase(only_depth.views.begin(),only_depth.views.begin()+4);
+    recipe->rendering_colors.clear();reset_depth(only_depth);plan.items={depth_item(combined_source)};
+    ready=prepare();check(ready && prepared.state->colors.empty(),"zero-color pass accepts retained combined DSV destination");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);plan.items={unbind};
+    ready=prepare();check(ready && prepared.state->initialized && prepared.state->depth.original==only_depth.depth.imageView &&
+        prepared.state->depth.active==VkImageView(combined_source->image_view),"zero colors do not reinitialize DSV original or active state between plans");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);check(cb.image_layouts.get(9830,1,1,both_range,first) && first==VK_IMAGE_LAYOUT_GENERAL,
+        "nulling introduced DSV in a later zero-color plan restores both aspects immediately");native_targets_end(&d,&cb);
+
+    auto absent_roles=ds_targets;absent_roles.has_depth=absent_roles.has_stencil=false;absent_roles.views.resize(4);
+    recipe->rendering_colors={VK_FORMAT_R8G8B8A8_UNORM,VK_FORMAT_R8G8B8A8_UNORM};reset_depth(absent_roles);plan.items={depth_item(combined_source)};
+    ready=prepare();check(ready && !prepared.state->depth.original && prepared.events[0]->targets.has_depth && prepared.events[0]->targets.has_stencil &&
+        prepared.events[0]->targets.views.size()==8,"nonnull DSV creates initially absent roles from exact declared pipeline formats");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);check(output_depth==output_stencil && output_depth==VkImageView(combined_source->image_view),
+        "declared roles added to an initially color-only pass reach the actual Begin");native_targets_end(&d,&cb);
+    reset_depth(absent_roles);recipe->rendering_depth=recipe->rendering_stencil=VK_FORMAT_UNDEFINED;
+    check(!prepare() && output_commands.empty(),"nonnull DSV cannot invent a role without a declared pipeline format");
+    recipe->rendering_depth=recipe->rendering_stencil=VK_FORMAT_D32_SFLOAT_S8_UINT;
+    auto partial_roles=ds_targets;partial_roles.has_depth=false;partial_roles.views.erase(partial_roles.views.begin()+4,partial_roles.views.begin()+6);
+    reset_depth(partial_roles);plan.items={depth_item(combined_original)};
+    ready=prepare();check(ready && prepared.events[0]->change && prepared.events[0]->targets.views.size()==8 &&
+        prepared.events[0]->targets.views[4].handle==ds_targets.depth.imageView && prepared.events[0]->targets.views[6].handle==ds_targets.stencil.imageView,
+        "adding a declared role shifts retained metadata and is a real event even when the DSV view handle stays the same");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);check(output_depth==output_stencil && output_depth==ds_targets.depth.imageView,
+        "same-view assignment records its newly declared depth role beside existing stencil");native_targets_end(&d,&cb);
+
 
 }

@@ -4,6 +4,15 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-246: Retained DSV bindings preserve exact roles, lifetime and layouts (2026-11-14)
+
+- Original SetResource binds one DSV while retaining all RTVs. DX11 provides retained/deferred lifetime, hazard tracking and one-context order. Vulkan keeps independent DSV original/active view state beside colors, retains event resources through completion, explicitly transitions introduced DSVs and restores them on null/original replacement and host End. An explicit initialization bit handles zero-color scopes correctly; all shared layout changes require a matching host/module ABI pair.
+- Depth/stencil image format determines transition aspects because attachment roles ignore the view aspectMask. A combined destination needs a common proven layout for both aspects, which transition and restore together. Exact per-role pipeline formats, identity, single sample, 2D one-subresource coverage, no active attachment/descriptor overlaps and no alternate saved/original view aliases remain mandatory. Null originally ignored resolve fields are normalized as in BUG-110.
+- A nonnull assignment creates missing pointer roles only from defined pipeline formats, reindexing the local complete view context before later ordered events. Adding a role is a real event even if the actual view handle is unchanged. No format means no inferred role. Entire plans validate before any GPU command. Existing legacy single-queue and query/mapping/pass/persistent-image limits remain.
+- Separate full fenced original/source D32 or stencil readbacks prove real destinations and pre/post order. An empty initialization pass plus explicit dependency provides defined bytes when original pointer roles are absent. Module-exchange coverage waits for the requested generation and normal process completion; a disk build alone is not a loaded module.
+
+- Original IfCommand reevaluates conditions separately in pre and post. GPU fixtures use a pre-set per-draw source flag so a source-save global changed during pre cannot accidentally enable a main-target post restore. The corrected test changes no production behavior; real unproven-layout refusals remain intact.
+
 ## D-245: Zero-color output contexts and explicit new attachment semantics (2026-11-14)
 
 - Original SetResource can preserve an entirely empty RTV set while changing DSV; DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan carries colorAttachmentCount=0 through complete preflight, LOAD continuation and host End without synthesizing color views/state/barriers. The ordinary pipeline, feature, sample, query and queue contracts still apply.

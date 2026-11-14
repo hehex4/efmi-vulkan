@@ -973,3 +973,11 @@ The native ShaderFixes depth filter follows ProcessShaderOverride: it tests actu
 Ordinary depth/stencil passes may have zero color attachments. Native DSV null and built-in output unbind keep the actual zero count through preflight, continuation and host End. They retain the same exact pipeline, feature, sample, query and queue requirements as color-bearing passes. No synthetic color attachment is introduced.
 
 When an originally null color slot receives an actual image, the executor explicitly sets no-resolve LOAD/STORE semantics and clears the previously ignored resolve handle/layout/metadata. A valid null attachment's ignored fields must not become a new resolve operation.
+
+## Retained depth/stencil destinations (D-246)
+
+Supported ordinary dynamic passes can bind a retained application depth/stencil view through `oD`, restore the original view, and redirect again. Introduced DSVs keep their owners until completion and return to their exact earlier layouts when replaced, nulled or finished at the application's End. Original and introduced color state remains independent. Zero-color passes retain the same DSV state across multiple plans.
+
+Each destination must satisfy exact declared depth/stencil formats, sample count, extent, subresource and alias contracts. Combined images require one proven layout across both format aspects and transition both together, even when the view mask names only depth. Nonnull assignments add missing roles only from defined pipeline formats; adding a role forces an actual continuation even if the view handle matches. Every new actual attachment explicitly disables previously ignored resolve state.
+
+Independent original/source aspect readbacks verify pre/post binding order and restoration. A completed sandbox module exchange checks the shared state boundary. Classic/resolve/segmented passes, broader queue graphs and persistent-image conflicts retain their explicit guards.
