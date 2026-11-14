@@ -14,6 +14,10 @@ D-225 native shader twins explicitly retain original geometry and exact dynamic 
 This construction mode rejects vertex-stream overrides; mesh replacement still requires the
 stricter complete recipe. Full dynamic vertex input recreates without a static input description.
 
+D-226 native twins also retain supported core1.3 raster/depth/stencil dynamics and viewport/scissor
+counts. Dynamic discard cannot suppress fixed structures that rasterization may later consume;
+unknown extension chains and incomplete required state remain refused.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

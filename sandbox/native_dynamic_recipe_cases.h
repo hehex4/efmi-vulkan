@@ -36,7 +36,7 @@ static void native_dynamic_recipe_tests()
     dynamics[2]=VK_DYNAMIC_STATE_VERTEX_INPUT_EXT;f.gp.pVertexInputState=nullptr;recipe=f.capture();native_dynamic_input=true;
     check(recipe.create(h<VkDevice>(1),create_native_dynamic,h<VkPipelineLayout>(2),h<VkRenderPass>(3),modules,&output,nullptr,true)==VK_SUCCESS && output,
           "full dynamic vertex input can be recreated without inventing a static layout");
-    dynamics[2]=VK_DYNAMIC_STATE_CULL_MODE;recipe=f.capture();const auto before=native_dynamic_creations;
+    dynamics[2]=VK_DYNAMIC_STATE_LINE_STIPPLE_EXT;recipe=f.capture();const auto before=native_dynamic_creations;
     check(recipe.create(h<VkDevice>(1),create_native_dynamic,h<VkPipelineLayout>(2),h<VkRenderPass>(3),modules,&output,nullptr,true)!=VK_SUCCESS && !output && native_dynamic_creations==before,
           "unknown extended dynamics still refuse native creation before reaching the driver");
 }

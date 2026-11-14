@@ -835,7 +835,9 @@ Native ShaderFixes and hunting can keep core/EXT dynamic stride/topology and ful
 input. The owned twin reproduces the exact dynamic declaration and the original static state;
 full dynamic input has no invented static layout. Its creation mode forbids a vertex override.
 Mesh replacement retains its earlier completeness and binding-state restrictions. Unknown
-extended dynamic states still refuse; extending raster dynamics is the next offline step.
+extended dynamic states still refuse. D-226 adds core1.3 raster/depth/stencil dynamics and
+WITH_COUNT viewport/scissor. Dynamic discard retains required rasterization structures even when
+its static placeholder is TRUE. Primitive restart and other unhandled extensions remain explicit gaps.
 
 The scoped GPU fixture proves replacement pixels, original restoration, F10 change/removal,
 secondary recording, injection, module exchange and original/pink hunting. CURRENT_STATE separates

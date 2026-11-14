@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-226 verified; continue D-227 primitive restart (2026-11-14)
+
+- D-225 merged07a4270. D-226 baseline4/8, source2.5.6 applied, pair/sandbox/recipe/planner build d226-pair.out and native-raster area d226-regression.out pass: tracker328, recipe230, native92/dynamic49/raster49, validation76/text599. ABI93576afe91aa4431 unchanged. All tracked D-226 fixture/integration scripts APPLIED; CURRENT_STATE has exact verification sequence.
+- Continue D-227 from unapplied build/d227-fixture.py/plan.md; isolated geometry23/40 and native shader4/8 baselines already established. Implement primitive restart capture/native state and remaining target/queue adapters after affected checks/commit/FF. No game/deployment authorization.
+
 ## D-225 verified; continue D-226 extended raster dynamics (2026-11-14)
 
 - D-224 mergeda555396. D-225 baseline8/16 already reproduced, then source2.5.5/ABI93576afe91aa4431 applied. Pair/sandbox/recipe/planner build d225-pair.out and area d225-regression.out pass: tracker328, recipe218, shader92, dynamic49, hunting45, validation76/text597; all integration scripts APPLIED. CURRENT_STATE has exact originals, fixture/baseline and verification sequence.

@@ -123,6 +123,26 @@ bool dynamic_has(const GraphicsRecipe& p, VkDynamicState state)
     return std::find(p.dynamic.begin(), p.dynamic.end(), state) != p.dynamic.end();
 }
 
+bool native_dynamic_state(VkDynamicState state)
+{
+    switch(state){
+    case VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE: case VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY:
+    case VK_DYNAMIC_STATE_VERTEX_INPUT_EXT: case VK_DYNAMIC_STATE_CULL_MODE: case VK_DYNAMIC_STATE_FRONT_FACE:
+    case VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT: case VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT:
+    case VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE: case VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE:
+    case VK_DYNAMIC_STATE_DEPTH_COMPARE_OP: case VK_DYNAMIC_STATE_DEPTH_BOUNDS_TEST_ENABLE:
+    case VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE: case VK_DYNAMIC_STATE_STENCIL_OP:
+    case VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE: case VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE:
+        return true;
+    default:return false;
+    }
+}
+
+bool rasterization_possible(const GraphicsRecipe& p)
+{
+    return !p.raster.rasterizerDiscardEnable || dynamic_has(p,VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE);
+}
+
 // A lossless encoding also accepts ignored float fields whose bits need not describe finite values.
 void float_bits(JsonWriter& w, const char* name, float value)
 {
@@ -398,9 +418,7 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
         if (d.pNext || d.flags || d.dynamicStateCount > kMaxDynamic) { r.reason = "dynamic_state_extension"; return r; }
         for (uint32_t i = 0; i < d.dynamicStateCount; i++) {
             if (d.pDynamicStates[i] < VK_DYNAMIC_STATE_VIEWPORT || d.pDynamicStates[i] > VK_DYNAMIC_STATE_STENCIL_REFERENCE) {
-                if (d.pDynamicStates[i] == VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE ||
-                    d.pDynamicStates[i] == VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY ||
-                    d.pDynamicStates[i] == VK_DYNAMIC_STATE_VERTEX_INPUT_EXT) capture_only = true;
+                if (native_dynamic_state(d.pDynamicStates[i])) capture_only = true;
                 else { r.reason = "extended_dynamic_state"; return r; }
             }
             r.dynamic.push_back(d.pDynamicStates[i]);
@@ -423,15 +441,20 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
     if (info.pRasterizationState->pNext || info.pRasterizationState->flags) { r.reason = "raster_extension"; return r; }
     r.raster = *info.pRasterizationState;
     // With no tessellation stages its ignored state pointer was not dereferenced.
-    if (!r.raster.rasterizerDiscardEnable) {
-        if (!info.pViewportState || !info.pMultisampleState) { r.reason = "raster_state_missing"; return r; }
-        const auto& vp = *info.pViewportState;
+    if (rasterization_possible(r)) {
+        const bool viewport_count = dynamic_has(r,VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT);
+        const bool scissor_count = dynamic_has(r,VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT);
+        if ((!info.pViewportState && !(viewport_count && scissor_count)) || !info.pMultisampleState) {
+            r.reason = "raster_state_missing"; return r;
+        }
+        const VkPipelineViewportStateCreateInfo empty_viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+        const auto& vp = info.pViewportState ? *info.pViewportState : empty_viewport;
         if (vp.pNext || vp.flags || vp.viewportCount > kMaxViewports || vp.scissorCount > kMaxViewports) {
             r.reason = "viewport_extension_or_limit"; return r;
         }
-        r.viewport_count = vp.viewportCount; r.scissor_count = vp.scissorCount;
-        if (!dynamic_has(r, VK_DYNAMIC_STATE_VIEWPORT)) copy_array(r.viewports, vp.viewportCount, vp.pViewports);
-        if (!dynamic_has(r, VK_DYNAMIC_STATE_SCISSOR)) copy_array(r.scissors, vp.scissorCount, vp.pScissors);
+        r.viewport_count = viewport_count ? 0 : vp.viewportCount; r.scissor_count = scissor_count ? 0 : vp.scissorCount;
+        if (!viewport_count && !dynamic_has(r, VK_DYNAMIC_STATE_VIEWPORT)) copy_array(r.viewports, vp.viewportCount, vp.pViewports);
+        if (!scissor_count && !dynamic_has(r, VK_DYNAMIC_STATE_SCISSOR)) copy_array(r.scissors, vp.scissorCount, vp.pScissors);
         const auto& ms = *info.pMultisampleState;
         if (ms.pNext || ms.flags) { r.reason = "multisample_extension"; return r; }
         r.multisample = ms; r.multisample.pSampleMask = nullptr;
@@ -495,8 +518,8 @@ VkResult GraphicsRecipe::create(VkDevice dev, PFN_vkCreateGraphicsPipelines crea
     info.pVertexInputState = dynamic_has(*this,VK_DYNAMIC_STATE_VERTEX_INPUT_EXT) ? nullptr : &vi;
     info.pInputAssemblyState = &assembly; info.pRasterizationState = &raster;
     info.pTessellationState = has_tessellation ? &tessellation : nullptr;
-    info.pViewportState = raster.rasterizerDiscardEnable ? nullptr : &vp;
-    info.pMultisampleState = raster.rasterizerDiscardEnable ? nullptr : &ms;
+    info.pViewportState = rasterization_possible(*this) ? &vp : nullptr;
+    info.pMultisampleState = rasterization_possible(*this) ? &ms : nullptr;
     info.pDepthStencilState = has_depth ? &depth : nullptr; info.pColorBlendState = has_blend ? &cb : nullptr;
     info.pDynamicState = dynamic.empty() ? nullptr : &dyn;
     info.layout = layout; info.renderPass = pass; info.subpass = subpass; info.basePipelineIndex = -1;
@@ -574,7 +597,7 @@ void GraphicsRecipe::write(JsonWriter& w) const
         w.kn("width", s.extent.width); w.kn("height", s.extent.height); w.end_object();
     }
     w.end_array(); w.key("multisample");
-    if (raster.rasterizerDiscardEnable) w.null();
+    if (!rasterization_possible(*this)) w.null();
     else {
         w.begin_object(); w.kn("samples", multisample.rasterizationSamples);
         w.kb("sample_shading", multisample.sampleShadingEnable != 0);

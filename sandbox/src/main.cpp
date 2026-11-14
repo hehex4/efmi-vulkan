@@ -90,6 +90,19 @@ static PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
 static PFN_vkCmdBindVertexBuffers2 dynamic_bind_vertices;
 static PFN_vkCmdSetPrimitiveTopology dynamic_topology;
 static PFN_vkCmdSetVertexInputEXT dynamic_vertex_input;
+static PFN_vkCmdSetCullMode raster_CmdSetCullMode;
+static PFN_vkCmdSetFrontFace raster_CmdSetFrontFace;
+static PFN_vkCmdSetRasterizerDiscardEnable raster_CmdSetRasterizerDiscardEnable;
+static PFN_vkCmdSetDepthBiasEnable raster_CmdSetDepthBiasEnable;
+static PFN_vkCmdSetDepthTestEnable raster_CmdSetDepthTestEnable;
+static PFN_vkCmdSetDepthWriteEnable raster_CmdSetDepthWriteEnable;
+static PFN_vkCmdSetDepthCompareOp raster_CmdSetDepthCompareOp;
+static PFN_vkCmdSetDepthBoundsTestEnable raster_CmdSetDepthBoundsTestEnable;
+static PFN_vkCmdSetStencilTestEnable raster_CmdSetStencilTestEnable;
+static PFN_vkCmdSetStencilOp raster_CmdSetStencilOp;
+static PFN_vkCmdSetViewportWithCount raster_CmdSetViewportWithCount;
+static PFN_vkCmdSetScissorWithCount raster_CmdSetScissorWithCount;
+
 static std::atomic<uint32_t> validation_errors{0}, validation_warnings{0};
 static std::atomic<bool> validation_canary_seen{false};
 #define X(n) static PFN_vk##n vk##n;
@@ -216,6 +229,7 @@ struct App {
     bool mutable_sampler = false;
     int dynamic_geometry = 0;
     bool geometry_shader_scene = false;
+    int extended_raster = 0;
     bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
@@ -564,6 +578,20 @@ static bool create_device()
     VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT input_dynamic{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT};
     if(g.dynamic_geometry>=4){input_dynamic.vertexInputDynamicState=VK_TRUE;input_dynamic.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&input_dynamic;}
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
+    if(g.extended_raster){
+        raster_CmdSetCullMode=reinterpret_cast<PFN_vkCmdSetCullMode>(vkGetDeviceProcAddr(g.device,"vkCmdSetCullMode"));if(!raster_CmdSetCullMode)return false;
+        raster_CmdSetFrontFace=reinterpret_cast<PFN_vkCmdSetFrontFace>(vkGetDeviceProcAddr(g.device,"vkCmdSetFrontFace"));if(!raster_CmdSetFrontFace)return false;
+        raster_CmdSetRasterizerDiscardEnable=reinterpret_cast<PFN_vkCmdSetRasterizerDiscardEnable>(vkGetDeviceProcAddr(g.device,"vkCmdSetRasterizerDiscardEnable"));if(!raster_CmdSetRasterizerDiscardEnable)return false;
+        raster_CmdSetDepthBiasEnable=reinterpret_cast<PFN_vkCmdSetDepthBiasEnable>(vkGetDeviceProcAddr(g.device,"vkCmdSetDepthBiasEnable"));if(!raster_CmdSetDepthBiasEnable)return false;
+        raster_CmdSetDepthTestEnable=reinterpret_cast<PFN_vkCmdSetDepthTestEnable>(vkGetDeviceProcAddr(g.device,"vkCmdSetDepthTestEnable"));if(!raster_CmdSetDepthTestEnable)return false;
+        raster_CmdSetDepthWriteEnable=reinterpret_cast<PFN_vkCmdSetDepthWriteEnable>(vkGetDeviceProcAddr(g.device,"vkCmdSetDepthWriteEnable"));if(!raster_CmdSetDepthWriteEnable)return false;
+        raster_CmdSetDepthCompareOp=reinterpret_cast<PFN_vkCmdSetDepthCompareOp>(vkGetDeviceProcAddr(g.device,"vkCmdSetDepthCompareOp"));if(!raster_CmdSetDepthCompareOp)return false;
+        raster_CmdSetDepthBoundsTestEnable=reinterpret_cast<PFN_vkCmdSetDepthBoundsTestEnable>(vkGetDeviceProcAddr(g.device,"vkCmdSetDepthBoundsTestEnable"));if(!raster_CmdSetDepthBoundsTestEnable)return false;
+        raster_CmdSetStencilTestEnable=reinterpret_cast<PFN_vkCmdSetStencilTestEnable>(vkGetDeviceProcAddr(g.device,"vkCmdSetStencilTestEnable"));if(!raster_CmdSetStencilTestEnable)return false;
+        raster_CmdSetStencilOp=reinterpret_cast<PFN_vkCmdSetStencilOp>(vkGetDeviceProcAddr(g.device,"vkCmdSetStencilOp"));if(!raster_CmdSetStencilOp)return false;
+        raster_CmdSetViewportWithCount=reinterpret_cast<PFN_vkCmdSetViewportWithCount>(vkGetDeviceProcAddr(g.device,"vkCmdSetViewportWithCount"));if(!raster_CmdSetViewportWithCount)return false;
+        raster_CmdSetScissorWithCount=reinterpret_cast<PFN_vkCmdSetScissorWithCount>(vkGetDeviceProcAddr(g.device,"vkCmdSetScissorWithCount"));if(!raster_CmdSetScissorWithCount)return false;
+    }
     if(g.dynamic_geometry){
         dynamic_bind_vertices=reinterpret_cast<PFN_vkCmdBindVertexBuffers2>(vkGetDeviceProcAddr(g.device,g.dynamic_geometry==2?"vkCmdBindVertexBuffers2EXT":"vkCmdBindVertexBuffers2"));
         dynamic_topology=reinterpret_cast<PFN_vkCmdSetPrimitiveTopology>(vkGetDeviceProcAddr(g.device,g.dynamic_geometry==2?"vkCmdSetPrimitiveTopologyEXT":"vkCmdSetPrimitiveTopology"));
@@ -844,14 +872,22 @@ static bool create_pipeline()
     cb.attachmentCount = 1;
     cb.pAttachments = &cba;
 
-    VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE,VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY,VK_DYNAMIC_STATE_VERTEX_INPUT_EXT};
+    std::vector<VkDynamicState> dyn_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE,VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY,VK_DYNAMIC_STATE_VERTEX_INPUT_EXT};
     VkPipelineDynamicStateCreateInfo dyn = {};
     dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     const bool static_geometry=g.dynamic_geometry==3 || g.dynamic_geometry==6;
     dyn.dynamicStateCount = g.dynamic_geometry && !static_geometry?4:2;
     if(g.dynamic_geometry==4)dyn_states[2]=VK_DYNAMIC_STATE_VERTEX_INPUT_EXT;
     if(g.dynamic_geometry==5)dyn.dynamicStateCount=5;
-    dyn.pDynamicStates = dyn_states;
+    if(g.extended_raster){
+        dyn_states.resize(dyn.dynamicStateCount);
+        for(const auto state:{VK_DYNAMIC_STATE_CULL_MODE,VK_DYNAMIC_STATE_FRONT_FACE,VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE,
+            VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE,VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE,VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,
+            VK_DYNAMIC_STATE_DEPTH_COMPARE_OP,VK_DYNAMIC_STATE_DEPTH_BOUNDS_TEST_ENABLE,VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE,VK_DYNAMIC_STATE_STENCIL_OP})dyn_states.push_back(state);
+        if(g.extended_raster==2){dyn_states[0]=VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT;dyn_states[1]=VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT;vp.viewportCount=vp.scissorCount=0;}
+        dyn.dynamicStateCount=uint32_t(dyn_states.size());rs.rasterizerDiscardEnable=VK_TRUE;rs.cullMode=VK_CULL_MODE_FRONT_AND_BACK;
+    }
+    dyn.pDynamicStates = dyn_states.data();
 
     VkGraphicsPipelineCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1318,6 +1354,14 @@ static void record_setup(VkCommandBuffer cb)
     vkCmdSetViewport(cb, 0, 1, &viewport);
     vkCmdSetScissor(cb, 0, 1, &scissor);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.pipeline);
+    if(g.extended_raster){
+        raster_CmdSetCullMode(cb,VK_CULL_MODE_NONE);raster_CmdSetFrontFace(cb,VK_FRONT_FACE_CLOCKWISE);
+        raster_CmdSetRasterizerDiscardEnable(cb,VK_FALSE);raster_CmdSetDepthBiasEnable(cb,VK_FALSE);
+        raster_CmdSetDepthTestEnable(cb,VK_FALSE);raster_CmdSetDepthWriteEnable(cb,VK_FALSE);
+        raster_CmdSetDepthCompareOp(cb,VK_COMPARE_OP_LESS);raster_CmdSetDepthBoundsTestEnable(cb,VK_FALSE);
+        raster_CmdSetStencilTestEnable(cb,VK_FALSE);raster_CmdSetStencilOp(cb,VK_STENCIL_FACE_FRONT_AND_BACK,VK_STENCIL_OP_KEEP,VK_STENCIL_OP_KEEP,VK_STENCIL_OP_KEEP,VK_COMPARE_OP_ALWAYS);
+        if(g.extended_raster==2){raster_CmdSetViewportWithCount(cb,1,&viewport);raster_CmdSetScissorWithCount(cb,1,&scissor);}
+    }
     VkDeviceSize zero = 0;
     vkCmdBindVertexBuffers(cb, 0, 1, &g.vb.buf, &zero);
 }
@@ -1909,6 +1953,8 @@ int wmain(int argc, wchar_t** argv)
             g.reference_cube_arrays = true;
         else if (a == L"--reference-sampled-source")
             g.reference_sampled_source = true;
+        else if (a == L"--extended-raster" && i + 1 < argc)
+            g.extended_raster = _wtoi(argv[++i]);
         else if (a == L"--geometry-shader")
             g.geometry_shader_scene = true;
         else if (a == L"--geometry-dynamic" && i + 1 < argc)

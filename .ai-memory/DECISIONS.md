@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-226: Native twins retain state for dynamically possible rasterization (2026-11-14)
+
+- Original HackerContext shader getters/setters preserve IA/raster/depth state around shader exchange; DX11 owns retained/deferred lifetime, hazard tracking and context order. Vulkan must reproduce the dynamic declaration and every fixed structure that a future draw can use, irrespective of ignored static placeholders.
+- An explicit allowlist adds core1.3 cull/front-face, rasterizer discard, depth-bias enable, depth-test/write/compare/bounds enable, stencil-test/op, and viewport/scissor WITH_COUNT. Native twins retain the game's values; mesh rewriting still requires complete. Primitive restart and unrelated extensions remain outside this change.
+- Dynamic discard makes rasterization possible even when its static placeholder is TRUE. Capture, creation and diagnostics retain multisample, viewport, blend and applicable depth state. WITH_COUNT skips ignored arrays and recreates zero static counts; both dynamic counts permit an omitted viewport structure. Unknown chains and partially missing required state refuse. Depth/stencil state remains required when the subpass needs it.
+- Contracts: https://docs.vulkan.org/refpages/latest/refpages/source/VkDynamicState.html , https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineViewportStateCreateInfo.html and https://docs.vulkan.org/refpages/latest/refpages/source/VkGraphicsPipelineCreateInfo.html . Exact baseline, callback tests and real pixels are in CURRENT_STATE.
+
 ## D-225: Native-only shader twins preserve the game's dynamic geometry (2026-11-14)
 
 - Original HackerContext SwitchVSShader/SwitchPSShader and shader patch getter/setter paths replace shader stages without changing IA/raster state. DX11 supplies retained/deferred lifetime, hazard tracking and context order. Vulkan recreates an owned pipeline with the exact dynamic declaration and retains its existing command owner/revision lifetime.

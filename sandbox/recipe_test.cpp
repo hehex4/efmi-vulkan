@@ -266,7 +266,7 @@ static void ignored_pointer_tests()
         check(recipe.create(h<VkDevice>(1), create_pipe, h<VkPipelineLayout>(2), h<VkRenderPass>(3),
               {h<VkShaderModule>(4), h<VkShaderModule>(5)}, &output) != VK_SUCCESS && !output && allocation == before,
               "capture-only geometry cannot create a replacement pipeline");
-        dynamic[2] = VK_DYNAMIC_STATE_CULL_MODE;
+        dynamic[2] = VK_DYNAMIC_STATE_LINE_STIPPLE_EXT;
         check(!f.capture().geometry_complete && !f.capture().complete,
               "untracked extended dynamics remain unavailable to capture and replacement");
     }
@@ -591,6 +591,7 @@ static void constant_bones_tests(bool corpus)
 }
 
 #include "native_dynamic_recipe_cases.h"
+#include "native_raster_recipe_cases.h"
 
 int main(int argc, char** argv)
 {
@@ -610,7 +611,7 @@ int main(int argc, char** argv)
         return output ? 0 : 2;
     }
     util_init(GetModuleHandleW(nullptr));
-    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); native_dynamic_recipe_tests(); multiview_recipe_tests(); tracked_lifetime_tests(); draw_sequence_tests();
+    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); native_dynamic_recipe_tests(); native_raster_recipe_tests(); multiview_recipe_tests(); tracked_lifetime_tests(); draw_sequence_tests();
     const bool corpus = argc == 2 && !strcmp(argv[1], "--corpus");
     dither_tests(corpus);
     constant_bones_tests(corpus);

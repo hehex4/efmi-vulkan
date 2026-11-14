@@ -151,6 +151,7 @@ STEPS = [
     ("live INI rendering", [os.path.join(HERE, "runtime_test.py")]),
     ("native game shader replacement", [os.path.join(HERE, "native_shader_test.py")]),
     ("native dynamic shaders", [os.path.join(HERE, "native_dynamic_shader_test.py")]),
+    ("native extended raster", [os.path.join(HERE, "native_extended_raster_test.py")]),
     ("native graphics stages", [os.path.join(HERE, "native_graphics_stages_test.py")]),
     ("native resource slots", [os.path.join(HERE, "native_resource_test.py")]),
     ("native call execution", [os.path.join(HERE, "native_execution_test.py")]),
@@ -192,6 +193,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "native-raster": ["native extended raster", "native dynamic shaders", "native game shader", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],
     "native-dynamic-shaders": ["native dynamic shaders", "native game shader", "native hunting", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],
     "bones": ["bones across recordings", "bone regions reused", "two queues, bones", "CPU skeleton import", "captured shader rewrite corpus"],
     "shader-corpus": ["captured shader rewrite corpus"],
