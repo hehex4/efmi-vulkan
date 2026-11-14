@@ -1947,6 +1947,8 @@ int wmain(int argc, wchar_t** argv)
             capture_target.store = false;
         else if (a == L"--capture-target-unused")
             capture_target.unused = true;
+        else if (a == L"--capture-target-mip")
+            capture_target.layered = capture_target.mip_view = true;
         else if (a == L"--capture-target-layers")
             capture_target.layered = true;
         else if (a == L"--capture-target-multiview")

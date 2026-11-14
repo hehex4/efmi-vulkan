@@ -625,6 +625,14 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         request.native_resource = [&](const efmi::frontend::NativeBinding& binding, efmi::frontend::NativeResource& resource, std::string& why) {
             return native_resource(b.device, cb, r, binding, resource, why);
         };
+        // Original ProcessParamRTSize reads the full resource through RTV0, only for 2D/MS views.
+        efmi::frontend::NativeBinding output_slot;output_slot.kind=efmi::frontend::NativeBinding::ColorTarget;
+        efmi::frontend::NativeResource output;std::string output_reason;
+        if(native_resource(b.device,cb,r,output_slot,output,output_reason)){
+            if(output.bound && output.dimension==3 && output.view_type==VK_IMAGE_VIEW_TYPE_2D){
+                request.target_width=float(output.width);request.target_height=float(output.height);
+            }else request.target_width=request.target_height=-2;
+        }
         request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
         request.instances = r.instances; request.first_instance = r.first_instance;
         request.compute = r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT;

@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-229 verified; continue D-230 imageless attachments (2026-11-14)
+
+- D-228 merged63dc8de. D-229 valid GPU baseline2/3 with6418 original mesh pixels; original ProcessParamRTSize read. Implementation and optional mip fixture APPLIED, source2.5.9/ABI9c6cf6d44e374cc3. Build d229-pair.out completed; four stamps/tracker354/actual sizes20 pass. Native-target-size area passes d229-regression.out: shaders92, sizes20, targets30, validation76/text604. All processes exited. CURRENT_STATE records exact evidence and D-230 prepared baseline2/4 with live readback/clean validation.
+- Review/commit/FF then D-230 imageless attachment layout/ownership context from UNAPPLIED build/d230-fixture.py and plan.md. Isolated fixture/baseline already complete; do not rerun it. Then output destinations/pass adapters and queue graphs without stopping at the commit. No game/deployment authorization.
+
 ## D-228 verified; continue D-229 target-size operands (2026-11-14)
 
 - D-227 merged6f4ca9e. Source2.5.8/ABI9c6cf6d44e374cc3 final pair/tools built; four stamps match and tracker354 passes. CURRENT_STATE distinguishes faulty initial readback baselines from saved old-version refusal/counter evidence and final actual owned-reference pixels. All D-228 integration/follow-up/fixture drafts APPLIED. Native-targets area passes d228-regression.out: tracker354, targets30, resources89, GPU targets43, application images76, validation76/text603. All builds/checks exited.

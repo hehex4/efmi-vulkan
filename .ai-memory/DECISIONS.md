@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-229: Native target-size operands use RTV0 resource dimensions (2026-11-14)
+
+- Original ProcessParamRTSize in CommandList3050 gets RTV0, accepts Texture2D/Texture2DMS views and reads full resource Width/Height. DX11 owns retained getter references, deferred lifetime, hazards and context order. Vulkan reuses D-228's exact source metadata; no GPU read or resource transition is added.
+- Native unmatched shader calls fill the existing RuntimeDraw target-size fields from known2D output0. No bound/supported view uses the existing no-size sentinel and answers -1 like the original; unknown source context remains unknown. Resource extents do not become mip-view, framebuffer or render-area extents. Arrays remain unsupported by this specific original operand even though o0 properties support them.
+- Actual GPU checks cover classic/inject, a small owned pass followed by the main pass, an8x8 image's mip1 view with4x4 framebuffer and array-view -1 answers without degradation. Baseline and exact scoped results are in CURRENT_STATE.
+
 ## D-228: Native output resource sources follow current attachment mappings (2026-11-14)
 
 - Original CommandList OMGetRenderTargets getters9761-9800 return current RTV/DSV and resource references; GetResourceFormat10485 reads the view's format, while extents use the complete resource. DX11 owns retained/deferred lifetime, hazard tracking and one-context order. Vulkan uses immutable attachment metadata, exact current view/image IDs and complete allocation ownership acquired only at reference time.

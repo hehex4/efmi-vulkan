@@ -28,6 +28,10 @@ reference validates live IDs and retains the complete view/image/allocation chai
 hashes are not guessed. Existing native descriptor consumers enforce layout/hazard/ownership limits;
 output destinations and inherited secondary contexts still need dedicated adapters.
 
+D-229 native call state obtains rt_width/rt_height from known output0 resource dimensions for
+2D/MS views. Unknown source metadata stays unknown; absent/non-2D views preserve original -1
+semantics. View mip size and framebuffer/render-area size are never substituted.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

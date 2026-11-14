@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-228. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-229. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -859,3 +859,9 @@ queries but cannot supply retained allocation ownership. Destroyed/reused object
 secondary attachment context refuse explicitly. This source adapter does not implement `oN = ...`
 output rebinding. Actual owned-source/push/module-exchange sandbox pixels are covered by
 `sandbox/native_target_test.py`; none of this is new game evidence.
+
+D-229 also supplies native `rt_width`/`rt_height` from output0's full2D resource, following
+original ProcessParamRTSize. A mip view does not shrink this answer; framebuffer/render-area sizes
+are not substituted. No target or an array view answers -1 as the original operand does. Unknown
+inherited context remains explicitly unavailable. `sandbox/native_target_size_test.py` checks actual
+pixels and absence of operand degradation in classic/inject and changing owned/main passes.

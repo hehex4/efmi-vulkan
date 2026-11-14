@@ -1,6 +1,6 @@
 // Owned attachment fixture: two clear-only passes need no graphics pipeline.
 struct CaptureTargetScene {
-    bool draw = false;
+    bool draw = false, mip_view = false;
     bool enabled = false, after_graphics = false, transfer = true, store = true, layered = false, unused = false;
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
@@ -25,8 +25,8 @@ static bool create_capture_target()
     CHECK(vkAllocateMemory(g.device, &allocation, nullptr, &s.memory));
     CHECK(vkBindImageMemory(g.device, s.image, s.memory, 0));
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    view.image = s.image; view.viewType = s.layered?VK_IMAGE_VIEW_TYPE_2D_ARRAY:VK_IMAGE_VIEW_TYPE_2D; view.format = image.format;
-    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, s.layered?1u:0u, 1, s.layered?1u:0u, s.layered?3u:1u};
+    view.image = s.image; view.viewType = s.layered && !s.mip_view?VK_IMAGE_VIEW_TYPE_2D_ARRAY:VK_IMAGE_VIEW_TYPE_2D; view.format = image.format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, s.layered?1u:0u, 1, s.layered?1u:0u, s.layered && !s.mip_view?3u:1u};
     CHECK(vkCreateImageView(g.device, &view, nullptr, &s.view));
     VkAttachmentDescription attachment{}; attachment.format = image.format; attachment.samples = VK_SAMPLE_COUNT_1_BIT;
     attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; attachment.storeOp = s.store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -46,7 +46,7 @@ static bool create_capture_target()
     CHECK(vkCreateRenderPass(g.device, &pass, nullptr, &s.pass));
     VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     framebuffer.renderPass = s.pass; framebuffer.attachmentCount = 1; framebuffer.pAttachments = &s.view;
-    framebuffer.width = framebuffer.height = 4; framebuffer.layers = s.layered && !g.capture_multiview?2:1;
+    framebuffer.width = framebuffer.height = 4; framebuffer.layers = s.layered && !s.mip_view && !g.capture_multiview?2:1;
     CHECK(vkCreateFramebuffer(g.device, &framebuffer, nullptr, &s.framebuffer));
     return true;
 }
