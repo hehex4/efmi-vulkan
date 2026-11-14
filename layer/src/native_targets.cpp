@@ -10,14 +10,15 @@ struct TargetOwner:CommandOwner {
     void reset_after_completion()override{resources.clear();used=false;sealed=false;}
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}
 };
-bool color_context(const RenderTargets& targets,std::string& why){
+bool color_context(const RenderTargets& targets,const NativeTargetState* state,std::string& why){
     if(!targets.known || !targets.dynamic || targets.flags || targets.view_mask || targets.layers!=1 ||
        targets.has_depth || targets.has_stencil || targets.dynamic_colors.size()!=1 || targets.views.size()!=2){
         why="Native output destinations need an ordinary single-color dynamic pass";return false;
     }
     const auto& color=targets.dynamic_colors[0];const auto& view=targets.views[0];
-    if(!color.imageView || !view.known || color.imageView!=view.handle || color.resolveMode!=VK_RESOLVE_MODE_NONE ||
-       color.storeOp!=VK_ATTACHMENT_STORE_OP_STORE || view.image.samples!=VK_SAMPLE_COUNT_1_BIT ||
+    const bool known_view=color.imageView?(view.known && color.imageView==view.handle && view.image.samples==VK_SAMPLE_COUNT_1_BIT):
+        (state && state->original && state->format!=VK_FORMAT_UNDEFINED);
+    if(!known_view || color.resolveMode!=VK_RESOLVE_MODE_NONE || color.storeOp!=VK_ATTACHMENT_STORE_OP_STORE ||
        color.imageLayout!=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL || targets.area.offset.x<0 || targets.area.offset.y<0){
         why="Native output pass must retain single-sample stored color contents without resolve";return false;
     }
@@ -76,26 +77,43 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     if(cb->native_images || (cb->native_image_state && !cb->native_image_state->active.cells.empty()))
         return refuse("Native output changes with persistent image bindings need an alias restoration adapter");
     if(!cb->active_targets || cb->active_targets>cb->target_contexts.size())return refuse("Native output context is unavailable");
-    auto targets=cb->target_contexts[cb->active_targets-1];if(!color_context(targets,why))return false;
+    auto targets=cb->target_contexts[cb->active_targets-1];if(!color_context(targets,cb->native_target_state.get(),why))return false;
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
     if(!begin || !end || !device->d.CmdPipelineBarrier)return refuse("Native output rendering entries are unavailable");
     if(cb->target_contexts.size()+plan.items.size()>4096)return refuse("Native output context budget exceeded");
     next.state=cb->native_target_state?std::make_shared<NativeTargetState>(*cb->native_target_state):std::make_shared<NativeTargetState>();
-    if(!next.state->original){next.state->original=targets.dynamic_colors[0].imageView;next.state->original_image=targets.views[0].view.image;}
+    if(!next.state->original){next.state->original=targets.dynamic_colors[0].imageView;next.state->original_image=targets.views[0].view.image;next.state->format=targets.views[0].view.format;}
     const auto& proof=cb->image_layouts;
     std::shared_lock<std::shared_mutex> lock(device->res_mx);
     const auto pipeline=device->pipes.find(draw.pipeline);
     const auto recipe=pipeline==device->pipes.end()?nullptr:pipeline->second.recipe;
     if(!recipe || !recipe->geometry_complete || !recipe->dynamic_rendering || recipe->rendering_view_mask ||
-       recipe->rendering_colors.size()!=1 || recipe->rendering_colors[0]!=targets.views[0].view.format ||
+       recipe->rendering_colors.size()!=1 || recipe->rendering_colors[0]!=next.state->format ||
        recipe->rendering_depth!=VK_FORMAT_UNDEFINED || recipe->rendering_stencil!=VK_FORMAT_UNDEFINED)
         return refuse("Native output pipeline attachment contract is unavailable");
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind)continue;
-        if(item.native_target.kind!=efmi::frontend::NativeBinding::ColorTarget || item.native_target.slot!=0)
-            return refuse("Native output destination slot needs a separate pass adapter");
         const auto& resource=item.native_resource;
+        const bool empty=!resource || !resource->bound;
+        const auto& binding=item.native_target;
+        if(binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot!=0){
+            // This complete single-color/no-depth context proves these original built-in entries are already absent.
+            const bool absent=(binding.kind==efmi::frontend::NativeBinding::ColorTarget && binding.slot>0 && binding.slot<8) ||
+                              (binding.kind==efmi::frontend::NativeBinding::DepthTarget && binding.slot==0);
+            if(empty && !item.resource && absent)continue;
+            return refuse("Native output destination slot needs a separate pass adapter");
+        }
+        if(empty && !item.resource){
+            if(targets.dynamic_colors[0].imageView && !device->dynamic_unused_attachments)
+                return refuse("Native null outputs require the application's enabled unused attachments feature");
+            auto event=std::make_shared<NativeTargetPlan::Event>();event->change=targets.dynamic_colors[0].imageView!=VK_NULL_HANDLE;
+            targets.dynamic_colors[0].imageView=VK_NULL_HANDLE;targets.dynamic_colors[0].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
+            targets.views[0]=TargetView{};targets.views[1]=TargetView{};
+            if(cb->native_image_state){event->images=std::make_shared<NativeImageState>(*cb->native_image_state);
+                event->images->attachments.clear();event->images->attachments_known=true;}
+            event->targets=targets;next.events[i]=std::move(event);continue;
+        }
         if(!resource || !resource->bound || !resource->keep || !resource->image_safe || !resource->image_view ||
            resource->uploaded_readonly || resource->uploaded_mutable || !(resource->usage&VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
             return refuse("Native output destination needs a retained owned application color view");
@@ -109,7 +127,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(range.layerCount==VK_REMAINING_ARRAY_LAYERS && range.baseArrayLayer<image->second.layers)range.layerCount=image->second.layers-range.baseArrayLayer;
         if(range.aspectMask!=VK_IMAGE_ASPECT_COLOR_BIT || range.levelCount!=1 || range.layerCount!=1 ||
            image->second.type!=VK_IMAGE_TYPE_2D || image->second.samples!=VK_SAMPLE_COUNT_1_BIT ||
-           view->second.format!=targets.views[0].view.format || (view->second.type!=VK_IMAGE_VIEW_TYPE_2D && view->second.type!=VK_IMAGE_VIEW_TYPE_2D_ARRAY))
+           view->second.format!=next.state->format || (view->second.type!=VK_IMAGE_VIEW_TYPE_2D && view->second.type!=VK_IMAGE_VIEW_TYPE_2D_ARRAY))
             return refuse("Native output destination format or subresources differ from the rendering contract");
         const auto width=std::max(1u,image->second.extent.width>>std::min(range.baseMipLevel,31u));
         const auto height=std::max(1u,image->second.extent.height>>std::min(range.baseMipLevel,31u));
@@ -156,7 +174,7 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     VkImageMemoryBarrier barriers[2]{};uint32_t barrier_count=0;
     auto& state=*plan.state;
     if(state.active){const auto& saved=state.restore.at(state.active);barriers[barrier_count++]=transition(saved,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,saved.layout);layout(cb,saved,saved.layout);}
-    const auto target=event->targets.dynamic_colors[0].imageView;state.active=target!=state.original?target:VK_NULL_HANDLE;
+    const auto target=event->targets.dynamic_colors[0].imageView;state.active=target && target!=state.original?target:VK_NULL_HANDLE;
     if(state.active){const auto& saved=state.restore.at(state.active);barriers[barrier_count++]=transition(saved,saved.layout,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);layout(cb,saved,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);}
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,barrier_count,barriers);

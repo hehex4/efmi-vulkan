@@ -1,6 +1,10 @@
 # EFMI Vulkan - Tasks
 
 
+## D-239 verified; continue absent-output semantics (2026-11-14)
+
+- D-238 merged8ea21ba. Valid enabled null baseline7/15 already recorded. D-239 source2.6.9 draft applied, including original built-in absent-slot no-ops and preserved original format contract. Full pair/four stamps/tracker467/failed GPU20 and native-output-null area pass (null38/output52/dynamic exports70/validation76/text631). Review/commit/FF then apply D-240 absent-output drafts after its baseline, followed by preserved-depth output/pass and queue adapters; do not stop at the commit.
+
 ## D-238 verified; continue null-output semantics (2026-11-14)
 
 - D-237 merged6ee0a2d. Valid full-size GPU baseline7/13 establishes refused core/KHR assignments with main6418/owned902 pixels. Source2.6.8/ABI6433f654126802ef final pair/tracker457/four stamps, failed GPU13 and extended GPU39 pass. Initial native-outputs area passed. BUG-108 follow-up has CPU baseline457/458, applied mapping guards and new ABIa5e71663fefad479; final pair/four stamps/tracker460 and native-output-guards (outputs52, validation76/text630) pass. Reviewed diff and memory for local commit/FF. D-239 valid enabled-null baseline7/15 already recorded; production drafts not applied.

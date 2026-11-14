@@ -10,6 +10,7 @@ inline bool native_output_binding(const efmi::frontend::NativeBinding& binding){
 struct NativeTargetState {
     struct Saved {TargetView view;VkImageLayout layout=VK_IMAGE_LAYOUT_UNDEFINED;std::shared_ptr<const efmi::frontend::NativeResource> resource;};
     VkImage original_image=VK_NULL_HANDLE;
+    VkFormat format=VK_FORMAT_UNDEFINED; // Compatibility survives a temporarily unbound actual output.
     VkImageView original=VK_NULL_HANDLE, active=VK_NULL_HANDLE;
     std::map<VkImageView,Saved> restore;
 };

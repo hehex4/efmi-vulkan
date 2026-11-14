@@ -641,6 +641,7 @@ struct Device {
     void (*analysis_frame)(Device*, const char*, uint32_t) = nullptr;
     void (*hunting_overlay)(Device*, const char*) = nullptr;
     bool synchronization2_enabled = false;
+    bool dynamic_unused_attachments = false; // Only the application-enabled feature permits null color views with its pipeline.
     bool character_mode = false; // set once at device creation
     bool character_stopped = false; // the device is going: no backend is staged any more
     std::shared_mutex character_mx;

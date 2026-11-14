@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-239: Null outputs are actual unbound attachments (2026-11-14)
+
+- Original SetResource and BuiltInCommandListUnbindAllRenderTargets assign null o0..o7/oD; a write mask would preserve a bound resource and therefore differ. DX11 supplies retained/deferred lifetime, hazards and one-context order; Vulkan ends stored ordinary rendering, restores the prior introduced image and begins with an actual null view.
+- Only the application's enabled dynamicRenderingUnusedAttachments feature permits a null view against the preserved non-UNDEFINED pipeline color format. Retain that original format across null so later owned-target restores have exact compatibility proof. Missing feature keeps the original draw/refusal; the layer enables no application feature.
+- Complete single-color/no-depth context proves extra color/depth null assignments are no-ops. Nonnull unsupported slots still refuse the entire plan before any GPU command. Existing owned-view/layout/descriptor/query/mapping/segmentation/single-queue guards remain. Null metadata and attachment conflict sets contain no fabricated live view.
+
 ## D-238: Native output destinations have their own dynamic pass executor (2026-11-14)
 
 - Original SetResource replaces one OM view while preserving the others; DX11 provides retained/deferred lifetime, hazards and context order. Output assignments are distinct from descriptor writes. Validate every event before recording any GPU change, retaining exact allocation owners and preparing storage/context capacity first.

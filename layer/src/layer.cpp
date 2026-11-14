@@ -1880,6 +1880,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     dev->analysis_frame = gpu_analysis_frame;
     dev->hunting_overlay = notices_hunting;
     for (auto node = static_cast<const VkBaseInStructure*>(info->pNext); node; node = node->pNext) {
+        if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT)
+            dev->dynamic_unused_attachments = reinterpret_cast<const VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT*>(node)->dynamicRenderingUnusedAttachments != VK_FALSE;
         if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES)
             dev->synchronization2_enabled = reinterpret_cast<const VkPhysicalDeviceSynchronization2Features*>(node)->synchronization2 != VK_FALSE;
         if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES)

@@ -42,7 +42,7 @@ def scene(checks,case):
  elif case in ('query','sync2','null'):
   checks.check(visible is not None and redirected is not None and visible>4000 and 100<redirected<1500,case+': unsupported destination change preserves both original GPU results')
   reason=status.get('shader_overrides',{}).get('last_reason','')
-  checks.check({'query':'active query','sync2':'legacy synchronization','null':'retained owned'}[case] in reason,case+': precise boundary refusal is reported')
+  checks.check({'query':'active query','sync2':'legacy synchronization','null':'enabled unused attachments'}[case] in reason,case+': precise boundary refusal is reported')
  else:
   checks.check(visible is not None and (500<visible<1500 if case=='post' else visible<30),case+': target switch follows pre/post command order')
   checks.check(redirected is not None and redirected>2000,case+': actual owned destination receives main geometry')

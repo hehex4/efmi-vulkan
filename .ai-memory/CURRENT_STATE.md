@@ -5,6 +5,12 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.6.9: Actual null output destinations, D-239 (2026-11-14; sandbox verified)
+
+- D-238 committed/merged8ea21ba. Original SetResource10094 and IniHandler692 built-in all-output unbind reread: actual null views, preserved other slots, DX11 retained/deferred lifetime, hazard tracking and one-context order. Vulkan uses actual null attachments with explicit prior-output restoration and only the application's already-enabled unused-attachments feature.
+- Valid baseline d239-before.out7/15 on initial2.6.8/ABI6433f654126802ef: normal exit/clean validation but enabled null/once/restore all retain screen6418/owned902 and refuse. Isolated fixture enabled the feature explicitly; no invalid feature baseline.
+- build/d239-implement.py APPLIED. Track actual enabled feature, preserve original color-format contract across null, update actual view/conflict metadata and accept proven absent o1..o7/oD null entries of the original built-in. Preflight all events before emission; no descriptor/queue/query/mapping guards removed. Optional sandbox flag and null GPU/CPU cases added. Source2.6.9/shared ABI5e429e5f041ef3b4. Full d239-pair.out completed; four stamps/tracker467 and failed null/once/restore/built-in GPU20/20 pass. Actual screen/owned pixels: null0/0, once0/902, restore0/6418, built-in0/0. Full native-output-null area d239-regression.out passes null38, output52, dynamic exports70, tracker467, validation76/text631. All processes exited; diff and memory reviewed for local commit/FF. Continue offline output/pass and queue work; no game/deployment/system/launcher/remote action. D-240 absent-output compute fixture and implementation drafts are ignored/unapplied; valid baseline d240-before.out7/11 on2.6.9: original returns1 correctly, core/mixed lists return1 instead of3 with clean validation/normal exits. D-241 preserved-depth plan prepared, with actual depth readback required before implementation.
+
 ## Active source 2.6.8: Ordinary dynamic color destinations, D-238 (2026-11-14; sandbox verified)
 
 - D-237 committed/merged6ee0a2d. Original SetResource10094-10130 and official Begin/EndRendering/query contracts read. DX11 retains/defer-destroys views and orders one context's hazards; Vulkan needs stored contents, explicit dependencies/layout restoration and proven query/feedback boundaries.

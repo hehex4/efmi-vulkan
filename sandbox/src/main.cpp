@@ -237,6 +237,7 @@ struct App {
     bool imageless = false;
     int dynamic_rendering = 0;
     int dynamic_depth = 0;
+    bool unused_attachments = false;
     VkImage depth_image = VK_NULL_HANDLE;
     VkDeviceMemory depth_memory = VK_NULL_HANDLE;
     VkImageView depth_view = VK_NULL_HANDLE;
@@ -561,7 +562,7 @@ static bool create_device()
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     if(g.dynamic_rendering==2)exts.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
-    if(g.dynamic_depth)exts.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME);
+    if(g.dynamic_depth || g.unused_attachments)exts.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME);
     if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
     if(g.restart_mode==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME);
     if(g.dynamic_geometry>=4)exts.push_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
@@ -603,7 +604,7 @@ static bool create_device()
     VkPhysicalDeviceDynamicRenderingFeatures rendering{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
     if(g.dynamic_rendering){rendering.dynamicRendering=VK_TRUE;rendering.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&rendering;}
     VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT unused{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT};
-    if(g.dynamic_depth){
+    if(g.dynamic_depth || g.unused_attachments){
         VkPhysicalDeviceFeatures2 supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};supported.pNext=&unused;
         auto get_features=reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceFeatures2"));
         if(!get_features)return false;get_features(g.phys,&supported);
@@ -2060,6 +2061,8 @@ int wmain(int argc, wchar_t** argv)
             g.imageless = true;
         else if (a == L"--native-target")
             capture_target.enabled = capture_target.draw = true;
+        else if (a == L"--unused-attachments")
+            g.unused_attachments = true;
         else if (a == L"--native-output-query")
             native_output.query = true;
         else if (a == L"--native-output" && i + 1 < argc)

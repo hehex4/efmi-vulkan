@@ -931,3 +931,9 @@ The initial adapter requires an ordinary primary single-sample dynamic pass with
 Sandbox evidence uses a full-size owned destination and independent GPU readbacks of both targets. It covers core/KHR/inject, one-time assignment persistence, post order, F10, module exchange and actual active-query refusal. The host completes layout restoration across an exchanged module; complete owners remain retained until recording completion. These are offline results.
 
 Output splitting also requires a complete native pipeline attachment contract. Dynamic local-read attachment-location/input-index commands invalidate its proof for the recording, since a private Begin resets those mappings. Unknown static pipeline chains remain refused; the adapter does not silently replace an application mapping with identity.
+
+## Actual null output destinations (D-239)
+
+Within the ordinary single-color scope, `o0 = null` starts a continuation with an actual null color view when the application enabled `dynamicRenderingUnusedAttachments`. The original color-format contract survives unbinding, so a later retained destination can be restored with exact pipeline compatibility. Introduced targets restore their layout when unbound; null views own no image and contribute no attachment conflict. The layer enables no device feature on behalf of the application.
+
+The original `BuiltInCommandListUnbindAllRenderTargets` also executes here: the complete single-color/no-depth context proves that its other color slots and depth are already absent. Unsupported nonnull slots still refuse before any command records. Actual GPU readbacks cover core/KHR/inject, repeated/once/post unbinding, null then restore, the original built-in and feature-disabled fallback. No real-game verification is implied.

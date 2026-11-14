@@ -61,5 +61,22 @@ static void native_output_cases()
     native_targets_end(&d,&cb);
     check(output_commands.back()=='D' && !cb.native_target_state && cb.image_layouts.get(image.id,1,1,view.range,actual) && actual==VK_IMAGE_LAYOUT_GENERAL,
           "application end restores the introduced destination's exact layout");
+    cb.target_contexts={target};cb.active_targets=1;output_commands.clear();plan.items[0].native_resource.reset();
+    check(!prepare() && output_commands.empty(),"null transition cannot infer an enabled unused-attachments feature");
+    d.dynamic_unused_attachments=true;check(prepare(),"application-enabled feature permits actual null output preparation");
+    record_native_target(&d,&cb,prepared,0);
+    check(output_commands==std::vector<char>({'E','D','B'}) && !output_view && cb.native_target_state->format==VK_FORMAT_R8G8B8A8_UNORM &&
+          !cb.target_contexts.back().dynamic_colors[0].imageView,"unbinding uses an actual null view while retaining pipeline compatibility proof");
+    plan.items[0].native_resource=resource;check(prepare(),"retained destination can be restored after null without inventing a format");
+    record_native_target(&d,&cb,prepared,0);native_targets_end(&d,&cb);
+    check(output_view==handle && cb.image_layouts.get(image.id,1,1,view.range,actual) && actual==VK_IMAGE_LAYOUT_GENERAL,
+          "null then restore retains the destination layout restoration contract");
+    cb.target_contexts={target};cb.active_targets=1;output_commands.clear();plan.items[0].native_resource.reset();
+    for(uint32_t slot=1;slot<8;++slot){auto absent=plan.items[0];absent.native_target.slot=slot;plan.items.push_back(absent);}
+    auto absent=plan.items[0];absent.native_target.kind=efmi::frontend::NativeBinding::DepthTarget;plan.items.push_back(absent);
+    check(prepare(),"original all-output unbind accepts proven absent extra colors and depth");
+    for(size_t i=0;i<plan.items.size();++i)record_native_target(&d,&cb,prepared,i);
+    check(output_commands==std::vector<char>({'E','D','B'}) && !output_view,"absent built-in entries emit no extra pass breaks");
+    native_targets_end(&d,&cb);
     cb.execution_scopes.transform(true);cb.reset_recording();check(cb.execution_scopes.splittable() && !cb.native_target_state,"recording reset drops transient output and execution scopes");
 }
