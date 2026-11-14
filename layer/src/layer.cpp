@@ -557,7 +557,16 @@ struct DrawPipelineRestore {
     VkPipeline pipeline;
     bool compute;
     DrawPipelineRestore(Device* dev, VkCommandBuffer cmd, bool comp = false) : device(dev), cb(cb_of(dev, cmd)),
-        pipeline(cb ? (comp ? cb->comp_bound : cb->gfx_bound) : VK_NULL_HANDLE), compute(comp) { if(cb)native_images_call(device,cb,comp); }
+        pipeline(cb ? (comp ? cb->comp_bound : cb->gfx_bound) : VK_NULL_HANDLE), compute(comp) {
+        if(cb)native_images_call(device,cb,comp);
+        // ProcessShaderOverride decides the legacy depth filter before this draw's command list.
+        // A prior list can change actual outputs without another application pipeline bind.
+        if(cb && !compute && !cb->native_image_blocked && cb->native_target_state && cb->gfx_pipeline){
+            pipeline=m2_bind(device,cb,cb->gfx_pipeline);
+            if(pipeline!=cb->gfx_bound)device->d.CmdBindPipeline(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
+            cb->gfx_bound=pipeline;
+        }
+    }
     ~DrawPipelineRestore() {
         if (compute && cb) { if(!cb->native_image_blocked && !cb->draws.empty())gpu_analysis_dispatch(device, cb); native_images_end(device,cb); }
         if (cb && pipeline && (compute ? cb->comp_bound : cb->gfx_bound) != pipeline) {

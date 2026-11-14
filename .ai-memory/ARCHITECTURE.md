@@ -88,6 +88,10 @@ D-243 extends unchanged attachment preservation to stored single-sample stencil-
 depth/stencil views. Exact per-aspect format/LOAD contracts and actual conflict identities survive
 color changes; real depth/stencil rebinding remains a separate adapter.
 
+D-244 actual DSV null removes both depth/stencil views while preserving stored colors and their
+introduced-image retention/restoration. Shader depth filters preserve the current pre-list choice;
+the following application draw refreshes from current actual attachments before running its lists.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

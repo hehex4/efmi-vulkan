@@ -961,3 +961,9 @@ Every event validates against the ordered full context before any GPU command re
 Ordinary dynamic color-output changes preserve stored single-sample stencil attachments without resolve, including stencil-only S8 and combined depth/stencil. Every actual preserved aspect uses LOAD on continuation and retains its exact pipeline format, view/layout and conflict identity. When both depth and stencil attachment pointers exist they must share the same view. Color destinations cannot alias either aspect. Actual depth/stencil rebinding still requires its own adapter.
 
 The optional stencil fixture checks complete fenced stencil bytes and exact geometry, alongside separate color outputs. Combined depth/stencil barriers transition both aspects together; no separate-layout feature is assumed. These are sandbox results, not real-game acceptance.
+
+## Actual null depth/stencil outputs (D-244)
+
+`oD = null` removes both actual depth and stencil views in supported ordinary dynamic passes, including the original built-in all-output unbind. Remaining colors continue with LOAD; their introduced-resource ownership and exact host restoration stay active. Repeated null entries are ordered no-ops after the first change. Nonnull depth/stencil rebinding and unsupported pass/queue contexts remain guarded.
+
+The native ShaderFixes depth filter follows ProcessShaderOverride: it tests actual DSV presence before this draw's command list. A list can unbind depth for the draw while that draw retains its earlier shader choice. Subsequent application draws refresh from the new actual output context even without another pipeline bind.

@@ -4,6 +4,7 @@ namespace efvk {
 namespace {
 using Resource=efmi::frontend::NativeResource;
 const char target_owner_key=0;
+constexpr uint32_t depth_slot=8; // The original DSV binding represents both depth and stencil.
 struct TargetOwner:CommandOwner {
     std::vector<std::shared_ptr<const Resource>> resources;
     bool sealed=false;
@@ -188,6 +189,17 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         const auto& resource=item.native_resource;
         const bool empty=!resource || !resource->bound;
         const auto& binding=item.native_target;
+        if(binding.kind==efmi::frontend::NativeBinding::DepthTarget && !binding.slot){
+            if(!empty || item.resource)return refuse("Native nonnull depth/stencil destinations need a retained layout adapter");
+            const bool bound=(targets.has_depth && targets.depth.imageView) || (targets.has_stencil && targets.stencil.imageView);
+            if(bound && !device->dynamic_unused_attachments)
+                return refuse("Native null depth/stencil needs the application's enabled unused attachments feature");
+            auto event=std::make_shared<NativeTargetPlan::Event>();event->slot=depth_slot;event->change=bound;
+            if(targets.has_depth){targets.depth.imageView=VK_NULL_HANDLE;targets.views[depth_index]={};targets.views[depth_index+1]={};}
+            if(targets.has_stencil){targets.stencil.imageView=VK_NULL_HANDLE;targets.views[stencil_index]={};targets.views[stencil_index+1]={};}
+            continue_targets(targets);event->images=target_images(cb,targets);
+            event->targets=targets;next.events[i]=std::move(event);continue;
+        }
         if(binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot>=count)
             return refuse("Native output destination slot needs a separate pass adapter");
         const size_t slot=binding.slot,view_index=2*slot;auto& original=next.state->colors[slot];
@@ -263,10 +275,12 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
     end(cb->handle);
     VkImageMemoryBarrier barriers[2]{};uint32_t barrier_count=0;
-    auto& state=*plan.state;auto& color=state.colors[event->slot];
-    if(color.active){const auto& saved=state.restore.at(color.active);barriers[barrier_count++]=transition(saved,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,saved.layout);layout(cb,saved,saved.layout);}
-    const auto target=event->targets.dynamic_colors[event->slot].imageView;color.active=target && target!=color.original?target:VK_NULL_HANDLE;
-    if(color.active){const auto& saved=state.restore.at(color.active);barriers[barrier_count++]=transition(saved,saved.layout,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);layout(cb,saved,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);}
+    auto& state=*plan.state;
+    if(event->slot!=depth_slot){auto& color=state.colors[event->slot];
+        if(color.active){const auto& saved=state.restore.at(color.active);barriers[barrier_count++]=transition(saved,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,saved.layout);layout(cb,saved,saved.layout);}
+        const auto target=event->targets.dynamic_colors[event->slot].imageView;color.active=target && target!=color.original?target:VK_NULL_HANDLE;
+        if(color.active){const auto& saved=state.restore.at(color.active);barriers[barrier_count++]=transition(saved,saved.layout,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);layout(cb,saved,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);}
+    }
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,barrier_count,barriers);
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());

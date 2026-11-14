@@ -102,4 +102,35 @@ static void native_mrt_output_cases()
     check(output_depth==combined.depth.imageView && output_stencil==output_depth && output_depth_load==VK_ATTACHMENT_LOAD_OP_LOAD && output_stencil_load==VK_ATTACHMENT_LOAD_OP_LOAD,
           "combined depth/stencil actually restarts both aspects with LOAD on their shared view");native_targets_end(&d,&cb);
 
+    cb.target_contexts={combined};cb.active_targets=1;output_commands.clear();plan.items.clear();
+    efmi::assets::FilePlanItem unbind;unbind.operation=efmi::assets::FileOperation::NativeBind;unbind.native_target.kind=Binding::DepthTarget;
+    plan.items={unbind,unbind};d.dynamic_unused_attachments=false;
+    check(!prepare() && output_commands.empty(),"actual DSV null requires app-enabled unused attachments permission");d.dynamic_unused_attachments=true;
+    ready=prepare();check(ready && prepared.events[0]->slot==8 && prepared.events[0]->change && !prepared.events[1]->change,
+          "two ordered DSV null events change both actual aspects exactly once");if(!ready)return;
+    check(!prepared.events[0]->targets.depth.imageView && !prepared.events[0]->targets.stencil.imageView &&
+          !prepared.events[0]->targets.views[4].known && !prepared.events[0]->targets.views[6].known &&
+          prepared.events[0]->images->attachments.size()==2 && !prepared.events[0]->images->attachments.count(9731),
+          "DSV null clears both actual aspect views and conflicts while retaining both colors");
+    check(prepared.events[0]->targets.dynamic_colors[0].loadOp==VK_ATTACHMENT_LOAD_OP_LOAD &&
+          prepared.events[0]->targets.dynamic_colors[1].loadOp==VK_ATTACHMENT_LOAD_OP_LOAD,
+          "DSV null keeps all stored colors through LOAD");
+    record_native_target(&d,&cb,prepared,0);record_native_target(&d,&cb,prepared,1);
+    check(output_commands==std::vector<char>({'E','D','B'}) && !output_depth && !output_stencil &&
+          mrt_views[0]==combined.dynamic_colors[0].imageView && mrt_views[1]==combined.dynamic_colors[1].imageView && !mrt_barriers,
+          "DSV null records one actual full-color continuation without layout transitions or invented resources");
+    native_targets_end(&d,&cb);check(output_commands.size()==3,"null original DSV needs no introduced-image restoration at host End");
+    cb.target_contexts={combined};cb.active_targets=1;output_commands.clear();plan.items={unbind,unbind};plan.items[1].native_resource=resources[0];
+    check(!prepare() && output_commands.empty() && cb.active_targets==1 && !cb.native_target_state,
+          "later unsupported nonnull DSV refuses earlier null atomically");
+    plan.items={saved.items[0],unbind};ready=prepare();check(ready,"color redirection and DSV null share one sequential prepared output context");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);record_native_target(&d,&cb,prepared,1);
+    check(cb.native_target_state->colors[1].active==VkImageView(resources[0]->image_view) && !output_depth && !output_stencil &&
+          cb.native_image_state->attachments.count(9740) && !cb.native_image_state->attachments.count(9731),
+          "DSV null leaves introduced color lifetime and current conflict identity active");
+    native_targets_end(&d,&cb);
+    check(mrt_barriers==1 && cb.image_layouts.get(9740,1,1,range,first) && first==VK_IMAGE_LAYOUT_GENERAL,
+          "host End still restores introduced color after a later DSV null");
+
+
 }

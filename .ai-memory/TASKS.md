@@ -1,6 +1,10 @@
 # EFMI Vulkan - Tasks
 
 
+## D-244 verified; continue zero-color and retained DSV adapters (2026-11-14)
+
+- D-243 merged07505b6. Valid null-DSV baseline31/43 precedes source2.7.4 edits. Full d244-pair.out completed; four2.7.4/ABI8af8de0e24586cd2 stamps, tracker538 and failed GPU43/43 pass. Core/combined aspect0 and post902 keep color6418/source902. Active/inactive filtered pixels902/5516 prove current pre-list selection and following-draw refresh. Native-depth-null area d244-regression.out passes null DSV92/stencil61/null color38/dynamic depth48/tracker538/validation76/text638. All processes exited; diff reviewed and memory synchronized for local commit/FF. Then validate D-245 no-color baseline before applying its draft; continue retained depth destinations and other offline adapters without stopping at the commit.
+
 ## D-243 verified; continue actual DSV null (2026-11-14)
 
 - D-242 merged819595c. Valid stencil-only/combined baseline24/33 precedes production edits. Full d243-pair.out completed; four2.7.3/ABI8af8de0e24586cd2 stamps, tracker528 and failed stencil GPU33/33 pass. Actual core screen0/owned6418 and post/combined_post902/6418 preserve6418 stencil-band pixels. Native-output-stencil area d243-regression.out passes stencil61/MRT39/preserved depth41/dynamic depth48/tracker528/validation76/text637. All processes exited; diff reviewed and memory synchronized for local commit/FF. Continue actual oD=null and remaining offline adapters without stopping at the commit.

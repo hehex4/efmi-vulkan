@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-244: DSV null changes both actual aspects; filter timing follows the original (2026-11-14)
+
+- Original SetResource replaces one DSV while keeping RTVs; it represents both depth and stencil. Vulkan nulls both actual imageView values when both roles exist, clears their actual views/conflict identities, and retains complete stored color LOAD semantics. The original images retain their original layouts and app-pass lifetime. Introduced color owners and host restoration survive later DSV null events. No arbitrary nonnull DSV or queue/pass expansion follows.
+- ProcessShaderOverride reads DSV presence before RunCommandList. The current draw therefore keeps its pre-list shader selection even if the list nulls depth. At each following application graphics draw after native output state exists, refresh from the actual context before its draw record and command lists. Hunting restores this refreshed selection. Refreshing inside the output event would violate the original timing.
+- Exact full fenced D32/S8 data distinguishes stopped writes from merely changed metadata. Independent color/source readbacks and active/inactive replacement pixels establish current/next-draw semantics. Feature-disabled and later unsupported DSV commands refuse atomically.
+
 ## D-243: Color changes retain unchanged stored stencil (2026-11-14)
 
 - Original SetResource keeps the DSV while replacing an RTV. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order; Vulkan preserves exact stored single-sample no-resolve depth/stencil attachments with explicit dependencies and LOAD continuations. No new owner is invented for unchanged app attachments inside their original pass lifetime.
