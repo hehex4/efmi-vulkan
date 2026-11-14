@@ -188,7 +188,7 @@ inline std::vector<uint32_t> vertex_shader()
 // layout(set = 1, binding = 2) readonly buffer S { vec4 tint; } materials[2];
 // layout(set = 1, binding = 5) uniform sampler2D albedo;
 // void main() { outColor = u.color * materials[0].tint * texture(albedo, vec2(0)); }
-inline std::vector<uint32_t> fragment_shader()
+inline std::vector<uint32_t> fragment_shader(bool mrt=false)
 {
     Builder b;
     uint32_t main = b.id(), out_color = b.id(), u_type = b.id(), u_var = b.id();
@@ -202,13 +202,16 @@ inline std::vector<uint32_t> fragment_shader()
 
     b.op(OpCapability, {CapabilityShader});
     b.op(OpMemoryModel, {AddressingLogical, MemoryGLSL450});
-    b.entry_point(ModelFragment, main, "main", {out_color});
+    const uint32_t out_second=mrt?b.id():0;
+    if(mrt)b.entry_point(ModelFragment, main, "main", {out_color,out_second});
+    else b.entry_point(ModelFragment, main, "main", {out_color});
     b.op(OpExecutionMode, {main, ModeOriginUpperLeft});
     b.name(u_var, "instance_config");
     b.name(storage, "materials");
     b.name(texture, "albedo");
 
     b.op(OpDecorate, {out_color, DecorationLocation, 0});
+    if(mrt)b.op(OpDecorate, {out_second, DecorationLocation, 1});
     b.op(OpMemberDecorate, {u_type, 0, DecorationOffset, 0});
     b.op(OpMemberDecorate, {u_type, 1, DecorationOffset, 16});
     b.op(OpDecorate, {u_type, DecorationBlock});
@@ -244,6 +247,7 @@ inline std::vector<uint32_t> fragment_shader()
     b.op(OpTypePointer, {p_uni_v4, StorageUniform, t_v4});
     b.op(OpConstant, {t_int, c_i1, 1});
     b.op(OpVariable, {p_out_v4, out_color, StorageOutput});
+    if(mrt)b.op(OpVariable, {p_out_v4, out_second, StorageOutput});
     b.op(OpVariable, {p_uni_u, u_var, StorageUniform});
     b.op(OpVariable, {p_storage, storage, StorageUniform});
     b.op(OpVariable, {p_texture, texture, StorageUniformConstant});
@@ -259,6 +263,7 @@ inline std::vector<uint32_t> fragment_shader()
     b.op(OpImageSampleImplicitLod, {t_v4, sampled, tex, uv});
     b.op(OpFMul, {t_v4, result, tinted, sampled});
     b.op(OpStore, {out_color, result});
+    if(mrt)b.op(OpStore, {out_second, result});
     b.op(OpReturn, {});
     b.op(OpFunctionEnd, {});
     return b.finish();

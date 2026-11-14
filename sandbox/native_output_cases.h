@@ -37,7 +37,7 @@ static void native_output_cases()
     DrawRec draw;draw.kind=DK_DRAW;draw.targets=1;NativeTargetPlan prepared;std::string why;
     auto prepare=[&]{prepared={};return prepare_native_targets(&d,&cb,draw,plan,prepared,why);};output_commands.clear();
     check(!prepare() && output_commands.empty(),"output preflight requires a complete known pipeline attachment contract");
-    auto recipe=std::make_shared<GraphicsRecipe>();recipe->geometry_complete=true;recipe->dynamic_rendering=true;
+    auto recipe=std::make_shared<GraphicsRecipe>();recipe->multisample.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;recipe->geometry_complete=true;recipe->dynamic_rendering=true;
     recipe->rendering_colors={VK_FORMAT_R8G8B8A8_UNORM};draw.pipeline=h<VkPipeline>(9508);d.pipes[draw.pipeline].recipe=recipe;
     check(prepare() && prepared.events[0]->change && output_commands.empty() && cb.active_targets==1 && !cb.native_target_state,"output preflight retains a complete destination without emitting commands or changing active context");
     recipe->geometry_complete=false;check(!prepare(),"unknown pipeline extensions cannot preserve attachment mapping across a split");recipe->geometry_complete=true;
@@ -99,7 +99,7 @@ static void native_output_cases()
     check(!prepare() && output_commands.empty(),"null transition cannot infer an enabled unused-attachments feature");
     d.dynamic_unused_attachments=true;check(prepare(),"application-enabled feature permits actual null output preparation");
     record_native_target(&d,&cb,prepared,0);
-    check(output_commands==std::vector<char>({'E','D','B'}) && !output_view && cb.native_target_state->format==VK_FORMAT_R8G8B8A8_UNORM &&
+    check(output_commands==std::vector<char>({'E','D','B'}) && !output_view && cb.native_target_state->colors[0].format==VK_FORMAT_R8G8B8A8_UNORM &&
           !cb.target_contexts.back().dynamic_colors[0].imageView,"unbinding uses an actual null view while retaining pipeline compatibility proof");
     const auto original_plan=plan;plan.items[0].native_resource=resource;plan.items.push_back(original_plan.items[0]);
     check(prepare() && prepared.events[0] && prepared.events[1] && prepared.events[1]->change &&

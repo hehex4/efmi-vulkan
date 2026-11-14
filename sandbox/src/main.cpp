@@ -238,6 +238,7 @@ struct App {
     int dynamic_rendering = 0;
     int dynamic_depth = 0;
     bool native_output_depth = false;
+    bool native_output_mrt = false;
     bool unused_attachments = false;
     VkImage depth_image = VK_NULL_HANDLE;
     VkDeviceMemory depth_memory = VK_NULL_HANDLE;
@@ -827,7 +828,7 @@ static bool create_pipeline()
     CHECK(vkCreatePipelineLayout(g.device, &pl, nullptr, &g.layout));
 
     std::vector<uint32_t> vs_code = spv::vertex_shader();
-    std::vector<uint32_t> fs_code = spv::fragment_shader();
+    std::vector<uint32_t> fs_code = spv::fragment_shader(g.native_output_mrt);
     g.shader_hashes[0] = crc32c_sw(vs_code.data(), vs_code.size() * 4);
     g.shader_hashes[1] = crc32c_sw(fs_code.data(), fs_code.size() * 4);
     g.shader_sizes[0] = static_cast<uint32_t>(vs_code.size() * 4);
@@ -916,8 +917,9 @@ static bool create_pipeline()
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     VkPipelineColorBlendStateCreateInfo cb = {};
     cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    cb.attachmentCount = 1;
-    cb.pAttachments = &cba;
+    VkPipelineColorBlendAttachmentState color_blends[2]{cba,cba};
+    cb.attachmentCount = g.native_output_mrt?2:1;
+    cb.pAttachments = color_blends;
 
     std::vector<VkDynamicState> dyn_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE,VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY,VK_DYNAMIC_STATE_VERTEX_INPUT_EXT};
     VkPipelineDynamicStateCreateInfo dyn = {};
@@ -954,7 +956,7 @@ static bool create_pipeline()
     info.renderPass = g.render_pass;
     info.subpass = 0;
     VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&g.format;
+    VkFormat color_formats[2]{g.format,g.format};rendering.colorAttachmentCount=g.native_output_mrt?2:1;rendering.pColorAttachmentFormats=color_formats;
     VkPipelineDepthStencilStateCreateInfo depth{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};depth.depthCompareOp=VK_COMPARE_OP_ALWAYS;
     if(g.native_output_depth)depth.depthTestEnable=depth.depthWriteEnable=VK_TRUE;
     if(g.dynamic_depth){rendering.depthAttachmentFormat=VK_FORMAT_D32_SFLOAT;info.pDepthStencilState=&depth;}
@@ -1768,7 +1770,8 @@ static bool render_frame()
     color.imageView=g.views[image];color.imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     color.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;color.storeOp=VK_ATTACHMENT_STORE_OP_STORE;color.clearValue=clear;
     VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};rendering.renderArea.extent=g.extent;rendering.layerCount=1;
-    rendering.colorAttachmentCount=1;rendering.pColorAttachments=&color;
+    VkRenderingAttachmentInfo color_targets[2]{color,color};color_targets[1].imageView=native_output_extra.view;
+    rendering.colorAttachmentCount=g.native_output_mrt?2:1;rendering.pColorAttachments=color_targets;
     VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     if(g.dynamic_depth){
         depth.imageView=(g.dynamic_depth==2 || g.dynamic_depth==4)?VK_NULL_HANDLE:g.depth_view;
@@ -1790,6 +1793,9 @@ static bool render_frame()
         attachment_barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;attachment_barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         attachment_barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
+        if(g.native_output_mrt){auto extra=attachment_barrier;extra.image=native_output_extra.image;
+            extra.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+            vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&extra);}
         dynamic_begin_rendering(g.primary,&rendering);
     }
     if (g.threads == 0) {
@@ -2065,6 +2071,7 @@ int wmain(int argc, wchar_t** argv)
             capture_target.enabled = capture_target.draw = true;
         else if (a == L"--unused-attachments")
             g.unused_attachments = true;
+        else if (a == L"--native-output-mrt"){g.native_output_mrt=true;g.unused_attachments=true;}
         else if (a == L"--native-output-depth"){g.native_output_depth=true;g.dynamic_depth=1;}
         else if (a == L"--native-output-query")
             native_output.query = true;

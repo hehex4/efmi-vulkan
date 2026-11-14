@@ -6,11 +6,11 @@ struct NativeOutputScene {
     VkImageView view=VK_NULL_HANDLE;
     VkDeviceMemory memory=VK_NULL_HANDLE;
     Buffer readback,depth_readback;
-} native_output;
+} native_output,native_output_extra;
 
-static bool create_native_output()
+static bool create_native_output_one(NativeOutputScene& s)
 {
-    auto& s=native_output;if(s.output.empty())return true;
+    if(s.output.empty())return true;
     if(!g.dynamic_rendering || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth))return false;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType=VK_IMAGE_TYPE_2D;image.format=g.format;image.extent={g.extent.width,g.extent.height,1};
@@ -29,32 +29,43 @@ static bool create_native_output()
     if(!make_buffer(s.readback,VkDeviceSize(g.extent.width)*g.extent.height*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true,true))return false;
     return !g.native_output_depth || make_buffer(s.depth_readback,VkDeviceSize(g.extent.width)*g.extent.height*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true,true);
 }
-static VkImageMemoryBarrier native_output_barrier()
+static bool create_native_output()
 {
-    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.image=native_output.image;
+    if(!create_native_output_one(native_output))return false;
+    if(g.native_output_mrt){
+        if(native_output.output.empty())return false;
+        native_output_extra.output=native_output.output+L".mrt.raw";
+        return create_native_output_one(native_output_extra);
+    }
+    return true;
+}
+static VkImageMemoryBarrier native_output_barrier(VkImage image)
+{
+    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.image=image;
     barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;return barrier;
 }
 static void record_native_output_source(VkCommandBuffer command)
 {
     const auto& s=native_output;if(!s.image)return;
-    auto barrier=native_output_barrier();barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    auto barrier=native_output_barrier(s.image);barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&barrier);
     VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};color.imageView=s.view;
     color.imageLayout=barrier.newLayout;color.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;color.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
     color.clearValue.color={{.05f,.05f,.08f,1.0f}};
     VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};rendering.renderArea.extent=g.extent;rendering.layerCount=1;
-    rendering.colorAttachmentCount=1;rendering.pColorAttachments=&color;
+    VkRenderingAttachmentInfo colors[2]{color,color};colors[1].imageView=VK_NULL_HANDLE;
+    rendering.colorAttachmentCount=g.native_output_mrt?2:1;rendering.pColorAttachments=colors;
     dynamic_begin_rendering(command,&rendering);record_setup(command);record_draw(command,0);dynamic_end_rendering(command);
     barrier.oldLayout=barrier.newLayout;barrier.newLayout=VK_IMAGE_LAYOUT_GENERAL;
     barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
 }
-static void record_native_output_readback(VkCommandBuffer command)
+static void record_native_output_readback_one(VkCommandBuffer command,const NativeOutputScene& s)
 {
-    const auto& s=native_output;if(!s.image)return;
-    auto barrier=native_output_barrier();barrier.oldLayout=VK_IMAGE_LAYOUT_GENERAL;barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    if(!s.image)return;
+    auto barrier=native_output_barrier(s.image);barrier.oldLayout=VK_IMAGE_LAYOUT_GENERAL;barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
     VkBufferMemoryBarrier buffer{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};buffer.buffer=s.readback.buf;buffer.size=VK_WHOLE_SIZE;
     buffer.srcQueueFamilyIndex=buffer.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
@@ -80,9 +91,18 @@ static void record_native_output_readback(VkCommandBuffer command)
         vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_HOST_BIT,0,0,nullptr,1,&buffer,1,&barrier);
     }
 }
-static void destroy_native_output()
+static void record_native_output_readback(VkCommandBuffer command)
 {
-    auto& s=native_output;
+    if(native_output_extra.image){auto barrier=native_output_barrier(native_output_extra.image);
+        barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;barrier.newLayout=VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+    }
+    record_native_output_readback_one(command,native_output);
+    record_native_output_readback_one(command,native_output_extra);
+}
+static void destroy_native_output_one(NativeOutputScene& s)
+{
     if(s.readback.map){
         FILE* file=nullptr;_wfopen_s(&file,s.output.c_str(),L"wb");
         if(file){fwrite(s.readback.map,1,size_t(s.readback.size),file);fclose(file);}
@@ -99,4 +119,9 @@ static void destroy_native_output()
     if(s.view)vkDestroyImageView(g.device,s.view,nullptr);
     if(s.image)vkDestroyImage(g.device,s.image,nullptr);
     if(s.memory)vkFreeMemory(g.device,s.memory,nullptr);
+}
+
+static void destroy_native_output()
+{
+    destroy_native_output_one(native_output_extra);destroy_native_output_one(native_output);
 }

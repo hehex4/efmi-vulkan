@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-109: Initially null output contexts lacked pipeline sample proof (D-242; fixed offline in 2.7.2)
+
+- Original SetResource delegates RTV compatibility to DX11's OM runtime, with retained/deferred resource lifetime, hazard tracking and one-context order. Vulkan requires each introduced color attachment's sample count to match the bound pipeline absent separately modeled mixed-sample adapters. D-242's newly allowed initially null slots do not provide an actual attachment sample count to infer that contract from.
+- Original OMSet code and official vkCmdDraw sample requirements read. Isolated d242-sample-before.out513/514 accepts binding a single-sample view into an initially all-null context whose complete pipeline recipe has rasterizationSamples4. This is CPU preflight evidence, not observed GPU corruption or validation failure; the initial actual single-sample MRT11/11 already passed.
+- Require the exact single-sample pipeline contract before any output event records, and set realistic explicit sample counts in valid CPU fixtures. Shared ABI remains8af8de0e24586cd2. Final changed-object pair/four stamps/tracker514/failed GPU11 and native-output-mrt area pass (MRT39, preserved41, absent27, null38, output52, validation76/text636). Caught before commit/deployment; no real-game verification.
+
 ## BUG-108: Output pass splitting lacked attachment-mapping proof (D-238; fixed offline in 2.6.8)
 
 - Original SetResource preserves the DX11 pipeline and output slots, with runtime deferred/reference-counted lifetime, hazards and context order. Vulkan BeginRendering resets dynamic attachment locations to identity. The initial D-238 adapter accepted a missing/incomplete pipeline recipe and did not observe local-read mapping commands, so it lacked proof that restarting preserved the output contract.

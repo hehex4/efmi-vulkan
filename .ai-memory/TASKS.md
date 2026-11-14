@@ -1,6 +1,10 @@
 # EFMI Vulkan - Tasks
 
 
+## D-242 verified; continue stencil preservation (2026-11-14)
+
+- D-241 mergedbe58b24. Valid MRT baseline7/11 before production edits. Source2.7.2 production/fixture/cases applied; initial pair/ABI8af8de0e24586cd2/tracker512/failed GPU11 pass. BUG-109 sample-count follow-up has CPU baseline513/514 and applied guard; final changed-object pair/four stamps/tracker514/failed GPU11 pass; native-output-mrt area passes MRT39/preserved41/absent27/null38/output52/validation76/text636. D-243 stencil-only/combined fixture built after correcting an initial narrowing conversion; Valid d243-before.out24/33 on2.7.2: all five processes exit normally with clean validation, complete stencil bytes and6418 stencil-band pixels; control/combined_control retain expected screen6418/owned902, while core/post/combined_post refuse and retain those original colors. Production drafts remain UNAPPLIED. Review/memory/commit/FF, then continue remaining depth/stencil/classic/resolve and queue adapters without an intermediate stopping point.
+
 ## D-241 verified; continue multiple color destinations (2026-11-14)
 
 - D-240 mergedd133748. Valid depth baseline14/20 recorded before D-241 source2.7.1. Production/fixture/cases drafts applied; full pair/four stamps/tracker499/failed GPU20 and native-output-depth area pass (depth filters48/preserved41/null38/output52/dynamic targets30/validation76/text634). Review/memory/commit/FF, then continue remaining output/pass and queue engineering without stopping at the commit.

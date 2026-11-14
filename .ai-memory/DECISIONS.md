@@ -4,6 +4,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-242: Color output slots keep independent restoration state (2026-11-14)
+
+- Review follow-up BUG-109 requires exact single-sample pipeline state even when every original attachment is null. CPU513/514 demonstrates missing refusal; mixed-sample or unknown pipeline state needs a separate adapter.
+
+- Original SetResource preserves all other RTVs/DSV. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order; a Vulkan multi-color continuation preserves every stored attachment with LOAD and explicit dependencies. Each color retains its own original/active view and exact pipeline format contract; shared state participates in the ABI stamp.
+- Every event validates against the sequential actual full context. A new target must not overlap another active color or preserved depth image. Original/saved view aliases remain guarded. All events preflight before recording, including later unsupported slots. D-240 null ordering remains authoritative. Null initial slots have declared format proof without fabricated original views.
+- Host End restores every introduced active image using bounded barriers and retained owners. Preserved colors/depth remain in attachment conflicts after every event. Explicit GPU evidence uses independent A/B/C results; a passing screen alone cannot prove the correct output slot. Single-queue legacy synchronization and query/mapping/pass-boundary restrictions remain.
+
 ## D-241: Color output changes preserve actual stored depth (2026-11-14)
 
 - Original SetResource changes one RTV while preserving DSV; DX11 provides retained/deferred lifetime, hazards and one-context order. A private Vulkan Begin must keep the same known depth view/layout and use LOAD after the prior STORE. Existing legacy one-queue dependencies cover depth read/write access; no Submit2 expansion follows from this.

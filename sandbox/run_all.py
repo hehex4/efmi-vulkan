@@ -153,6 +153,7 @@ STEPS = [
     ("native compute uniform aliases", [os.path.join(HERE, "native_compute_uniform_test.py")]),
     ("native Submit2 resources", [os.path.join(HERE, "native_submit2_test.py")]),
     ("native dynamic depth", [os.path.join(HERE, "native_dynamic_depth_test.py")]),
+    ("native MRT outputs", [os.path.join(HERE, "native_mrt_output_test.py")]),
     ("native preserved depth", [os.path.join(HERE, "native_preserved_depth_test.py")]),
     ("native absent outputs", [os.path.join(HERE, "native_absent_output_test.py")]),
     ("native null outputs", [os.path.join(HERE, "native_output_null_test.py")]),
@@ -210,6 +211,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "native-output-mrt": ["native MRT outputs", "native preserved depth", "native null outputs", "native output destinations", "native absent outputs", "native tracker", "Vulkan validation", "text check"],
     "native-output-depth": ["native preserved depth", "native null outputs", "native output destinations", "native dynamic depth", "native dynamic targets", "native tracker", "Vulkan validation", "text check"],
     "native-absent-outputs": ["native absent outputs", "native null outputs", "native output destinations", "native descriptor bindings", "native call execution", "native tracker", "Vulkan validation", "text check"],
     "native-output-null": ["native null outputs", "native output destinations", "native tracker", "GPU dynamic target analysis", "Vulkan validation", "text check"],

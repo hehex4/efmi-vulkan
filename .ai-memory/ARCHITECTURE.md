@@ -79,6 +79,11 @@ D-241 output continuation preserves a known stored single-sample depth attachmen
 while moving a color target. Exact view/layout and LOAD retain earlier writes; every actual attachment
 stays in conflict proof. Active depth replacement and stencil still need their own adapters.
 
+D-242 color outputs have independent original/active views and exact pipeline contracts. Full
+continuations LOAD every stored attachment; host End restores all introduced views. Cross-slot active
+image overlaps and unmodeled view aliases refuse atomically. Even an initially all-null context
+requires exact single-sample pipeline state before introducing an actual image.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,
