@@ -21,7 +21,7 @@ struct NativeTargetState {
     };
     bool initialized=false;
     bool classic=false,private_pass=false;
-    Saved classic_original;
+    std::vector<Saved> classic_originals;
     std::shared_ptr<const RenderPassRecipe> classic_recipe;
     Color depth;
     VkFormat stencil_format=VK_FORMAT_UNDEFINED;

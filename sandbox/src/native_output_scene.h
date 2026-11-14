@@ -13,7 +13,7 @@ static bool create_native_output_one(NativeOutputScene& s)
 {
     if(s.output.empty())return true;
     if(g.native_output_owned && (!g.native_output_classic || g.native_output_mrt || g.dynamic_depth))return false;
-    if((g.native_output_no_color && (!g.dynamic_depth || g.native_output_mrt)) || (!g.dynamic_rendering && !g.native_output_classic) || (g.native_output_classic && (g.native_output_mrt || g.dynamic_depth)) || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth && !g.native_output_stencil))return false;
+    if((g.native_output_no_color && (!g.dynamic_depth || g.native_output_mrt)) || (!g.dynamic_rendering && !g.native_output_classic) || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth && !g.native_output_stencil))return false;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType=VK_IMAGE_TYPE_2D;image.format=g.format;image.extent={g.extent.width,g.extent.height,1};
     image.mipLevels=image.arrayLayers=1;image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
@@ -26,22 +26,6 @@ static bool create_native_output_one(NativeOutputScene& s)
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=s.image;
     view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=g.format;view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
     CHECK(vkCreateImageView(g.device,&view,nullptr,&s.view));
-    if(g.native_output_classic){
-        VkAttachmentDescription attachment{};attachment.format=g.format;attachment.samples=VK_SAMPLE_COUNT_1_BIT;
-        attachment.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;attachment.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
-        attachment.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;attachment.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        attachment.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;attachment.finalLayout=VK_IMAGE_LAYOUT_GENERAL;
-        VkAttachmentReference ref{0,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};VkSubpassDescription sub{};
-        sub.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;sub.colorAttachmentCount=1;sub.pColorAttachments=&ref;
-        VkSubpassDependency dependency{};dependency.srcSubpass=VK_SUBPASS_EXTERNAL;dependency.dstSubpass=0;
-        dependency.srcStageMask=dependency.dstStageMask=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;dependency.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        VkRenderPassCreateInfo create{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};create.attachmentCount=1;create.pAttachments=&attachment;
-        create.subpassCount=1;create.pSubpasses=&sub;create.dependencyCount=1;create.pDependencies=&dependency;
-        CHECK(vkCreateRenderPass(g.device,&create,nullptr,&s.source_pass));
-        VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};framebuffer.renderPass=s.source_pass;
-        framebuffer.attachmentCount=1;framebuffer.pAttachments=&s.view;framebuffer.width=g.extent.width;framebuffer.height=g.extent.height;framebuffer.layers=1;
-        CHECK(vkCreateFramebuffer(g.device,&framebuffer,nullptr,&s.source_framebuffer));
-    }
     if(s.query){VkQueryPoolCreateInfo pool{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};pool.queryType=VK_QUERY_TYPE_OCCLUSION;pool.queryCount=uint32_t(g.draws);
         CHECK(vkCreateQueryPool(g.device,&pool,nullptr,&s.queries));}
     if(!make_buffer(s.readback,VkDeviceSize(g.extent.width)*g.extent.height*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true,true))return false;
@@ -68,9 +52,10 @@ static void record_native_output_source(VkCommandBuffer command)
 {
     const auto& s=native_output;if(!s.image)return;
     if(g.native_output_classic){
-        VkClearValue clear{};clear.color={{.05f,.05f,.08f,1.0f}};
+        VkClearValue clears[3]{};clears[0].color=clears[1].color={{.05f,.05f,.08f,1.0f}};
+        const uint32_t colors=g.native_output_mrt?2:1;if(g.dynamic_depth)clears[colors].depthStencil={1.0f,0};
         VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};begin.renderPass=s.source_pass;begin.framebuffer=s.source_framebuffer;
-        begin.renderArea.extent=g.extent;begin.clearValueCount=1;begin.pClearValues=&clear;
+        begin.renderArea.extent=g.extent;begin.clearValueCount=colors+uint32_t(g.dynamic_depth!=0);begin.pClearValues=clears;
         if(g.native_output_classic==2){VkSubpassBeginInfo sub{VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO};sub.contents=VK_SUBPASS_CONTENTS_INLINE;vkCmdBeginRenderPass2(command,&begin,&sub);}
         else vkCmdBeginRenderPass(command,&begin,VK_SUBPASS_CONTENTS_INLINE);
         record_setup(command);record_draw(command,0);
@@ -189,4 +174,36 @@ static void destroy_native_output_one(NativeOutputScene& s)
 static void destroy_native_output()
 {
     destroy_native_output_one(native_output_extra);destroy_native_output_one(native_output);
+}
+
+static bool create_native_classic_framebuffers()
+{
+    if(!g.native_output_classic)return true;
+    if(g.native_output_no_color || g.native_depth_absent)return false;
+    const uint32_t colors=g.native_output_mrt?2:1,total=colors+uint32_t(g.dynamic_depth!=0);
+    for(size_t i=0;i<g.views.size();++i){
+        VkImageView views[3]{g.views[i],native_output_extra.view,g.depth_view};if(g.dynamic_depth)views[colors]=g.depth_view;
+        VkFramebufferCreateInfo create{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};create.renderPass=g.render_pass;
+        create.attachmentCount=total;create.pAttachments=views;create.width=g.extent.width;create.height=g.extent.height;create.layers=1;
+        VkFramebufferAttachmentImageInfo images[3]{};VkFormat formats[3]{g.format,g.format,g.format};
+        for(uint32_t a=0;a<total;++a){auto& image=images[a];image.sType=VK_STRUCTURE_TYPE_FRAMEBUFFER_ATTACHMENT_IMAGE_INFO;
+            image.usage=a?VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_SAMPLED_BIT:g.output_swapchain_usage;
+            if(a==colors){image.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+                formats[a]=g.native_output_stencil==2?VK_FORMAT_D32_SFLOAT_S8_UINT:g.native_output_stencil?VK_FORMAT_S8_UINT:VK_FORMAT_D32_SFLOAT;}
+            image.width=g.extent.width;image.height=g.extent.height;image.layerCount=1;image.viewFormatCount=1;image.pViewFormats=&formats[a];}
+        VkFramebufferAttachmentsCreateInfo attachments{VK_STRUCTURE_TYPE_FRAMEBUFFER_ATTACHMENTS_CREATE_INFO};attachments.attachmentImageInfoCount=total;attachments.pAttachmentImageInfos=images;
+        if(g.imageless){create.flags=VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT;create.pAttachments=nullptr;create.pNext=&attachments;}
+        CHECK(vkCreateFramebuffer(g.device,&create,nullptr,&g.framebuffers[i]));
+    }
+    CHECK(create_native_classic_pass(true,&native_output.source_pass));
+    VkImageView views[3]{native_output.view,native_output_extra.view,g.depth_view};if(g.dynamic_depth)views[colors]=g.native_depth_destination?g.native_depth_source_view:g.depth_view;
+    VkFramebufferCreateInfo create{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};create.renderPass=native_output.source_pass;
+    create.attachmentCount=total;create.pAttachments=views;create.width=g.extent.width;create.height=g.extent.height;create.layers=1;
+    CHECK(vkCreateFramebuffer(g.device,&create,nullptr,&native_output.source_framebuffer));
+    if(g.native_output_owned){
+        CHECK(create_native_classic_pass(true,&native_output_extra.source_pass));create.renderPass=native_output_extra.source_pass;
+        create.attachmentCount=1;create.pAttachments=&native_output_extra.view;
+        CHECK(vkCreateFramebuffer(g.device,&create,nullptr,&native_output_extra.source_framebuffer));
+    }
+    return true;
 }

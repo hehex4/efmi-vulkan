@@ -242,6 +242,7 @@ struct App {
     int dynamic_depth = 0;
     bool native_output_depth = false;
     int native_output_classic = 0;
+    VkImageUsageFlags output_swapchain_usage=0;
     bool native_output_owned=false;
     bool native_depth_destination = false;
     bool native_depth_absent = false;
@@ -670,6 +671,44 @@ static bool create_device()
     return true;
 }
 
+static VkResult create_native_classic_pass(bool source,VkRenderPass* pass)
+{
+    const uint32_t colors=g.native_output_mrt?2:1,total=colors+uint32_t(g.dynamic_depth!=0);
+    VkAttachmentDescription attachments[3]{};VkAttachmentReference refs[2]{};
+    for(uint32_t i=0;i<colors;++i){auto& a=attachments[i];a.format=g.format;a.samples=VK_SAMPLE_COUNT_1_BIT;
+        a.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;a.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+        a.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;a.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        a.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;a.finalLayout=i?VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:source?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        refs[i]={i,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};}
+    VkAttachmentReference depth{colors,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+    if(g.dynamic_depth){auto& a=attachments[colors];a.format=g.native_output_stencil==2?VK_FORMAT_D32_SFLOAT_S8_UINT:g.native_output_stencil?VK_FORMAT_S8_UINT:VK_FORMAT_D32_SFLOAT;
+        a.samples=VK_SAMPLE_COUNT_1_BIT;a.loadOp=a.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+        a.storeOp=a.stencilStoreOp=VK_ATTACHMENT_STORE_OP_STORE;a.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+        a.finalLayout=source && g.native_depth_destination?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;}
+    VkSubpassDescription sub{};sub.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;sub.colorAttachmentCount=colors;sub.pColorAttachments=refs;
+    sub.pDepthStencilAttachment=g.dynamic_depth?&depth:nullptr;
+    VkSubpassDependency dependency{};dependency.srcSubpass=VK_SUBPASS_EXTERNAL;dependency.dstSubpass=0;
+    dependency.srcStageMask=VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;dependency.dstStageMask=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;dependency.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    if(g.dynamic_depth){dependency.dstStageMask|=VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        dependency.dstAccessMask|=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;}
+    if(g.native_output_classic==2){
+        VkAttachmentDescription2 a[3]{};VkAttachmentReference2 r[2]{};
+        for(uint32_t i=0;i<total;++i){const auto& old=attachments[i];auto& v=a[i];v.sType=VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
+            v.format=old.format;v.samples=old.samples;v.loadOp=old.loadOp;v.storeOp=old.storeOp;v.stencilLoadOp=old.stencilLoadOp;v.stencilStoreOp=old.stencilStoreOp;
+            v.initialLayout=old.initialLayout;v.finalLayout=old.finalLayout;}
+        for(uint32_t i=0;i<colors;++i){r[i]={VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};r[i].attachment=i;r[i].layout=refs[i].layout;r[i].aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;}
+        VkAttachmentReference2 dr{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};dr.attachment=colors;dr.layout=depth.layout;
+        VkSubpassDescription2 s{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};s.pipelineBindPoint=sub.pipelineBindPoint;s.colorAttachmentCount=colors;s.pColorAttachments=r;s.pDepthStencilAttachment=g.dynamic_depth?&dr:nullptr;
+        VkSubpassDependency2 d{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};d.srcSubpass=dependency.srcSubpass;d.dstSubpass=dependency.dstSubpass;
+        d.srcStageMask=dependency.srcStageMask;d.dstStageMask=dependency.dstStageMask;d.srcAccessMask=dependency.srcAccessMask;d.dstAccessMask=dependency.dstAccessMask;
+        VkRenderPassCreateInfo2 create{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};create.attachmentCount=total;create.pAttachments=a;create.subpassCount=1;create.pSubpasses=&s;
+        create.dependencyCount=1;create.pDependencies=&d;return vkCreateRenderPass2(g.device,&create,nullptr,pass);
+    }
+    VkRenderPassCreateInfo create{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};create.attachmentCount=total;create.pAttachments=attachments;
+    create.subpassCount=1;create.pSubpasses=&sub;create.dependencyCount=1;create.pDependencies=&dependency;return vkCreateRenderPass(g.device,&create,nullptr,pass);
+}
+
 static bool create_swapchain()
 {
     VkSurfaceCapabilitiesKHR caps;
@@ -734,6 +773,7 @@ static bool create_swapchain()
     info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     info.clipped = VK_TRUE;
     CHECK(vkCreateSwapchainKHR(g.device, &info, nullptr, &g.swapchain));
+    g.output_swapchain_usage=info.imageUsage;
 
     uint32_t n = 0;
     CHECK(vkGetSwapchainImagesKHR(g.device, g.swapchain, &n, nullptr));
@@ -769,18 +809,8 @@ static bool create_swapchain()
     rp.pSubpasses = &sub;
     rp.dependencyCount = 1;
     rp.pDependencies = &dep;
-    if(g.native_output_classic==2){
-        VkAttachmentDescription2 a{VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};a.format=att.format;a.samples=att.samples;
-        a.loadOp=att.loadOp;a.storeOp=att.storeOp;a.stencilLoadOp=att.stencilLoadOp;a.stencilStoreOp=att.stencilStoreOp;
-        a.initialLayout=att.initialLayout;a.finalLayout=att.finalLayout;
-        VkAttachmentReference2 r{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};r.attachment=0;r.layout=ref.layout;r.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
-        VkSubpassDescription2 s{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};s.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;s.colorAttachmentCount=1;s.pColorAttachments=&r;
-        VkSubpassDependency2 d{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};d.srcSubpass=dep.srcSubpass;d.dstSubpass=dep.dstSubpass;
-        d.srcStageMask=dep.srcStageMask;d.dstStageMask=dep.dstStageMask;d.dstAccessMask=dep.dstAccessMask;
-        VkRenderPassCreateInfo2 create{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};create.attachmentCount=1;create.pAttachments=&a;
-        create.subpassCount=1;create.pSubpasses=&s;create.dependencyCount=1;create.pDependencies=&d;
-        CHECK(vkCreateRenderPass2(g.device,&create,nullptr,&g.render_pass));
-    }else CHECK(vkCreateRenderPass(g.device, &rp, nullptr, &g.render_pass));
+    if(g.native_output_classic){CHECK(create_native_classic_pass(false,&g.render_pass));}
+    else CHECK(vkCreateRenderPass(g.device, &rp, nullptr, &g.render_pass));
 
     g.views.resize(n);
     g.framebuffers.resize(n);
@@ -795,6 +825,7 @@ static bool create_swapchain()
         v.subresourceRange.layerCount = 1;
         CHECK(vkCreateImageView(g.device, &v, nullptr, &g.views[i]));
 
+        if(g.native_output_classic)continue;
         VkFramebufferCreateInfo fb = {};
         fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         fb.renderPass = g.render_pass;
@@ -1797,7 +1828,11 @@ static bool render_frame()
     rp.clearValueCount = 1;
     rp.pClearValues = &clear;
     VkRenderPassAttachmentBeginInfo late_views{VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
-    late_views.attachmentCount=1;late_views.pAttachments=&g.views[image];if(g.imageless)rp.pNext=&late_views;
+    VkImageView classic_views[3]{g.views[image],native_output_extra.view,g.depth_view};VkClearValue classic_clears[3]{clear,clear,clear};
+    const uint32_t classic_colors=g.native_output_mrt?2:1,classic_count=classic_colors+uint32_t(g.dynamic_depth!=0);
+    if(g.dynamic_depth){classic_views[classic_colors]=g.depth_view;classic_clears[classic_colors].depthStencil={1.0f,0};}
+    late_views.attachmentCount=g.native_output_classic?classic_count:1;late_views.pAttachments=g.native_output_classic?classic_views:&g.views[image];if(g.imageless)rp.pNext=&late_views;
+    if(g.native_output_classic){rp.clearValueCount=classic_count;rp.pClearValues=classic_clears;}
     if(g.native_output_owned){rp.renderPass=native_output_extra.source_pass;rp.framebuffer=native_output_extra.source_framebuffer;rp.pNext=nullptr;}
 
     VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -2270,7 +2305,7 @@ int wmain(int argc, wchar_t** argv)
         ok = load_injected();
     if(g.restart_mode && g.restart_mode!=3){kIndicesA[0]=UINT16_MAX;kIndicesB[6]=UINT32_MAX;}
     ok = ok && load_vulkan() && create_instance() && create_window() && create_device() && create_swapchain() &&
-         create_pipeline() && create_resources() && create_compute_scene() && create_capture_target() && create_native_output() && create_dynamic_depth() && prepare_present_burst();
+         create_pipeline() && create_resources() && create_compute_scene() && create_capture_target() && create_native_output() && create_dynamic_depth() && create_native_classic_framebuffers() && prepare_present_burst();
     if (ok && !g.inject_path.empty() && g.inject_late)
         ok = load_injected();
     if (ok && g.reresolve_exports)

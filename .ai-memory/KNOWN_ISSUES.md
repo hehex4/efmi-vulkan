@@ -1,5 +1,9 @@
 # EFMI Vulkan - Known issues
 
+## BUG-111: Cross-slot classic originals lost their own final layout (D-248; fixed offline in 2.7.8)
+
+- BUG-111 caught before commit: isolated d248-cross-slot-before.out617/619 proves original-image layouts are incorrectly taken from the destination slot when an original moves to another vacated slot. Original SetResource10094 reread; DX11 retained/deferred lifetime, hazard tracking and context order leave image ownership independent of output slot. The Vulkan first End already performed that image's original implicit final transition. Applied d248-cross-slot-fix.py: locate the original by view identity across the complete original set, for both incoming transitions and host restoration. No observed GPU corruption or VVL failure is claimed. Final d248-final-pair.out completed with changed native_targets/tracker objects and verified unchanged same-ABI objects. Four2.7.8/ABI19a2b58b0100d8c1 stamps and tracker619 pass. Affected native-classic-attachments area passes in d248-regression.out: classic attachments173/classic outputs73/dynamic MRT39/validation76/text644. All processes exited; diff reviewed and memory synchronized for local commit/FF. No game/deployment/system/launcher/remote action. Continue the null-output pipeline compatibility adapter; the concrete next design is build/d249-plan.md, still UNAPPLIED.
+
 ## BUG-110: New bindings could activate ignored null-attachment resolve fields (D-245; fixed offline in 2.7.5)
 
 - Original SetResource10094 replaces the RTV and does not perform a multisample resolve. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order. Vulkan ignores ordinary resolve fields while imageView is null; D-242 allowed that valid original context but replaced only the view/layout/load/store, leaving ignored resolve data potentially active on a new single-sample view.
