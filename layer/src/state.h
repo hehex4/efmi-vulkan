@@ -59,7 +59,7 @@ struct CharacterModule;
     X(AllocateCommandBuffers) X(FreeCommandBuffers) X(DestroyCommandPool) X(ResetCommandPool)                          \
     X(BeginCommandBuffer) X(EndCommandBuffer) X(ResetCommandBuffer)                                                    \
     X(CmdBindPipeline) X(CmdBindIndexBuffer) X(CmdBindIndexBuffer2) X(CmdBindIndexBuffer2KHR)                          \
-    X(CmdSetPrimitiveTopology) X(CmdSetPrimitiveTopologyEXT)                                                        \
+    X(CmdSetPrimitiveTopology) X(CmdSetPrimitiveTopologyEXT) X(CmdSetVertexInputEXT)                                \
     X(CmdBindVertexBuffers) X(CmdBindVertexBuffers2) X(CmdBindVertexBuffers2EXT) X(CmdBindDescriptorSets)              \
     X(CmdDraw) X(CmdDrawIndexed) X(CmdDrawIndirect) X(CmdDrawIndexedIndirect)                                          \
     X(CmdDrawIndirectCount) X(CmdDrawIndirectCountKHR) X(CmdDrawIndexedIndirectCount) X(CmdDrawIndexedIndirectCountKHR) \
@@ -252,6 +252,7 @@ struct BufInfo {
 struct PipeInfo {
     struct Binding {
         uint32_t binding, stride, per_instance;
+        uint32_t divisor = 1;
     };
     struct Attribute {
         uint32_t location, binding, format, offset;
@@ -270,6 +271,13 @@ struct PipeInfo {
     bool specialized = false; // a stage has specialization constants
     std::vector<uint32_t> dynamic_states;
     std::shared_ptr<const GraphicsRecipe> recipe;
+};
+
+// Owned dynamic declarations; each setter replaces the snapshot retained by earlier draws.
+struct DynamicVertexInput {
+    bool complete = false;
+    std::vector<PipeInfo::Binding> bindings;
+    std::vector<PipeInfo::Attribute> attributes;
 };
 
 // Immutable attachment facts. Recording owns metadata only, never application Vulkan objects.
@@ -360,6 +368,7 @@ struct DrawRec {
     uint32_t rp = 0;         // ordinal of the render pass inside the submitted command buffer, 0 when outside
     uint32_t targets = 0;    // one-based immutable render-target context, 0 outside/unobserved
     uint32_t topology = UINT32_MAX; // Current dynamic topology, used only by a dynamic pipeline.
+    std::shared_ptr<const DynamicVertexInput> vertex_input;
     VkPipeline pipeline = VK_NULL_HANDLE;
     // What the driver has bound for the draw: `pipeline`, or its twin without the character dither
     // (D-133). Code that binds its own pipeline in between binds this one back.
@@ -458,6 +467,7 @@ struct CmdBuf {
     // Current bindings while recording. `gfx_bound` is what the driver has (DrawRec::bound).
     VkPipeline gfx_pipeline = VK_NULL_HANDLE;
     uint32_t topology = UINT32_MAX;
+    std::shared_ptr<const DynamicVertexInput> vertex_input;
     VkPipeline gfx_bound = VK_NULL_HANDLE;
     VkPipeline comp_pipeline = VK_NULL_HANDLE;
     VkPipeline comp_bound = VK_NULL_HANDLE;
@@ -831,6 +841,8 @@ void on_copy_buffer_to_image(Device* dev, CmdBuf* cb, VkBuffer src, VkImage dst,
 void on_fill_buffer(Device* dev, CmdBuf* cb, VkBuffer dst, uint64_t off, uint64_t size, uint32_t value);
 void on_bind_vertex_buffers(CmdBuf*, uint32_t first, uint32_t count, const VkBuffer*, const VkDeviceSize* offsets,
                             const VkDeviceSize* sizes = nullptr, const VkDeviceSize* strides = nullptr);
+void on_set_vertex_input(CmdBuf*, uint32_t bindings, const VkVertexInputBindingDescription2EXT*,
+                         uint32_t attributes, const VkVertexInputAttributeDescription2EXT*);
 void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkCommandBuffer* cbs);
 // Called after an indexed draw was appended to cb->draws: reads what a running capture wants kept.
 void on_record_indexed(Device* dev, CmdBuf* cb);

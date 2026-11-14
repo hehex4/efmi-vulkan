@@ -5,7 +5,8 @@
 > versions and what is deployed are in CURRENT_STATE.md, never here.
 
 D-223 geometry analysis snapshots core/EXT dynamic strides, bound ranges and topology per draw.
-Recipes distinguish capture completeness from replacement completeness; capture support alone
+D-224 retains full dynamic input declarations per draw, including divisor and independently updated
+stride; caller arrays and later setters cannot mutate earlier snapshots. Recipes distinguish capture completeness from replacement completeness; capture support alone
 cannot authorize pipeline cloning. Static pipeline geometry and existing capture ownership,
 submission limits and completion publication remain authoritative.
 

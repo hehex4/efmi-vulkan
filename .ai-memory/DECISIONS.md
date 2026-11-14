@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-224: Full dynamic vertex input uses immutable draw declarations (2026-11-14)
+
+- Original FrameAnalysis reads its input-layout descriptors and live context IA buffers/strides/topology. DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan records owned bounded declarations at CmdSetVertexInputEXT and retains the immutable snapshot with each draw and secondary execution; existing capture owners/dependencies publish bytes only after GPU completion.
+- Preserve binding, format, attribute location/offset, per-instance rate and divisor (including zero). The setter also establishes dynamic stride; later BindVertexBuffers2 stride overrides remain separate from the declaration, and null-stride/legacy binds retain them. With only full-input dynamic state use the declaration's stride; with both dynamic states use the last independent stride. Static pipelines use their own descriptions.
+- Empty input is a valid empty declaration, distinct from missing metadata. Unknown chains or over-limit arrays invalidate current metadata/stride proof without changing older draw snapshots. Only used slots within tracked bounds export bytes. Pipeline metadata does not dereference ignored static input, and a full dynamic input recipe stays unavailable for mesh pipeline rebuilding.
+- Contracts: https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdSetVertexInputEXT.html , https://docs.vulkan.org/refpages/latest/refpages/source/VkVertexInputBindingDescription2EXT.html and https://docs.vulkan.org/refpages/latest/refpages/source/VkGraphicsPipelineCreateInfo.html . Exact failing baseline and scoped evidence are in CURRENT_STATE.
+
 ## D-223: Dynamic geometry snapshots are independent of pipeline cloning (2026-11-14)
 
 - Original FrameAnalysis.cpp2493-2530 retrieves cached input layout and current vertex buffers/strides/offsets/topology. DX11 supplies retained getter references, deferred destruction, hazard tracking and context order. Vulkan retains the same existing completed GPU capture owners/dependencies but snapshots dynamic metadata at each draw.

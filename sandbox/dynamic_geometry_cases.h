@@ -23,4 +23,32 @@ static void dynamic_geometry_cases()
     cb.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;cb.reset_recording();
     check(!cb.vb[0].stride_known && !cb.vb[1].stride_known && cb.vb[0].size==VK_WHOLE_SIZE && cb.topology==UINT32_MAX,
           "recording reset clears dynamic geometry validity and restores unbounded defaults");
+    VkVertexInputBindingDescription2EXT binding{VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT};
+    binding.binding=1;binding.stride=8;binding.inputRate=VK_VERTEX_INPUT_RATE_INSTANCE;binding.divisor=0;
+    VkVertexInputAttributeDescription2EXT attribute{VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT};
+    attribute.binding=1;attribute.location=2;attribute.offset=4;attribute.format=VK_FORMAT_R32_SFLOAT;
+    on_set_vertex_input(&cb,1,&binding,1,&attribute);
+    const auto saved=cb.vertex_input;
+    check(saved && saved->complete && saved->bindings[0].divisor==0 && saved->bindings[0].per_instance &&
+          saved->attributes[0].location==2 && cb.vb[1].stride_known && cb.vb[1].stride==8,
+          "dynamic declarations retain zero instance divisor and set independent binding stride");
+    binding.stride=16;binding.divisor=2;attribute.offset=8;
+    on_set_vertex_input(&cb,1,&binding,1,&attribute);
+    check(saved->bindings[0].stride==8 && saved->attributes[0].offset==4 && cb.vertex_input->bindings[0].divisor==2,
+          "a new setter and reused source arrays cannot mutate an earlier draw declaration");
+    on_bind_vertex_buffers(&cb,1,1,&first,&zero,nullptr,&zero);
+    check(cb.vb[1].stride_known && !cb.vb[1].stride && cb.vertex_input->bindings[0].stride==16,
+          "vertex buffer stride overrides remain separate from full input declarations");
+    child->draws[0].vertex_input=saved;CmdBuf second_parent;on_execute_commands(&device,&second_parent,1,&handle);
+    check(second_parent.draws[0].vertex_input==saved && !second_parent.vertex_input,
+          "secondary draws retain immutable input without importing the current declaration");
+    attribute.pNext=h<void*>(1);on_set_vertex_input(&cb,1,&binding,1,&attribute);
+    check(!cb.vertex_input->complete && !cb.vb[1].stride_known && saved->complete,
+          "unknown input chains invalidate current metadata without corrupting older snapshots");
+    on_set_vertex_input(&cb,257,h<const VkVertexInputBindingDescription2EXT*>(1),0,nullptr);
+    check(!cb.vertex_input->complete,"description limits refuse before reading unbounded arrays");
+    on_set_vertex_input(&cb,0,nullptr,0,nullptr);
+    check(cb.vertex_input->complete && cb.vertex_input->attributes.empty() && cb.vertex_input->bindings.empty(),
+          "empty dynamic input clears previous declarations without being confused with unset state");
+    cb.reset_recording();check(!cb.vertex_input && saved->complete,"reset releases current input while retained draw metadata survives");
 }

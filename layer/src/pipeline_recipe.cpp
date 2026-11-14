@@ -399,21 +399,25 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
         for (uint32_t i = 0; i < d.dynamicStateCount; i++) {
             if (d.pDynamicStates[i] < VK_DYNAMIC_STATE_VIEWPORT || d.pDynamicStates[i] > VK_DYNAMIC_STATE_STENCIL_REFERENCE) {
                 if (d.pDynamicStates[i] == VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE ||
-                    d.pDynamicStates[i] == VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY) capture_only = true;
+                    d.pDynamicStates[i] == VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY ||
+                    d.pDynamicStates[i] == VK_DYNAMIC_STATE_VERTEX_INPUT_EXT) capture_only = true;
                 else { r.reason = "extended_dynamic_state"; return r; }
             }
             r.dynamic.push_back(d.pDynamicStates[i]);
         }
     }
-    if (!info.pVertexInputState || !info.pInputAssemblyState || !info.pRasterizationState) {
+    const bool dynamic_input = dynamic_has(r,VK_DYNAMIC_STATE_VERTEX_INPUT_EXT);
+    if ((!dynamic_input && !info.pVertexInputState) || !info.pInputAssemblyState || !info.pRasterizationState) {
         r.reason = "required_state_missing"; return r;
     }
-    const auto& vi = *info.pVertexInputState;
-    if (vi.pNext || vi.flags || vi.vertexBindingDescriptionCount > kMaxVertex || vi.vertexAttributeDescriptionCount > kMaxVertex) {
-        r.reason = "vertex_input_extension_or_limit"; return r;
+    if (!dynamic_input) {
+        const auto& vi = *info.pVertexInputState;
+        if (vi.pNext || vi.flags || vi.vertexBindingDescriptionCount > kMaxVertex || vi.vertexAttributeDescriptionCount > kMaxVertex) {
+            r.reason = "vertex_input_extension_or_limit"; return r;
+        }
+        copy_array(r.vertex.bindings, vi.vertexBindingDescriptionCount, vi.pVertexBindingDescriptions);
+        copy_array(r.vertex.attributes, vi.vertexAttributeDescriptionCount, vi.pVertexAttributeDescriptions);
     }
-    copy_array(r.vertex.bindings, vi.vertexBindingDescriptionCount, vi.pVertexBindingDescriptions);
-    copy_array(r.vertex.attributes, vi.vertexAttributeDescriptionCount, vi.pVertexAttributeDescriptions);
     if (info.pInputAssemblyState->pNext || info.pInputAssemblyState->flags) { r.reason = "assembly_extension"; return r; }
     r.assembly = *info.pInputAssemblyState;
     if (info.pRasterizationState->pNext || info.pRasterizationState->flags) { r.reason = "raster_extension"; return r; }

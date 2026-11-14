@@ -112,6 +112,7 @@ DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
         return r;
     }
     r.topology = cb->topology;
+    r.vertex_input = cb->vertex_input;
     r.pipeline = cb->gfx_pipeline;
     r.bound = cb->gfx_bound;
     r.ib = cb->ib;
@@ -504,6 +505,13 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdSetPrimitiveTopology(VkCommandBuffer cmd,VkPrim
     count_call(HI_CmdSetPrimitiveTopology);Device* dev=dev_of(cmd);
     if(auto cb=cb_of(dev,cmd))cb->topology=topology;
     dev->d.CmdSetPrimitiveTopology(cmd,topology);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetVertexInputEXT(VkCommandBuffer cmd,uint32_t bindings,
+    const VkVertexInputBindingDescription2EXT* binding,uint32_t attributes,const VkVertexInputAttributeDescription2EXT* attribute)
+{
+    count_call(HI_CmdSetVertexInputEXT);Device* dev=dev_of(cmd);
+    on_set_vertex_input(cb_of(dev,cmd),bindings,binding,attributes,attribute);
+    dev->d.CmdSetVertexInputEXT(cmd,bindings,binding,attributes,attribute);
 }
 VKAPI_ATTR void VKAPI_CALL hk_CmdSetPrimitiveTopologyEXT(VkCommandBuffer cmd,VkPrimitiveTopology topology)
 {

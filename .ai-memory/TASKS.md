@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-224 verified; continue D-225 native dynamic shaders (2026-11-14)
+
+- D-223 merged08ed82c. D-224 baseline20/33; source2.5.4/ABIc9a3c97753f6da04 final build d224-final-pair.out and affected area d224-regression.out pass. Tracker328, recipe209, selection94, geometry65, dynamic56, full input60, indirect121, validation76/text595. CURRENT_STATE records exact fixture/source/build/verification and D-225 baseline8/16. All D-224 fixture/integration scripts applied.
+- Continue D-225 native-only dynamic shader twins after commit/FF using unapplied build/d225-plan.md/fixture.py. Keep mesh restrictions separate; follow with target/queue adapters. No game/deployment authorization.
+
 ## D-223 verified; continue D-224 full dynamic vertex input (2026-11-14)
 
 - Source2.5.3 pair/planner ABI1b332932d3d0e09f verified. Tracker320, recipe206/cache61/snapshots52/GPUvariants63, selection94, geometry65, dynamic56, indirect121, validation76/text594 pass. CURRENT_STATE distinguishes initial recipe guard and corrected test fixture from production changes.

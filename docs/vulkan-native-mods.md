@@ -274,7 +274,7 @@ notices while playing; whether any game pipeline has no module hash (inline modu
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
    transfer-source resources and supported owned layouts. Broader capture synchronization,
-   dynamic vertex input and per-draw analysis commands remain work. D-214/D-215 add file encodings and held analysis sessions.
+   D-223/D-224 add dynamic geometry/input capture; per-draw analysis commands remain work. D-214/D-215 add file encodings and held analysis sessions.
    D-208 adds indirect argument/count data; D-212 adds bounded mip/layer cells; D-213 adds resource selection.
 4. Real-game shader/hunting/replacement acceptance and performance measurements require the user's
    authorization for that session. Sandbox results cannot settle them. See the current state and
@@ -564,7 +564,9 @@ the replacement engine's private mesh buffers. Secondary recording identities ar
 D-208 adds indirect calls below. D-223 captures core/EXT dynamic strides and topology, including
 zero stride, null-stride/legacy rebinding and secondary snapshots. The manifest includes bound size.
 Static pipelines use their own geometry. Capture completeness never authorizes pipeline cloning.
-Full dynamic vertex input and slots beyond the four tracked slots remain refused. All D-202 ownership, usage, queue and completion restrictions still apply. Buffer copies
+D-224 adds full dynamic vertex input with owned per-draw declarations, binding/format/offset,
+instance rate and divisor, including independent later stride overrides. Unknown declarations and
+slots beyond the four tracked slots remain refused. All D-202 ownership, usage, queue and completion restrictions still apply. Buffer copies
 preserve every byte, including sizes not divisible by four; VkBufferCopy has no such alignment rule.
 
 ### Shader-independent output attachments (D-204, 2.3.4; sandbox scope)

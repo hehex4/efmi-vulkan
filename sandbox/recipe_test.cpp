@@ -282,7 +282,15 @@ static void ignored_pointer_tests()
     f.gp.pMultisampleState = h<const VkPipelineMultisampleStateCreateInfo*>(1);
     check(f.capture().complete, "discarded rasterization ignores viewport and multisample pointers");
     f.dynamic[0] = VK_DYNAMIC_STATE_VERTEX_INPUT_EXT; f.gp.pVertexInputState = h<const VkPipelineVertexInputStateCreateInfo*>(1);
-    check(!f.capture().complete && f.capture().reason == "extended_dynamic_state", "reject extended dynamics before reading ignored structs");
+    check(!f.capture().complete && f.capture().reason == "extended_dynamic_state", "capture-only dynamic input never reads ignored static structs");
+    check(f.capture().geometry_complete && f.capture().vertex.bindings.empty(),
+          "full dynamic input ignores static vertex declarations while retaining capture completeness");
+    f.gp.pVertexInputState = nullptr;
+    check(f.capture().geometry_complete && !f.capture().complete,
+          "dynamic input permits absent static declarations without enabling mesh replacement");
+    Device device;
+    on_create_graphics_pipeline(&device,h<VkPipeline>(90),&f.gp);
+    check(device.pipes[h<VkPipeline>(90)].bindings.empty(), "pipeline tracking accepts absent dynamic input declarations");
     f.gp.flags = VK_PIPELINE_CREATE_LIBRARY_BIT_KHR; f.gp.pStages = h<const VkPipelineShaderStageCreateInfo*>(1);
     check(!f.capture().complete, "reject pipeline library before touching absent stage state");
     VkRenderPassCreateInfo2 r2 = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};

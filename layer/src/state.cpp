@@ -304,6 +304,28 @@ DeviceRef::DeviceRef() : lock(g_dev_mx)
 // ---------------------------------------------------------------------------
 // Command buffer lookup
 
+void on_set_vertex_input(CmdBuf* cb,uint32_t bindings,const VkVertexInputBindingDescription2EXT* binding,
+                         uint32_t attributes,const VkVertexInputAttributeDescription2EXT* attribute)
+{
+    if(!cb)return;
+    cb->m2_extended_bind=true;
+    auto input=std::make_shared<DynamicVertexInput>();cb->vertex_input=input;
+    const auto unknown=[&]{for(auto& b:cb->vb)b.stride_known=false;};
+    if(bindings>256 || attributes>256 || (bindings && !binding) || (attributes && !attribute)){unknown();return;}
+    for(uint32_t i=0;i<bindings;++i){
+        const auto& b=binding[i];if(b.pNext){unknown();return;}
+        input->bindings.push_back({b.binding,b.stride,b.inputRate==VK_VERTEX_INPUT_RATE_INSTANCE?1u:0u,b.divisor});
+    }
+    for(uint32_t i=0;i<attributes;++i){
+        const auto& a=attribute[i];if(a.pNext){unknown();return;}
+        input->attributes.push_back({a.location,a.binding,uint32_t(a.format),a.offset});
+    }
+    for(const auto& b:input->bindings)if(b.binding<kMaxVb){
+        cb->vb[b.binding].stride=b.stride;cb->vb[b.binding].stride_known=true;
+    }
+    input->complete=true;
+}
+
 void on_bind_vertex_buffers(CmdBuf* cb,uint32_t first,uint32_t count,const VkBuffer* buffers,const VkDeviceSize* offsets,
                             const VkDeviceSize* sizes,const VkDeviceSize* strides)
 {
@@ -328,7 +350,7 @@ void CmdBuf::reset_recording()
     character_frame = 0;
     m2_extended_bind = false;
     gfx_pipeline = VK_NULL_HANDLE;
-    gfx_bound = VK_NULL_HANDLE; topology = UINT32_MAX;
+    gfx_bound = VK_NULL_HANDLE; topology = UINT32_MAX; vertex_input.reset();
     comp_pipeline = VK_NULL_HANDLE;
     comp_bound = VK_NULL_HANDLE;
     ib = VK_NULL_HANDLE;
@@ -620,7 +642,8 @@ static void note_pipeline_creation_locked(Device* dev, PipeInfo& p, const VkGrap
     if (info->flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR)
         return;
     const bool mesh = (p.stages & (VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT)) != 0;
-    if (!mesh && info->pVertexInputState) {
+    const bool dynamic_vertex = std::find(p.dynamic_states.begin(),p.dynamic_states.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)!=p.dynamic_states.end();
+    if (!mesh && !dynamic_vertex && info->pVertexInputState) {
         note_chain(dev, "vertex_input_next", info->pVertexInputState->pNext);
         note_use(dev, "vertex_bindings", info->pVertexInputState->vertexBindingDescriptionCount);
     }
@@ -721,7 +744,8 @@ void on_create_graphics_pipeline(Device* dev, VkPipeline pipe, const VkGraphicsP
     const bool mesh = (p.stages & (VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_TASK_BIT_EXT)) != 0;
     if (!mesh && info->pInputAssemblyState)
         p.topology = info->pInputAssemblyState->topology;
-    if (const VkPipelineVertexInputStateCreateInfo* vi = mesh ? nullptr : info->pVertexInputState) {
+    const bool dynamic_vertex = std::find(p.dynamic_states.begin(),p.dynamic_states.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)!=p.dynamic_states.end();
+    if (const VkPipelineVertexInputStateCreateInfo* vi = mesh || dynamic_vertex ? nullptr : info->pVertexInputState) {
         for (uint32_t i = 0; i < vi->vertexBindingDescriptionCount; i++) {
             const VkVertexInputBindingDescription& b = vi->pVertexBindingDescriptions[i];
             p.bindings.push_back({b.binding, b.stride, b.inputRate == VK_VERTEX_INPUT_RATE_INSTANCE ? 1u : 0u});

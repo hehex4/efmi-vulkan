@@ -254,7 +254,11 @@ public:
                     dynamic_stride|=state==VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
                     dynamic_topology|=state==VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
                 }
-                if(dynamic_input){refuse(session,point,"Dynamic vertex input declarations require a geometry adapter");continue;}
+                if(dynamic_input && (!draw.vertex_input || !draw.vertex_input->complete)){
+                    refuse(session,point,"Dynamic vertex input declarations were not completely recorded");continue;
+                }
+                const auto& bindings=dynamic_input?draw.vertex_input->bindings:pipe.bindings;
+                const auto& attributes=dynamic_input?draw.vertex_input->attributes:pipe.attributes;
                 if(dynamic_topology && draw.topology==UINT32_MAX){refuse(session,point,"Dynamic primitive topology was not recorded");continue;}
                 const auto topology=dynamic_topology?draw.topology:pipe.topology;
                 auto add=[&](VkBuffer buffer,const char* kind,uint64_t offset,const PipeInfo::Binding* binding){
@@ -271,16 +275,17 @@ public:
                         }
                         use.kn("bind_size",size);
                         use.kn("slot",binding->binding);use.kn("stride",dynamic_stride?bound.stride:binding->stride);use.kb("per_instance",binding->per_instance!=0);
+                        use.kn("divisor",binding->divisor);
                         use.key("attributes");use.begin_array();
-                        for(const auto& attribute:pipe.attributes)if(attribute.binding==binding->binding){
+                        for(const auto& attribute:attributes)if(attribute.binding==binding->binding){
                             use.begin_object();use.kn("location",attribute.location);use.kn("format",attribute.format);use.kn("offset",attribute.offset);use.end_object();
                         }
                         use.end_array();
                     }else use.kn("index_size",draw.index_size);
                     use.end_object();request.uses.push_back(std::move(use.out));
                 };
-                if(session->options & 0x10u)for(const auto& binding:pipe.bindings){
-                    bool used=false;for(const auto& attribute:pipe.attributes)used|=attribute.binding==binding.binding;
+                if(session->options & 0x10u)for(const auto& binding:bindings){
+                    bool used=false;for(const auto& attribute:attributes)used|=attribute.binding==binding.binding;
                     if(!used)continue;
                     if(binding.binding>=kMaxVb){refuse(session,point,"Vertex binding exceeds tracked slots");continue;}
                     add(draw.vb[binding.binding].buf,"vertex",draw.vb[binding.binding].off,&binding);

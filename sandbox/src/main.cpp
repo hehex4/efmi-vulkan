@@ -89,6 +89,7 @@ static PFN_vkCmdDrawIndexedIndirectCountKHR vkCmdDrawIndexedIndirectCountKHR;
 static PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
 static PFN_vkCmdBindVertexBuffers2 dynamic_bind_vertices;
 static PFN_vkCmdSetPrimitiveTopology dynamic_topology;
+static PFN_vkCmdSetVertexInputEXT dynamic_vertex_input;
 static std::atomic<uint32_t> validation_errors{0}, validation_warnings{0};
 static std::atomic<bool> validation_canary_seen{false};
 #define X(n) static PFN_vk##n vk##n;
@@ -531,6 +532,7 @@ static bool create_device()
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
+    if(g.dynamic_geometry>=4)exts.push_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
     if(g.sync2 && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if(g.storage_formatless && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
     if(g.descriptor_mode>=2)exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
@@ -558,11 +560,14 @@ static bool create_device()
     if(g.capture_multiview){multiview.multiview=VK_TRUE;multiview.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&multiview;}
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT};
     if(g.dynamic_geometry==2){extended.extendedDynamicState=VK_TRUE;extended.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&extended;}
+    VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT input_dynamic{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT};
+    if(g.dynamic_geometry>=4){input_dynamic.vertexInputDynamicState=VK_TRUE;input_dynamic.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&input_dynamic;}
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
     if(g.dynamic_geometry){
         dynamic_bind_vertices=reinterpret_cast<PFN_vkCmdBindVertexBuffers2>(vkGetDeviceProcAddr(g.device,g.dynamic_geometry==2?"vkCmdBindVertexBuffers2EXT":"vkCmdBindVertexBuffers2"));
         dynamic_topology=reinterpret_cast<PFN_vkCmdSetPrimitiveTopology>(vkGetDeviceProcAddr(g.device,g.dynamic_geometry==2?"vkCmdSetPrimitiveTopologyEXT":"vkCmdSetPrimitiveTopology"));
         if(!dynamic_bind_vertices || !dynamic_topology)return false;
+        if(g.dynamic_geometry>=4){dynamic_vertex_input=reinterpret_cast<PFN_vkCmdSetVertexInputEXT>(vkGetDeviceProcAddr(g.device,"vkCmdSetVertexInputEXT"));if(!dynamic_vertex_input)return false;}
     }
 
 #define X(n)                                                                                                           \
@@ -838,18 +843,21 @@ static bool create_pipeline()
     cb.attachmentCount = 1;
     cb.pAttachments = &cba;
 
-    VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE,VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY};
+    VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE,VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY,VK_DYNAMIC_STATE_VERTEX_INPUT_EXT};
     VkPipelineDynamicStateCreateInfo dyn = {};
     dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dyn.dynamicStateCount = g.dynamic_geometry && g.dynamic_geometry!=3?4:2;
+    const bool static_geometry=g.dynamic_geometry==3 || g.dynamic_geometry==6;
+    dyn.dynamicStateCount = g.dynamic_geometry && !static_geometry?4:2;
+    if(g.dynamic_geometry==4)dyn_states[2]=VK_DYNAMIC_STATE_VERTEX_INPUT_EXT;
+    if(g.dynamic_geometry==5)dyn.dynamicStateCount=5;
     dyn.pDynamicStates = dyn_states;
 
     VkGraphicsPipelineCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     info.stageCount = stage_count;
     info.pStages = stages;
-    if(g.dynamic_geometry && g.dynamic_geometry!=3)vbind.stride=64;
-    info.pVertexInputState = &vi;
+    if(g.dynamic_geometry && !static_geometry)vbind.stride=64;
+    info.pVertexInputState = g.dynamic_geometry==4 || g.dynamic_geometry==5?nullptr:&vi;
     info.pInputAssemblyState = &ia;
     info.pTessellationState = tessellation ? &tess : nullptr;
     info.pViewportState = &vp;
@@ -1319,12 +1327,22 @@ static void record_draw(VkCommandBuffer cb, int i)
     const DrawDef& d = kDraws[i];
     if(g.dynamic_geometry){
         const VkDeviceSize offset=0,size=sizeof(kVertices),stride=d.count==3?0:8;
-        dynamic_bind_vertices(cb,0,1,&g.vb.buf,&offset,&size,&stride);
+        const uint32_t slot=g.dynamic_geometry>=4 && d.count==3?1:0;
+        if(g.dynamic_geometry>=4){
+            VkVertexInputBindingDescription2EXT binding{VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT};
+            binding.binding=slot;binding.stride=uint32_t(stride);binding.inputRate=d.instances==2?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX;binding.divisor=1;
+            VkVertexInputAttributeDescription2EXT attribute{VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT};
+            attribute.binding=slot;attribute.format=slot?VK_FORMAT_R32_SFLOAT:VK_FORMAT_R32G32_SFLOAT;attribute.offset=slot?4:0;
+            dynamic_vertex_input(cb,1,&binding,1,&attribute);
+            binding.stride=123;attribute.offset=123; // Source arrays are no longer valid metadata after the call.
+        }
+        const VkDeviceSize override_stride=d.count==3?8:0;
+        dynamic_bind_vertices(cb,slot,1,&g.vb.buf,&offset,&size,g.dynamic_geometry==4?nullptr:g.dynamic_geometry==5?&override_stride:&stride);
         // Neither this null-stride rebind nor the legacy rebind changes dynamic stride.
-        if(i%2)dynamic_bind_vertices(cb,0,1,&g.vb.buf,&offset,nullptr,nullptr);
-        else vkCmdBindVertexBuffers(cb,0,1,&g.vb.buf,&offset);
+        if(i%2)dynamic_bind_vertices(cb,slot,1,&g.vb.buf,&offset,nullptr,nullptr);
+        else vkCmdBindVertexBuffers(cb,slot,1,&g.vb.buf,&offset);
         dynamic_topology(cb,d.count==3?VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP:VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-        if(g.dynamic_geometry==3)vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
+        if((g.dynamic_geometry==3 || g.dynamic_geometry==6))vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
     }
     if (d.ib == 0)
         vkCmdBindIndexBuffer(cb, g.ib_a.buf, 0, VK_INDEX_TYPE_UINT16);
