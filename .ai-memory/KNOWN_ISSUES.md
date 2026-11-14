@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-105: Graphics uniform references assumed an unrecorded dependency (fixed offline in D-221, 2.5.1)
+
+- CPU baseline299/300 (d221-before.out) accepts an application constant-buffer reference without a pre-pass dependency. GPU baseline14/16 (d221-gpu-before.out) shows inherited secondary replacement without parent proof; primary/push and immutable-file cases already passed. This is missing-proof/fallback evidence, not a reproduced GPU validation hazard.
+- Original constant-buffer getters/setters rely on DX11 deferred lifetime, hazards and context order. Current alias flags cannot prove a past Vulkan barrier, especially across configuration/module activation. Both pass-begin paths now retain actual emission proof; descriptor planning checks it, pass end/reset clears it and secondary execution cannot import it.
+- Persistent graphics uniforms retain the next-pass dependency requirement. Immutable files retain upload publication semantics. Corrected tracker310/310 and rendered colors16/16 pass; pair ABI/version and affected checks are recorded in CURRENT_STATE. No deployment or game verification.
+
 ## BUG-104: Candidate and retired backends overwrote active host dispatch flags (D-220, 2.5.0)
 
 - Isolated CPU baseline294/296 (d220-before.out) reproduces shared Device.shader_draws/native_binding_order changes from shader_hooks_frame(...,false), and shader_draws clearing from character_stop on a rejected/retired backend. The old module could thereby disable current callbacks until a later presentation. Module-local discard state is separate.

@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-221 verified; continue D-222 writable file images (2026-11-14)
+
+- Source2.5.1 pair/planner ABI2d4a842ed158c144 verified. Tracker310, GPU uniforms16, character115/377, bindings48, application images76, files42, validation76/text590 pass. Exact baselines and scope in CURRENT_STATE. Review/memory/commit/FF, then D-222 drafts listed there, starting with fixture/baseline before production changes.
+- Continue offline writable images, render targets and queue/signal adapters after each commit. No game/deployment authorization.
+
 ## Active D-220 verified; continue D-221 graphics uniform dependencies (2026-11-14)
 
 - D-219 merged6d2a4a1. Source2.5.0 final pair ABI341d1236484e9dfc verified. Tracker299, native shader92, application images76, files42, compute91, persistent18, hunting45, validation76/text588 pass. Exact original failures and evidence in CURRENT_STATE.

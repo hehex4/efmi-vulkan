@@ -508,8 +508,10 @@ Custom-resource stride queries use the original declaration's explicit stride, f
 Ordinary descriptors are snapshotted while recording. The [Vulkan descriptor-update contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkUpdateDescriptorSets.html)
 invalidates recordings when ordinary descriptors are updated afterwards; this is not a reason
 to refresh them at submission. Late buffer data writes remain valid. Exceptional binding flags
-are refused. Compute calls add queue-local barriers; graphics uniform references receive a
-pre-pass dependency. Multiple application queues require cross-queue hazard tracking and are
+are refused. Compute calls add queue-local barriers. D-221 requires actual pre-pass dependency proof for
+graphics application uniform references, retained across classic and dynamic pass boundaries.
+Persistent bindings keep later-pass ordering after alias configuration changes. Inherited
+secondaries require a parent-aware adapter; immutable file uploads keep publication semantics. Multiple application queues require cross-queue hazard tracking and are
 refused explicitly. Application images need subresource layout tracking; file uploads and null
 bindings follow separately. The native-bindings group covers GPU destinations, retained refs,
 post persistence, caller replay, indirect calls, late data and descriptor variants.

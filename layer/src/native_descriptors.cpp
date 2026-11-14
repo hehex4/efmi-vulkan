@@ -282,6 +282,9 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             if(resource.buffer && !resource.uploaded_readonly && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
                (resource.usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)))
                 return refuse("Native graphics references to writable buffers need in-pass hazard tracking");
+            if(resource.buffer && !resource.uploaded_readonly && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
+               (cb->inherited_rp || !cb->native_graphics_ordered))
+                return refuse("Native graphics buffer references need a recorded dependency before this pass; inherited secondaries need parent proof");
             if(constant || storage){
                 const auto usage=constant?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 const auto& limits=device->physical_properties.limits;
@@ -323,15 +326,17 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
     auto owner=std::static_pointer_cast<NativeDescriptorOwner>(plan.owner);
     if(std::find(cb->owners.begin(),cb->owners.end(),owner)==cb->owners.end())cb->owners.push_back(owner);
     owner->used=true;owner->sets.push_back(set);
+    const bool compute=draw.kind==DK_DISPATCH || draw.kind==DK_DISPATCH_INDIRECT;
     for(const auto& value:set->contents.values)if(value.second.native_image_request)cb->native_images=true;
     for(const auto& value:set->contents.values)if(value.second.native){
         const auto& resource=*std::static_pointer_cast<const Resource>(value.second.native);
         cb->native_buffers|=resource.uploaded_mutable;
+        cb->native_uniforms|=!compute && resource.bound && resource.buffer && !resource.uploaded_readonly &&
+                             (resource.usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         if(resource.publication_semaphore && resource.publication_value){
             auto& serial=owner->publications[VkSemaphore(resource.publication_semaphore)];serial=std::max(serial,resource.publication_value);
         }
     }
-    const bool compute=draw.kind==DK_DISPATCH || draw.kind==DK_DISPATCH_INDIRECT;
     const auto point=compute?VK_PIPELINE_BIND_POINT_COMPUTE:VK_PIPELINE_BIND_POINT_GRAPHICS;
     if(set->bind.pushed){
         Writes writes(set->contents,VK_NULL_HANDLE);

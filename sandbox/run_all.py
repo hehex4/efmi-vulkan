@@ -168,6 +168,7 @@ STEPS = [
     ("native application shapes", [os.path.join(HERE, "native_application_shape_test.py")]),
     ("native storage images", [os.path.join(HERE, "native_storage_image_test.py")]),
     ("native application images", [os.path.join(HERE, "native_application_image_test.py")]),
+    ("native graphics uniforms", [os.path.join(HERE, "native_uniform_test.py")]),
     ("mutable native file buffers", [os.path.join(HERE, "native_mutable_test.py")]),
     ("native file bindings", [os.path.join(HERE, "native_file_test.py")]),
     ("native compute shaders", [os.path.join(HERE, "native_compute_test.py")]),
@@ -212,6 +213,7 @@ GROUPS = {
     "native-application-images": ["native application images", "native image bindings", "native descriptor bindings", "native tracker", "Vulkan validation", "text check"],
     "module-publication": ["native game shader", "native compute", "persistent hunting overlay", "native hunting", "native file bindings", "native application images", "native tracker", "Vulkan validation", "text check"],
     "module-paths": ["native application images", "native file bindings", "native tracker", "text check"],
+    "native-uniforms": ["native graphics uniforms", "native descriptor bindings", "native application images", "native file bindings", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "native-mutable-files": ["mutable native file buffers", "native file bindings", "native descriptor bindings", "native resource slots", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "native-files": ["native file bindings", "native descriptor bindings", "native resource slots", "native tracker", "Vulkan validation", "text check"],
     # A minute or so, for every change: text, the Python units, the expression cases, what each command

@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-221: Graphics application uniforms require recorded pre-pass proof (2026-11-14)
+
+- Original GetResource/SetResource uses the context constant-buffer getters/setters, including byte-range conversion for the DX11.1 API. DX11 provides reference-counted deferred lifetime, hazard tracking and one context's order. Vulkan retains owners but must also prove the dependency was actually recorded before this pass, not infer it from current module flags.
+- Both classic and dynamic pass begin record the existing global dependency through native_images_begin. Mark native_graphics_ordered only after emission, clear it on pass end/reset, and never import proof from a secondary recording. Graphics application buffer references require this proof; inherited secondaries remain refused until a parent-aware adapter exists. Immutable file uploads keep their completed publication exemption.
+- Retain native_uniforms after successful graphics binding so later passes still order persistent descriptors after alias configuration changes. Secondary composition carries this requirement but cannot manufacture current-pass proof. Baselines and scoped validation are in CURRENT_STATE; no real-game claim.
+
 ## D-220: Host installation owns module dispatch-state publication (2026-11-14)
 
 - Original ReloadConfig serializes shared configuration under G's critical section. Vulkan's host already holds character_mx across active callbacks/exchange, but backend construction and janitor stop wrote Device.shader_draws/native_binding_order outside active ownership. Baseline and verification are in CURRENT_STATE.

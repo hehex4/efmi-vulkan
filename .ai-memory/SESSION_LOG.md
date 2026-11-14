@@ -2626,3 +2626,11 @@ Original ReloadConfig critical-section semantics were read. BUG-104 baseline294/
 Pair/tracker/planner d220-pair.out uses ABI341d1236484e9dfc/version2.5.0, verified in four binaries. Tracker299 passes d220-after.out. Full module-publication area d220-regression.out passes native shaders92, application images76, files42, compute91, persistent hunting18, hunting45, tracker299, validation76/text588. No game/deployment/system/launcher/remote action.
 
 Next D-221 has isolated baseline299/300 (d221-before.out): graphics application uniform references are accepted without proof of an actual pre-pass dependency. Original constant getter/setter rules read. Ignored plan/CPU/GPU drafts are listed in CURRENT_STATE; use the existing UBO plus shader-color GPU draft, not the earlier larger alternate-UBO fixture idea. Continue after commit/FF.
+
+## 2026-11-14: D-221 recorded graphics uniform dependency proof, 2.5.1
+
+Original constant-buffer getters/setters rely on DX11 retained/deferred lifetime, hazards and one context's order. BUG-105 baseline CPU299/300 accepts an application uniform without a recorded dependency; GPU14/16 reveals unsafe inherited-secondary acceptance, with no claimed GPU validation hazard. Classic/dynamic begin now records proof, descriptor planning checks it, end/reset clears it, and secondary composition never imports proof. Persistent uniforms retain ordering requirements across later passes/configuration changes; immutable file publication remains separate.
+
+Pair/tracker/planner d221-pair.out built and all four version/ABI stamps match2.5.1/2d4a842ed158c144. Failed checks now310/310 and GPU16/16. Full native-uniforms area d221-regression.out passes tracker310, character115/377, bindings48, application images76, uniforms16, files42, validation76/text590. No game/deployment/system/launcher/remote action.
+
+Next D-222 original texture LoadFromFile and Vulkan view/layout contracts read. Ignored build/d222-plan.md/fixture.py/image-test.py are unapplied; typed RGBA8 shader probe passes. Apply/build the optional sandbox fixture and run baseline, implement private/pinned writable file images with distinct sampled/storage views and retained publication, then scoped validation and commit. Continue after FF.

@@ -29,7 +29,10 @@ resource/view formats and dynamic ranges. GPU-writable content is not read throu
 call, with compute dependencies and cached graphics access checks. `native_descriptors.cpp` clones
 retained descriptor sets for persistent buffer/file/image bindings and upload publication. Writable
 file buffers use private declaration identity and pinned residency; recording dependency state
-extends explicit compute ordering across later application calls and secondary execution. Application
+extends explicit compute ordering across later application calls and secondary execution. Graphics
+application uniforms require proof of a dependency recorded before the current pass; inherited
+secondaries need a parent-aware adapter, while immutable uploads keep publication semantics. Accepted
+uniform bindings retain ordering requirements across later passes and configuration changes. Application
 image requests preserve original fallback elements; `native_images.cpp` refreshes them per call,
 uses recording-local `ImageLayouts` and restores temporary layouts outside render passes. Scope and
 reflection-cache structures shared by the host and exchangeable module participate in the ABI stamp.
