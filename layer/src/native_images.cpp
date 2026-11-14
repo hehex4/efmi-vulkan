@@ -175,7 +175,8 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
     const bool storage = target.kind == efmi::frontend::NativeBinding::Access;
     if (device->application_queue_count != 1 || device->material_queues.size() != 1)
         return refuse("Native application images require one application graphics queue");
-    if (device->synchronization2_enabled) return refuse("Native application image accesses require a synchronization2 signal-scope adapter");
+    if (device->synchronization2_enabled && !(image.uploaded_mutable && draw.kind == DK_DISPATCH))
+        return refuse("Native application image accesses require a synchronization2 signal-scope adapter");
     if(storage && !compute)return refuse("Native graphics storage images require in-pass hazard tracking");
     const uint32_t usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (compute?VK_IMAGE_USAGE_STORAGE_BIT:0);
@@ -293,6 +294,19 @@ void record_native_images(Device* device, CmdBuf* cb, const NativeImagePlan& pla
     }
 }
 
+void native_compute_order(Device* device, CmdBuf* cb, PFN_vkCmdPipelineBarrier command)
+{
+    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    const bool scoped = device->synchronization2_enabled;
+    // Original descriptors retain the application's existing access dependencies. Private mutable
+    // files are compute-only and GENERAL; publication waits refer to completed uploads. Do not
+    // add a compute-to-graphics/transfer edge to a stage-limited application semaphore graph.
+    barrier.srcAccessMask = scoped ? VK_ACCESS_SHADER_WRITE_BIT : VK_ACCESS_MEMORY_WRITE_BIT;
+    barrier.dstAccessMask = scoped ? VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT : VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    const auto stages = scoped ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    command(cb->handle, stages, stages, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+}
+
 void native_images_end(Device* device, CmdBuf* cb)
 {
     // Vulkan forbids synchronization between suspended and resumed rendering segments.
@@ -312,6 +326,10 @@ void native_images_end(Device* device, CmdBuf* cb)
         barrier.image = VkImage(value.resource->image); barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, value.mip, 1, value.layer, 1};
         barriers.push_back(barrier);
     }
+    if (device->synchronization2_enabled && barriers.empty()) {
+        native_compute_order(device, cb, device->d.CmdPipelineBarrier);
+        return;
+    }
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
     memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &memory, 0, nullptr, uint32_t(barriers.size()), barriers.data());
@@ -322,9 +340,7 @@ void native_images_call(Device* device, CmdBuf* cb, bool compute)
     // Mutable descriptors persist even when the next application's dispatch has no native plan.
     // DX11 orders that context implicitly; these files need explicit dependencies at every call.
     if(compute && cb->native_mutable){
-        VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
-        barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
-        device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&barrier,0,nullptr,0,nullptr);
+        native_compute_order(device, cb, device->d.CmdPipelineBarrier);
     }
     if (!device->track_image_layouts.load(std::memory_order_relaxed) && !cb->native_images) return;
     cb->native_image_blocked = false;
@@ -332,9 +348,7 @@ void native_images_call(Device* device, CmdBuf* cb, bool compute)
     scope(cb, compute);
     const auto draw = current(cb, compute);
     if(compute && cb->native_images && !cb->native_mutable){
-        VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
-        barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
-        device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&barrier,0,nullptr,0,nullptr);
+        native_compute_order(device, cb, device->d.CmdPipelineBarrier);
     }
     native_images_observe(device, cb, draw);
     if (cb->native_images) { std::string reason; if (!refresh_native_images(device, cb, draw, reason)) report(device, cb, reason); }
@@ -344,6 +358,9 @@ namespace {
 void order_native_graphics(Device* device,CmdBuf* cb)
 {
     cb->native_graphics_ordered=false;
+    // New application references are refused in this mode; private writable files stay compute-only.
+    // Read-only published files need no application-stage dependency at graphics Begin.
+    if(device->synchronization2_enabled)return;
     if(cb->inherited_rp || (!cb->native_images && !cb->native_uniforms && !device->native_binding_order.load(std::memory_order_relaxed)))return;
     std::call_once(device->native_barrier_load,[&]{if(device->owned_gdpa)device->native_barrier=
         reinterpret_cast<PFN_vkCmdPipelineBarrier>(device->owned_gdpa(device->handle,"vkCmdPipelineBarrier"));});

@@ -4,7 +4,7 @@ struct ComputeScene {
     std::wstring shader_path, output_path, reference_shader_path;
     struct ReferenceImage { VkImage image=VK_NULL_HANDLE; VkImageView view=VK_NULL_HANDLE; VkDeviceMemory memory=VK_NULL_HANDLE; } reference_images[2];
     VkPipeline reference_pipeline=VK_NULL_HANDLE;
-    bool indirect = false;
+    bool indirect = false, uniform_alias = false;
     bool binding_scene = false, late_update = false, constant_input = false;
     bool secondary = false, image_input = false, capture_usage = false, storage_image = false;
     bool reusable = false, buffer_barriers = false;
@@ -35,7 +35,7 @@ static bool create_compute_scene()
     if (size < 20 || size > (16 << 20) || size % 4) { fclose(file); return false; }
     std::vector<uint32_t> code(size / 4);
     const bool read = fread(code.data(), 1, size, file) == size; fclose(file);
-    if (!read || !make_buffer(c.data, 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true) ||
+    if (!read || !make_buffer(c.data, 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | (c.uniform_alias ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT : 0) | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true) ||
         !make_buffer(c.arguments, 12, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true)) return false;
     memset(c.data.map, 0, 16);
     if(c.binding_scene){
@@ -104,7 +104,7 @@ static bool create_compute_scene()
     write.pBufferInfo = &buffer; vkUpdateDescriptorSets(g.device, 1, &write, 0, nullptr);
     if(c.binding_scene){
         buffer.buffer=c.alternate.buf;write.dstBinding=1;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
-        buffer.buffer=c.input.buf;write.dstBinding=2;
+        buffer.buffer=c.uniform_alias?c.data.buf:c.input.buf;write.dstBinding=2;
         if(c.constant_input)write.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:c.reference_images[0].view?c.reference_images[0].view:g.shaped_texture_view?g.shaped_texture_view:g.texture_view,(c.storage_image || g.reference_storage)?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         if(c.image_input){write.descriptorType=(c.storage_image || (g.reference_storage && !g.reference_sampled_source))?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.pImageInfo=&image;write.pBufferInfo=nullptr;}
@@ -118,7 +118,7 @@ static void bind_compute_descriptors(VkCommandBuffer cmd)
 {
     auto& c=compute_scene;
     if(c.binding_scene && g.descriptor_mode>=2){
-        VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.input.buf,0,16}};
+        VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.uniform_alias?c.data.buf:c.input.buf,0,16}};
         if(g.descriptor_mode==3)vkCmdPushDescriptorSetWithTemplateKHR(cmd,c.update_template,c.layout,0,buffers);
         else{
             VkWriteDescriptorSet writes[5]{};
@@ -146,12 +146,12 @@ static void record_compute_scene(VkCommandBuffer cmd)
     if(c.binding_scene){
         memset(c.alternate.map,0,16);*static_cast<uint32_t*>(c.input.map)=7;
         if(g.descriptor_mode==1){
-            VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.input.buf,0,16}};
+            VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.uniform_alias?c.data.buf:c.input.buf,0,16}};
             vkUpdateDescriptorSetWithTemplate(g.device,c.set,c.update_template,buffers);
         }
     }
     VkMemoryBarrier host = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    host.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT; host.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    host.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT; host.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | (c.uniform_alias ? VK_ACCESS_UNIFORM_READ_BIT : 0);
     vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &host, 0, nullptr, 0, nullptr);
     if(c.storage_image){
         VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
@@ -168,7 +168,7 @@ static void record_compute_scene(VkCommandBuffer cmd)
     if(c.reference_pipeline){record_reference_images(cmd);return;}
     for(unsigned i=0;i<c.repeat;++i){
         if(c.indirect)vkCmdDispatchIndirect(cmd,c.arguments.buf,0);else vkCmdDispatch(cmd,1,1,1);
-        host.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;host.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+        host.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;host.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT|(c.uniform_alias?VK_ACCESS_UNIFORM_READ_BIT:0);
         if(c.buffer_barriers){
             VkBufferMemoryBarrier buffers[3]{};const Buffer* originals[]={&c.data,&c.input,&c.alternate};
             for(unsigned j=0;j<3;++j){auto& b=buffers[j];b.sType=VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;

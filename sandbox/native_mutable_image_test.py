@@ -60,7 +60,7 @@ def scene(checks,case):
     if case=='secondary':args+=['--compute-secondary']
     if case=='two_queues':args+=['--two-queues']
     if case=='sync2':args+=['--sync2']
-    refused=case in ('readonly','attachment','two_queues','sync2','srgb','cube_array_disabled')
+    refused=case in ('readonly','attachment','two_queues','srgb','cube_array_disabled')
     expected=(10198 if refused else 10234 if case=='alias' else 10152)*layers+(3 if refused else 10)*layers*(layers-1)//2
     def value():
         data=read_compute_result(output)

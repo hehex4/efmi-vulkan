@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-107: Scoped compute writes were not visible to uniform aliases (fixed during D-235, 2.6.5)
+
+- Original command-list Dispatch uses the DX11 context, whose runtime provides retained/deferred lifetime, hazard tracking and context order. Vulkan UNIFORM_READ is separate from SHADER_READ. The intermediate D-235 compute-only destination mask omitted the uniform access class.
+- Valid isolated d235-uniform-before.out5/6: an unchanged application buffer is both a storage output and uniform input; the original single dispatch returns1, but three native dispatches return1 instead of3. Validation is clean, so this is actual GPU data evidence, not a reproduced validation error. No replacement descriptor is introduced by this fixture.
+- Add UNIFORM_READ to the scoped compute destination access while retaining COMPUTE_SHADER execution scopes. The same original/core GPU cases now6/6, and the full alias matrix15/15 covers KHR, push and secondary. Full pair/area evidence is in CURRENT_STATE; the defect was caught before D-235 was committed or deployed. No real-game evidence.
+
 ## BUG-106: Native barriers crossed suspended rendering boundaries (fixed offline in D-232, 2.6.2)
 
 - Original DX11 context supplies retained/deferred lifetime, hazards and context order. Vulkan disallows synchronization between suspended/resumed rendering. CPU370/376 proves closing/resume barriers and lost/manufactured proof; the initial GPU primary case already passes4/4 with6418 green pixels/clean validation and is not a reproduced GPU hazard.

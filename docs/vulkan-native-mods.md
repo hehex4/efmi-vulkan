@@ -803,8 +803,8 @@ Recorded descriptor owners retain allocations and completed upload publication i
 frontend or module lifetime. Budget exhaustion leaves new loads pending rather than discarding
 writable contents. File IO, allocation and upload remain on the existing worker path.
 
-Exact byte/structure stride, descriptor usage/range, one application queue, compute scope and the
-synchronization2 boundary remain enforced. Dispatches with persistent mutable descriptors receive
+Exact byte/structure stride, descriptor usage/range, one application queue and compute scope remain
+enforced. D-235 adds scoped direct-compute support with synchronization2 below. Dispatches with persistent mutable descriptors receive
 explicit dependencies even without a new override plan; recording reset and secondary execution
 preserve the dependency lifetime. D-222 adds writable file textures below. Transformed/pool/initialized resources and graphics
 writable bindings require separate adapters. CPU dependency evidence, actual GPU results and
@@ -824,7 +824,7 @@ checks. Readonly views are never promoted to writable access. Private images rem
 application's layout tracker, and all their compute aliases use GENERAL.
 
 Persistent bindings receive compute dependencies even without another override plan. One application
-queue and the existing synchronization2 boundary remain required. Attachment binding, graphics
+queue remains required; D-235 adds scoped direct-compute synchronization2 support. Attachment binding, graphics
 writable access, transformed/pooled/initialized resources and cross-queue graphs need further adapters.
 Sandbox results cover actual completed bytes and allocation/publication lifetime; no game acceptance
 is implied. CURRENT_STATE distinguishes failures in the feature baseline from fixture/integration corrections.
@@ -903,3 +903,11 @@ queries, sizes, later sampling, KHR push/module exchange and fallback paths are 
 Dynamic-rendering ShaderFixes evaluate `depth_filter` against the actual depth/stencil views supplied to BeginRendering. Depth-test/write enable and the pipeline's allowed attachment formats do not determine presence. Pipelines bound before Begin, or reused with a different attachment context, are refreshed there; the native variant caches separate unknown, absent and present contexts. Inherited secondary recordings without actual parent views conservatively keep filtered stages original. Classic subpass filters and compute bypass retain their existing behavior. As in ProcessShaderOverride, the legacy filter does not suppress command lists.
 
 The optional sandbox fixture enables `VK_EXT_dynamic_rendering_unused_attachments` for legal reuse of a D32 pipeline with a null view, with depth testing disabled. This checks runtime presence rather than declared compatibility; it grants no image-layout or application-allocation ownership permission. Native runtime output masks receive the same actual presence facts.
+
+## Private compute resources with Submit2 (D-235)
+
+Private mutable file buffers and images can be used by direct compute calls with synchronization2 enabled. Their complete allocation/publication owners stay retained, uploads are already completed when published, and all mutable accesses remain on one application queue. Image aliases use GENERAL throughout. Repeated command-list calls and persistent bindings receive compute-to-compute dependencies, including uniform reads of original application buffer aliases. The application keeps its own dependencies for unchanged descriptors; the layer adds no private-compute ordering at graphics Begin.
+
+New application resource references and indirect-call replay still require separate resource/argument stage adapters in this mode. This does not enable general application image accesses, cross-queue hazards, output rebinding or analysis readback with synchronization2. Legacy synchronization retains its existing behavior.
+
+The sandbox now submits actual core/KHR Submit2 work with a fragment-stage timeline wait and color-stage signal. GPU tests cover independent private declarations, persistent writes, push/secondary paths, F10/module exchange and the guarded cases. A storage/uniform alias test separately verifies three dependent dispatches return3: an intermediate missing UNIFORM_READ mask returned1 despite clean validation. The excluded host-release experiment also stalled without replacements and is not evidence of a layer deadlock or a supported future-wait graph.

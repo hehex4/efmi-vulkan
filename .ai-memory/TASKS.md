@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-235 verified; continue D-236 imageless analysis (2026-11-14)
+
+- Source2.6.5/ABI21722cf8198f0b6d and all D-235 production/clean fixture/integration drafts applied. Valid GPU4/8 and CPU411/415 baselines recorded; excluded host-release experiment and first compile include error are distinguished in CURRENT_STATE.
+- Full initial native-submit2 area passes. Uniform follow-up (BUG-107) was caught before commit: valid GPU5/6 became6/6 and full aliases15/15. Final pair/four stamps/tracker415 and native-compute-order area pass; exact evidence in CURRENT_STATE. Review/memory/commit/FF, then apply UNAPPLIED D-236 drafts after valid baseline2/5; continue dynamic pass analysis/output destination/pass and queue adapters. No intermediate stopping point or deployment/game permission.
+
 ## D-234 verified; continue actual Submit2 adapters (2026-11-14)
 
 - Source2.6.4/ABI34cc62ba682e5a11 final pair/tools built, tracker408/cache81/failed GPU27/27 pass. All D-234 tracked drafts applied; CURRENT_STATE distinguishes invalid initial fixture and corrected valid baseline19/21.

@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-235: Synchronization2 private resources use compute stage dependencies (2026-11-14)
+
+- Original command lists reuse the context's current shader/resources and dispatch; DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan stage-limited signals do not justify blanket new ALL_COMMANDS dependencies merely because a resource is privately owned.
+- Original unchanged descriptors retain application-supplied dependencies. New private mutable files are confined to direct compute on one application queue, with completed publication ownership; images remain GENERAL. Repeated native calls and persistent private bindings add COMPUTE_SHADER-to-COMPUTE_SHADER dependencies with shader write/read and uniform-read access. Graphics Begin gains no private-compute dependency or application-resource proof. Legacy mode keeps its existing dependency contract.
+- New application references in synchronization2 mode need their own resource-stage adapter; replay of indirect calls needs an argument-stage adapter. Neither is enabled by this change. Existing read-only completed publication support remains. CPU stage checks and actual core/KHR Submit2 GPU bytes validate this narrow path, not arbitrary future semaphore cycles, capture synchronization or cross-queue application references. The excluded host-release experiment stalled without replacement and proves no layer deadlock.
+
 ## D-234: Dynamic depth filters follow actual views (2026-11-14)
 
 - Original ProcessShaderOverride reads DSV presence, not test/write enable, and runs command lists independently of that legacy filter. DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan pipeline formats merely describe compatible rendering; dynamic Begin supplies actual views.

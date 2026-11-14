@@ -247,6 +247,9 @@ struct App {
     int texture_shape = 0; // 0 2D, 1 array, 2 cube, 3 cube array
     VkImageView shaped_texture_view = VK_NULL_HANDLE;
     bool sync2 = false;
+    int submit2 = 0;
+    uint64_t submit_serial = 0;
+    VkSemaphore graphics_progress = VK_NULL_HANDLE;
     int present_burst = 0;           // --present-burst: further presentations behind each frame's GPU work
     int load_blits = 0;              // the blits that make a frame's GPU work about 300 ms long
     VkImage load_src = VK_NULL_HANDLE, load_dst = VK_NULL_HANDLE;
@@ -562,7 +565,7 @@ static bool create_device()
     if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
     if(g.restart_mode==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME);
     if(g.dynamic_geometry>=4)exts.push_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
-    if(g.sync2 && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+    if(g.sync2 && (g.api_version<VK_API_VERSION_1_3 || g.submit2==2))exts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if(g.storage_formatless && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
     if(g.descriptor_mode>=2)exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
     if(g.draw_kind==3 || g.draw_kind==5)exts.push_back(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
@@ -585,6 +588,8 @@ static bool create_device()
     dinfo.pEnabledFeatures = &features;
     VkPhysicalDeviceSynchronization2Features sync2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
     if(g.sync2){sync2.synchronization2=VK_TRUE;dinfo.pNext=&sync2;}
+    VkPhysicalDeviceTimelineSemaphoreFeatures timeline{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+    if(g.submit2){timeline.timelineSemaphore=VK_TRUE;timeline.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&timeline;}
     VkPhysicalDeviceMultiviewFeatures multiview{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
     if(g.capture_multiview){multiview.multiview=VK_TRUE;multiview.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&multiview;}
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT};
@@ -1018,6 +1023,7 @@ static void record_setup(VkCommandBuffer);
 static void record_draw(VkCommandBuffer,int);
 #include "capture_target_scene.h"
 #include "dynamic_depth_scene.h"
+#include "submit_scene.h"
 
 // Padded application data deliberately differs from a packed Vulkan array.
 struct PaddedDescriptor { VkDescriptorBufferInfo buffer; uint64_t padding; };
@@ -1245,6 +1251,7 @@ static bool create_resources()
     VkSemaphoreCreateInfo si = {};
     si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     CHECK(vkCreateSemaphore(g.device, &si, nullptr, &g.sem_acquire));
+    if(!create_submit_scene())return false;
     // A submit fence does not prove presentation has finished waiting. Reacquiring
     // an image lets that image's presentation semaphore be reused safely.
     g.sem_render.resize(g.images.size());
@@ -1839,7 +1846,8 @@ static bool render_frame()
     submit.pCommandBuffers = &g.primary;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &g.sem_render[image];
-    CHECK(vkQueueSubmit(g.queue, 1, &submit, g.fence));
+    if(g.submit2){if(!submit_scene(image))return false;}
+    else CHECK(vkQueueSubmit(g.queue, 1, &submit, g.fence));
     const double submit_end = clock_ms();
 
     VkPresentInfoKHR present = {};
@@ -1918,6 +1926,7 @@ static void cleanup()
     destroy_compute_scene();
     destroy_capture_target();
     destroy_dynamic_depth();
+    destroy_submit_scene();
     vkDestroyFence(g.device, g.fence, nullptr);
     for (auto semaphore : g.burst_acquire) vkDestroySemaphore(g.device, semaphore, nullptr);
     if (g.load_src) vkDestroyImage(g.device, g.load_src, nullptr);
@@ -2025,6 +2034,7 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.output_path = argv[++i];
         else if (a == L"--two-queues")
             g.two_queues = true;
+        else if (a == L"--submit2") { g.submit2 = _wtoi(argv[++i]); g.sync2 = true; }
         else if (a == L"--sync2")
             g.sync2 = true;
         else if (a == L"--compute-capture")
@@ -2102,6 +2112,7 @@ int wmain(int argc, wchar_t** argv)
         }
         else if (a == L"--compute-image")
             compute_scene.image_input = compute_scene.binding_scene = true;
+        else if (a == L"--compute-uniform-alias") { compute_scene.uniform_alias = compute_scene.binding_scene = compute_scene.constant_input = true; }
         else if (a == L"--compute-bindings")
             compute_scene.binding_scene = true;
         else if (a == L"--compute-late-data")

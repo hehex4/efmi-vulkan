@@ -31,16 +31,6 @@ void caller(Device* device, CmdBuf* cb, const DrawRec& r)
     }
 }
 
-void compute_order(PFN_vkCmdPipelineBarrier command, CmdBuf* cb)
-{
-    // DX11's immediate context orders resource hazards. New Vulkan dispatches need an explicit
-    // dependency, including indirect arguments and work following the last injected dispatch.
-    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
-    command(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                                0,1,&barrier,0,nullptr,0,nullptr);
-}
 }
 
 void native_file_frame(NativeCallCache& cache,TextureResidency* residency)
@@ -126,6 +116,8 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
     auto refuse = [&](const char* text) { why = text; return false; };
     if (!device || !cb || plan.items.empty()) return false;
     const bool compute = compute_call(r);
+    if(compute && device->synchronization2_enabled && r.kind == DK_DISPATCH_INDIRECT)
+        return refuse("Native indirect replay under synchronization2 needs argument-stage dependencies");
     if(compute){
         std::call_once(cache.loaded,[&]{if(device->owned_gdpa)cache.barrier=reinterpret_cast<PFN_vkCmdPipelineBarrier>(device->owned_gdpa(device->handle,"vkCmdPipelineBarrier"));});
         if(!cache.barrier)return refuse("Native compute barrier entry is unavailable");
@@ -205,16 +197,16 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         if (hunting_skip) return;
         const auto& item=plan.items[index];
         if(item.operation==O::NativeBind){record_native_descriptor(device,cb,r,descriptors,index);return;}
-        if (compute) compute_order(cache.barrier,cb);
+        if (compute) native_compute_order(device,cb,cache.barrier);
         if (item.operation == O::Caller) caller(device,cb,r);
         else if (item.operation == O::Dispatch) device->d.CmdDispatch(cb->handle,item.index_count,item.instance_count,item.first_index);
         else if (item.indexed) device->d.CmdDrawIndexed(cb->handle,item.index_count,item.instance_count,item.first_index,item.vertex_offset,item.first_instance);
         else device->d.CmdDraw(cb->handle,item.index_count,item.instance_count,item.first_index,item.first_instance);
     };
     for (size_t i=0;i<split;++i) record(i);
-    if (!plan.skip_original && !hunting_skip) { if (compute) compute_order(cache.barrier,cb); caller(device,cb,r); }
+    if (!plan.skip_original && !hunting_skip) { if (compute) native_compute_order(device,cb,cache.barrier); caller(device,cb,r); }
     for (size_t i=split;i<plan.items.size();++i) record(i);
-    if (compute && !hunting_skip) compute_order(cache.barrier,cb);
+    if (compute && !hunting_skip) native_compute_order(device,cb,cache.barrier);
     return true;
 }
 }

@@ -2,9 +2,10 @@
 from pathlib import Path
 import json
 import struct
+import shutil
 import sys
 import time
-from harness import Checks,Sandbox,test_dir
+from harness import Checks,Sandbox,test_dir,DIST
 from native_compute_test import compile_shader,read_compute_result
 from runtime_fixture import CORE
 from efmi_vk.hashes import crc32c
@@ -29,6 +30,7 @@ def scene(checks,case):
         first,second=('B','A') if reverse else ('A','B')
         if case=='alias':second=first
         body='cs-u2 = Resource%s\ndispatch = 1, 1, 1\ncs-u2 = Resource%s\ndispatch = 1, 1, 1\n'%(first,second)
+        if case=='application_sync2':body='cs-u2 = reference cs-u2\ndispatch = 1,1,1\n'
         if persistent:body='if $bound == 0\ncs-u2 = ResourceA\n$bound = 1\nendif\n'
         return header+body+''.join('[Resource%s]\ntype = Buffer\nstride = %d\nfilename = input.buf\n%s'%(name,stride,flags) for name in ('A','B'))
     ini=mods/'test.ini';ini.write_text(content(),encoding='ascii')
@@ -40,15 +42,24 @@ def scene(checks,case):
     if case in ('secondary','persistent_secondary'):args+=['--compute-secondary']
     if persistent:args+=['--compute-repeat','3','--compute-buffer-barriers']
     if case=='two_queues':args+=['--two-queues']
-    if case=='sync2':args+=['--sync2']
-    refused=case in ('readonly','stride','two_queues','sync2')
+    if case in ('sync2','indirect_sync2','application_sync2'):args+=['--sync2']
+    if case=='indirect_sync2':args+=['--compute-indirect']
+    refused=case in ('readonly','stride','two_queues','indirect_sync2','application_sync2')
     expected=7 if refused else 57 if persistent else 99099 if case=='alias' else 17099
     def value():
         data=read_compute_result(output)
         return struct.unpack_from('<I',data)[0] if data else None
-    with Sandbox(seconds=6 if case=='reload' else 3,validation=True,env_extra=env,extra_args=args) as sb:
+    with Sandbox(seconds=12 if case=='swap' else 6 if case=='reload' else 3,validation=True,env_extra=env,extra_args=args) as sb:
         time.sleep(1)
         with ProbeClient(sb.pid) as probe:
+            if case=='swap':
+                module=root/'backend.dll';shutil.copy2(Path(DIST)/'efmi_vk_backend.dll',module);probe.swap_module(str(module))
+                deadline=time.monotonic()+6
+                while time.monotonic()<deadline:
+                    active=probe.status().get('replacement',{})
+                    if active.get('module',{}).get('generation',0)>0 and active.get('shader_overrides',{}).get('executed',0)>0 and value()==expected:break
+                    time.sleep(.05)
+                checks.check(active.get('module',{}).get('generation',0)>0,'swap: replacement module exchange completed')
             if case=='reload':
                 checks.equal(value(),17099,'reload: first declaration retains writes while its sibling stays independent')
                 ini.write_text(content(True),encoding='ascii')
@@ -65,7 +76,7 @@ def scene(checks,case):
 
 def main():
     checks=Checks('mutable files');selected=set(sys.argv[1:])
-    for case in ('independent','implicit','alias','push','secondary','reload','readonly','stride','two_queues','sync2','persistent','persistent_secondary'):
+    for case in ('independent','implicit','alias','push','secondary','reload','swap','readonly','stride','two_queues','sync2','indirect_sync2','application_sync2','persistent','persistent_secondary'):
         if not selected or case in selected:scene(checks,case)
     return checks.finish()
 if __name__=='__main__':raise SystemExit(main())

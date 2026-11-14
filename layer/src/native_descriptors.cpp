@@ -254,8 +254,12 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                 value.image_layout=VK_IMAGE_LAYOUT_GENERAL;
             }else{
             if(!resource.keep)return refuse("Native resource has no complete retained ownership");
-            if(resource.uploaded_mutable && device->synchronization2_enabled)
-                return refuse("Mutable native files require a synchronization2 signal-scope adapter");
+            // The scoped compute adapter relies on existing dependencies for unchanged application
+            // descriptors. A new application reference can introduce accesses from other stages.
+            if(device->synchronization2_enabled && !resource.uploaded_readonly && !resource.uploaded_mutable)
+                return refuse("Native application references require a synchronization2 resource-stage adapter");
+            if(device->synchronization2_enabled && resource.uploaded_mutable && draw.kind != DK_DISPATCH)
+                return refuse("Mutable native files under synchronization2 require direct compute scope");
             if(resource.uploaded_readonly || resource.uploaded_mutable){
                 const auto pipeline=device->pipes.find(draw.pipeline);
                 if(pipeline==device->pipes.end())return refuse("Native file consumer pipeline is unavailable");
