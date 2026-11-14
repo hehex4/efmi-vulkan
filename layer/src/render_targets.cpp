@@ -81,7 +81,7 @@ void on_begin_pass(Device* dev, CmdBuf* cb, const VkRenderPassBeginInfo* info)
 void on_begin_pass(Device*, CmdBuf* cb, const VkRenderingInfo*)
 {
     const uint32_t serial = cb->pass.serial + 1;
-    cb->pass = CmdBuf::PassInstance{}; cb->pass.serial = serial;
+    cb->pass = CmdBuf::PassInstance{}; cb->pass.serial = serial; cb->pass.first_draw = cb->draws.size();
 }
 void on_begin_targets(Device* dev, CmdBuf* cb, const VkRenderPassBeginInfo* info)
 {

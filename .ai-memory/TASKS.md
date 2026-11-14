@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-237 verified; continue actual output destination adapter (2026-11-14)
+
+- D-236 merged953ee36. Valid dynamic baseline2/5 established before implementation. Source2.6.7/ABI21722cf8198f0b6d applied with metadata safety cases and actual MSAA resolve fixture. Final pair/four stamps/tracker432, failed GPU17 and full gpu-dynamic-targets area pass; exact results in CURRENT_STATE. Review/memory/commit/FF. D-238 tentative plan saved in build/d238-plan.md; no fixture or implementation yet.
+- Continue output destination/pass and queue adapters without stopping at this commit. No game/deployment authorization.
+
 ## D-236 verified; continue dynamic pass-end analysis (2026-11-14)
 
 - D-235 merged05d500b. Source2.6.6/ABI21722cf8198f0b6d and D-236 implementation/test draft applied after valid GPU baseline2/5. Final pair, four stamps, tracker415, failed clear5/5 and full gpu-imageless area pass; exact evidence in CURRENT_STATE. Review/memory/commit/FF. Valid D-237 dynamic baseline2/5 already recorded; drafts remain unapplied.

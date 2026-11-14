@@ -2059,6 +2059,8 @@ int wmain(int argc, wchar_t** argv)
             capture_target.after_graphics = true;
         else if (a == L"--capture-target-no-transfer")
             capture_target.transfer = false;
+        else if (a == L"--capture-target-resolve")
+            capture_target.enabled = capture_target.resolve = true;
         else if (a == L"--capture-target-discard")
             capture_target.store = false;
         else if (a == L"--capture-target-unused")

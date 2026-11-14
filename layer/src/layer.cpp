@@ -959,18 +959,28 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRendering(VkCommandBuffer cmd)
 {
     count_call(HI_CmdEndRendering);
     Device* dev = dev_of(cmd);
+    auto cb = cb_of(dev, cmd); const uint32_t context = cb ? cb->active_targets : 0;
     rp_end(dev, cmd);
     dev->d.CmdEndRendering(cmd);
-    if(auto cb=cb_of(dev,cmd))native_images_end(dev,cb);
+    if (cb) {
+        gpu_analysis_rendering(dev, cb, context);
+        native_images_end(dev, cb);
+        cb->pass = CmdBuf::PassInstance{};
+    }
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
 {
     count_call(HI_CmdEndRenderingKHR);
     Device* dev = dev_of(cmd);
+    auto cb = cb_of(dev, cmd); const uint32_t context = cb ? cb->active_targets : 0;
     rp_end(dev, cmd);
     dev->d.CmdEndRenderingKHR(cmd);
-    if(auto cb=cb_of(dev,cmd))native_images_end(dev,cb);
+    if (cb) {
+        gpu_analysis_rendering(dev, cb, context);
+        native_images_end(dev, cb);
+        cb->pass = CmdBuf::PassInstance{};
+    }
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdNextSubpass(VkCommandBuffer cmd, VkSubpassContents contents)

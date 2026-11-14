@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-237: Ordinary dynamic rendering captures exact stored outputs (2026-11-14)
+
+- Original FrameAnalysis DumpRenderTargets reads the current actual resources; DX11 provides retained/deferred lifetime, hazards and context order. Vulkan analysis retains complete owners, copies after driver EndRendering and restores the exact explicit Begin layout before subsequent application commands.
+- Validate a complete ordinary actual-view context before any buffer/image copy. SUSPENDING/RESUMING and unknown extensions/flags remain excluded. Initialize first_draw at every Begin, including clear-only passes. Actual source and enabled resolve images exclude descriptor aliases; null standard attachments/disabled resolves do not invent images. Source requires STORE; resolve has independent implicit STORE even when source is discarded. Existing single-sample/color/transfer/format/range/layout/one-time/queue/sync2 ownership limits apply individually.
+- The optional MSAA fixture verifies actual resolved bytes with stored and discarded sources. CPU requests alone do not establish GPU resolve support. Unknown external-format resolve exceptions refuse. No game evidence is implied; exact build/validation evidence belongs to CURRENT_STATE.
+
 ## D-236: Frame analysis uses resolved imageless pass instances (2026-11-14)
 
 - Original FrameAnalysis DumpRenderTargets reads actual current RTV resources. DX11 retains references, defers destruction and supplies hazard/context ordering; Vulkan requires exact runtime views, retained allocation owners and explicit transfer/restore dependencies.

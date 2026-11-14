@@ -176,6 +176,7 @@ STEPS = [
     ("GPU primitive restart", [os.path.join(HERE, "gpu_primitive_restart_test.py")]),
     ("GPU indirect analysis", [os.path.join(HERE, "gpu_indirect_test.py")]),
     ("GPU image shapes", [os.path.join(HERE, "gpu_image_shape_test.py")]),
+    ("GPU dynamic target analysis", [os.path.join(HERE, "gpu_dynamic_target_test.py")]),
     ("GPU imageless target analysis", [os.path.join(HERE, "gpu_imageless_test.py")]),
     ("GPU target analysis", [os.path.join(HERE, "gpu_target_test.py")]),
     ("native image shapes", [os.path.join(HERE, "native_image_shape_test.py")]),
@@ -205,6 +206,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "gpu-dynamic-targets": ["GPU dynamic target analysis", "GPU target analysis", "native dynamic targets", "native rendering boundaries", "native tracker", "Vulkan validation", "text check"],
     "gpu-imageless": ["GPU imageless target analysis", "GPU target analysis", "native imageless resources", "native tracker", "Vulkan validation", "text check"],
     "native-compute-order": ["native compute uniform aliases", "native Submit2 resources", "native tracker", "Vulkan validation", "text check"],
     "native-submit2": ["native compute uniform aliases", "native Submit2 resources", "mutable native file buffers", "mutable native file images", "native call execution", "native descriptor bindings", "native graphics uniforms", "native rendering boundaries", "native tracker", "Vulkan validation", "text check"],

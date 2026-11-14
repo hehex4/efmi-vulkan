@@ -1,7 +1,10 @@
 // Owned attachment fixture: two clear-only passes need no graphics pipeline.
 struct CaptureTargetScene {
-    bool draw = false, mip_view = false;
+    bool draw = false, mip_view = false, resolve = false;
     bool enabled = false, after_graphics = false, transfer = true, store = true, layered = false, unused = false;
+    VkImage resolve_image = VK_NULL_HANDLE;
+    VkDeviceMemory resolve_memory = VK_NULL_HANDLE;
+    VkImageView resolve_view = VK_NULL_HANDLE;
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
@@ -13,10 +16,11 @@ static bool create_capture_target()
 {
     auto& s = capture_target;
     if (!s.enabled) return true;
+    if (s.resolve && (!g.dynamic_rendering || s.draw || s.layered || s.unused || g.imageless)) return false;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType = VK_IMAGE_TYPE_2D; image.format = s.draw?g.format:VK_FORMAT_R8G8B8A8_UNORM;
     image.extent = {s.layered?8u:4u, s.layered?8u:4u, 1}; image.mipLevels = s.layered?2:1; image.arrayLayers = s.layered?4:1;
-    image.samples = VK_SAMPLE_COUNT_1_BIT; image.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image.samples = s.resolve?VK_SAMPLE_COUNT_4_BIT:VK_SAMPLE_COUNT_1_BIT; image.tiling = VK_IMAGE_TILING_OPTIMAL;
     image.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (s.transfer ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0) | (s.draw ? VK_IMAGE_USAGE_SAMPLED_BIT : 0);
     CHECK(vkCreateImage(g.device, &image, nullptr, &s.image));
     VkMemoryRequirements requirements{}; vkGetImageMemoryRequirements(g.device, s.image, &requirements);
@@ -28,7 +32,18 @@ static bool create_capture_target()
     view.image = s.image; view.viewType = s.layered && !s.mip_view?VK_IMAGE_VIEW_TYPE_2D_ARRAY:VK_IMAGE_VIEW_TYPE_2D; view.format = image.format;
     view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, s.layered?1u:0u, 1, s.layered?1u:0u, s.layered && !s.mip_view?3u:1u};
     CHECK(vkCreateImageView(g.device, &view, nullptr, &s.view));
-    VkAttachmentDescription attachment{}; attachment.format = image.format; attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    if (s.resolve) {
+        image.samples = VK_SAMPLE_COUNT_1_BIT;
+        CHECK(vkCreateImage(g.device, &image, nullptr, &s.resolve_image));
+        vkGetImageMemoryRequirements(g.device, s.resolve_image, &requirements);
+        allocation.allocationSize = requirements.size;
+        if (!find_memory_type(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, &allocation.memoryTypeIndex)) return false;
+        CHECK(vkAllocateMemory(g.device, &allocation, nullptr, &s.resolve_memory));
+        CHECK(vkBindImageMemory(g.device, s.resolve_image, s.resolve_memory, 0));
+        view.image = s.resolve_image;
+        CHECK(vkCreateImageView(g.device, &view, nullptr, &s.resolve_view));
+    }
+    VkAttachmentDescription attachment{}; attachment.format = image.format; attachment.samples = s.resolve?VK_SAMPLE_COUNT_4_BIT:VK_SAMPLE_COUNT_1_BIT;
     attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; attachment.storeOp = s.store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; attachment.finalLayout = s.draw?VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:VK_IMAGE_LAYOUT_GENERAL;
@@ -75,6 +90,7 @@ static void record_capture_target(VkCommandBuffer command, bool after_graphics)
         VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};color.imageView=s.view;
         color.imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;color.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
         color.storeOp=s.store?VK_ATTACHMENT_STORE_OP_STORE:VK_ATTACHMENT_STORE_OP_DONT_CARE;color.clearValue=clear;
+        if(s.resolve){color.resolveMode=VK_RESOLVE_MODE_AVERAGE_BIT;color.resolveImageView=s.resolve_view;color.resolveImageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;}
         VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};rendering.renderArea.extent={4,4};
         rendering.layerCount=s.layered && !s.mip_view && !g.capture_multiview?2:1;rendering.viewMask=g.capture_multiview?5:0;
         rendering.colorAttachmentCount=s.unused?0:1;rendering.pColorAttachments=&color;
@@ -82,6 +98,8 @@ static void record_capture_target(VkCommandBuffer command, bool after_graphics)
             barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
             vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+            if(s.resolve){auto resolved=barrier;resolved.image=s.resolve_image;
+                vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&resolved);}
             dynamic_begin_rendering(command,&rendering);
         }else vkCmdBeginRenderPass(command, &begin, VK_SUBPASS_CONTENTS_INLINE);
         if(s.draw){record_setup(command);record_draw(command,0); }
@@ -90,6 +108,8 @@ static void record_capture_target(VkCommandBuffer command, bool after_graphics)
             barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;barrier.newLayout=s.draw?VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:VK_IMAGE_LAYOUT_GENERAL;
             barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
             vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+            if(s.resolve){auto resolved=barrier;resolved.image=s.resolve_image;
+                vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&resolved);}
         }else vkCmdEndRenderPass(command);
     }
 }
@@ -99,6 +119,9 @@ static void destroy_capture_target()
     auto& s = capture_target;
     if (s.framebuffer) vkDestroyFramebuffer(g.device, s.framebuffer, nullptr);
     if (s.pass) vkDestroyRenderPass(g.device, s.pass, nullptr);
+    if (s.resolve_view) vkDestroyImageView(g.device, s.resolve_view, nullptr);
+    if (s.resolve_image) vkDestroyImage(g.device, s.resolve_image, nullptr);
+    if (s.resolve_memory) vkFreeMemory(g.device, s.resolve_memory, nullptr);
     if (s.view) vkDestroyImageView(g.device, s.view, nullptr);
     if (s.image) vkDestroyImage(g.device, s.image, nullptr);
     if (s.memory) vkFreeMemory(g.device, s.memory, nullptr);

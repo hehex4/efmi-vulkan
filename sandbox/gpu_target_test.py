@@ -21,7 +21,8 @@ def scene(checks, case):
     if case in ("after_graphics","after_secondary","multiview_after"):args.append("--capture-target-after")
     if case=="unused":args.append("--capture-target-unused")
     if case=="usage":args.append("--capture-target-no-transfer")
-    if case=="discard":args.append("--capture-target-discard")
+    if case in ("discard","resolve_discard"):args.append("--capture-target-discard")
+    if case.startswith("resolve"):args.append("--capture-target-resolve")
     with Sandbox(seconds=5,threads=2 if case=="after_secondary" else 0,validation=True,env_extra=env,extra_args=args) as sb:
         time.sleep(.5);keys.write_text("1 120\n",encoding="ascii");time.sleep(.2);keys.write_text("1\n",encoding="ascii")
         sb.proc.wait(timeout=30);checks.equal(sb.proc.returncode,0,case+": normal exit")
@@ -38,10 +39,12 @@ def scene(checks, case):
         if layered:
             checks.equal(sorted((item['mip'],item['layer']) for _,item in targets),
                          sorted([(1,1),(1,3 if case.startswith('multiview') else 2)]*2),case+': capture only framebuffer or multiview layers')
+        if case.startswith("resolve"):
+            checks.check(bool(targets) and all(item['element']==1 for _,item in targets),case+": exports resolved samples independently of source storeOp")
         actual=sorted((folder/item["file"]).read_bytes() for folder,item in targets)
         expected=sorted([bytes((0,255,0,255))*16,bytes((255,0,255,255))*16]*(2 if layered else 1))
         checks.equal(actual,expected,case+": both completed GPU clear results preserved")
-    checks.check("Validation Error" not in sb.output() and "VUID-" not in sb.output(),case+": core and synchronization validation clean")
+    checks.check(not any(marker in sb.output() for marker in ("Validation Error","VALIDATION ERROR","VUID-","SYNC-HAZARD")),case+": core and synchronization validation clean")
     print("artifacts:",root)
 
 

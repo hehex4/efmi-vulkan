@@ -1,4 +1,5 @@
 #include "gpu_analysis.h"
+#include "analysis_targets.h"
 #include "state.h"
 #include "command_owner.h"
 #include "character_module.h"
@@ -319,12 +320,31 @@ public:
             owner->jobs.push_back(std::move(job)); owner->used = true;
         }
     }
-    void images(CmdBuf* cb, bool compute) {
+    void rendering(CmdBuf* cb, uint32_t context) {
+        const RenderTargets* targets = context && context <= cb->target_contexts.size() ? &cb->target_contexts[context - 1] : nullptr;
+        {
+            // Validate the complete context before buffers() can emit any GPU command.
+            // In particular no work may appear between suspended and resumed segments.
+            std::lock_guard<std::mutex> lock(mutex); const auto session = begin(cb, "end-of-pass"); if (!session) return;
+            std::vector<AnalysisAttachment> outputs; std::set<VkImage> attachments; std::string why;
+            if (!targets || !analysis_dynamic_targets(*targets, 0, outputs, attachments, why)) {
+                refuse(session, "end-of-pass", targets ? why : "Dynamic rendering context is unavailable"); return;
+            }
+        }
+        buffers(cb, false); images(cb, false, targets);
+    }
+    void images(CmdBuf* cb, bool compute, const RenderTargets* dynamic = nullptr) {
         const char* point=compute?"post-dispatch":"end-of-pass";
         std::lock_guard<std::mutex> lock(mutex);const auto session=begin(cb,point);if(!session)return;
         std::vector<ImageRequest> requests;
         std::set<std::pair<uint32_t,uint32_t>> accessed;
         std::set<VkImage> attachments;
+        if (dynamic) {
+            std::vector<AnalysisAttachment> outputs; std::string why;
+            if (!analysis_dynamic_targets(*dynamic, session->options, outputs, attachments, why)) { refuse(session, point, why); return; }
+            for (const auto& output : outputs)
+                requests.push_back({output.view, output.layout, UINT32_MAX, output.slot, output.resolve, output.layers, output.view_mask});
+        }
         {
             std::shared_lock<std::shared_mutex> resources(device->res_mx);
             const auto pipeline=device->pipes.find(compute?cb->comp_pipeline:cb->gfx_pipeline);
@@ -512,6 +532,7 @@ void gpu_analysis_frame(Device* d, const char* directory, uint32_t options) {
     if (engine) engine->frame(directory,options);
 }
 void gpu_analysis_dispatch(Device* d, CmdBuf* cb) { if (const auto engine = std::atomic_load(&d->gpu_analysis)) {engine->buffers(cb, true);engine->images(cb, true);} }
+void gpu_analysis_rendering(Device* d, CmdBuf* cb, uint32_t context) { if (const auto engine = std::atomic_load(&d->gpu_analysis)) engine->rendering(cb, context); }
 void gpu_analysis_pass(Device* d, CmdBuf* cb) { if (const auto engine = std::atomic_load(&d->gpu_analysis)) {engine->buffers(cb, false);engine->images(cb, false);} }
 void gpu_analysis_prepare(Device* d, SubmitWork& work) {
     const auto engine = std::atomic_load(&d->gpu_analysis); if (!engine) return;

@@ -915,3 +915,9 @@ The sandbox now submits actual core/KHR Submit2 work with a fragment-stage timel
 ## Resolved imageless frame analysis (D-236)
 
 Frame analysis accepts the immutable actual-view instance resolved at BeginRenderPass. Unresolved imageless templates remain unavailable. Existing stored-attachment, owned allocation, transfer usage, format/sample, final-layout and exact layer/multiview checks still apply. The optional imageless sandbox suite verifies exported GPU bytes across clear-only, earlier graphics/secondary, discard/usage and layered/multiview cases; no game verification is implied.
+
+## Dynamic-rendering frame analysis (D-237)
+
+Ordinary dynamic pass ends now export actual stored outputs after driver EndRendering, preserving Begin layouts through explicit copy/restore. Clear-only passes and prior primary/secondary draw state are distinguished. Enabled resolve destinations are stored independently of the multisample source storeOp; the adapter captures supported single-sample color resolves and explicitly refuses unsupported source shapes. Actual active attachments are excluded from descriptor-layout capture. Exact view mip/layer and multiview ranges are retained.
+
+Suspended/resumed or unknown attachment contexts cannot emit capture commands. Existing retained-allocation, transfer-source usage, format/layout, one-time recording, single-queue and synchronization2 restrictions remain. GPU tests verify actual green/magenta bytes, core/KHR calls, array/multiview cases, stored/discarded MSAA sources and clean segmented fallback. This is sandbox capture evidence, not real-game verification or output destination rebinding.
