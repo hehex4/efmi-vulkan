@@ -51,4 +51,11 @@ static void dynamic_geometry_cases()
     check(cb.vertex_input->complete && cb.vertex_input->attributes.empty() && cb.vertex_input->bindings.empty(),
           "empty dynamic input clears previous declarations without being confused with unset state");
     cb.reset_recording();check(!cb.vertex_input && saved->complete,"reset releases current input while retained draw metadata survives");
+    check(cb.primitive_restart==UINT32_MAX,"primitive restart begins unset rather than silently disabled");
+    cb.primitive_restart=VK_TRUE;child->draws[0].primitive_restart=cb.primitive_restart;cb.primitive_restart=VK_FALSE;
+    CmdBuf restart_parent;on_execute_commands(&device,&restart_parent,1,&handle);
+    check(restart_parent.draws[0].primitive_restart==VK_TRUE && restart_parent.primitive_restart==UINT32_MAX && !cb.primitive_restart,
+          "secondary restart snapshots survive later setters without importing current state");
+    cb.reset_recording();check(cb.primitive_restart==UINT32_MAX && restart_parent.draws[0].primitive_restart==VK_TRUE,
+          "reset clears restart validity without changing recorded draw snapshots");
 }

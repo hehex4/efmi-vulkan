@@ -90,6 +90,7 @@ static PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
 static PFN_vkCmdBindVertexBuffers2 dynamic_bind_vertices;
 static PFN_vkCmdSetPrimitiveTopology dynamic_topology;
 static PFN_vkCmdSetVertexInputEXT dynamic_vertex_input;
+static PFN_vkCmdSetPrimitiveRestartEnable dynamic_restart;
 static PFN_vkCmdSetCullMode raster_CmdSetCullMode;
 static PFN_vkCmdSetFrontFace raster_CmdSetFrontFace;
 static PFN_vkCmdSetRasterizerDiscardEnable raster_CmdSetRasterizerDiscardEnable;
@@ -131,10 +132,10 @@ static const float kVertices[17][2] = {
     {0.70f, 0.10f}, {0.90f, 0.10f}, {0.80f, -0.10f},                      // mesh4, triangle
 };
 
-static const uint16_t kIndicesA[12] = {0, 1, 2, 3, 4, 5, 3, 5, 6, 7, 8, 9};
+static uint16_t kIndicesA[12] = {0, 1, 2, 3, 4, 5, 3, 5, 6, 7, 8, 9};
 static const uint16_t kRewriteA[6] = {3, 5, 4, 3, 6, 5}; // replaces indices 3..8 of buffer A
 static const uint32_t kPadB = 16;                        // bytes before the first index of buffer B
-static const uint32_t kIndicesB[9] = {10, 11, 12, 10, 12, 13, 14, 15, 16};
+static uint32_t kIndicesB[9] = {10, 11, 12, 10, 12, 13, 14, 15, 16};
 static const uint32_t kUboSlot = 256;
 // The descriptor range of a uniform slot is larger than the 32 bytes the shaders read. The rest is
 // test data for the probe's snapshots, laid out like an instance entry of 16 constants:
@@ -230,6 +231,7 @@ struct App {
     int dynamic_geometry = 0;
     bool geometry_shader_scene = false;
     int extended_raster = 0;
+    int restart_mode = 0;
     bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
@@ -547,6 +549,7 @@ static bool create_device()
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
+    if(g.restart_mode==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME);
     if(g.dynamic_geometry>=4)exts.push_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
     if(g.sync2 && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if(g.storage_formatless && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
@@ -577,7 +580,10 @@ static bool create_device()
     if(g.dynamic_geometry==2){extended.extendedDynamicState=VK_TRUE;extended.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&extended;}
     VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT input_dynamic{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT};
     if(g.dynamic_geometry>=4){input_dynamic.vertexInputDynamicState=VK_TRUE;input_dynamic.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&input_dynamic;}
+    VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extended2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT};
+    if(g.restart_mode==2){extended2.extendedDynamicState2=VK_TRUE;extended2.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&extended2;}
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
+    if(g.restart_mode){dynamic_restart=reinterpret_cast<PFN_vkCmdSetPrimitiveRestartEnable>(vkGetDeviceProcAddr(g.device,g.restart_mode==2?"vkCmdSetPrimitiveRestartEnableEXT":"vkCmdSetPrimitiveRestartEnable"));if(!dynamic_restart)return false;}
     if(g.extended_raster){
         raster_CmdSetCullMode=reinterpret_cast<PFN_vkCmdSetCullMode>(vkGetDeviceProcAddr(g.device,"vkCmdSetCullMode"));if(!raster_CmdSetCullMode)return false;
         raster_CmdSetFrontFace=reinterpret_cast<PFN_vkCmdSetFrontFace>(vkGetDeviceProcAddr(g.device,"vkCmdSetFrontFace"));if(!raster_CmdSetFrontFace)return false;
@@ -887,6 +893,7 @@ static bool create_pipeline()
         if(g.extended_raster==2){dyn_states[0]=VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT;dyn_states[1]=VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT;vp.viewportCount=vp.scissorCount=0;}
         dyn.dynamicStateCount=uint32_t(dyn_states.size());rs.rasterizerDiscardEnable=VK_TRUE;rs.cullMode=VK_CULL_MODE_FRONT_AND_BACK;
     }
+    if(g.restart_mode && g.restart_mode!=3){dyn_states.resize(dyn.dynamicStateCount);dyn_states.push_back(VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE);dyn.dynamicStateCount=uint32_t(dyn_states.size());}
     dyn.pDynamicStates = dyn_states.data();
 
     VkGraphicsPipelineCreateInfo info = {};
@@ -1387,6 +1394,7 @@ static void record_draw(VkCommandBuffer cb, int i)
         if(i%2)dynamic_bind_vertices(cb,slot,1,&g.vb.buf,&offset,nullptr,nullptr);
         else vkCmdBindVertexBuffers(cb,slot,1,&g.vb.buf,&offset);
         dynamic_topology(cb,d.count==3?VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP:VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        if(g.restart_mode)dynamic_restart(cb,d.count==3?VK_TRUE:VK_FALSE);
         if((g.dynamic_geometry==3 || g.dynamic_geometry==6))vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
     }
     if (d.ib == 0)
@@ -1955,6 +1963,8 @@ int wmain(int argc, wchar_t** argv)
             g.reference_sampled_source = true;
         else if (a == L"--extended-raster" && i + 1 < argc)
             g.extended_raster = _wtoi(argv[++i]);
+        else if (a == L"--primitive-restart" && i + 1 < argc)
+            g.restart_mode = _wtoi(argv[++i]);
         else if (a == L"--geometry-shader")
             g.geometry_shader_scene = true;
         else if (a == L"--geometry-dynamic" && i + 1 < argc)
@@ -2046,6 +2056,7 @@ int wmain(int argc, wchar_t** argv)
     bool ok = true;
     if (!g.inject_path.empty() && !g.inject_late)
         ok = load_injected();
+    if(g.restart_mode && g.restart_mode!=3){kIndicesA[0]=UINT16_MAX;kIndicesB[6]=UINT32_MAX;}
     ok = ok && load_vulkan() && create_instance() && create_window() && create_device() && create_swapchain() &&
          create_pipeline() && create_resources() && create_compute_scene() && create_capture_target() && prepare_present_burst();
     if (ok && !g.inject_path.empty() && g.inject_late)

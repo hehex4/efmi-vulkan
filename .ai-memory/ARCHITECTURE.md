@@ -18,6 +18,10 @@ D-226 native twins also retain supported core1.3 raster/depth/stencil dynamics a
 counts. Dynamic discard cannot suppress fixed structures that rasterization may later consume;
 unknown extension chains and incomplete required state remain refused.
 
+D-227 records core/EXT primitive restart per draw, distinguishing unset from disabled. Captures
+select dynamic or static pipeline state and retain cut indices unchanged; native-only twins retain
+the declaration. Secondary execution preserves snapshots and reset clears current validity.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

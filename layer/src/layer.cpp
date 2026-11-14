@@ -112,6 +112,7 @@ DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
         return r;
     }
     r.topology = cb->topology;
+    r.primitive_restart = cb->primitive_restart;
     r.vertex_input = cb->vertex_input;
     r.pipeline = cb->gfx_pipeline;
     r.bound = cb->gfx_bound;
@@ -512,6 +513,18 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdSetVertexInputEXT(VkCommandBuffer cmd,uint32_t 
     count_call(HI_CmdSetVertexInputEXT);Device* dev=dev_of(cmd);
     on_set_vertex_input(cb_of(dev,cmd),bindings,binding,attributes,attribute);
     dev->d.CmdSetVertexInputEXT(cmd,bindings,binding,attributes,attribute);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetPrimitiveRestartEnable(VkCommandBuffer cmd,VkBool32 enabled)
+{
+    count_call(HI_CmdSetPrimitiveRestartEnable);Device* dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->primitive_restart=enabled!=VK_FALSE;
+    dev->d.CmdSetPrimitiveRestartEnable(cmd,enabled);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetPrimitiveRestartEnableEXT(VkCommandBuffer cmd,VkBool32 enabled)
+{
+    count_call(HI_CmdSetPrimitiveRestartEnableEXT);Device* dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->primitive_restart=enabled!=VK_FALSE;
+    dev->d.CmdSetPrimitiveRestartEnableEXT(cmd,enabled);
 }
 VKAPI_ATTR void VKAPI_CALL hk_CmdSetPrimitiveTopologyEXT(VkCommandBuffer cmd,VkPrimitiveTopology topology)
 {

@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-219. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-227. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -837,7 +837,8 @@ full dynamic input has no invented static layout. Its creation mode forbids a ve
 Mesh replacement retains its earlier completeness and binding-state restrictions. Unknown
 extended dynamic states still refuse. D-226 adds core1.3 raster/depth/stencil dynamics and
 WITH_COUNT viewport/scissor. Dynamic discard retains required rasterization structures even when
-its static placeholder is TRUE. Primitive restart and other unhandled extensions remain explicit gaps.
+its static placeholder is TRUE. D-227 adds primitive restart to native twins and exports its static/dynamic per-draw value
+with captured geometry. Unhandled extensions remain explicit gaps.
 
 The scoped GPU fixture proves replacement pixels, original restoration, F10 change/removal,
 secondary recording, injection, module exchange and original/pink hunting. CURRENT_STATE separates

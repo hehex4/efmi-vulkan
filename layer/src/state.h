@@ -60,6 +60,7 @@ struct CharacterModule;
     X(BeginCommandBuffer) X(EndCommandBuffer) X(ResetCommandBuffer)                                                    \
     X(CmdBindPipeline) X(CmdBindIndexBuffer) X(CmdBindIndexBuffer2) X(CmdBindIndexBuffer2KHR)                          \
     X(CmdSetPrimitiveTopology) X(CmdSetPrimitiveTopologyEXT) X(CmdSetVertexInputEXT)                                \
+    X(CmdSetPrimitiveRestartEnable) X(CmdSetPrimitiveRestartEnableEXT)                                               \
     X(CmdBindVertexBuffers) X(CmdBindVertexBuffers2) X(CmdBindVertexBuffers2EXT) X(CmdBindDescriptorSets)              \
     X(CmdDraw) X(CmdDrawIndexed) X(CmdDrawIndirect) X(CmdDrawIndexedIndirect)                                          \
     X(CmdDrawIndirectCount) X(CmdDrawIndirectCountKHR) X(CmdDrawIndexedIndirectCount) X(CmdDrawIndexedIndirectCountKHR) \
@@ -368,6 +369,7 @@ struct DrawRec {
     uint32_t rp = 0;         // ordinal of the render pass inside the submitted command buffer, 0 when outside
     uint32_t targets = 0;    // one-based immutable render-target context, 0 outside/unobserved
     uint32_t topology = UINT32_MAX; // Current dynamic topology, used only by a dynamic pipeline.
+    uint32_t primitive_restart = UINT32_MAX; // Unset is distinct from explicitly disabled.
     std::shared_ptr<const DynamicVertexInput> vertex_input;
     VkPipeline pipeline = VK_NULL_HANDLE;
     // What the driver has bound for the draw: `pipeline`, or its twin without the character dither
@@ -467,6 +469,7 @@ struct CmdBuf {
     // Current bindings while recording. `gfx_bound` is what the driver has (DrawRec::bound).
     VkPipeline gfx_pipeline = VK_NULL_HANDLE;
     uint32_t topology = UINT32_MAX;
+    uint32_t primitive_restart = UINT32_MAX;
     std::shared_ptr<const DynamicVertexInput> vertex_input;
     VkPipeline gfx_bound = VK_NULL_HANDLE;
     VkPipeline comp_pipeline = VK_NULL_HANDLE;

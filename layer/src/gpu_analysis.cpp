@@ -248,11 +248,12 @@ public:
                 if(pipeline==device->pipes.end()){refuse(session,point,"Geometry pipeline metadata is unavailable");continue;}
                 const auto& pipe=pipeline->second;
                 if(!pipe.recipe || !pipe.recipe->geometry_complete){refuse(session,point,"Geometry pipeline extension state is not fully tracked");continue;}
-                bool dynamic_input=false,dynamic_stride=false,dynamic_topology=false;
+                bool dynamic_input=false,dynamic_stride=false,dynamic_topology=false,dynamic_restart=false;
                 for(const auto state:pipe.dynamic_states){
                     dynamic_input|=state==VK_DYNAMIC_STATE_VERTEX_INPUT_EXT;
                     dynamic_stride|=state==VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
                     dynamic_topology|=state==VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
+                    dynamic_restart|=state==VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE;
                 }
                 if(dynamic_input && (!draw.vertex_input || !draw.vertex_input->complete)){
                     refuse(session,point,"Dynamic vertex input declarations were not completely recorded");continue;
@@ -261,11 +262,14 @@ public:
                 const auto& attributes=dynamic_input?draw.vertex_input->attributes:pipe.attributes;
                 if(dynamic_topology && draw.topology==UINT32_MAX){refuse(session,point,"Dynamic primitive topology was not recorded");continue;}
                 const auto topology=dynamic_topology?draw.topology:pipe.topology;
+                if(dynamic_restart && draw.primitive_restart==UINT32_MAX){refuse(session,point,"Dynamic primitive restart was not recorded");continue;}
+                const bool restart=dynamic_restart?draw.primitive_restart!=0:pipe.recipe->assembly.primitiveRestartEnable!=VK_FALSE;
                 auto add=[&](VkBuffer buffer,const char* kind,uint64_t offset,const PipeInfo::Binding* binding){
                     if(!buffer)return;
                     auto& request=requests[allocation(buffer,kind)];
                     if(request.reason.empty() && offset>=request.bytes)request.reason="Geometry binding offset is outside its allocation";
                     JsonWriter use;use.begin_object();describe(use);use.kn("pipeline",pipe.id);use.kn("bind_offset",offset);use.kn("topology",topology);
+                    use.kb("primitive_restart",restart);
                     if(binding){
                         const auto& bound=draw.vb[binding->binding];
                         if(dynamic_stride && !bound.stride_known){request.reason="Dynamic vertex stride was not recorded";return;}

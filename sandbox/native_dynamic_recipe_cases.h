@@ -1,4 +1,5 @@
 static bool native_dynamic_input = false;
+static VkDynamicState native_expected_geometry = VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
 static uint32_t native_dynamic_creations = 0;
 static VKAPI_ATTR VkResult VKAPI_CALL create_native_dynamic(VkDevice, VkPipelineCache, uint32_t count,
     const VkGraphicsPipelineCreateInfo* info, const VkAllocationCallbacks*, VkPipeline* output)
@@ -7,7 +8,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL create_native_dynamic(VkDevice, VkPipeline
     check(count==1 && info->pDynamicState && info->pDynamicState->dynamicStateCount==4 &&
           info->pDynamicState->pDynamicStates[0]==VK_DYNAMIC_STATE_VIEWPORT &&
           info->pDynamicState->pDynamicStates[1]==VK_DYNAMIC_STATE_SCISSOR &&
-          info->pDynamicState->pDynamicStates[2]==(native_dynamic_input?VK_DYNAMIC_STATE_VERTEX_INPUT_EXT:VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE) &&
+          info->pDynamicState->pDynamicStates[2]==native_expected_geometry &&
           info->pDynamicState->pDynamicStates[3]==VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY,
           "native twins preserve the exact dynamic state declaration");
     check(native_dynamic_input ? info->pVertexInputState==nullptr :
@@ -34,8 +35,15 @@ static void native_dynamic_recipe_tests()
     VertexRepoint rewrite;std::string reason;
     check(!prepare_vertex_variant(recipe,f.layout,8,rewrite,reason),"dynamic native twin support does not authorize a mesh rewrite");
     dynamics[2]=VK_DYNAMIC_STATE_VERTEX_INPUT_EXT;f.gp.pVertexInputState=nullptr;recipe=f.capture();native_dynamic_input=true;
+    native_expected_geometry=VK_DYNAMIC_STATE_VERTEX_INPUT_EXT;
     check(recipe.create(h<VkDevice>(1),create_native_dynamic,h<VkPipelineLayout>(2),h<VkRenderPass>(3),modules,&output,nullptr,true)==VK_SUCCESS && output,
           "full dynamic vertex input can be recreated without inventing a static layout");
+    dynamics[2]=VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE;f.gp.pVertexInputState=&f.vi;f.ia.primitiveRestartEnable=VK_TRUE;
+    recipe=f.capture();native_dynamic_input=false;native_expected_geometry=VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE;
+    check(recipe.geometry_complete && !recipe.complete && recipe.assembly.primitiveRestartEnable,
+          "dynamic primitive restart retains its placeholder without permitting mesh rewriting");
+    check(recipe.create(h<VkDevice>(1),create_native_dynamic,h<VkPipelineLayout>(2),h<VkRenderPass>(3),modules,&output,nullptr,true)==VK_SUCCESS && output,
+          "native twins retain the dynamic restart declaration");
     dynamics[2]=VK_DYNAMIC_STATE_LINE_STIPPLE_EXT;recipe=f.capture();const auto before=native_dynamic_creations;
     check(recipe.create(h<VkDevice>(1),create_native_dynamic,h<VkPipelineLayout>(2),h<VkRenderPass>(3),modules,&output,nullptr,true)!=VK_SUCCESS && !output && native_dynamic_creations==before,
           "unknown extended dynamics still refuse native creation before reaching the driver");

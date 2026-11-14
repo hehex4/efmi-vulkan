@@ -152,6 +152,7 @@ STEPS = [
     ("native game shader replacement", [os.path.join(HERE, "native_shader_test.py")]),
     ("native dynamic shaders", [os.path.join(HERE, "native_dynamic_shader_test.py")]),
     ("native extended raster", [os.path.join(HERE, "native_extended_raster_test.py")]),
+    ("native primitive restart", [os.path.join(HERE, "native_primitive_restart_test.py")]),
     ("native graphics stages", [os.path.join(HERE, "native_graphics_stages_test.py")]),
     ("native resource slots", [os.path.join(HERE, "native_resource_test.py")]),
     ("native call execution", [os.path.join(HERE, "native_execution_test.py")]),
@@ -163,6 +164,7 @@ STEPS = [
     ("GPU geometry analysis", [os.path.join(HERE, "gpu_geometry_test.py")]),
     ("GPU dynamic geometry", [os.path.join(HERE, "gpu_dynamic_geometry_test.py")]),
     ("GPU dynamic vertex input", [os.path.join(HERE, "gpu_dynamic_input_test.py")]),
+    ("GPU primitive restart", [os.path.join(HERE, "gpu_primitive_restart_test.py")]),
     ("GPU indirect analysis", [os.path.join(HERE, "gpu_indirect_test.py")]),
     ("GPU image shapes", [os.path.join(HERE, "gpu_image_shape_test.py")]),
     ("GPU target analysis", [os.path.join(HERE, "gpu_target_test.py")]),
@@ -193,6 +195,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "primitive-restart": ["GPU primitive restart", "native primitive restart", "GPU dynamic geometry", "GPU dynamic vertex input", "GPU indirect analysis", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],
     "native-raster": ["native extended raster", "native dynamic shaders", "native game shader", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],
     "native-dynamic-shaders": ["native dynamic shaders", "native game shader", "native hunting", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],
     "bones": ["bones across recordings", "bone regions reused", "two queues, bones", "CPU skeleton import", "captured shader rewrite corpus"],

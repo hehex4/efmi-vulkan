@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-227: Primitive restart is explicit per-draw geometry state (2026-11-14)
+
+- Original FrameAnalysis retrieves live IA index format/offset and topology; DX11 interprets strip cuts and supplies retained/deferred lifetime, hazard tracking and one-context order. Vulkan snapshots core/EXT primitive restart setters per draw; unknown differs from disabled, reset clears validity, secondary composition preserves snapshots without importing state.
+- Geometry exports retain the selected dynamic or pipeline-static restart flag alongside actual index bytes. Unknown required dynamics refuse capture. The native-only recipe allowlist preserves restart declaration while mesh rewriting retains its stricter complete gate. Input assembly remains required.
+- Contracts: https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdSetPrimitiveRestartEnable.html and https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-primitive-topologies . Baseline and scoped checks are in CURRENT_STATE, including actual16/32-bit cut indices, static precedence and native F10/module exchange.
+
 ## D-226: Native twins retain state for dynamically possible rasterization (2026-11-14)
 
 - Original HackerContext shader getters/setters preserve IA/raster/depth state around shader exchange; DX11 owns retained/deferred lifetime, hazard tracking and context order. Vulkan must reproduce the dynamic declaration and every fixed structure that a future draw can use, irrespective of ignored static placeholders.

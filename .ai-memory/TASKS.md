@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-227 verified; continue D-228 target source resources (2026-11-14)
+
+- D-226 merged1d559ca. D-227 source2.5.7/ABI573857d315b5e250 pair/tools and primitive-restart area pass: tracker331, recipe234, native49, geometry56/input60/restart67/indirect121, validation76/text601. CURRENT_STATE separates failing baselines and exact final evidence. All D-227 scripts APPLIED.
+- Review/commit/FF then continue native target/depth source queries and retained references, preserving the separate descriptor-destination gate. Target snapshots are metadata only; resolve exact live object IDs before acquiring owners. Original OM getters read. Then target/queue adapters; no intermediate stopping point. No game/deployment authorization.
+
 ## D-226 verified; continue D-227 primitive restart (2026-11-14)
 
 - D-225 merged07a4270. D-226 baseline4/8, source2.5.6 applied, pair/sandbox/recipe/planner build d226-pair.out and native-raster area d226-regression.out pass: tracker328, recipe230, native92/dynamic49/raster49, validation76/text599. ABI93576afe91aa4431 unchanged. All tracked D-226 fixture/integration scripts APPLIED; CURRENT_STATE has exact verification sequence.
