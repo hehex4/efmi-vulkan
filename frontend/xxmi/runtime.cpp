@@ -34,7 +34,7 @@ void HostParseResourceMatching();
 void HostParseShaderOverrides();
 void RuntimeParseSpirvShaderOverrides();
 std::vector<efmi::frontend::NativeBinding> RuntimeNativeBindings();
-void RuntimeParseHunting(int&, int&, unsigned&, unsigned&, bool&, InputCallback);
+void RuntimeParseHunting(int&, int&, unsigned&, unsigned&, bool&, InputCallback, InputCallback);
 void HostParseShaderRegex();
 void HostCompileRoots(const std::vector<CommandList*>&, const std::vector<std::wstring>&);
 void HostResourceRoot(const std::wstring&);
@@ -213,6 +213,7 @@ void f10(HackerDevice*, void*) { G->gReloadConfigPending = true; }
 // A hunting key of the installation's [Hunting] (docs/vulkan-native-mods.md): kept for the host, who hunts.
 void hunting_key(HackerDevice*, void* action) { if (auto* host = EngineHost()) host->hunting.push_back(uint32_t(reinterpret_cast<uintptr_t>(action))); }
 // LayerGap's sink: the entered generation keeps what the layer did not do, for the host to show.
+void hunting_release(HackerDevice*, void*) { if(auto* host=EngineHost()) host->hunting.push_back(uint32_t(efmi::frontend::HuntingAction::AnalyseFrameStop)); }
 void keep_gap(const wchar_t* text)
 {
     auto* host = EngineHost();
@@ -590,7 +591,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         if (!config.shader_hooks) {
             int mode = 0, marking = 0; unsigned actions = 0, analysis = 0; bool keys = false;
             p.hunting_keys_first = RuntimeInputCount();
-            RuntimeParseHunting(mode, marking, actions, analysis, keys, hunting_key);
+            RuntimeParseHunting(mode, marking, actions, analysis, keys, hunting_key, hunting_release);
             p.hunting_keys_last = RuntimeInputCount();
             p.hunting.hunting = mode; p.hunting.marking_mode = marking; p.hunting.marking_actions = actions; p.hunting.analysis_options = analysis; p.hunting.keys = keys;
             // The `hunting` operand (CommandListOperand::evaluate reads G->hunting): XXMI never leaves it at 0 (disabled), a

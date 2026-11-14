@@ -9,7 +9,7 @@ from runtime_fixture import CORE
 from native_shader_test import compile_shader
 
 OPTIONS={'missing':None,'log':'log','rt':'dump_rt buf','tex':'dump_tex buf','cb':'dump_cb buf',
-         'all':'dump_rt dump_tex dump_cb buf','unsupported':'dump_rt buf hold dds','reload':'dump_rt buf',
+         'all':'dump_rt dump_tex dump_cb buf','unsupported':'dump_rt buf clear_rt dds','reload':'dump_rt buf',
          'image_rt':'dump_rt buf','image_tex':'dump_tex buf','sampled_rt':'dump_rt buf','sampled_tex':'dump_tex buf',
          'vertex':'dump_vb buf','index':'dump_ib buf','target':'dump_rt buf'}
 

@@ -741,7 +741,7 @@ public:
     // While enabled, at a draw: what it uses visited; true when it is to be kept from the GPU (the selection, skip).
     bool visit(DrawFacts& facts);
     // Frame analysis (FrameAnalysis.cpp, the log): armed by its key, it records the draws between the next two
-    // presentations. `analysing` at a draw; `analyse` adds the draw's lines.
+    // presentations, or until key release in hold mode. `analyse` adds the draw's lines.
     bool analysing() const { return analysing_.load(std::memory_order_relaxed); }
     void analyse(const DrawRec& r, const DrawFacts& facts);
     // Once per presentation: the original's TimeoutHuntingBuffers; a frame analysis begun or written.
@@ -767,7 +767,10 @@ private:
     std::string last_dump_;
     // Frame analysis.
     std::atomic<bool> analysing_{false};
-    bool armed_ = false;
+    bool armed_ = false, finish_ = false;
+    uint32_t session_options_ = 0;
+    uint64_t analysis_frames_ = 0;
+    std::string finish_reason_;
     uint64_t analysed_draws_ = 0, analyses_ = 0;
     std::filesystem::path analysis_path_;
     std::string analysis_;

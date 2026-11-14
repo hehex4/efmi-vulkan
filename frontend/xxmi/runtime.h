@@ -196,7 +196,7 @@ enum class HuntingAction : uint32_t {
     Toggle = 1, NextMarkingMode, NextPixel, PreviousPixel, MarkPixel, NextVertex, PreviousVertex, MarkVertex, Done,
     NextIndex, PreviousIndex, MarkIndex, NextVertexBuffer, PreviousVertexBuffer, MarkVertexBuffer, NextVertexBufferSlot,
     PreviousVertexBufferSlot, NextRenderTarget, PreviousRenderTarget, MarkRenderTarget, AnalyseFrame, NextCompute, PreviousCompute, MarkCompute,
-    NextGeometry, PreviousGeometry, MarkGeometry, NextHull, PreviousHull, MarkHull, NextDomain, PreviousDomain, MarkDomain
+    NextGeometry, PreviousGeometry, MarkGeometry, NextHull, PreviousHull, MarkHull, NextDomain, PreviousDomain, MarkDomain, AnalyseFrameStop
 };
 struct HuntingSettings {
     bool keys = false;             // the section registered a hunting key (its `hunting` is 1 or 2)

@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-214. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-215. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -694,7 +694,7 @@ accompany selected captures as native call metadata. Clear-only passes do not ex
 descriptors from an earlier pass.
 
 D-213 exports native raw files and reports unsupported requested encodings/control flags in
-`resources.jsonl`. D-214 below adds the format encoders. Hold/clear and per-draw command-list options
+`resources.jsonl`. D-214 below adds the format encoders. D-215 adds hold/release below; clear and per-draw command-list options
 remain separate work. Existing capture ownership, completion, queue and layout guards remain.
 
 ### Completed GPU export formats (D-214, 2.4.4; verification in CURRENT_STATE)
@@ -720,3 +720,17 @@ The layout follows [Microsoft's DDS header definitions](https://github.com/micro
 and JPEG uses [WIC frame encoding](https://learn.microsoft.com/en-us/windows/desktop/wic/-wic-imp-iwicbitmapframeencode).
 Tests verify actual GPU bytes inside DDS, decoded JPEG colors, text words, descriptions and fallback,
 plus existing capture and selection behavior. CURRENT_STATE records the exact verification result.
+
+### Held analysis sessions (D-215, 2.4.5; verification in CURRENT_STATE)
+
+`hold` keeps recording while the configured analysis key is down. The original key release callback
+ends the session; without `hold` the existing single-presentation interval remains. Options are fixed
+for that session. F10 closes and saves the old session with a configuration-change marker, so a
+replaced input generation cannot leave it active indefinitely. An abort preserves the partial log.
+
+Logs append bounded chunks per presentation, including frame and terminal markers. GPU metadata
+records the presentation interval as `frame`; file IDs remain unique throughout the session.
+The frame-byte budget resets each interval while the aggregate resident budget still includes all
+retained in-flight jobs. Stopping recording does not discard copies already submitted to the GPU.
+Status adds `analysis_frames` and `active_options`. Existing queue, one-time recording and layout
+guards remain, and control flags other than hold remain explicit adapters to implement.

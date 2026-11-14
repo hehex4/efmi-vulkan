@@ -176,7 +176,7 @@ std::vector<efmi::frontend::NativeBinding> RuntimeNativeBindings()
 // The installation's [Hunting] section as the original's ParseHuntingSection reads it (Hunting.cpp), its keys
 // registered through the original's RegisterIniKeyBinding with `callback` and the action as private data. `hunting = 0`
 // registers none (XXMI keeps it soft disabled for its ShaderRegex only). reload_config is the generation's own F10.
-void RuntimeParseHunting(int& hunting, int& marking_mode, unsigned& marking_actions, unsigned& analysis_options, bool& keys, InputCallback callback)
+void RuntimeParseHunting(int& hunting, int& marking_mode, unsigned& marking_actions, unsigned& analysis_options, bool& keys, InputCallback callback, InputCallback release)
 {
     keys = false;
     hunting = GetIniInt(L"Hunting", L"hunting", 0, nullptr);
@@ -205,7 +205,7 @@ void RuntimeParseHunting(int& hunting, int& marking_mode, unsigned& marking_acti
         {L"next_domainshader", 31, true}, {L"previous_domainshader", 32, true}, {L"mark_domainshader", 33, false},
     };
     for (const auto& b : bindings)
-        keys |= RegisterIniKeyBinding(L"Hunting", b.key, callback, nullptr, b.repeats ? repeat : 0, reinterpret_cast<void*>(uintptr_t(b.action)));
+        keys |= RegisterIniKeyBinding(L"Hunting", b.key, callback, b.action==21?release:nullptr, b.repeats ? repeat : 0, reinterpret_cast<void*>(uintptr_t(b.action)));
 }
 void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,bool custom_shaders,bool shader_hooks)
 {

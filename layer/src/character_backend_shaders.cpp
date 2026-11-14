@@ -117,6 +117,8 @@ void Hunting::configure(const efmi::frontend::HuntingSettings& settings)
 {
     std::lock_guard<std::mutex> lock(mx_);
     // `hunting = 0` registers no key: nothing to hunt with. An F10 reads `hunting` again, as the original's reload does.
+    if(analysing_.load(std::memory_order_relaxed)){finish_=true;finish_reason_="configuration changed";}
+    armed_=false;
     keys_ = settings.keys;
     mode_.store(settings.keys ? settings.hunting : 0, std::memory_order_relaxed);
     marking_mode_ = settings.marking_mode >= 0 && settings.marking_mode < 4 ? settings.marking_mode : 0;
@@ -197,14 +199,20 @@ void Hunting::act(efmi::frontend::HuntingAction action, Device* device, const st
         case A::MarkRenderTarget: kind = Target; mark = true; break;
         default: break;
         }
-        if (action == A::Toggle) {
+        if(action == A::AnalyseFrameStop){
+            if((analysing_.load(std::memory_order_relaxed)?session_options_:analysis_options_) & 0x40000u){
+                armed_=false;
+                if(!finish_){finish_=true;finish_reason_="key released";}
+            }
+        } else if (action == A::Toggle) {
             mode_.store(mode == 1 ? 2 : 1, std::memory_order_relaxed);
             logf("> Hunting toggled to %d", mode == 1 ? 2 : 1);
             told.push_back(mode == 1 ? "> hunting off" : "> hunting on");
         } else if (action == A::AnalyseFrame) {
             // AnalyseFrame: a second press during an analysis aborts it; otherwise only while hunting is enabled.
             if (analysing_.load(std::memory_order_relaxed) || armed_) {
-                armed_ = false; analysing_.store(false, std::memory_order_relaxed); analysis_.clear();
+                armed_ = false;
+                if(!finish_){finish_=true;finish_reason_="aborted";}
                 told.push_back("Frame analysis aborted");
             } else if (mode == 1) {
                 armed_ = true;
@@ -379,45 +387,42 @@ void Hunting::frame(const std::filesystem::path& folder, Device* device)
     std::string written, failed, capture;uint32_t options=0;
     {
         std::lock_guard<std::mutex> lock(mx_);
-        // TimeoutHuntingBuffers: after a minute without a hunting key the sets start again (the selection stays).
         if (mode_.load(std::memory_order_relaxed) == 1 && last_key_us_ && host_time_us() - last_key_us_ > 60000000ull) {
             for (auto& visited : visited_) visited.clear();
             last_key_us_ = host_time_us();
         }
         if (analysing_.load(std::memory_order_relaxed)) {
-            // The frame's draws are in: the log goes to FrameAnalysis-<time> (the original's folder name).
-            analysing_.store(false, std::memory_order_relaxed);
-            std::ofstream out(analysis_path_ / "log.txt", std::ios::binary);
-            out << analysis_;
-            if (out) { written = analysis_path_.u8string(); ++analyses_; } else failed = analysis_path_.u8string();
-            analysis_.clear();
+            ++analysis_frames_;
+            const bool done=finish_ || !(session_options_ & 0x40000u);
+            analysis_ += "----- Frame " + std::to_string(analysis_frames_) + " ended -----\n";
+            if(done)analysis_ += "----- Frame analysis " + (finish_reason_.empty()?std::string("completed"):finish_reason_) + " -----\n";
+            std::ofstream out(analysis_path_ / "log.txt",std::ios::binary|std::ios::app);
+            out<<analysis_;out.close();analysis_.clear();
+            if(!out){failed=analysis_path_.u8string();analysing_.store(false,std::memory_order_relaxed);}
+            else if(done){written=analysis_path_.u8string();++analyses_;analysing_.store(false,std::memory_order_relaxed);}
+            else analysis_="----- Frame "+std::to_string(analysis_frames_+1)+" -----\n";
+            if(!analysing_.load(std::memory_order_relaxed)){finish_=false;finish_reason_.clear();}
         }
         if (armed_) {
             armed_ = false;
-            time_t now = time(nullptr);
-            struct tm local = {};
-            localtime_s(&local, &now);
-            char name[64];
-            strftime(name, sizeof(name), "FrameAnalysis-%Y-%m-%d-%H%M%S", &local);
-            analysis_path_ = folder / name;
-            // AnalyseFrame creates the timestamp directory exclusively; an earlier capture is never overwritten.
-            std::error_code error;
-            std::filesystem::create_directories(folder, error);
-            if (std::filesystem::create_directory(analysis_path_, error)) {
-                analysis_ = "analyse_options: " + std::to_string(analysis_options_) + "\nGPU exports: native raw bytes and requested encodings with explicit scope refusals in resources.jsonl\n";
-                analysed_draws_ = 0;
-                analysing_.store(true, std::memory_order_relaxed);
-            } else failed = analysis_path_.u8string();
+            time_t now = time(nullptr);struct tm local = {};localtime_s(&local, &now);
+            char name[64];strftime(name,sizeof(name),"FrameAnalysis-%Y-%m-%d-%H%M%S",&local);
+            analysis_path_=folder/name;
+            std::error_code error;std::filesystem::create_directories(folder,error);
+            if(std::filesystem::create_directory(analysis_path_,error)){
+                session_options_=analysis_options_;analysis_frames_=0;finish_=false;finish_reason_.clear();
+                analysis_="analyse_options: "+std::to_string(session_options_)+
+                    "\nGPU exports: native raw bytes and requested encodings with explicit scope refusals in resources.jsonl\n----- Frame 1 -----\n";
+                analysed_draws_=0;analysing_.store(true,std::memory_order_relaxed);
+            }else failed=analysis_path_.u8string();
         }
-        if (analysing_.load(std::memory_order_relaxed)) { capture = analysis_path_.u8string(); options = analysis_options_; }
+        if(analysing_.load(std::memory_order_relaxed)){capture=analysis_path_.u8string();options=session_options_;}
     }
-    if (device && device->analysis_frame) device->analysis_frame(device, capture.empty() ? nullptr : capture.c_str(), options);
-    if (!written.empty()) {
-        logf("Frame analysis saved to %s", written.c_str());
-        notice(NoticeLevel::Info, "", ("Frame analysis saved to " + written).c_str());
-    } else if (!failed.empty()) {
-        notice(NoticeLevel::Warning, "", ("Frame analysis could not be written to " + failed).c_str());
-    }
+    if(device && device->analysis_frame)device->analysis_frame(device,capture.empty()?nullptr:capture.c_str(),options);
+    if(!written.empty()){
+        logf("Frame analysis saved to %s",written.c_str());
+        notice(NoticeLevel::Info,"",("Frame analysis saved to "+written).c_str());
+    }else if(!failed.empty())notice(NoticeLevel::Warning,"",("Frame analysis could not be written to "+failed).c_str());
 }
 
 void Hunting::status(JsonWriter& w)
@@ -447,7 +452,7 @@ void Hunting::status(JsonWriter& w)
     w.end_object();
     w.kn("buffer_slot", uint64_t(buffer_slot_ + 1)); // 0: every slot
     w.kn("skipped", skipped_.load()); w.kn("marks", marks_); w.kn("dumps", dumps_); w.kv("last_dump", last_dump_);
-    w.kn("analyses", analyses_); w.kb("analysing", analysing_.load(std::memory_order_relaxed));
+    w.kn("analysis_frames",analysis_frames_); w.kn("active_options",session_options_); w.kn("analyses", analyses_); w.kb("analysing", analysing_.load(std::memory_order_relaxed));
     w.kv("last_analysis", analyses_ ? analysis_path_.u8string() : std::string());
     w.end_object();
 }

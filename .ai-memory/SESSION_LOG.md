@@ -2569,3 +2569,18 @@ targets43, tracker260, validation76 and text580 (d214-regression.out). Diff revi
 synchronized; commit/FF then continue D-215 hold/release from ignored drafts. D-216 original UAV
 binding review/design is recorded in build/d216-plan.md. Root dist2.1.8 and historical game2.1.7
 unchanged; no game, deployment, system, launcher or remote action.
+
+## 2026-11-14: Hold/release native analysis sessions (D-215, 2.4.5)
+
+Original Hunting/Input release semantics now control held analysis. Sessions freeze options, append
+log chunks and frame markers, preserve partial logs on termination, and close explicitly on F10.
+GPU jobs carry presentation-interval frame IDs; file IDs remain monotonic, frame budgets reset and
+resident in-flight accounting remains. Recording stops separately from already submitted readbacks.
+
+Baseline13/21 became21/21. Pair/tracker/planner built d215-pair.out, ABI22781b9e63b58c08 unchanged
+(private backend state) and2.4.5 verified. Final analysis-controls area passes controls55 including
+buffers/images/log-only/single-frame/F10, selection94, GPU resources55, INI221, hunting45, tracker260,
+validation76 and text581 (d215-regression.out). Partial preservation is exercised by F10; no separate
+second-press timing test is claimed. Diff reviewed/memory synchronized, commit/FF then continue
+D-216 compute storage images from build/d216-plan.md and ignored fixture/binding drafts. Root
+dist2.1.8/historical game2.1.7 unchanged; no game/deployment/launcher/system/remote action.

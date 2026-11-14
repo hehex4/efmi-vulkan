@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-215: Preserve held analysis sessions until key release (2026-11-14)
+
+- Original Hunting::AnalyseFrameStop is the release callback for HOLD; _AnalyseFrameStop retains partial logs. Defaults fix hold behavior during a session. DX11 provides reference-counted deferred lifetime, hazard tracking and context order; Vulkan keeps owned readbacks and completion publication.
+- Register the original input release path for analysis only. Freeze session options separately from new configuration. Append bounded log chunks each presentation with frame markers; release, abort or F10 closes the old session with a terminal reason. F10 cannot strand a held key after its input generation disappears. Status records frame count/options.
+- Same-directory capture callbacks advance frame IDs and reset only per-frame byte/refusal budgets. Job IDs remain unique and resident allocation charges still include in-flight data; already submitted jobs complete after recording stops. Unsupported control flags retain explicit refusals. No replay/queue/layout adapter is silently widened.
+
 ## D-214: Encode completed native staging data on the CPU worker (2026-11-14)
 
 - Original FrameAnalysis maps staged resources before DDS/WIC and buffer encoders, choosing default JPEG with DDS fallback and text for explicit CB/VB/IB selection. DX11 supplies deferred reference lifetime, hazards and context order. Vulkan keeps explicit resource owners, barriers and submission completion.

@@ -5,6 +5,13 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.4.5: Hold/release analysis sessions, D-215 (2026-11-14; sandbox verified)
+
+- D-214 committed/merged819c7c2. Original Hunting AnalyseFrame/AnalyseFrameStop and Input RegisterIniKeyBinding read: HOLD stops on release; abort keeps partial log. DX11 supplies deferred lifetime/hazards/context order; Vulkan retains explicit jobs/completion.
+- Baseline13/21 in d215-before.out: held buffer/log sessions stop after one frame and report unsupported hold. Added original release callback, appended action, fixed session options, per-presentation append logs/frame markers, F10 terminal reason, partial abort preservation and frame metadata on GPU jobs. Same-directory host frame callbacks reset frame bytes/refusal budgets but retain resident accounting and monotonically increasing file IDs. No queue/layout guards relaxed.
+- Pair/tracker/INI planner built d215-pair.out. ABI remains22781b9e63b58c08: Hunting and the runtime action enum stay private to each backend; no host callback or shared resource structure changed. All four binary stamps/version2.4.5 verified. Failed hold/log cases now21/21 (d215-after.out). Full analysis-controls area passes d215-regression.out: all five new cases55, selection94, GPU resources55, INI221, hunting45, tracker260, Vulkan validation76 and text581. Review/sync/commit/FF, then D-216 native compute storage images from build/d216-plan.md. Drafts d216-fixture.py (all replacements dry-run), d216-storage-test.py and d216-binding.cpp are prepared but not applied; original-first baseline still needed. Continue other offline adapters without an intermediate final answer.
+- Root dist2.1.8/historical game2.1.7 unchanged. No deployment/game/system/remote action.
+
 ## Active source 2.4.4: Completed GPU export formats, D-214 (2026-11-14; sandbox verified)
 
 - D-213 committed/merged fa6e115. Original FrameAnalysis Dump2DResourceImmediateCtx/DumpBufferImmediateCtx and default format selection read. DX11 supplies deferred ownership/hazards/context order; Vulkan retains explicit staging and completion worker.

@@ -18,7 +18,7 @@ const char capture_owner_key = 0;
 constexpr uint64_t kJobBytes = 8ull << 20, kFrameBytes = 64ull << 20, kResidentBytes = 128ull << 20;
 struct Session {
     std::filesystem::path directory;
-    uint64_t bytes = 0, next = 0, events = 0;
+    uint64_t bytes = 0, next = 0, events = 0, frame = 1;
     uint32_t options = 0;
 };
 struct Readback {
@@ -77,7 +77,7 @@ public:
     void frame(const char* directory, uint32_t options) {
         std::lock_guard<std::mutex> lock(mutex);
         if (!directory) { active.reset(); return; }
-        if (active && active->directory == std::filesystem::u8path(directory)) return;
+        if (active && active->directory == std::filesystem::u8path(directory)) { ++active->frame; active->bytes=0; active->events=0; return; }
         active = std::make_shared<Session>(); active->directory = std::filesystem::u8path(directory); active->options = options;
         if (!worker.joinable()) worker = std::thread([this] { run(); });
         if ((options & 0x3fu) && device->timeline_semaphores && !timeline && CreateSemaphore && DestroySemaphore && GetSemaphoreCounterValue && CmdPipelineBarrier && GetBufferMemoryRequirements) {
@@ -89,13 +89,13 @@ public:
         w.kv("scope", "New one-time recordings on one application queue; post-dispatch and end-of-pass GPU copies; no CPU shadows"); w.end_object();
         events.emplace_back(active, w.out); wake.notify_one();
         // Resource and format selection are native. Remaining control adapters are explicit gaps.
-        const uint32_t unsupported=options & ~(0xfffu|0x20000u|0x80000000u);
+        const uint32_t unsupported=options & ~(0xfffu|0x60000u|0x80000000u);
         if(unsupported)refuse(active,"options","Requested analysis controls need an adapter (mask " +
             std::to_string(unsupported) + "); selected captures and supported encodings remain available");
     }
     void refuse(const std::shared_ptr<Session>& session, const char* point, const std::string& reason) {
         if (session->events++ >= 256) return;
-        JsonWriter w; w.begin_object(); w.kv("state", "refused"); w.kv("point", point); w.kv("reason", reason); w.end_object();
+        JsonWriter w; w.begin_object(); w.kv("state", "refused"); w.kv("point", point); w.kn("frame",session->frame); w.kv("reason", reason); w.end_object();
         events.emplace_back(session, w.out); wake.notify_one();
     }
     std::shared_ptr<Session> begin(CmdBuf* cb, const char* point) {
@@ -284,7 +284,7 @@ public:
             std::string reason; auto job = allocate(session, r.bytes, reason);
             if (!job) { refuse(session, point, reason); continue; }
             job->source = std::move(r.owner); job->file = r.kind + "-" + std::to_string(++session->next) + ".buf";
-            JsonWriter w; w.begin_object(); w.kv("point", point); w.kn("command_buffer", cb->id); w.kn("call", cb->draws.size());
+            JsonWriter w; w.begin_object(); w.kv("point", point); w.kn("frame",session->frame); w.kn("command_buffer", cb->id); w.kn("call", cb->draws.size());
             w.kn("resource", r.id); w.kn("set", r.set); w.kn("binding", r.binding); w.kn("element", r.element);
             w.kv("kind", r.kind);
             if (!r.uses.empty()) { w.key("uses"); w.begin_array(); for (const auto& use : r.uses) w.raw(use); w.end_array(); }
@@ -413,7 +413,7 @@ public:
                 const uint64_t bytes=uint64_t((width+bw-1)/bw)*((height+bh-1)/bh)*block;
                 auto job=allocate(session,bytes,reason);if(!job){refuse(session,point,reason);continue;}
                 job->image={image.format,width,height};job->source=view.lifetime;job->file="image-"+std::to_string(++session->next)+".bin";
-                JsonWriter w;w.begin_object();w.kv("point",point);w.kn("command_buffer",cb->id);w.kn("call",cb->draws.size());w.kn("resource",image.id);
+                JsonWriter w;w.begin_object();w.kv("point",point);w.kn("frame",session->frame);w.kn("command_buffer",cb->id);w.kn("call",cb->draws.size());w.kn("resource",image.id);
                 w.kn("set",r.slot);w.kn("binding",r.binding);w.kn("element",r.element);w.kn("format",image.format);w.kn("width",width);w.kn("height",height);
                 w.kn("mip",mip);w.kn("layer",layer);w.kn("bytes",bytes);w.kv("file",job->file);w.end_object();job->metadata=w.out;
                 VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;

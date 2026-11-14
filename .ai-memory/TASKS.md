@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-215: Held analysis sessions (2026-11-14)
+
+- D-214 merged819c7c2. Source2.4.5, baseline13/21; pair/tracker/planner built d215-pair.out, ABI22781b9e63b58c08/version2.4.5 verified. Failed cases now21/21; controls55, selection94, GPU resources55, INI221, hunting45, tracker260, validation76 and text581 pass. Exact changes and next checks are in CURRENT_STATE. No new source edits while the compiler reads them.
+- Review/sync/commit/FF then D-216 storage-image fixture and implementation from build/d216-plan.md. Later writable/target/queue adapters remain actual offline engineering. No game/deployment authorization.
+
 ## Active D-214: Completed GPU file encodings (2026-11-14)
 
 - D-213 merged fa6e115. D-214 baseline9/15, source2.4.4 verified. Worker integration corrected and pair/tracker2.4.4 built/stamps verified. Failed cases now41/41; final formats148, selection94, GPU resources55, image shapes47, targets43, tracker260, validation76 and text580 pass. Details and exact next actions in CURRENT_STATE.
