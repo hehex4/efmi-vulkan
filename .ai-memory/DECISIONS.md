@@ -4,6 +4,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-212: Capture bounded color view cells and actual attachment layers (2026-11-14)
+
+- Original FrameAnalysis _DumpTextures/GetResource and Dump2DResource/StageResource retain/stage GPU resources. DX11 supplies deferred ownership, hazards and context order. Vulkan preserves D-202 explicit retained jobs and completed submission publication.
+- Normalize view mip/layer ranges, cap cells to256 and retain per-job/frame/resident budgets. Each color cell has its own restored layout, GPU copy and manifest format/extent/mip/layer. Cube-compatible creation is allowed; unknown image/view extensions, other creation flags, depth, multisampling, unsupported queues/sync2 and replay remain guarded.
+- Attachment captures require a referenced stored attachment and exact framebuffer layers, or layers in its used subpass view masks. Vulkan automatic non-multiview transitions cover framebuffer layers; multiview transitions cover all subpass masks even for an attachment not referenced by every subpass. Capturing the used subset avoids undefined unused view contents; do not narrow D-205's correct union-based layout tracker. Never transition extra layers just because the image view exposes them.
+- The first multiview fixture exposed a missing classic VkRenderPassMultiviewCreateInfo adapter. Retain masks, dependency view offsets and correlation masks in the existing recipe fields, then reconstruct the classic extension at creation. Zero-count arrays remain ignored; mismatched counts and unknown chains refuse. Do not require render pass 2 or enable application features.
+- Fixtures compare all GPU bytes and per-cell metadata, including partial views and array/cube shapes. Target views expose unused layers still in undefined layouts, so oversized capture barriers would fail validation. Exact baseline/build/final evidence is in CURRENT_STATE.
+
 ## D-211: Narrow DDS data uses aligned staging regions (2026-11-14)
 
 - Original CommandList LoadFromFile/DirectXTK FillInitData passes each mip/layer's row and slice pitches to DX11; deferred ownership, hazard tracking and context order come from that runtime. Vulkan keeps its retained upload/publication chain and explicit copy layout.

@@ -1,6 +1,6 @@
 // Distinct application images, persistent descriptor use and layout restoration on the GPU.
 static void bind_compute_descriptors(VkCommandBuffer);
-static uint32_t reference_layers() { return g.texture_shape==3?12:g.texture_shape==2?6:g.texture_shape==1?3:1; }
+static uint32_t reference_layers() { return g.reference_layer_count?g.reference_layer_count:g.texture_shape==3?12:g.texture_shape==2?6:g.texture_shape==1?3:1; }
 static uint32_t reference_mips() { return g.texture_shape?3:1; }
 static bool create_reference_images()
 {
@@ -11,7 +11,7 @@ static bool create_reference_images()
         image.mipLevels=reference_mips();image.arrayLayers=reference_layers();
         if(g.texture_shape>=2)image.flags=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
         image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
-        image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(c.capture_usage?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
         CHECK(vkCreateImage(g.device,&image,nullptr,&result.image));
         VkMemoryRequirements requirements{};vkGetImageMemoryRequirements(g.device,result.image,&requirements);uint32_t index=0;
         if(!find_memory_type(requirements.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,0,&index))return false;
@@ -21,6 +21,7 @@ static bool create_reference_images()
         view.viewType=g.texture_shape==3?VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:g.texture_shape==2?VK_IMAGE_VIEW_TYPE_CUBE:g.texture_shape==1?VK_IMAGE_VIEW_TYPE_2D_ARRAY:VK_IMAGE_VIEW_TYPE_2D;
         view.format=image.format;view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,reference_mips(),0,reference_layers()};
         if(g.reference_partial)view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,1,2,1,2};
+        if(g.reference_remaining){view.subresourceRange.levelCount=VK_REMAINING_MIP_LEVELS;view.subresourceRange.layerCount=VK_REMAINING_ARRAY_LAYERS;}
         if(g.reference_narrow && &result==&c.reference_images[1]){view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.subresourceRange.layerCount=1;}
         CHECK(vkCreateImageView(g.device,&view,nullptr,&result.view));
     }

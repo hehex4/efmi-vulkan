@@ -278,6 +278,38 @@ static void ignored_pointer_tests()
     check(!RenderPassRecipe::capture(r2).complete, "unknown attachment extension is not dropped");
 }
 
+static VKAPI_ATTR VkResult VKAPI_CALL create_multiview_pass(VkDevice,const VkRenderPassCreateInfo* info,const VkAllocationCallbacks*,VkRenderPass* out)
+{
+    const auto* views=static_cast<const VkRenderPassMultiviewCreateInfo*>(info->pNext);
+    check(views && views->sType==VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO && !views->pNext &&
+          views->subpassCount==2 && views->pViewMasks[0]==1 && views->pViewMasks[1]==2 &&
+          views->dependencyCount==1 && views->pViewOffsets[0]==-1 && views->correlationMaskCount==1 && views->pCorrelationMasks[0]==3,
+          "classic recreation preserves owned multiview masks, dependency offsets and correlations");
+    *out=h<VkRenderPass>(91);return VK_SUCCESS;
+}
+static void multiview_recipe_tests()
+{
+    VkSubpassDescription subpasses[2]{};for(auto& s:subpasses)s.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;
+    VkSubpassDependency dependency{0,1,VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,0,0,VK_DEPENDENCY_VIEW_LOCAL_BIT};
+    uint32_t masks[2]={1,2},correlation=3;int32_t offset=-1;
+    VkRenderPassMultiviewCreateInfo views{VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO};
+    views.subpassCount=2;views.pViewMasks=masks;views.dependencyCount=1;views.pViewOffsets=&offset;
+    views.correlationMaskCount=1;views.pCorrelationMasks=&correlation;
+    VkRenderPassCreateInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};info.pNext=&views;
+    info.subpassCount=2;info.pSubpasses=subpasses;info.dependencyCount=1;info.pDependencies=&dependency;
+    auto owned=RenderPassRecipe::capture(info);masks[0]=masks[1]=correlation=0;offset=0;
+    check(owned.complete && !owned.version2 && owned.subpasses[1].view_mask==2 && owned.dependencies[0].viewOffset==-1 && owned.correlated[0]==3,
+          "classic multiview capture owns its source arrays without requiring render pass 2");
+    VkRenderPass pass=VK_NULL_HANDLE;
+    check(owned.create(h<VkDevice>(1),create_multiview_pass,nullptr,&pass)==VK_SUCCESS && pass,
+          "classic multiview recreates through the original entry point");
+    views.subpassCount=1;check(!RenderPassRecipe::capture(info).complete,"mismatched classic multiview ranges refuse");
+    views.subpassCount=views.dependencyCount=views.correlationMaskCount=0;
+    views.pViewMasks=views.pCorrelationMasks=h<const uint32_t*>(1);views.pViewOffsets=h<const int32_t*>(1);
+    check(RenderPassRecipe::capture(info).complete,"zero-count multiview arrays are ignored");
+    views.pNext=h<const void*>(1);check(!RenderPassRecipe::capture(info).complete,"unknown multiview chain remains refused");
+}
+
 static void tracked_lifetime_tests()
 {
     Device d; RecipeFixture f;
@@ -549,7 +581,7 @@ int main(int argc, char** argv)
         return output ? 0 : 2;
     }
     util_init(GetModuleHandleW(nullptr));
-    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); tracked_lifetime_tests(); draw_sequence_tests();
+    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); multiview_recipe_tests(); tracked_lifetime_tests(); draw_sequence_tests();
     const bool corpus = argc == 2 && !strcmp(argv[1], "--corpus");
     dither_tests(corpus);
     constant_bones_tests(corpus);

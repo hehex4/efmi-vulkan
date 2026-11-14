@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-212 verified; continue D-213 analysis selection (2026-11-14)
+
+- D-211 merged as1ef02a2. Source/pair2.4.2 ABI97d3399f4a32ac23 verified. Final capture/pipeline areas pass tracker260, recipe202, cache61, snapshots52, GPU variants63, resources55, geometry65, indirect121, image shapes47, targets43, validation76 and text577. CURRENT_STATE separates initial failures and exact corrected builds. Classic multiview recipe masks/offsets/correlations are retained and reconstructed.
+- Capture only owned bounded view cells, framebuffer layers or actual used multiview layers, preserving layout restoration and completion. Review/commit/FF, then D-213 analysis selection from build/d213-plan.md and d213-selection.py; later render-target binding and queue graphs without ending at the commit. No game/deployment action.
+
 ## Active D-211 verified; continue D-212 capture subresources (2026-11-14)
 
 - D-210 merged as4897c07. Source/pair2.4.1 ABI97d3399f4a32ac23 verified. Baseline6/12, fixed12/12; standalone upload598 with zero diagnostics. Final area shapes70, file images46, application images76, files42, character115/377, bindings48, tracker260, validation76 and text576 pass. Exact artifacts in CURRENT_STATE.

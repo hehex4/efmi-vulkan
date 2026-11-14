@@ -48,6 +48,7 @@ struct ImageRequest {
     VkImageView view = VK_NULL_HANDLE;
     VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
     uint32_t slot = 0, binding = 0, element = 0;
+    uint32_t attachment_layers = 0, view_mask = 0;
 };
 struct BufferRequest {
     VkBuffer buffer = VK_NULL_HANDLE;
@@ -310,12 +311,23 @@ public:
                     requests.push_back({value.second.image_view,VkImageLayout(value.second.image_layout),slot,value.first.first,value.first.second});
                 }
             }
-            if(!compute && cb->pass.info && cb->pass.recipe && cb->pass.recipe->complete && !cb->pass.info->imageless){
+            if(!compute && cb->pass.info && cb->pass.info->known && cb->pass.recipe && cb->pass.recipe->complete && !cb->pass.info->imageless){
                 const auto& attachments=cb->pass.recipe->attachments;
                 for(size_t i=0;i<cb->pass.info->views.size() && i<attachments.size();++i){
                     const auto& view=cb->pass.info->views[i];
-                    if(view.known && attachments[i].storeOp==VK_ATTACHMENT_STORE_OP_STORE)
-                        requests.push_back({view.handle,attachments[i].finalLayout,UINT32_MAX,uint32_t(i),0});
+                    if(!view.known || attachments[i].storeOp!=VK_ATTACHMENT_STORE_OP_STORE)continue;
+                    bool used=false;uint32_t mask=0;
+                    for(const auto& subpass:cb->pass.recipe->subpasses){
+                        auto use=[&](const VkAttachmentReference2& ref){if(ref.attachment==i){used=true;mask|=subpass.view_mask;}};
+                        for(const auto& ref:subpass.colors)use(ref);
+                        for(const auto& ref:subpass.resolves)use(ref);
+                        for(const auto& ref:subpass.inputs)use(ref);
+                        if(subpass.has_depth)use(subpass.depth);
+                    }
+                    // Only layers actually transitioned by this pass have its final layout.
+                    if(!used)continue;
+                    if(attachments[i].flags){refuse(session,point,"Attachment flags require a capture adapter");continue;}
+                    requests.push_back({view.handle,attachments[i].finalLayout,UINT32_MAX,uint32_t(i),0,cb->pass.info->layers,mask});
                 }
             }
         }
@@ -330,36 +342,59 @@ public:
                 if(i==device->images.end() || i->second.id!=view.image_id){refuse(session,point,"Image identity unavailable");continue;}
                 image=i->second;
             }
-            const auto range=view.range;
-            if(!image.capture_safe)reason="Image extensions or flags require a capture adapter";
+            auto range=view.range;std::vector<uint32_t> layers;
+            if(range.baseMipLevel<image.levels && range.baseArrayLayer<image.layers){
+                if(range.levelCount==VK_REMAINING_MIP_LEVELS)range.levelCount=image.levels-range.baseMipLevel;
+                if(range.layerCount==VK_REMAINING_ARRAY_LAYERS)range.layerCount=image.layers-range.baseArrayLayer;
+            }
+            if(!image.capture_safe || !view.native_safe)reason="Image or view extensions/flags require a capture adapter";
             else if(!view.lifetime || view.lifetime->dependencies.empty() || !image.lifetime || image.lifetime->dependencies.empty())reason="Image allocation lifetime cannot be retained (including swapchain images)";
             else if(!(image.usage&VK_IMAGE_USAGE_TRANSFER_SRC_BIT))reason="Image was not created with TRANSFER_SRC usage";
             else if(image.type!=VK_IMAGE_TYPE_2D || image.samples!=VK_SAMPLE_COUNT_1_BIT || range.aspectMask!=VK_IMAGE_ASPECT_COLOR_BIT ||
-                    (range.layerCount!=1 && !(range.layerCount==VK_REMAINING_ARRAY_LAYERS && image.layers-range.baseArrayLayer==1)) ||
-                    (range.levelCount!=1 && !(range.levelCount==VK_REMAINING_MIP_LEVELS && image.levels-range.baseMipLevel==1)) ||
-                    range.baseMipLevel>=image.levels || range.baseArrayLayer>=image.layers || image.flags ||
-                    !format_block(image.format,bw,bh,block))reason="Image capture needs an owned single-sample 2D color subresource with a known format";
+                    range.baseMipLevel>=image.levels || range.baseArrayLayer>=image.layers || !range.levelCount || !range.layerCount ||
+                    range.levelCount>image.levels-range.baseMipLevel || range.layerCount>image.layers-range.baseArrayLayer ||
+                    (image.flags & ~VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) || !format_block(image.format,bw,bh,block))
+                reason="Image capture needs owned single-sample 2D color subresources with a known format";
             else if(r.layout!=VK_IMAGE_LAYOUT_GENERAL && r.layout!=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL &&
                     r.layout!=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && r.layout!=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL)reason="Image layout cannot be restored by this capture adapter";
+            if(reason.empty()){
+                if(r.slot==UINT32_MAX){
+                    if(range.levelCount!=1)reason="Attachment capture needs one mip level";
+                    else if(r.view_mask){
+                        for(uint32_t bit=0;bit<32;++bit)if(r.view_mask & (1u<<bit)){
+                            if(bit>=range.layerCount){reason="Attachment multiview range is unavailable";break;}
+                            layers.push_back(range.baseArrayLayer+bit);
+                        }
+                    }else if(!r.attachment_layers || r.attachment_layers>range.layerCount)reason="Attachment layer range is unavailable";
+                    else range.layerCount=r.attachment_layers;
+                }
+                if(reason.empty() && layers.empty()){
+                    if(uint64_t(range.levelCount)*range.layerCount>256)reason="Image capture subresource budget exceeded";
+                    else for(uint32_t layer=0;layer<range.layerCount;++layer)layers.push_back(range.baseArrayLayer+layer);
+                }
+            }
             if(!reason.empty()){refuse(session,point,reason);continue;}
-            const uint32_t width=std::max(1u,image.extent.width>>std::min(range.baseMipLevel,31u)),height=std::max(1u,image.extent.height>>std::min(range.baseMipLevel,31u));
-            const uint64_t bytes=uint64_t((width+bw-1)/bw)*((height+bh-1)/bh)*block;
-            auto job=allocate(session,bytes,reason);if(!job){refuse(session,point,reason);continue;}
-            job->source=view.lifetime;job->file="image-"+std::to_string(++session->next)+".bin";
-            JsonWriter w;w.begin_object();w.kv("point",point);w.kn("command_buffer",cb->id);w.kn("call",cb->draws.size());w.kn("resource",image.id);
-            w.kn("set",r.slot);w.kn("binding",r.binding);w.kn("element",r.element);w.kn("format",image.format);w.kn("width",width);w.kn("height",height);
-            w.kn("mip",range.baseMipLevel);w.kn("layer",range.baseArrayLayer);w.kn("bytes",bytes);w.kv("file",job->file);w.end_object();job->metadata=w.out;
-            VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
-            barrier.oldLayout=r.layout;barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-            barrier.image=view.image;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,range.baseMipLevel,1,range.baseArrayLayer,1};
-            CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
-            VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,range.baseMipLevel,range.baseArrayLayer,1};copy.imageExtent={width,height,1};
-            device->d.CmdCopyImageToBuffer(cb->handle,view.image,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,job->buffer,1,&copy);
-            barrier.srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
-            barrier.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;barrier.newLayout=r.layout;
-            VkMemoryBarrier host{VK_STRUCTURE_TYPE_MEMORY_BARRIER};host.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;host.dstAccessMask=VK_ACCESS_HOST_READ_BIT;
-            CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT|VK_PIPELINE_STAGE_HOST_BIT,0,1,&host,0,nullptr,1,&barrier);
-            owner->jobs.push_back(std::move(job));owner->used=true;
+            for(uint32_t level=0;level<range.levelCount;++level)for(uint32_t layer:layers){
+                const uint32_t mip=range.baseMipLevel+level;
+                const uint32_t width=std::max(1u,image.extent.width>>std::min(mip,31u)),height=std::max(1u,image.extent.height>>std::min(mip,31u));
+                const uint64_t bytes=uint64_t((width+bw-1)/bw)*((height+bh-1)/bh)*block;
+                auto job=allocate(session,bytes,reason);if(!job){refuse(session,point,reason);continue;}
+                job->source=view.lifetime;job->file="image-"+std::to_string(++session->next)+".bin";
+                JsonWriter w;w.begin_object();w.kv("point",point);w.kn("command_buffer",cb->id);w.kn("call",cb->draws.size());w.kn("resource",image.id);
+                w.kn("set",r.slot);w.kn("binding",r.binding);w.kn("element",r.element);w.kn("format",image.format);w.kn("width",width);w.kn("height",height);
+                w.kn("mip",mip);w.kn("layer",layer);w.kn("bytes",bytes);w.kv("file",job->file);w.end_object();job->metadata=w.out;
+                VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
+                barrier.oldLayout=r.layout;barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+                barrier.image=view.image;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,mip,1,layer,1};
+                CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+                VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,mip,layer,1};copy.imageExtent={width,height,1};
+                device->d.CmdCopyImageToBuffer(cb->handle,view.image,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,job->buffer,1,&copy);
+                barrier.srcAccessMask=VK_ACCESS_TRANSFER_READ_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+                barrier.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;barrier.newLayout=r.layout;
+                VkMemoryBarrier host{VK_STRUCTURE_TYPE_MEMORY_BARRIER};host.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;host.dstAccessMask=VK_ACCESS_HOST_READ_BIT;
+                CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT|VK_PIPELINE_STAGE_HOST_BIT,0,1,&host,0,nullptr,1,&barrier);
+                owner->jobs.push_back(std::move(job));owner->used=true;
+            }
         }
     }
     void stop() {

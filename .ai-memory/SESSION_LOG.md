@@ -2517,3 +2517,23 @@ character115/377, bindings48, tracker260, validation76, text576 (d211-regression
 Continue immediately with D-212 image view subresource captures, including exact framebuffer and
 multiview layer bounds; drafts and original/spec findings are in build/d212-plan.md. Root dist2.1.8
 and historical game2.1.7 unchanged. No game/deployment/system/remote action.
+
+## 2026-11-14: D-212 GPU image subresources and classic multiview recipes, 2.4.2
+
+Continued after D-2111ef02a2. Read original FrameAnalysis staging/RTV ownership and Vulkan pass
+transition requirements. Capture bounded per-view mip/layer cells with retained jobs and restored
+layouts. Attachments use actual framebuffer or used multiview layers; unused layers/attachments
+are not sampled. Unknown view extensions and all existing queue/usage/completion limits stay guarded.
+
+Baseline image6/15 and targets4/12 (d212-images-before.out, d212-targets-before.out). Initial pair
+built d212-pair.out; image24/24 after bounds fixture, targets8/12: classic multiview extension lacked
+retained recipe state. Added owned masks/view offsets/correlations and classic recreation; unknown
+chains refuse and zero-count pointers stay ignored. Final pair/tracker/recipe/GPU variants/cache/
+snapshots built d212-multiview-pair.out, ABI97d3399f4a32ac23 and2.4.2 verified. Final sandbox fixture
+d212-unused-fixture.out; corrected multiview/unused15/15 (d212-multiview-after.out).
+
+Final capture/pipeline areas pass tracker260, recipes202, cache61, snapshots52, GPU variants63,
+resources55, geometry65, indirect121, image shapes47, targets43, validation76, text577
+(d212-regression.out). Diff reviewed and memory synchronized. Continue D-213 analyse_options resource
+selection from ignored plan/test drafts, then further offline adapters. Root dist2.1.8 and historical
+game2.1.7 unchanged. No game/deployment/system/remote action.

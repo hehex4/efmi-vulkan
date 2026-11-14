@@ -165,7 +165,15 @@ RenderPassRecipe RenderPassRecipe::capture(const VkRenderPassCreateInfo& info)
 {
     RenderPassRecipe r;
     r.flags = info.flags;
-    if (info.pNext || info.flags) { r.reason = "render_pass_extension"; return r; }
+    const auto* multiview=static_cast<const VkRenderPassMultiviewCreateInfo*>(info.pNext);
+    if (info.flags || (multiview && (multiview->sType!=VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO || multiview->pNext))) {
+        r.reason = "render_pass_extension"; return r;
+    }
+    if(multiview && ((multiview->subpassCount && (multiview->subpassCount!=info.subpassCount || !multiview->pViewMasks)) ||
+        (multiview->dependencyCount && (multiview->dependencyCount!=info.dependencyCount || !multiview->pViewOffsets)) ||
+        multiview->correlationMaskCount>kMaxSubpasses || (multiview->correlationMaskCount && !multiview->pCorrelationMasks))){
+        r.reason="render_pass_multiview_range";return r;
+    }
     if (info.attachmentCount > kMaxAttachments || info.subpassCount > kMaxSubpasses ||
         info.dependencyCount > kMaxDependencies) { r.reason = "render_pass_retention_limit"; return r; }
     for (uint32_t i = 0; i < info.attachmentCount; i++) {
@@ -184,6 +192,7 @@ RenderPassRecipe RenderPassRecipe::capture(const VkRenderPassCreateInfo& info)
         }
         RenderSubpass d;
         d.flags = s.flags; d.point = s.pipelineBindPoint;
+        if(multiview && multiview->subpassCount)d.view_mask=multiview->pViewMasks[i];
         for (uint32_t j = 0; j < s.inputAttachmentCount; j++) d.inputs.push_back(ref2(s.pInputAttachments[j]));
         for (uint32_t j = 0; j < s.colorAttachmentCount; j++) {
             d.colors.push_back(ref2(s.pColorAttachments[j]));
@@ -199,8 +208,10 @@ RenderPassRecipe RenderPassRecipe::capture(const VkRenderPassCreateInfo& info)
         d.srcSubpass = s.srcSubpass; d.dstSubpass = s.dstSubpass; d.srcStageMask = s.srcStageMask;
         d.dstStageMask = s.dstStageMask; d.srcAccessMask = s.srcAccessMask; d.dstAccessMask = s.dstAccessMask;
         d.dependencyFlags = s.dependencyFlags;
+        if(multiview && multiview->dependencyCount)d.viewOffset=multiview->pViewOffsets[i];
         r.dependencies.push_back(d);
     }
+    if(multiview)copy_array(r.correlated,multiview->correlationMaskCount,multiview->pCorrelationMasks);
     r.complete = true;
     return r;
 }
@@ -302,6 +313,15 @@ VkResult RenderPassRecipe::create(VkDevice dev, PFN_vkCreateRenderPass create1,
     info.flags = flags; info.attachmentCount = static_cast<uint32_t>(atts.size()); info.pAttachments = atts.data();
     info.subpassCount = static_cast<uint32_t>(subs.size()); info.pSubpasses = subs.data();
     info.dependencyCount = static_cast<uint32_t>(deps.size()); info.pDependencies = deps.data();
+    std::vector<uint32_t> masks;std::vector<int32_t> offsets;bool multiview=!correlated.empty();
+    for(const auto& subpass:subpasses){masks.push_back(subpass.view_mask);multiview|=subpass.view_mask!=0;}
+    for(const auto& dependency:dependencies){offsets.push_back(dependency.viewOffset);multiview|=dependency.viewOffset!=0;}
+    VkRenderPassMultiviewCreateInfo views{VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO};
+    if(multiview){
+        views.subpassCount=uint32_t(masks.size());views.pViewMasks=masks.data();
+        views.dependencyCount=uint32_t(offsets.size());views.pViewOffsets=offsets.data();
+        views.correlationMaskCount=uint32_t(correlated.size());views.pCorrelationMasks=correlated.data();info.pNext=&views;
+    }
     return create1(dev, &info, nullptr, out);
 }
 

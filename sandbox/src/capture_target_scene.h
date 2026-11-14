@@ -1,6 +1,6 @@
 // Owned attachment fixture: two clear-only passes need no graphics pipeline.
 struct CaptureTargetScene {
-    bool enabled = false, after_graphics = false, transfer = true, store = true;
+    bool enabled = false, after_graphics = false, transfer = true, store = true, layered = false, unused = false;
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
@@ -14,7 +14,7 @@ static bool create_capture_target()
     if (!s.enabled) return true;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType = VK_IMAGE_TYPE_2D; image.format = VK_FORMAT_R8G8B8A8_UNORM;
-    image.extent = {4, 4, 1}; image.mipLevels = image.arrayLayers = 1;
+    image.extent = {s.layered?8u:4u, s.layered?8u:4u, 1}; image.mipLevels = s.layered?2:1; image.arrayLayers = s.layered?4:1;
     image.samples = VK_SAMPLE_COUNT_1_BIT; image.tiling = VK_IMAGE_TILING_OPTIMAL;
     image.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (s.transfer ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
     CHECK(vkCreateImage(g.device, &image, nullptr, &s.image));
@@ -24,8 +24,8 @@ static bool create_capture_target()
     CHECK(vkAllocateMemory(g.device, &allocation, nullptr, &s.memory));
     CHECK(vkBindImageMemory(g.device, s.image, s.memory, 0));
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    view.image = s.image; view.viewType = VK_IMAGE_VIEW_TYPE_2D; view.format = image.format;
-    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    view.image = s.image; view.viewType = s.layered?VK_IMAGE_VIEW_TYPE_2D_ARRAY:VK_IMAGE_VIEW_TYPE_2D; view.format = image.format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, s.layered?1u:0u, 1, s.layered?1u:0u, s.layered?3u:1u};
     CHECK(vkCreateImageView(g.device, &view, nullptr, &s.view));
     VkAttachmentDescription attachment{}; attachment.format = image.format; attachment.samples = VK_SAMPLE_COUNT_1_BIT;
     attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; attachment.storeOp = s.store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -33,17 +33,19 @@ static bool create_capture_target()
     attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; attachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
     VkAttachmentReference color{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{}; subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1; subpass.pColorAttachments = &color;
+    subpass.colorAttachmentCount = s.unused?0:1; subpass.pColorAttachments = &color;
     VkSubpassDependency dependency{}; dependency.srcSubpass = VK_SUBPASS_EXTERNAL; dependency.dstSubpass = 0;
     dependency.srcStageMask = dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     dependency.srcAccessMask = dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     VkRenderPassCreateInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
     pass.attachmentCount = 1; pass.pAttachments = &attachment; pass.subpassCount = 1; pass.pSubpasses = &subpass;
     pass.dependencyCount = 1; pass.pDependencies = &dependency;
+    const uint32_t mask=5;VkRenderPassMultiviewCreateInfo multiview{VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO};
+    if(g.capture_multiview){multiview.subpassCount=1;multiview.pViewMasks=&mask;pass.pNext=&multiview;}
     CHECK(vkCreateRenderPass(g.device, &pass, nullptr, &s.pass));
     VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     framebuffer.renderPass = s.pass; framebuffer.attachmentCount = 1; framebuffer.pAttachments = &s.view;
-    framebuffer.width = framebuffer.height = 4; framebuffer.layers = 1;
+    framebuffer.width = framebuffer.height = 4; framebuffer.layers = s.layered && !g.capture_multiview?2:1;
     CHECK(vkCreateFramebuffer(g.device, &framebuffer, nullptr, &s.framebuffer));
     return true;
 }

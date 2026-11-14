@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-211. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-212. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -536,7 +536,7 @@ The analysis directory now includes resources.jsonl, buffer-N.buf and image-N.bi
 
 The current scope is new one-time, non-simultaneous recordings on one unprotected application graphics queue, with synchronization2 disabled. Compute snapshots follow the application call and its replacement plan; graphics snapshots are at classic pass end. Only transfer-source resources with retained allocation chains and supported creation/descriptor state are copied. Image descriptors must be statically accessed; known owned single-sample color attachments can use their final layout. Raw .bin images require the manifest's format/extent. This is not per-internal-draw capture or a screenshot.
 
-Refusals appear in the manifest, with no fabricated bytes. Current exclusions include multiple queues (including the real game's current arrangement), stage-limited synchronization2 signals, replay, swapchain ownership, depth, array/multimip/image-descriptor arrays and external/extension resources. Source usage flags are never changed. Budgets are 8 MiB per copy, 64 MiB/256 jobs per analysis, and 128 MiB retained staging.
+Refusals appear in the manifest, with no fabricated bytes. Current exclusions include multiple queues (including the real game's current arrangement), stage-limited synchronization2 signals, replay, swapchain ownership, depth, image-descriptor arrays and unsupported external/extension resources. D-212 adds bounded mip/layer view exports below. Source usage flags are never changed. Budgets are 8 MiB per copy, 64 MiB/256 jobs per analysis, and 128 MiB retained staging.
 
 ### GPU geometry exports (D-203, 2.3.3; sandbox scope)
 
@@ -659,3 +659,23 @@ Headless checks compare every texel after both staging paths and mip demotion, w
 readback packing. Native shaders cover narrow arrays/cubes, F10, push, secondary commands and two
 application queues. These published read-only file uploads do not broaden the application-image
 queue adapter or enable integer, depth or writable consumers. CURRENT_STATE records exact evidence.
+
+### GPU color mip/layer captures (D-212, 2.4.2; sandbox only)
+
+Each retained color view cell can produce a completed GPU file with its original mip/layer index,
+format, extent and byte count. This covers arrays, cube faces and partial views; remaining-range
+constants are normalized. Views exceeding256 cells refuse, and all existing allocation/frame/job,
+queue, synchronization2, replay and transfer-usage constraints remain. Every copied cell's layout
+is restored. Files describe view subresources, not an invented snapshot of the entire allocation.
+
+Stored attachments export only referenced framebuffer layers or used multiview layers. Extra layers
+exposed by a view are left untouched, including layers still in undefined layouts. The rules follow
+[Vulkan render-pass transitions](https://docs.vulkan.org/spec/latest/chapters/renderpass.html).
+Classic [multiview creation state](https://docs.vulkan.org/refpages/latest/refpages/source/VkRenderPassMultiviewCreateInfo.html)
+is now retained and reconstructed with owned masks, dependency offsets and correlations. Unknown
+chains and incompatible counts still refuse; application features are never silently enabled.
+
+Image checks47 compare each GPU cell and metadata, including remaining ranges, budget refusal,
+push/secondary paths and unsupported queues/usage. Target checks43 cover clear-only, prior graphics,
+secondary, exact framebuffer/multiview layers, unused attachments and store/usage refusals. Pipeline
+recipe/recreation and existing capture regressions pass; CURRENT_STATE records the exact binaries.

@@ -211,7 +211,8 @@ struct App {
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
-    bool reference_partial = false, reference_narrow = false;
+    bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
+    uint32_t reference_layer_count = 0;
     int texture_shape = 0; // 0 2D, 1 array, 2 cube, 3 cube array
     VkImageView shaped_texture_view = VK_NULL_HANDLE;
     bool sync2 = false;
@@ -541,6 +542,8 @@ static bool create_device()
     dinfo.pEnabledFeatures = &features;
     VkPhysicalDeviceSynchronization2Features sync2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
     if(g.sync2){sync2.synchronization2=VK_TRUE;dinfo.pNext=&sync2;}
+    VkPhysicalDeviceMultiviewFeatures multiview{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
+    if(g.capture_multiview){multiview.multiview=VK_TRUE;multiview.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&multiview;}
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
 
 #define X(n)                                                                                                           \
@@ -1838,10 +1841,20 @@ int wmain(int argc, wchar_t** argv)
             capture_target.transfer = false;
         else if (a == L"--capture-target-discard")
             capture_target.store = false;
+        else if (a == L"--capture-target-unused")
+            capture_target.unused = true;
+        else if (a == L"--capture-target-layers")
+            capture_target.layered = true;
+        else if (a == L"--capture-target-multiview")
+            capture_target.layered = g.capture_multiview = true;
         else if (a == L"--compute-storage-image")
             compute_scene.image_input = compute_scene.storage_image = compute_scene.binding_scene = true;
         else if (a == L"--reusable-recording")
             compute_scene.reusable = true;
+        else if (a == L"--reference-remaining")
+            g.reference_remaining = true;
+        else if (a == L"--reference-layers" && i + 1 < argc)
+            g.reference_layer_count = uint32_t(_wtoi(argv[++i]));
         else if (a == L"--reference-narrow")
             g.reference_narrow = true;
         else if (a == L"--reference-partial")
