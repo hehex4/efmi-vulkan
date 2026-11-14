@@ -236,6 +236,10 @@ struct App {
     int restart_mode = 0;
     bool imageless = false;
     int dynamic_rendering = 0;
+    int dynamic_depth = 0;
+    VkImage depth_image = VK_NULL_HANDLE;
+    VkDeviceMemory depth_memory = VK_NULL_HANDLE;
+    VkImageView depth_view = VK_NULL_HANDLE;
     bool rendering_split = false;
     bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
@@ -554,6 +558,7 @@ static bool create_device()
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     if(g.dynamic_rendering==2)exts.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+    if(g.dynamic_depth)exts.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME);
     if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
     if(g.restart_mode==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME);
     if(g.dynamic_geometry>=4)exts.push_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
@@ -592,6 +597,14 @@ static bool create_device()
     if(g.imageless){imageless.imagelessFramebuffer=VK_TRUE;imageless.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&imageless;}
     VkPhysicalDeviceDynamicRenderingFeatures rendering{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
     if(g.dynamic_rendering){rendering.dynamicRendering=VK_TRUE;rendering.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&rendering;}
+    VkPhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT unused{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_FEATURES_EXT};
+    if(g.dynamic_depth){
+        VkPhysicalDeviceFeatures2 supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};supported.pNext=&unused;
+        auto get_features=reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(vkGetInstanceProcAddr(g.instance,"vkGetPhysicalDeviceFeatures2"));
+        if(!get_features)return false;get_features(g.phys,&supported);
+        if(!unused.dynamicRenderingUnusedAttachments){printf("FAILED: dynamic depth fixture needs unused attachments\n");return false;}
+        unused.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&unused;
+    }
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
     if(g.dynamic_rendering){
         dynamic_begin_rendering=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(g.device,g.dynamic_rendering==2?"vkCmdBeginRenderingKHR":"vkCmdBeginRendering"));
@@ -935,6 +948,8 @@ static bool create_pipeline()
     info.subpass = 0;
     VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&g.format;
+    VkPipelineDepthStencilStateCreateInfo depth{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};depth.depthCompareOp=VK_COMPARE_OP_ALWAYS;
+    if(g.dynamic_depth){rendering.depthAttachmentFormat=VK_FORMAT_D32_SFLOAT;info.pDepthStencilState=&depth;}
     if(g.dynamic_rendering){info.renderPass=VK_NULL_HANDLE;info.pNext=&rendering;}
     CHECK(vkCreateGraphicsPipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &g.pipeline));
 
@@ -1002,6 +1017,7 @@ static void destroy_buffer(Buffer& b)
 static void record_setup(VkCommandBuffer);
 static void record_draw(VkCommandBuffer,int);
 #include "capture_target_scene.h"
+#include "dynamic_depth_scene.h"
 
 // Padded application data deliberately differs from a packed Vulkan array.
 struct PaddedDescriptor { VkDescriptorBufferInfo buffer; uint64_t padding; };
@@ -1476,6 +1492,7 @@ static void record_worker(Worker* w, VkFramebuffer fb)
     VkCommandBufferInheritanceRenderingInfo rendering{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO};
     rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&g.format;rendering.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
     if(g.rendering_split)rendering.flags=VK_RENDERING_RESUMING_BIT;
+    if(g.dynamic_depth && g.dynamic_depth!=2)rendering.depthAttachmentFormat=VK_FORMAT_D32_SFLOAT;
     if(g.dynamic_rendering){inherit.renderPass=VK_NULL_HANDLE;inherit.framebuffer=VK_NULL_HANDLE;inherit.pNext=&rendering;}
     VkCommandBufferBeginInfo begin = {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1739,6 +1756,18 @@ static bool render_frame()
     color.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;color.storeOp=VK_ATTACHMENT_STORE_OP_STORE;color.clearValue=clear;
     VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};rendering.renderArea.extent=g.extent;rendering.layerCount=1;
     rendering.colorAttachmentCount=1;rendering.pColorAttachments=&color;
+    VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    if(g.dynamic_depth){
+        depth.imageView=(g.dynamic_depth==2 || g.dynamic_depth==4)?VK_NULL_HANDLE:g.depth_view;
+        depth.imageLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;depth.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth.storeOp=VK_ATTACHMENT_STORE_OP_STORE;depth.clearValue.depthStencil={1.0f,0};rendering.pDepthAttachment=&depth;
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.image=g.depth_image;
+        barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;barrier.subresourceRange={VK_IMAGE_ASPECT_DEPTH_BIT,0,1,0,1};
+        barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=depth.imageLayout;
+        barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+        if(!g.threads)record_setup(g.primary); // Legal pipeline bind before the actual attachment context exists.
+    }
     if(g.threads)rendering.flags=VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
     if(g.rendering_split)rendering.flags|=VK_RENDERING_SUSPENDING_BIT;
     VkImageMemoryBarrier attachment_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
@@ -1752,7 +1781,7 @@ static bool render_frame()
     }
     if (g.threads == 0) {
         if(!g.dynamic_rendering)vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_INLINE);
-        record_setup(g.primary);
+        if(!g.dynamic_depth)record_setup(g.primary);
         for (int i = 0; i < g.draws; i++) {
             if(g.dynamic_rendering && g.rendering_split && i==g.draws/2){
                 dynamic_end_rendering(g.primary);rendering.flags=VK_RENDERING_RESUMING_BIT;
@@ -1777,6 +1806,14 @@ static bool render_frame()
         vkCmdExecuteCommands(g.primary, static_cast<uint32_t>(list.size()), list.data());
     }
     if(g.dynamic_rendering){
+        if(g.dynamic_depth>=3 && !g.threads){
+            dynamic_end_rendering(g.primary);depth.imageView=g.dynamic_depth==3?VK_NULL_HANDLE:g.depth_view;
+            attachment_barrier.oldLayout=attachment_barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            attachment_barrier.srcAccessMask=attachment_barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
+            dynamic_begin_rendering(g.primary,&rendering);
+            for(int i=0;i<g.draws;++i)record_draw(g.primary,i); // Reuse the bound pipeline in a second ordinary pass.
+        }
         dynamic_end_rendering(g.primary);
         attachment_barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;attachment_barrier.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
         attachment_barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;attachment_barrier.dstAccessMask=0;
@@ -1880,6 +1917,7 @@ static void cleanup()
     read_compute_scene();
     destroy_compute_scene();
     destroy_capture_target();
+    destroy_dynamic_depth();
     vkDestroyFence(g.device, g.fence, nullptr);
     for (auto semaphore : g.burst_acquire) vkDestroySemaphore(g.device, semaphore, nullptr);
     if (g.load_src) vkDestroyImage(g.device, g.load_src, nullptr);
@@ -1997,6 +2035,8 @@ int wmain(int argc, wchar_t** argv)
             g.geometry_odd = true;
         else if (a == L"--rendering-split")
             g.rendering_split = true;
+        else if (a == L"--dynamic-depth")
+            g.dynamic_depth = _wtoi(argv[++i]);
         else if (a == L"--dynamic-rendering")
             g.dynamic_rendering = _wtoi(argv[++i]);
         else if (a == L"--imageless")
@@ -2130,7 +2170,7 @@ int wmain(int argc, wchar_t** argv)
         ok = load_injected();
     if(g.restart_mode && g.restart_mode!=3){kIndicesA[0]=UINT16_MAX;kIndicesB[6]=UINT32_MAX;}
     ok = ok && load_vulkan() && create_instance() && create_window() && create_device() && create_swapchain() &&
-         create_pipeline() && create_resources() && create_compute_scene() && create_capture_target() && prepare_present_burst();
+         create_pipeline() && create_resources() && create_compute_scene() && create_capture_target() && create_dynamic_depth() && prepare_present_burst();
     if (ok && !g.inject_path.empty() && g.inject_late)
         ok = load_injected();
     if (ok && g.reresolve_exports)

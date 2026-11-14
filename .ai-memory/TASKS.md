@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-234 verified; continue actual Submit2 adapters (2026-11-14)
+
+- Source2.6.4/ABI34cc62ba682e5a11 final pair/tools built, tracker408/cache81/failed GPU27/27 pass. All D-234 tracked drafts applied; CURRENT_STATE distinguishes invalid initial fixture and corrected valid baseline19/21.
+- Native-depth area and four stamps pass; review/memory/commit/FF. Continue actual Submit2 direct-compute/private-resource adapters and output/pass work; D-235 graph experiment also stalled without replacements, so do not use it as a layer-bug reproduction. Do not stop at the commit. No game or deployment authorization.
+
 ## D-233 verified; continue D-234 actual dynamic depth state (2026-11-14)
 
 - Source2.6.3/ABI34cc62ba682e5a11 pair and native-dynamic-targets area pass, tracker394. CURRENT_STATE has exact baseline and actual pixels. All D-233 drafts applied. Review/memory/commit/FF.

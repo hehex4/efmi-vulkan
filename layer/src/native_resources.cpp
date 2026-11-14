@@ -2,6 +2,18 @@
 #include "texture_identity.h"
 
 namespace efvk {
+bool native_dynamic_outputs(const CmdBuf* cb, uint32_t context, uint32_t& mask)
+{
+    mask = 0;
+    if (!cb || cb->inherited_rp || !context || context > cb->target_contexts.size()) return false;
+    const auto& targets = cb->target_contexts[context - 1];
+    if (!targets.known || !targets.dynamic) return false;
+    for (size_t i = 0; i < targets.dynamic_colors.size() && i < 8; ++i)
+        if (targets.dynamic_colors[i].imageView) mask |= 1u << i;
+    if ((targets.has_depth && targets.depth.imageView) || (targets.has_stencil && targets.stencil.imageView)) mask |= 1u << 8;
+    return true;
+}
+
 namespace {
 bool image_resource(VkImageView handle, const ImageViewInfo& view, const ImageInfo& resource,
                     efmi::frontend::NativeResource& output)

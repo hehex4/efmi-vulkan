@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-234: Dynamic depth filters follow actual views (2026-11-14)
+
+- Original ProcessShaderOverride reads DSV presence, not test/write enable, and runs command lists independently of that legacy filter. DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan pipeline formats merely describe compatible rendering; dynamic Begin supplies actual views.
+- Use immutable runtime attachment metadata for presence only. Either actual depth or stencil view establishes DSV presence; resolve handles do not. Unknown/inherited contexts refuse filtered shaders. Preserve classic subpass and compute rules. Include depth context in both caches and prewarm; refresh bindings at dynamic Begin for legal before-Begin binds and cross-pass reuse. Existing owners still retain twins until recording completion.
+- The fixture enables dynamicRenderingUnusedAttachments to legally bind the same D32 pipeline with null views, disables depth tests/writes, and uses explicit color dependencies across ordinary passes. Valid baseline19/21 becomes GPU27/27 for the failed and transition cases; full area results are recorded in CURRENT_STATE. Source2.6.4, sandbox only.
+
 ## D-233: Dynamic image conflicts use actual attachment snapshots (2026-11-14)
 
 - Original OMGetRenderTargets supplies actual current views; DX11 provides retained/deferred lifetime, hazards and context order. Vulkan dynamic rendering has explicit application layouts and runtime color/depth/stencil/resolve views.

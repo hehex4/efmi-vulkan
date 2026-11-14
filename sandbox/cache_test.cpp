@@ -86,6 +86,8 @@ static bool await_live(size_t count)
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     return driver.count()==count;
 }
+#include "dynamic_depth_cache_cases.h"
+
 int main()
 {
     variant_fixture::RecipeFixture f;
@@ -332,6 +334,7 @@ int main()
             check(driver.count()==0,"filtered native pipeline releases all owners");
         }
     }
+    dynamic_depth_cache_cases();
     printf("variant cache: %d checks passed, %d failed\n",passed,failed);
     return failed?1:0;
 }

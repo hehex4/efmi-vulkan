@@ -644,6 +644,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         for (unsigned i = 0; i < 6; ++i) request.stage_hashes[i] = modules.hashes[i];
         request.stage_hash_mask = modules.mask;
         request.targets_known = modules.targets_known; request.render_targets = modules.targets; request.render_pass = modules.render_pass;
+        if (!request.targets_known) request.targets_known = native_dynamic_outputs(cb, r.targets, request.render_targets);
         efmi::assets::FilePlan plan;
         std::string reason;
         bool ran = false;

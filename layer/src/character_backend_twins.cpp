@@ -1,6 +1,7 @@
 // The application's pipelines without the character dither (D-133): while a Mod's discard gate is set, a
 // pipeline whose fragment stage has the dither is bound as its twin.
 #include "character_backend_internal.h"
+#include "native_resources.h"
 
 namespace efvk {
 namespace character_internal {
@@ -31,18 +32,19 @@ bool pipeline_dither(uint32_t id, const GraphicsRecipe& recipe)
 } // namespace character_internal
 
 namespace {
-bool has_native_shader(const std::shared_ptr<const NativeShaderSet>& fixes, const GraphicsRecipe& recipe, uint32_t marking = 0)
+bool has_native_shader(const std::shared_ptr<const NativeShaderSet>& fixes, const GraphicsRecipe& recipe, uint32_t marking = 0, int depth = -1)
 {
     if (fixes) for (const auto& stage : recipe.stages)
-        if (stage.shader && !(marking & stage.stage) && fixes->allows(stage.shader->hash, recipe) &&
+        if (stage.shader && !(marking & stage.stage) && fixes->allows(stage.shader->hash, recipe, depth) &&
             fixes->modules.count((uint64_t(stage.stage) << 32) | stage.shader->hash)) return true;
     return false;
 }
 
-FragmentPatch game_shader_patch(const std::shared_ptr<const NativeShaderSet>& fixes, bool native, bool dither, uint32_t marking = 0)
+FragmentPatch game_shader_patch(const std::shared_ptr<const NativeShaderSet>& fixes, bool native, bool dither, uint32_t marking = 0, int depth = -1)
 {
     FragmentPatch patch;
     patch.keep_vertex = true; patch.native_only = native; patch.no_dither = dither; patch.native_shaders = fixes;
+    patch.dynamic_depth = depth;
     patch.original_stages = marking & ~kHuntingPink; patch.pink = (marking & kHuntingPink) != 0;
     return patch;
 }
@@ -79,10 +81,12 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline, 
         if (pipe == b.device->pipes.end() || !pipe->second.recipe || !pipe->second.layout) return pipeline;
         id = pipe->second.id; recipe = pipe->second.recipe; layout = pipe->second.layout;
     }
-    const bool native = b.enabled.load(std::memory_order_relaxed) && (pink || has_native_shader(fixes, *recipe, marking));
+    uint32_t targets = 0;
+    const int depth = recipe->dynamic_rendering && native_dynamic_outputs(cb, cb->active_targets, targets) ? int((targets >> 8) & 1) : -1;
+    const bool native = b.enabled.load(std::memory_order_relaxed) && (pink || has_native_shader(fixes, *recipe, marking, depth));
     const bool dither = !recipe->compute && dither_off && pipeline_dither(id, *recipe);
     if (!native && !dither) return pipeline;
-    const CharacterBackend::TwinKey key{fixes ? fixes->revision : 0, id, dither, marking};
+    const CharacterBackend::TwinKey key{fixes ? fixes->revision : 0, id, dither, marking, depth};
     std::shared_ptr<const PipelineVariant> twin;
     {
         std::shared_lock<std::shared_mutex> lock(b.twins_mx);
@@ -93,7 +97,7 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline, 
     if (!twin) {
         // Prepared when the game created the pipeline (character_created), so normally made by now; a twin
         // still being built is waited for (bounded), as a replaced draw waits for its variant (D-103).
-        const auto result = b.variants->await(twin_identity(id), recipe, layout, recipe->vertex, game_shader_patch(fixes, native, dither, marking), std::chrono::milliseconds(4000));
+        const auto result = b.variants->await(twin_identity(id), recipe, layout, recipe->vertex, game_shader_patch(fixes, native, dither, marking, depth), std::chrono::milliseconds(4000));
         std::unique_lock<std::shared_mutex> lock(b.twins_mx);
         if (result.variant) {
             twin = b.twins[key] = result.variant;
@@ -128,12 +132,15 @@ void prepare_twin(CharacterBackend& b, uint32_t id, const std::shared_ptr<const 
 {
     if (!recipe || !layout) return;
     const auto fixes = b.variants->native_shaders();
-    const bool native = has_native_shader(fixes, *recipe);
     const bool dither = !recipe->compute && g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(id, *recipe);
-    for (int state = 0; state < 2; ++state) {
-        if ((!state && !native) || (state && !dither)) continue;
-        const auto result = b.variants->prepare(twin_identity(id), recipe, layout, recipe->vertex, game_shader_patch(fixes, native, state != 0));
-        if (result.state == VariantState::Queued) ++b.twins_prepared;
+    // Dynamic pipelines can be reused with either actual attachment state; inheritance stays unknown.
+    for (int depth = -1; depth <= (recipe->dynamic_rendering ? 1 : -1); ++depth) {
+        const bool native = has_native_shader(fixes, *recipe, 0, depth);
+        for (int state = 0; state < 2; ++state) {
+            if ((!state && !native) || (state && !dither)) continue;
+            const auto result = b.variants->prepare(twin_identity(id), recipe, layout, recipe->vertex, game_shader_patch(fixes, native, state != 0, 0, depth));
+            if (result.state == VariantState::Queued) ++b.twins_prepared;
+        }
     }
 }
 void character_created(CharacterBackend& b, VkPipeline pipeline)

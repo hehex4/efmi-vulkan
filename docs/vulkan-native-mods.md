@@ -897,3 +897,9 @@ drive attachment conflict proof; null attachments and disabled resolves contribu
 Unknown chains, incomplete snapshots and segmented scopes remain guarded. Actual dynamic target
 queries, sizes, later sampling, KHR push/module exchange and fallback paths are covered by
 `sandbox/native_dynamic_target_test.py`; this does not implement output destination rebinding.
+
+## Actual dynamic depth filters (D-234)
+
+Dynamic-rendering ShaderFixes evaluate `depth_filter` against the actual depth/stencil views supplied to BeginRendering. Depth-test/write enable and the pipeline's allowed attachment formats do not determine presence. Pipelines bound before Begin, or reused with a different attachment context, are refreshed there; the native variant caches separate unknown, absent and present contexts. Inherited secondary recordings without actual parent views conservatively keep filtered stages original. Classic subpass filters and compute bypass retain their existing behavior. As in ProcessShaderOverride, the legacy filter does not suppress command lists.
+
+The optional sandbox fixture enables `VK_EXT_dynamic_rendering_unused_attachments` for legal reuse of a D32 pipeline with a null view, with depth testing disabled. This checks runtime presence rather than declared compatibility; it grants no image-layout or application-allocation ownership permission. Native runtime output masks receive the same actual presence facts.

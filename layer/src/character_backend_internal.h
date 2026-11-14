@@ -851,7 +851,7 @@ public:
     std::atomic<uint64_t> frame_us{0}, frame_calls{0}; // character_frame: every package's presentation work
     // D-133: the twins of the application's pipelines without the character dither, by pipeline id.
     std::shared_mutex twins_mx;
-    using TwinKey = std::tuple<uint64_t, uint32_t, bool, uint32_t>;
+    using TwinKey = std::tuple<uint64_t, uint32_t, bool, uint32_t, int>;
     std::map<TwinKey, std::shared_ptr<const PipelineVariant>> twins;
     std::set<TwinKey> twins_failed;
     std::atomic<uint64_t> shader_fix_binds{0};

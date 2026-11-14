@@ -148,7 +148,7 @@ bool PipelineVariant::build(const GraphicsRecipe& recipe, const PipelineLayoutIn
             } else native_warning = "Pink marking cannot use this fragment interface: " + why;
             continue;
         }
-        if (!patch.native_shaders || (patch.original_stages & stage.stage) || !patch.native_shaders->allows(stage.shader->hash, recipe)) continue;
+        if (!patch.native_shaders || (patch.original_stages & stage.stage) || !patch.native_shaders->allows(stage.shader->hash, recipe, patch.dynamic_depth)) continue;
         const auto found = patch.native_shaders->modules.find((uint64_t(stage.stage) << 32) | stage.shader->hash);
         if (found == patch.native_shaders->modules.end()) continue;
         std::string why;

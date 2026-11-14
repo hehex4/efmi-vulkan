@@ -839,6 +839,12 @@ template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dy
         else
             cb->rp_count++;
         on_image_pass(dev, cb);
+        // A pipeline may be bound before Begin, or reused with different actual dynamic attachments.
+        if (dynamic && cb->gfx_pipeline) {
+            const auto bound = m2_bind(dev, cb, cb->gfx_pipeline);
+            if (bound != cb->gfx_bound) dev->d.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bound);
+            cb->gfx_bound = bound;
+        }
     }
 }
 
