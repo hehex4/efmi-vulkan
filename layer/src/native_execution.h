@@ -4,7 +4,9 @@
 
 namespace efvk {
 class TextureResidency;
+struct NativeTargetCache;
 struct NativeCallCache {
+    std::shared_ptr<NativeTargetCache> targets;
     std::mutex mutex;
     std::once_flag loaded;
     PFN_vkCmdPipelineBarrier barrier = nullptr;

@@ -929,6 +929,7 @@ static void immutable_sampler_lifetime()
 #include "dynamic_analysis_cases.h"
 #include "native_output_cases.h"
 #include "native_mrt_output_cases.h"
+#include "native_classic_output_cases.h"
 #include "native_absent_output_cases.h"
 #include "image_layout_cases.h"
 #include "image_layout_tracker_cases.h"
@@ -967,6 +968,7 @@ int main()
     dynamic_analysis_cases();
     native_output_cases();
     native_mrt_output_cases();
+    native_classic_output_cases();
     native_absent_output_cases();
     native_descriptor_references();
     native_image_scope_lifetime();

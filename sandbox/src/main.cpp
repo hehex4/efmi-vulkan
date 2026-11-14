@@ -87,6 +87,9 @@ static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
 static PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
 static PFN_vkCmdDrawIndexedIndirectCountKHR vkCmdDrawIndexedIndirectCountKHR;
 static PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
+static PFN_vkCreateRenderPass2 vkCreateRenderPass2;
+static PFN_vkCmdBeginRenderPass2 vkCmdBeginRenderPass2;
+static PFN_vkCmdEndRenderPass2 vkCmdEndRenderPass2;
 static PFN_vkCmdBindVertexBuffers2 dynamic_bind_vertices;
 static PFN_vkCmdBeginRendering dynamic_begin_rendering;
 static PFN_vkCmdEndRendering dynamic_end_rendering;
@@ -238,6 +241,8 @@ struct App {
     int dynamic_rendering = 0;
     int dynamic_depth = 0;
     bool native_output_depth = false;
+    int native_output_classic = 0;
+    bool native_output_owned=false;
     bool native_depth_destination = false;
     bool native_depth_absent = false;
     VkImage native_depth_source = VK_NULL_HANDLE;
@@ -658,6 +663,7 @@ static bool create_device()
     VK_DEVICE_FUNCS(X)
     if (g.descriptor_mode >= 2) { VK_PUSH_FUNCS(X) }
     if (g.draw_kind == 3 || g.draw_kind == 5) { X(CmdDrawIndexedIndirectCountKHR) X(CmdDrawIndirectCountKHR) }
+    if(g.native_output_classic==2){X(CreateRenderPass2) X(CmdBeginRenderPass2) X(CmdEndRenderPass2)}
 #undef X
     vkGetDeviceQueue(g.device, g.queue_family, 0, &g.queue);
     if(g.two_queues)vkGetDeviceQueue(g.device,g.queue_family,1,&g.other_queue);
@@ -763,7 +769,18 @@ static bool create_swapchain()
     rp.pSubpasses = &sub;
     rp.dependencyCount = 1;
     rp.pDependencies = &dep;
-    CHECK(vkCreateRenderPass(g.device, &rp, nullptr, &g.render_pass));
+    if(g.native_output_classic==2){
+        VkAttachmentDescription2 a{VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};a.format=att.format;a.samples=att.samples;
+        a.loadOp=att.loadOp;a.storeOp=att.storeOp;a.stencilLoadOp=att.stencilLoadOp;a.stencilStoreOp=att.stencilStoreOp;
+        a.initialLayout=att.initialLayout;a.finalLayout=att.finalLayout;
+        VkAttachmentReference2 r{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};r.attachment=0;r.layout=ref.layout;r.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+        VkSubpassDescription2 s{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};s.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;s.colorAttachmentCount=1;s.pColorAttachments=&r;
+        VkSubpassDependency2 d{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};d.srcSubpass=dep.srcSubpass;d.dstSubpass=dep.dstSubpass;
+        d.srcStageMask=dep.srcStageMask;d.dstStageMask=dep.dstStageMask;d.dstAccessMask=dep.dstAccessMask;
+        VkRenderPassCreateInfo2 create{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};create.attachmentCount=1;create.pAttachments=&a;
+        create.subpassCount=1;create.pSubpasses=&s;create.dependencyCount=1;create.pDependencies=&d;
+        CHECK(vkCreateRenderPass2(g.device,&create,nullptr,&g.render_pass));
+    }else CHECK(vkCreateRenderPass(g.device, &rp, nullptr, &g.render_pass));
 
     g.views.resize(n);
     g.framebuffers.resize(n);
@@ -1781,6 +1798,7 @@ static bool render_frame()
     rp.pClearValues = &clear;
     VkRenderPassAttachmentBeginInfo late_views{VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
     late_views.attachmentCount=1;late_views.pAttachments=&g.views[image];if(g.imageless)rp.pNext=&late_views;
+    if(g.native_output_owned){rp.renderPass=native_output_extra.source_pass;rp.framebuffer=native_output_extra.source_framebuffer;rp.pNext=nullptr;}
 
     VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     color.imageView=g.views[image];color.imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -1829,7 +1847,8 @@ static bool render_frame()
         dynamic_begin_rendering(g.primary,&rendering);
     }
     if (g.threads == 0) {
-        if(!g.dynamic_rendering)vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_INLINE);
+        if(!g.dynamic_rendering){if(g.native_output_classic==2){VkSubpassBeginInfo sub{VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO};sub.contents=VK_SUBPASS_CONTENTS_INLINE;
+            vkCmdBeginRenderPass2(g.primary,&rp,&sub);}else vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_INLINE);}
         if(!g.dynamic_depth)record_setup(g.primary);
         for (int i = 0; i < g.draws; i++) {
             if(g.dynamic_rendering && g.rendering_split && i==g.draws/2){
@@ -1869,8 +1888,14 @@ static bool render_frame()
         attachment_barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;attachment_barrier.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
         attachment_barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;attachment_barrier.dstAccessMask=0;
         vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
-    }else vkCmdEndRenderPass(g.primary);
+    }else if(g.native_output_classic==2){VkSubpassEndInfo sub{VK_STRUCTURE_TYPE_SUBPASS_END_INFO};vkCmdEndRenderPass2(g.primary,&sub);}else vkCmdEndRenderPass(g.primary);
     record_capture_target(g.primary, true);
+    if(g.native_output_owned){
+        VkRenderPassBeginInfo background{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};background.renderPass=g.render_pass;
+        background.framebuffer=g.framebuffers[image];background.renderArea.extent=g.extent;background.clearValueCount=1;background.pClearValues=&clear;
+        if(g.imageless)background.pNext=&late_views;
+        vkCmdBeginRenderPass(g.primary,&background,VK_SUBPASS_CONTENTS_INLINE);vkCmdEndRenderPass(g.primary);
+    }
     record_native_output_readback(g.primary);
     CHECK(vkEndCommandBuffer(g.primary));
     const double record_end = clock_ms();
@@ -2108,6 +2133,8 @@ int wmain(int argc, wchar_t** argv)
         else if (a == L"--native-output-no-color")g.native_output_no_color=true;
         else if (a == L"--native-depth-destination")g.native_depth_destination=true;
         else if (a == L"--native-depth-absent")g.native_depth_absent=true;
+        else if (a == L"--native-output-owned")g.native_output_owned=true;
+        else if (a == L"--native-output-classic" && i + 1 < argc)g.native_output_classic=_wtoi(argv[++i]);
         else if (a == L"--native-output-depth"){g.native_output_depth=true;g.dynamic_depth=1;}
         else if (a == L"--native-output-query")
             native_output.query = true;

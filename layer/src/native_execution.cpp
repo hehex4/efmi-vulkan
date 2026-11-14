@@ -190,7 +190,10 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
     NativeDescriptorPlan descriptors;NativeTargetPlan targets;
     if(!hunting_skip){
         efmi::assets::FilePlan resolved;
-        if(!native_files(cache,residency,plan,resolved,why) || !prepare_native_targets(device,cb,r,resolved,targets,why) || !prepare_native_descriptors(device,cb,r,resolved,descriptors,why))return false;
+        NativeTargetCache* target_cache;
+        {std::lock_guard<std::mutex> cache_lock(cache.mutex);
+            if(!cache.targets)cache.targets=std::make_shared<NativeTargetCache>();target_cache=cache.targets.get();}
+        if(!native_files(cache,residency,plan,resolved,why) || !prepare_native_targets(device,cb,r,resolved,targets,why,target_cache) || !prepare_native_descriptors(device,cb,r,resolved,descriptors,why))return false;
     }
     record_native_images(device,cb,descriptors.images);
     const size_t split = std::min(plan.pre_items,plan.items.size());

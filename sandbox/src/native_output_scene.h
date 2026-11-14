@@ -2,6 +2,7 @@
 struct NativeOutputScene {
     std::wstring output;
     bool query=false;VkQueryPool queries=VK_NULL_HANDLE;
+    VkRenderPass source_pass=VK_NULL_HANDLE;VkFramebuffer source_framebuffer=VK_NULL_HANDLE;
     VkImage image=VK_NULL_HANDLE;
     VkImageView view=VK_NULL_HANDLE;
     VkDeviceMemory memory=VK_NULL_HANDLE;
@@ -11,7 +12,8 @@ struct NativeOutputScene {
 static bool create_native_output_one(NativeOutputScene& s)
 {
     if(s.output.empty())return true;
-    if((g.native_output_no_color && (!g.dynamic_depth || g.native_output_mrt)) || !g.dynamic_rendering || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth && !g.native_output_stencil))return false;
+    if(g.native_output_owned && (!g.native_output_classic || g.native_output_mrt || g.dynamic_depth))return false;
+    if((g.native_output_no_color && (!g.dynamic_depth || g.native_output_mrt)) || (!g.dynamic_rendering && !g.native_output_classic) || (g.native_output_classic && (g.native_output_mrt || g.dynamic_depth)) || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth && !g.native_output_stencil))return false;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType=VK_IMAGE_TYPE_2D;image.format=g.format;image.extent={g.extent.width,g.extent.height,1};
     image.mipLevels=image.arrayLayers=1;image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
@@ -24,6 +26,22 @@ static bool create_native_output_one(NativeOutputScene& s)
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=s.image;
     view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=g.format;view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
     CHECK(vkCreateImageView(g.device,&view,nullptr,&s.view));
+    if(g.native_output_classic){
+        VkAttachmentDescription attachment{};attachment.format=g.format;attachment.samples=VK_SAMPLE_COUNT_1_BIT;
+        attachment.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;attachment.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+        attachment.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;attachment.stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        attachment.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;attachment.finalLayout=VK_IMAGE_LAYOUT_GENERAL;
+        VkAttachmentReference ref{0,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};VkSubpassDescription sub{};
+        sub.pipelineBindPoint=VK_PIPELINE_BIND_POINT_GRAPHICS;sub.colorAttachmentCount=1;sub.pColorAttachments=&ref;
+        VkSubpassDependency dependency{};dependency.srcSubpass=VK_SUBPASS_EXTERNAL;dependency.dstSubpass=0;
+        dependency.srcStageMask=dependency.dstStageMask=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;dependency.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        VkRenderPassCreateInfo create{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};create.attachmentCount=1;create.pAttachments=&attachment;
+        create.subpassCount=1;create.pSubpasses=&sub;create.dependencyCount=1;create.pDependencies=&dependency;
+        CHECK(vkCreateRenderPass(g.device,&create,nullptr,&s.source_pass));
+        VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};framebuffer.renderPass=s.source_pass;
+        framebuffer.attachmentCount=1;framebuffer.pAttachments=&s.view;framebuffer.width=g.extent.width;framebuffer.height=g.extent.height;framebuffer.layers=1;
+        CHECK(vkCreateFramebuffer(g.device,&framebuffer,nullptr,&s.source_framebuffer));
+    }
     if(s.query){VkQueryPoolCreateInfo pool{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};pool.queryType=VK_QUERY_TYPE_OCCLUSION;pool.queryCount=uint32_t(g.draws);
         CHECK(vkCreateQueryPool(g.device,&pool,nullptr,&s.queries));}
     if(!make_buffer(s.readback,VkDeviceSize(g.extent.width)*g.extent.height*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true,true))return false;
@@ -33,9 +51,9 @@ static bool create_native_output_one(NativeOutputScene& s)
 static bool create_native_output()
 {
     if(!create_native_output_one(native_output))return false;
-    if(g.native_output_mrt){
+    if(g.native_output_mrt || g.native_output_owned){
         if(native_output.output.empty())return false;
-        native_output_extra.output=native_output.output+L".mrt.raw";
+        native_output_extra.output=native_output.output+(g.native_output_owned?L".original.raw":L".mrt.raw");
         return create_native_output_one(native_output_extra);
     }
     return true;
@@ -49,6 +67,16 @@ static VkImageMemoryBarrier native_output_barrier(VkImage image)
 static void record_native_output_source(VkCommandBuffer command)
 {
     const auto& s=native_output;if(!s.image)return;
+    if(g.native_output_classic){
+        VkClearValue clear{};clear.color={{.05f,.05f,.08f,1.0f}};
+        VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};begin.renderPass=s.source_pass;begin.framebuffer=s.source_framebuffer;
+        begin.renderArea.extent=g.extent;begin.clearValueCount=1;begin.pClearValues=&clear;
+        if(g.native_output_classic==2){VkSubpassBeginInfo sub{VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO};sub.contents=VK_SUBPASS_CONTENTS_INLINE;vkCmdBeginRenderPass2(command,&begin,&sub);}
+        else vkCmdBeginRenderPass(command,&begin,VK_SUBPASS_CONTENTS_INLINE);
+        record_setup(command);record_draw(command,0);
+        if(g.native_output_classic==2){VkSubpassEndInfo sub{VK_STRUCTURE_TYPE_SUBPASS_END_INFO};vkCmdEndRenderPass2(command,&sub);}else vkCmdEndRenderPass(command);
+        return;
+    }
     auto barrier=native_output_barrier(s.image);barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&barrier);
@@ -123,7 +151,7 @@ static void record_native_output_readback_one(VkCommandBuffer command,const Nati
 }
 static void record_native_output_readback(VkCommandBuffer command)
 {
-    if(native_output_extra.image){auto barrier=native_output_barrier(native_output_extra.image);
+    if(native_output_extra.image && g.native_output_mrt){auto barrier=native_output_barrier(native_output_extra.image);
         barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;barrier.newLayout=VK_IMAGE_LAYOUT_GENERAL;
         barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
         vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
@@ -151,6 +179,8 @@ static void destroy_native_output_one(NativeOutputScene& s)
     destroy_buffer(s.depth_source_readback);
     if(s.queries)vkDestroyQueryPool(g.device,s.queries,nullptr);
     destroy_buffer(s.readback);
+    if(s.source_framebuffer)vkDestroyFramebuffer(g.device,s.source_framebuffer,nullptr);
+    if(s.source_pass)vkDestroyRenderPass(g.device,s.source_pass,nullptr);
     if(s.view)vkDestroyImageView(g.device,s.view,nullptr);
     if(s.image)vkDestroyImage(g.device,s.image,nullptr);
     if(s.memory)vkFreeMemory(g.device,s.memory,nullptr);

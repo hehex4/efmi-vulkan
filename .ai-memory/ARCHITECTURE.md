@@ -311,3 +311,9 @@ by `docs/ini-execution-matrix.json`, by captured-frame replays and by the live s
 docs/architecture-review-2.1.md (findings and plan), docs/ini-semantics.md (how each INI construct is
 handled), docs/folder-generation.md, docs/engine-generations.md, docs/f10-operations.md,
 docs/draw-gpu-work.md, docs/texture-residency.md, docs/hot-swap.md, docs/plan.md.
+
+## Classic output destinations (D-247)
+
+An ordinary primary classic pass with one stored single-sample color attachment can redirect that output to a retained same-format application view. RenderPass2 and resolved imageless attachments use the same exact contract. Preparation validates the whole ordered list before commands, then creates compatible LOAD passes and framebuffers. Published metadata remains classic, including the actual framebuffer and pass recipe used by source queries and pass-end analysis.
+
+The first split accounts for the application's implicit final transition; private continuations use explicit dependencies and color-optimal initial/final layouts. Switching away restores introduced views to their saved layouts, while the original returns to its declared final layout. Returning to the original transitions it back before LOAD, and host End restores its final layout again. A bounded per-backend cache revalidates live identities; command owners retain cached or evicted objects and their view resources until completion, including across module exchange. Null/depth/MRT/resolve/segmented passes and broader queue or persistent-image contexts retain guards pending their own adapters.

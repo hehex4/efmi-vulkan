@@ -1,5 +1,6 @@
 #include "native_targets.h"
 #include "native_images.h"
+#include "native_classic_targets.h"
 namespace efvk {
 namespace {
 using Resource=efmi::frontend::NativeResource;
@@ -7,8 +8,9 @@ const char target_owner_key=0;
 constexpr uint32_t depth_slot=8; // The original DSV binding represents both depth and stencil.
 struct TargetOwner:CommandOwner {
     std::vector<std::shared_ptr<const Resource>> resources;
+    std::vector<std::shared_ptr<NativeClassicTarget>> classic;
     bool sealed=false;
-    void reset_after_completion()override{resources.clear();used=false;sealed=false;}
+    void reset_after_completion()override{resources.clear();classic.clear();used=false;sealed=false;}
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}
 };
 bool absent_output(const CmdBuf* cb,const efmi::frontend::NativeBinding& binding){
@@ -127,7 +129,7 @@ bool descriptor_conflict(Device* device,CmdBuf* cb,VkImage image,std::string& wh
     return false;
 }
 }
-bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,NativeTargetPlan& output,std::string& why)
+bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,NativeTargetPlan& output,std::string& why,NativeTargetCache* cache)
 {
     using Operation=efmi::assets::FileOperation;
     NativeTargetPlan next;next.events.resize(plan.items.size());bool needed=false,mixed=false;
@@ -154,10 +156,14 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     if(cb->native_images || (cb->native_image_state && !cb->native_image_state->active.cells.empty()))
         return refuse("Native output changes with persistent image bindings need an alias restoration adapter");
     if(!cb->active_targets || cb->active_targets>cb->target_contexts.size())return refuse("Native output context is unavailable");
-    auto targets=cb->target_contexts[cb->active_targets-1];if(!output_context(targets,why))return false;
+    auto targets=cb->target_contexts[cb->active_targets-1];const bool classic=!targets.dynamic;
+    if(classic && !classic_context(targets,why))return false;
+    if(!output_context(targets,why))return false;
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
-    if(!begin || !end || !device->d.CmdPipelineBarrier)return refuse("Native output rendering entries are unavailable");
+    if(!device->d.CmdPipelineBarrier || (classic?(!cache || !device->d.CmdBeginRenderPass || !device->d.CmdEndRenderPass ||
+       !device->d.CreateFramebuffer || !device->d.DestroyFramebuffer || !device->d.DestroyRenderPass):(!begin || !end)))
+        return refuse("Native output rendering entries or object cache are unavailable");
     if(cb->target_contexts.size()+plan.items.size()>4096)return refuse("Native output context budget exceeded");
     next.state=cb->native_target_state?std::make_shared<NativeTargetState>(*cb->native_target_state):std::make_shared<NativeTargetState>();
     const auto& proof=cb->image_layouts;
@@ -165,12 +171,21 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     const auto pipeline=device->pipes.find(draw.pipeline);
     const auto recipe=pipeline==device->pipes.end()?nullptr:pipeline->second.recipe;
     const size_t count=targets.dynamic_colors.size();const size_t depth_index=2*count,stencil_index=depth_index+2*size_t(targets.has_depth);
-    if(!recipe || !recipe->geometry_complete || !recipe->dynamic_rendering || recipe->rendering_view_mask ||
-       recipe->multisample.rasterizationSamples!=VK_SAMPLE_COUNT_1_BIT ||
-       recipe->rendering_colors.size()!=count)
+    if(!recipe || !recipe->geometry_complete || recipe->multisample.rasterizationSamples!=VK_SAMPLE_COUNT_1_BIT ||
+       (classic?(recipe->dynamic_rendering || recipe->subpass || !recipe->render_pass || !classic_recipe(*recipe->render_pass)):
+                 (!recipe->dynamic_rendering || recipe->rendering_view_mask || recipe->rendering_colors.size()!=count)))
         return refuse("Native output pipeline attachment contract is unavailable");
+    const std::vector<VkFormat> classic_formats=classic?std::vector<VkFormat>{recipe->render_pass->attachments[0].format}:std::vector<VkFormat>{};
+    const auto& color_formats=classic?classic_formats:recipe->rendering_colors;
+    const auto depth_format=classic?VK_FORMAT_UNDEFINED:recipe->rendering_depth;
+    const auto stencil_format=classic?VK_FORMAT_UNDEFINED:recipe->rendering_stencil;
     if(!next.state->initialized){
-        next.state->initialized=true;next.state->depth.format=recipe->rendering_depth;next.state->stencil_format=recipe->rendering_stencil;
+        next.state->classic=classic;
+        if(classic){
+            next.state->classic_recipe=targets.recipe;next.state->classic_original.view=targets.views[0];
+            next.state->classic_original.layout=targets.recipe->attachments[0].finalLayout;
+        }
+        next.state->initialized=true;next.state->depth.format=depth_format;next.state->stencil_format=stencil_format;
         const auto actual=targets.has_depth && targets.depth.imageView?depth_index:stencil_index;
         next.state->depth.original=targets.has_depth && targets.depth.imageView?targets.depth.imageView:
             targets.has_stencil?targets.stencil.imageView:VK_NULL_HANDLE;
@@ -179,24 +194,24 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         for(size_t slot=0;slot<count;++slot){auto& color=next.state->colors[slot];
             color.original=targets.dynamic_colors[slot].imageView;
             color.original_image=color.original?targets.views[2*slot].view.image:VK_NULL_HANDLE;
-            color.format=recipe->rendering_colors[slot];
+            color.format=color_formats[slot];
         }
     }
-    if(next.state->colors.size()!=count || recipe->rendering_depth!=next.state->depth.format || recipe->rendering_stencil!=next.state->stencil_format)
+    if(next.state->colors.size()!=count || depth_format!=next.state->depth.format || stencil_format!=next.state->stencil_format)
         return refuse("Native output original attachment format contract changed");
     for(size_t slot=0;slot<count;++slot){
-        if(recipe->rendering_colors[slot]!=next.state->colors[slot].format ||
-           (targets.dynamic_colors[slot].imageView?recipe->rendering_colors[slot]!=targets.views[2*slot].view.format:
-            (recipe->rendering_colors[slot]!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments)))
+        if(color_formats[slot]!=next.state->colors[slot].format ||
+           (targets.dynamic_colors[slot].imageView?color_formats[slot]!=targets.views[2*slot].view.format:
+            (color_formats[slot]!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments)))
             return refuse("Native output pipeline color contract is unavailable");
     }
     const bool depth_bound=targets.has_depth && targets.depth.imageView;
     const bool stencil_bound=targets.has_stencil && targets.stencil.imageView;
-    if(depth_bound?recipe->rendering_depth!=targets.views[depth_index].view.format:
-       (recipe->rendering_depth!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
+    if(depth_bound?depth_format!=targets.views[depth_index].view.format:
+       (depth_format!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
         return refuse("Native output pipeline depth contract is unavailable");
-    if(stencil_bound?recipe->rendering_stencil!=targets.views[stencil_index].view.format:
-       (recipe->rendering_stencil!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
+    if(stencil_bound?stencil_format!=targets.views[stencil_index].view.format:
+       (stencil_format!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
         return refuse("Native output pipeline stencil contract is unavailable");
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || no_op[i])continue;
@@ -204,6 +219,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         const auto& binding=item.native_target;const bool depth=binding.kind==efmi::frontend::NativeBinding::DepthTarget;
         if(depth?binding.slot!=0:(binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot>=count))
             return refuse("Native output destination slot needs a separate pass adapter");
+        if(classic && (depth || empty))return refuse("Native classic null or depth outputs need a compatible attachment adapter");
         bool roles_changed=false;
         if(depth && !empty){
             if(!targets.has_depth && next.state->depth.format!=VK_FORMAT_UNDEFINED){
@@ -287,7 +303,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             saved.view.view.lifetime.reset();saved.view.image.lifetime.reset();saved.view.view.range=range;
             saved.layout=before;saved.resource=resource;next.state->restore.emplace(handle,std::move(saved));
         }
-        auto event=std::make_shared<NativeTargetPlan::Event>();event->resource=resource;event->slot=uint32_t(slot);event->change=roles_changed || handle!=current;
+        auto event=std::make_shared<NativeTargetPlan::Event>();event->target=handle;event->resource=resource;event->slot=uint32_t(slot);event->change=roles_changed || handle!=current;
         auto publish=[&](VkRenderingAttachmentInfo& attachment,size_t index,VkImageLayout destination){
             attachment.imageView=handle;attachment.imageLayout=destination;attachment.storeOp=VK_ATTACHMENT_STORE_OP_STORE;
             attachment.resolveMode=VK_RESOLVE_MODE_NONE;attachment.resolveImageView=VK_NULL_HANDLE;
@@ -303,9 +319,19 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         event->targets=targets;next.events[i]=std::move(event);
     }
     lock.unlock();
+    if(classic){
+        // All binding proofs precede allocation, and all allocations precede the first End.
+        for(auto& event:next.events)if(event && event->change){
+            event->classic=classic_target(device,*cache,next.state->classic_recipe,event->targets.views[0],event->resource,why);
+            if(!event->classic)return false;
+            auto& actual=event->targets;actual.dynamic=false;actual.dynamic_colors.clear();actual.views.clear();
+            actual.recipe=event->classic->recipe;actual.framebuffer=event->classic->info;
+        }
+    }
     auto owner=std::static_pointer_cast<TargetOwner>(owner_for(cb->owners,&target_owner_key,[]{auto owner=std::make_shared<TargetOwner>();owner->backend=&target_owner_key;return owner;}));
     if(owner->sealed || owner->resources.size()+plan.items.size()>4096)return refuse("Native output retention budget or sealed recording");
     owner->resources.reserve(owner->resources.size()+plan.items.size());cb->target_contexts.reserve(cb->target_contexts.size()+plan.items.size());
+    owner->classic.reserve(owner->classic.size()+plan.items.size());
     next.owner=owner;output=std::move(next);return true;
 }
 void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan,size_t index)
@@ -313,23 +339,36 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     const auto& event=plan.events[index];if(!event)return;
     auto owner=std::static_pointer_cast<TargetOwner>(plan.owner);owner->used=true;owner->resources.push_back(event->resource);
     cb->native_target_state=plan.state;if(!event->change)return;
+    if(event->classic)owner->classic.push_back(event->classic);
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
-    end(cb->handle);
+    if(plan.state->classic)device->d.CmdEndRenderPass(cb->handle);else end(cb->handle);
     VkImageMemoryBarrier barriers[2]{};uint32_t barrier_count=0;
     auto& state=*plan.state;const bool depth=event->slot==depth_slot;
     auto& attachment=depth?state.depth:state.colors[event->slot];
     const auto attachment_layout=depth?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    if(state.classic && !state.private_pass)layout(cb,state.classic_original,state.classic_original.layout);
+    if(state.classic && state.private_pass && !attachment.active){
+        const auto& saved=state.classic_original;barriers[barrier_count++]=transition(saved,attachment_layout,saved.layout);layout(cb,saved,saved.layout);
+    }
     if(attachment.active){const auto& saved=state.restore.at(attachment.active);barriers[barrier_count++]=transition(saved,attachment_layout,saved.layout);layout(cb,saved,saved.layout);}
-    const auto target=depth?(event->targets.has_depth && event->targets.depth.imageView?event->targets.depth.imageView:
-        event->targets.has_stencil?event->targets.stencil.imageView:VK_NULL_HANDLE):event->targets.dynamic_colors[event->slot].imageView;
+    const auto target=event->target;
     attachment.active=target && target!=attachment.original?target:VK_NULL_HANDLE;
     if(attachment.active){const auto& saved=state.restore.at(attachment.active);barriers[barrier_count++]=transition(saved,saved.layout,attachment_layout);layout(cb,saved,attachment_layout);}
+    if(state.classic && !attachment.active){const auto& saved=state.classic_original;
+        barriers[barrier_count++]=transition(saved,saved.layout,attachment_layout);layout(cb,saved,attachment_layout);}
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,barrier_count,barriers);
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());
     cb->native_image_state=event->images;const auto& targets=cb->target_contexts.back();
     cb->native_graphics_ordered=true;
+    if(state.classic){
+        state.private_pass=true;cb->pass.render_pass=event->classic->pass;cb->pass.framebuffer=event->classic->framebuffer;
+        cb->pass.recipe=targets.recipe;cb->pass.info=targets.framebuffer;
+        VkRenderPassBeginInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};info.renderPass=cb->pass.render_pass;
+        info.framebuffer=cb->pass.framebuffer;info.renderArea=targets.area;
+        device->d.CmdBeginRenderPass(cb->handle,&info,VK_SUBPASS_CONTENTS_INLINE);return;
+    }
     VkRenderingInfo info{VK_STRUCTURE_TYPE_RENDERING_INFO};info.renderArea=targets.area;info.layerCount=1;
     info.colorAttachmentCount=uint32_t(targets.dynamic_colors.size());info.pColorAttachments=targets.dynamic_colors.data();
     info.pDepthAttachment=targets.has_depth?&targets.depth:nullptr;
@@ -343,6 +382,9 @@ void native_targets_end(Device* device,CmdBuf* cb)
         const auto& saved=state->restore.at(attachment.active);barriers[count++]=transition(saved,current,saved.layout);layout(cb,saved,saved.layout);
     }};
     for(const auto& color:state->colors)restore(color,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    if(state->classic && state->private_pass && !state->colors[0].active){
+        const auto& saved=state->classic_original;barriers[count++]=transition(saved,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,saved.layout);layout(cb,saved,saved.layout);
+    }
     restore(state->depth,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     if(count)device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,count,barriers);
 }

@@ -872,6 +872,7 @@ void rp_ended(Device* dev, VkCommandBuffer cmd)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         if (cb->pass.render_pass) { on_image_pass(dev, cb, true); m2_pass_end(dev, cb); gpu_analysis_pass(dev, cb); }
+        native_targets_end(dev,cb);
         native_images_end(dev,cb);
         cb->pass = CmdBuf::PassInstance{};
     }
