@@ -71,6 +71,11 @@ public:
     uint32_t skipped_levels() const { return skipped_; }
     // Native declarations preserve file layers; legacy character slots keep their first 2D layer.
     void preserve_layers(bool cube_arrays) { all_layers_=true; cube_arrays_=cube_arrays; }
+    // Before preparation: preserve GPU mutations in GENERAL with a separate mip-zero UAV view.
+    void enable_storage() { storage_=true; }
+    VkImageLayout layout() const { return storage_?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; }
+    VkImageViewType storage_view_type() const { return layers()>1?VK_IMAGE_VIEW_TYPE_2D_ARRAY:VK_IMAGE_VIEW_TYPE_2D; }
+    VkImageView storage_view() const { return state_==UploadState::Ready?storage_view_:VK_NULL_HANDLE; }
     uint32_t layers() const { return all_layers_?decoded_.layers:1; }
     VkImageViewType view_type() const {
         return all_layers_ && decoded_.cube ? (layers()>6?VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:VK_IMAGE_VIEW_TYPE_CUBE) :
@@ -101,7 +106,7 @@ private:
     UploadState state_=UploadState::Empty;
     std::string reason_;
     VkImage image_=VK_NULL_HANDLE;
-    VkImageView view_=VK_NULL_HANDLE;
+    VkImageView view_=VK_NULL_HANDLE,storage_view_=VK_NULL_HANDLE;
     VkDeviceMemory image_memory_=VK_NULL_HANDLE,stage_memory_=VK_NULL_HANDLE;
     VkBuffer stage_=VK_NULL_HANDLE;
     VkCommandPool pool_=VK_NULL_HANDLE;
@@ -110,6 +115,6 @@ private:
     bool in_flight_=false;
     uint32_t skipped_=0;
     uint32_t families_[2]={0,0};
-    bool shared_=false,all_layers_=false,cube_arrays_=false;
+    bool shared_=false,all_layers_=false,cube_arrays_=false,storage_=false;
 };
 }

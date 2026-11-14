@@ -269,12 +269,12 @@ notices while playing; whether any game pipeline has no module hash (inline modu
 2. D-196 adds explicit (set, binding) aliases and queries; D-197 executes native draw/dispatch lists;
    D-198/D-199 retain and bind application buffers with persistent context semantics;
    D-200/D-201 add published file buffers, null descriptors and sampled 2D file images.
-   D-206 adds guarded retained application sampled images; D-209 adds sampled file arrays/cubes. Mutable file resources and general cross-queue hazards
-   still need adapters. Render-target rebinding is not implemented.
+   D-206 adds guarded retained application sampled images; D-209 adds sampled file arrays/cubes. D-219/D-222 add private writable compute file buffers/images. General cross-queue hazards
+   still need an adapter. Render-target rebinding is not implemented.
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
    transfer-source resources and supported owned layouts. Broader capture synchronization,
-   dynamic vertex input, control options and per-draw analysis commands remain work.
+   dynamic vertex input and per-draw analysis commands remain work. D-214/D-215 add file encodings and held analysis sessions.
    D-208 adds indirect argument/count data; D-212 adds bounded mip/layer cells; D-213 adds resource selection.
 4. Real-game shader/hunting/replacement acceptance and performance measurements require the user's
    authorization for that session. Sandbox results cannot settle them. See the current state and
@@ -802,6 +802,25 @@ writable contents. File IO, allocation and upload remain on the existing worker 
 Exact byte/structure stride, descriptor usage/range, one application queue, compute scope and the
 synchronization2 boundary remain enforced. Dispatches with persistent mutable descriptors receive
 explicit dependencies even without a new override plan; recording reset and secondary execution
-preserve the dependency lifetime. File textures, transformed/pool/initialized resources and graphics
+preserve the dependency lifetime. D-222 adds writable file textures below. Transformed/pool/initialized resources and graphics
 writable bindings require separate adapters. CPU dependency evidence, actual GPU results and
 validation observations are distinguished in CURRENT_STATE; none is real-game acceptance.
+
+### Mutable native file images (D-222, 2.5.2; verification in CURRENT_STATE)
+
+DDS/WIC declarations with inferred or explicit unordered-access flags can initialize native compute
+storage images. Equal-file declarations own independent allocations; references to one declaration
+share its GPU writes. F10 recreates writable contents from the file. Every mip and layer remains
+resident until the declaration is forgotten, while in-flight command owners can retain the image.
+
+Uploads query actual storage capabilities and publish GENERAL. Sampled views cover the file's mip
+chain; storage views address mip zero and preserve array layers, with cube faces exposed as a 2D
+array for storage. Native typed and formatless access retains exact format, shape and enabled-feature
+checks. Readonly views are never promoted to writable access. Private images remain outside the
+application's layout tracker, and all their compute aliases use GENERAL.
+
+Persistent bindings receive compute dependencies even without another override plan. One application
+queue and the existing synchronization2 boundary remain required. Attachment binding, graphics
+writable access, transformed/pooled/initialized resources and cross-queue graphs need further adapters.
+Sandbox results cover actual completed bytes and allocation/publication lifetime; no game acceptance
+is implied. CURRENT_STATE distinguishes failures in the feature baseline from fixture/integration corrections.

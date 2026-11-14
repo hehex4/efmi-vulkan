@@ -12,6 +12,7 @@ EXPOSE(Cap,TextureResidency,cap_bytes_)
 EXPOSE(Frame,TextureResidency,frame_)
 EXPOSE(Idle,TextureResidency,evict_idle)
 EXPOSE(Pressure,TextureResidency,evict_for)
+EXPOSE(Demote,TextureResidency,demote_one)
 EXPOSE(Value,efmi::assets::ResourceRequest,value_)
 #undef EXPOSE
 }
@@ -40,6 +41,19 @@ static void native_mutable_cases()
     allocation.resident=allocation.writable=true;allocation.charged=16;residency.*member(Bytes())=16;
     residency.forget({0});
     check(!allocation.resident && !allocation.declared && !(residency.*member(Bytes())),"last declaration releases pinned mutable residency");
+    const std::string image_path="F:/efmi vulkan/build/unused-pinned.dds";
+    const auto a=residency.declare(image_path,why,0,0,true,true),b=residency.declare(image_path,why,0,0,true,true);
+    check(a!=TextureResidency::kNone && b!=TextureResidency::kNone && a!=b,"writable image declarations receive independent residency identities");
+    if(a==TextureResidency::kNone || b==TextureResidency::kNone)return;
+    auto& image=images[a];image.handle.get()->*member(Value())=ResourceSnapshot{ResourceState::Ready};
+    image.resident=true;image.charged=image.file_bytes=4ull<<20;residency.*member(Bytes())=image.charged;
+    const auto saved_reduce=g_cfg.m2_texture_reduce_mb;g_cfg.m2_texture_reduce_mb=1;
+    (residency.*member(Idle()))(0,1,0);(residency.*member(Pressure()))(1);
+    check(image.resident && !image.skip_levels,"idle and pressure eviction preserve writable image contents");
+    check(!(residency.*member(Demote()))() && image.resident && !image.reduce_next,"mip demotion cannot reconstruct a writable image from its initial file");
+    g_cfg.m2_texture_reduce_mb=saved_reduce;
+    residency.forget({a,b});
+    check(!image.resident && !image.declared && !(residency.*member(Bytes())),"final image declarations release pinned residency charges");
 }
 
 namespace mutable_dependency_fixture {
@@ -77,9 +91,9 @@ static void native_mutable_dependencies()
     record_native_descriptor(&d,&cb,draw,descriptors,0);
     mutable_dependency_fixture::barriers=0;native_images_call(&d,&cb,true);native_images_end(&d,&cb);
     check(mutable_dependency_fixture::barriers==2,"persistent mutable buffers receive dependencies around an application dispatch without a native plan");
-    const auto child=h<VkCommandBuffer>(78);d.cbs[child]=std::make_unique<CmdBuf>();d.cbs[child]->native_buffers=true;
+    const auto child=h<VkCommandBuffer>(78);d.cbs[child]=std::make_unique<CmdBuf>();d.cbs[child]->native_mutable=true;
     CmdBuf parent;on_execute_commands(&d,&parent,1,&child);
-    check(parent.native_buffers,"secondary execution carries mutable file dependency state into the primary");
+    check(parent.native_mutable,"secondary execution carries mutable file dependency state into the primary");
     parent.reset_recording();cb.reset_recording();
-    check(!parent.native_buffers && !cb.native_buffers,"completed recording reset clears mutable file dependency state");
+    check(!parent.native_mutable && !cb.native_mutable,"completed recording reset clears mutable file dependency state");
 }

@@ -124,9 +124,9 @@ void ResourceCache::publish(const ResourceHandle& entry,ResourceState state,
     entry->value_={state,upload?upload->image:nullptr,upload?upload->buffer:nullptr,std::move(reason),upload?upload->serial:0};
     entry->changed_.notify_all();
 }
-ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason,uint64_t tag,uint32_t loader_flags,bool all_layers)
+ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason,uint64_t tag,uint32_t loader_flags,bool all_layers,bool writable)
 {
-    return declare(path,0,reason,tag,loader_flags,all_layers);
+    return declare(path,0,reason,tag,loader_flags,all_layers,writable);
 }
 ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag,bool private_copy)
 {
@@ -148,12 +148,12 @@ ResourceHandle ResourceCache::declare(const std::filesystem::path& path,VkBuffer
     auto found=entries_.find(key);if(found!=entries_.end())return found->second;
     if(entries_.size()>=capacity_){reason="Resource declaration capacity exceeded";return {};}
     auto entry=std::make_shared<ResourceRequest>();entry->path_=std::get<0>(key);entry->buffer_usage_=usage;entry->owner_=identity_;
-    entry->loader_flags_=loader_flags;entry->all_layers_=all_layers;
+    entry->loader_flags_=loader_flags;entry->all_layers_=all_layers;entry->writable_=private_copy && !usage;
     entries_.emplace(key,entry);return entry;
 }
 bool ResourceCache::demand(const ResourceHandle& entry,uint32_t skip_levels)
 {
-    if(!entry || entry->owner_.lock()!=identity_)return false;
+    if(!entry || entry->owner_.lock()!=identity_ || (entry->writable_ && skip_levels))return false;
     std::lock_guard<std::mutex> lock(mutex_);
     if(stopped_)return false;
     const auto state=entry->snapshot().state;
@@ -324,11 +324,13 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
     VkFormatProperties features{};device_.format_properties(device_.physical,meta.format,&features);
     VkImageFormatProperties limits{};
     const auto result=device_.image_properties(device_.physical,meta.format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
-                                               VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),
+                                               VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0)|
+                                (entry->writable_?VK_IMAGE_USAGE_STORAGE_BIT:0),
                                                entry->all_layers_ && meta.cube?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0,&limits);
-    if(result!=VK_SUCCESS)throw std::runtime_error("Resource format unsupported for sampled upload");
+    if(result!=VK_SUCCESS)throw std::runtime_error("Resource format unsupported for declared image upload");
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);
     if(entry->all_layers_)upload->preserve_layers(device_.cube_arrays);
+    if(entry->writable_)upload->enable_storage();
     if(own_queue)upload->share(device_.graphics_family,device_.upload_family);
     // The levels as decoded: a DDS's in its file bytes (its format as the colour space has it), a WIC image's pixels.
     const auto& payload=pixels.bytes.empty()?bytes:pixels.bytes;
@@ -364,9 +366,10 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
     VkFormatProperties features{};device_.format_properties(device_.physical,meta.format,&features);
     VkImageFormatProperties limits{};
     if(device_.image_properties(device_.physical,meta.format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
-                                VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),
+                                VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0)|
+                                (entry->writable_?VK_IMAGE_USAGE_STORAGE_BIT:0),
                                 entry->all_layers_ && meta.cube?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0,&limits)!=VK_SUCCESS)
-        throw std::runtime_error("Resource format unsupported for sampled upload");
+        throw std::runtime_error("Resource format unsupported for declared image upload");
     const auto base=meta.levels[ImageUpload::levels_skipped(meta,entry->skip_levels_)].offset;
     // Native layers keep their file stride, including omitted top mips between later layers.
     const uint64_t layer_end=meta.levels.back().offset+meta.levels.back().bytes;
@@ -389,6 +392,7 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
     {std::lock_guard<std::mutex> lock(mutex_);++stats_.file_reads;}
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);
     if(entry->all_layers_)upload->preserve_layers(device_.cube_arrays);
+    if(entry->writable_)upload->enable_storage();
     upload->share(device_.graphics_family,device_.upload_family);
     if(!upload->prepare_image(meta,device_.memory,limits,features.optimalTilingFeatures,device_.bc_enabled,entry->skip_levels_,device_.memory_priority,
                               device_.readback))

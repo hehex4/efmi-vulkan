@@ -444,7 +444,7 @@ struct CmdBuf {
     ImageLayouts image_layouts;
     std::shared_ptr<NativeImageState> native_image_state;
     bool native_images = false;
-    bool native_buffers = false; // This recording carries mutable file bindings and their compute hazards.
+    bool native_mutable = false; // This recording carries mutable file bindings and their compute hazards.
     bool native_uniforms = false; // Persistent graphics application references need later-pass ordering too.
     bool native_graphics_ordered = false; // An actual dependency was recorded before the current pass.
     bool native_image_blocked = false;

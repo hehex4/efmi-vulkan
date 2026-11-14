@@ -215,9 +215,9 @@ static std::vector<uint8_t> staged_readback(Gpu& g,const ImageUpload& image)
         copy.imageExtent={level.width,level.height,1};copies.push_back(copy);sizes.push_back(level.bytes);bytes+=level.bytes;
     }
     auto b=g.readback(bytes);auto cb=g.begin();const uint32_t count=static_cast<uint32_t>(meta.levels.size())-skipped;
-    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT,image.layers());
+    barrier(cb,image.image(),count,image.layout(),VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT,VK_ACCESS_TRANSFER_READ_BIT,image.layers());
     pCmdCopyImageToBuffer(cb,image.image(),VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,b.buffer,static_cast<uint32_t>(copies.size()),copies.data());
-    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_READ_BIT,image.layers());
+    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,image.layout(),VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT,image.layers());
     g.finish(cb,b);
     const auto* mapped=static_cast<const uint8_t*>(b.mapped);std::vector<uint8_t> result;
     for(size_t i=0;i<copies.size();++i)result.insert(result.end(),mapped+copies[i].bufferOffset,mapped+copies[i].bufferOffset+sizes[i]);

@@ -197,6 +197,7 @@ static void run(Gpu& g,std::vector<uint8_t> data,bool color)
     }else check(!memcmp(b.mapped,expected.data(),expected.size()),"all compressed mip bytes survive upload after CPU source destruction");
 }
 #include "asset_cache_test.cpp"
+#include "asset_mutable_image_test.h"
 #include "asset_buffer_test.cpp"
 #include "asset_file_plan_test.cpp"
 #include "asset_material_test.cpp"
@@ -231,6 +232,7 @@ int wmain(int argc,wchar_t** argv)
             wic_tests(g);
             layered_tests(g);
             narrow_tests(g);
+            mutable_image_tests(g);
             buffer_tests(g);
             resource_cache_tests(g);
             file_plan_tests(g);

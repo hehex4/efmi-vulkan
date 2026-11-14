@@ -211,7 +211,7 @@ struct App {
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
-    bool reference_storage = false, storage_formatless = false, reference_float_source = false;
+    bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
     int texture_shape = 0; // 0 2D, 1 array, 2 cube, 3 cube array
@@ -538,7 +538,7 @@ static bool create_device()
     dinfo.enabledExtensionCount = uint32_t(exts.size());
     dinfo.ppEnabledExtensionNames = exts.data();
     VkPhysicalDeviceFeatures features = {};
-    features.imageCubeArray = g.texture_shape == 3;
+    features.imageCubeArray = g.texture_shape == 3 || g.reference_cube_arrays;
     if(g.storage_formatless){
         VkPhysicalDeviceFeatures supported{};vkGetPhysicalDeviceFeatures(g.phys,&supported);
         if(!supported.shaderStorageImageReadWithoutFormat || !supported.shaderStorageImageWriteWithoutFormat){
@@ -1865,6 +1865,12 @@ int wmain(int argc, wchar_t** argv)
             g.reference_storage = true;
         else if (a == L"--storage-formatless")
             g.storage_formatless = true;
+        else if (a == L"--reference-cube-arrays")
+            g.reference_cube_arrays = true;
+        else if (a == L"--reference-sampled-source")
+            g.reference_sampled_source = true;
+        else if (a == L"--reference-rgba")
+            g.reference_rgba = true;
         else if (a == L"--reference-float-source")
             g.reference_float_source = true;
         else if (a == L"--reference-remaining")

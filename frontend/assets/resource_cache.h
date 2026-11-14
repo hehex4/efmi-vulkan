@@ -31,6 +31,7 @@ private:
     std::filesystem::path path_;
     VkBufferUsageFlags buffer_usage_=0; // Zero selects the image decoder.
     uint32_t skip_levels_=0;            // Image levels left out of the current load.
+    bool writable_=false;              // Private storage image; never drops file mip levels.
     bool all_layers_=false;            // Distinct native file shape; never aliases a legacy first-layer upload.
     uint32_t loader_flags_=0;           // An image's loader flags (D-140).
     uint64_t busy_since_us_=0;          // When the load first waited for a budget other loads hold (D-103); 0 when not waiting.
@@ -91,10 +92,11 @@ public:
     ResourceCache(const ResourceCache&)=delete;
     ResourceCache& operator=(const ResourceCache&)=delete;
     // Call during frontend setup. Lexical normalization only: no file IO, no
-    // eager load. Relative paths refuse. Equal normalized paths share a handle.
+    // eager load. Relative paths refuse. Equal immutable declarations share a handle.
     // `tag` tells declarations of one path apart (a generation's own copy); equal path and tag share.
+    // Writable images get private identity and cannot omit mip levels.
     // `loader_flags`: the original's from the declaration's colour space (png_force_srgb, png_ignore_srgb), D-140.
-    ResourceHandle declare_image(const std::filesystem::path&,std::string& reason,uint64_t tag=0,uint32_t loader_flags=0,bool all_layers=false);
+    ResourceHandle declare_image(const std::filesystem::path&,std::string& reason,uint64_t tag=0,uint32_t loader_flags=0,bool all_layers=false,bool writable=false);
     // Equal path + usage + tag share immutable buffers. private_copy creates a separate
     // request for a writable declaration, including when an unchanged file is reloaded.
     ResourceHandle declare_buffer(const std::filesystem::path&,VkBufferUsageFlags,std::string& reason,uint64_t tag=0,bool private_copy=false);

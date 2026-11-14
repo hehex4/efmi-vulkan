@@ -114,11 +114,10 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
     tag ^= tag >> 31; tag *= 0xBF58476D1CE4E5B9ull; tag ^= tag >> 27;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!usable_) { reason = reason_; return kNone; }
-    if(writable && !buffer_usage){reason="Writable file images require a separate upload adapter";return kNone;}
     assets::ResourceHandle handle;
     for (uint64_t attempt = 0;; ++attempt) {
         const auto revision=tag ^ (attempt * 0x94D049BB133111EBull);
-        handle = buffer_usage ? cache_->declare_buffer(path,buffer_usage,reason,revision,writable) : cache_->declare_image(path, reason, revision, loader_flags, all_layers);
+        handle = buffer_usage ? cache_->declare_buffer(path,buffer_usage,reason,revision,writable) : cache_->declare_image(path, reason, revision, loader_flags, all_layers, writable);
         if (!handle) return kNone;
         const auto found = by_handle_.find(handle.get());
         if (found == by_handle_.end()) break;
@@ -143,7 +142,7 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
 bool TextureResidency::large(const Image& image) const
 {
     const uint64_t threshold = g_cfg.m2_texture_reduce_mb << 20;
-    return !image.buffer_usage && threshold && image.file_bytes >= threshold;
+    return !image.buffer_usage && !image.writable && threshold && image.file_bytes >= threshold;
 }
 
 void TextureResidency::release(Image& image)

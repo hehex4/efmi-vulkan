@@ -145,7 +145,7 @@ void native_images_observe(Device* device, CmdBuf* cb, const DrawRec& draw)
         uint32_t id = 0, levels = 0, layers = 0; VkImageSubresourceRange range{};
         if (original.native) {
             const auto& resource = *std::static_pointer_cast<const ImageResource>(original.native);
-            if (resource.uploaded_readonly || !resource.image || !resource.image_safe) continue;
+            if (resource.uploaded_readonly || resource.uploaded_mutable || !resource.image || !resource.image_safe) continue;
             id = uint32_t(resource.identity >> 2); levels = resource.levels; layers = resource.layers;
             range = {resource.aspect, resource.base_mip, resource.mip_count, resource.base_layer, resource.layer_count};
         } else {
@@ -203,6 +203,14 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
                 return refuse("Native storage image view differs from the declared shader format");
             if(!r.image_format && !formatless_binding(device,image.view_format,use,why))return false;
         }
+    }
+    // Private file allocations never enter application layout tracking. Every native alias
+    // uses GENERAL, complete upload ownership is retained, and persistent compute bindings
+    // receive call-boundary memory dependencies even without another override plan.
+    if(image.uploaded_mutable){
+        if(!compute || image.image_layout!=VK_IMAGE_LAYOUT_GENERAL)
+            return refuse("Mutable native file images require compute scope and GENERAL publication");
+        layout=VK_IMAGE_LAYOUT_GENERAL;return true;
     }
     if (!used) { layout = VK_IMAGE_LAYOUT_GENERAL; return true; }
     auto state = scope(cb, compute);
@@ -287,7 +295,7 @@ void native_images_end(Device* device, CmdBuf* cb)
 {
     cb->native_graphics_ordered=false;
     auto state = std::move(cb->native_image_state);
-    if (!state && !cb->native_images && !cb->native_buffers) return;
+    if (!state && !cb->native_images && !cb->native_mutable) return;
     std::vector<VkImageMemoryBarrier> barriers;
     if(state)for (const auto& entry : state->active.cells) {
         const auto& value = entry.second;
@@ -308,7 +316,7 @@ void native_images_call(Device* device, CmdBuf* cb, bool compute)
 {
     // Mutable descriptors persist even when the next application's dispatch has no native plan.
     // DX11 orders that context implicitly; these files need explicit dependencies at every call.
-    if(compute && cb->native_buffers){
+    if(compute && cb->native_mutable){
         VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
         barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
         device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&barrier,0,nullptr,0,nullptr);
@@ -318,7 +326,7 @@ void native_images_call(Device* device, CmdBuf* cb, bool compute)
     if (compute) cb->native_image_state.reset();
     scope(cb, compute);
     const auto draw = current(cb, compute);
-    if(compute && cb->native_images && !cb->native_buffers){
+    if(compute && cb->native_images && !cb->native_mutable){
         VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
         barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
         device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&barrier,0,nullptr,0,nullptr);

@@ -18,8 +18,8 @@ struct FileResource {
     // texture's own), and whether its bind flags allow a shader resource view.
     uint32_t loader_flags=0,view_format=0;
     bool sampled=true;
-    bool writable=false; // Native buffer declaration owns persistent GPU contents, never shared by path.
-    uint32_t native_bind_flags=0; // Original inferred or explicit buffer bind contract.
+    bool writable=false; // Native declaration owns persistent GPU contents, never shared by path.
+    uint32_t native_bind_flags=0; // Original inferred or explicit native bind contract.
     uint32_t stride=0;
     VkIndexType index_type=VK_INDEX_TYPE_MAX_ENUM;
 };

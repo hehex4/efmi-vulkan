@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-222 verified; continue D-223 dynamic geometry capture (2026-11-14)
+
+- Source2.5.2 pair/planner ABId41e63b89add86b0 verified; tracker314/upload684 pass. Affected area passes shapes70, images46, storage75, mutable buffers49, files42, validation76/text592. Mutable images79/81 had only the missing cube-array feature in its fixture; rebuilt sandbox and final enabled/disabled retry8/8 pass. CURRENT_STATE distinguishes production, fixture and integration failures and exact evidence.
+- Review/memory/commit/FF then apply/build UNAPPLIED D-223 fixture/geometry-test drafts, run baseline before production2.5.3. Continue full dynamic input, render targets and queue adapters after every commit. No game/deployment authorization.
+
 ## D-221 verified; continue D-222 writable file images (2026-11-14)
 
 - Source2.5.1 pair/planner ABI2d4a842ed158c144 verified. Tracker310, GPU uniforms16, character115/377, bindings48, application images76, files42, validation76/text590 pass. Exact baselines and scope in CURRENT_STATE. Review/memory/commit/FF, then D-222 drafts listed there, starting with fixture/baseline before production changes.

@@ -43,6 +43,7 @@ ImageUpload::~ImageUpload()
     // Cancellation/device shutdown only. The normal readiness path is poll().
     if(in_flight_)d_.WaitForFences(device_,1,&fence_,VK_TRUE,UINT64_MAX);
     release_staging();
+    if(storage_view_)d_.DestroyImageView(device_,storage_view_,nullptr);
     if(view_)d_.DestroyImageView(device_,view_,nullptr);
     if(image_)d_.DestroyImage(device_,image_,nullptr);
     if(image_memory_)d_.FreeMemory(device_,image_memory_,nullptr);
@@ -89,7 +90,7 @@ bool ImageUpload::check_format(VkFormatFeatureFlags features,const VkImageFormat
         reason_="Image layers or enabled cube-array feature are incompatible";state_=UploadState::Failed;return false;
     }
     const auto required=VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_TRANSFER_DST_BIT|
-                        (readback?VK_FORMAT_FEATURE_TRANSFER_SRC_BIT:0);
+                        (readback?VK_FORMAT_FEATURE_TRANSFER_SRC_BIT:0)|(storage_?VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT:0);
     const bool compressed=decoded_.format>=VK_FORMAT_BC1_RGB_UNORM_BLOCK && decoded_.format<=VK_FORMAT_BC7_SRGB_BLOCK;
     if((features&required)!=required || (compressed&&!bc_enabled) || decoded_.width>limits.maxExtent.width ||
        decoded_.height>limits.maxExtent.height || decoded_.levels.size()>limits.maxMipLevels ||
@@ -109,6 +110,7 @@ bool ImageUpload::create_image(const VkImageFormatProperties& limits,bool readba
 {
     // The DDS's levels from skipped_ on become the image's levels 0..n: the texture at a quarter of
     // its memory per level left out.
+    if(storage_ && skip_levels){reason_="Writable images cannot discard file mip levels";state_=UploadState::Failed;return false;}
     skipped_=levels_skipped(decoded_,skip_levels);
     const auto& base=decoded_.levels[skipped_];
     VkImageCreateInfo image={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -116,7 +118,8 @@ bool ImageUpload::create_image(const VkImageFormatProperties& limits,bool readba
     image.mipLevels=static_cast<uint32_t>(decoded_.levels.size())-skipped_;image.arrayLayers=layers();
     image.flags=all_layers_ && decoded_.cube?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0;
     image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
-    image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
+    image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0)|
+                (storage_?VK_IMAGE_USAGE_STORAGE_BIT:0);
     if(shared_){image.sharingMode=VK_SHARING_MODE_CONCURRENT;image.queueFamilyIndexCount=2;image.pQueueFamilyIndices=families_;}
     if(!result(d_.CreateImage(device_,&image,nullptr,&image_),"create asset image"))return false;
     VkMemoryRequirements req{};d_.GetImageMemoryRequirements(device_,image_,&req);
@@ -127,7 +130,12 @@ bool ImageUpload::create_image(const VkImageFormatProperties& limits,bool readba
     VkImageViewCreateInfo view={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     view.image=image_;view.viewType=view_type();view.format=decoded_.format;
     view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,image.mipLevels,0,layers()};
-    return result(d_.CreateImageView(device_,&view,nullptr,&view_),"create asset image view");
+    if(!result(d_.CreateImageView(device_,&view,nullptr,&view_),"create asset image view"))return false;
+    if(storage_){
+        view.viewType=storage_view_type();view.subresourceRange.levelCount=1;
+        if(!result(d_.CreateImageView(device_,&view,nullptr,&storage_view_),"create asset storage view"))return false;
+    }
+    return true;
 }
 bool ImageUpload::prepare_image(const DdsImage& decoded,const VkPhysicalDeviceMemoryProperties& memory,
                                 const VkImageFormatProperties& limits,VkFormatFeatureFlags features,
@@ -201,8 +209,8 @@ bool ImageUpload::record_copy(VkCommandBuffer cmd,VkBuffer stage,VkDeviceSize of
         copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,region.mip-skipped_,region.layer,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
     }
     d_.CmdCopyBufferToImage(cmd,stage,image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,static_cast<uint32_t>(copies.size()),copies.data());
-    barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
-    barrier.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;barrier.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|(storage_?VK_ACCESS_SHADER_WRITE_BIT:0);
+    barrier.oldLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;barrier.newLayout=layout();
     d_.CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
     state_=UploadState::Recorded;return true;
 }

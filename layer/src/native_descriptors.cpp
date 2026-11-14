@@ -267,7 +267,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                         using R=efmi::gpu::SourceRegister;
                         if(resource.uploaded_readonly && (r.kind==R::BufferUav || r.kind==R::ImageUav || r.kind==R::TexelUav))
                             return refuse("Native file uploads are read-only; writable views need a mutable resource adapter");
-                        if(resource.image_view){
+                        if(resource.image_view && resource.uploaded_readonly){
                             const bool cube=resource.view_type==VK_IMAGE_VIEW_TYPE_CUBE || resource.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
                             const bool array=resource.view_type==VK_IMAGE_VIEW_TYPE_2D_ARRAY || resource.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
                             if(r.kind!=R::ImageSrv || r.dim!=(cube?3u:1u) || r.depth==1 ||
@@ -301,7 +301,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                         return refuse("Native file image is not published for sampling");
                 }else{
                     if(!native_image_binding(device,cb,draw,target,replacement,next.images,image_layout,why))return false;
-                    value.native_image_request=replacement;
+                    if(!resource.uploaded_mutable)value.native_image_request=replacement;
                 }
                 value.image_view=VkImageView(resource.image_view);value.image_view_id=resource.image_view_id;
                 value.image_layout=image_layout;
@@ -330,7 +330,7 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
     for(const auto& value:set->contents.values)if(value.second.native_image_request)cb->native_images=true;
     for(const auto& value:set->contents.values)if(value.second.native){
         const auto& resource=*std::static_pointer_cast<const Resource>(value.second.native);
-        cb->native_buffers|=resource.uploaded_mutable;
+        cb->native_mutable|=resource.uploaded_mutable;
         cb->native_uniforms|=!compute && resource.bound && resource.buffer && !resource.uploaded_readonly &&
                              (resource.usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         if(resource.publication_semaphore && resource.publication_value){

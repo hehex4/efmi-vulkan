@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-222: Writable native file images retain private GPU contents in GENERAL (2026-11-14)
+
+- Original CustomResource::LoadFromFile creates DEFAULT DDS/WIC textures using inferred/explicit bind flags and makes no assumed SRV. DX11 supplies deferred retained lifetime, hazard tracking and one context's order. Vulkan owns each writable declaration independently, retains upload publication and command owners, and supplies compute dependencies explicitly.
+- Use ResourceCache's private key domain for writable images. Both regular and arena upload paths query actual storage-image format/usage support, preserve every mip/layer and publish GENERAL. Keep a full sampled view and a separate mip-zero storage view; cube storage addresses faces through a 2D-array view. Do not discard writes through idle/pressure eviction or mip demotion. Fresh F10 declarations get fresh allocations even when files are unchanged.
+- Native file plans honor shader_resource/unordered_access flags. Reuse typed/formatless consumer validation; proven privately owned mutable images then remain GENERAL without entering application layout tracking. Persistent mutable descriptor state extends call-boundary dependencies to both buffers and images. Compute-only, one application queue and synchronization2 guards remain; readonly uploads keep sharing/publication behavior.
+- Vulkan view/layout contracts: https://docs.vulkan.org/refpages/latest/refpages/source/VkImageViewCreateInfo.html and https://docs.vulkan.org/refpages/latest/refpages/source/VkDescriptorImageInfo.html . Descriptor layouts describe actual subresource layouts; usage and format checks remain mandatory. Exact baseline, fixture corrections and scoped validation are in CURRENT_STATE.
+
 ## D-221: Graphics application uniforms require recorded pre-pass proof (2026-11-14)
 
 - Original GetResource/SetResource uses the context constant-buffer getters/setters, including byte-range conversion for the DX11.1 API. DX11 provides reference-counted deferred lifetime, hazard tracking and one context's order. Vulkan retains owners but must also prove the dependency was actually recorded before this pass, not infer it from current module flags.

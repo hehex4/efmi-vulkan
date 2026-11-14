@@ -93,17 +93,22 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
             resource->bind_flags=file.native_bind_flags;
         }else{
             const auto& image=*binding.owner;const auto& metadata=image.metadata();
-            if(!file.sampled){why="Native file image requires a sampled view";return false;}
+            const bool storage=item.native_target.kind==efmi::frontend::NativeBinding::Access;
+            if(storage?!file.writable:!file.sampled){why="Native file image bind flags do not support this view";return false;}
             if(file.view_format && efmi::assets::image_vk_format(file.view_format)!=metadata.format){why="Native file view format differs from the uploaded typed image";return false;}
             const auto skipped=image.skipped_levels();
             if(skipped>=metadata.levels.size()){why="Native file image has no published mip levels";return false;}
             resource->dimension=3;resource->identity=reinterpret_cast<uint64_t>(binding.owner.get())|3;
             resource->width=metadata.levels[skipped].width;resource->height=metadata.levels[skipped].height;resource->depth=1;
             resource->levels=uint32_t(metadata.levels.size())-skipped;resource->layers=image.layers();
-            resource->view_type=image.view_type();resource->view_format=metadata.format;
+            resource->view_type=storage?image.storage_view_type():image.view_type();resource->view_format=metadata.format;
             resource->format=resource->resource_format=dxgi_format(metadata.format);resource->format_known=resource->format!=0;
-            resource->image_view=uint64_t(binding.view);resource->usage=VK_IMAGE_USAGE_SAMPLED_BIT;resource->bind_flags=8;
-            resource->image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            resource->image=uint64_t(image.image());resource->image_safe=true;
+            resource->image_view=uint64_t(storage?image.storage_view():binding.view);
+            resource->usage=(file.sampled?VK_IMAGE_USAGE_SAMPLED_BIT:0)|(file.writable?VK_IMAGE_USAGE_STORAGE_BIT:0);
+            resource->bind_flags=file.native_bind_flags;
+            resource->aspect=VK_IMAGE_ASPECT_COLOR_BIT;resource->mip_count=storage?1:resource->levels;resource->layer_count=resource->layers;
+            resource->image_layout=image.layout();
         }
         struct Owners {std::shared_ptr<const efmi::assets::BufferUpload> buffer;std::shared_ptr<const efmi::assets::ImageUpload> image;std::shared_ptr<const void> publication;};
         resource->uploaded_readonly=!file.writable;resource->uploaded_mutable=file.writable;

@@ -28,6 +28,14 @@ std::shared_ptr<const assets::FileResource> describe(const CustomResource& r,uns
         file->view_format=r.override_format==DXGI_FORMAT(-1)?0u:UINT(r.override_format);
         file->sampled=r.override_bind_flags==CustomResourceBindFlags::INVALID ||
                       (UINT(r.override_bind_flags)&D3D11_BIND_SHADER_RESOURCE)!=0;
+        if(role==3){
+            const auto flags=r.override_bind_flags==CustomResourceBindFlags::INVALID?unsigned(r.bind_flags):unsigned(r.override_bind_flags);
+            if(flags&~(D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS))
+                return refuse(L"Native file image requires shader or unordered-access bind flags");
+            file->native_bind_flags=flags?flags:D3D11_BIND_SHADER_RESOURCE;
+            file->sampled=(file->native_bind_flags&D3D11_BIND_SHADER_RESOURCE)!=0;
+            file->writable=(file->native_bind_flags&D3D11_BIND_UNORDERED_ACCESS)!=0;
+        }
         return file;
     }
     if(r.override_misc_flags!=ResourceMiscFlags::INVALID || r.misc_flags ||
