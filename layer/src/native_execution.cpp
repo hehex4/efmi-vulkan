@@ -1,5 +1,6 @@
 #include "native_execution.h"
 #include "native_descriptors.h"
+#include "native_targets.h"
 #include "texture_residency.h"
 #include "texture_identity.h"
 #include "../../frontend/gpu/source_registers.h"
@@ -186,17 +187,20 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         } else return refuse("Native resource bindings require the descriptor executor");
     }
     lock.unlock();
-    NativeDescriptorPlan descriptors;
+    NativeDescriptorPlan descriptors;NativeTargetPlan targets;
     if(!hunting_skip){
         efmi::assets::FilePlan resolved;
-        if(!native_files(cache,residency,plan,resolved,why) || !prepare_native_descriptors(device,cb,r,resolved,descriptors,why))return false;
+        if(!native_files(cache,residency,plan,resolved,why) || !prepare_native_targets(device,cb,r,resolved,targets,why) || !prepare_native_descriptors(device,cb,r,resolved,descriptors,why))return false;
     }
     record_native_images(device,cb,descriptors.images);
     const size_t split = std::min(plan.pre_items,plan.items.size());
     auto record = [&](size_t index) {
         if (hunting_skip) return;
         const auto& item=plan.items[index];
-        if(item.operation==O::NativeBind){record_native_descriptor(device,cb,r,descriptors,index);return;}
+        if(item.operation==O::NativeBind){
+            if(native_output_binding(item.native_target))record_native_target(device,cb,targets,index);
+            else record_native_descriptor(device,cb,r,descriptors,index);return;
+        }
         if (compute) native_compute_order(device,cb,cache.barrier);
         if (item.operation == O::Caller) caller(device,cb,r);
         else if (item.operation == O::Dispatch) device->d.CmdDispatch(cb->handle,item.index_count,item.instance_count,item.first_index);

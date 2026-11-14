@@ -511,6 +511,10 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if(id.kind==SlotKind::ShaderResource)kind=NativeBinding::Resource;
             else if(id.kind==SlotKind::ConstantBuffer)kind=NativeBinding::Constant;
             else if(id.kind==SlotKind::UnorderedAccess)kind=NativeBinding::Access;
+            else if(id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget){
+                address.kind=id.kind==SlotKind::RenderTarget?NativeBinding::ColorTarget:NativeBinding::DepthTarget;
+                address.slot=id.slot;return true;
+            }
             else return false;
             const auto& draw=*p.current_draw;
             const auto binding=std::find_if(p.native_bindings.begin(),p.native_bindings.end(),[&](const NativeBinding& b){

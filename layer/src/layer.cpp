@@ -1,4 +1,5 @@
 #include "native_images.h"
+#include "native_targets.h"
 #include "gpu_analysis.h"
 // Entry points and the intercepted Vulkan functions.
 //
@@ -867,6 +868,72 @@ void rp_ended(Device* dev, VkCommandBuffer cmd)
     }
 }
 
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetRenderingAttachmentLocations(VkCommandBuffer cmd,const VkRenderingAttachmentLocationInfo* info)
+{
+    count_call(HI_CmdSetRenderingAttachmentLocations);auto dev=dev_of(cmd);
+    // A private Begin would reset these unmodeled rendering mappings.
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.known=false;
+    dev->d.CmdSetRenderingAttachmentLocations(cmd,info);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetRenderingAttachmentLocationsKHR(VkCommandBuffer cmd,const VkRenderingAttachmentLocationInfo* info)
+{
+    count_call(HI_CmdSetRenderingAttachmentLocationsKHR);auto dev=dev_of(cmd);
+    // A private Begin would reset these unmodeled rendering mappings.
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.known=false;
+    dev->d.CmdSetRenderingAttachmentLocationsKHR(cmd,info);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetRenderingInputAttachmentIndices(VkCommandBuffer cmd,const VkRenderingInputAttachmentIndexInfo* info)
+{
+    count_call(HI_CmdSetRenderingInputAttachmentIndices);auto dev=dev_of(cmd);
+    // A private Begin would reset these unmodeled rendering mappings.
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.known=false;
+    dev->d.CmdSetRenderingInputAttachmentIndices(cmd,info);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetRenderingInputAttachmentIndicesKHR(VkCommandBuffer cmd,const VkRenderingInputAttachmentIndexInfo* info)
+{
+    count_call(HI_CmdSetRenderingInputAttachmentIndicesKHR);auto dev=dev_of(cmd);
+    // A private Begin would reset these unmodeled rendering mappings.
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.known=false;
+    dev->d.CmdSetRenderingInputAttachmentIndicesKHR(cmd,info);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdBeginQuery(VkCommandBuffer cmd, VkQueryPool pool, uint32_t query, VkQueryControlFlags flags)
+{
+    count_call(HI_CmdBeginQuery);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.query(uint64_t(pool),query,0,true);
+    dev->d.CmdBeginQuery(cmd,pool,query,flags);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdEndQuery(VkCommandBuffer cmd, VkQueryPool pool, uint32_t query)
+{
+    count_call(HI_CmdEndQuery);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.query(uint64_t(pool),query,0,false);
+    dev->d.CmdEndQuery(cmd,pool,query);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdBeginQueryIndexedEXT(VkCommandBuffer cmd, VkQueryPool pool, uint32_t query, VkQueryControlFlags flags, uint32_t index)
+{
+    count_call(HI_CmdBeginQueryIndexedEXT);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.query(uint64_t(pool),query,index,true);
+    dev->d.CmdBeginQueryIndexedEXT(cmd,pool,query,flags,index);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdEndQueryIndexedEXT(VkCommandBuffer cmd, VkQueryPool pool, uint32_t query, uint32_t index)
+{
+    count_call(HI_CmdEndQueryIndexedEXT);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.query(uint64_t(pool),query,index,false);
+    dev->d.CmdEndQueryIndexedEXT(cmd,pool,query,index);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdBeginTransformFeedbackEXT(VkCommandBuffer cmd,uint32_t first,uint32_t count,const VkBuffer* buffers,const VkDeviceSize* offsets)
+{
+    count_call(HI_CmdBeginTransformFeedbackEXT);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.transform(true);
+    dev->d.CmdBeginTransformFeedbackEXT(cmd,first,count,buffers,offsets);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdEndTransformFeedbackEXT(VkCommandBuffer cmd,uint32_t first,uint32_t count,const VkBuffer* buffers,const VkDeviceSize* offsets)
+{
+    count_call(HI_CmdEndTransformFeedbackEXT);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->execution_scopes.transform(false);
+    dev->d.CmdEndTransformFeedbackEXT(cmd,first,count,buffers,offsets);
+}
+
 VKAPI_ATTR void VKAPI_CALL hk_CmdSetViewport(VkCommandBuffer cmd, uint32_t first, uint32_t count, const VkViewport* viewports)
 {
     count_call(HI_CmdSetViewport);
@@ -964,6 +1031,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRendering(VkCommandBuffer cmd)
     dev->d.CmdEndRendering(cmd);
     if (cb) {
         gpu_analysis_rendering(dev, cb, context);
+        native_targets_end(dev, cb);
         native_images_end(dev, cb);
         cb->pass = CmdBuf::PassInstance{};
     }
@@ -978,6 +1046,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
     dev->d.CmdEndRenderingKHR(cmd);
     if (cb) {
         gpu_analysis_rendering(dev, cb, context);
+        native_targets_end(dev, cb);
         native_images_end(dev, cb);
         cb->pass = CmdBuf::PassInstance{};
     }

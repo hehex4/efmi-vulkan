@@ -4,6 +4,7 @@
 #include "common.h"
 #include "resources.h"
 #include "image_layouts.h"
+#include "execution_scopes.h"
 #include "pipeline_recipe.h"
 #include "pacing.h"
 #include "work.h"
@@ -21,6 +22,7 @@
 namespace efvk {
 class GpuAnalysis;
 struct NativeImageState;
+struct NativeTargetState;
 struct NativeImageCache;
 
 class M2Backend;
@@ -74,6 +76,10 @@ struct CharacterModule;
     X(CmdNextSubpass) X(CmdNextSubpass2) X(CmdNextSubpass2KHR)                                                          \
     X(CmdBeginRendering) X(CmdBeginRenderingKHR) X(CmdEndRendering) X(CmdEndRenderingKHR)                              \
     X(CmdSetViewport) X(CmdSetScissor)                                                                                 \
+    X(CmdSetRenderingAttachmentLocations) X(CmdSetRenderingAttachmentLocationsKHR)                             \
+    X(CmdSetRenderingInputAttachmentIndices) X(CmdSetRenderingInputAttachmentIndicesKHR)                           \
+    X(CmdBeginQuery) X(CmdEndQuery) X(CmdBeginQueryIndexedEXT) X(CmdEndQueryIndexedEXT)                         \
+    X(CmdBeginTransformFeedbackEXT) X(CmdEndTransformFeedbackEXT)                                                   \
     X(CmdExecuteCommands)                                                                                              \
     X(QueueSubmit) X(QueueSubmit2) X(QueueSubmit2KHR)
 
@@ -458,6 +464,8 @@ struct CmdBuf {
     std::vector<std::shared_ptr<CommandOwner>> owners;
     std::vector<std::shared_ptr<CommandOwner>> executed_owners; // Secondary dependencies, never reset by this primary.
     ImageLayouts image_layouts;
+    ExecutionScopes execution_scopes;
+    std::shared_ptr<NativeTargetState> native_target_state;
     std::shared_ptr<NativeImageState> native_image_state;
     bool native_images = false;
     bool native_mutable = false; // This recording carries mutable file bindings and their compute hazards.

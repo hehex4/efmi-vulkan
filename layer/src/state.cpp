@@ -341,7 +341,7 @@ void on_bind_vertex_buffers(CmdBuf* cb,uint32_t first,uint32_t count,const VkBuf
 
 void CmdBuf::reset_recording()
 {
-    image_layouts.reset();
+    image_layouts.reset();execution_scopes.reset();native_target_state.reset();
     native_image_state.reset(); native_images = false; native_mutable = false; native_image_blocked = false; native_image_reason.clear();
     native_uniforms = false; native_graphics_ordered = false; native_rendering_flags = 0;
     executed_owners.clear();

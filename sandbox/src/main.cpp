@@ -70,7 +70,7 @@
     X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(FreeDescriptorSets) X(UpdateDescriptorSets) X(CreateBuffer) X(DestroyBuffer) \
     X(CreateDescriptorUpdateTemplate) X(DestroyDescriptorUpdateTemplate) X(UpdateDescriptorSetWithTemplate)           \
     X(CreateImage) X(DestroyImage) X(GetImageMemoryRequirements) X(BindImageMemory) X(CreateSampler) X(DestroySampler) \
-    X(CmdPipelineBarrier) X(CmdCopyBufferToImage)                                                                       \
+    X(CreateQueryPool) X(DestroyQueryPool) X(CmdResetQueryPool) X(CmdBeginQuery) X(CmdEndQuery) X(CmdPipelineBarrier) X(CmdCopyImageToBuffer) X(CmdCopyBufferToImage)                                                                       \
     X(GetBufferMemoryRequirements) X(AllocateMemory) X(FreeMemory) X(BindBufferMemory) X(MapMemory) X(UnmapMemory)     \
     X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer)     \
     X(ResetCommandBuffer) X(CmdBeginRenderPass) X(CmdEndRenderPass) X(CmdBindPipeline) X(CmdBindVertexBuffers)         \
@@ -1022,6 +1022,7 @@ static void destroy_buffer(Buffer& b)
 static void record_setup(VkCommandBuffer);
 static void record_draw(VkCommandBuffer,int);
 #include "capture_target_scene.h"
+#include "native_output_scene.h"
 #include "dynamic_depth_scene.h"
 #include "submit_scene.h"
 
@@ -1743,6 +1744,8 @@ static bool render_frame()
     }
 
     record_capture_target(g.primary, false);
+    record_native_output_source(g.primary);
+    if(native_output.queries)vkCmdResetQueryPool(g.primary,native_output.queries,0,uint32_t(g.draws));
     VkClearValue clear = {};
     clear.color.float32[0] = 0.05f;
     clear.color.float32[1] = 0.05f;
@@ -1794,7 +1797,9 @@ static bool render_frame()
                 dynamic_end_rendering(g.primary);rendering.flags=VK_RENDERING_RESUMING_BIT;
                 dynamic_begin_rendering(g.primary,&rendering);
             }
+            if(native_output.queries)vkCmdBeginQuery(g.primary,native_output.queries,uint32_t(i),0);
             record_draw(g.primary, i);
+            if(native_output.queries)vkCmdEndQuery(g.primary,native_output.queries,uint32_t(i));
         }
     } else {
         if(!g.dynamic_rendering)vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
@@ -1827,6 +1832,7 @@ static bool render_frame()
         vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
     }else vkCmdEndRenderPass(g.primary);
     record_capture_target(g.primary, true);
+    record_native_output_readback(g.primary);
     CHECK(vkEndCommandBuffer(g.primary));
     const double record_end = clock_ms();
     late_compute_data();
@@ -1925,6 +1931,7 @@ static void cleanup()
     read_compute_scene();
     destroy_compute_scene();
     destroy_capture_target();
+    destroy_native_output();
     destroy_dynamic_depth();
     destroy_submit_scene();
     vkDestroyFence(g.device, g.fence, nullptr);
@@ -2053,6 +2060,10 @@ int wmain(int argc, wchar_t** argv)
             g.imageless = true;
         else if (a == L"--native-target")
             capture_target.enabled = capture_target.draw = true;
+        else if (a == L"--native-output-query")
+            native_output.query = true;
+        else if (a == L"--native-output" && i + 1 < argc)
+            native_output.output = argv[++i];
         else if (a == L"--capture-target")
             capture_target.enabled = true;
         else if (a == L"--capture-target-after")
@@ -2183,7 +2194,7 @@ int wmain(int argc, wchar_t** argv)
         ok = load_injected();
     if(g.restart_mode && g.restart_mode!=3){kIndicesA[0]=UINT16_MAX;kIndicesB[6]=UINT32_MAX;}
     ok = ok && load_vulkan() && create_instance() && create_window() && create_device() && create_swapchain() &&
-         create_pipeline() && create_resources() && create_compute_scene() && create_capture_target() && create_dynamic_depth() && prepare_present_burst();
+         create_pipeline() && create_resources() && create_compute_scene() && create_capture_target() && create_native_output() && create_dynamic_depth() && prepare_present_burst();
     if (ok && !g.inject_path.empty() && g.inject_late)
         ok = load_injected();
     if (ok && g.reresolve_exports)

@@ -1,4 +1,5 @@
 #include "native_descriptors.h"
+#include "native_targets.h"
 #include "native_resources.h"
 #include "../../frontend/gpu/source_registers.h"
 
@@ -162,13 +163,13 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
 {
     auto refuse=[&](const char* reason){why=reason;return false;};
     NativeDescriptorPlan next;next.items.resize(plan.items.size());
-    bool needed=false;for(const auto& item:plan.items)needed|=item.operation==efmi::assets::FileOperation::NativeBind;
+    bool needed=false;for(const auto& item:plan.items)needed|=item.operation==efmi::assets::FileOperation::NativeBind && !native_output_binding(item.native_target);
     if(!needed){output=std::move(next);return true;}
     native_images_observe(device,cb,draw);
     // DX11's single context orders references implicitly. Queue-local barriers cannot extend
     // the application's semaphore graph to accesses introduced on another application queue.
     if(device->application_queue_count!=1){
-        for(const auto& item:plan.items)if(item.operation==efmi::assets::FileOperation::NativeBind &&
+        for(const auto& item:plan.items)if(item.operation==efmi::assets::FileOperation::NativeBind && !native_output_binding(item.native_target) &&
             item.native_resource && item.native_resource->bound){
             const bool published=item.native_resource->uploaded_readonly && device->application_queue_count &&
                                  device->material_queues.size()==device->application_queue_count;
@@ -184,7 +185,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
     {std::shared_lock<std::shared_mutex> lock(device->res_mx);const auto p=device->pipes.find(draw.pipeline);if(p!=device->pipes.end())expected=p->second.layout;}
     if(!expected)return refuse("Native descriptor pipeline layout is unavailable");
     for(size_t i=0;i<plan.items.size();++i){
-        const auto& item=plan.items[i];if(item.operation!=efmi::assets::FileOperation::NativeBind)continue;
+        const auto& item=plan.items[i];if(item.operation!=efmi::assets::FileOperation::NativeBind || native_output_binding(item.native_target))continue;
         const auto& target=item.native_target;
         if(target.set>=kMaxSets || target.set>=expected->prefix.size())return refuse("Native descriptor target set is outside the pipeline");
         const auto& bound=state[target.set];

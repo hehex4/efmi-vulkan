@@ -129,7 +129,7 @@ BACKEND_SOURCES = [
     "character_backend.cpp", "character_backend_controller.cpp", "character_backend_folder.cpp",
     "character_backend_generation.cpp", "character_backend_identity.cpp", "character_backend_index.cpp",
     "character_backend_materials.cpp", "character_backend_mesh.cpp", "character_backend_record.cpp",
-    "character_backend_status.cpp", "character_backend_twins.cpp", "character_backend_shaders.cpp", "shader_fixes.cpp", "native_resources.cpp", "native_execution.cpp", "native_descriptors.cpp", "native_images.cpp",
+    "character_backend_status.cpp", "character_backend_twins.cpp", "character_backend_shaders.cpp", "shader_fixes.cpp", "native_resources.cpp", "native_execution.cpp", "native_descriptors.cpp", "native_images.cpp", "native_targets.cpp",
 ]
 MODULE_SOURCES = [
     "module/module_main.cpp", *["src/" + name for name in BACKEND_SOURCES], "src/translucency.cpp", "src/shader_hooks.cpp", "src/character_package.cpp", "src/character_materials.cpp",
@@ -206,7 +206,7 @@ def generate_overlay_shaders() -> str:
     return cpp
 # Headers whose structures cross between the layer and a module. A module built from other
 # contents of these is refused by the layer.
-ABI_ROOTS = ["state.h", "character_module.h", "command_owner.h", "json.h", "native_images.h", "../../frontend/xxmi/native_bindings.h"]
+ABI_ROOTS = ["state.h", "character_module.h", "command_owner.h", "json.h", "native_images.h", "native_targets.h", "../../frontend/xxmi/native_bindings.h"]
 
 _runtime_link = None
 

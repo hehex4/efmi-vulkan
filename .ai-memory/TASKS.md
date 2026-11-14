@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-238 verified; continue null-output semantics (2026-11-14)
+
+- D-237 merged6ee0a2d. Valid full-size GPU baseline7/13 establishes refused core/KHR assignments with main6418/owned902 pixels. Source2.6.8/ABI6433f654126802ef final pair/tracker457/four stamps, failed GPU13 and extended GPU39 pass. Initial native-outputs area passed. BUG-108 follow-up has CPU baseline457/458, applied mapping guards and new ABIa5e71663fefad479; final pair/four stamps/tracker460 and native-output-guards (outputs52, validation76/text630) pass. Reviewed diff and memory for local commit/FF. D-239 valid enabled-null baseline7/15 already recorded; production drafts not applied.
+- Commit/FF, then implement D-239 actual null-output adapter against the already valid baseline. Continue remaining output/pass and queue work; no intermediate stopping point or game/deployment authorization.
+
 ## D-237 verified; continue actual output destination adapter (2026-11-14)
 
 - D-236 merged953ee36. Valid dynamic baseline2/5 established before implementation. Source2.6.7/ABI21722cf8198f0b6d applied with metadata safety cases and actual MSAA resolve fixture. Final pair/four stamps/tracker432, failed GPU17 and full gpu-dynamic-targets area pass; exact results in CURRENT_STATE. Review/memory/commit/FF. D-238 tentative plan saved in build/d238-plan.md; no fixture or implementation yet.

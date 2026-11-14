@@ -153,6 +153,7 @@ STEPS = [
     ("native compute uniform aliases", [os.path.join(HERE, "native_compute_uniform_test.py")]),
     ("native Submit2 resources", [os.path.join(HERE, "native_submit2_test.py")]),
     ("native dynamic depth", [os.path.join(HERE, "native_dynamic_depth_test.py")]),
+    ("native output destinations", [os.path.join(HERE, "native_output_test.py")]),
     ("native dynamic targets", [os.path.join(HERE, "native_dynamic_target_test.py")]),
     ("native rendering boundaries", [os.path.join(HERE, "native_rendering_boundary_test.py")]),
     ("native dynamic rendering", [os.path.join(HERE, "native_rendering_shader_test.py")]),
@@ -206,6 +207,8 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "native-output-guards": ["native output destinations", "native tracker", "Vulkan validation", "text check"],
+    "native-outputs": ["native output destinations", "native target resources", "native dynamic targets", "native rendering boundaries", "native descriptor bindings", "GPU dynamic target analysis", "native tracker", "Vulkan validation", "text check"],
     "gpu-dynamic-targets": ["GPU dynamic target analysis", "GPU target analysis", "native dynamic targets", "native rendering boundaries", "native tracker", "Vulkan validation", "text check"],
     "gpu-imageless": ["GPU imageless target analysis", "GPU target analysis", "native imageless resources", "native tracker", "Vulkan validation", "text check"],
     "native-compute-order": ["native compute uniform aliases", "native Submit2 resources", "native tracker", "Vulkan validation", "text check"],

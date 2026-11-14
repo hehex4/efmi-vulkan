@@ -4,6 +4,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-238: Native output destinations have their own dynamic pass executor (2026-11-14)
+
+- Original SetResource replaces one OM view while preserving the others; DX11 provides retained/deferred lifetime, hazards and context order. Output assignments are distinct from descriptor writes. Validate every event before recording any GPU change, retaining exact allocation owners and preparing storage/context capacity first.
+- First scope: ordinary primary dynamic rendering, one stored single-sample color, matching destination format/extent, no depth/resolve/segmentation, one unprotected application queue and legacy synchronization. Original clear/store completes; explicit dependencies precede a LOAD continuation on the new actual target. Introduced layouts are restored at application End. Current actual snapshots drive subsequent source queries and conflict context. Resource owners survive recording completion and module exchange; shared restoration state is ABI-stamped and finished by the host.
+- Track core/indexed query and transform-feedback boundaries per recording. Active/unknown/overflow scopes, mixed descriptor events, persistent image bindings, image-view aliases, unknown layouts and unsupported destination shapes refuse. Null/depth/additional color destinations still need further adapters. Accepted module DLLs retain their existing resident-code lifetime. Avoid allocations after driver End: reserve owners/contexts, move prebuilt contexts, prebuild image metadata and use stack barriers.
+- Review follow-up BUG-108 requires a complete native pipeline attachment contract and observes core/KHR local-read attachment/input mapping commands. Such commands invalidate splitting proof because private Begin resets their state; unknown static chains also refuse. CPU457/458 is missing-proof evidence, not observed GPU corruption.
+- Full-size GPU baseline7/13 has main6418/owned902 pixels. Actual core/KHR/inject/once/reload/exchange redirection produces0/6418; post assignment902/6418; active-query/sync2/null fallback6418/902. CPU checks prove atomic refusal and End/dependency/LOAD/restore ordering. Exact final regression results belong to CURRENT_STATE; no game evidence.
+
 ## D-237: Ordinary dynamic rendering captures exact stored outputs (2026-11-14)
 
 - Original FrameAnalysis DumpRenderTargets reads the current actual resources; DX11 provides retained/deferred lifetime, hazards and context order. Vulkan analysis retains complete owners, copies after driver EndRendering and restores the exact explicit Begin layout before subsequent application commands.

@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-108: Output pass splitting lacked attachment-mapping proof (D-238; fixed offline in 2.6.8)
+
+- Original SetResource preserves the DX11 pipeline and output slots, with runtime deferred/reference-counted lifetime, hazards and context order. Vulkan BeginRendering resets dynamic attachment locations to identity. The initial D-238 adapter accepted a missing/incomplete pipeline recipe and did not observe local-read mapping commands, so it lacked proof that restarting preserved the output contract.
+- Isolated CPU d238-scope-before.out457/458 proves acceptance without any pipeline recipe. This is missing-proof evidence, not an observed GPU corruption or validation failure. The complete initial native-outputs area had already passed with ordinary default-mapped pipelines.
+- Require a complete geometry/native recipe with the exact single-color dynamic rendering contract. Core/KHR attachment-location and input-index commands invalidate the recording's splitting proof; unknown static chains also refuse. No GPU command is emitted for refused plans. Final full pair/four stamps/tracker460 and focused outputs52/validation76/text630 pass; caught before D-238 commit/deployment. No real-game verification.
+
 ## BUG-107: Scoped compute writes were not visible to uniform aliases (fixed during D-235, 2.6.5)
 
 - Original command-list Dispatch uses the DX11 context, whose runtime provides retained/deferred lifetime, hazard tracking and context order. Vulkan UNIFORM_READ is separate from SHADER_READ. The intermediate D-235 compute-only destination mask omitted the uniform access class.
