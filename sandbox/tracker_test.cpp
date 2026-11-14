@@ -945,6 +945,7 @@ int main()
     native_resource_lifetimes();
     native_descriptor_references();
     native_image_scope_lifetime();
+    native_image_layout_conflicts();
     secondary_publication_dependencies();
     image_layout_cases(check);
     image_layout_tracker_cases();

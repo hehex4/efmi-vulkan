@@ -4,6 +4,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-216: Typed compute storage images use retained references and explicit writable layouts (2026-11-14)
+
+- Original UAV GetResource/SetResource uses retained CSGetUnorderedAccessViews/GetResource and CSSetUnorderedAccessViews. DX11 provides deferred reference ownership, hazard tracking and context order. Native compute already surrounds calls with explicit memory dependencies; extend its retained image plans and persistent fallback mechanism.
+- Reflect 32-bit scalar class and declared SPIR-V Image Format; compute storage views require exact compatible typed color2D/array, one view mip, retained safe ownership and STORAGE usage. Keep graphics storage, unknown format features, writable file uploads, unsupported queues/sync2/layout facts refused. Sampled application consumers also check exact reflected scalar class.
+- Transition cells retain both destination layout and writable access, restore the original layout with writes visible, and reject incompatible simultaneous native/application requirements. Storage descriptors retain original fallbacks and refresh by their actual descriptor type; app rebind still supersedes. No descriptor set is updated in place and no per-character data is introduced.
+- Every descriptor reserves its chosen layout, including bindings requiring no transition. A later writable alias must not invalidate an earlier sampled descriptor in the same plan or active scope. Tracker baseline263/264 reproduces the missing reservation; final pair/checks are recorded in CURRENT_STATE.
+- Vulkan storage/format rules are linked in build/d216-plan.md. An originally valid Unknown-format image does not prove another format supports read/write without format; that remains a separate per-format feature adapter. Tests compare GPU results across temporary transitions, persistent writes, explicit calls/post restores and application rebinds.
+
 ## D-215: Preserve held analysis sessions until key release (2026-11-14)
 
 - Original Hunting::AnalyseFrameStop is the release callback for HOLD; _AnalyseFrameStop retains partial logs. Defaults fix hold behavior during a session. DX11 provides reference-counted deferred lifetime, hazard tracking and context order; Vulkan keeps owned readbacks and completion publication.

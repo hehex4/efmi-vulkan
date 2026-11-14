@@ -211,6 +211,7 @@ struct App {
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
+    bool reference_storage = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
     int texture_shape = 0; // 0 2D, 1 array, 2 cube, 3 cube array
@@ -1853,6 +1854,8 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.image_input = compute_scene.storage_image = compute_scene.binding_scene = true;
         else if (a == L"--reusable-recording")
             compute_scene.reusable = true;
+        else if (a == L"--reference-storage")
+            g.reference_storage = true;
         else if (a == L"--reference-remaining")
             g.reference_remaining = true;
         else if (a == L"--reference-layers" && i + 1 < argc)

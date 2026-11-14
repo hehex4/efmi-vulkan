@@ -113,6 +113,35 @@ void native_descriptor_references()
     check(resource_destroy_order.empty() && reference.range==32,"retained native descriptor remains owned after logical application destruction");
     reference={};check(resource_destroy_order==std::vector<int>({2,3}),"native descriptor releases its buffer then allocation after the last reference");
 }
+void native_image_layout_conflicts()
+{
+    Device d;d.application_queue_count=1;d.material_queues.push_back(h<VkQueue>(601));
+    const auto pipeline=h<VkPipeline>(602);d.pipes[pipeline].id=1;
+    d.native_image_cache=std::make_shared<NativeImageCache>();
+    auto access=std::make_shared<NativeImageCache::Access>();
+    access->images.push_back({{0,2,1,0,true,false,false,false,2,0},false});
+    access->images.push_back({{0,3,1,0,false,false,false,false,2,33},false});
+    d.native_image_cache->pipelines[1]=access;
+    auto image=std::make_shared<efmi::frontend::NativeResource>();image->identity=6;
+    image->image=603;image->image_view=604;image->keep=std::make_shared<int>(1);image->image_safe=true;
+    image->view_type=VK_IMAGE_VIEW_TYPE_2D;image->view_format=VK_FORMAT_R32_UINT;
+    image->usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_STORAGE_BIT;
+    image->levels=image->layers=image->mip_count=image->layer_count=1;image->aspect=VK_IMAGE_ASPECT_COLOR_BIT;
+    CmdBuf cb;cb.image_layouts.set(1,1,1,{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1},VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    DrawRec draw;draw.kind=DK_DISPATCH;draw.pipeline=pipeline;
+    efmi::frontend::NativeBinding sampled;sampled.binding=2;
+    auto storage=sampled;storage.binding=3;storage.kind=efmi::frontend::NativeBinding::Access;
+    NativeImagePlan plan;VkImageLayout layout;std::string why;
+    check(native_image_binding(&d,&cb,draw,sampled,image,plan,layout,why) && layout==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        "sampled reference keeps its current readable descriptor layout");
+    check(!native_image_binding(&d,&cb,draw,storage,image,plan,layout,why) && why.find("conflict")!=std::string::npos,
+        "storage transition cannot invalidate another descriptor in the same native plan");
+    plan={};cb.native_image_state.reset();
+    check(native_image_binding(&d,&cb,draw,storage,image,plan,layout,why) && layout==VK_IMAGE_LAYOUT_GENERAL,
+        "storage reference can plan a writable layout from a readable image");
+    check(native_image_binding(&d,&cb,draw,sampled,image,plan,layout,why) && layout==VK_IMAGE_LAYOUT_GENERAL,
+        "sampled reference can share an already planned general layout");
+}
 void native_image_scope_lifetime()
 {
     Device d;d.d.FreeMemory=retained_memory_free;d.d.DestroyImage=retained_image_destroy;

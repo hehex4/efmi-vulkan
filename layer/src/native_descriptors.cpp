@@ -241,7 +241,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             if(!replacement)replacement=std::make_shared<const Resource>();
             const auto& resource=*replacement;
             auto value=set->contents.values[{target.binding,target.element}];
-            if(sampled && !value.application){
+            if((sampled || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) && !value.application){
                 if(!fallback_known || (fallback->bound && !fallback->keep))return refuse("Native image fallback has no retained application resource");
                 auto original=value;original.native=fallback;original.native_image_request.reset();original.application.reset();
                 value.application=std::make_shared<const DescriptorElement>(std::move(original));
@@ -289,10 +289,10 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                     return refuse("Native buffer reference violates descriptor usage, range or alignment");
                 value.buffer=VkBuffer(resource.buffer);value.buffer_id=uint32_t(resource.identity>>2);value.offset=resource.offset;value.range=resource.range;
             }else if(sampled || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE){
-                if(!sampled || !resource.image_view)return refuse("Native writable image references require a separate executor");
+                if(!resource.image_view)return refuse("Native image reference has no retained image view");
                 VkImageLayout image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 if(resource.uploaded_readonly){
-                    if(!(resource.usage&VK_IMAGE_USAGE_SAMPLED_BIT) || resource.image_layout!=image_layout)
+                    if(!sampled || !(resource.usage&VK_IMAGE_USAGE_SAMPLED_BIT) || resource.image_layout!=image_layout)
                         return refuse("Native file image is not published for sampling");
                 }else{
                     if(!native_image_binding(device,cb,draw,target,replacement,next.images,image_layout,why))return false;
@@ -365,6 +365,7 @@ bool refresh_native_images(Device* device,CmdBuf* cb,const DrawRec& draw,std::st
                 auto& value=entry.second;if(!value.native_image_request)continue;
                 const auto request=std::static_pointer_cast<const Resource>(value.native_image_request);
                 efmi::frontend::NativeBinding target;target.set=slot;target.binding=entry.first.first;target.element=entry.first.second;
+                target.kind=value.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?efmi::frontend::NativeBinding::Access:efmi::frontend::NativeBinding::Resource;
                 VkImageLayout layout;std::string reason;
                 auto replacement=value;
                 if(native_image_binding(device,cb,draw,target,request,plan.images,layout,reason)){

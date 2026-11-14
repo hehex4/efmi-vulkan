@@ -138,6 +138,10 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
             const auto numeric = types.find(image->operands[0]);
             r.sampled_float32 = numeric != types.end() && numeric->second.op == OpTypeFloat &&
                                 !numeric->second.operands.empty() && numeric->second.operands[0] == 32;
+            if(r.sampled_float32)r.scalar_type=1;
+            else if(numeric!=types.end() && numeric->second.op==OpTypeInt && numeric->second.operands.size()>=2 && numeric->second.operands[0]==32)
+                r.scalar_type=numeric->second.operands[1]?3:2;
+            r.image_format=image->operands.size()>6?image->operands[6]:0;
             r.arrayed = image->operands[3] != 0;
             r.multisampled = image->operands[4] != 0;
             const bool storage = image->operands[5] == 2;

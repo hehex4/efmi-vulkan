@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-216: Native compute storage-image references (2026-11-14)
+
+- D-215 merged58924d2. D-216 source2.4.6 fully verified with final ABI0fb4637af70f4449. Final storage42/application76/shapes53/bindings48/character115+377/GPU55/tracker264/validation76/text582 pass. BUG-101 conflicting alias baseline263/264 now passes. Exact builds/evidence in CURRENT_STATE.
+- Review/sync/commit/FF then apply D-217 fixture draft and establish a failing formatless baseline before source2.4.7. Plan and unapplied drafts are listed in CURRENT_STATE. Continue mutable file, target and queue adapters after each verified commit. No game/deployment authorization.
+
 ## Active D-215: Held analysis sessions (2026-11-14)
 
 - D-214 merged819c7c2. Source2.4.5, baseline13/21; pair/tracker/planner built d215-pair.out, ABI22781b9e63b58c08/version2.4.5 verified. Failed cases now21/21; controls55, selection94, GPU resources55, INI221, hunting45, tracker260, validation76 and text581 pass. Exact changes and next checks are in CURRENT_STATE. No new source edits while the compiler reads them.

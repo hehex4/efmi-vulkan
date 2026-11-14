@@ -1,17 +1,17 @@
 // Distinct application images, persistent descriptor use and layout restoration on the GPU.
 static void bind_compute_descriptors(VkCommandBuffer);
 static uint32_t reference_layers() { return g.reference_layer_count?g.reference_layer_count:g.texture_shape==3?12:g.texture_shape==2?6:g.texture_shape==1?3:1; }
-static uint32_t reference_mips() { return g.texture_shape?3:1; }
+static uint32_t reference_mips() { return g.reference_storage?1:g.texture_shape?3:1; }
 static bool create_reference_images()
 {
     auto& c=compute_scene;
     for(auto& result:c.reference_images){
         VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};image.imageType=VK_IMAGE_TYPE_2D;
-        image.format=VK_FORMAT_R8G8B8A8_UNORM;image.extent={g.texture_shape?4u:1u,g.texture_shape?4u:1u,1};
+        image.format=g.reference_storage?VK_FORMAT_R32_UINT:VK_FORMAT_R8G8B8A8_UNORM;image.extent={g.texture_shape?4u:1u,g.texture_shape?4u:1u,1};
         image.mipLevels=reference_mips();image.arrayLayers=reference_layers();
         if(g.texture_shape>=2)image.flags=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
         image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
-        image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(c.capture_usage?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
+        image.usage=(g.reference_storage?VK_IMAGE_USAGE_STORAGE_BIT:0)|VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(c.capture_usage?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
         CHECK(vkCreateImage(g.device,&image,nullptr,&result.image));
         VkMemoryRequirements requirements{};vkGetImageMemoryRequirements(g.device,result.image,&requirements);uint32_t index=0;
         if(!find_memory_type(requirements.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,0,&index))return false;
@@ -50,7 +50,7 @@ static void reference_transition(VkCommandBuffer cmd,VkImage image,VkImageLayout
 static void reference_clear(VkCommandBuffer cmd,VkImage image,float value)
 {
     for(uint32_t layer=0;layer<reference_layers();++layer)for(uint32_t mip=0;mip<reference_mips();++mip){
-        VkClearColorValue color{};color.float32[0]=(value+layer*3+mip)/255.0f;color.float32[3]=1;
+        VkClearColorValue color{};if(g.reference_storage)color.uint32[0]=uint32_t(value)+layer*3+mip;else{color.float32[0]=(value+layer*3+mip)/255.0f;color.float32[3]=1;}
         const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT,mip,1,layer,1};
         vkCmdClearColorImage(cmd,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&color,1,&range);
     }
@@ -60,7 +60,7 @@ static void initialize_reference_images(VkCommandBuffer cmd)
     for(unsigned i=0;i<2;++i){const auto image=compute_scene.reference_images[i].image;
         reference_transition(cmd,image,VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         reference_clear(cmd,image,i?37.0f:1.0f);
-        reference_transition(cmd,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        reference_transition(cmd,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,g.reference_storage?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
 }
 static void reference_dispatch(VkCommandBuffer cmd)
@@ -74,14 +74,14 @@ static void record_reference_images(VkCommandBuffer cmd)
 {
     auto& c=compute_scene;const auto source=c.reference_images[0].image;
     reference_dispatch(cmd);
-    reference_transition(cmd,source,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    reference_transition(cmd,source,g.reference_storage?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     reference_clear(cmd,source,9);
     vkCmdBindPipeline(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,c.reference_pipeline);
     reference_dispatch(cmd);
     // The layer's temporary sampling transition must already have restored TRANSFER_DST.
     reference_transition(cmd,source,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_GENERAL);
     reference_dispatch(cmd);
-    reference_transition(cmd,source,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    reference_transition(cmd,source,VK_IMAGE_LAYOUT_GENERAL,g.reference_storage?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     // Application binds supersede native persistent descriptors, including pushed descriptors.
     bind_compute_descriptors(cmd);
     reference_dispatch(cmd);

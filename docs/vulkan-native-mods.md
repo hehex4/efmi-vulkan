@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-215. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-216. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -596,12 +596,32 @@ used descriptors can establish a valid-application layout precondition, never a 
 the native override. Allocation failures do not forward calls with stale descriptors.
 
 The supported scope is one application graphics queue, synchronization2 disabled, retained optimal
-non-depth float32 sampled 2D, array and cube views with supported creation/usage state (D-210).
-Cross-recording layout and queue/signal graphs, mutable/storage images and other view types remain
+non-depth typed sampled 2D, array and cube views with supported creation/usage state (D-210/D-216).
+Cross-recording layout and queue/signal graphs, mutable file images and other view types remain
 separate engineering.
 Tests check actual distinct image values across GPU writes, temporary layout restoration, GENERAL
 descriptor refresh, unmatched pipelines, application rebinding, push/secondary paths, rendered
 pixels, F10 and code-module exchange. Exchanged ShaderFixes locate the validator through the owned GPU toolchain directory. No game acceptance or deployment is implied.
+
+### Native compute storage images (D-216, 2.4.6; verification in CURRENT_STATE)
+
+Retained application 2D and array color views can replace native compute storage images. The view
+must have STORAGE usage, one view mip and the exact declared SPIR-V storage format and numeric
+class. Original UAV GetResource/CSSetUnorderedAccessViews retains the view and persistent binding;
+DX11 supplies deferred lifetime, hazard tracking and context order. Here descriptor clones and
+recording owners retain the allocation, and explicit compute dependencies make writes visible.
+
+Each cell uses GENERAL for storage access. Known layouts can transition outside a render pass
+and are restored after the call, including persistent references used by unmatched pipelines.
+Every native descriptor reserves its selected layout even when no transition is needed; a later
+alias cannot invalidate an earlier descriptor. Application rebinding still replaces the request.
+The same one-application-queue and synchronization2 boundaries apply. Graphics storage writes,
+formatless storage features and mutable file uploads need further adapters.
+
+The storage fixture checks fenced GPU values for ordinary/push/secondary calls, explicit dispatch,
+post restore, arrays, temporary layouts and original rebinding. Tracker cases cover conflicting
+sampled/storage aliases. Vulkan rules: [storage images](https://docs.vulkan.org/spec/latest/chapters/descriptors.html)
+and [format compatibility](https://docs.vulkan.org/spec/latest/chapters/interfaces.html).
 
 ### GPU indirect argument snapshots (D-208, 2.3.8; sandbox only)
 

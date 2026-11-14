@@ -2584,3 +2584,12 @@ validation76 and text581 (d215-regression.out). Partial preservation is exercise
 second-press timing test is claimed. Diff reviewed/memory synchronized, commit/FF then continue
 D-216 compute storage images from build/d216-plan.md and ignored fixture/binding drafts. Root
 dist2.1.8/historical game2.1.7 unchanged; no game/deployment/launcher/system/remote action.
+
+
+## 2026-11-14: Native typed compute storage images, D-216, source 2.4.6
+
+Original CommandList GetResource/CSGetUnorderedAccessViews and SetResource/CSSetUnorderedAccessViews retain exact UAVs and persistent bindings; DX11 supplies deferred lifetime, hazards and context order. Vulkan now binds retained typed 2D/array storage images through descriptor clones, explicit compute ordering, GENERAL transitions and restoration, including unmatched calls and app rebinding. Numeric and declared formats must match. Baseline4/10 produced19801 instead of8106. First fixed cases10/10 and image area passed.
+
+Review then reproduced BUG-101: a sampled alias needing no transition lost its layout contract to a later storage alias (tracker263/264). All descriptor cells now reserve layouts; compatible GENERAL sharing remains. Final pair/tracker/planner d216-final-pair.out, ABI0fb4637af70f4449/version2.4.6 verified in layer/inject/module/tracker. Failed tracker now264/264. Final d216-final-regression.out passes storage42, application76, application shapes53, bindings48, character115/377, GPU analysis55, tracker264, validation76 and text582. No game/deployment/system/remote action; root dist2.1.8 and historical game2.1.7 unchanged.
+
+Continue D-217 formatless storage (build/d217-plan.md and unapplied drafts), including actual access compatibility under ShaderFix; then queue/file/target adapters. A commit is not the end of this authorized offline continuation.
