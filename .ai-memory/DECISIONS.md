@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-233: Dynamic image conflicts use actual attachment snapshots (2026-11-14)
+
+- Original OMGetRenderTargets supplies actual current views; DX11 provides retained/deferred lifetime, hazards and context order. Vulkan dynamic rendering has explicit application layouts and runtime color/depth/stencil/resolve views.
+- Native begin reads the immutable host target snapshot and records all actual attachment image IDs. Null attachments and disabled resolve fields are ignored. Exact view count, known metadata and supported ordinary flags are required; unknown/segmented scopes stay unresolved. Whole-image overlap refusal is unchanged. No implicit transition or allocation ownership is invented.
+- Valid owned GPU baseline2/4 becomes4/4; tracker394 and native-dynamic-targets area pass. Actual dynamic dimensions/queries, later sampling, KHR push/module exchange and fallback paths are covered. Source2.6.3/ABI34cc62ba682e5a11; exact scope in CURRENT_STATE, sandbox only.
+
 ## D-232: Native synchronization respects suspended rendering (2026-11-14)
 
 - Original context/getter operations rely on DX11 retained/deferred lifetime, hazards and one-context order. Vulkan explicitly forbids synchronization between suspended and resumed dynamic-rendering segments. Current rendering flags are therefore part of native command-buffer scope.

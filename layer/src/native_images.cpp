@@ -386,6 +386,28 @@ void native_images_begin(Device* device, CmdBuf* cb, const VkRenderingInfo* info
     order_native_graphics(device,cb);
     if (!device->track_image_layouts.load(std::memory_order_relaxed) && !cb->native_images) return;
     cb->native_image_state = std::make_shared<NativeImageState>();
+    auto& state = *cb->native_image_state;
+    if (cb->active_targets && cb->active_targets <= cb->target_contexts.size()) {
+        const auto& targets = cb->target_contexts[cb->active_targets - 1];
+        const size_t count = targets.dynamic_colors.size() + size_t(targets.has_depth) + size_t(targets.has_stencil);
+        if (targets.dynamic && targets.known && !(targets.flags & ~VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT) &&
+            targets.views.size() == count * 2) {
+            state.attachments_known = true;
+            size_t index = 0;
+            auto include = [&](const VkRenderingAttachmentInfo& attachment) {
+                const auto& view = targets.views[index++]; const auto& resolve = targets.views[index++];
+                // A null attachment and a disabled resolve make their corresponding handles irrelevant.
+                if (!attachment.imageView) return;
+                if (view.known) state.attachments.insert(view.image.id); else state.attachments_known = false;
+                if (attachment.resolveMode != VK_RESOLVE_MODE_NONE) {
+                    if (resolve.known) state.attachments.insert(resolve.image.id); else state.attachments_known = false;
+                }
+            };
+            for (const auto& color : targets.dynamic_colors) include(color);
+            if (targets.has_depth) include(targets.depth);
+            if (targets.has_stencil) include(targets.stencil);
+        }
+    }
     if (cb->native_images) { const auto draw = current(cb, false); std::string reason;
         if (!refresh_native_images(device, cb, draw, reason)) report(device, cb, reason); }
 }

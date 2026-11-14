@@ -69,9 +69,28 @@ static void record_capture_target(VkCommandBuffer command, bool after_graphics)
         begin.clearValueCount = 1; begin.pClearValues = &clear;
         VkRenderPassAttachmentBeginInfo late_views{VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
         late_views.attachmentCount=1;late_views.pAttachments=&s.view;if(g.imageless)begin.pNext=&late_views;
-        vkCmdBeginRenderPass(command, &begin, VK_SUBPASS_CONTENTS_INLINE);
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+        barrier.image=s.image;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,s.layered?1u:0u,1,s.layered?1u:0u,s.layered && !s.mip_view?(g.capture_multiview?3u:2u):1u};
+        VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};color.imageView=s.view;
+        color.imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;color.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color.storeOp=s.store?VK_ATTACHMENT_STORE_OP_STORE:VK_ATTACHMENT_STORE_OP_DONT_CARE;color.clearValue=clear;
+        VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};rendering.renderArea.extent={4,4};
+        rendering.layerCount=s.layered && !s.mip_view && !g.capture_multiview?2:1;rendering.viewMask=g.capture_multiview?5:0;
+        rendering.colorAttachmentCount=s.unused?0:1;rendering.pColorAttachments=&color;
+        if(g.dynamic_rendering){
+            barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+            dynamic_begin_rendering(command,&rendering);
+        }else vkCmdBeginRenderPass(command, &begin, VK_SUBPASS_CONTENTS_INLINE);
         if(s.draw){record_setup(command);record_draw(command,0); }
-        vkCmdEndRenderPass(command);
+        if(g.dynamic_rendering){
+            dynamic_end_rendering(command);
+            barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;barrier.newLayout=s.draw?VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:VK_IMAGE_LAYOUT_GENERAL;
+            barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+            vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+        }else vkCmdEndRenderPass(command);
     }
 }
 

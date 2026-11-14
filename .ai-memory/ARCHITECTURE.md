@@ -45,6 +45,10 @@ D-232 native scopes retain rendering flags. Suspended/resumed boundaries insert 
 same-recording continuations preserve the initial proof, while fresh recordings cannot invent it.
 Final end closes the scope. Temporary image layouts across segments require a submission adapter.
 
+D-233 ordinary dynamic native image scopes use immutable actual color/depth/stencil and enabled
+resolve image IDs for conflict proof. Null/ignored handles do not become attachments. Application
+barriers remain the only layout source; unknown or segmented contexts remain unresolved.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

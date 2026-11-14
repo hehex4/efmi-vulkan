@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-233 verified; continue D-234 actual dynamic depth state (2026-11-14)
+
+- Source2.6.3/ABI34cc62ba682e5a11 pair and native-dynamic-targets area pass, tracker394. CURRENT_STATE has exact baseline and actual pixels. All D-233 drafts applied. Review/memory/commit/FF.
+- Next build/d234-plan.md: original depth_filter tests actual DSV presence, whereas dynamic pipelines currently look inactive and runtime outputs unknown. Prepare isolated bound/null/before-Begin fixture and baseline, then implement context/cache/refresh semantics. Continue output destinations/pass adapters and queue graphs; no intermediate stopping point or game/deployment authorization.
+
 ## D-232 verified; continue D-233 dynamic attachment contexts (2026-11-14)
 
 - Source2.6.2/ABI34cc62ba682e5a11 pair and native-rendering-boundaries area pass, tracker380. CURRENT_STATE distinguishes CPU boundary/transition failures, already-clean GPU baseline and corrected secondary fixture flags. All D-232 drafts applied. Review/memory/commit/FF.
