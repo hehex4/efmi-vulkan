@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-228 verified; continue D-229 target-size operands (2026-11-14)
+
+- D-227 merged6f4ca9e. Source2.5.8/ABI9c6cf6d44e374cc3 final pair/tools built; four stamps match and tracker354 passes. CURRENT_STATE distinguishes faulty initial readback baselines from saved old-version refusal/counter evidence and final actual owned-reference pixels. All D-228 integration/follow-up/fixture drafts APPLIED. Native-targets area passes d228-regression.out: tracker354, targets30, resources89, GPU targets43, application images76, validation76/text603. All builds/checks exited.
+- Review/memory/commit/FF, then D-229 native rt_width/height from actual o0 source metadata. Original3050 read; prepared build/d229-size-test.py has valid actual GPU baseline2/3 d229-before.out with6418 original pixels. Then target/queue adapters. No intermediate stopping point or deployment/game authorization.
+
 ## D-227 verified; continue D-228 target source resources (2026-11-14)
 
 - D-226 merged1d559ca. D-227 source2.5.7/ABI573857d315b5e250 pair/tools and primitive-restart area pass: tracker331, recipe234, native49, geometry56/input60/restart67/indirect121, validation76/text601. CURRENT_STATE separates failing baselines and exact final evidence. All D-227 scripts APPLIED.

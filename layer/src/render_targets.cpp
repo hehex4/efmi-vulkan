@@ -77,7 +77,7 @@ void on_begin_pass(Device*, CmdBuf* cb, const VkRenderingInfo*)
 void on_begin_targets(Device* dev, CmdBuf* cb, const VkRenderPassBeginInfo* info)
 {
     cb->active_targets = 0;
-    if (!dev->capture_targets.load(std::memory_order_relaxed)) return;
+    if (!dev->capture_targets.load(std::memory_order_relaxed) && !dev->shader_draws.load(std::memory_order_relaxed)) return;
     RenderTargets out; out.area = info->renderArea;
     std::shared_lock<std::shared_mutex> lock(dev->res_mx);
     const auto fb = dev->framebuffers.find(info->framebuffer);
@@ -107,7 +107,7 @@ void on_begin_targets(Device* dev, CmdBuf* cb, const VkRenderPassBeginInfo* info
 void on_begin_targets(Device* dev, CmdBuf* cb, const VkRenderingInfo* info)
 {
     cb->active_targets = 0;
-    if (!dev->capture_targets.load(std::memory_order_relaxed)) return;
+    if (!dev->capture_targets.load(std::memory_order_relaxed) && !dev->shader_draws.load(std::memory_order_relaxed)) return;
     RenderTargets out; out.dynamic = true; out.area = info->renderArea; out.layers = info->layerCount; out.view_mask = info->viewMask;
     out.flags = info->flags;
     out.known = !info->pNext && info->colorAttachmentCount <= 8 && (!info->colorAttachmentCount || info->pColorAttachments);

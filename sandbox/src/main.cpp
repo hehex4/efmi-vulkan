@@ -975,6 +975,8 @@ static void destroy_buffer(Buffer& b)
 }
 
 #include "compute_scene.h"
+static void record_setup(VkCommandBuffer);
+static void record_draw(VkCommandBuffer,int);
 #include "capture_target_scene.h"
 
 // Padded application data deliberately differs from a packed Vulkan array.
@@ -1933,6 +1935,8 @@ int wmain(int argc, wchar_t** argv)
             g.geometry_capture = true;
         else if (a == L"--geometry-odd")
             g.geometry_odd = true;
+        else if (a == L"--native-target")
+            capture_target.enabled = capture_target.draw = true;
         else if (a == L"--capture-target")
             capture_target.enabled = true;
         else if (a == L"--capture-target-after")

@@ -3,15 +3,15 @@
 #include <memory>
 
 namespace efmi::frontend {
-// Explicit aliases authored by a native Mod; never inferred from a DX11 register or a character.
+// Descriptor aliases are explicit; output source slots follow the active Vulkan attachment mapping.
 struct NativeBinding {
-    enum Kind : uint8_t { Resource, Constant, Access };
+    enum Kind : uint8_t { Resource, Constant, Access, ColorTarget, DepthTarget };
     uint32_t hash = 0;
     uint8_t stage = 0; // v, h, d, g, p, c
     Kind kind = Resource;
     uint32_t slot = 0, set = 0, binding = 0, element = 0;
 };
-// Metadata and optional owned same-handle reference to an application's tracked descriptor.
+// Metadata and optional owned same-handle reference to an application's tracked descriptor or output attachment.
 // The hash, when known, names tracked upload content, never an uncompleted GPU result.
 struct NativeResource {
     bool bound = false, hash_known = false, format_known = false;

@@ -522,7 +522,11 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         p.adapter.native_addresses(native_address);
         auto native_capture=[&p,native_address](const SlotId& id,NativeResource& resource,std::wstring& why){
             NativeBinding address;
-            if(!native_address(id,address,why))return false;
+            if(id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget){
+                if(!p.current_draw || !p.current_draw->native_calls || !p.current_draw->native_resource)return false;
+                address.kind=id.kind==SlotKind::RenderTarget?NativeBinding::ColorTarget:NativeBinding::DepthTarget;
+                address.slot=id.slot;
+            }else if(!native_address(id,address,why))return false;
             std::string reason;
             if(!p.current_draw->native_resource(address,resource,reason)){why.assign(reason.begin(),reason.end());return false;}
             if(resource.size>UINT32_MAX || resource.offset>UINT32_MAX){why=L"Native resource exceeds original 32-bit description limits";return false;}

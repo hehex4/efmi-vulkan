@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-228: Native output resource sources follow current attachment mappings (2026-11-14)
+
+- Original CommandList OMGetRenderTargets getters9761-9800 return current RTV/DSV and resource references; GetResourceFormat10485 reads the view's format, while extents use the complete resource. DX11 owns retained/deferred lifetime, hazard tracking and one-context order. Vulkan uses immutable attachment metadata, exact current view/image IDs and complete allocation ownership acquired only at reference time.
+- Native source kinds ColorTarget/DepthTarget support o0-o7/oD without vk_binding. Destination native_address remains descriptor-only, so this does not authorize target writes. Classic subpass color locations map to framebuffer indices; imageless runtime views and dynamic rendering arrays use their actual mappings, excluding resolve destinations. Null/unused slots are unbound. Depth DSV format translation is distinct from sampled-depth view formats; split depth/stencil views/layouts refuse.
+- Target snapshots remain metadata-only. Destroyed/reused handles refuse new queries, existing references retain their view/image/memory chain. Unowned swapchain metadata is readable but ref cannot fabricate ownership. Inherited secondary context remains unavailable at record time. Native image consumers retain existing usage/layout/attachment-conflict/queue/sync2 guards and explicit dependencies.
+- Active shader hooks enable target metadata recording without requiring hunting. Actual sandbox owned color references feed later sampled descriptors, including push descriptors and module exchange. Exact fixture corrections and final verification are in CURRENT_STATE. Contracts: https://docs.vulkan.org/refpages/latest/refpages/source/VkSubpassDescription.html and https://docs.vulkan.org/refpages/latest/refpages/source/VkRenderingInfo.html .
+
 ## D-227: Primitive restart is explicit per-draw geometry state (2026-11-14)
 
 - Original FrameAnalysis retrieves live IA index format/offset and topology; DX11 interprets strip cuts and supplies retained/deferred lifetime, hazard tracking and one-context order. Vulkan snapshots core/EXT primitive restart setters per draw; unknown differs from disabled, reset clears validity, secondary composition preserves snapshots without importing state.

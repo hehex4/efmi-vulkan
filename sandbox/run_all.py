@@ -154,6 +154,7 @@ STEPS = [
     ("native extended raster", [os.path.join(HERE, "native_extended_raster_test.py")]),
     ("native primitive restart", [os.path.join(HERE, "native_primitive_restart_test.py")]),
     ("native graphics stages", [os.path.join(HERE, "native_graphics_stages_test.py")]),
+    ("native target resources", [os.path.join(HERE, "native_target_test.py")]),
     ("native resource slots", [os.path.join(HERE, "native_resource_test.py")]),
     ("native call execution", [os.path.join(HERE, "native_execution_test.py")]),
     ("native descriptor bindings", [os.path.join(HERE, "native_binding_test.py")]),
@@ -195,6 +196,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "native-targets": ["native target resources", "native resource slots", "native application images", "GPU target analysis", "native tracker", "Vulkan validation", "text check"],
     "primitive-restart": ["GPU primitive restart", "native primitive restart", "GPU dynamic geometry", "GPU dynamic vertex input", "GPU indirect analysis", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],
     "native-raster": ["native extended raster", "native dynamic shaders", "native game shader", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],
     "native-dynamic-shaders": ["native dynamic shaders", "native game shader", "native hunting", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],

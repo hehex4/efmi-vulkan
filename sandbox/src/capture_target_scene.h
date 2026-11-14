@@ -1,5 +1,6 @@
 // Owned attachment fixture: two clear-only passes need no graphics pipeline.
 struct CaptureTargetScene {
+    bool draw = false;
     bool enabled = false, after_graphics = false, transfer = true, store = true, layered = false, unused = false;
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
@@ -13,10 +14,10 @@ static bool create_capture_target()
     auto& s = capture_target;
     if (!s.enabled) return true;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    image.imageType = VK_IMAGE_TYPE_2D; image.format = VK_FORMAT_R8G8B8A8_UNORM;
+    image.imageType = VK_IMAGE_TYPE_2D; image.format = s.draw?g.format:VK_FORMAT_R8G8B8A8_UNORM;
     image.extent = {s.layered?8u:4u, s.layered?8u:4u, 1}; image.mipLevels = s.layered?2:1; image.arrayLayers = s.layered?4:1;
     image.samples = VK_SAMPLE_COUNT_1_BIT; image.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (s.transfer ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+    image.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (s.transfer ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0) | (s.draw ? VK_IMAGE_USAGE_SAMPLED_BIT : 0);
     CHECK(vkCreateImage(g.device, &image, nullptr, &s.image));
     VkMemoryRequirements requirements{}; vkGetImageMemoryRequirements(g.device, s.image, &requirements);
     VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO}; allocation.allocationSize = requirements.size;
@@ -30,13 +31,13 @@ static bool create_capture_target()
     VkAttachmentDescription attachment{}; attachment.format = image.format; attachment.samples = VK_SAMPLE_COUNT_1_BIT;
     attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; attachment.storeOp = s.store ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; attachment.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+    attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; attachment.finalLayout = s.draw?VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:VK_IMAGE_LAYOUT_GENERAL;
     VkAttachmentReference color{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
     VkSubpassDescription subpass{}; subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = s.unused?0:1; subpass.pColorAttachments = &color;
     VkSubpassDependency dependency{}; dependency.srcSubpass = VK_SUBPASS_EXTERNAL; dependency.dstSubpass = 0;
     dependency.srcStageMask = dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependency.srcAccessMask = s.draw?0:VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
     VkRenderPassCreateInfo pass{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
     pass.attachmentCount = 1; pass.pAttachments = &attachment; pass.subpassCount = 1; pass.pSubpasses = &subpass;
     pass.dependencyCount = 1; pass.pDependencies = &dependency;
@@ -61,6 +62,7 @@ static void record_capture_target(VkCommandBuffer command, bool after_graphics)
         begin.renderPass = s.pass; begin.framebuffer = s.framebuffer; begin.renderArea.extent = {4, 4};
         begin.clearValueCount = 1; begin.pClearValues = &clear;
         vkCmdBeginRenderPass(command, &begin, VK_SUBPASS_CONTENTS_INLINE);
+        if(s.draw){record_setup(command);record_draw(command,0); }
         vkCmdEndRenderPass(command);
     }
 }

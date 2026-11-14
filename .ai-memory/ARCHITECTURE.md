@@ -22,6 +22,12 @@ D-227 records core/EXT primitive restart per draw, distinguishing unset from dis
 select dynamic or static pipeline state and retain cut indices unchanged; native-only twins retain
 the declaration. Secondary execution preserves snapshots and reset clears current validity.
 
+D-228 native output queries/references map o0-o7/oD through the actual classic/imageless/dynamic
+attachment context, independently of descriptor aliases. History owns metadata only; a new source
+reference validates live IDs and retains the complete view/image/allocation chain. Writable output
+hashes are not guessed. Existing native descriptor consumers enforce layout/hazard/ownership limits;
+output destinations and inherited secondary contexts still need dedicated adapters.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

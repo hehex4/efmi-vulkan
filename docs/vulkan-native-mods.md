@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-227. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-228. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -843,3 +843,19 @@ with captured geometry. Unhandled extensions remain explicit gaps.
 The scoped GPU fixture proves replacement pixels, original restoration, F10 change/removal,
 secondary recording, injection, module exchange and original/pink hunting. CURRENT_STATE separates
 the failing baseline, matching build/ABI and exact verified area. No game verification is implied.
+
+### Native output resource sources (D-228)
+
+`o0` through `o7` and `oD` can supply native resource properties, property-based
+TextureOverride matches and retained `ref` sources without a descriptor alias. Color locations map
+through the current subpass; imageless and dynamic attachments use their runtime views. Resource
+extents and view format remain distinct, including DSV-specific depth formats. Null slots preserve
+the original missing-resource answers. A resolve destination is not the color source.
+
+`ResourceSaved = ref o0` retains an owned view/image/allocation and can feed a later compatible
+sampled descriptor after the application establishes its readable layout. Current attachment
+conflicts and unsupported queues/synchronization2 still refuse. Swapchain views allow metadata
+queries but cannot supply retained allocation ownership. Destroyed/reused objects and inherited
+secondary attachment context refuse explicitly. This source adapter does not implement `oN = ...`
+output rebinding. Actual owned-source/push/module-exchange sandbox pixels are covered by
+`sandbox/native_target_test.py`; none of this is new game evidence.
