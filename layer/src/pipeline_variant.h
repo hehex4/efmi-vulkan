@@ -90,6 +90,10 @@ public:
     std::string reason;
     std::string native_warning;
     uint32_t native_replaced = 0;
+    // Frozen final stage bytes for compatible render-pass adaptations of application geometry.
+    // These are published only after a successful build; mesh/interface rewrites do not qualify.
+    std::shared_ptr<const GraphicsRecipe> effective_recipe;
+    std::shared_ptr<const PipelineLayoutInfo> effective_layout;
     VkResult result = VK_SUCCESS;
 private:
     bool build_recipe(const GraphicsRecipe&, const PipelineLayoutInfo&, const VertexInputRecipe&, uint32_t,

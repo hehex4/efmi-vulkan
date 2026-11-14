@@ -69,6 +69,7 @@ PipelineVariant::~PipelineVariant() { clear(); }
 
 void PipelineVariant::clear()
 {
+    effective_recipe.reset(); effective_layout.reset();
     if (pipeline) d_.DestroyPipeline(dev_, pipeline, nullptr);
     if (layout) d_.DestroyPipelineLayout(dev_, layout, nullptr);
     for (auto s : sets_) if (s) d_.DestroyDescriptorSetLayout(dev_, s, nullptr);
@@ -293,6 +294,20 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
     for (auto m : modules) d_.DestroyShaderModule(dev_, m, nullptr);
     if (pass) d_.DestroyRenderPass(dev_, pass, nullptr);
     if (result != VK_SUCCESS) { clear(); return false; }
+    if (!recipe.compute && patch.keep_vertex && !patch.own_geometry &&
+        patch.images.empty() && patch.nulls.empty() && !patch.replacement_images) {
+        // Freeze the stages selected for this draw, after native/hunting and dither changes.
+        // A pure dither twin adds an unused private set; its shaders still use only source.
+        auto frozen = std::make_shared<GraphicsRecipe>(recipe);
+        if (!native_geometry) frozen->vertex = vertex;
+        if (fs_index < frozen->stages.size() && fragment != frozen->stages[fs_index].shader->code) {
+            auto shader = std::make_shared<ShaderInfo>();
+            shader->code = std::move(fragment); shader->size = static_cast<uint32_t>(shader->code.size() * sizeof(uint32_t));
+            frozen->stages[fs_index].shader = std::move(shader);
+        }
+        effective_layout = std::make_shared<PipelineLayoutInfo>(source);
+        effective_recipe = std::move(frozen);
+    }
     return true;
 }
 

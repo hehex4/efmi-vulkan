@@ -5,6 +5,13 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.7.9: Effective application-pipeline snapshots, D-249 (2026-11-14; sandbox verified)
+
+- D-248 committed and merged as519c218. Original HackerContext.cpp456 ProcessShaderOverride reread: the actual DSV filter is evaluated before the current command list. DX11 supplies retained references/deferred destruction, hazard tracking and one-context order; Vulkan must retain the exact already-selected stage words before preparing a compatible output-mask pipeline.
+- Source2.7.9/ABI19a2b58b0100d8c1 adds owned effective recipe/layout snapshots only to successful application-geometry twins. Native replacements, hunting original/pink and pure dither retain exact driver stage bytes, specialization and original compatible layout prefix. Mesh and repointed interfaces are excluded; failed rebuilds clear prior snapshots. This prerequisite changes metadata only; actual classic null output adaptation remains pending.
+- Isolated contract baseline d249-before-complete.out337/349 confirms12 missing-snapshot failures with SPIRV-Tools available. The first333/349 run additionally lacked its four validator DLL checks and is not the complete baseline. This is a new contract baseline, not an observed GPU corruption. Implementation and isolated349/349 checks pass. Full d249-pair.out completed; four2.7.9/ABI19a2b58b0100d8c1 stamps pass. Affected d249-regression.out passes recipe349/cache81/snapshots52/variantGPU63/native shaders92/hunting45/tracker619/validation76/text645. All processes exited; source diff reviewed. No captured rewrite rules changed, so the historical corpus and installed-Mod sweep were not repeated. The actual classic null adapter remains next, with its independent fixture prepared in build/d250-test.py; continue after local commit/FF. No game/deployment/system/launcher/remote action.
+
+
 ## Active source 2.7.8: Stored classic attachment combinations, D-248 (2026-11-14; sandbox verified)
 
 - D-247 committed/merged adcb9c8. Original SetResource10094/10112 reread: RTV and DSV setters preserve every other attachment. DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan needs a complete compatible LOAD framebuffer, all original implicit final transitions at the first split, and per-image restoration of every current original or introduced attachment.

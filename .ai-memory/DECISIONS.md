@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-249: Compatible output adaptation must freeze the selected shader stages (2026-11-14)
+
+- D-248 committed and merged as519c218. Original HackerContext.cpp456 ProcessShaderOverride reread: the actual DSV filter is evaluated before the current command list. DX11 supplies retained references/deferred destruction, hazard tracking and one-context order; Vulkan must retain the exact already-selected stage words before preparing a compatible output-mask pipeline.
+- Source2.7.9/ABI19a2b58b0100d8c1 adds owned effective recipe/layout snapshots only to successful application-geometry twins. Native replacements, hunting original/pink and pure dither retain exact driver stage bytes, specialization and original compatible layout prefix. Mesh and repointed interfaces are excluded; failed rebuilds clear prior snapshots. This prerequisite changes metadata only; actual classic null output adaptation remains pending.
+- Isolated contract baseline d249-before-complete.out337/349 confirms12 missing-snapshot failures with SPIRV-Tools available. The first333/349 run additionally lacked its four validator DLL checks and is not the complete baseline. This is a new contract baseline, not an observed GPU corruption. Implementation and isolated349/349 checks pass. Full d249-pair.out completed; four2.7.9/ABI19a2b58b0100d8c1 stamps pass. Affected d249-regression.out passes recipe349/cache81/snapshots52/variantGPU63/native shaders92/hunting45/tracker619/validation76/text645. All processes exited; source diff reviewed. No captured rewrite rules changed, so the historical corpus and installed-Mod sweep were not repeated. The actual classic null adapter remains next, with its independent fixture prepared in build/d250-test.py; continue after local commit/FF. No game/deployment/system/launcher/remote action.
+
+
 ## D-248: Classic continuations preserve the full stored attachment set (2026-11-14)
 
 - D-247 committed/merged adcb9c8. Original SetResource10094/10112 reread: RTV and DSV setters preserve every other attachment. DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan needs a complete compatible LOAD framebuffer, all original implicit final transitions at the first split, and per-image restoration of every current original or introduced attachment.

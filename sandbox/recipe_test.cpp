@@ -594,6 +594,8 @@ static void constant_bones_tests(bool corpus)
 #include "native_raster_recipe_cases.h"
 #include "native_rendering_recipe_cases.h"
 
+#include "effective_pipeline_cases.h"
+
 int main(int argc, char** argv)
 {
     // Cross-check the production rewriter on previously exported, local SPIR-V modules.
@@ -612,7 +614,7 @@ int main(int argc, char** argv)
         return output ? 0 : 2;
     }
     util_init(GetModuleHandleW(nullptr));
-    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); native_dynamic_recipe_tests(); native_raster_recipe_tests(); native_rendering_recipe_tests(); multiview_recipe_tests(); tracked_lifetime_tests(); draw_sequence_tests();
+    rewrite_tests(); ownership_tests(); compute_recipe_tests(); extended_stage_tests(); ignored_pointer_tests(); native_dynamic_recipe_tests(); native_raster_recipe_tests(); native_rendering_recipe_tests(); multiview_recipe_tests(); tracked_lifetime_tests(); draw_sequence_tests(); effective_pipeline_cases();
     const bool corpus = argc == 2 && !strcmp(argv[1], "--corpus");
     dither_tests(corpus);
     constant_bones_tests(corpus);
