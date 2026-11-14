@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-106: Native barriers crossed suspended rendering boundaries (fixed offline in D-232, 2.6.2)
+
+- Original DX11 context supplies retained/deferred lifetime, hazards and context order. Vulkan disallows synchronization between suspended/resumed rendering. CPU370/376 proves closing/resume barriers and lost/manufactured proof; the initial GPU primary case already passes4/4 with6418 green pixels/clean validation and is not a reproduced GPU hazard.
+- Preserve scope/proof across same-recording segments without boundary barriers; no proof is inferred across recordings. Final end/reset close state normally. Follow-up CPU378/380 exposed temporary layouts whose restoration could escape to another recording, including non-attachment images; these segmented transitions now refuse while already-readable layouts remain usable.
+- Final tracker380 and scoped native-rendering-boundaries checks pass. Initial secondary GPU failure was a fixture inheritance-flags mismatch, corrected before final verification. Exact evidence and ABI are in CURRENT_STATE; no deployment/game evidence.
+
 ## BUG-105: Graphics uniform references assumed an unrecorded dependency (fixed offline in D-221, 2.5.1)
 
 - CPU baseline299/300 (d221-before.out) accepts an application constant-buffer reference without a pre-pass dependency. GPU baseline14/16 (d221-gpu-before.out) shows inherited secondary replacement without parent proof; primary/push and immutable-file cases already passed. This is missing-proof/fallback evidence, not a reproduced GPU validation hazard.

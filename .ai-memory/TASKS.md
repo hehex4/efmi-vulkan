@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-232 verified; continue D-233 dynamic attachment contexts (2026-11-14)
+
+- Source2.6.2/ABI34cc62ba682e5a11 pair and native-rendering-boundaries area pass, tracker380. CURRENT_STATE distinguishes CPU boundary/transition failures, already-clean GPU baseline and corrected secondary fixture flags. All D-232 drafts applied. Review/memory/commit/FF.
+- Continue D-233 UNAPPLIED build drafts after valid owned GPU baseline2/4, then output destinations/pass adapters and queue graphs. No intermediate stopping point or game/deployment authorization.
+
 ## D-231 verified; continue D-232 rendering boundaries (2026-11-14)
 
 - Source2.6.1/ABIf82a26c557da40e6 pair/tools and native-rendering area pass; exact evidence in CURRENT_STATE. All D-231 drafts applied. Review/memory/commit/FF.

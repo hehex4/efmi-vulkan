@@ -236,6 +236,7 @@ struct App {
     int restart_mode = 0;
     bool imageless = false;
     int dynamic_rendering = 0;
+    bool rendering_split = false;
     bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
@@ -1474,6 +1475,7 @@ static void record_worker(Worker* w, VkFramebuffer fb)
     inherit.framebuffer = fb;
     VkCommandBufferInheritanceRenderingInfo rendering{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO};
     rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&g.format;rendering.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
+    if(g.rendering_split)rendering.flags=VK_RENDERING_RESUMING_BIT;
     if(g.dynamic_rendering){inherit.renderPass=VK_NULL_HANDLE;inherit.framebuffer=VK_NULL_HANDLE;inherit.pNext=&rendering;}
     VkCommandBufferBeginInfo begin = {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1738,6 +1740,7 @@ static bool render_frame()
     VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};rendering.renderArea.extent=g.extent;rendering.layerCount=1;
     rendering.colorAttachmentCount=1;rendering.pColorAttachments=&color;
     if(g.threads)rendering.flags=VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
+    if(g.rendering_split)rendering.flags|=VK_RENDERING_SUSPENDING_BIT;
     VkImageMemoryBarrier attachment_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     attachment_barrier.srcQueueFamilyIndex=attachment_barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
     attachment_barrier.image=g.images[image];attachment_barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
@@ -1750,10 +1753,19 @@ static bool render_frame()
     if (g.threads == 0) {
         if(!g.dynamic_rendering)vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_INLINE);
         record_setup(g.primary);
-        for (int i = 0; i < g.draws; i++)
+        for (int i = 0; i < g.draws; i++) {
+            if(g.dynamic_rendering && g.rendering_split && i==g.draws/2){
+                dynamic_end_rendering(g.primary);rendering.flags=VK_RENDERING_RESUMING_BIT;
+                dynamic_begin_rendering(g.primary,&rendering);
+            }
             record_draw(g.primary, i);
+        }
     } else {
         if(!g.dynamic_rendering)vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+        if(g.dynamic_rendering && g.rendering_split){
+            dynamic_end_rendering(g.primary);rendering.flags=VK_RENDERING_RESUMING_BIT|VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
+            dynamic_begin_rendering(g.primary,&rendering);
+        }
         std::vector<std::thread> threads;
         for (Worker& w : g.workers)
             threads.emplace_back(record_worker, &w, g.framebuffers[image]);
@@ -1983,6 +1995,8 @@ int wmain(int argc, wchar_t** argv)
             g.geometry_capture = true;
         else if (a == L"--geometry-odd")
             g.geometry_odd = true;
+        else if (a == L"--rendering-split")
+            g.rendering_split = true;
         else if (a == L"--dynamic-rendering")
             g.dynamic_rendering = _wtoi(argv[++i]);
         else if (a == L"--imageless")

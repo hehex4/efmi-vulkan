@@ -343,7 +343,7 @@ void CmdBuf::reset_recording()
 {
     image_layouts.reset();
     native_image_state.reset(); native_images = false; native_mutable = false; native_image_blocked = false; native_image_reason.clear();
-    native_uniforms = false; native_graphics_ordered = false;
+    native_uniforms = false; native_graphics_ordered = false; native_rendering_flags = 0;
     executed_owners.clear();
     begin_flags = 0;
     for (auto& owner : owners) if (owner) owner->reset_after_completion();

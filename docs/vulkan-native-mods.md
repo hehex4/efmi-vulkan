@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-231. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-232. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -883,3 +883,10 @@ does not grant mesh replacement permission or implement output destination rebin
 `sandbox/native_rendering_shader_test.py` verifies actual core/KHR entry points, geometry/raster
 dynamics, secondary/inject, reload/removal/module exchange and original/pink pixels. CPU recipe
 tests separately verify multiview and format-array ownership. No new game evidence is implied.
+
+D-232 preserves native pre-pass dependency proof across same-recording suspended/resumed segments
+without inserting forbidden boundary barriers. A fresh recording cannot inherit proof it did not
+record. Temporary image layout changes across such segments remain unavailable until submission
+restoration is modeled; already-readable resources and published immutable files keep existing
+rules. CPU command-emission tests prove the boundary behavior; actual segment uniform pixels and
+secondary fallback are checked by `sandbox/native_rendering_boundary_test.py`.

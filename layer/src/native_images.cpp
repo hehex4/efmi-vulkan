@@ -245,6 +245,8 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
         next.layouts[cell.first]=wanted;
     }
     if (uniform) { plan=std::move(next); return true; }
+    if (!compute && (cb->native_rendering_flags & (VK_RENDERING_SUSPENDING_BIT | VK_RENDERING_RESUMING_BIT)))
+        return refuse("Native image layout transitions across suspended rendering need a submission adapter");
     if (!compute && (cb->in_rp || cb->inherited_rp)) return refuse("Native image layout transition must be prepared before the render pass");
     for (const auto& cell : cells) {
         if (cell.second == wanted) continue;
@@ -293,6 +295,9 @@ void record_native_images(Device* device, CmdBuf* cb, const NativeImagePlan& pla
 
 void native_images_end(Device* device, CmdBuf* cb)
 {
+    // Vulkan forbids synchronization between suspended and resumed rendering segments.
+    // Keep this recording's real dependency proof and resource state until the final end.
+    if (cb->native_rendering_flags & VK_RENDERING_SUSPENDING_BIT) return;
     cb->native_graphics_ordered=false;
     auto state = std::move(cb->native_image_state);
     if (!state && !cb->native_images && !cb->native_mutable) return;
@@ -352,6 +357,7 @@ void order_native_graphics(Device* device,CmdBuf* cb)
 
 void native_images_begin(Device* device, CmdBuf* cb, const VkRenderPassBeginInfo*)
 {
+    cb->native_rendering_flags = 0;
     order_native_graphics(device,cb);
     if (!device->track_image_layouts.load(std::memory_order_relaxed) && !cb->native_images) return;
     cb->native_image_state = std::make_shared<NativeImageState>();
@@ -371,8 +377,12 @@ void native_images_begin(Device* device, CmdBuf* cb, const VkRenderPassBeginInfo
     }
 }
 
-void native_images_begin(Device* device, CmdBuf* cb, const VkRenderingInfo*)
+void native_images_begin(Device* device, CmdBuf* cb, const VkRenderingInfo* info)
 {
+    cb->native_rendering_flags = info->flags;
+    // A same-recording continuation carries its initial proof; a fresh recording has none.
+    // Neither case can issue new dependencies or temporary image transitions here.
+    if (info->flags & VK_RENDERING_RESUMING_BIT) return;
     order_native_graphics(device,cb);
     if (!device->track_image_layouts.load(std::memory_order_relaxed) && !cb->native_images) return;
     cb->native_image_state = std::make_shared<NativeImageState>();

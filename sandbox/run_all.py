@@ -150,6 +150,7 @@ STEPS = [
     ("character replacement", [os.path.join(HERE, "character_test.py")]),
     ("live INI rendering", [os.path.join(HERE, "runtime_test.py")]),
     ("native game shader replacement", [os.path.join(HERE, "native_shader_test.py")]),
+    ("native rendering boundaries", [os.path.join(HERE, "native_rendering_boundary_test.py")]),
     ("native dynamic rendering", [os.path.join(HERE, "native_rendering_shader_test.py")]),
     ("native dynamic shaders", [os.path.join(HERE, "native_dynamic_shader_test.py")]),
     ("native extended raster", [os.path.join(HERE, "native_extended_raster_test.py")]),
@@ -199,6 +200,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "native-rendering-boundaries": ["native rendering boundaries", "native graphics uniforms", "native dynamic rendering", "native application images", "native tracker", "Vulkan validation", "text check"],
     "native-rendering": ["native dynamic rendering", "native game shader", "native dynamic shaders", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check"],
     "native-imageless": ["native imageless resources", "native target sizes", "native target resources", "native application images", "native graphics uniforms", "GPU target analysis", "native tracker", "Vulkan validation", "text check"],
     "native-target-size": ["native target sizes", "native target resources", "native game shader", "native tracker", "Vulkan validation", "text check"],

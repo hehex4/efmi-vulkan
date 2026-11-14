@@ -41,6 +41,10 @@ D-231 native-only shader twins retain dynamic-rendering view masks and attachmen
 They recreate a null-renderPass pipeline without a classic pass allocation and preserve original
 geometry/raster state. Mesh replacement remains separately gated; unknown chains still refuse.
 
+D-232 native scopes retain rendering flags. Suspended/resumed boundaries insert no synchronization;
+same-recording continuations preserve the initial proof, while fresh recordings cannot invent it.
+Final end closes the scope. Temporary image layouts across segments require a submission adapter.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

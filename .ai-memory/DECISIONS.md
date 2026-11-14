@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-232: Native synchronization respects suspended rendering (2026-11-14)
+
+- Original context/getter operations rely on DX11 retained/deferred lifetime, hazards and one-context order. Vulkan explicitly forbids synchronization between suspended and resumed dynamic-rendering segments. Current rendering flags are therefore part of native command-buffer scope.
+- SUSPENDING end retains the initial real proof and scope without closing barriers; RESUMING begin emits neither a fresh barrier nor image-refresh transitions. Same-recording continuation keeps its initial proof; a different recording cannot fabricate it. Final end closes normally and classic begin/reset clear segmented state.
+- Temporary application-image layout changes are refused for suspended/resumed graphics segments, even for non-attachment images, because restoration could otherwise belong to a different recording. Already readable non-attachment images and immutable published files retain their existing rules. No queue graph permission is added; dynamic attachment overlap contexts remain unresolved until the next adapter.
+- CPU boundary baseline370/376 and later transition baseline378/380 prove the errors; final380/380 passes. GPU baseline already passed and is not a validation-hazard reproduction. The final scoped area and exact fixture corrections are recorded in CURRENT_STATE. Source2.6.2/ABI34cc62ba682e5a11; sandbox only.
+
 ## D-231: Native shader twins retain dynamic-rendering declarations (2026-11-14)
 
 - Original HackerContext422-448 switches shader objects without replacing IA/raster state. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order. Vulkan native twins must reproduce exact pipeline declarations and retain existing command owners.

@@ -930,6 +930,7 @@ static void immutable_sampler_lifetime()
 #include "native_mutable_cases.h"
 #include "module_publication_cases.h"
 #include "native_uniform_cases.h"
+#include "native_rendering_boundary_cases.h"
 #include "dynamic_geometry_cases.h"
 
 int main()
@@ -963,6 +964,8 @@ int main()
     native_mutable_dependencies();
     module_publication_cases();
     native_uniform_prepass_cases();
+    native_rendering_boundary_cases();
+    native_segment_transition_cases();
     dynamic_geometry_cases();
     secondary_publication_dependencies();
     image_layout_cases(check);
