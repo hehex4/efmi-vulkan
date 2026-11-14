@@ -238,6 +238,8 @@ struct App {
     int dynamic_rendering = 0;
     int dynamic_depth = 0;
     bool native_output_depth = false;
+    bool native_output_no_color = false;
+    VkPipeline depth_only_pipeline = VK_NULL_HANDLE;
     int native_output_stencil = 0;
     bool native_output_mrt = false;
     bool unused_attachments = false;
@@ -967,6 +969,10 @@ static bool create_pipeline()
     if(g.native_output_stencil){rendering.depthAttachmentFormat=g.native_output_stencil==2?VK_FORMAT_D32_SFLOAT_S8_UINT:VK_FORMAT_UNDEFINED;rendering.stencilAttachmentFormat=g.native_output_stencil==2?VK_FORMAT_D32_SFLOAT_S8_UINT:VK_FORMAT_S8_UINT;}
     if(g.dynamic_rendering){info.renderPass=VK_NULL_HANDLE;info.pNext=&rendering;}
     CHECK(vkCreateGraphicsPipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &g.pipeline));
+    if(g.native_output_no_color){rendering.colorAttachmentCount=0;rendering.pColorAttachmentFormats=nullptr;
+        cb.attachmentCount=0;cb.pAttachments=nullptr;
+        CHECK(vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&info,nullptr,&g.depth_only_pipeline));
+    }
 
     return true;
 }
@@ -1802,6 +1808,12 @@ static bool render_frame()
         if(g.native_output_mrt){auto extra=attachment_barrier;extra.image=native_output_extra.image;
             extra.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
             vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&extra);}
+        if(g.native_output_no_color){
+            auto background=rendering;background.pDepthAttachment=nullptr;background.pStencilAttachment=nullptr;
+            dynamic_begin_rendering(g.primary,&background);dynamic_end_rendering(g.primary);
+            rendering.colorAttachmentCount=0;rendering.pColorAttachments=nullptr;
+            vkCmdBindPipeline(g.primary,VK_PIPELINE_BIND_POINT_GRAPHICS,g.depth_only_pipeline);
+        }
         dynamic_begin_rendering(g.primary,&rendering);
     }
     if (g.threads == 0) {
@@ -1975,6 +1987,7 @@ static void cleanup()
     destroy_buffer(g.staging);
     destroy_buffer(g.staging2);
     destroy_buffer(g.tex_staging);
+    if(g.depth_only_pipeline)vkDestroyPipeline(g.device,g.depth_only_pipeline,nullptr);
     if (g.pipeline)
         vkDestroyPipeline(g.device, g.pipeline, nullptr);
     if (g.layout)
@@ -2080,6 +2093,7 @@ int wmain(int argc, wchar_t** argv)
         else if (a == L"--native-output-mrt"){g.native_output_mrt=true;g.unused_attachments=true;}
         else if (a == L"--native-output-stencil"){g.native_output_stencil=1;g.dynamic_depth=1;}
         else if (a == L"--native-output-depth-stencil"){g.native_output_stencil=2;g.dynamic_depth=1;}
+        else if (a == L"--native-output-no-color")g.native_output_no_color=true;
         else if (a == L"--native-output-depth"){g.native_output_depth=true;g.dynamic_depth=1;}
         else if (a == L"--native-output-query")
             native_output.query = true;

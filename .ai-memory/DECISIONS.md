@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-245: Zero-color output contexts and explicit new attachment semantics (2026-11-14)
+
+- Original SetResource can preserve an entirely empty RTV set while changing DSV; DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan carries colorAttachmentCount=0 through complete preflight, LOAD continuation and host End without synthesizing color views/state/barriers. The ordinary pipeline, feature, sample, query and queue contracts still apply.
+- A null imageView makes ordinary resolve/load/store fields ignored. Introducing an actual attachment must explicitly establish its no-resolve LOAD/STORE semantics, clearing ignored resolve handles/layout/metadata. This follows the original binding operation, which does not issue an implicit resolve. External-format null resolves remain guarded. BUG-110 records the review reproduction and fix.
+- GPU evidence requires a real zero-color pipeline/pass with independent source color and actual aspect bytes, not a color pass with null or masked output.
+
 ## D-244: DSV null changes both actual aspects; filter timing follows the original (2026-11-14)
 
 - Original SetResource replaces one DSV while keeping RTVs; it represents both depth and stencil. Vulkan nulls both actual imageView values when both roles exist, clears their actual views/conflict identities, and retains complete stored color LOAD semantics. The original images retain their original layouts and app-pass lifetime. Introduced color owners and host restoration survive later DSV null events. No arbitrary nonnull DSV or queue/pass expansion follows.

@@ -34,11 +34,11 @@ bool null_output(const efmi::assets::FilePlanItem& item){
     return !item.resource && (!item.native_resource || !item.native_resource->bound);
 }
 
-bool color_context(const RenderTargets& targets,std::string& why){
+bool output_context(const RenderTargets& targets,std::string& why){
     const auto count=targets.dynamic_colors.size();
     if(!targets.known || !targets.dynamic || targets.flags || targets.view_mask || targets.layers!=1 ||
-       !count || count>8 || targets.views.size()!=2*(count+size_t(targets.has_depth)+size_t(targets.has_stencil))){
-        why="Native output destinations need an ordinary complete dynamic color pass";return false;
+       count>8 || targets.views.size()!=2*(count+size_t(targets.has_depth)+size_t(targets.has_stencil))){
+        why="Native output destinations need an ordinary complete dynamic output pass";return false;
     }
     if(targets.area.offset.x<0 || targets.area.offset.y<0){why="Native output render area is invalid";return false;}
     for(size_t slot=0;slot<count;++slot){const auto& color=targets.dynamic_colors[slot];const auto& view=targets.views[2*slot];
@@ -146,7 +146,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     if(cb->native_images || (cb->native_image_state && !cb->native_image_state->active.cells.empty()))
         return refuse("Native output changes with persistent image bindings need an alias restoration adapter");
     if(!cb->active_targets || cb->active_targets>cb->target_contexts.size())return refuse("Native output context is unavailable");
-    auto targets=cb->target_contexts[cb->active_targets-1];if(!color_context(targets,why))return false;
+    auto targets=cb->target_contexts[cb->active_targets-1];if(!output_context(targets,why))return false;
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
     if(!begin || !end || !device->d.CmdPipelineBarrier)return refuse("Native output rendering entries are unavailable");
@@ -254,6 +254,9 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         auto event=std::make_shared<NativeTargetPlan::Event>();event->resource=resource;
         event->slot=uint32_t(slot);event->change=handle!=targets.dynamic_colors[slot].imageView;
         targets.dynamic_colors[slot].imageView=handle;targets.dynamic_colors[slot].imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        // A null original view made these resolve fields ignored; a new binding must not activate them.
+        targets.dynamic_colors[slot].resolveMode=VK_RESOLVE_MODE_NONE;targets.dynamic_colors[slot].resolveImageView=VK_NULL_HANDLE;
+        targets.dynamic_colors[slot].resolveImageLayout=VK_IMAGE_LAYOUT_UNDEFINED;targets.views[view_index+1]={};
         targets.dynamic_colors[slot].storeOp=VK_ATTACHMENT_STORE_OP_STORE;continue_targets(targets);
         targets.views[view_index].handle=handle;targets.views[view_index].view=view->second;targets.views[view_index].image=image->second;targets.views[view_index].known=true;
         targets.views[view_index].view.lifetime.reset();targets.views[view_index].image.lifetime.reset();targets.views[view_index].view.range=range;

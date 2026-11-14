@@ -1,6 +1,10 @@
 # EFMI Vulkan - Tasks
 
 
+## D-245 verified; continue retained depth destinations (2026-11-14)
+
+- D-244 merged27f6df5. Valid zero-color baseline26/34 before source2.7.5. Full pair/initial tracker542 pass. BUG-110 isolated CPU543/544 proves stale ignored resolve fields; normalization fix applied; changed-object same-ABI pair/final tracker544/four stamps pass. Initial failed zero-color GPU34/34 passes. Final d245-final-pair.out completed, four2.7.5/ABI8af8de0e24586cd2 stamps and tracker544 pass. Native-depth-only area d245-regression.out passes zero-color76/null DSV92/MRT39/tracker544/validation76/text639. All processes exited; diff reviewed and memory synchronized for local commit/FF. Review/memory/commit/FF, then validate D-246 independent original/source depth baseline before applying its drafts. Do not stop at the commit.
+
 ## D-244 verified; continue zero-color and retained DSV adapters (2026-11-14)
 
 - D-243 merged07505b6. Valid null-DSV baseline31/43 precedes source2.7.4 edits. Full d244-pair.out completed; four2.7.4/ABI8af8de0e24586cd2 stamps, tracker538 and failed GPU43/43 pass. Core/combined aspect0 and post902 keep color6418/source902. Active/inactive filtered pixels902/5516 prove current pre-list selection and following-draw refresh. Native-depth-null area d244-regression.out passes null DSV92/stencil61/null color38/dynamic depth48/tracker538/validation76/text638. All processes exited; diff reviewed and memory synchronized for local commit/FF. Then validate D-245 no-color baseline before applying its draft; continue retained depth destinations and other offline adapters without stopping at the commit.

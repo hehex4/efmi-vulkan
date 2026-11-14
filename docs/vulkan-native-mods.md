@@ -967,3 +967,9 @@ The optional stencil fixture checks complete fenced stencil bytes and exact geom
 `oD = null` removes both actual depth and stencil views in supported ordinary dynamic passes, including the original built-in all-output unbind. Remaining colors continue with LOAD; their introduced-resource ownership and exact host restoration stay active. Repeated null entries are ordered no-ops after the first change. Nonnull depth/stencil rebinding and unsupported pass/queue contexts remain guarded.
 
 The native ShaderFixes depth filter follows ProcessShaderOverride: it tests actual DSV presence before this draw's command list. A list can unbind depth for the draw while that draw retains its earlier shader choice. Subsequent application draws refresh from the new actual output context even without another pipeline bind.
+
+## Zero-color dynamic outputs (D-245)
+
+Ordinary depth/stencil passes may have zero color attachments. Native DSV null and built-in output unbind keep the actual zero count through preflight, continuation and host End. They retain the same exact pipeline, feature, sample, query and queue requirements as color-bearing passes. No synthetic color attachment is introduced.
+
+When an originally null color slot receives an actual image, the executor explicitly sets no-resolve LOAD/STORE semantics and clears the previously ignored resolve handle/layout/metadata. A valid null attachment's ignored fields must not become a new resolve operation.

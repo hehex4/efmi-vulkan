@@ -1,5 +1,10 @@
 # EFMI Vulkan - Known issues
 
+## BUG-110: New bindings could activate ignored null-attachment resolve fields (D-245; fixed offline in 2.7.5)
+
+- Original SetResource10094 replaces the RTV and does not perform a multisample resolve. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order. Vulkan ignores ordinary resolve fields while imageView is null; D-242 allowed that valid original context but replaced only the view/layout/load/store, leaving ignored resolve data potentially active on a new single-sample view.
+- Original source and official VkRenderingAttachmentInfo rules read. Isolated d245-resolve-before.out543/544 proves the resulting actual attachment still carries ignored resolve state. Normalize mode/handle/layout to NONE/null/undefined and clear resolve view metadata. Final d245-final-pair.out completed, four2.7.5/ABI8af8de0e24586cd2 stamps and tracker544 pass. Native-depth-only area d245-regression.out passes zero-color76/null DSV92/MRT39/tracker544/validation76/text639. All processes exited; diff reviewed and memory synchronized for local commit/FF. Initial zero-color GPU34/34 was already clean and is not a GPU reproduction of this defect. No real-game behavior or GPU validation failure is claimed.
+
 ## BUG-109: Initially null output contexts lacked pipeline sample proof (D-242; fixed offline in 2.7.2)
 
 - Original SetResource delegates RTV compatibility to DX11's OM runtime, with retained/deferred resource lifetime, hazard tracking and one-context order. Vulkan requires each introduced color attachment's sample count to match the bound pipeline absent separately modeled mixed-sample adapters. D-242's newly allowed initially null slots do not provide an actual attachment sample count to infer that contract from.

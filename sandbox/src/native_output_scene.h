@@ -11,7 +11,7 @@ struct NativeOutputScene {
 static bool create_native_output_one(NativeOutputScene& s)
 {
     if(s.output.empty())return true;
-    if(!g.dynamic_rendering || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth && !g.native_output_stencil))return false;
+    if((g.native_output_no_color && (!g.dynamic_depth || g.native_output_mrt)) || !g.dynamic_rendering || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth && !g.native_output_stencil))return false;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType=VK_IMAGE_TYPE_2D;image.format=g.format;image.extent={g.extent.width,g.extent.height,1};
     image.mipLevels=image.arrayLayers=1;image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;

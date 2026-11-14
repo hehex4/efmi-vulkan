@@ -133,4 +133,28 @@ static void native_mrt_output_cases()
           "host End still restores introduced color after a later DSV null");
 
 
+    auto depth_only=combined;depth_only.dynamic_colors.clear();depth_only.views.erase(depth_only.views.begin(),depth_only.views.begin()+4);
+    cb.target_contexts={depth_only};cb.active_targets=1;output_commands.clear();recipe->rendering_colors.clear();plan.items={unbind};
+    ready=prepare();check(ready && prepared.state->colors.empty() && prepared.events[0]->targets.dynamic_colors.empty(),
+          "actual zero-color DSV null never invents a color slot or an original color view");if(!ready)return;
+    check(prepared.events[0]->images->attachments.empty(),"zero-color DSV null removes the last actual attachment conflict");
+    record_native_target(&d,&cb,prepared,0);
+    check(!mrt_count && !output_view && !output_depth && !output_stencil && !mrt_barriers && output_commands==std::vector<char>({'E','D','B'}),
+          "zero-color continuation records zero color attachments and actual null DSV without image transitions");
+    native_targets_end(&d,&cb);check(output_commands.size()==3 && !cb.native_target_state,"host End handles zero original or introduced colors without restoration");
+
+    cb.target_contexts={targets};cb.active_targets=1;output_commands.clear();recipe->rendering_colors={VK_FORMAT_R8G8B8A8_UNORM,VK_FORMAT_R8G8B8A8_UNORM};
+    recipe->rendering_depth=VK_FORMAT_D32_SFLOAT;recipe->rendering_stencil=VK_FORMAT_UNDEFINED;plan.items={saved.items[0]};
+    auto& unused=cb.target_contexts[0].dynamic_colors[1];unused.imageView=VK_NULL_HANDLE;
+    unused.resolveMode=VK_RESOLVE_MODE_AVERAGE_BIT;unused.resolveImageView=targets.dynamic_colors[0].imageView;
+    unused.resolveImageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;unused.imageLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+    unused.loadOp=VK_ATTACHMENT_LOAD_OP_DONT_CARE;unused.storeOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    cb.target_contexts[0].views[2]={};cb.target_contexts[0].views[3]=targets.views[0];
+    ready=prepare();check(ready && output_commands.empty(),"ordinary null color ignores its unused resolve and load/store fields during preflight");if(!ready)return;
+    const auto& actual_color=prepared.events[0]->targets.dynamic_colors[1];
+    check(actual_color.resolveMode==VK_RESOLVE_MODE_NONE && !actual_color.resolveImageView &&
+          actual_color.resolveImageLayout==VK_IMAGE_LAYOUT_UNDEFINED && !prepared.events[0]->targets.views[3].known &&
+          actual_color.loadOp==VK_ATTACHMENT_LOAD_OP_LOAD && actual_color.storeOp==VK_ATTACHMENT_STORE_OP_STORE,
+          "new actual color binding normalizes previously ignored resolve fields instead of activating them");
+
 }

@@ -92,6 +92,10 @@ D-244 actual DSV null removes both depth/stencil views while preserving stored c
 introduced-image retention/restoration. Shader depth filters preserve the current pre-list choice;
 the following application draw refreshes from current actual attachments before running its lists.
 
+D-245 zero-color dynamic passes carry their actual empty color set through null-DSV continuation
+and host End. New actual color bindings establish no-resolve LOAD/STORE state explicitly, clearing
+ordinary resolve fields and metadata that a previously null attachment made irrelevant.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,
