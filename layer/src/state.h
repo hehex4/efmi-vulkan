@@ -444,6 +444,7 @@ struct CmdBuf {
     ImageLayouts image_layouts;
     std::shared_ptr<NativeImageState> native_image_state;
     bool native_images = false;
+    bool native_buffers = false; // This recording carries mutable file bindings and their compute hazards.
     bool native_image_blocked = false;
     std::string native_image_reason;
     uint64_t character_frame = 0;  // the character backend's number for this recording; 0: none yet

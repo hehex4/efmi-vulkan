@@ -28,7 +28,8 @@ def buffers(checks, case):
     (mods / "test.ini").write_text(
         "namespace = native_file\n[Constants]\nglobal $flags = -1\n[ShaderOverrideCompute]\nhash = %08x\n" % crc32c(shader.read_bytes()) +
         body + "$flags = ResourceInput->bindflags\n"
-        "[ResourceInput]\ntype = Buffer\nstride = %d\nfilename = input.buf\n" % stride, encoding="ascii")
+        "[ResourceInput]\ntype = Buffer\nstride = %d\nfilename = input.buf\n" % stride +
+        ("bind_flags = shader_resource\n" if case == "write_refusal" else ""), encoding="ascii")
     if case == "empty_swap": (mods / "test.ini").unlink()
     settings = root / "settings"; settings.mkdir()
     output, keys = root / "compute.raw", root / "keys.txt"; keys.write_text("1\n", encoding="ascii")

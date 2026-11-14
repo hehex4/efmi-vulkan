@@ -38,14 +38,19 @@ std::shared_ptr<const assets::FileResource> describe(const CustomResource& r,uns
     if(r.override_type!=CustomResourceType::BUFFER)return refuse(L"Mesh file binding requires a plain Buffer declaration");
     const auto flags=static_cast<unsigned>(r.override_bind_flags);
     if(role==3){
-        if(flags && (flags&~(D3D11_BIND_CONSTANT_BUFFER|D3D11_BIND_SHADER_RESOURCE)))
-            return refuse(L"Native file buffer supports read-only shader and constant bindings");
+        const auto native_flags=r.override_bind_flags==CustomResourceBindFlags::INVALID?unsigned(r.bind_flags):flags;
+        if(native_flags&~(D3D11_BIND_CONSTANT_BUFFER|D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS))
+            return refuse(L"Native file buffer requires shader, constant or unordered-access bindings");
+        if((native_flags&D3D11_BIND_CONSTANT_BUFFER) && native_flags!=D3D11_BIND_CONSTANT_BUFFER)
+            return refuse(L"A constant file buffer cannot combine other bind flags");
         int stride=r.override_stride;
         if(stride==-1)stride=r.override_format==DXGI_FORMAT(-1)?16:int(dxgi_format_size(r.override_format));
         if(stride<=0 || stride>2048)return refuse(L"Native file buffer has an unsupported stride");
         file->stride=uint32_t(stride);
-        file->usage=(!flags || (flags&D3D11_BIND_CONSTANT_BUFFER)?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:0)|
-                    (!flags || (flags&D3D11_BIND_SHADER_RESOURCE)?VK_BUFFER_USAGE_STORAGE_BUFFER_BIT:0);
+        file->writable=(native_flags&D3D11_BIND_UNORDERED_ACCESS)!=0;
+        file->native_bind_flags=native_flags?native_flags:(D3D11_BIND_CONSTANT_BUFFER|D3D11_BIND_SHADER_RESOURCE);
+        file->usage=(!native_flags || (native_flags&D3D11_BIND_CONSTANT_BUFFER)?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:0)|
+                    (!native_flags || (native_flags&(D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS))?VK_BUFFER_USAGE_STORAGE_BUFFER_BIT:0);
         return file;
     }
     const auto required=role==0?D3D11_BIND_VERTEX_BUFFER:D3D11_BIND_INDEX_BUFFER;

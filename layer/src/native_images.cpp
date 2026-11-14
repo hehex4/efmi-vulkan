@@ -286,7 +286,7 @@ void record_native_images(Device* device, CmdBuf* cb, const NativeImagePlan& pla
 void native_images_end(Device* device, CmdBuf* cb)
 {
     auto state = std::move(cb->native_image_state);
-    if (!state && !cb->native_images) return;
+    if (!state && !cb->native_images && !cb->native_buffers) return;
     std::vector<VkImageMemoryBarrier> barriers;
     if(state)for (const auto& entry : state->active.cells) {
         const auto& value = entry.second;
@@ -305,12 +305,19 @@ void native_images_end(Device* device, CmdBuf* cb)
 
 void native_images_call(Device* device, CmdBuf* cb, bool compute)
 {
+    // Mutable descriptors persist even when the next application's dispatch has no native plan.
+    // DX11 orders that context implicitly; these files need explicit dependencies at every call.
+    if(compute && cb->native_buffers){
+        VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+        device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&barrier,0,nullptr,0,nullptr);
+    }
     if (!device->track_image_layouts.load(std::memory_order_relaxed) && !cb->native_images) return;
     cb->native_image_blocked = false;
     if (compute) cb->native_image_state.reset();
     scope(cb, compute);
     const auto draw = current(cb, compute);
-    if(compute && cb->native_images){
+    if(compute && cb->native_images && !cb->native_buffers){
         VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
         barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
         device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&barrier,0,nullptr,0,nullptr);

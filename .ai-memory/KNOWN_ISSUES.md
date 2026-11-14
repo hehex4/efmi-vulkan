@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-103: Persistent mutable descriptors lacked dependencies outside native plans (fixed offline in D-219, 2.4.9)
+
+- During D-219 review, direct descriptor preparation/binding followed by the host's next compute call produced no memory dependency when that call had no native plan. Tracker291/292 in d219-dependency-before.out proves the missing entry-point behavior. Narrow-original-buffer-barrier GPU cases already pass8/8, and explicit sync-validation4/4; those observations are not represented as failing GPU evidence.
+- Original HackerContext BeforeDispatch/Dispatch/AfterDispatch uses the same bound context even without matching commands. DX11 handles reference-counted deferred destruction, hazards and context order. Vulkan records mutable-buffer dependency state and explicit pre/post compute barriers, including secondary propagation and reset; upload owners remain retained. Existing one-queue, compute and sync2 boundaries remain.
+- Corrected tracker294/294 (d219-dependency-after.out); final pair and affected GPU/upload checks are recorded in CURRENT_STATE. No real-game or deployment result.
+
 ## BUG-102: Hunting idle clearing and persistent counts diverged from the original (fixed offline in D-218, 2.4.8)
 
 - CPU baseline278/280 proves that collections stayed populated before the first key and between successive idle frames; the overlay baseline2/4 has no counts after transient notices expire. Original HackerDXGI RunFrameActions and input.cpp use registered dispatch events, not only hunting keys, and clear every idle frame. Overlay renders counts before clearing.

@@ -168,6 +168,7 @@ STEPS = [
     ("native application shapes", [os.path.join(HERE, "native_application_shape_test.py")]),
     ("native storage images", [os.path.join(HERE, "native_storage_image_test.py")]),
     ("native application images", [os.path.join(HERE, "native_application_image_test.py")]),
+    ("mutable native file buffers", [os.path.join(HERE, "native_mutable_test.py")]),
     ("native file bindings", [os.path.join(HERE, "native_file_test.py")]),
     ("native compute shaders", [os.path.join(HERE, "native_compute_test.py")]),
     ("native empty inputs", [os.path.join(HERE, "native_input_test.py")]),
@@ -210,6 +211,7 @@ GROUPS = {
     "native-images": ["native image bindings", "native file bindings", "native descriptor bindings", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "native-application-images": ["native application images", "native image bindings", "native descriptor bindings", "native tracker", "Vulkan validation", "text check"],
     "module-paths": ["native application images", "native file bindings", "native tracker", "text check"],
+    "native-mutable-files": ["mutable native file buffers", "native file bindings", "native descriptor bindings", "native resource slots", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "native-files": ["native file bindings", "native descriptor bindings", "native resource slots", "native tracker", "Vulkan validation", "text check"],
     # A minute or so, for every change: text, the Python units, the expression cases, what each command
     # class does in a replaced draw, and the original as the judge.

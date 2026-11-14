@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-219: Writable file buffers own persistent private storage and explicit compute dependencies (2026-11-14)
+
+- Original CustomResource AddFlags/Substantiate and LoadBufferFromFile/SubstantiateBuffer combine declaration flags and initialize one DEFAULT allocation. Each declaration owns subsequent GPU mutations; a new generation creates fresh writable storage. DX11 supplies deferred ownership, hazard tracking and single-context order.
+- Infer original bind_flags when no explicit override exists. Plain native file buffers may declare unordered access. A private cache-key domain gives each writable declaration a separate allocation even for equal path, usage and revision; immutable resources retain sharing. Pin writable residency until its final declaration is forgotten, preserving retained recording and upload-publication owners.
+- Keep exact stride, usage/range, compute-only, one-application-queue and synchronization2-disabled checks. Immutable uploads remain read-only. Images/transformed/pooled/initialized resources are separate adapters. No synchronous file loading or allocation is introduced under application draw locks.
+- Native descriptor binding marks recording dependency state. Subsequent compute calls, including calls with no new native plan, receive explicit pre/post dependencies; secondary execution and recording reset carry/clear that state. Original HackerContext calls the active context whether or not it has an override, so relying only on injected-plan barriers is insufficient. CPU entry-point evidence and GPU scope are separated in CURRENT_STATE.
+
 ## D-218: Hunting counts persist and registered input preserves active collections (2026-11-14)
 
 - Original RunFrameActions refreshes huntTime from DispatchInputEvents's returned registered action event, including Mod actions. It clears visited collections every idle frame, including before the first event, and draws counts before that clear. Original Overlay orders VS/PS/CS/GS/DS/HS, then selected VB/IB/RT; an unselected active kind shows0/0.

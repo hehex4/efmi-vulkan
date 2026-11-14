@@ -7,7 +7,7 @@ struct ComputeScene {
     bool indirect = false;
     bool binding_scene = false, late_update = false, constant_input = false;
     bool secondary = false, image_input = false, capture_usage = false, storage_image = false;
-    bool reusable = false;
+    bool reusable = false, buffer_barriers = false;
     VkImage writable_image = VK_NULL_HANDLE;
     VkImageView writable_view = VK_NULL_HANDLE;
     VkDeviceMemory writable_memory = VK_NULL_HANDLE;
@@ -169,7 +169,13 @@ static void record_compute_scene(VkCommandBuffer cmd)
     for(unsigned i=0;i<c.repeat;++i){
         if(c.indirect)vkCmdDispatchIndirect(cmd,c.arguments.buf,0);else vkCmdDispatch(cmd,1,1,1);
         host.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;host.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
-        vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&host,0,nullptr,0,nullptr);
+        if(c.buffer_barriers){
+            VkBufferMemoryBarrier buffers[3]{};const Buffer* originals[]={&c.data,&c.input,&c.alternate};
+            for(unsigned j=0;j<3;++j){auto& b=buffers[j];b.sType=VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+                b.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;b.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT;
+                b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;b.buffer=originals[j]->buf;b.size=VK_WHOLE_SIZE;}
+            vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,0,nullptr,3,buffers,0,nullptr);
+        }else vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,0,1,&host,0,nullptr,0,nullptr);
     }
     VkMemoryBarrier read = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     read.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; read.dstAccessMask = VK_ACCESS_HOST_READ_BIT;

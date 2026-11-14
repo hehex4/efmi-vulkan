@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-219: Private writable file buffers (2026-11-14)
+
+- D-218 merged6910206. Source2.4.9 final pair ABI5b362dd82f6d34dc built/stamps verified. Final tracker294, GPU retry20 and upload/cache604 pass; d219-regression.out passes mutable49, files42, bindings48, resources89, character115/377, validation76/text587. CURRENT_STATE distinguishes the missing-dependency CPU failure from passing GPU observations.
+- Complete review/memory/session log/commit/FF, then D-220 active-module flag ownership from build/d220-plan.md. Its isolated baseline294/296 already fails staged preparation and retired/rejected cleanup; no D-220 tracked source applied. Continue offline work after the commit; no game/deployment authorization.
+
 ## Active D-218 verified; continue D-219 mutable native files (2026-11-14)
 
 - Source2.4.8/pair ABI70b005da5d190964 verified. Tracker286, live INI221, analysis controls55, persistent hunting18, hunting shader modes45, owned Present80, validation76/text585 all pass. CURRENT_STATE distinguishes baselines, initial build, final staging correction and exact evidence.

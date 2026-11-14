@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-218. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-219. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -519,8 +519,9 @@ post persistence, caller replay, indirect calls, late data and descriptor varian
 Plain file-backed Buffer declarations can bind to native uniform and read-only storage descriptors.
 The declaration's stride must fit the byte count and the shader's structured-buffer contract.
 These resources share the existing device cache, budget, upload queue and completed timeline
-publication. Changed files get a new revision on F10. Writable views, transformed or mutable
-resources and typed texel-buffer views need their respective adapters; they are refused explicitly.
+publication. Changed files get a new revision on F10. D-219 adds writable compute file buffers
+with independent pinned storage below. Transformed, pooled, initialized and typed texel-buffer
+resources still need their respective adapters and are refused explicitly.
 Null bindings use the device's enabled nullDescriptor feature and preserve sampler ownership.
 
 A recording retains its uploaded allocation and completed publication signal, including through
@@ -622,7 +623,8 @@ and are restored after the call, including persistent references used by unmatch
 Every native descriptor reserves its selected layout even when no transition is needed; a later
 alias cannot invalidate an earlier descriptor. Application rebinding still replaces the request.
 The same one-application-queue and synchronization2 boundaries apply. D-217 adds formatless
-storage checks below. Graphics storage writes and mutable file uploads need further adapters.
+storage checks below. Graphics storage writes and mutable file images need further adapters;
+D-219 covers writable file buffers below.
 
 The storage fixture checks fenced GPU values for ordinary/push/secondary calls, explicit dispatch,
 post restore, arrays, temporary layouts and original rebinding. Tracker cases cover conflicting
@@ -781,3 +783,23 @@ The frame-byte budget resets each interval while the aggregate resident budget s
 retained in-flight jobs. Stopping recording does not discard copies already submitted to the GPU.
 Status adds `analysis_frames` and `active_options`. Existing queue, one-time recording and layout
 guards remain, and control flags other than hold remain explicit adapters to implement.
+
+### Mutable native file buffers (D-219, 2.4.9; verification in CURRENT_STATE)
+
+Plain Buffer files with inferred or explicit unordered-access bind flags can initialize native
+compute storage buffers. Each declaration owns an independent allocation, even when path, usage
+and file revision match another declaration. References to the same declaration share its GPU
+contents. F10 creates fresh writable declaration storage; immutable files retain cache sharing.
+
+Writable allocations stay charged and resident until their last declaration is forgotten. They
+cannot be evicted and reconstructed from the original file, which would lose GPU changes.
+Recorded descriptor owners retain allocations and completed upload publication independently of
+frontend or module lifetime. Budget exhaustion leaves new loads pending rather than discarding
+writable contents. File IO, allocation and upload remain on the existing worker path.
+
+Exact byte/structure stride, descriptor usage/range, one application queue, compute scope and the
+synchronization2 boundary remain enforced. Dispatches with persistent mutable descriptors receive
+explicit dependencies even without a new override plan; recording reset and secondary execution
+preserve the dependency lifetime. File textures, transformed/pool/initialized resources and graphics
+writable bindings require separate adapters. CPU dependency evidence, actual GPU results and
+validation observations are distinguished in CURRENT_STATE; none is real-game acceptance.

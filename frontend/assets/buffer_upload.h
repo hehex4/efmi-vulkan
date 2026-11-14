@@ -15,7 +15,8 @@ struct BufferUploadDispatch {
 #undef X
 };
 
-// Immutable file bytes for vertex/index bindings. Declaration stride, index
+// File bytes initialize an allocation; native writable declarations own subsequent GPU mutations.
+// Declaration stride, index
 // format and draw bounds remain the frontend's contract, not inferred here.
 // Same single-graphics-queue, serialized host-call and lifetime rules as images.
 class BufferUpload {

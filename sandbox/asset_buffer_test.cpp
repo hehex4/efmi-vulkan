@@ -139,6 +139,24 @@ static void resource_cache_tests(Gpu& g)
     next.stop();changed={};retained.reset();
     check(!budget.resident->used() && !budget.staging->used(),"last mixed-generation command owner releases shared allocation budgets");
     check(!wrong_worker_calls && !wrong_submit_calls,"mesh and image creation/polling stay on worker and queue submission on caller");
+    ResourceCache private_cache(cache_device(g),budget);const auto usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    auto shared=private_cache.declare_buffer(path,usage,reason,7);
+    auto private_a=private_cache.declare_buffer(path,usage,reason,7,true);
+    auto private_b=private_cache.declare_buffer(path,usage,reason,7,true);
+    check(shared && private_a && private_b && shared!=private_a && shared!=private_b && private_a!=private_b,
+          "private file declarations cannot alias each other or immutable files with identical tags");
+    check(private_cache.declare_buffer(path,usage,reason,7)==shared,"immutable sharing survives private declaration allocation");
+    private_cache.demand(private_a);private_cache.demand(private_b);
+    auto ready_a=await_texture(private_cache,private_a,g,true),ready_b=await_texture(private_cache,private_b,g,true);
+    check(ready_a.buffer && ready_b.buffer && ready_a.buffer->buffer()!=ready_b.buffer->buffer(),
+          "private declarations publish independent actual GPU allocations");
+    check(private_cache.release(private_a) && ready_a.buffer->buffer() && private_a->snapshot().state==ResourceState::Dormant,
+          "a released private declaration preserves its retained recording owner");
+    auto fresh=private_cache.declare_buffer(path,usage,reason,7,true);
+    check(fresh!=private_a && fresh!=private_b && fresh!=shared,"unchanged file reload receives fresh mutable declaration identity");
+    private_cache.stop();ready_a={};ready_b={};
+    check(!budget.resident->used() && !budget.staging->used(),"private allocation charges end with their final completion owners");
+
 }
 
 static void resource_sample(Gpu& g,int count,wchar_t** paths)

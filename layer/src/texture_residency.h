@@ -37,11 +37,12 @@ public:
     // Declaration only, no file IO beyond the file's size and write time; one declaration counted for the
     // caller. kNone with the reason.
     // `loader_flags`: the declaration's colour space as the original's loaders take it (D-140).
-    ImageId declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags = 0, VkBufferUsageFlags buffer_usage = 0, bool all_layers = false);
+    // Writable buffers have private declaration identity and stay resident until forgotten.
+    ImageId declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags = 0, VkBufferUsageFlags buffer_usage = 0, bool all_layers = false, bool writable = false);
     struct Binding {
         VkImageView view = VK_NULL_HANDLE;                      // null: not resident yet, or failed
         std::shared_ptr<const efmi::assets::ImageUpload> owner; // keeps the image alive while a recording lives
-        std::shared_ptr<const efmi::assets::BufferUpload> buffer; // Published immutable native file buffer.
+        std::shared_ptr<const efmi::assets::BufferUpload> buffer; // Published native file allocation.
         std::shared_ptr<const void> publication;
         VkSemaphore semaphore=VK_NULL_HANDLE;
         uint64_t serial=0;
@@ -90,6 +91,7 @@ private:
         VkBufferUsageFlags buffer_usage = 0; // Buffers share publication/budgets but cannot drop mip levels.
         uint64_t last_bound = 0;  // frame of the last bind
         bool resident = false;    // demanded and not released: loading or Ready
+        bool writable = false;    // GPU mutations cannot be reconstructed by rereading the file.
         bool reduce_next = false; // the next load leaves the top level out (demoted under pressure)
         bool failure_logged = false;
         uint32_t skip_levels = 0; // mip levels the current load leaves out

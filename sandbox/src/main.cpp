@@ -1888,6 +1888,8 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.binding_scene = true;
         else if (a == L"--compute-late-data")
             compute_scene.late_update = true;
+        else if (a == L"--compute-buffer-barriers")
+            compute_scene.buffer_barriers = true;
         else if (a == L"--compute-repeat" && i + 1 < argc)
             compute_scene.repeat = std::max(1,std::min(16,_wtoi(argv[++i])));
         else if (a == L"--compute-indirect")

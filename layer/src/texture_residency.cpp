@@ -101,7 +101,7 @@ void TextureResidency::stop()
     timeline_ = VK_NULL_HANDLE;
 }
 
-TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags, VkBufferUsageFlags buffer_usage, bool all_layers)
+TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags, VkBufferUsageFlags buffer_usage, bool all_layers, bool writable)
 {
     const auto path = std::filesystem::u8path(utf8_path);
     // The file's identity (BUG-061): what did not change on disk is the image the live generation holds.
@@ -114,10 +114,11 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
     tag ^= tag >> 31; tag *= 0xBF58476D1CE4E5B9ull; tag ^= tag >> 27;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!usable_) { reason = reason_; return kNone; }
+    if(writable && !buffer_usage){reason="Writable file images require a separate upload adapter";return kNone;}
     assets::ResourceHandle handle;
     for (uint64_t attempt = 0;; ++attempt) {
         const auto revision=tag ^ (attempt * 0x94D049BB133111EBull);
-        handle = buffer_usage ? cache_->declare_buffer(path,buffer_usage,reason,revision) : cache_->declare_image(path, reason, revision, loader_flags, all_layers);
+        handle = buffer_usage ? cache_->declare_buffer(path,buffer_usage,reason,revision,writable) : cache_->declare_image(path, reason, revision, loader_flags, all_layers);
         if (!handle) return kNone;
         const auto found = by_handle_.find(handle.get());
         if (found == by_handle_.end()) break;
@@ -132,7 +133,7 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
     Image image;
     image.handle = handle; image.tag = tag; image.declared = 1;
     image.path = path.lexically_normal().u8string();
-    image.file_bytes = bytes; image.buffer_usage = buffer_usage;
+    image.file_bytes = bytes; image.buffer_usage = buffer_usage; image.writable = writable;
     const ImageId id = static_cast<ImageId>(images_.size());
     images_.push_back(std::move(image));
     by_handle_.emplace(handle.get(), id);
@@ -167,7 +168,7 @@ void TextureResidency::evict_for(uint64_t bytes)
     while (!loadable(bytes)) {
         Image* victim = nullptr;
         for (auto& image : images_) {
-            if (!image.resident || image.last_bound + kProtectedFrames > frame_) continue;
+            if (!image.resident || image.writable || image.last_bound + kProtectedFrames > frame_) continue;
             if (image.handle->snapshot().state != assets::ResourceState::Ready) continue;
             if (!victim || image.last_bound < victim->last_bound) victim = &image;
         }
@@ -183,7 +184,7 @@ void TextureResidency::evict_idle(uint64_t bytes, uint64_t idle_frames, uint64_t
     while (resident_bytes_ + bytes > limit) {
         Image* victim = nullptr;
         for (auto& image : images_) {
-            if (!image.resident || image.last_bound + idle_frames > frame_) continue;
+            if (!image.resident || image.writable || image.last_bound + idle_frames > frame_) continue;
             if (image.handle->snapshot().state != assets::ResourceState::Ready) continue;
             if (!victim || image.last_bound < victim->last_bound) victim = &image;
         }

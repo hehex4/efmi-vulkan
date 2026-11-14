@@ -69,7 +69,7 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
             }
             if(found==cache.files.end()){
                 if(cache.files.size()>=4096){why="Native file declaration budget exceeded";return false;}
-                const auto id=residency->declare(file->path.u8string(),why,file->loader_flags,file->usage,true);
+                const auto id=residency->declare(file->path.u8string(),why,file->loader_flags,file->usage,true,file->writable);
                 if(id==TextureResidency::kNone)return false;
                 found=cache.files.emplace(file.get(),NativeCallCache::File{file,id}).first;
             }
@@ -90,7 +90,7 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
             resource->dimension=1;resource->identity=reinterpret_cast<uint64_t>(buffer.get())|3;
             resource->buffer=uint64_t(buffer->buffer());resource->size=resource->range=buffer->size();
             resource->usage=buffer->usage();resource->buffer_stride=resource->stride=file.stride;
-            resource->bind_flags=((file.usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)?4u:0u)|((file.usage&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)?8u:0u);
+            resource->bind_flags=file.native_bind_flags;
         }else{
             const auto& image=*binding.owner;const auto& metadata=image.metadata();
             if(!file.sampled){why="Native file image requires a sampled view";return false;}
@@ -106,7 +106,8 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
             resource->image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
         struct Owners {std::shared_ptr<const efmi::assets::BufferUpload> buffer;std::shared_ptr<const efmi::assets::ImageUpload> image;std::shared_ptr<const void> publication;};
-        resource->uploaded_readonly=true;resource->keep=std::make_shared<const Owners>(Owners{binding.buffer,binding.owner,binding.publication});
+        resource->uploaded_readonly=!file.writable;resource->uploaded_mutable=file.writable;
+        resource->keep=std::make_shared<const Owners>(Owners{binding.buffer,binding.owner,binding.publication});
         resource->publication_semaphore=uint64_t(binding.semaphore);resource->publication_value=binding.serial;
         item.native_resource=std::move(resource);item.resource.reset();
     }

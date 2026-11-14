@@ -254,7 +254,9 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                 value.image_layout=VK_IMAGE_LAYOUT_GENERAL;
             }else{
             if(!resource.keep)return refuse("Native resource has no complete retained ownership");
-            if(resource.uploaded_readonly){
+            if(resource.uploaded_mutable && device->synchronization2_enabled)
+                return refuse("Mutable native files require a synchronization2 signal-scope adapter");
+            if(resource.uploaded_readonly || resource.uploaded_mutable){
                 const auto pipeline=device->pipes.find(draw.pipeline);
                 if(pipeline==device->pipes.end())return refuse("Native file consumer pipeline is unavailable");
                 for(const auto& stage:pipeline->second.shaders){
@@ -263,7 +265,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                         return refuse("Native file consumer resource access is unknown");
                     for(const auto& r:registers)if(r.set==target.set && r.binding==target.binding){
                         using R=efmi::gpu::SourceRegister;
-                        if(r.kind==R::BufferUav || r.kind==R::ImageUav || r.kind==R::TexelUav)
+                        if(resource.uploaded_readonly && (r.kind==R::BufferUav || r.kind==R::ImageUav || r.kind==R::TexelUav))
                             return refuse("Native file uploads are read-only; writable views need a mutable resource adapter");
                         if(resource.image_view){
                             const bool cube=resource.view_type==VK_IMAGE_VIEW_TYPE_CUBE || resource.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
@@ -324,6 +326,7 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
     for(const auto& value:set->contents.values)if(value.second.native_image_request)cb->native_images=true;
     for(const auto& value:set->contents.values)if(value.second.native){
         const auto& resource=*std::static_pointer_cast<const Resource>(value.second.native);
+        cb->native_buffers|=resource.uploaded_mutable;
         if(resource.publication_semaphore && resource.publication_value){
             auto& serial=owner->publications[VkSemaphore(resource.publication_semaphore)];serial=std::max(serial,resource.publication_value);
         }

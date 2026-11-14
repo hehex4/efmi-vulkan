@@ -128,23 +128,23 @@ ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,st
 {
     return declare(path,0,reason,tag,loader_flags,all_layers);
 }
-ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag)
+ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag,bool private_copy)
 {
     const VkBufferUsageFlags allowed=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     if(!usage || (usage&~allowed)){reason="Unsupported buffer declaration usage";return {};}
-    return declare(path,usage,reason,tag);
+    return declare(path,usage,reason,tag,0,false,private_copy);
 }
 ResourceHandle ResourceCache::declare(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag,
-                                      uint32_t loader_flags,bool all_layers)
+                                      uint32_t loader_flags,bool all_layers,bool private_copy)
 {
     reason.clear();
     if(!path.is_absolute() || path.native().size()>32760 || path.native().find(L'\0')!=std::wstring::npos){
         reason="Resource path must be a bounded absolute path without nulls";return {};
     }
-    const Key key{path.lexically_normal(),usage,tag,loader_flags,all_layers};
     std::lock_guard<std::mutex> lock(mutex_);
     if(stopped_){reason="Resource cache stopped";return {};}
+    const Key key{path.lexically_normal(),usage,tag,loader_flags,all_layers,private_copy?++private_id_:0};
     auto found=entries_.find(key);if(found!=entries_.end())return found->second;
     if(entries_.size()>=capacity_){reason="Resource declaration capacity exceeded";return {};}
     auto entry=std::make_shared<ResourceRequest>();entry->path_=std::get<0>(key);entry->buffer_usage_=usage;entry->owner_=identity_;

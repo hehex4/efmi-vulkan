@@ -95,9 +95,9 @@ public:
     // `tag` tells declarations of one path apart (a generation's own copy); equal path and tag share.
     // `loader_flags`: the original's from the declaration's colour space (png_force_srgb, png_ignore_srgb), D-140.
     ResourceHandle declare_image(const std::filesystem::path&,std::string& reason,uint64_t tag=0,uint32_t loader_flags=0,bool all_layers=false);
-    // Equal path + usage share one immutable buffer. A different usage or an
-    // image declaration is a distinct request, never an unsafe type alias.
-    ResourceHandle declare_buffer(const std::filesystem::path&,VkBufferUsageFlags,std::string& reason,uint64_t tag=0);
+    // Equal path + usage + tag share immutable buffers. private_copy creates a separate
+    // request for a writable declaration, including when an unchanged file is reloaded.
+    ResourceHandle declare_buffer(const std::filesystem::path&,VkBufferUsageFlags,std::string& reason,uint64_t tag=0,bool private_copy=false);
     // Safe for an already resolved draw binding: enqueue once, never wait for
     // file IO/driver/fence. Failure is sticky until a new generation is made.
     bool demand(const ResourceHandle&,uint32_t skip_levels=0);
@@ -120,8 +120,8 @@ private:
     struct Loader;
     struct Arena;
     struct Slice;
-    using Key=std::tuple<std::filesystem::path,VkBufferUsageFlags,uint64_t,uint32_t,bool>;
-    ResourceHandle declare(const std::filesystem::path&,VkBufferUsageFlags,std::string&,uint64_t tag=0,uint32_t loader_flags=0,bool all_layers=false);
+    using Key=std::tuple<std::filesystem::path,VkBufferUsageFlags,uint64_t,uint32_t,bool,uint64_t>;
+    ResourceHandle declare(const std::filesystem::path&,VkBufferUsageFlags,std::string&,uint64_t tag=0,uint32_t loader_flags=0,bool all_layers=false,bool private_copy=false);
     void run();
     std::shared_ptr<Upload> prepare(const ResourceHandle&,uint64_t& read_done_us);
     // D-130: an image read straight into the staging arena and recorded into the worker's command buffer.
@@ -142,6 +142,7 @@ private:
     bool stopped_=false;
     VkQueue submission_queue_=VK_NULL_HANDLE;
     std::map<Key,ResourceHandle> entries_;
+    uint64_t private_id_=0; // Zero belongs exclusively to shared immutable declarations.
     std::deque<ResourceHandle> queue_;
     ResourceHandle pending_;
     std::unique_ptr<Arena> arena_;
