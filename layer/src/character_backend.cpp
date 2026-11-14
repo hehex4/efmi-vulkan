@@ -299,7 +299,7 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
         logf("character packages: %zu from the folder generation of %s", backend->controllers.size(), mods_folder().u8string().c_str());
         backend->rebuild_index();
         // The first frame's draws meet the generation's ShaderOverride sections (docs/vulkan-native-mods.md).
-        shader_hooks_frame(*backend);
+        shader_hooks_frame(*backend,false);
         // The first frame's draws see the gates of the generation loaded here (D-133).
         g_dither_off.store(std::any_of(backend->folder->gates.begin(), backend->folder->gates.end(), [](const auto& g) { return g.value != 0; }),
                            std::memory_order_relaxed);

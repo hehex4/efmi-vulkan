@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-218: Hunting counts persist and registered input preserves active collections (2026-11-14)
+
+- Original RunFrameActions refreshes huntTime from DispatchInputEvents's returned registered action event, including Mod actions. It clears visited collections every idle frame, including before the first event, and draws counts before that clear. Original Overlay orders VS/PS/CS/GS/DS/HS, then selected VB/IB/RT; an unselected active kind shows0/0.
+- Append private InputActivity action35 to the existing generation-to-host event queue. Keep the original dispatcher and foreground/edge semantics; do not poll unrelated OS keys. Remove the incorrect timestamp reset after idle clearing.
+- A host-owned per-device persistent count line is sent through the shared Device callback, independent of expiring notices. Compose both without rerasterizing unchanged text; retain existing Vulkan completion owners and present dependencies, explicit equivalents of DX11 lifetime/hazard/context ordering. Remove text at disable/device teardown. Backend staging must configure first-draw hooks without publishing presentation callbacks into the active host.
+- Baseline and scoped verification are in CURRENT_STATE. This is sandbox/offline work only.
+
 ## D-217: Native formatless views require precise executable access and format capabilities (2026-11-14)
 
 - Original UAV GetResource/SetResource retains exact views; DX11 supplies deferred lifetime, resource hazards and context order. Keep explicit Vulkan owners/barriers/layout reservations.

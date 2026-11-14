@@ -13,6 +13,8 @@ class JsonWriter;
 // of the first swap chain, the presentation then waiting for that. Never waits for the GPU (BUG-062):
 // with every slot still in use the notices wait a presentation.
 void notices_present(Device* dev, PresentWork* present);
+// A persistent host-owned line; an empty string removes this device's hunting display.
+void notices_hunting(Device*, const char*);
 // Before the swap chain's images go, and before the device goes (the application idled it).
 void notices_swapchain_gone(Device* dev, const std::vector<VkImage>& images);
 void notices_device_gone(Device* dev);

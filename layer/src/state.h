@@ -608,6 +608,7 @@ struct Device {
     // backend of other code that is getting ready to take over.
     std::shared_ptr<GpuAnalysis> gpu_analysis;
     void (*analysis_frame)(Device*, const char*, uint32_t) = nullptr;
+    void (*hunting_overlay)(Device*, const char*) = nullptr;
     bool synchronization2_enabled = false;
     bool character_mode = false; // set once at device creation
     bool character_stopped = false; // the device is going: no backend is staged any more

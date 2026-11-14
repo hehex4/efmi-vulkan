@@ -2602,3 +2602,11 @@ D-216 merged ae3134f. Kept original UAV reference/persistence and explicit Vulka
 Pair/tracker/planner built d217-pair.out; ABI d74cbbb6395229ac/version2.4.7 verified. Failed cases now14/14. d217-regression.out passes storage75, application76/shapes53, bindings48, character115/377, GPU55, tracker277, validation76/text583. Initial extra --only arguments were ignored; corrected separate comma-delimited d217-shaders.out passes game shaders92 and compute91. No game/deployment/system/remote action; root dist2.1.8/historical game2.1.7 unchanged.
 
 Continue D-218 hunting idle and persistent counts. Original RunFrameActions/Input/Overlay was read; the original counts registered action events and clears every idle frame, not arbitrary OS keystrokes or one clear per minute. Ignored drafts and baseline build are listed in CURRENT_STATE. A verified commit does not end this continuation.
+
+## 2026-11-14: D-218 hunting idle collection and persistent counters, 2.4.8
+
+Original RunFrameActions/input/Overlay were read. BUG-102 tracker baseline278/280 and overlay2/4 reproduced idle and missing persistent-display behavior. InputActivity35 uses the original registered dispatcher; idle clearing no longer resets the timer. Host-owned white counts coexist with notices and existing fenced overlay slots. Backend staging prepares hooks without publishing display/analysis callbacks.
+
+Final pair/tracker/planner d218-final-pair.out has ABI70b005da5d190964/version2.4.8 in all four binaries. Failed checks now tracker286/steady8. Hunting-overlay regression d218-regression.out passes tracker286, INI221, analysis55, persistent18, hunting45, Present80, validation76/text585. Delayed GPU readback was visually checked. No game, deployment, system, launcher or remote operation.
+
+Next: mutable native file buffers, with original declaration identity, pinned writable storage and explicit compute synchronization. Ignored build/d219-plan.md and d219-mutable-test.py are prepared; baseline and implementation are still pending. Continue after the local commit/fast-forward.

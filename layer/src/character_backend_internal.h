@@ -762,6 +762,7 @@ private:
     int buffer_slot_ = -1;               // the original's gSelectedVertexBufferSlotId: -1 every slot
     std::map<uint32_t, std::string> target_text_; // a visited render target's description, for its mark
     uint64_t last_key_us_ = 0;
+    uint64_t input_events_ = 0, idle_resets_ = 0;
     std::atomic<uint64_t> skipped_{0};
     uint64_t marks_ = 0, dumps_ = 0;
     std::string last_dump_;
@@ -886,7 +887,7 @@ void character_rescan(CharacterBackend& b);
 // character_backend_index.cpp
 bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const CharacterBackend::Index& index, uint32_t& hash);
 // character_backend_shaders.cpp (docs/vulkan-native-mods.md)
-void shader_hooks_frame(CharacterBackend& b);
+void shader_hooks_frame(CharacterBackend& b, bool presenting = true);
 // What hunting and frame analysis read of a draw whose modules are known; `buffers`: its index and vertex buffers too.
 void draw_facts(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, bool buffers, DrawFacts& facts);
 bool hunting_draw(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, DrawFacts& facts);

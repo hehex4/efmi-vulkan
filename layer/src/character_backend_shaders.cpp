@@ -168,6 +168,7 @@ void Hunting::act(efmi::frontend::HuntingAction action, Device* device, const st
         if (!keys_) return;
         last_key_us_ = host_time_us();
         const int mode = mode_.load(std::memory_order_relaxed);
+        if(action==A::InputActivity){if(mode==1)++input_events_;return;}
         int kind = -1; bool next = false, mark = false;
         switch (action) {
         case A::NextGeometry: kind = Geometry; next = true; break;
@@ -384,12 +385,27 @@ void Hunting::analyse(const DrawRec& r, const DrawFacts& facts)
 
 void Hunting::frame(const std::filesystem::path& folder, Device* device)
 {
-    std::string written, failed, capture;uint32_t options=0;
+    std::string written, failed, capture, overlay;uint32_t options=0;
     {
         std::lock_guard<std::mutex> lock(mx_);
-        if (mode_.load(std::memory_order_relaxed) == 1 && last_key_us_ && host_time_us() - last_key_us_ > 60000000ull) {
-            for (auto& visited : visited_) visited.clear();
-            last_key_us_ = host_time_us();
+        if(mode_.load(std::memory_order_relaxed)==1){
+            // Original overlay counts precede TimeoutHuntingBuffers in RunFrameActions.
+            for(const int kind:{Vertex,Pixel,Compute,Geometry,Domain,Hull,Buffer,Index,Target}){
+                if(kind==Buffer && !has_selected_[kind] && buffer_slot_<0)continue;
+                if((kind==Index || kind==Target) && !has_selected_[kind])continue;
+                const auto& visited=visited_[kind];
+                if(visited.empty() && kind!=Buffer)continue;
+                const auto found=has_selected_[kind]?visited.find(selected_[kind]):visited.end();
+                const size_t position=found==visited.end()?0:size_t(std::distance(visited.begin(),found))+1;
+                if(!overlay.empty())overlay+=' ';
+                overlay+=kKindShort[kind];
+                if(kind==Buffer && buffer_slot_>=0)overlay+=std::to_string(buffer_slot_);
+                overlay+=':'+std::to_string(position)+'/'+std::to_string(position?visited.size():0);
+            }
+            if(!last_key_us_ || host_time_us()-last_key_us_>60000000ull){
+                for(auto& visited:visited_)visited.clear();
+                ++idle_resets_;
+            }
         }
         if (analysing_.load(std::memory_order_relaxed)) {
             ++analysis_frames_;
@@ -418,6 +434,7 @@ void Hunting::frame(const std::filesystem::path& folder, Device* device)
         }
         if(analysing_.load(std::memory_order_relaxed)){capture=analysis_path_.u8string();options=session_options_;}
     }
+    if(device && device->hunting_overlay)device->hunting_overlay(device,overlay.c_str());
     if(device && device->analysis_frame)device->analysis_frame(device,capture.empty()?nullptr:capture.c_str(),options);
     if(!written.empty()){
         logf("Frame analysis saved to %s",written.c_str());
@@ -451,6 +468,7 @@ void Hunting::status(JsonWriter& w)
     }
     w.end_object();
     w.kn("buffer_slot", uint64_t(buffer_slot_ + 1)); // 0: every slot
+    w.kn("input_events",input_events_);w.kn("idle_resets",idle_resets_);
     w.kn("skipped", skipped_.load()); w.kn("marks", marks_); w.kn("dumps", dumps_); w.kv("last_dump", last_dump_);
     w.kn("analysis_frames",analysis_frames_); w.kn("active_options",session_options_); w.kn("analyses", analyses_); w.kb("analysing", analysing_.load(std::memory_order_relaxed));
     w.kv("last_analysis", analyses_ ? analysis_path_.u8string() : std::string());
@@ -523,7 +541,7 @@ void draw_facts(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, bool buffers,
 
 // After the folder generation's presentation, on the presenting thread: the acting hashes of the generation in place
 // (a new one after an F10 exchange), its hunting settings, and the hunting keys its input dispatcher met.
-void shader_hooks_frame(CharacterBackend& b)
+void shader_hooks_frame(CharacterBackend& b, bool presenting)
 {
     native_file_frame(b.native_calls,b.textures.get());
     CharacterProgram* program = b.folder ? b.folder->program : nullptr;
@@ -572,7 +590,8 @@ void shader_hooks_frame(CharacterBackend& b)
     const auto folder = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
     if (program && program->runtime())
         for (const auto action : program->runtime()->take_hunting_actions()) b.hunting.act(action, b.device, folder);
-    b.hunting.frame(folder, b.device);
+    // A staged backend prepares first-draw hooks without publishing into the active host.
+    if(presenting)b.hunting.frame(folder, b.device);
     // The `hunting` operand reads the original's mode (docs/vulkan-native-mods.md section 6).
     if (program && program->runtime()) program->runtime()->hunting_mode(b.hunting.operand());
     if (b.device)

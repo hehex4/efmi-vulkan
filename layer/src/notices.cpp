@@ -33,6 +33,7 @@ struct Raster {
 
 // Overlay.cpp log_levels' colours: Red, OrangeRed, Orange, LimeGreen.
 const uint8_t kColours[4][3] = {{255, 0, 0}, {255, 69, 0}, {255, 165, 0}, {50, 205, 50}};
+const uint8_t kWhite[3] = {255,255,255};
 
 std::wstring wide(const std::string& text)
 {
@@ -52,11 +53,11 @@ Raster rasterize(const std::vector<NoticeLine>& lines, uint32_t pixels, uint32_t
     HFONT font = CreateFontW(-static_cast<int>(pixels), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                              CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Arial");
     HGDIOBJ old_font = font ? SelectObject(dc, font) : nullptr;
-    struct Line { std::wstring text; SIZE size; NoticeLevel level; };
+    struct Line { std::wstring text; SIZE size; NoticeLevel level; bool plain; };
     std::vector<Line> measured;
     uint32_t width = 0, height = 0;
     for (const auto& line : lines) {
-        Line l{wide(line.text), {}, line.level};
+        Line l{wide(line.text), {}, line.level,line.plain};
         if (!GetTextExtentPoint32W(dc, l.text.c_str(), static_cast<int>(l.text.size()), &l.size) || l.size.cy <= 0) continue;
         const uint32_t next = height + (measured.empty() ? 0 : 5) + static_cast<uint32_t>(l.size.cy);
         if (next > max_height) break;
@@ -90,7 +91,7 @@ Raster rasterize(const std::vector<NoticeLine>& lines, uint32_t pixels, uint32_t
             const uint8_t* src = static_cast<const uint8_t*>(bits);
             y = 0;
             for (const auto& l : measured) {
-                const uint8_t* colour = kColours[static_cast<int>(l.level)];
+                const uint8_t* colour = l.plain?kWhite:kColours[static_cast<int>(l.level)];
                 const uint32_t right = std::min(width, static_cast<uint32_t>(l.size.cx) + 3);
                 for (int row = y; row < y + l.size.cy && row < static_cast<int>(height); ++row)
                     for (uint32_t x = 0; x < right; ++x) {
@@ -180,6 +181,9 @@ struct Overlay {
     std::vector<std::unique_ptr<Slot>> slots;
     bool holding = false; // a slot has a text image
     std::vector<NoticeLine> lines;
+    std::vector<NoticeLine> notices;
+    std::string hunting;
+    uint64_t notice_version = 0;
     uint64_t version = 0;   // of the lines
     uint64_t rastered = 0;  // the raster's number
     uint32_t raster_pixels = 0;
@@ -192,6 +196,7 @@ constexpr uint32_t kSlotLimit = 32;
 
 std::mutex g_mx; // the overlays; one presenting thread at a time per device in practice
 std::map<Device*, std::unique_ptr<Overlay>> g_overlays;
+std::map<Device*,std::string> g_hunting;
 struct {
     uint64_t drawn = 0, busy = 0, unsupported = 0, failed = 0, lines = 0;
     std::string last, error;
@@ -575,6 +580,14 @@ void destroy(Overlay& o)
 
 } // namespace
 
+void notices_hunting(Device* dev,const char* text)
+{
+    if(!dev)return;
+    std::lock_guard<std::mutex> lock(g_mx);
+    if(text && *text)g_hunting[dev]=std::string(text).substr(0,2048);
+    else g_hunting.erase(dev);
+}
+
 void notices_present(Device* dev, PresentWork* present)
 {
     if (!dev || dev->passive || !present || !present->info || !present->info->swapchainCount || !present->queue) return;
@@ -604,18 +617,26 @@ void notices_present(Device* dev, PresentWork* present)
         slot->f.DestroyBuffer(slot->device, g_readback.buffer, nullptr); slot->f.FreeMemory(slot->device, g_readback.memory, nullptr);
         g_readback.buffer = VK_NULL_HANDLE; g_readback.memory = VK_NULL_HANDLE; g_readback.written = true;
     }
+    const auto counts=g_hunting.find(dev);
+    const std::string hunting=counts==g_hunting.end()?std::string():counts->second;
     // Nothing shown yet on this device and nothing to show: no Vulkan object is made.
     if (!slot) {
         std::vector<NoticeLine> lines;
         uint64_t version = 0;
-        if (!notices_visible(lines, version) || lines.empty()) return;
+        notices_visible(lines,version);
+        if (lines.empty() && hunting.empty()) return;
         slot = std::make_unique<Overlay>();
         slot->dev = dev; slot->device = dev->handle;
         slot->usable = init(*slot);
         if (!slot->usable) { g_stats.error = "overlay: " + slot->error; logf("notices: no overlay: %s", slot->error.c_str()); }
     }
     Overlay& o = *slot;
-    notices_visible(o.lines, o.version);
+    const bool changed=notices_visible(o.notices,o.notice_version);
+    if(changed || hunting!=o.hunting || !o.version){
+        o.hunting=hunting;o.lines=o.notices;
+        if(!hunting.empty())o.lines.insert(o.lines.begin(),{NoticeLevel::Info,hunting,true});
+        ++o.version;
+    }
     g_stats.lines = o.lines.size();
     if (o.usable && o.lines.empty() && o.holding) release_text(o);
     if (!o.usable || o.lines.empty()) return;
@@ -667,6 +688,7 @@ void notices_swapchain_gone(Device* dev, const std::vector<VkImage>& images)
 void notices_device_gone(Device* dev)
 {
     std::lock_guard<std::mutex> lock(g_mx);
+    g_hunting.erase(dev);
     const auto found = g_overlays.find(dev);
     if (found == g_overlays.end()) return;
     if (found->second) destroy(*found->second);
@@ -684,6 +706,7 @@ void notices_status(JsonWriter& w)
     for (const auto& text : recent) w.str(text);
     w.end_array();
     w.kn("lines", g_stats.lines); w.kn("drawn", g_stats.drawn); w.kn("busy", g_stats.busy);
+    w.kv("hunting",g_hunting.empty()?std::string():g_hunting.begin()->second);
     // The slots made (as many as were pending at once at most) and what their text images hold now.
     uint64_t slots = 0, text_bytes = 0;
     for (const auto& overlay : g_overlays) {

@@ -5,6 +5,15 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.4.8: Hunting idle semantics and persistent counters, D-218 (2026-11-14; sandbox verified)
+
+- D-217 merged a3aef24. Original HackerDXGI RunFrameActions244/301-310, input.cpp572 and Overlay.cpp554-593 read. Registered actions refresh the timer; collections clear before first input and on every idle frame; counts render before clear. DX11 supplies deferred lifetime/hazards/context order; Vulkan retains overlay slots/fences/present dependencies.
+- BUG-102 baselines: isolated tracker278/280 (d218-tracker-build.out/d218-tracker-before.out), persistent overlay2/4 (d218-overlay-before.out). Implemented InputActivity35 through the existing queue, every-idle-frame clearing, host-owned per-device persistent white counts, independent composition/versioning and teardown. Staged backend preparation now suppresses presentation callbacks while retaining initial hook preparation.
+- Initial pair d218-pair.out passed284 tracker/steady8. Final staging correction built d218-final-pair.out; version2.4.8/ABI70b005da5d190964 verified in layer/inject/backend/tracker. Failed cases pass tracker286/286 and steady8/8 (d218-tracker-after.out/d218-overlay-after.out). Delayed fenced pixels were visually checked in hunting-overlay-steady-tvq0af5d/preview.png.
+- Final hunting-overlay area passes d218-regression.out: tracker286, live INI221, analysis controls55, persistent hunting18 (steady, F10, code exchange), hunting shader modes45, owned Present80, validation76, text585. All are offline/sandbox evidence.
+- Review/memory/commit/FF, then continue D-219 mutable native buffers from build/d219-plan.md and d219-mutable-test.py. Original allocation/bind-flag rules read; run the new failing GPU baseline before implementation2.4.9. Private per-declaration cache identity, retained upload publication, no eviction of writable data, explicit compute dependencies and existing queue/sync2 guards are required. Further staging flags review is recorded in that plan. Do not end at this commit.
+- No game/deployment/system/remote action. Root dist2.1.8 and historical game2.1.7 unchanged.
+
 ## Active source 2.4.7: Native formatless storage images, D-217 (2026-11-14; sandbox verified)
 
 - D-216 committed/merged ae3134f. Original UAV reference/binding and DX11 deferred lifetime/hazards/context order were read again. Preserve retained Vulkan ownership, explicit compute barriers and D-216 layout reservations.

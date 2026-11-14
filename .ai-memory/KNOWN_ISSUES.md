@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-102: Hunting idle clearing and persistent counts diverged from the original (fixed offline in D-218, 2.4.8)
+
+- CPU baseline278/280 proves that collections stayed populated before the first key and between successive idle frames; the overlay baseline2/4 has no counts after transient notices expire. Original HackerDXGI RunFrameActions and input.cpp use registered dispatch events, not only hunting keys, and clear every idle frame. Overlay renders counts before clearing.
+- Append InputActivity35 through the existing bounded action queue, preserve the idle timestamp, and publish a bounded per-device count line independent of notice expiry. Backend preparation does not publish display or analysis callbacks until presentation. DX11 supplies deferred lifetime, hazards and context order; Vulkan retains existing overlay slot owners, fences and presentation dependencies.
+- Final pair/tracker/planner d218-final-pair.out has version2.4.8/ABI70b005da5d190964 in all four binaries. Tracker286 and steady overlay8 pass; the affected hunting-overlay regression and exact scope are in CURRENT_STATE. No game or deployment claim.
+
 ## BUG-101: A later storage alias could invalidate a sampled descriptor's layout (fixed offline in D-216, 2.4.6)
 
 - D-216 review found that a binding already in SHADER_READ_ONLY_OPTIMAL created no transition cell, so a later alias in the same plan could move it to GENERAL while its earlier descriptor still named the old layout. Tracker baseline263/264 in d216-conflict-before.out reproduces the conflicting plan.

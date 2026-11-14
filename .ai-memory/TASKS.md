@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-218 verified; continue D-219 mutable native files (2026-11-14)
+
+- Source2.4.8/pair ABI70b005da5d190964 verified. Tracker286, live INI221, analysis controls55, persistent hunting18, hunting shader modes45, owned Present80, validation76/text585 all pass. CURRENT_STATE distinguishes baselines, initial build, final staging correction and exact evidence.
+- Commit/FF after review, then execute build/d219-plan.md and the failing draft d219-mutable-test.py. Keep writable file declarations independent and pinned, reuse retained publication/compute barriers, preserve readonly sharing and queue/sync2 boundaries. Continue offline work after every verified commit; no game/deployment authorization.
+
 ## Active D-217: Formatless storage and precise access compatibility (2026-11-14)
 
 - D-216 merged ae3134f. Source2.4.7/pair ABI d74cbbb6395229ac verified. Baseline8/14, corrected14/14, final tracker277, storage75, application76/shapes53, bindings48, character115+377, GPU55, validation76/text583 and game shaders92/compute91 all pass. Exact evidence in CURRENT_STATE.

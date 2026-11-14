@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "2.4.7"
+#define EFVK_VERSION "2.4.8"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -133,6 +133,7 @@ void notice(NoticeLevel level, const char* key, const char* text);
 struct NoticeLine {
     NoticeLevel level;
     std::string text; // UTF-8
+    bool plain = false; // Persistent hunting counts use white text.
 };
 // The lines to show now; a line's time starts at its first showing, as the original's does. False when
 // they are the ones of `version` (then `lines` is left as it was); `version` follows them.

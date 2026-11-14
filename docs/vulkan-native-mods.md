@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-217. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-218. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -201,8 +201,14 @@ does (the user, 2026-11-12: consider the compatibility with the existing DX11 ro
 - **State** is the layer's, for the process (an F10 reloads `hunting`, `marking_mode`,
   `marking_actions` from the file and keeps the selection, as the original's globals do): the mode
   (1 enabled, 2 soft disabled), the visited sets, the selection per kind, the time of the last key.
-- **Visited**: while enabled, every draw's vertex and fragment module hashes (ascending order, as
-  `std::set`); cleared after 60 seconds without a hunting key and by `done_hunting`.
+- **Visited** (D-218): while enabled, draw module hashes are collected in ascending order. Every
+  registered input action, including Mod keys, refreshes the idle timer. Collections clear on every
+  idle frame before the first action and after 60 seconds without one, or on `done_hunting`.
+- **Persistent counts** (D-218): the host displays VS/PS/CS/GS/DS/HS and selected VB/IB/RT counts
+  independently of transient notices, before idle clearing. An active unselected kind shows `0/0`,
+  as the original. Disable, F10 and device teardown remove stale text; a staged code module cannot
+  publish into the active module's display or analysis session. Existing fenced overlay ownership
+  and presentation dependencies also cover this white count line.
 - **Selection and skip**: `next_`/`previous_` vertex and pixel shader as `HuntNext`/`HuntPrev`; with
   `marking_mode = skip` every draw whose pipeline has the selected module is not forwarded (a draw a Mod
   replaced keeps the Mod's draws, as `hunting_skip` keeps a list's own draws under the original).

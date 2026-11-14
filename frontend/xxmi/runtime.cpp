@@ -909,7 +909,10 @@ bool IniRuntime::present(const RuntimeInput& input, uint64_t frame, float second
         // The keys' lists, the transitions and the Present lists run each command on its own, as the
         // original's (D-155): one a key's list cannot act on ended the whole Present for every Mod before.
         struct Tolerant { DrawPlanAdapter& a; Tolerant(DrawPlanAdapter& adapter) : a(adapter) { a.tolerate_refusals(true); } ~Tolerant() { a.tolerate_refusals(false); } } tolerant(p.adapter);
-        if (RuntimeDispatchInput(&p.device, sampled)) ++p.stats.key_events;
+        if (RuntimeDispatchInput(&p.device, sampled)) {
+            ++p.stats.key_events;
+            p.state.host.hunting.push_back(uint32_t(HuntingAction::InputActivity));
+        }
         if (!p.state.host.hunting.empty()) {
             std::lock_guard<std::mutex> hunting(p.hunting_mx);
             // A host that never takes them (an offline check) keeps the latest few.
