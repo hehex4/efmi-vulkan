@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-236: Frame analysis uses resolved imageless pass instances (2026-11-14)
+
+- Original FrameAnalysis DumpRenderTargets reads actual current RTV resources. DX11 retains references, defers destruction and supplies hazard/context ordering; Vulkan requires exact runtime views, retained allocation owners and explicit transfer/restore dependencies.
+- D-230 already resolves imageless Begin views in a separate immutable framebuffer instance. Analysis now admits that instance when views_resolved is true, preserving unresolved-template refusal and all existing store/usage/format/ownership/layout/subresource limits. Reuse actual final layouts and the existing descriptor-attachment exclusion set; do not read views from the device template or add resource ownership to snapshots.
+- Valid stored-clear baseline2/5 contains no exported images but has normal exit and clean validation. Existing optional fixtures provide byte-level clear, graphics/secondary, discard/usage and layer/multiview coverage; exact final results belong to CURRENT_STATE. No new game evidence.
+
 ## D-235: Synchronization2 private resources use compute stage dependencies (2026-11-14)
 
 - Original command lists reuse the context's current shader/resources and dispatch; DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan stage-limited signals do not justify blanket new ALL_COMMANDS dependencies merely because a resource is privately owned.

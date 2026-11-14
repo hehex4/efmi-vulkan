@@ -363,7 +363,9 @@ public:
                     requests.push_back({value.second.image_view,VkImageLayout(value.second.image_layout),slot,value.first.first,value.first.second});
                 }
             }
-            if(!compute && cb->pass.info && cb->pass.info->known && cb->pass.recipe && cb->pass.recipe->complete && !cb->pass.info->imageless){
+            // Imageless templates own no views; D-230 resolves a separate immutable instance at Begin.
+            if(!compute && cb->pass.info && cb->pass.info->known && cb->pass.recipe && cb->pass.recipe->complete &&
+               (!cb->pass.info->imageless || cb->pass.info->views_resolved)){
                 const auto& attachments=cb->pass.recipe->attachments;
                 for(size_t i=0;i<cb->pass.info->views.size() && i<attachments.size();++i){
                     const auto& view=cb->pass.info->views[i];

@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-236 verified; continue dynamic pass-end analysis (2026-11-14)
+
+- D-235 merged05d500b. Source2.6.6/ABI21722cf8198f0b6d and D-236 implementation/test draft applied after valid GPU baseline2/5. Final pair, four stamps, tracker415, failed clear5/5 and full gpu-imageless area pass; exact evidence in CURRENT_STATE. Review/memory/commit/FF. Valid D-237 dynamic baseline2/5 already recorded; drafts remain unapplied.
+- Continue D-237 ordinary dynamic pass-end analysis, then output destination/pass and queue adapters. No intermediate stopping point or game/deployment authorization.
+
 ## D-235 verified; continue D-236 imageless analysis (2026-11-14)
 
 - Source2.6.5/ABI21722cf8198f0b6d and all D-235 production/clean fixture/integration drafts applied. Valid GPU4/8 and CPU411/415 baselines recorded; excluded host-release experiment and first compile include error are distinguished in CURRENT_STATE.

@@ -911,3 +911,7 @@ Private mutable file buffers and images can be used by direct compute calls with
 New application resource references and indirect-call replay still require separate resource/argument stage adapters in this mode. This does not enable general application image accesses, cross-queue hazards, output rebinding or analysis readback with synchronization2. Legacy synchronization retains its existing behavior.
 
 The sandbox now submits actual core/KHR Submit2 work with a fragment-stage timeline wait and color-stage signal. GPU tests cover independent private declarations, persistent writes, push/secondary paths, F10/module exchange and the guarded cases. A storage/uniform alias test separately verifies three dependent dispatches return3: an intermediate missing UNIFORM_READ mask returned1 despite clean validation. The excluded host-release experiment also stalled without replacements and is not evidence of a layer deadlock or a supported future-wait graph.
+
+## Resolved imageless frame analysis (D-236)
+
+Frame analysis accepts the immutable actual-view instance resolved at BeginRenderPass. Unresolved imageless templates remain unavailable. Existing stored-attachment, owned allocation, transfer usage, format/sample, final-layout and exact layer/multiview checks still apply. The optional imageless sandbox suite verifies exported GPU bytes across clear-only, earlier graphics/secondary, discard/usage and layered/multiview cases; no game verification is implied.
