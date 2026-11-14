@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include "gpu_analysis_export.h"
 
 namespace efvk {
 namespace {
@@ -30,6 +31,7 @@ struct Readback {
     std::shared_ptr<void> source;
     std::shared_ptr<Session> session;
     std::string file, metadata;
+    analysis_export::Image image;
     ~Readback() {
         if (mapped) device->d.UnmapMemory(device->handle, memory);
         if (buffer) device->d.DestroyBuffer(device->handle, buffer, nullptr);
@@ -86,10 +88,10 @@ public:
         JsonWriter w; w.begin_object(); w.kv("state", "scope"); w.kn("analyse_options", options);
         w.kv("scope", "New one-time recordings on one application queue; post-dispatch and end-of-pass GPU copies; no CPU shadows"); w.end_object();
         events.emplace_back(active, w.out); wake.notify_one();
-        // Resource selection and binary buffers are native. Other export/control adapters are explicit gaps.
-        const uint32_t unsupported=options & ~(0x3fu|0x200u|0x20000u|0x80000000u);
-        if(unsupported)refuse(active,"options","Requested analysis controls or encodings need an adapter (mask " +
-            std::to_string(unsupported) + "); selected native raw captures remain available");
+        // Resource and format selection are native. Remaining control adapters are explicit gaps.
+        const uint32_t unsupported=options & ~(0xfffu|0x20000u|0x80000000u);
+        if(unsupported)refuse(active,"options","Requested analysis controls need an adapter (mask " +
+            std::to_string(unsupported) + "); selected captures and supported encodings remain available");
     }
     void refuse(const std::shared_ptr<Session>& session, const char* point, const std::string& reason) {
         if (session->events++ >= 256) return;
@@ -410,7 +412,7 @@ public:
                 const uint32_t width=std::max(1u,image.extent.width>>std::min(mip,31u)),height=std::max(1u,image.extent.height>>std::min(mip,31u));
                 const uint64_t bytes=uint64_t((width+bw-1)/bw)*((height+bh-1)/bh)*block;
                 auto job=allocate(session,bytes,reason);if(!job){refuse(session,point,reason);continue;}
-                job->source=view.lifetime;job->file="image-"+std::to_string(++session->next)+".bin";
+                job->image={image.format,width,height};job->source=view.lifetime;job->file="image-"+std::to_string(++session->next)+".bin";
                 JsonWriter w;w.begin_object();w.kv("point",point);w.kn("command_buffer",cb->id);w.kn("call",cb->draws.size());w.kn("resource",image.id);
                 w.kn("set",r.slot);w.kn("binding",r.binding);w.kn("element",r.element);w.kn("format",image.format);w.kn("width",width);w.kn("height",height);
                 w.kn("mip",mip);w.kn("layer",layer);w.kn("bytes",bytes);w.kv("file",job->file);w.end_object();job->metadata=w.out;
@@ -453,7 +455,10 @@ public:
             for (const auto& job : ready) {
                 const auto path = job->session->directory / job->file;
                 std::ofstream out(path, std::ios::binary); out.write(static_cast<const char*>(job->mapped), std::streamsize(job->bytes)); out.close();
-                auto record = job->metadata; record.pop_back(); record += out ? ",\"state\":\"complete\"}" : ",\"state\":\"write_failed\"}";
+                auto record = job->metadata; record.pop_back();
+                if(out)record += ",\"exports\":" + analysis_export::write(job->session->directory,job->file,job->mapped,
+                    job->bytes,job->metadata,job->image,job->session->options) + ",\"state\":\"complete\"}";
+                else record += ",\"state\":\"write_failed\"}";
                 messages.emplace_back(job->session, std::move(record));
             }
             for (const auto& event : messages) { std::ofstream out(event.first->directory / "resources.jsonl", std::ios::binary | std::ios::app); out << event.second << '\n'; }

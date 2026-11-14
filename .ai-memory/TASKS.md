@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-214: Completed GPU file encodings (2026-11-14)
+
+- D-213 merged fa6e115. D-214 baseline9/15, source2.4.4 verified. Worker integration corrected and pair/tracker2.4.4 built/stamps verified. Failed cases now41/41; final formats148, selection94, GPU resources55, image shapes47, targets43, tracker260, validation76 and text580 pass. Details and exact next actions in CURRENT_STATE.
+- Review/sync/commit/FF. Then D-215 key hold/release from ignored drafts and native writable/target/queue adapters without ending at an intermediate milestone. No game/deployment authorization.
+
 ## Active D-213: analyse_options resource selection (2026-11-14)
 
 - D-212 merged as1de133c. Source/pair2.4.3 verified, ABI22781b9e63b58c08. Selection94, GPU resources55, geometry65, indirect121, image shapes47, targets43, live INI221, native compute91, tracker260, validation76 and text578 pass. CURRENT_STATE distinguishes original failures and the corrected fixture. Review/sync/commit/FF.

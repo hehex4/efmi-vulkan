@@ -404,7 +404,7 @@ void Hunting::frame(const std::filesystem::path& folder, Device* device)
             std::error_code error;
             std::filesystem::create_directories(folder, error);
             if (std::filesystem::create_directory(analysis_path_, error)) {
-                analysis_ = "analyse_options: " + std::to_string(analysis_options_) + "\nGPU exports: native raw bytes with explicit format/scope refusals in resources.jsonl\n";
+                analysis_ = "analyse_options: " + std::to_string(analysis_options_) + "\nGPU exports: native raw bytes and requested encodings with explicit scope refusals in resources.jsonl\n";
                 analysed_draws_ = 0;
                 analysing_.store(true, std::memory_order_relaxed);
             } else failed = analysis_path_.u8string();

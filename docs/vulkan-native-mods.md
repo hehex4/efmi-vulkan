@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-213. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-214. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -238,7 +238,7 @@ does (the user, 2026-11-12: consider the compatibility with the existing DX11 ro
   (`DrawIndexedInstanced(...)`, `DrawInstanced(...)`, the indirect forms); a notice says where.
   D-202 adds completed GPU buffer/image exports and D-203 adds geometry, within the explicit capture
   scope described below. D-213 applies the original global `analyse_options` resource categories;
-  encoding/control flags and per-draw analysis commands still need adapters.
+  D-214 adds requested file encodings; control flags and per-draw analysis commands still need adapters.
 - **What the player sees**: a notice per key with the selection (`PS 3/40: 8a1b2c3d`, `IB 2/5: ...`,
   `RT 1/1: image 7`) in place of the overlay's line. The status has a `hunting` object (mode, marking
   mode, the visited counts and selections of the nine kinds, the vertex buffer slot, draws skipped,
@@ -268,7 +268,7 @@ notices while playing; whether any game pipeline has no module hash (inline modu
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
    transfer-source resources and supported owned layouts. Broader capture synchronization,
-   dynamic vertex input, encoding/control options and per-draw analysis commands remain work.
+   dynamic vertex input, control options and per-draw analysis commands remain work.
    D-208 adds indirect argument/count data; D-212 adds bounded mip/layer cells; D-213 adds resource selection.
 4. Real-game shader/hunting/replacement acceptance and performance measurements require the user's
    authorization for that session. Sandbox results cannot settle them. See the current state and
@@ -693,6 +693,30 @@ copies. F10 loads the new selection, frozen for each analysis session. Indirect 
 accompany selected captures as native call metadata. Clear-only passes do not export stale shader
 descriptors from an earlier pass.
 
-Exports remain native raw files. Unsupported requested encodings/control flags produce explicit
-options records in `resources.jsonl`; DDS/JPEG/text, hold/clear and per-draw command-list options
-are separate offline work. Existing capture ownership, completion, queue and layout guards remain.
+D-213 exports native raw files and reports unsupported requested encodings/control flags in
+`resources.jsonl`. D-214 below adds the format encoders. Hold/clear and per-draw command-list options
+remain separate work. Existing capture ownership, completion, queue and layout guards remain.
+
+### Completed GPU export formats (D-214, 2.4.4; verification in CURRENT_STATE)
+
+Canonical `.bin` files keep the completed GPU bytes. The same manifest record now has an `exports`
+array for the requested tool formats, with independent file names and completion/refusal outcomes:
+
+- `dds`: a typed DX10 DDS for each captured color cell, preserving its bytes and dimensions. The
+  original resource mip/layer remains in the native manifest; the file itself is one 2D cell.
+- `jpg`, `jpeg` or `jps`: mono JPEG through WIC for supported normalized color/grayscale formats.
+  Alpha is omitted and JPEG is lossy. Typed integer or unsupported conversions are reported.
+- `jpg_dds` and aliases, or no image format: JPEG first, lossless DDS when JPEG is unavailable.
+- `buf`: an exact binary buffer span; `txt`: generic native words with byte offset, hex, unsigned
+  integer and float interpretations. It does not invent DX11 input-layout semantic names.
+- `desc`: JSON describing the native captured resource, span and use in a `.dsc` file.
+
+Absent buffer formats default to text when CB/VB/IB categories are requested, following the original
+format selection. Files are produced on the completion worker after the existing GPU synchronization;
+encoders issue no Vulkan commands. Unsupported format mappings preserve the canonical raw data and
+report the failed requested artifact. Control flags and per-draw options remain separate adapters.
+
+The layout follows [Microsoft's DDS header definitions](https://github.com/microsoft/DirectXTK/blob/main/Src/DDS.h),
+and JPEG uses [WIC frame encoding](https://learn.microsoft.com/en-us/windows/desktop/wic/-wic-imp-iwicbitmapframeencode).
+Tests verify actual GPU bytes inside DDS, decoded JPEG colors, text words, descriptions and fallback,
+plus existing capture and selection behavior. CURRENT_STATE records the exact verification result.

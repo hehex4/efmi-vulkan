@@ -2553,3 +2553,19 @@ rebuilt sandbox, failed cases14/14 and affected selection/resources94/55 pass. A
 in CURRENT_STATE. Text578 clean; diff reviewed. Commit/FF, then continue D-214 formats and D-215
 hold/release without ending at the commit. Root dist2.1.8/historical game2.1.7 unchanged; no game,
 deployment, launcher, system or remote action.
+
+## 2026-11-14: Encode completed GPU resource exports (D-214, 2.4.4)
+
+Original completed staging/DDS/WIC/buffer encoder behavior informed a private CPU export helper.
+Canonical native raw files retain actual GPU bytes; requested DDS/JPEG/binary/text/description
+artifacts have independent outcomes. DDS preserves exact typed cells; normalized JPEG uses WIC,
+automatic mode falls back to DDS; unsupported typed conversions remain explicit. Generic text
+contains native words and offsets, not invented DX11 input semantics. No GPU scheduling changes.
+
+Baseline9/15 became41/41. An initial build failed at an unapplied integration marker; corrected
+only after it exited. Final pair/tracker built d214-fixed-pair.out, ABI22781b9e63b58c08 and2.4.4
+verified. analysis-formats area passes formats148, selection94, GPU resources55, image shapes47,
+targets43, tracker260, validation76 and text580 (d214-regression.out). Diff reviewed and memory
+synchronized; commit/FF then continue D-215 hold/release from ignored drafts. D-216 original UAV
+binding review/design is recorded in build/d216-plan.md. Root dist2.1.8 and historical game2.1.7
+unchanged; no game, deployment, system, launcher or remote action.

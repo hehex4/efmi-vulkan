@@ -5,6 +5,13 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.4.4: Completed GPU export formats, D-214 (2026-11-14; sandbox verified)
+
+- D-213 committed/merged fa6e115. Original FrameAnalysis Dump2DResourceImmediateCtx/DumpBufferImmediateCtx and default format selection read. DX11 supplies deferred ownership/hazards/context order; Vulkan retains explicit staging and completion worker.
+- New baseline9/15 (d214-before.out) has no DDS/JPEG/text exports. Private CPU helper supports exact per-cell typed DX10 DDS, normalized WIC JPEG/automatic DDS fallback, native binary/text and metadata descriptions; canonical raw files remain. Supported format bits leave the refusal mask, controls remain explicit. Draft helper compiled separately (d214-helper-compile.out).
+- Initial d214-pair.out failed only at the leftover integration marker. Corrected after that build ended; fixed host/module/tracker built d214-fixed-pair.out. ABI22781b9e63b58c08 and version2.4.4 verified in all four binaries. Previously failed cases now41/41 (d214-after.out), including DDS payloads, actual decoded JPEG colors and buffer text/binary/description output. Full analysis-formats area passes in d214-regression.out: formats148, selection94, GPU resources55, image shapes47, targets43, tracker260, Vulkan validation76 and text580. Review/sync/commit/FF, then D-215 hold/release from build/d215-plan.md, d215-control-test.py, d215-integrate.py and d215-frame.cpp (draft syntax checked, not applied). D-216 original UAV GetResource/SetResource and current explicit compute barriers were reviewed; build/d216-plan.md records storage-image design and required failing fixture. Later broader writable/target/queue adapters; do not end at a commit.
+- Root dist2.1.8/historical game2.1.7 unchanged. No deployment/game/system/remote action.
+
 ## Active source 2.4.3: Analysis resource selection, D-213 (2026-11-14; sandbox verified)
 
 - D-212 committed/merged as1de133c. Original Hunting.cpp2056/FrameAnalysisOptionNames/FrameAnalysisAfterDraw2875 select RT/UAV, SRV, CB, VB and IB categories; absent options is0/log only. DX11 supplies deferred lifetime, hazards and context order. Keep explicit Vulkan jobs/completion.

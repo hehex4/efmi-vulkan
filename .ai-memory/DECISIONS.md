@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-214: Encode completed native staging data on the CPU worker (2026-11-14)
+
+- Original FrameAnalysis maps staged resources before DDS/WIC and buffer encoders, choosing default JPEG with DDS fallback and text for explicit CB/VB/IB selection. DX11 supplies deferred reference lifetime, hazards and context order. Vulkan keeps explicit resource owners, barriers and submission completion.
+- Add requested encodings beside canonical native raw files, with per-artifact outcomes. DDS uses an exact typed DX10 format and one captured mip/layer cell; JPEG uses supported normalized colors/grayscale, automatic mode falls back to DDS. Buffer text reports generic native byte-offset/hex/uint/float words, not invented DX11 vertex semantics. Description files contain native metadata.
+- Format errors are explicit and do not discard valid raw GPU data. Encoding runs only after completion, issues no device work and does not change capture synchronization. Controls/per-draw options remain separate. Primary file/encoder references are recorded in build/d214-plan.md and the route document at verification.
+
 ## D-213: Original analyse_options selects native capture resource classes (2026-11-14)
 
 - Original Hunting parsing and FrameAnalysisAfterDraw select DUMP_RT/UAV1, depth2, SRV4, CB8, VB16 and IB32. No selection means log only. DX11 supplies lifetime/hazards/context order; Vulkan retains explicit staged jobs and completion.
