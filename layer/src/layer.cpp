@@ -828,14 +828,16 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdFillBuffer(VkCommandBuffer cmd, VkBuffer dst, V
 template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dynamic, const Info* info)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        // Resolve this pass's late attachments before native pre-pass conflict checks.
+        // The driver has not begun the pass; keep in_rp false until dependencies are recorded.
+        on_begin_targets(dev, cb, info);
+        on_begin_pass(dev, cb, info);
         native_images_begin(dev,cb,info);
         cb->in_rp = true;
         if (dynamic)
             cb->dyn_rp_count++;
         else
             cb->rp_count++;
-        on_begin_targets(dev, cb, info);
-        on_begin_pass(dev, cb, info);
         on_image_pass(dev, cb);
     }
 }

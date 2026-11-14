@@ -32,6 +32,11 @@ D-229 native call state obtains rt_width/rt_height from known output0 resource d
 2D/MS views. Unknown source metadata stays unknown; absent/non-2D views preserve original -1
 semantics. View mip size and framebuffer/render-area size are never substituted.
 
+D-230 resolves imageless views into immutable per-pass framebuffer metadata before native
+pre-pass dependencies. The shared framebuffer template stays unresolved; exact runtime views drive
+implicit layout changes and native attachment conflict proof. Missing/unknown Begin metadata
+cannot reuse earlier facts. Target history retains metadata, never allocation owners.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

@@ -291,6 +291,7 @@ struct TargetView {
 struct FramebufferInfo {
     uint32_t id = 0, width = 0, height = 0, layers = 0, attachment_count = 0;
     bool known = false, imageless = false;
+    bool views_resolved = false; // Imageless runtime views are per-pass metadata, never the device template.
     std::vector<TargetView> views;
 };
 struct RenderTargets {

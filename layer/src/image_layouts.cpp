@@ -37,7 +37,7 @@ void on_image_pass(Device* device, CmdBuf* cb, bool ending)
     const auto& pass = cb->pass;
     // Dynamic rendering does not perform implicit layout transitions.
     if (!pass.render_pass) return;
-    if (!pass.info || !pass.info->known || pass.info->imageless || !pass.recipe || !pass.recipe->complete ||
+    if (!pass.info || !pass.info->known || (pass.info->imageless && !pass.info->views_resolved) || !pass.recipe || !pass.recipe->complete ||
         pass.subpass >= pass.recipe->subpasses.size()) { cb->image_layouts.invalidate_all(); return; }
     const auto& recipe = *pass.recipe;
     uint32_t views = 0;

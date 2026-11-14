@@ -232,6 +232,7 @@ struct App {
     bool geometry_shader_scene = false;
     int extended_raster = 0;
     int restart_mode = 0;
+    bool imageless = false;
     bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
@@ -582,6 +583,8 @@ static bool create_device()
     if(g.dynamic_geometry>=4){input_dynamic.vertexInputDynamicState=VK_TRUE;input_dynamic.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&input_dynamic;}
     VkPhysicalDeviceExtendedDynamicState2FeaturesEXT extended2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT};
     if(g.restart_mode==2){extended2.extendedDynamicState2=VK_TRUE;extended2.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&extended2;}
+    VkPhysicalDeviceImagelessFramebufferFeatures imageless{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
+    if(g.imageless){imageless.imagelessFramebuffer=VK_TRUE;imageless.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&imageless;}
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
     if(g.restart_mode){dynamic_restart=reinterpret_cast<PFN_vkCmdSetPrimitiveRestartEnable>(vkGetDeviceProcAddr(g.device,g.restart_mode==2?"vkCmdSetPrimitiveRestartEnableEXT":"vkCmdSetPrimitiveRestartEnable"));if(!dynamic_restart)return false;}
     if(g.extended_raster){
@@ -742,6 +745,12 @@ static bool create_swapchain()
         fb.width = g.extent.width;
         fb.height = g.extent.height;
         fb.layers = 1;
+        VkFramebufferAttachmentImageInfo image_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_ATTACHMENT_IMAGE_INFO};
+        image_info.usage=info.imageUsage;image_info.width=g.extent.width;image_info.height=g.extent.height;image_info.layerCount=1;
+        image_info.viewFormatCount=1;image_info.pViewFormats=&g.format;
+        VkFramebufferAttachmentsCreateInfo attachment_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_ATTACHMENTS_CREATE_INFO};
+        attachment_info.attachmentImageInfoCount=1;attachment_info.pAttachmentImageInfos=&image_info;
+        if(g.imageless){fb.flags=VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT;fb.pAttachments=nullptr;fb.pNext=&attachment_info;}
         CHECK(vkCreateFramebuffer(g.device, &fb, nullptr, &g.framebuffers[i]));
     }
     return true;
@@ -1703,6 +1712,8 @@ static bool render_frame()
     rp.renderArea.extent = g.extent;
     rp.clearValueCount = 1;
     rp.pClearValues = &clear;
+    VkRenderPassAttachmentBeginInfo late_views{VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
+    late_views.attachmentCount=1;late_views.pAttachments=&g.views[image];if(g.imageless)rp.pNext=&late_views;
 
     if (g.threads == 0) {
         vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_INLINE);
@@ -1935,6 +1946,8 @@ int wmain(int argc, wchar_t** argv)
             g.geometry_capture = true;
         else if (a == L"--geometry-odd")
             g.geometry_odd = true;
+        else if (a == L"--imageless")
+            g.imageless = true;
         else if (a == L"--native-target")
             capture_target.enabled = capture_target.draw = true;
         else if (a == L"--capture-target")

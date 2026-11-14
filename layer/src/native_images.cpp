@@ -350,7 +350,7 @@ void order_native_graphics(Device* device,CmdBuf* cb)
 }
 }
 
-void native_images_begin(Device* device, CmdBuf* cb, const VkRenderPassBeginInfo* info)
+void native_images_begin(Device* device, CmdBuf* cb, const VkRenderPassBeginInfo*)
 {
     order_native_graphics(device,cb);
     if (!device->track_image_layouts.load(std::memory_order_relaxed) && !cb->native_images) return;
@@ -358,10 +358,10 @@ void native_images_begin(Device* device, CmdBuf* cb, const VkRenderPassBeginInfo
     auto& state = *cb->native_image_state;
     {
         std::shared_lock<std::shared_mutex> lock(device->res_mx);
-        const auto framebuffer = device->framebuffers.find(info->framebuffer);
-        if (framebuffer != device->framebuffers.end() && framebuffer->second->known && !framebuffer->second->imageless) {
+        const auto& framebuffer = cb->pass.info;
+        if (framebuffer && framebuffer->known && (!framebuffer->imageless || framebuffer->views_resolved)) {
             state.attachments_known = true;
-            for (const auto& view : framebuffer->second->views)
+            for (const auto& view : framebuffer->views)
                 if (view.known) state.attachments.insert(view.image.id); else state.attachments_known = false;
         }
     }

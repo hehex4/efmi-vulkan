@@ -47,6 +47,12 @@ static bool create_capture_target()
     VkFramebufferCreateInfo framebuffer{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
     framebuffer.renderPass = s.pass; framebuffer.attachmentCount = 1; framebuffer.pAttachments = &s.view;
     framebuffer.width = framebuffer.height = 4; framebuffer.layers = s.layered && !s.mip_view && !g.capture_multiview?2:1;
+    VkFramebufferAttachmentImageInfo image_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_ATTACHMENT_IMAGE_INFO};
+    image_info.usage=image.usage;image_info.width=image_info.height=4;image_info.layerCount=view.subresourceRange.layerCount;
+    image_info.viewFormatCount=1;image_info.pViewFormats=&image.format;
+    VkFramebufferAttachmentsCreateInfo attachment_info{VK_STRUCTURE_TYPE_FRAMEBUFFER_ATTACHMENTS_CREATE_INFO};
+    attachment_info.attachmentImageInfoCount=1;attachment_info.pAttachmentImageInfos=&image_info;
+    if(g.imageless){framebuffer.flags=VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT;framebuffer.pAttachments=nullptr;framebuffer.pNext=&attachment_info;}
     CHECK(vkCreateFramebuffer(g.device, &framebuffer, nullptr, &s.framebuffer));
     return true;
 }
@@ -61,6 +67,8 @@ static void record_capture_target(VkCommandBuffer command, bool after_graphics)
         VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         begin.renderPass = s.pass; begin.framebuffer = s.framebuffer; begin.renderArea.extent = {4, 4};
         begin.clearValueCount = 1; begin.pClearValues = &clear;
+        VkRenderPassAttachmentBeginInfo late_views{VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
+        late_views.attachmentCount=1;late_views.pAttachments=&s.view;if(g.imageless)begin.pNext=&late_views;
         vkCmdBeginRenderPass(command, &begin, VK_SUBPASS_CONTENTS_INLINE);
         if(s.draw){record_setup(command);record_draw(command,0); }
         vkCmdEndRenderPass(command);

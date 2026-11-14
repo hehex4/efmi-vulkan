@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-230 verified; continue D-231 dynamic-rendering shader twins (2026-11-14)
+
+- Source2.6.0/ABI9bea4e5074840e2a pair/sandbox/tracker and native-imageless area pass. CURRENT_STATE records exact baseline, stamps and results; all D-230 drafts applied. Review/memory/commit/FF.
+- Continue immediately with D-231 UNAPPLIED fixture/implementation/CPU case drafts in build. Isolated valid baseline4/8 proves the native pipeline gap with clean validation/live readback. Then dynamic attachment conflicts, output destinations/pass adapters and queue graphs. No intermediate stopping point or deployment/game authorization.
+
 ## D-229 verified; continue D-230 imageless attachments (2026-11-14)
 
 - D-228 merged63dc8de. D-229 valid GPU baseline2/3 with6418 original mesh pixels; original ProcessParamRTSize read. Implementation and optional mip fixture APPLIED, source2.5.9/ABI9c6cf6d44e374cc3. Build d229-pair.out completed; four stamps/tracker354/actual sizes20 pass. Native-target-size area passes d229-regression.out: shaders92, sizes20, targets30, validation76/text604. All processes exited. CURRENT_STATE records exact evidence and D-230 prepared baseline2/4 with live readback/clean validation.

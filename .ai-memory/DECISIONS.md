@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-230: Imageless attachment context is resolved per pass (2026-11-14)
+
+- Original OMGetRenderTargets supplies the current RTV views; DX11 owns retained/deferred lifetime, hazards and one-context order. Vulkan imageless views arrive at Begin. They must establish exact per-instance layout transitions and attachment conflicts, rather than being inferred from the framebuffer template.
+- The host resolves target metadata before native pre-pass dependencies, while in_rp remains false until those commands finish. A private FramebufferInfo copy owns metadata only and marks its runtime views resolved. The shared device template and prior pass snapshots never change. Existing layout/mip/layer/multiview/final-state logic then consumes this exact list.
+- Missing/malformed/unknown Begin descriptions remain unresolved and discard stale layout facts. Native image conflicts still reject overlapping or unknown attachments. Persistent image references keep metadata tracking active after shader hooks disable. Secondary parent contexts and submission limits are unchanged.
+- Four matching 2.6.0/ABI9bea4e5074840e2a binaries, tracker367, actual failed owned sampling4/4 and the full scoped native-imageless area pass. Exact baseline and area evidence is in CURRENT_STATE. No real-game evidence is implied.
+
 ## D-229: Native target-size operands use RTV0 resource dimensions (2026-11-14)
 
 - Original ProcessParamRTSize in CommandList3050 gets RTV0, accepts Texture2D/Texture2DMS views and reads full resource Width/Height. DX11 owns retained getter references, deferred lifetime, hazards and context order. Vulkan reuses D-228's exact source metadata; no GPU read or resource transition is added.

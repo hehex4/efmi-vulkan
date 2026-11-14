@@ -922,6 +922,7 @@ static void immutable_sampler_lifetime()
 
 #include "resource_lifetime_cases.h"
 #include "native_target_cases.h"
+#include "imageless_context_cases.h"
 #include "image_layout_cases.h"
 #include "image_layout_tracker_cases.h"
 #include "native_storage_cases.h"
@@ -951,6 +952,7 @@ int main()
     immutable_sampler_lifetime();
     native_resource_lifetimes();
     native_target_cases();
+    imageless_context_cases();
     native_descriptor_references();
     native_image_scope_lifetime();
     native_image_layout_conflicts();
