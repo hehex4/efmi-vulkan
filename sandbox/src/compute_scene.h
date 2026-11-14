@@ -59,10 +59,11 @@ static bool create_compute_scene()
     const uint32_t groups[3] = {1, 1, 1}; memcpy(c.arguments.map, groups, 12);
     VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     VkDescriptorSetLayoutCreateInfo si = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    VkDescriptorSetLayoutBinding bindings[4]={binding,binding,binding,binding};bindings[1].binding=1;bindings[2].binding=2;bindings[3].binding=3;bindings[3].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    VkDescriptorSetLayoutBinding bindings[5]={binding,binding,binding,binding,binding};bindings[1].binding=1;bindings[2].binding=2;bindings[3].binding=3;bindings[3].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     if(c.image_input)bindings[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    if(g.texture_shape)bindings[3]={3,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_COMPUTE_BIT,&g.sampler};
-    si.bindingCount = !c.reference_shader_path.empty() || g.texture_shape?4:c.binding_scene?3:1; si.pBindings = bindings;
+    const uint32_t sampler_slot=c.reference_shader_path.empty()?3:4;
+    if(g.texture_shape)bindings[sampler_slot]={sampler_slot,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_COMPUTE_BIT,&g.sampler};
+    si.bindingCount = g.texture_shape?sampler_slot+1:!c.reference_shader_path.empty()?4:c.binding_scene?3:1; si.pBindings = bindings;
     if(c.binding_scene && g.descriptor_mode>=2)si.flags=VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
     CHECK(vkCreateDescriptorSetLayout(g.device, &si, nullptr, &c.set_layout));
     VkPipelineLayoutCreateInfo li = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -117,17 +118,18 @@ static void bind_compute_descriptors(VkCommandBuffer cmd)
         VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.input.buf,0,16}};
         if(g.descriptor_mode==3)vkCmdPushDescriptorSetWithTemplateKHR(cmd,c.update_template,c.layout,0,buffers);
         else{
-            VkWriteDescriptorSet writes[4]{};
+            VkWriteDescriptorSet writes[5]{};
             for(uint32_t i=0;i<3;++i){writes[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[i].dstBinding=i;
                 writes[i].descriptorCount=1;writes[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;writes[i].pBufferInfo=&buffers[i];}
             VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:c.reference_images[0].view?c.reference_images[0].view:g.shaped_texture_view?g.shaped_texture_view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
             if(c.image_input){writes[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[2].pImageInfo=&image;writes[2].pBufferInfo=nullptr;}
             VkDescriptorImageInfo destination{VK_NULL_HANDLE,c.reference_images[1].view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
             if(destination.imageView){writes[3]=writes[2];writes[3].dstBinding=3;writes[3].pImageInfo=&destination;}
-            VkDescriptorImageInfo sampler{g.sampler,VK_NULL_HANDLE,VK_IMAGE_LAYOUT_UNDEFINED};
-            if(g.texture_shape){writes[3].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[3].dstBinding=3;
-                writes[3].descriptorCount=1;writes[3].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLER;writes[3].pImageInfo=&sampler;}
-            vkCmdPushDescriptorSetKHR(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,c.layout,0,destination.imageView || g.texture_shape?4:3,writes);
+            VkDescriptorImageInfo sampler_info{g.sampler,VK_NULL_HANDLE,VK_IMAGE_LAYOUT_UNDEFINED};
+            uint32_t count=destination.imageView?4:3;
+            if(g.texture_shape){auto& sampler=writes[count];sampler.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;sampler.dstBinding=count;
+                sampler.descriptorCount=1;sampler.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLER;sampler.pImageInfo=&sampler_info;++count;}
+            vkCmdPushDescriptorSetKHR(cmd,VK_PIPELINE_BIND_POINT_COMPUTE,c.layout,0,count,writes);
         }
     }else vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, c.layout, 0, 1, &c.set, 0, nullptr);
 }

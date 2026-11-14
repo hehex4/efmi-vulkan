@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-210: Retained application views cover their full mip/layer range (2026-11-14)
+
+- Original ResourceCopyTarget GetResource/SetResource keeps and rebinds the exact stage SRV, including array/cube shape. DX11 supplies deferred reference lifetime, hazard tracking and one-context order. Extend D-206's explicit Vulkan recording-local ownership/layout path rather than infer global state from recording order.
+- Accept exact non-depth float sampled 2D, 2D-array, cube and cube-array consumer shapes. Normalize remaining-range constants and bound the nonzero mip*layer product to1024. Every view cell participates in layout validation, temporary sampling transitions, restored layouts and persistent descriptor refresh; partial views use their original base mip/layer.
+- CUBE_COMPATIBLE is the only added safe creation flag. Unknown extensions, mutable flags, unsupported usages/scalars, queue/synchronization2 graphs, unknown local layouts and unresolved attachment overlaps remain guarded. The capture adapter keeps its separate explicit image.flags/subresource checks and is not broadened by this view feature.
+- Fixture reads distinct values from every view cell before/after source writes, GENERAL refresh and application rebind, including partial views and shape mismatch refusal. Baseline12/24; exact builds and final evidence are in CURRENT_STATE. No game/deployment action.
+
 ## D-209: Native file resources preserve sampled array/cube shapes (2026-11-14)
 
 - Original CommandList.cpp LoadFromFile (6594) and FillOutTex2DDesc (11727 onward) load full DDS resources and preserve their SRV shape. DX11 supplies reference-counted deferred lifetime, hazard tracking and one-context order. Vulkan keeps the existing owned upload, timeline publication and retained descriptor chain.

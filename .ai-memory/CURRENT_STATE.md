@@ -5,6 +5,14 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.4.0: Application array/cube views, D-210 (2026-11-14; sandbox verified)
+
+- D-209 committed and merged as 803cc72. Original GetResource/SetResource retains the exact stage SRV. DX11 supplies deferred reference lifetime, hazard tracking and context order; Vulkan preserves D-206 recording-local facts and explicit ownership/synchronization.
+- Exact sampled 2D/array/cube consumer shape matching, bounded nonzero mip*layer ranges, and layout/transition cells across every view layer are implemented. CUBE_COMPATIBLE is the only extra safe creation flag; GPU capture retains its separate flags/subresource guards. Queue/sync2, float/nondepth, usage, ownership, attachment-overlap and unknown-layout guards remain.
+- Fixture baseline12/24 (d210-before.out). Host/module/tracker built in d210-pair.out, ABI97d3399f4a32ac23 and2.4.0 verified in layer/inject/backend/tracker. Mismatch fixture rebuilt in d210-mismatch-fixture.out. Final application-image-shapes area passes application shapes53, application images76, file shapes33, bindings48, GPU analysis55, tracker260, validation76 and text576 (d210-regression.out). This covers every mip/layer, partial views, temporary restoration, persistent refresh, application rebinding, push/secondary paths and shape mismatch refusal.
+- Review/sync/commit/FF, then continue narrow DDS formats/aligned staging from build/d211-plan.md. Color capture subresources, analysis selection, render-target binding and submission graphs remain offline engineering. No intermediate final answer.
+- Root dist2.1.8 and historical game2.1.7 unchanged. No game/deployment/system/remote action.
+
 ## Active source 2.3.9: Native file arrays and cubes, D-209 (2026-11-14; sandbox verified)
 
 - D-208 committed and merged as e18df95. Original CommandList.cpp LoadFromFile (6594) and FillOutTex2DDesc (11727 onward) preserve resource layers/cube shapes. DX11 supplies deferred reference lifetime, hazard tracking and context order; Vulkan keeps the retained upload/publication chain.

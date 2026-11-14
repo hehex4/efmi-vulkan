@@ -1,11 +1,15 @@
 // Distinct application images, persistent descriptor use and layout restoration on the GPU.
 static void bind_compute_descriptors(VkCommandBuffer);
+static uint32_t reference_layers() { return g.texture_shape==3?12:g.texture_shape==2?6:g.texture_shape==1?3:1; }
+static uint32_t reference_mips() { return g.texture_shape?3:1; }
 static bool create_reference_images()
 {
     auto& c=compute_scene;
     for(auto& result:c.reference_images){
         VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};image.imageType=VK_IMAGE_TYPE_2D;
-        image.format=VK_FORMAT_R8G8B8A8_UNORM;image.extent={1,1,1};image.mipLevels=image.arrayLayers=1;
+        image.format=VK_FORMAT_R8G8B8A8_UNORM;image.extent={g.texture_shape?4u:1u,g.texture_shape?4u:1u,1};
+        image.mipLevels=reference_mips();image.arrayLayers=reference_layers();
+        if(g.texture_shape>=2)image.flags=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
         image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
         image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         CHECK(vkCreateImage(g.device,&image,nullptr,&result.image));
@@ -14,7 +18,10 @@ static bool create_reference_images()
         VkMemoryAllocateInfo memory{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};memory.allocationSize=requirements.size;memory.memoryTypeIndex=index;
         CHECK(vkAllocateMemory(g.device,&memory,nullptr,&result.memory));CHECK(vkBindImageMemory(g.device,result.image,result.memory,0));
         VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=result.image;
-        view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=image.format;view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+        view.viewType=g.texture_shape==3?VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:g.texture_shape==2?VK_IMAGE_VIEW_TYPE_CUBE:g.texture_shape==1?VK_IMAGE_VIEW_TYPE_2D_ARRAY:VK_IMAGE_VIEW_TYPE_2D;
+        view.format=image.format;view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,reference_mips(),0,reference_layers()};
+        if(g.reference_partial)view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,1,2,1,2};
+        if(g.reference_narrow && &result==&c.reference_images[1]){view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.subresourceRange.layerCount=1;}
         CHECK(vkCreateImageView(g.device,&view,nullptr,&result.view));
     }
     FILE* file=nullptr;_wfopen_s(&file,c.reference_shader_path.c_str(),L"rb");if(!file)return false;
@@ -36,14 +43,16 @@ static void reference_transition(VkCommandBuffer cmd,VkImage image,VkImageLayout
     barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     barrier.oldLayout=before;barrier.newLayout=after;barrier.image=image;
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-    barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+    barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,reference_mips(),0,reference_layers()};
     vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
 }
 static void reference_clear(VkCommandBuffer cmd,VkImage image,float value)
 {
-    VkClearColorValue color{};color.float32[0]=value/255.0f;color.float32[3]=1;
-    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
-    vkCmdClearColorImage(cmd,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&color,1,&range);
+    for(uint32_t layer=0;layer<reference_layers();++layer)for(uint32_t mip=0;mip<reference_mips();++mip){
+        VkClearColorValue color{};color.float32[0]=(value+layer*3+mip)/255.0f;color.float32[3]=1;
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT,mip,1,layer,1};
+        vkCmdClearColorImage(cmd,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&color,1,&range);
+    }
 }
 static void initialize_reference_images(VkCommandBuffer cmd)
 {

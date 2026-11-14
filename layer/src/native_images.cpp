@@ -49,9 +49,9 @@ bool range_of(const ImageResource& resource, VkImageSubresourceRange& range)
     if (range.baseMipLevel >= resource.levels || range.baseArrayLayer >= resource.layers) return false;
     if (range.levelCount == VK_REMAINING_MIP_LEVELS) range.levelCount = resource.levels - range.baseMipLevel;
     if (range.layerCount == VK_REMAINING_ARRAY_LAYERS) range.layerCount = resource.layers - range.baseArrayLayer;
-    return range.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT && range.levelCount && range.layerCount == 1 &&
+    return range.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT && range.levelCount && range.layerCount &&
         range.levelCount <= resource.levels - range.baseMipLevel && range.layerCount <= resource.layers - range.baseArrayLayer &&
-        range.levelCount <= kImageCells;
+        uint64_t(range.levelCount) * range.layerCount <= kImageCells;
 }
 std::shared_ptr<NativeImageState> scope(CmdBuf* cb, bool compute)
 {
@@ -141,17 +141,20 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
     if (device->synchronization2_enabled) return refuse("Native application image accesses require a synchronization2 signal-scope adapter");
     constexpr uint32_t usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     VkImageSubresourceRange range;
+    const bool cube=image.view_type==VK_IMAGE_VIEW_TYPE_CUBE || image.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+    const bool array=image.view_type==VK_IMAGE_VIEW_TYPE_2D_ARRAY || image.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+    const bool shape=image.view_type==VK_IMAGE_VIEW_TYPE_2D || image.view_type==VK_IMAGE_VIEW_TYPE_2D_ARRAY || cube;
     if (!image.image || !image.image_view || !image.keep || !image.image_safe || !(image.usage & VK_IMAGE_USAGE_SAMPLED_BIT) ||
-        (image.usage & ~usage) || image.samples != 1 || image.view_type != VK_IMAGE_VIEW_TYPE_2D ||
+        (image.usage & ~usage) || image.samples != 1 || !shape ||
         image.view_format >= std::size(efmi::gpu::image_formats) || efmi::gpu::image_formats[image.view_format].scalar_type != 1 ||
-        !range_of(image, range)) return refuse("Native application image needs an owned optimal float color 2D sampled view");
+        !range_of(image, range)) return refuse("Native application image needs an owned optimal float color sampled 2D, array or cube view");
     const auto access = access_locked(device, draw.pipeline);
     if (!access || !access->reason.empty()) return refuse("Native application image consumer reflection is unavailable");
     bool used = false;
     for (const auto& use : access->images) if (use.resource.set == target.set && use.resource.binding == target.binding) {
         const auto& r = use.resource; used = true;
-        if (!r.sampled || r.dim != 1 || r.depth == 1 || use.depth_reference || r.arrayed || r.multisampled || !r.sampled_float32)
-            return refuse("Native application image consumer requires a non-depth float 2D sampled view");
+        if (!r.sampled || r.dim != (cube?3u:1u) || r.depth == 1 || use.depth_reference || r.arrayed != array || r.multisampled || !r.sampled_float32)
+            return refuse("Native application image shape differs from its non-depth float sampled consumer");
     }
     if (!used) { layout = VK_IMAGE_LAYOUT_GENERAL; return true; }
     const bool compute = draw.kind == DK_DISPATCH || draw.kind == DK_DISPATCH_INDIRECT;
@@ -160,13 +163,13 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
         (!state->attachments_known || state->attachments.count(uint32_t(image.identity >> 2))))
         return refuse("Native application image overlaps or may overlap this pass's attachments");
     std::vector<std::pair<NativeImagePlan::Key, VkImageLayout>> cells;
-    for (uint32_t mip = 0; mip < range.levelCount; ++mip) {
-        const NativeImagePlan::Key key{image.identity, range.baseMipLevel + mip, range.baseArrayLayer};
+    for (uint32_t mip = 0; mip < range.levelCount; ++mip) for (uint32_t layer = 0; layer < range.layerCount; ++layer) {
+        const NativeImagePlan::Key key{image.identity, range.baseMipLevel + mip, range.baseArrayLayer + layer};
         VkImageLayout current_layout;
         const auto active = state->active.cells.find(key);
         if (active != state->active.cells.end() || plan.cells.count(key)) current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         else if (!cb->image_layouts.get(uint32_t(image.identity >> 2), image.levels, image.layers,
-                    {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel + mip, 1, range.baseArrayLayer, 1}, current_layout))
+                    {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel + mip, 1, range.baseArrayLayer + layer, 1}, current_layout))
             return refuse("Native application image subresource layout is unknown in this recording");
         cells.emplace_back(key, current_layout);
     }

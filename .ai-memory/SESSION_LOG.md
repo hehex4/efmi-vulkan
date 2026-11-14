@@ -2486,3 +2486,17 @@ Baseline6/12 (d209-before.out). Initial implementation3/12 (d209-after.out) expo
 Standalone upload/cache394 pass, zero diagnostics (d209-upload.out). Final area passes character115/377, bindings48, shapes33, existing images46, files42, validation76 (d209-final-regression.out). Application images74/76 included all62 non-exchange successes; exchange statuses caught shader binds before native execution. Wait for execution then capture; corrected absolute/relative exchange14/14 pass (d209-exchange-after.out). Final text/diff checked before commit. Exploratory R8 arrays/cubes4/8 explicitly reject unsupported DDS format; later aligned staging work is saved in build/d211-plan.md, not mixed into D-209 acceptance.
 
 Commit/FF then immediately continue D-210 application image view shapes from ignored drafts. Root dist2.1.8 and historical game2.1.7 unchanged. No game/deployment/system/remote action.
+
+## 2026-11-14: D-210 application image view ranges, 2.4.0
+
+Continued after D-209803cc72. Original SRV GetResource/SetResource retains shape; preserve explicit
+Vulkan ownership, local layout facts and scope guards instead of relying on DX11 runtime guarantees.
+Application 2D arrays/cubes and partial views now use per-mip/layer validation, transitions,
+restoration and persistent refresh, with exact consumer shape matching. Capture scope is unchanged.
+
+Baseline12/24 in d210-before.out. Pair/tracker built d210-pair.out, version2.4.0 and unchanged
+ABI97d3399f4a32ac23 verified. Final fixture d210-mismatch-fixture.out. The application-image-shapes
+area passes shapes53, existing references76, file shapes33, bindings48, GPU analysis55, tracker260,
+validation76 and text576 (d210-regression.out). Reviewed diff and synchronized memory before commit.
+Continue D-211 narrow DDS formats/aligned staging, then remaining offline architecture. Root dist2.1.8
+and historical game2.1.7 unchanged; no game/deployment/system/remote action.

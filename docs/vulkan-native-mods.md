@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-209. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-210. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -594,8 +594,9 @@ used descriptors can establish a valid-application layout precondition, never a 
 the native override. Allocation failures do not forward calls with stale descriptors.
 
 The supported scope is one application graphics queue, synchronization2 disabled, retained optimal
-non-depth float32 2D sampled views with supported creation/usage state. Cross-recording layout and
-queue/signal graphs, mutable/storage images and broader view shapes remain separate engineering.
+non-depth float32 sampled 2D, array and cube views with supported creation/usage state (D-210).
+Cross-recording layout and queue/signal graphs, mutable/storage images and other view types remain
+separate engineering.
 Tests check actual distinct image values across GPU writes, temporary layout restoration, GENERAL
 descriptor refresh, unmatched pipelines, application rebinding, push/secondary paths, rendered
 pixels, F10 and code-module exchange. Exchanged ShaderFixes locate the validator through the owned GPU toolchain directory. No game acceptance or deployment is implied.
@@ -631,3 +632,16 @@ Descriptor clones preserve standalone immutable samplers by relying on allocatio
 combined samplers still receive image writes and push descriptors explicitly initialize samplers.
 The current evidence and exact builds are in CURRENT_STATE; file-shape support does not extend the
 application-image layout adapter or frame-analysis capture scope.
+
+### Retained application array/cube views (D-210, 2.4.0; sandbox only)
+
+Application resource references retain the exact view shape and its mip/layer range. Sampled 2D,
+2D-array, cube and cube-array consumers must match; partial views preserve their base mip and layer.
+Up to1024 view cells are checked individually, temporarily transitioned where needed, then restored.
+Persistent bindings refresh after GPU writes and the application's own rebinding supersedes them.
+The existing queue, synchronization2, ownership, attachment and unknown-layout restrictions remain.
+
+The53 new checks read distinct values from every view cell, including partial ranges, push and
+secondary commands, and verify shape mismatch refusal. Existing references76, file shapes33,
+descriptor bindings48, GPU analysis55, tracker260 and Vulkan validation76 pass on the same pair.
+This changes application binding support; frame-analysis image capture retains its narrower scope.

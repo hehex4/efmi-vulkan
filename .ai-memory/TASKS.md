@@ -1,6 +1,12 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-210 verified; continue narrow DDS formats (2026-11-14)
+
+- Source/pair2.4.0, ABI97d3399f4a32ac23 verified. Application shapes53, application images76, file shapes33, bindings48, GPU analysis55, tracker260, validation76 and text576 pass in d210-regression.out. Review/commit/FF main, then continue D-211 without ending the turn.
+- Next narrow DDS/aligned staging: build/d211-plan.md, d211-implement.py and d211-native-shapes.py are ignored drafts. Read original DDS loader pitches; establish current2.4.0 failure before implementation. Cover both staging paths, narrow mip/layer alignment, skipped mips, legacy first-layer behavior and publication ownership.
+- Color capture subresources, analyse_options, render-target binding and submission graphs also remain offline work. No game/deployment action authorized.
+
 ## Active D-209 verified; continue D-210 application view shapes (2026-11-14)
 
 - D-208 merged as e18df95. Source/pair2.3.9 ABI97d3399f4a32ac23 verified. Upload/cache394, native shapes33, file images46, files42, bindings48, character115/377, tracker260, validation76 and text575 pass. Application-image62 non-exchange checks plus corrected exchange14 pass; CURRENT_STATE separates exact artifacts and interrupted/failed runs. BUG-100 corrected immutable sampler cloning; test waits for native execution after module exchange.
