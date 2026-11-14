@@ -31,6 +31,7 @@ private:
     std::filesystem::path path_;
     VkBufferUsageFlags buffer_usage_=0; // Zero selects the image decoder.
     uint32_t skip_levels_=0;            // Image levels left out of the current load.
+    bool all_layers_=false;            // Distinct native file shape; never aliases a legacy first-layer upload.
     uint32_t loader_flags_=0;           // An image's loader flags (D-140).
     uint64_t busy_since_us_=0;          // When the load first waited for a budget other loads hold (D-103); 0 when not waiting.
     std::weak_ptr<const uint8_t> owner_;
@@ -43,7 +44,7 @@ struct ResourceDevice {
     VkDevice device=VK_NULL_HANDLE;
     VkPhysicalDevice physical=VK_NULL_HANDLE;
     uint32_t graphics_family=0;
-    bool bc_enabled=false;
+    bool bc_enabled=false,cube_arrays=false;
     VkPhysicalDeviceMemoryProperties memory{};
     UploadDispatch dispatch;
     BufferUploadDispatch buffer_dispatch;
@@ -93,7 +94,7 @@ public:
     // eager load. Relative paths refuse. Equal normalized paths share a handle.
     // `tag` tells declarations of one path apart (a generation's own copy); equal path and tag share.
     // `loader_flags`: the original's from the declaration's colour space (png_force_srgb, png_ignore_srgb), D-140.
-    ResourceHandle declare_image(const std::filesystem::path&,std::string& reason,uint64_t tag=0,uint32_t loader_flags=0);
+    ResourceHandle declare_image(const std::filesystem::path&,std::string& reason,uint64_t tag=0,uint32_t loader_flags=0,bool all_layers=false);
     // Equal path + usage share one immutable buffer. A different usage or an
     // image declaration is a distinct request, never an unsafe type alias.
     ResourceHandle declare_buffer(const std::filesystem::path&,VkBufferUsageFlags,std::string& reason,uint64_t tag=0);
@@ -119,8 +120,8 @@ private:
     struct Loader;
     struct Arena;
     struct Slice;
-    using Key=std::tuple<std::filesystem::path,VkBufferUsageFlags,uint64_t,uint32_t>;
-    ResourceHandle declare(const std::filesystem::path&,VkBufferUsageFlags,std::string&,uint64_t tag=0,uint32_t loader_flags=0);
+    using Key=std::tuple<std::filesystem::path,VkBufferUsageFlags,uint64_t,uint32_t,bool>;
+    ResourceHandle declare(const std::filesystem::path&,VkBufferUsageFlags,std::string&,uint64_t tag=0,uint32_t loader_flags=0,bool all_layers=false);
     void run();
     std::shared_ptr<Upload> prepare(const ResourceHandle&,uint64_t& read_done_us);
     // D-130: an image read straight into the staging arena and recorded into the worker's command buffer.

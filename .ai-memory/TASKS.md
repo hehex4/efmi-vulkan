@@ -1,6 +1,12 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-209 verified; continue D-210 application view shapes (2026-11-14)
+
+- D-208 merged as e18df95. Source/pair2.3.9 ABI97d3399f4a32ac23 verified. Upload/cache394, native shapes33, file images46, files42, bindings48, character115/377, tracker260, validation76 and text575 pass. Application-image62 non-exchange checks plus corrected exchange14 pass; CURRENT_STATE separates exact artifacts and interrupted/failed runs. BUG-100 corrected immutable sampler cloning; test waits for native execution after module exchange.
+- Review/commit/FF main, then D-210 application sampled arrays/cubes without ending the turn. Original GetResource/SetResource read; ignored build/d210-plan.md and d210-* drafts are prepared. Apply/build fixture and failing baseline first, then source2.4.0 implementation. Preserve existing queue/sync2/ownership/attachment guards and validate all mip/layer cells, partial views, temporary layouts, refresh and app rebinding.
+- Follow with narrow DDS formats and aligned staging (build/d211-plan.md; exploratory R8 baseline4/8 is an explicit format refusal), capture subresources/selection, render-target binding and submission graphs. These remain offline engineering. No game, deployment or launcher action authorized.
+
 ## Active D-208: GPU indirect capture verified; continue D-209 (2026-11-14)
 
 - Source2.3.8/pair ABI97d3399f4a32ac23. Full capture-area regression passes: resources55, geometry65, indirect121, targets22, tracker260, validation76, text574. CURRENT_STATE records exact evidence. Review/commit/fast-forward, then continue without ending the turn.

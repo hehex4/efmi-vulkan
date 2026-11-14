@@ -124,9 +124,9 @@ void ResourceCache::publish(const ResourceHandle& entry,ResourceState state,
     entry->value_={state,upload?upload->image:nullptr,upload?upload->buffer:nullptr,std::move(reason),upload?upload->serial:0};
     entry->changed_.notify_all();
 }
-ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason,uint64_t tag,uint32_t loader_flags)
+ResourceHandle ResourceCache::declare_image(const std::filesystem::path& path,std::string& reason,uint64_t tag,uint32_t loader_flags,bool all_layers)
 {
-    return declare(path,0,reason,tag,loader_flags);
+    return declare(path,0,reason,tag,loader_flags,all_layers);
 }
 ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag)
 {
@@ -136,19 +136,19 @@ ResourceHandle ResourceCache::declare_buffer(const std::filesystem::path& path,V
     return declare(path,usage,reason,tag);
 }
 ResourceHandle ResourceCache::declare(const std::filesystem::path& path,VkBufferUsageFlags usage,std::string& reason,uint64_t tag,
-                                      uint32_t loader_flags)
+                                      uint32_t loader_flags,bool all_layers)
 {
     reason.clear();
     if(!path.is_absolute() || path.native().size()>32760 || path.native().find(L'\0')!=std::wstring::npos){
         reason="Resource path must be a bounded absolute path without nulls";return {};
     }
-    const Key key{path.lexically_normal(),usage,tag,loader_flags};
+    const Key key{path.lexically_normal(),usage,tag,loader_flags,all_layers};
     std::lock_guard<std::mutex> lock(mutex_);
     if(stopped_){reason="Resource cache stopped";return {};}
     auto found=entries_.find(key);if(found!=entries_.end())return found->second;
     if(entries_.size()>=capacity_){reason="Resource declaration capacity exceeded";return {};}
     auto entry=std::make_shared<ResourceRequest>();entry->path_=std::get<0>(key);entry->buffer_usage_=usage;entry->owner_=identity_;
-    entry->loader_flags_=loader_flags;
+    entry->loader_flags_=loader_flags;entry->all_layers_=all_layers;
     entries_.emplace(key,entry);return entry;
 }
 bool ResourceCache::demand(const ResourceHandle& entry,uint32_t skip_levels)
@@ -324,14 +324,16 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
     VkFormatProperties features{};device_.format_properties(device_.physical,meta.format,&features);
     VkImageFormatProperties limits{};
     const auto result=device_.image_properties(device_.physical,meta.format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
-                                               VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,0,&limits);
+                                               VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),
+                                               entry->all_layers_ && meta.cube?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0,&limits);
     if(result!=VK_SUCCESS)throw std::runtime_error("Resource format unsupported for sampled upload");
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);
+    if(entry->all_layers_)upload->preserve_layers(device_.cube_arrays);
     if(own_queue)upload->share(device_.graphics_family,device_.upload_family);
     // The levels as decoded: a DDS's in its file bytes (its format as the colour space has it), a WIC image's pixels.
     const auto& payload=pixels.bytes.empty()?bytes:pixels.bytes;
     if(!upload->prepare_decoded(meta,payload.data(),payload.size(),device_.memory,limits,features.optimalTilingFeatures,
-                                device_.bc_enabled,false,entry->skip_levels_,device_.memory_priority) ||
+                                device_.bc_enabled,device_.readback,entry->skip_levels_,device_.memory_priority) ||
        !upload->record(record_family))fail_upload(upload->reason());
     ticket->image=std::move(upload);return ticket;
 }
@@ -362,11 +364,14 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
     VkFormatProperties features{};device_.format_properties(device_.physical,meta.format,&features);
     VkImageFormatProperties limits{};
     if(device_.image_properties(device_.physical,meta.format,VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
-                                VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),0,&limits)!=VK_SUCCESS)
+                                VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(device_.readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),
+                                entry->all_layers_ && meta.cube?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0,&limits)!=VK_SUCCESS)
         throw std::runtime_error("Resource format unsupported for sampled upload");
     const auto base=meta.levels[ImageUpload::levels_skipped(meta,entry->skip_levels_)].offset;
-    // The levels the image takes: the first layer's of an array or cube (D-149).
-    const uint64_t payload=pixels.bytes.empty()?uint64_t(meta.levels.back().offset+meta.levels.back().bytes)-base:pixels.bytes.size();
+    // Native layers keep their file stride, including omitted top mips between later layers.
+    const uint64_t layer_end=meta.levels.back().offset+meta.levels.back().bytes;
+    const uint64_t payload=pixels.bytes.empty()?layer_end-base+
+        uint64_t(entry->all_layers_?meta.layers-1:0)*(layer_end-meta.levels.front().offset):pixels.bytes.size();
     // The payload straight into the arena: one read, no copy of our own.
     uint64_t offset=0;
     if(!arena_take(payload,offset))throw BudgetBusy("Aggregate staging arena busy");
@@ -381,6 +386,7 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
     read_done_us=steady_us();
     {std::lock_guard<std::mutex> lock(mutex_);++stats_.file_reads;}
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);
+    if(entry->all_layers_)upload->preserve_layers(device_.cube_arrays);
     upload->share(device_.graphics_family,device_.upload_family);
     if(!upload->prepare_image(meta,device_.memory,limits,features.optimalTilingFeatures,device_.bc_enabled,entry->skip_levels_,device_.memory_priority,
                               device_.readback))

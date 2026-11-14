@@ -65,6 +65,13 @@ public:
     bool submit(VkQueue queue,VkSemaphore timeline=VK_NULL_HANDLE,uint64_t value=0);
     uint64_t resident_bytes() const { return resident_charged_; }
     uint32_t skipped_levels() const { return skipped_; }
+    // Native declarations preserve file layers; legacy character slots keep their first 2D layer.
+    void preserve_layers(bool cube_arrays) { all_layers_=true; cube_arrays_=cube_arrays; }
+    uint32_t layers() const { return all_layers_?decoded_.layers:1; }
+    VkImageViewType view_type() const {
+        return all_layers_ && decoded_.cube ? (layers()>6?VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:VK_IMAGE_VIEW_TYPE_CUBE) :
+               layers()>1?VK_IMAGE_VIEW_TYPE_2D_ARRAY:VK_IMAGE_VIEW_TYPE_2D;
+    }
     // Polls only; never waits on the normal readiness path. Releases staging
     // after the upload fence completes. Publication occurs only at Ready.
     UploadState poll();
@@ -99,6 +106,6 @@ private:
     bool in_flight_=false;
     uint32_t skipped_=0;
     uint32_t families_[2]={0,0};
-    bool shared_=false;
+    bool shared_=false,all_layers_=false,cube_arrays_=false;
 };
 }

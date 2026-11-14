@@ -52,12 +52,16 @@ void ImageUpload::release_staging()
 }
 bool ImageUpload::check_format(VkFormatFeatureFlags features,const VkImageFormatProperties& limits,bool bc_enabled,bool readback)
 {
+    if(all_layers_ && (!decoded_.layers || (decoded_.cube && (decoded_.width!=decoded_.height || decoded_.layers%6 ||
+        (decoded_.layers>6 && !cube_arrays_))))){
+        reason_="Image layers or enabled cube-array feature are incompatible";state_=UploadState::Failed;return false;
+    }
     const auto required=VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_TRANSFER_DST_BIT|
                         (readback?VK_FORMAT_FEATURE_TRANSFER_SRC_BIT:0);
     const bool compressed=decoded_.format>=VK_FORMAT_BC1_RGB_UNORM_BLOCK && decoded_.format<=VK_FORMAT_BC7_SRGB_BLOCK;
     if((features&required)!=required || (compressed&&!bc_enabled) || decoded_.width>limits.maxExtent.width ||
        decoded_.height>limits.maxExtent.height || decoded_.levels.size()>limits.maxMipLevels ||
-       limits.maxArrayLayers<1 || !(limits.sampleCounts&VK_SAMPLE_COUNT_1_BIT)){
+       limits.maxArrayLayers<layers() || !(limits.sampleCounts&VK_SAMPLE_COUNT_1_BIT)){
         reason_="Image format, enabled features or device limits are incompatible";state_=UploadState::Failed;return false;
     }
     return true;
@@ -77,7 +81,8 @@ bool ImageUpload::create_image(const VkImageFormatProperties& limits,bool readba
     const auto& base=decoded_.levels[skipped_];
     VkImageCreateInfo image={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType=VK_IMAGE_TYPE_2D;image.format=decoded_.format;image.extent={base.width,base.height,1};
-    image.mipLevels=static_cast<uint32_t>(decoded_.levels.size())-skipped_;image.arrayLayers=1;
+    image.mipLevels=static_cast<uint32_t>(decoded_.levels.size())-skipped_;image.arrayLayers=layers();
+    image.flags=all_layers_ && decoded_.cube?VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT:0;
     image.samples=VK_SAMPLE_COUNT_1_BIT;image.tiling=VK_IMAGE_TILING_OPTIMAL;
     image.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT|(readback?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0);
     if(shared_){image.sharingMode=VK_SHARING_MODE_CONCURRENT;image.queueFamilyIndexCount=2;image.pQueueFamilyIndices=families_;}
@@ -88,8 +93,8 @@ bool ImageUpload::create_image(const VkImageFormatProperties& limits,bool readba
     if(!image_memory_){state_=UploadState::Failed;return false;}
     if(!result(d_.BindImageMemory(device_,image_,image_memory_,0),"bind asset image"))return false;
     VkImageViewCreateInfo view={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    view.image=image_;view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=decoded_.format;
-    view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,image.mipLevels,0,1};
+    view.image=image_;view.viewType=view_type();view.format=decoded_.format;
+    view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,image.mipLevels,0,layers()};
     return result(d_.CreateImageView(device_,&view,nullptr,&view_),"create asset image view");
 }
 bool ImageUpload::prepare_image(const DdsImage& decoded,const VkPhysicalDeviceMemoryProperties& memory,
@@ -126,6 +131,11 @@ bool ImageUpload::prepare_decoded(const DdsImage& decoded,const uint8_t* data,si
         reason_="Decoded image levels outside its bytes";state_=UploadState::Failed;return false;
     }
     decoded_=decoded;memory_=memory;
+    const uint64_t span=decoded.levels.back().offset+decoded.levels.back().bytes-decoded.levels.front().offset;
+    if(all_layers_ && (!span || !decoded.layers || decoded.levels.front().offset>size ||
+        uint64_t(decoded.layers)>(size-decoded.levels.front().offset)/span)){
+        reason_="Decoded image layers outside its bytes";state_=UploadState::Failed;return false;
+    }
     if(!check_format(features,limits,bc_enabled,readback) || !create_image(limits,readback,skip_levels,priority))return false;
     const auto start=base_offset();
     VkBufferCreateInfo buffer={VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -148,13 +158,14 @@ bool ImageUpload::record_copy(VkCommandBuffer cmd,VkBuffer stage,VkDeviceSize of
     barrier.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-    barrier.image=image_;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,levels,0,1};
+    barrier.image=image_;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,levels,0,layers()};
     d_.CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
     std::vector<VkBufferImageCopy> copies;
-    for(uint32_t i=skipped_;i<decoded_.levels.size();++i){
+    const auto layer_bytes=decoded_.levels.back().offset+decoded_.levels.back().bytes-decoded_.levels.front().offset;
+    for(uint32_t layer=0;layer<layers();++layer)for(uint32_t i=skipped_;i<decoded_.levels.size();++i){
         const auto& level=decoded_.levels[i];VkBufferImageCopy copy{};
-        copy.bufferOffset=offset+(level.offset-decoded_.levels[skipped_].offset);
-        copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped_,0,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
+        copy.bufferOffset=offset+uint64_t(layer)*layer_bytes+(level.offset-decoded_.levels[skipped_].offset);
+        copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped_,layer,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
     }
     d_.CmdCopyBufferToImage(cmd,stage,image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,static_cast<uint32_t>(copies.size()),copies.data());
     barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;

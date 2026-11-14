@@ -37,7 +37,7 @@ TextureResidency::TextureResidency(Device* device, const VkPhysicalDeviceMemoryP
     }
     assets::ResourceDevice resource;
     resource.device = device->handle; resource.physical = device->phys; resource.memory = memory;
-    resource.graphics_family = device->material_family; resource.bc_enabled = device->material_bc_enabled;
+    resource.graphics_family = device->material_family; resource.bc_enabled = device->material_bc_enabled;resource.cube_arrays=device->enabled_features.imageCubeArray!=0;
     resource.format_properties = device->material_format_properties; resource.image_properties = device->material_image_properties;
     resource.dispatch.SetDeviceLoaderData = device->set_loader_data;
     resource.buffer_dispatch.SetDeviceLoaderData = device->set_loader_data;
@@ -101,7 +101,7 @@ void TextureResidency::stop()
     timeline_ = VK_NULL_HANDLE;
 }
 
-TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags, VkBufferUsageFlags buffer_usage)
+TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags, VkBufferUsageFlags buffer_usage, bool all_layers)
 {
     const auto path = std::filesystem::u8path(utf8_path);
     // The file's identity (BUG-061): what did not change on disk is the image the live generation holds.
@@ -117,7 +117,7 @@ TextureResidency::ImageId TextureResidency::declare(const std::string& utf8_path
     assets::ResourceHandle handle;
     for (uint64_t attempt = 0;; ++attempt) {
         const auto revision=tag ^ (attempt * 0x94D049BB133111EBull);
-        handle = buffer_usage ? cache_->declare_buffer(path,buffer_usage,reason,revision) : cache_->declare_image(path, reason, revision, loader_flags);
+        handle = buffer_usage ? cache_->declare_buffer(path,buffer_usage,reason,revision) : cache_->declare_image(path, reason, revision, loader_flags, all_layers);
         if (!handle) return kNone;
         const auto found = by_handle_.find(handle.get());
         if (found == by_handle_.end()) break;

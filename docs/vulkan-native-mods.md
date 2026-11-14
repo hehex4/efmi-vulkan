@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-206. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-209. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -262,7 +262,7 @@ notices while playing; whether any game pipeline has no module hash (inline modu
 2. D-196 adds explicit (set, binding) aliases and queries; D-197 executes native draw/dispatch lists;
    D-198/D-199 retain and bind application buffers with persistent context semantics;
    D-200/D-201 add published file buffers, null descriptors and sampled 2D file images.
-   D-206 adds guarded retained application sampled images. Mutable/array/cube file resources and general cross-queue hazards
+   D-206 adds guarded retained application sampled images; D-209 adds sampled file arrays/cubes. Mutable file resources and general cross-queue hazards
    still need adapters. Render-target rebinding is not implemented.
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
@@ -526,7 +526,7 @@ without adding a placeholder character Mod.
 
 ### Native sampled file images (D-201, 2.3.1; sandbox only)
 
-A filename Resource, with default type or Texture2D, can bind through an explicit native vk_binding alias. DDS/WIC decoding, color-space flags, shared upload budgets and F10 file revisions follow the existing loader. Uploaded 2D color views retain their allocation and publication through recorded commands and backend exchange. The shader must use a compatible float sampled view; arrays/cubes, writable or depth-comparison consumers, incompatible explicit formats and missing shader-resource bind flags are reported.
+A filename Resource, with default type or Texture2D, can bind through an explicit native vk_binding alias. DDS/WIC decoding, color-space flags, shared upload budgets and F10 file revisions follow the existing loader. Uploaded 2D color views retain their allocation and publication through recorded commands and backend exchange. The shader must use a compatible float sampled view; D-209 extends arrays/cubes below; writable or depth-comparison consumers, incompatible explicit formats and missing shader-resource bind flags are reported.
 
 Ordinary and pushed graphics bindings, null with an enabled device feature, and compute/secondary bindings have GPU coverage. Native-only shader twins now preserve retained push layouts. Depth=2 compiler uncertainty is compatible with color sampling when neither module uses depth-reference operations. These changes do not move arbitrary application image layouts or add mutable file textures. No real-game acceptance is implied.
 
@@ -612,3 +612,22 @@ Graphics arguments are snapshots at classic pass end; compute arguments follow e
 Changes made to arguments inside the pass cannot be reconstructed as earlier per-draw values.
 All transfer-source, retained-owner, queue, synchronization and geometry recipe limits still apply.
 The121 checks cover indexed/non-indexed/count/zero/secondary forms, dispatches and usage refusals.
+
+### Native sampled file arrays and cubes (D-209, 2.3.9; sandbox only)
+
+Native filename resources retain all DDS array slices or cube faces and selected mip levels.
+2D-array, cube and cube-array views must match the shader consumer; float sampled color access
+remains read-only. Cube arrays require the application's enabled imageCubeArray feature and all
+shapes respect device limits. [Vulkan view requirements](https://docs.vulkan.org/refpages/latest/refpages/source/VkImageViewCreateInfo.html)
+define the cube-compatible flag and feature requirement.
+
+The cache distinguishes this mode from legacy character materials, which keep their first-layer
+2D view. Shared allocation budgets, F10 file revisions, timeline publication and retained command
+ownership still apply. Both upload staging paths retain the original DDS layer stride when lower
+mips are selected. Standalone checks read every compressed mip/layer back from the GPU; native
+fixtures sample each layer/mip with distinct values and cover push, secondary and F10 paths.
+
+Descriptor clones preserve standalone immutable samplers by relying on allocation initialization;
+combined samplers still receive image writes and push descriptors explicitly initialize samplers.
+The current evidence and exact builds are in CURRENT_STATE; file-shape support does not extend the
+application-image layout adapter or frame-analysis capture scope.

@@ -4,6 +4,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-209: Native file resources preserve sampled array/cube shapes (2026-11-14)
+
+- Original CommandList.cpp LoadFromFile (6594) and FillOutTex2DDesc (11727 onward) load full DDS resources and preserve their SRV shape. DX11 supplies reference-counted deferred lifetime, hazard tracking and one-context order. Vulkan keeps the existing owned upload, timeline publication and retained descriptor chain.
+- Native file declarations select full layers through an explicit cache-key mode. Legacy character material slots keep D-149's first-layer 2D view and cannot alias the native view of the same file. Both staging paths copy every selected mip of every layer using the original DDS layer stride; skipping top mips must not collapse the gaps between layers.
+- Create cube-compatible images and exact 2D/2D-array/cube/cube-array views. Require device layer limits and the application's enabled imageCubeArray feature; no feature is silently enabled. Read-only float sampled consumers must match dimensionality/array state and typed format. Writable/mutable/depth-comparison views remain outside this adapter.
+- BUG-100: standalone immutable samplers are initialized by descriptor allocation, so descriptor cloning must skip their ordinary updates. Combined sampler image updates and explicit push initialization remain. Original CustomShader Run saves/restores sampler state through DX11 setters; that is not permission to overwrite a Vulkan immutable descriptor. Keep retained layout/sampler owners.
+- Standalone all-layer compressed readback/cache/demotion/feature checks pass394/394; native baseline6/12, first implementation3/12 exposed BUG-100. Exact corrected builds and final scope are maintained in CURRENT_STATE. No game/deployment action.
+
 ## D-208: Capture GPU indirect arguments without inventing draw counts (2026-11-14)
 
 - Original FrameAnalysisContext logs indirect argument resource/offset and DumpBuffer copies full allocations. DX11 owns deferred resource lifetime, hazard tracking and immediate-context order. Vulkan uses the existing retained host staging and completed submission publication.

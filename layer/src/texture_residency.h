@@ -37,7 +37,7 @@ public:
     // Declaration only, no file IO beyond the file's size and write time; one declaration counted for the
     // caller. kNone with the reason.
     // `loader_flags`: the declaration's colour space as the original's loaders take it (D-140).
-    ImageId declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags = 0, VkBufferUsageFlags buffer_usage = 0);
+    ImageId declare(const std::string& utf8_path, std::string& reason, uint32_t loader_flags = 0, VkBufferUsageFlags buffer_usage = 0, bool all_layers = false);
     struct Binding {
         VkImageView view = VK_NULL_HANDLE;                      // null: not resident yet, or failed
         std::shared_ptr<const efmi::assets::ImageUpload> owner; // keeps the image alive while a recording lives

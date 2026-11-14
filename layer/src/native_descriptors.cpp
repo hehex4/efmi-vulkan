@@ -17,6 +17,12 @@ struct Writes {
         const auto n=contents.values.size();writes.reserve(n);buffers.reserve(n);images.reserve(n);views.reserve(n);
         for(const auto& entry:contents.values){
             const auto& value=entry.second;if(!value.known)continue;
+            // Allocation initializes standalone immutable samplers. Push descriptors still need
+            // their explicit write; combined samplers still need their image contents written.
+            if(set && value.type==VK_DESCRIPTOR_TYPE_SAMPLER){
+                const auto binding=contents.layout->bindings.find(entry.first.first);
+                if(binding!=contents.layout->bindings.end() && !binding->second.immutable_samplers.empty())continue;
+            }
             VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};w.dstSet=set;
             w.dstBinding=entry.first.first;w.dstArrayElement=entry.first.second;w.descriptorCount=1;w.descriptorType=VkDescriptorType(value.type);
             if(buffer_type(value.type)){buffers.push_back({value.buffer,value.offset,value.range});w.pBufferInfo=&buffers.back();}
@@ -259,8 +265,13 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                         using R=efmi::gpu::SourceRegister;
                         if(r.kind==R::BufferUav || r.kind==R::ImageUav || r.kind==R::TexelUav)
                             return refuse("Native file uploads are read-only; writable views need a mutable resource adapter");
-                        if(resource.image_view && (r.kind!=R::ImageSrv || r.dim!=1 || r.depth==1 || efmi::gpu::image_depth_reference(stage.shader->code) || r.arrayed || r.multisampled || !r.sampled_float32))
-                            return refuse("Native file image consumer requires a non-depth float 2D sampled view");
+                        if(resource.image_view){
+                            const bool cube=resource.view_type==VK_IMAGE_VIEW_TYPE_CUBE || resource.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+                            const bool array=resource.view_type==VK_IMAGE_VIEW_TYPE_2D_ARRAY || resource.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+                            if(r.kind!=R::ImageSrv || r.dim!=(cube?3u:1u) || r.depth==1 ||
+                               efmi::gpu::image_depth_reference(stage.shader->code) || r.arrayed!=array || r.multisampled || !r.sampled_float32)
+                                return refuse("Native file image shape differs from its non-depth float sampled consumer");
+                        }
                         if(storage && r.stride && resource.buffer_stride!=r.stride)
                             return refuse("Native file stride differs from the shader's structured-buffer stride");
                     }

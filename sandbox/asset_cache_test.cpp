@@ -32,7 +32,7 @@ static VKAPI_ATTR VkResult VKAPI_CALL cache_submit(VkQueue q,uint32_t n,const Vk
 }
 TextureDevice cache_device(Gpu& g)
 {
-    TextureDevice d;d.device=g.device;d.physical=g.physical;d.graphics_family=g.family;d.bc_enabled=g.bc;
+    TextureDevice d;d.device=g.device;d.physical=g.physical;d.graphics_family=g.family;d.bc_enabled=g.bc;d.cube_arrays=g.cube_arrays;
     d.memory=g.memory;d.dispatch=g.dispatch;d.format_properties=pGetPhysicalDeviceFormatProperties;
     d.image_properties=pGetPhysicalDeviceImageFormatProperties;
     d.dispatch.CreateImage=cache_create_image;d.dispatch.GetFenceStatus=cache_poll;d.dispatch.QueueSubmit=cache_submit;
@@ -208,13 +208,14 @@ static std::vector<uint8_t> staged_readback(Gpu& g,const ImageUpload& image)
     const auto& meta=image.metadata();const uint32_t skipped=image.skipped_levels();
     const size_t base=meta.levels[skipped].offset;size_t bytes=0;
     for(uint32_t i=skipped;i<meta.levels.size();++i)bytes+=meta.levels[i].bytes;
+    const size_t layer_bytes=bytes;bytes*=image.layers();
     auto b=g.readback(bytes);auto cb=g.begin();const uint32_t count=static_cast<uint32_t>(meta.levels.size())-skipped;
-    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT,image.layers());
     std::vector<VkBufferImageCopy> copies;
-    for(uint32_t i=skipped;i<meta.levels.size();++i){const auto& level=meta.levels[i];VkBufferImageCopy copy{};
-        copy.bufferOffset=level.offset-base;copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped,0,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);}
+    for(uint32_t layer=0;layer<image.layers();++layer)for(uint32_t i=skipped;i<meta.levels.size();++i){const auto& level=meta.levels[i];VkBufferImageCopy copy{};
+        copy.bufferOffset=layer*layer_bytes+level.offset-base;copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped,layer,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);}
     pCmdCopyImageToBuffer(cb,image.image(),VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,b.buffer,static_cast<uint32_t>(copies.size()),copies.data());
-    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_READ_BIT);
+    barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_READ_BIT,image.layers());
     g.finish(cb,b);
     const auto* mapped=static_cast<const uint8_t*>(b.mapped);return {mapped,mapped+bytes};
 }
@@ -245,7 +246,7 @@ void wic_tests(Gpu& g)
     check(decode_wic(png.data(),png.size(),expected,reason),"the WIC fixture decodes");
     std::mutex queue_mutex;
     for(const bool staged:{false,true}){
-        TextureDevice device=cache_device(g);
+        TextureDevice device=cache_device(g);device.readback=true;
         if(staged){device.dispatch=g.dispatch;device.dispatch.CreateCommandPool=staged_create_pool;device.upload_queue=g.queue;device.upload_family=g.family;
             device.upload_mutex=&queue_mutex;device.readback=true;
 #define X(name) device.buffer_dispatch.name=p##name;
@@ -286,11 +287,11 @@ void layered_tests(Gpu& g)
         for(uint32_t l=1;l<layers;++l)for(auto byte:first)data.push_back(uint8_t(byte+l*31));
         return std::make_pair(data,first);
     };
-    const auto array=layered(2,false),cube=layered(6,true);
-    write_fixture(folder/L"array.dds",array.first);write_fixture(folder/L"cube.dds",cube.first);
+    const auto array=layered(2,false),cube=layered(6,true),cube_array=layered(12,true);
+    write_fixture(folder/L"array.dds",array.first);write_fixture(folder/L"cube.dds",cube.first);write_fixture(folder/L"cube-array.dds",cube_array.first);
     std::mutex queue_mutex;std::string reason;
     for(const bool staged:{false,true}){
-        TextureDevice device=cache_device(g);
+        TextureDevice device=cache_device(g);device.readback=true;
         if(staged){device.dispatch=g.dispatch;device.dispatch.CreateCommandPool=staged_create_pool;device.upload_queue=g.queue;device.upload_family=g.family;
             device.upload_mutex=&queue_mutex;device.readback=true;
 #define X(name) device.buffer_dispatch.name=p##name;
@@ -298,15 +299,44 @@ void layered_tests(Gpu& g)
 #undef X
         }
         TextureCache cache(device,{},16,1);
-        for(const auto& [name,file]:{std::make_pair(L"array.dds",&array),std::make_pair(L"cube.dds",&cube)}){
+        for(const auto& [name,file]:{std::make_pair(L"array.dds",&array),std::make_pair(L"cube.dds",&cube),std::make_pair(L"cube-array.dds",&cube_array)}){
             auto h=cache.declare_image(folder/name,reason);
             check(h && cache.demand(h),"a layered DDS declared and demanded");
             const auto ready=staged?h->wait_until(Clock::now()+std::chrono::seconds(15)):await_texture(cache,h,g,true);
             const bool loaded=ready.state==TextureState::Ready && ready.image && ready.image->metadata().width==16;
             check(loaded,staged?"a layered DDS loads through the staging arena":"a layered DDS loads on the worker's staging");
-            if(staged && loaded)check(staged_readback(g,*ready.image)==file->second,"a layered DDS's image is its first layer");
+            if(loaded){
+                check(ready.image->layers()==1 && ready.image->view_type()==VK_IMAGE_VIEW_TYPE_2D,"legacy layered DDS remains a first-layer 2D view");
+                check(staged_readback(g,*ready.image)==file->second,"a layered DDS's image is its first layer");
+            }
+            DdsImage meta;check(decode_dds(file->first.data(),file->first.size(),meta,reason),"full-layer fixture metadata decoded");
+            for(uint32_t skipped:{0u,1u}){
+                auto full=cache.declare_image(folder/name,reason,skipped,0,true);
+                check(full && full!=h && cache.declare_image(folder/name,reason,skipped,0,true)==full,"native and legacy cache shapes do not alias");
+                check(cache.demand(full,skipped),"full-layer resource demanded");
+                const auto result=staged?full->wait_until(Clock::now()+std::chrono::seconds(15)):await_texture(cache,full,g,true);
+                const auto view=meta.cube?(meta.layers>6?VK_IMAGE_VIEW_TYPE_CUBE_ARRAY:VK_IMAGE_VIEW_TYPE_CUBE):VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+                if(meta.layers>6 && !g.cube_arrays){check(result.state==TextureState::Failed,"disabled cube-array feature refuses");continue;}
+                const bool complete=result.state==TextureState::Ready && result.image;
+                check(complete,"full native layers published");
+                if(!complete)continue;
+                check(result.image->layers()==meta.layers && result.image->view_type()==view && result.image->skipped_levels()==skipped,"native view shape and demoted mip range preserved");
+                std::vector<uint8_t> expected;
+                for(uint32_t layer=0;layer<meta.layers;++layer){
+                    const auto first=file->first.begin()+meta.levels[skipped].offset+layer*file->second.size();
+                    expected.insert(expected.end(),first,file->first.begin()+148+(layer+1)*file->second.size());
+                }
+                check(staged_readback(g,*result.image)==expected,"every compressed mip and layer survives native upload and demotion");
+            }
         }
         cache.stop();
+        device.cube_arrays=false;
+        TextureCache disabled(device,{},2,1);
+        auto full=disabled.declare_image(folder/L"cube-array.dds",reason,0,0,true);
+        check(full && disabled.demand(full),"cube-array negative declaration demanded");
+        const auto refused=staged?full->wait_until(Clock::now()+std::chrono::seconds(15)):await_texture(disabled,full,g,true);
+        check(refused.state==TextureState::Failed && refused.reason.find("cube-array")!=std::string::npos,"disabled cube-array capability reports before GPU view creation");
+        disabled.stop();
     }
 }
 void staged_tests(Gpu& g)

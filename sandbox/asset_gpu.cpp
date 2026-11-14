@@ -40,7 +40,7 @@ struct Buffer {VkBuffer buffer{};VkDeviceMemory memory{};void* mapped=nullptr;};
 struct Destination {VkImage image{};VkDeviceMemory memory{};};
 struct Gpu {
     VkInstance instance{};VkPhysicalDevice physical{};VkDevice device{};VkQueue queue{};
-    uint32_t family=0;bool bc=false;VkPhysicalDeviceMemoryProperties memory{};
+    uint32_t family=0;bool bc=false,cube_arrays=false;VkPhysicalDeviceMemoryProperties memory{};
     VkDebugUtilsMessengerEXT messenger{};PFN_vkDestroyDebugUtilsMessengerEXT destroy_debug=nullptr;
     std::vector<Buffer> buffers;std::vector<Destination> images;std::vector<VkCommandPool> pools;
     UploadDispatch dispatch;
@@ -88,6 +88,7 @@ struct Gpu {
         if(!physical)throw std::runtime_error("No graphics device");
         VkPhysicalDeviceFeatures available{},enabled{};pGetPhysicalDeviceFeatures(physical,&available);
         enabled.textureCompressionBC=available.textureCompressionBC;bc=enabled.textureCompressionBC!=0;
+        enabled.imageCubeArray=available.imageCubeArray;cube_arrays=enabled.imageCubeArray!=0;
         if(historical_pipelines)enabled.independentBlend=available.independentBlend;
         float priority=1;VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=family;q.queueCount=1;q.pQueuePriorities=&priority;
         VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};dc.queueCreateInfoCount=1;dc.pQueueCreateInfos=&q;dc.pEnabledFeatures=&enabled;
@@ -136,11 +137,11 @@ struct Gpu {
     }
 };
 static void barrier(VkCommandBuffer cb,VkImage image,uint32_t mips,VkImageLayout before,VkImageLayout after,
-                    VkAccessFlags source,VkAccessFlags destination)
+                    VkAccessFlags source,VkAccessFlags destination,uint32_t layers=1)
 {
     VkImageMemoryBarrier b={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.srcAccessMask=source;b.dstAccessMask=destination;
     b.oldLayout=before;b.newLayout=after;b.srcQueueFamilyIndex=b.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-    b.image=image;b.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,mips,0,1};
+    b.image=image;b.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,mips,0,layers};
     pCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&b);
 }
 static void run(Gpu& g,std::vector<uint8_t> data,bool color)

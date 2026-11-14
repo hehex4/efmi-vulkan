@@ -117,7 +117,7 @@ def graphics_scene(checks,case):
                 deadline=time.monotonic()+1
                 while time.monotonic()<deadline:
                     current=probe.status().get("replacement",{})
-                    if current.get("module",{}).get("generation",0)>0 and current.get("shader_fixes",{}).get("binds",0)>0:break
+                    if current.get("module",{}).get("generation",0)>0 and current.get("shader_fixes",{}).get("binds",0)>0 and current.get("shader_overrides",{}).get("executed",0)>0:break
                     time.sleep(.02)
                 trigger.touch()
             if case=="graphics_reload":

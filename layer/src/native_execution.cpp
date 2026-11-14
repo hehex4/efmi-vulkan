@@ -69,7 +69,7 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
             }
             if(found==cache.files.end()){
                 if(cache.files.size()>=4096){why="Native file declaration budget exceeded";return false;}
-                const auto id=residency->declare(file->path.u8string(),why,file->loader_flags,file->usage);
+                const auto id=residency->declare(file->path.u8string(),why,file->loader_flags,file->usage,true);
                 if(id==TextureResidency::kNone)return false;
                 found=cache.files.emplace(file.get(),NativeCallCache::File{file,id}).first;
             }
@@ -93,13 +93,14 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
             resource->bind_flags=((file.usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)?4u:0u)|((file.usage&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)?8u:0u);
         }else{
             const auto& image=*binding.owner;const auto& metadata=image.metadata();
-            if(!file.sampled || metadata.layers!=1 || metadata.cube){why="Native file image requires a sampled non-array 2D view";return false;}
+            if(!file.sampled){why="Native file image requires a sampled view";return false;}
             if(file.view_format && efmi::assets::image_vk_format(file.view_format)!=metadata.format){why="Native file view format differs from the uploaded typed image";return false;}
             const auto skipped=image.skipped_levels();
             if(skipped>=metadata.levels.size()){why="Native file image has no published mip levels";return false;}
             resource->dimension=3;resource->identity=reinterpret_cast<uint64_t>(binding.owner.get())|3;
             resource->width=metadata.levels[skipped].width;resource->height=metadata.levels[skipped].height;resource->depth=1;
-            resource->levels=uint32_t(metadata.levels.size())-skipped;resource->layers=1;
+            resource->levels=uint32_t(metadata.levels.size())-skipped;resource->layers=image.layers();
+            resource->view_type=image.view_type();resource->view_format=metadata.format;
             resource->format=resource->resource_format=dxgi_format(metadata.format);resource->format_known=resource->format!=0;
             resource->image_view=uint64_t(binding.view);resource->usage=VK_IMAGE_USAGE_SAMPLED_BIT;resource->bind_flags=8;
             resource->image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

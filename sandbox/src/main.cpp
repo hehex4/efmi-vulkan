@@ -211,6 +211,8 @@ struct App {
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
+    int texture_shape = 0; // 0 2D, 1 array, 2 cube, 3 cube array
+    VkImageView shaped_texture_view = VK_NULL_HANDLE;
     bool sync2 = false;
     int present_burst = 0;           // --present-burst: further presentations behind each frame's GPU work
     int load_blits = 0;              // the blits that make a frame's GPU work about 300 ms long
@@ -532,6 +534,7 @@ static bool create_device()
     dinfo.enabledExtensionCount = uint32_t(exts.size());
     dinfo.ppEnabledExtensionNames = exts.data();
     VkPhysicalDeviceFeatures features = {};
+    features.imageCubeArray = g.texture_shape == 3;
     features.geometryShader = !g.geometry_shader.empty();
     features.tessellationShader = !g.hull_shader.empty() || !g.domain_shader.empty();
     dinfo.pEnabledFeatures = &features;
@@ -699,7 +702,7 @@ static bool create_pipeline()
     sampler.magFilter = sampler.minFilter = VK_FILTER_NEAREST;
     sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
     sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler.maxLod = 0;
+    sampler.maxLod = g.texture_shape ? 2.0f : 0.0f;
     CHECK(vkCreateSampler(g.device, &sampler, nullptr, &g.sampler));
 
     // Deliberately unsorted bindings: dynamic offsets follow binding numbers, not creation order.
@@ -1002,7 +1005,9 @@ static bool create_resources()
     image.format = VK_FORMAT_R8G8B8A8_UNORM;
     image.flags = g.srgb_texture_view ? VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT : 0;
     image.extent = {kTexSize, kTexSize, 1};
-    image.mipLevels = image.arrayLayers = 1;
+    image.mipLevels = g.texture_shape ? 3 : 1;
+    image.arrayLayers = g.texture_shape == 3 ? 12 : g.texture_shape == 2 ? 6 : g.texture_shape == 1 ? 3 : 1;
+    if(g.texture_shape >= 2)image.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     image.samples = VK_SAMPLE_COUNT_1_BIT;
     image.tiling = VK_IMAGE_TILING_OPTIMAL;
     image.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | (compute_scene.capture_usage ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
@@ -1024,6 +1029,11 @@ static bool create_resources()
     view.format = g.srgb_texture_view ? VK_FORMAT_R8G8B8A8_SRGB : image.format;
     view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     CHECK(vkCreateImageView(g.device, &view, nullptr, &g.texture_view));
+    if(g.texture_shape){
+        view.viewType = g.texture_shape == 3 ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : g.texture_shape == 2 ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        view.subresourceRange.levelCount = image.mipLevels;view.subresourceRange.layerCount = image.arrayLayers;
+        CHECK(vkCreateImageView(g.device, &view, nullptr, &g.shaped_texture_view));
+    }
 
     VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1},
                                   {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 4},
@@ -1141,6 +1151,12 @@ static bool create_resources()
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     vkCmdPipelineBarrier(g.primary, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &barrier);
+    if(g.texture_shape){
+        VkClearColorValue clear{};clear.float32[1]=1.0f;clear.float32[3]=1.0f;
+        vkCmdClearColorImage(g.primary,g.texture,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&clear,1,&barrier.subresourceRange);
+        auto cleared=barrier;cleared.oldLayout=cleared.newLayout;cleared.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&cleared);
+    }
     VkBufferImageCopy upload = {};
     upload.bufferOffset = kTexPartAt;
     upload.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
@@ -1731,6 +1747,7 @@ static void cleanup()
     if (g.set_layout)
         vkDestroyDescriptorSetLayout(g.device, g.set_layout, nullptr);
     if (g.material_layout) vkDestroyDescriptorSetLayout(g.device, g.material_layout, nullptr);
+    if (g.shaped_texture_view) vkDestroyImageView(g.device,g.shaped_texture_view,nullptr);
     if (g.texture_view) vkDestroyImageView(g.device, g.texture_view, nullptr);
     if (g.texture) vkDestroyImage(g.device, g.texture, nullptr);
     if (g.texture_mem) vkFreeMemory(g.device, g.texture_mem, nullptr);
@@ -1824,6 +1841,8 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.image_input = compute_scene.storage_image = compute_scene.binding_scene = true;
         else if (a == L"--reusable-recording")
             compute_scene.reusable = true;
+        else if (a == L"--texture-shape" && i + 1 < argc)
+            g.texture_shape = _wtoi(argv[++i]);
         else if (a == L"--mutable-sampler")
             g.mutable_sampler = true;
         else if (a == L"--compute-image-reference" && i + 1 < argc){
