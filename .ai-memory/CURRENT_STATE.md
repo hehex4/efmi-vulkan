@@ -5,6 +5,13 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.7.0: Proven absent output assignments, D-240 (2026-11-14; sandbox verified)
+
+- D-239 committed/merged5c3bd5d. Original SetResource10094/IniHandler692 and official null/unused attachment contracts read. DX11 provides retained/deferred lifetime, hazards and one-context order; a proven already absent binding introduces no new resource access. Vulkan should emit no private pass commands for it.
+- Valid d240-before.out7/11 on2.6.9/ABI5e429e5f041ef3b4: original returns1, core/mixed all-output unbind plus three dependent dispatches also returns1 instead of3; normal exits/clean validation. No D-240 source applied before this baseline.
+- build/d240-implement.py APPLIED. Metadata-only proof distinguishes out-of-pass/non-inherited secondary, complete classic unused references and complete dynamic null slots from unknown/inherited/external-format contexts. Plan-wide nonnull writes keep later null events ordered. Proven no-ops bypass pass/queue and mixed-descriptor restrictions without owners or commands; actual changes retain D-239 gates. CPU coverage includes initially null -> bound -> null in one prepared plan. Source2.7.0, ABI5e429e5f041ef3b4 unchanged; full d240-pair.out completed; tracker487/four stamps and failed GPU11/11 pass. Final native-absent-outputs area d240-regression.out passes absent27/null38/output52/calls60/bindings48/tracker487/validation76/text633. All processes exited. Reviewed diff and synchronized architecture/memory for local commit/FF.
+- Next D-241 preserve unchanged depth during color movement: ignored d241-fixture.py built isolated sandbox d241-fixture.out; depth-test.py and production/case/integration drafts prepared but UNAPPLIED. The depth test checks complete fenced bytes and the same central band as color readbacks. Valid d241-before.out14/20 on2.7.0: clean normal exits/full depth bytes, all cases retain6418 depth pixels, but core/post leave screen6418/owned902 and refuse color moves. Continue offline output/pass and queue engineering, no game/deployment/system/launcher/remote action.
+
 ## Active source 2.6.9: Actual null output destinations, D-239 (2026-11-14; sandbox verified)
 
 - D-238 committed/merged8ea21ba. Original SetResource10094 and IniHandler692 built-in all-output unbind reread: actual null views, preserved other slots, DX11 retained/deferred lifetime, hazard tracking and one-context order. Vulkan uses actual null attachments with explicit prior-output restoration and only the application's already-enabled unused-attachments feature.

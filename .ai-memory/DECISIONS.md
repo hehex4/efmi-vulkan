@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-240: Proven absent output assignments emit no pass work (2026-11-14)
+
+- Original all-output unbind is legal without an actual output, including compute command lists. DX11 supplies retained/deferred lifetime, hazards and context order; a proven absent null binding requires none of the accesses of a real output replacement. Prove actual slot absence from recording-local metadata before applying private-pass or mixed-descriptor restrictions.
+- Missing/inherited/unknown mapping or extension contexts and external-format null-source resolve cannot prove absence. Known classic unused references and complete dynamic null slots can. No owner, rendering entry, layout transition or dependency is created for accepted no-ops. Real descriptor work still follows its own validation.
+- Scan all nonnull output writes in the plan first. A null is removable only when its slot starts absent and no nonnull write targets that slot anywhere in the same plan. Thus null -> target -> null retains both ordered changes. Actual output replacement keeps its existing preflight and queue/alias boundaries.
+
 ## D-239: Null outputs are actual unbound attachments (2026-11-14)
 
 - Original SetResource and BuiltInCommandListUnbindAllRenderTargets assign null o0..o7/oD; a write mask would preserve a bound resource and therefore differ. DX11 supplies retained/deferred lifetime, hazards and one-context order; Vulkan ends stored ordinary rendering, restores the prior introduced image and begins with an actual null view.

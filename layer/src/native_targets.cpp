@@ -10,6 +10,29 @@ struct TargetOwner:CommandOwner {
     void reset_after_completion()override{resources.clear();used=false;sealed=false;}
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}
 };
+bool absent_output(const CmdBuf* cb,const efmi::frontend::NativeBinding& binding){
+    const bool depth=binding.kind==efmi::frontend::NativeBinding::DepthTarget;
+    if((depth && binding.slot) || (!depth && (binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot>=8)))return false;
+    if(cb->inherited_rp)return false;
+    if(!cb->in_rp)return !cb->active_targets;
+    if(!cb->execution_scopes.known || !cb->active_targets || cb->active_targets>cb->target_contexts.size())return false;
+    const auto& targets=cb->target_contexts[cb->active_targets-1];if(!targets.known)return false;
+    if(targets.dynamic){
+        if(targets.dynamic_colors.size()>8 || targets.views.size()!=2*(targets.dynamic_colors.size()+targets.has_depth+targets.has_stencil))return false;
+        // External-format downsample can use a null source while the resolve target remains active.
+        for(const auto& color:targets.dynamic_colors)if(color.resolveMode==VK_RESOLVE_MODE_EXTERNAL_FORMAT_DOWNSAMPLE_BIT_ANDROID)return false;
+        if(depth)return !(targets.has_depth && targets.depth.imageView) && !(targets.has_stencil && targets.stencil.imageView);
+        return binding.slot>=targets.dynamic_colors.size() || !targets.dynamic_colors[binding.slot].imageView;
+    }
+    if(!targets.recipe || !targets.recipe->complete || targets.subpass>=targets.recipe->subpasses.size())return false;
+    const auto& sub=targets.recipe->subpasses[targets.subpass];
+    return depth?(!sub.has_depth || sub.depth.attachment==VK_ATTACHMENT_UNUSED):
+        (binding.slot>=sub.colors.size() || sub.colors[binding.slot].attachment==VK_ATTACHMENT_UNUSED);
+}
+bool null_output(const efmi::assets::FilePlanItem& item){
+    return !item.resource && (!item.native_resource || !item.native_resource->bound);
+}
+
 bool color_context(const RenderTargets& targets,const NativeTargetState* state,std::string& why){
     if(!targets.known || !targets.dynamic || targets.flags || targets.view_mask || targets.layers!=1 ||
        targets.has_depth || targets.has_stencil || targets.dynamic_colors.size()!=1 || targets.views.size()!=2){
@@ -64,8 +87,18 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
 {
     using Operation=efmi::assets::FileOperation;
     NativeTargetPlan next;next.events.resize(plan.items.size());bool needed=false,mixed=false;
-    for(const auto& item:plan.items)if(item.operation==Operation::NativeBind){
-        if(native_output_binding(item.native_target))needed=true;else mixed=true;
+    std::vector<bool> no_op(plan.items.size());uint32_t written=0;
+    auto slot=[](const efmi::frontend::NativeBinding& binding){
+        return binding.kind==efmi::frontend::NativeBinding::DepthTarget?(binding.slot?9u:8u):std::min(binding.slot,9u);
+    };
+    // An initially absent slot can become bound earlier in this same ordered plan.
+    for(const auto& item:plan.items)if(item.operation==Operation::NativeBind && native_output_binding(item.native_target) && !null_output(item))
+        written|=1u<<slot(item.native_target);
+    for(size_t i=0;i<plan.items.size();++i){const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind)continue;
+        if(native_output_binding(item.native_target)){
+            no_op[i]=null_output(item) && !(written&(1u<<slot(item.native_target))) && absent_output(cb,item.native_target);
+            needed|=!no_op[i];
+        }else mixed=true;
     }
     if(!needed){output=std::move(next);return true;}
     auto refuse=[&](const char* reason){why=reason;return false;};
@@ -93,7 +126,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
        recipe->rendering_depth!=VK_FORMAT_UNDEFINED || recipe->rendering_stencil!=VK_FORMAT_UNDEFINED)
         return refuse("Native output pipeline attachment contract is unavailable");
     for(size_t i=0;i<plan.items.size();++i){
-        const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind)continue;
+        const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || no_op[i])continue;
         const auto& resource=item.native_resource;
         const bool empty=!resource || !resource->bound;
         const auto& binding=item.native_target;

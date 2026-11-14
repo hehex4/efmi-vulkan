@@ -25,8 +25,9 @@ the declaration. Secondary execution preserves snapshots and reset clears curren
 D-228 native output queries/references map o0-o7/oD through the actual classic/imageless/dynamic
 attachment context, independently of descriptor aliases. History owns metadata only; a new source
 reference validates live IDs and retains the complete view/image/allocation chain. Writable output
-hashes are not guessed. Existing native descriptor consumers enforce layout/hazard/ownership limits;
-output destinations and inherited secondary contexts still need dedicated adapters.
+hashes are not guessed. Native descriptor consumers enforce layout/hazard/ownership limits;
+the later D-238 output executor is separate from those consumers. Inherited secondary attachment
+context still needs a parent-aware adapter.
 
 D-229 native call state obtains rt_width/rt_height from known output0 resource dimensions for
 2D/MS views. Unknown source metadata stays unknown; absent/non-2D views preserve original -1
@@ -48,6 +49,31 @@ Final end closes the scope. Temporary image layouts across segments require a su
 D-233 ordinary dynamic native image scopes use immutable actual color/depth/stencil and enabled
 resolve image IDs for conflict proof. Null/ignored handles do not become attachments. Application
 barriers remain the only layout source; unknown or segmented contexts remain unresolved.
+
+D-234 filters dynamic native ShaderFixes by actual depth/stencil presence, independent of pipeline
+formats or depth-test/write enable. Native cache keys distinguish unknown, absent and present;
+Begin refreshes pipelines that were bound before the attachment context became known.
+
+D-235 direct compute with synchronization2 uses compute-to-compute dependencies, including
+UNIFORM_READ for unchanged original aliases. Private mutable resources retain completed upload
+publication and one-queue ownership. Application references, indirect replay and graphics ordering
+remain separately gated; merely enabling synchronization2 does not establish a signal-stage adapter.
+
+D-236/D-237 frame analysis resolves actual imageless views and ordinary dynamic stored outputs.
+Captures run after driver End, with exact layouts and independent resolve-store semantics. Complete
+context is validated before any copy; suspended/resumed contexts emit no capture work.
+
+D-238/D-239 native_targets.cpp preflights output plans separately from descriptors, then splits
+supported stored ordinary single-color dynamic passes into explicit dependency/LOAD continuations.
+The host restores introduced layouts at application End; complete target owners survive command
+completion and module exchange. Shared restoration state is ABI-stamped. Actual null attachments
+require the application's enabled unused-attachments feature and retain the original format contract.
+Query/feedback, unknown attachment mappings, unsupported passes, aliases and queue scopes refuse.
+
+D-240 proves already absent output assignments from immutable current context and emits no pass,
+owner, layout or dependency work for them. Plan-wide nonnull writes prevent dropping later null
+events based on initial absence. These no-ops can coexist with separately validated descriptors;
+real mixed output/descriptor changes still need sequential alias planning.
 
 ## What it is
 

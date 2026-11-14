@@ -937,3 +937,9 @@ Output splitting also requires a complete native pipeline attachment contract. D
 Within the ordinary single-color scope, `o0 = null` starts a continuation with an actual null color view when the application enabled `dynamicRenderingUnusedAttachments`. The original color-format contract survives unbinding, so a later retained destination can be restored with exact pipeline compatibility. Introduced targets restore their layout when unbound; null views own no image and contribute no attachment conflict. The layer enables no device feature on behalf of the application.
 
 The original `BuiltInCommandListUnbindAllRenderTargets` also executes here: the complete single-color/no-depth context proves that its other color slots and depth are already absent. Unsupported nonnull slots still refuse before any command records. Actual GPU readbacks cover core/KHR/inject, repeated/once/post unbinding, null then restore, the original built-in and feature-disabled fallback. No real-game verification is implied.
+
+## Proven absent outputs (D-240)
+
+Null assignments to outputs already proven absent emit no rendering, ownership, layout or dependency work. This lets the original all-output unbind run in compute lists, including non-inherited secondary recordings and supported Submit2 calls. Complete classic unused references and dynamic null slots supply the same proof. Unknown/inherited attachment contexts, unmodeled mappings and external-format null-source resolves remain unavailable.
+
+The entire plan is checked for nonnull writes before removing any null event. An initially null slot that is bound and then unbound keeps both ordered changes. Proven no-ops can accompany descriptor work; actual output changes retain the pass and alias restrictions. GPU coverage verifies three dependent dispatches produce3 after the built-in unbind, plus core/KHR/inject/push/secondary and legacy descriptor assignments.

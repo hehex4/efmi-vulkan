@@ -1,6 +1,10 @@
 # EFMI Vulkan - Tasks
 
 
+## D-240 verified; continue preserved depth (2026-11-14)
+
+- D-239 merged5c3bd5d. Valid baseline7/11, source2.7.0 applied after baseline. Full pair/four stamps/tracker487/failed GPU11 and native-absent-outputs area pass (absent27/null38/output52/calls60/bindings48/validation76/text633). Reviewed diff/memory for commit/FF. Continue D-241 preserved-depth fixture/adapter and broader offline output/pass/queue work without stopping at the commit.
+
 ## D-239 verified; continue absent-output semantics (2026-11-14)
 
 - D-238 merged8ea21ba. Valid enabled null baseline7/15 already recorded. D-239 source2.6.9 draft applied, including original built-in absent-slot no-ops and preserved original format contract. Full pair/four stamps/tracker467/failed GPU20 and native-output-null area pass (null38/output52/dynamic exports70/validation76/text631). Review/commit/FF then apply D-240 absent-output drafts after its baseline, followed by preserved-depth output/pass and queue adapters; do not stop at the commit.

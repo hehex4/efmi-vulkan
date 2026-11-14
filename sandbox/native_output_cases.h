@@ -67,6 +67,10 @@ static void native_output_cases()
     record_native_target(&d,&cb,prepared,0);
     check(output_commands==std::vector<char>({'E','D','B'}) && !output_view && cb.native_target_state->format==VK_FORMAT_R8G8B8A8_UNORM &&
           !cb.target_contexts.back().dynamic_colors[0].imageView,"unbinding uses an actual null view while retaining pipeline compatibility proof");
+    const auto original_plan=plan;plan.items[0].native_resource=resource;plan.items.push_back(original_plan.items[0]);
+    check(prepare() && prepared.events[0] && prepared.events[1] && prepared.events[1]->change &&
+          !prepared.events[1]->targets.dynamic_colors[0].imageView,"initially null slot keeps a later null after a same-plan nonnull destination assignment");
+    plan=original_plan;
     plan.items[0].native_resource=resource;check(prepare(),"retained destination can be restored after null without inventing a format");
     record_native_target(&d,&cb,prepared,0);native_targets_end(&d,&cb);
     check(output_view==handle && cb.image_layouts.get(image.id,1,1,view.range,actual) && actual==VK_IMAGE_LAYOUT_GENERAL,
