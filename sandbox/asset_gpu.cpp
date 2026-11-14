@@ -230,6 +230,7 @@ int wmain(int argc,wchar_t** argv)
             staged_tests(g);
             wic_tests(g);
             layered_tests(g);
+            narrow_tests(g);
             buffer_tests(g);
             resource_cache_tests(g);
             file_plan_tests(g);

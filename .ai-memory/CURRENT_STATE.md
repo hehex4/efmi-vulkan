@@ -5,6 +5,13 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.4.1: Narrow DDS formats and aligned staging, D-211 (2026-11-14; sandbox verified)
+
+- D-210 committed/merged as4897c07. Original CommandList LoadFromFile calls DirectXTK; FillInitData iterates every layer/mip using GetSurfaceInfo and explicit row/slice pitches. DX11 owns deferred lifetime, hazard tracking and context order. Vulkan retains explicit upload owners/publication and now plans aligned copy regions.
+- Current2.4.0 baseline6/12 in d211-before.out: R8/R16/RGBA16 samples remain original and native plans report unsupported DDS format. Added DXGI61/56/11 UNORM decoding and four-byte mip/layer staging offsets. Raw payload is read once and moved backwards in place only where padding is required; original DDS layer strides and skipped-mip gaps remain. Both worker and arena charge the padded span.
+- Headless byte-exact readback passes598 checks with zero validation diagnostics (d211-upload.out), covering both paths, native/legacy shapes and demoted mips. Pair/tracker built d211-pair.out, ABI97d3399f4a32ac23/version2.4.1 verified in all four binaries. Previously failed cases now12/12 (d211-after.out). Final native-image-shapes area passes shapes70, file images46, application images76, files42, character115/377, bindings48, tracker260, Vulkan validation76 and text576 (d211-regression.out). D-212 ignored drafts/plan are prepared but not applied.
+- Review/sync/commit/FF, then bounded color capture subresources from build/d212-plan.md and remaining offline adapters. Root dist2.1.8/historical game2.1.7 unchanged; no game/deployment/system/remote action.
+
 ## Active source 2.4.0: Application array/cube views, D-210 (2026-11-14; sandbox verified)
 
 - D-209 committed and merged as 803cc72. Original GetResource/SetResource retains the exact stage SRV. DX11 supplies deferred reference lifetime, hazard tracking and context order; Vulkan preserves D-206 recording-local facts and explicit ownership/synchronization.

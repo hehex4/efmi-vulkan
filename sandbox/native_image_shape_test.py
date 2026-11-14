@@ -12,16 +12,20 @@ from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
 
 
-def dds(path, layers, cube, seed=10):
-    header=[124,0x2100F,4,4,16,0,3]+[0]*11
+def dds(path, layers, cube, seed=10, fmt=28):
+    size=4 if fmt==28 else 6
+    pixel_bytes={28:4,61:1,56:2,11:8}[fmt]
+    header=[124,0x2100F,size,size,size*pixel_bytes,0,3]+[0]*11
     header += [32,4,int.from_bytes(b'DX10','little'),0,0,0,0,0]
     header += [0x401008,0,0,0,0]
-    data=b'DDS '+struct.pack('<31I',*header)+struct.pack('<5I',28,3,4 if cube else 0,layers//6 if cube else layers,0)
+    data=b'DDS '+struct.pack('<31I',*header)+struct.pack('<5I',fmt,3,4 if cube else 0,layers//6 if cube else layers,0)
     total=0
     for layer in range(layers):
-        for mip,size in enumerate((4,2,1)):
+        for mip,extent in enumerate((size,size//2,1)):
             value=seed+layer*7+mip*3
-            data += bytes((value,0,255-value,255))*(size*size)
+            pixel=(bytes((value,)) if fmt==61 else struct.pack('<H',value*257) if fmt==56 else
+                   struct.pack('<4H',value*257,0,(255-value)*257,65535) if fmt==11 else bytes((value,0,255-value,255)))
+            data += pixel*(extent*extent)
             total += value*(1+layer*3+mip)
     path.write_bytes(data)
     return total*2
@@ -43,7 +47,8 @@ def scene(checks,case):
     lines += ['output[0] += value; }']
     source=root/'scene.hlsl';source.write_text('\n'.join(lines),encoding='ascii')
     shader=compile_shader(source,root/'compiled','12345678','cs')
-    mods=root/'Mods';mods.mkdir();file=mods/'input.dds';expected=dds(file,layers,cube)
+    fmt=61 if '_r8' in case else 56 if '_r16' in case else 11 if '_rgba16' in case else 28
+    mods=root/'Mods';mods.mkdir();file=mods/'input.dds';expected=dds(file,layers,cube,fmt=fmt)
     (mods/'test.ini').write_text('namespace = native_image_shapes\n[Constants]\nglobal $loaded = 1\n'
         '[ShaderOverrideCompute]\nhash = %08x\nvk_binding = cs-t0, 0, 2\ncs-t0 = ResourceTexture\n'
         '[ResourceTexture]\nfilename = input.dds\n'%crc32c(shader.read_bytes()),encoding='ascii')
@@ -53,12 +58,13 @@ def scene(checks,case):
           '--texture-shape','3' if layers==12 else '2' if cube else '1']
     if case.endswith('_push'):args += ['--descriptors','push']
     if case.endswith('_secondary'):args += ['--compute-secondary']
-    with Sandbox(seconds=6 if case=='array_reload' else 3,validation=True,env_extra=env,extra_args=args) as sb:
+    if case.endswith('_two_queues'):args += ['--two-queues']
+    with Sandbox(seconds=6 if case.endswith('_reload') else 3,validation=True,env_extra=env,extra_args=args) as sb:
         time.sleep(1)
         with ProbeClient(sb.pid) as probe:
-            if case=='array_reload':
+            if case.endswith('_reload'):
                 checks.check(probe.status().get('replacement',{}).get('shader_overrides',{}).get('executed',0)>0,'reload: initial layered file bound')
-                expected=dds(file,layers,cube,31);keys.write_text('1 121\n',encoding='ascii');time.sleep(.2);keys.write_text('1\n',encoding='ascii');time.sleep(1)
+                expected=dds(file,layers,cube,31,fmt=fmt);keys.write_text('1 121\n',encoding='ascii');time.sleep(.2);keys.write_text('1\n',encoding='ascii');time.sleep(1)
             status=probe.status().get('replacement',{})
         sb.proc.wait(timeout=30);checks.equal(sb.proc.returncode,0,case+': normal exit')
         (root/'layer.log').write_bytes(Path(sb.log_path).read_bytes())
@@ -71,7 +77,8 @@ def scene(checks,case):
 
 def main():
     checks=Checks('native image shapes');selected=set(sys.argv[1:])
-    for case in ('array','cube','cube_array','array_push','array_secondary','cube_push','cube_array_secondary','array_reload'):
+    for case in ('array','cube','cube_array','array_push','array_secondary','cube_push','cube_array_secondary','array_reload','array_r8','cube_r8','array_r16','cube_r16',
+                 'array_rgba16','array_r8_reload','array_r16_push','cube_r8_secondary','cube_r16_two_queues'):
         if not selected or case in selected:scene(checks,case)
     return checks.finish()
 

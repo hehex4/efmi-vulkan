@@ -51,7 +51,11 @@ public:
     size_t base_offset() const { return decoded_.levels.empty()?0:decoded_.levels[skipped_].offset; }
     // The levels a load leaves out of `image` for `skip_levels` requested: never below 4 by 4, never the last.
     static uint32_t levels_skipped(const DdsImage& image,uint32_t skip_levels);
-    // The copy from `stage` (the file's bytes from base_offset() on at `offset`) into the caller's
+    // Read the original payload at offset zero, then pad in place before recording. Narrow
+    // format mip/layer starts need four-byte offsets on transfer-only upload queues.
+    static size_t staging_bytes(const DdsImage&,uint32_t skip_levels,bool all_layers);
+    static void pad_staging(const DdsImage&,uint32_t skip_levels,bool all_layers,uint8_t*);
+    // The copy from `stage` (the padded payload at aligned `offset`) into the caller's
     // command buffer, between its begin and end.
     bool record_copy(VkCommandBuffer,VkBuffer stage,VkDeviceSize offset);
     // The caller's submission completed (Ready) or could not be made (Failed).

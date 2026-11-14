@@ -206,18 +206,22 @@ static std::vector<uint8_t> staged_fixture(uint32_t size,uint32_t levels,uint8_t
 static std::vector<uint8_t> staged_readback(Gpu& g,const ImageUpload& image)
 {
     const auto& meta=image.metadata();const uint32_t skipped=image.skipped_levels();
-    const size_t base=meta.levels[skipped].offset;size_t bytes=0;
-    for(uint32_t i=skipped;i<meta.levels.size();++i)bytes+=meta.levels[i].bytes;
-    const size_t layer_bytes=bytes;bytes*=image.layers();
+    // Independent readback packing: align every region to sixteen bytes, then remove gaps.
+    // This also supports narrow scalar payloads without repeating the upload's packing rule.
+    size_t bytes=0;std::vector<VkBufferImageCopy> copies;std::vector<size_t> sizes;
+    for(uint32_t layer=0;layer<image.layers();++layer)for(uint32_t i=skipped;i<meta.levels.size();++i){
+        const auto& level=meta.levels[i];VkBufferImageCopy copy{};bytes=(bytes+15)&~size_t(15);
+        copy.bufferOffset=bytes;copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped,layer,1};
+        copy.imageExtent={level.width,level.height,1};copies.push_back(copy);sizes.push_back(level.bytes);bytes+=level.bytes;
+    }
     auto b=g.readback(bytes);auto cb=g.begin();const uint32_t count=static_cast<uint32_t>(meta.levels.size())-skipped;
     barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_ACCESS_SHADER_READ_BIT,VK_ACCESS_TRANSFER_READ_BIT,image.layers());
-    std::vector<VkBufferImageCopy> copies;
-    for(uint32_t layer=0;layer<image.layers();++layer)for(uint32_t i=skipped;i<meta.levels.size();++i){const auto& level=meta.levels[i];VkBufferImageCopy copy{};
-        copy.bufferOffset=layer*layer_bytes+level.offset-base;copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped,layer,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);}
     pCmdCopyImageToBuffer(cb,image.image(),VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,b.buffer,static_cast<uint32_t>(copies.size()),copies.data());
     barrier(cb,image.image(),count,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,VK_ACCESS_TRANSFER_READ_BIT,VK_ACCESS_SHADER_READ_BIT,image.layers());
     g.finish(cb,b);
-    const auto* mapped=static_cast<const uint8_t*>(b.mapped);return {mapped,mapped+bytes};
+    const auto* mapped=static_cast<const uint8_t*>(b.mapped);std::vector<uint8_t> result;
+    for(size_t i=0;i<copies.size();++i)result.insert(result.end(),mapped+copies[i].bufferOffset,mapped+copies[i].bufferOffset+sizes[i]);
+    return result;
 }
 // An 8-bit RGBA PNG in one stored zlib block, samples distinct per position.
 static std::vector<uint8_t> png_fixture(uint32_t width,uint32_t height)
@@ -337,6 +341,46 @@ void layered_tests(Gpu& g)
         const auto refused=staged?full->wait_until(Clock::now()+std::chrono::seconds(15)):await_texture(disabled,full,g,true);
         check(refused.state==TextureState::Failed && refused.reason.find("cube-array")!=std::string::npos,"disabled cube-array capability reports before GPU view creation");
         disabled.stop();
+    }
+}
+// Narrow DDS mip starts and later layers must survive both staging paths and demotion.
+void narrow_tests(Gpu& g)
+{
+    const auto folder=std::filesystem::current_path()/L"narrow-fixtures";std::filesystem::create_directories(folder);
+    std::mutex queue_mutex;std::string reason;
+    for(const bool staged:{false,true}){
+        TextureDevice device=cache_device(g);device.readback=true;
+        if(staged){device.dispatch=g.dispatch;device.upload_queue=g.queue;device.upload_family=g.family;device.upload_mutex=&queue_mutex;
+#define X(name) device.buffer_dispatch.name=p##name;
+            EFMI_BUFFER_UPLOAD_FUNCS(X)
+#undef X
+        }
+        TextureCache cache(device,{},64,1);
+        for(uint32_t format:{61u,56u,11u})for(bool cube:{false,true}){
+            const uint32_t layers=cube?6:3,texel=format==61?1:format==56?2:8;
+            auto data=staged_fixture(12,4,0);data.resize(148);put(data,128,format);put(data,136,cube?4:0);put(data,140,cube?1:layers);
+            for(uint32_t layer=0;layer<layers;++layer)for(uint32_t mip=0,w=12;mip<4;++mip,w=std::max(1u,w/2))
+                for(uint32_t i=0;i<w*w*texel;++i)data.push_back(uint8_t(17+layer*37+mip*13+i*5));
+            const auto file=folder/(std::to_wstring(format)+(cube?L"-cube.dds":L"-array.dds"));write_fixture(file,data);
+            DdsImage meta;const bool decoded=decode_dds(data.data(),data.size(),meta,reason);
+            check(decoded,"narrow DDS fixture decodes with complete mip/layer payload");if(!decoded)continue;
+            const size_t stride=(data.size()-148)/layers;
+            for(bool full:{false,true})for(uint32_t skip:{0u,1u}){
+                auto request=cache.declare_image(file,reason,skip,0,full);
+                const bool demanded=request && cache.demand(request,skip);check(demanded,"narrow DDS request demanded");if(!demanded)continue;
+                const auto ready=staged?request->wait_until(Clock::now()+std::chrono::seconds(15)):await_texture(cache,request,g,true);
+                const bool loaded=ready.state==TextureState::Ready && ready.image;
+                check(loaded,staged?"narrow DDS arena upload completes":"narrow DDS worker upload completes");if(!loaded)continue;
+                const auto shape=full?(cube?VK_IMAGE_VIEW_TYPE_CUBE:VK_IMAGE_VIEW_TYPE_2D_ARRAY):VK_IMAGE_VIEW_TYPE_2D;
+                check(ready.image->skipped_levels()==skip && ready.image->layers()==(full?layers:1) && ready.image->view_type()==shape,
+                      "narrow DDS keeps requested mip range and native or legacy view shape");
+                std::vector<uint8_t> expected;
+                for(uint32_t layer=0;layer<(full?layers:1);++layer)
+                    expected.insert(expected.end(),data.begin()+layer*stride+meta.levels[skip].offset,data.begin()+148+(layer+1)*stride);
+                check(staged_readback(g,*ready.image)==expected,"every narrow texel and retained mip/layer matches the source file");
+            }
+        }
+        cache.stop();
     }
 }
 void staged_tests(Gpu& g)

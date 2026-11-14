@@ -45,8 +45,8 @@ int HostDdsTests()
     auto invalid=fixture();invalid.pop_back();rejected(invalid,"truncated final mip preserves previous output");
     invalid=fixture();invalid.push_back(0);rejected(invalid,"extra layers or trailing data are refused");
     invalid=fixture(97);rejected(invalid,"typeless BC7 cannot silently pick a color space");
-    invalid=fixture();put(invalid,140,2);rejected(invalid,"DX10 arrays are explicit unsupported inputs");
-    invalid=fixture();put(invalid,136,4);rejected(invalid,"DX10 cube flag is rejected");
+    invalid=fixture();put(invalid,140,2);rejected(invalid,"DX10 array headers require all layer payloads");
+    invalid=fixture();put(invalid,136,4);rejected(invalid,"DX10 cube headers require all face payloads");
     invalid=fixture();put(invalid,132,4);rejected(invalid,"DX10 3D resources are rejected");
     invalid=fixture();put(invalid,16,0);rejected(invalid,"zero width is rejected");
     invalid=fixture();put(invalid,16,32768);rejected(invalid,"excess dimensions are rejected");

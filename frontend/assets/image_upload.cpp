@@ -3,6 +3,38 @@
 #include <cstring>
 
 namespace efmi::assets {
+namespace {
+struct PayloadRegion { size_t source=0,offset=0,bytes=0;uint32_t mip=0,layer=0; };
+struct Payload { size_t source_bytes=0,bytes=0;std::vector<PayloadRegion> regions; };
+Payload payload_plan(const DdsImage& image,uint32_t requested_skip,bool all_layers)
+{
+    Payload result;if(image.levels.empty())return result;
+    const auto skipped=ImageUpload::levels_skipped(image,requested_skip);
+    const size_t base=image.levels[skipped].offset,end=image.levels.back().offset+image.levels.back().bytes;
+    const size_t stride=end-image.levels.front().offset;
+    const uint32_t layers=all_layers?image.layers:1;
+    size_t padding=0;
+    for(uint32_t layer=0;layer<layers;++layer)for(uint32_t mip=skipped;mip<image.levels.size();++mip){
+        const auto& level=image.levels[mip];const size_t source=layer*stride+level.offset-base;
+        padding+=(4-(source+padding)%4)%4;
+        result.regions.push_back({source,source+padding,level.bytes,mip,layer});
+    }
+    result.source_bytes=layers?size_t(layers-1)*stride+end-base:0;
+    result.bytes=result.source_bytes+padding;return result;
+}
+}
+size_t ImageUpload::staging_bytes(const DdsImage& image,uint32_t skip,bool all_layers)
+{
+    return payload_plan(image,skip,all_layers).bytes;
+}
+void ImageUpload::pad_staging(const DdsImage& image,uint32_t skip,bool all_layers,uint8_t* mapped)
+{
+    const auto plan=payload_plan(image,skip,all_layers);
+    // Every destination is at or above its source. Moving backwards preserves unread regions.
+    for(auto i=plan.regions.rbegin();i!=plan.regions.rend();++i)
+        if(i->source!=i->offset)std::memmove(mapped+i->offset,mapped+i->source,i->bytes);
+}
+
 ImageUpload::ImageUpload(VkDevice device,const UploadDispatch& dispatch,
                          std::shared_ptr<AllocationBudget> resident,std::shared_ptr<AllocationBudget> staging)
     :device_(device),d_(dispatch),resident_budget_(std::move(resident)),staging_budget_(std::move(staging)) {}
@@ -137,9 +169,9 @@ bool ImageUpload::prepare_decoded(const DdsImage& decoded,const uint8_t* data,si
         reason_="Decoded image layers outside its bytes";state_=UploadState::Failed;return false;
     }
     if(!check_format(features,limits,bc_enabled,readback) || !create_image(limits,readback,skip_levels,priority))return false;
-    const auto start=base_offset();
+    const auto start=base_offset();const auto payload=payload_plan(decoded_,skipped_,all_layers_);
     VkBufferCreateInfo buffer={VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer.size=size-start;buffer.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    buffer.size=payload.bytes;buffer.usage=VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     if(!result(d_.CreateBuffer(device_,&buffer,nullptr,&stage_),"create image staging buffer"))return false;
     VkMemoryRequirements req{};d_.GetBufferMemoryRequirements(device_,stage_,&req);
     stage_memory_=allocate(req,VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,staging_budget_,staging_charged_);
@@ -147,7 +179,8 @@ bool ImageUpload::prepare_decoded(const DdsImage& decoded,const uint8_t* data,si
     if(!result(d_.BindBufferMemory(device_,stage_,stage_memory_,0),"bind image staging memory"))return false;
     void* mapped=nullptr;
     if(!result(d_.MapMemory(device_,stage_memory_,0,buffer.size,0,&mapped),"map image staging memory"))return false;
-    std::memcpy(mapped,data+start,size-start);d_.UnmapMemory(device_,stage_memory_);
+    std::memcpy(mapped,data+start,payload.source_bytes);
+    pad_staging(decoded_,skipped_,all_layers_,static_cast<uint8_t*>(mapped));d_.UnmapMemory(device_,stage_memory_);
     state_=UploadState::Prepared;return true;
 }
 bool ImageUpload::record_copy(VkCommandBuffer cmd,VkBuffer stage,VkDeviceSize offset)
@@ -161,11 +194,11 @@ bool ImageUpload::record_copy(VkCommandBuffer cmd,VkBuffer stage,VkDeviceSize of
     barrier.image=image_;barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,levels,0,layers()};
     d_.CmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&barrier);
     std::vector<VkBufferImageCopy> copies;
-    const auto layer_bytes=decoded_.levels.back().offset+decoded_.levels.back().bytes-decoded_.levels.front().offset;
-    for(uint32_t layer=0;layer<layers();++layer)for(uint32_t i=skipped_;i<decoded_.levels.size();++i){
-        const auto& level=decoded_.levels[i];VkBufferImageCopy copy{};
-        copy.bufferOffset=offset+uint64_t(layer)*layer_bytes+(level.offset-decoded_.levels[skipped_].offset);
-        copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,i-skipped_,layer,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
+    const auto payload=payload_plan(decoded_,skipped_,all_layers_);
+    for(const auto& region:payload.regions){
+        const auto& level=decoded_.levels[region.mip];VkBufferImageCopy copy{};
+        copy.bufferOffset=offset+region.offset;
+        copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,region.mip-skipped_,region.layer,1};copy.imageExtent={level.width,level.height,1};copies.push_back(copy);
     }
     d_.CmdCopyBufferToImage(cmd,stage,image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,static_cast<uint32_t>(copies.size()),copies.data());
     barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;

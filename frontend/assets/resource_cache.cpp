@@ -372,10 +372,11 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
     const uint64_t layer_end=meta.levels.back().offset+meta.levels.back().bytes;
     const uint64_t payload=pixels.bytes.empty()?layer_end-base+
         uint64_t(entry->all_layers_?meta.layers-1:0)*(layer_end-meta.levels.front().offset):pixels.bytes.size();
-    // The payload straight into the arena: one read, no copy of our own.
+    // Read once into the arena, then insert narrow-format alignment padding in place.
     uint64_t offset=0;
-    if(!arena_take(payload,offset))throw BudgetBusy("Aggregate staging arena busy");
-    slice.cache=this;slice.offset=offset;slice.bytes=payload;
+    const auto staged_bytes=ImageUpload::staging_bytes(meta,entry->skip_levels_,entry->all_layers_);
+    if(!arena_take(staged_bytes,offset))throw BudgetBusy("Aggregate staging arena busy");
+    slice.cache=this;slice.offset=offset;slice.bytes=staged_bytes;
     uint8_t* target;{std::lock_guard<std::mutex> lock(arena_mutex_);target=arena_->mapped+offset;}
     if(!pixels.bytes.empty())std::memcpy(target,pixels.bytes.data(),pixels.bytes.size());
     else{
@@ -383,6 +384,7 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::stage(const ResourceHandle
         if(!SetFilePointerEx(file.handle,at,nullptr,FILE_BEGIN) || !ReadFile(file.handle,target,static_cast<DWORD>(payload),&read,nullptr) || read!=payload)
             throw std::runtime_error("Incomplete resource file read");
     }
+    ImageUpload::pad_staging(meta,entry->skip_levels_,entry->all_layers_,target);
     read_done_us=steady_us();
     {std::lock_guard<std::mutex> lock(mutex_);++stats_.file_reads;}
     auto upload=std::make_shared<ImageUpload>(device_.device,device_.dispatch,budgets_.resident,budgets_.staging);

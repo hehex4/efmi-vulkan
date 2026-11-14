@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-211: Narrow DDS data uses aligned staging regions (2026-11-14)
+
+- Original CommandList LoadFromFile/DirectXTK FillInitData passes each mip/layer's row and slice pitches to DX11; deferred ownership, hazard tracking and context order come from that runtime. Vulkan keeps its retained upload/publication chain and explicit copy layout.
+- Decode R8_UNORM, R16_UNORM and RGBA16_UNORM DDS (DXGI61/56/11), matching already represented WIC formats. Float sampled consumers remain required; integer/depth/writable consumers are not broadened.
+- Transfer-only queues require four-byte buffer offsets (vkCmdCopyBufferToImage VUID-commandBuffer-07737). An internal region plan preserves original DDS stride, skipped-mip gaps and each source offset, adds alignment padding and moves bytes backwards in place. Existing RGBA/BC payloads need no padding. Worker allocations and arena slices charge the padded span; fence/timeline readiness and retained lifetime remain.
+- Tests read every narrow texel independently from the GPU with sixteen-byte readback packing, including both upload paths, legacy/native shapes and demotion. Native shaders sample every cell, F10 and alternate descriptor/queue paths. Exact builds and final evidence are in CURRENT_STATE.
+
 ## D-210: Retained application views cover their full mip/layer range (2026-11-14)
 
 - Original ResourceCopyTarget GetResource/SetResource keeps and rebinds the exact stage SRV, including array/cube shape. DX11 supplies deferred reference lifetime, hazard tracking and one-context order. Extend D-206's explicit Vulkan recording-local ownership/layout path rather than infer global state from recording order.

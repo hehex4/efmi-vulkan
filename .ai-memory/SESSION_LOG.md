@@ -2500,3 +2500,20 @@ area passes shapes53, existing references76, file shapes33, bindings48, GPU anal
 validation76 and text576 (d210-regression.out). Reviewed diff and synchronized memory before commit.
 Continue D-211 narrow DDS formats/aligned staging, then remaining offline architecture. Root dist2.1.8
 and historical game2.1.7 unchanged; no game/deployment/system/remote action.
+
+## 2026-11-14: D-211 narrow DDS formats and aligned staging, 2.4.1
+
+Continued after D-2104897c07. Original DirectXTK DDS initialization supplies each mip/layer's pitches
+to DX11; Vulkan retains its explicit allocation, publication and completion chain. Added R8/R16/
+RGBA16 UNORM DDS and an aligned copy-region plan shared by worker and arena uploads. Reverse in-place
+padding preserves source bytes, skipped-mip gaps and legacy first-layer behavior; budgets charge padding.
+
+Current2.4.0 baseline6/12 (d211-before.out) explicitly refuses formats; corrected12/12 (d211-after.out).
+Headless both-path/native/legacy/demotion readback598 checks, zero validation diagnostics (d211-upload.out).
+Pair/tracker built d211-pair.out; all four binary ABI97d3399f4a32ac23/version2.4.1 stamps verified.
+Final native-image-shapes area passes shapes70, file images46, application images76, files42,
+character115/377, bindings48, tracker260, validation76, text576 (d211-regression.out). Diff reviewed.
+
+Continue immediately with D-212 image view subresource captures, including exact framebuffer and
+multiview layer bounds; drafts and original/spec findings are in build/d212-plan.md. Root dist2.1.8
+and historical game2.1.7 unchanged. No game/deployment/system/remote action.

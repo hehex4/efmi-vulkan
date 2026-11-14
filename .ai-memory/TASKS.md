@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-211 verified; continue D-212 capture subresources (2026-11-14)
+
+- D-210 merged as4897c07. Source/pair2.4.1 ABI97d3399f4a32ac23 verified. Baseline6/12, fixed12/12; standalone upload598 with zero diagnostics. Final area shapes70, file images46, application images76, files42, character115/377, bindings48, tracker260, validation76 and text576 pass. Exact artifacts in CURRENT_STATE.
+- Commit/FF after review and memory sync, then apply/build D-212 fixture drafts and establish failures on2.4.1 before implementation2.4.2 (build/d212-plan.md). Continue bounded color capture subresources and other offline work without an intermediate final answer. No game/deployment action.
+
 ## Active D-210 verified; continue narrow DDS formats (2026-11-14)
 
 - Source/pair2.4.0, ABI97d3399f4a32ac23 verified. Application shapes53, application images76, file shapes33, bindings48, GPU analysis55, tracker260, validation76 and text576 pass in d210-regression.out. Review/commit/FF main, then continue D-211 without ending the turn.

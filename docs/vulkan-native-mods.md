@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-210. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-211. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -645,3 +645,17 @@ The53 new checks read distinct values from every view cell, including partial ra
 secondary commands, and verify shape mismatch refusal. Existing references76, file shapes33,
 descriptor bindings48, GPU analysis55, tracker260 and Vulkan validation76 pass on the same pair.
 This changes application binding support; frame-analysis image capture retains its narrower scope.
+
+### Narrow DDS formats (D-211, 2.4.1; sandbox only)
+
+Native and legacy file loading now accepts R8_UNORM, R16_UNORM and RGBA16_UNORM DDS, in addition
+to the existing RGBA/BGRA and BC formats. Mip/layer copy starts use four-byte staging alignment,
+as required on transfer-only queues by [Vulkan copy rules](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdCopyBufferToImage.html).
+The file's bytes and original layer strides stay intact; padding is inserted in place in staging.
+Both upload paths charge the padded allocation and retain the same completion/publication owners.
+Legacy material views still select the first layer; native views preserve the complete file shape.
+
+Headless checks compare every texel after both staging paths and mip demotion, with independent
+readback packing. Native shaders cover narrow arrays/cubes, F10, push, secondary commands and two
+application queues. These published read-only file uploads do not broaden the application-image
+queue adapter or enable integer, depth or writable consumers. CURRENT_STATE records exact evidence.

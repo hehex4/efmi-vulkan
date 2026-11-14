@@ -16,6 +16,9 @@ struct Format { VkFormat vk=VK_FORMAT_UNDEFINED;uint32_t block=0,bytes=0; };
 Format dxgi(uint32_t format)
 {
     switch(format){
+    case 61:return {VK_FORMAT_R8_UNORM,1,1};
+    case 56:return {VK_FORMAT_R16_UNORM,1,2};
+    case 11:return {VK_FORMAT_R16G16B16A16_UNORM,1,8};
     case 28:return {VK_FORMAT_R8G8B8A8_UNORM,1,4};
     case 29:return {VK_FORMAT_R8G8B8A8_SRGB,1,4};
     case 87:return {VK_FORMAT_B8G8R8A8_UNORM,1,4};
