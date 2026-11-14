@@ -754,7 +754,7 @@ private:
     std::atomic<int> mode_{0}; // the original's hunting mode: 0 no keys, 1 enabled, 2 soft disabled
     bool keys_ = false, told_mode_ = false;
     int marking_mode_ = 0;
-    uint32_t actions_ = 3;
+    uint32_t actions_ = 3, analysis_options_ = 0;
     std::set<uint32_t> visited_[Kinds];  // in ascending order, as the original's std::set
     std::set<uint32_t> peers_[Kinds][2]; // the vertex and pixel modules drawn with the selected element, for the mark's log
     uint32_t selected_[Kinds] = {};

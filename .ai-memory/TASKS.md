@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-213: analyse_options resource selection (2026-11-14)
+
+- D-212 merged as1de133c. Source/pair2.4.3 verified, ABI22781b9e63b58c08. Selection94, GPU resources55, geometry65, indirect121, image shapes47, targets43, live INI221, native compute91, tracker260, validation76 and text578 pass. CURRENT_STATE distinguishes original failures and the corrected fixture. Review/sync/commit/FF.
+- Continue D-214 export formats from build/d214-plan.md (helper and test drafts compile), then D-215 hold/release from build/d215-plan.md and its fixture draft. Later render-target binding and queue graphs. Unsupported option encodings/control behavior are explicit gaps, not silently accepted; all remain offline engineering. No game/deployment authorization.
+
 ## Active D-212 verified; continue D-213 analysis selection (2026-11-14)
 
 - D-211 merged as1ef02a2. Source/pair2.4.2 ABI97d3399f4a32ac23 verified. Final capture/pipeline areas pass tracker260, recipe202, cache61, snapshots52, GPU variants63, resources55, geometry65, indirect121, image shapes47, targets43, validation76 and text577. CURRENT_STATE separates initial failures and exact corrected builds. Classic multiview recipe masks/offsets/correlations are retained and reconstructed.

@@ -1847,6 +1847,8 @@ int wmain(int argc, wchar_t** argv)
             capture_target.layered = true;
         else if (a == L"--capture-target-multiview")
             capture_target.layered = g.capture_multiview = true;
+        else if (a == L"--compute-constant-buffer")
+            compute_scene.constant_input = compute_scene.binding_scene = true;
         else if (a == L"--compute-storage-image")
             compute_scene.image_input = compute_scene.storage_image = compute_scene.binding_scene = true;
         else if (a == L"--reusable-recording")

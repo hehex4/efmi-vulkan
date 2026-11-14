@@ -34,7 +34,7 @@ void HostParseResourceMatching();
 void HostParseShaderOverrides();
 void RuntimeParseSpirvShaderOverrides();
 std::vector<efmi::frontend::NativeBinding> RuntimeNativeBindings();
-void RuntimeParseHunting(int&, int&, unsigned&, bool&, InputCallback);
+void RuntimeParseHunting(int&, int&, unsigned&, unsigned&, bool&, InputCallback);
 void HostParseShaderRegex();
 void HostCompileRoots(const std::vector<CommandList*>&, const std::vector<std::wstring>&);
 void HostResourceRoot(const std::wstring&);
@@ -588,11 +588,11 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         if (p.extension && !p.extension->validate_overrides(validation)) throw std::runtime_error("Native override registry refused: " + utf8(validation));
         RegisterKeyBinding(L"reload_config", L"no_modifiers VK_F10", std::make_shared<InputCallbacks>(f10, nullptr, nullptr), 0, 0, 0, InputDisableScope::ALL);
         if (!config.shader_hooks) {
-            int mode = 0, marking = 0; unsigned actions = 0; bool keys = false;
+            int mode = 0, marking = 0; unsigned actions = 0, analysis = 0; bool keys = false;
             p.hunting_keys_first = RuntimeInputCount();
-            RuntimeParseHunting(mode, marking, actions, keys, hunting_key);
+            RuntimeParseHunting(mode, marking, actions, analysis, keys, hunting_key);
             p.hunting_keys_last = RuntimeInputCount();
-            p.hunting.hunting = mode; p.hunting.marking_mode = marking; p.hunting.marking_actions = actions; p.hunting.keys = keys;
+            p.hunting.hunting = mode; p.hunting.marking_mode = marking; p.hunting.marking_actions = actions; p.hunting.analysis_options = analysis; p.hunting.keys = keys;
             // The `hunting` operand (CommandListOperand::evaluate reads G->hunting): XXMI never leaves it at 0 (disabled), a
             // section without hunting keys is soft disabled (2). Before the optimiser, which folds it to 0 only when 0.
             G->hunting = mode == 1 ? 1 : 2;

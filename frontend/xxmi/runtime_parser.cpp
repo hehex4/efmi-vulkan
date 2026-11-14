@@ -176,7 +176,7 @@ std::vector<efmi::frontend::NativeBinding> RuntimeNativeBindings()
 // The installation's [Hunting] section as the original's ParseHuntingSection reads it (Hunting.cpp), its keys
 // registered through the original's RegisterIniKeyBinding with `callback` and the action as private data. `hunting = 0`
 // registers none (XXMI keeps it soft disabled for its ShaderRegex only). reload_config is the generation's own F10.
-void RuntimeParseHunting(int& hunting, int& marking_mode, unsigned& marking_actions, bool& keys, InputCallback callback)
+void RuntimeParseHunting(int& hunting, int& marking_mode, unsigned& marking_actions, unsigned& analysis_options, bool& keys, InputCallback callback)
 {
     keys = false;
     hunting = GetIniInt(L"Hunting", L"hunting", 0, nullptr);
@@ -185,6 +185,8 @@ void RuntimeParseHunting(int& hunting, int& marking_mode, unsigned& marking_acti
     wchar_t buffer[MAX_PATH];
     marking_actions = GetIniStringAndLog(L"Hunting", L"marking_actions", 0, buffer, MAX_PATH)
         ? unsigned(parse_enum_option_string<const wchar_t*, MarkingAction>(MarkingActionNames, buffer, nullptr)) : unsigned(MarkingAction::DEFAULT);
+    analysis_options = GetIniStringAndLog(L"Hunting", L"analyse_options", 0, buffer, MAX_PATH)
+        ? unsigned(parse_enum_option_string<wchar_t*, FrameAnalysisOptions>(FrameAnalysisOptionNames, buffer, nullptr)) : 0;
     if (hunting != 1 && hunting != 2) { hunting = 0; return; }
     const int repeat = GetIniInt(L"Hunting", L"repeat_rate", 8, nullptr);
     const struct { const wchar_t* key; unsigned action; bool repeats; } bindings[] = {

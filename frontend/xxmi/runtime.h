@@ -202,6 +202,7 @@ struct HuntingSettings {
     bool keys = false;             // the section registered a hunting key (its `hunting` is 1 or 2)
     int hunting = 0;               // its `hunting`: 0 off, 1 enabled, 2 soft disabled (the original's modes)
     int marking_mode = 0;          // the original's MarkingMode: 0 skip, 1 original, 2 pink, 3 mono
+    uint32_t analysis_options = 0; // original FrameAnalysisOptions; absent selection means log only
     uint32_t marking_actions = 3;  // the original's MarkingAction bits: 1 clipboard, 2 hlsl, 4 asm, 8 regex, ...
 };
 struct RuntimeStatus {

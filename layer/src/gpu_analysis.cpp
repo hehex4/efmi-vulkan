@@ -4,6 +4,7 @@
 #include "character_module.h"
 #include "json.h"
 #include "../../frontend/gpu/native_shader.h"
+#include "../../frontend/gpu/source_registers.h"
 #include <set>
 #include <condition_variable>
 #include <filesystem>
@@ -17,6 +18,7 @@ constexpr uint64_t kJobBytes = 8ull << 20, kFrameBytes = 64ull << 20, kResidentB
 struct Session {
     std::filesystem::path directory;
     uint64_t bytes = 0, next = 0, events = 0;
+    uint32_t options = 0;
 };
 struct Readback {
     Device* device = nullptr;
@@ -70,20 +72,24 @@ public:
         if(!GetSemaphoreCounterValue)GetSemaphoreCounterValue=reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(d->next_gdpa(d->handle,"vkGetSemaphoreCounterValueKHR"));
     }
     ~GpuAnalysis() { stop(); if (timeline) DestroySemaphore(device->handle, timeline, nullptr); }
-    void frame(const char* directory) {
+    void frame(const char* directory, uint32_t options) {
         std::lock_guard<std::mutex> lock(mutex);
         if (!directory) { active.reset(); return; }
         if (active && active->directory == std::filesystem::u8path(directory)) return;
-        active = std::make_shared<Session>(); active->directory = std::filesystem::u8path(directory);
+        active = std::make_shared<Session>(); active->directory = std::filesystem::u8path(directory); active->options = options;
         if (!worker.joinable()) worker = std::thread([this] { run(); });
-        if (device->timeline_semaphores && !timeline && CreateSemaphore && DestroySemaphore && GetSemaphoreCounterValue && CmdPipelineBarrier && GetBufferMemoryRequirements) {
+        if ((options & 0x3fu) && device->timeline_semaphores && !timeline && CreateSemaphore && DestroySemaphore && GetSemaphoreCounterValue && CmdPipelineBarrier && GetBufferMemoryRequirements) {
             VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO}; type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
             VkSemaphoreCreateInfo info{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}; info.pNext = &type;
             if (CreateSemaphore(device->handle, &info, nullptr, &timeline) != VK_SUCCESS) timeline = VK_NULL_HANDLE;
         }
-        JsonWriter w; w.begin_object(); w.kv("state", "scope");
+        JsonWriter w; w.begin_object(); w.kv("state", "scope"); w.kn("analyse_options", options);
         w.kv("scope", "New one-time recordings on one application queue; post-dispatch and end-of-pass GPU copies; no CPU shadows"); w.end_object();
         events.emplace_back(active, w.out); wake.notify_one();
+        // Resource selection and binary buffers are native. Other export/control adapters are explicit gaps.
+        const uint32_t unsupported=options & ~(0x3fu|0x200u|0x20000u|0x80000000u);
+        if(unsupported)refuse(active,"options","Requested analysis controls or encodings need an adapter (mask " +
+            std::to_string(unsupported) + "); selected native raw captures remain available");
     }
     void refuse(const std::shared_ptr<Session>& session, const char* point, const std::string& reason) {
         if (session->events++ >= 256) return;
@@ -91,7 +97,7 @@ public:
         events.emplace_back(session, w.out); wake.notify_one();
     }
     std::shared_ptr<Session> begin(CmdBuf* cb, const char* point) {
-        if (!active) return {};
+        if (!active || !(active->options & 0x3fu)) return {};
         std::string reason;
         if (device->application_queue_count != 1 || device->material_queues.size()!=1) reason = "Cross-queue application resource hazards are not tracked";
         else if (device->synchronization2_enabled) reason = "Synchronization2 signal scopes require a capture synchronization adapter";
@@ -126,8 +132,21 @@ public:
         std::vector<BufferRequest> requests;
         {
             std::shared_lock<std::shared_mutex> resources(device->res_mx);
+            std::map<std::pair<uint32_t,uint32_t>,uint32_t> roles;
+            if((session->options & 5u)!=5u && (session->options & 5u)){
+                const auto pipeline=device->pipes.find(compute?cb->comp_pipeline:cb->gfx_pipeline);
+                if(pipeline!=device->pipes.end())for(const auto& stage:pipeline->second.shaders){
+                    std::vector<efmi::gpu::SourceRegister> resources;std::string reason;
+                    if(!stage.shader || !efmi::gpu::source_registers(stage.shader->code,resources,reason)){roles.clear();break;}
+                    for(const auto& resource:resources){
+                        using R=efmi::gpu::SourceRegister;
+                        if(resource.kind==R::BufferSrv)roles[{resource.set,resource.binding}]|=4u;
+                        if(resource.kind==R::BufferUav)roles[{resource.set,resource.binding}]|=1u;
+                    }
+                }
+            }
             const auto* sets = compute ? cb->comp_sets : cb->sets;
-            for (uint32_t slot = 0; slot < kMaxSets; ++slot) {
+            if(compute || cb->draws.size()>cb->pass.first_draw)for (uint32_t slot = 0; slot < kMaxSets; ++slot) {
                 const auto& bound = sets[slot]; const DescriptorSetInfo* contents = bound.pushed.get();
                 const auto found = device->descriptor_sets.find(bound.set);
                 if (!contents && found != device->descriptor_sets.end() && found->second.id == bound.id) contents = &found->second;
@@ -138,6 +157,13 @@ public:
                     if(binding.second.flags){refuse(session,point,"Descriptor binding flags require a capture adapter");continue;}
                     const auto type = binding.second.type;
                     const bool adjusted = type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+                    uint32_t category=0;
+                    if(type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC)category=8u;
+                    if(type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC){
+                        category=(session->options & 5u)==5u?5u:roles[{slot,binding.first}];
+                        if(!category && (session->options & 5u))refuse(session,point,"Buffer SRV/UAV classification is unavailable");
+                    }
+                    if(!(session->options & category)){if(adjusted)dynamic+=binding.second.count;continue;}
                     for (uint32_t element = 0; element < binding.second.count; ++element) {
                         const auto value = contents->values.find({binding.first, element});
                         if (value == contents->values.end() || !value->second.known || !value->second.buffer) continue;
@@ -215,6 +241,7 @@ public:
                     if(counter!=SIZE_MAX)requests[counter].uses.push_back(use.out);
                     if(compute || !requests[arguments].reason.empty() || (counter!=SIZE_MAX && !requests[counter].reason.empty()))continue;
                 }
+                if(!(session->options & 0x30u))continue;
                 const auto pipeline=device->pipes.find(draw.pipeline);
                 if(pipeline==device->pipes.end()){refuse(session,point,"Geometry pipeline metadata is unavailable");continue;}
                 const auto& pipe=pipeline->second;
@@ -238,13 +265,13 @@ public:
                     }else use.kn("index_size",draw.index_size);
                     use.end_object();request.uses.push_back(std::move(use.out));
                 };
-                for(const auto& binding:pipe.bindings){
+                if(session->options & 0x10u)for(const auto& binding:pipe.bindings){
                     bool used=false;for(const auto& attribute:pipe.attributes)used|=attribute.binding==binding.binding;
                     if(!used)continue;
                     if(binding.binding>=kMaxVb){refuse(session,point,"Vertex binding exceeds tracked slots");continue;}
                     add(draw.vb[binding.binding].buf,"vertex",draw.vb[binding.binding].off,&binding);
                 }
-                if(indexed)add(draw.ib,"index",draw.ib_off,nullptr);
+                if(indexed && (session->options & 0x20u))add(draw.ib,"index",draw.ib_off,nullptr);
             }
         }
         auto owner = std::static_pointer_cast<CaptureOwner>(owner_for(cb->owners, &capture_owner_key, [] {
@@ -282,7 +309,7 @@ public:
             // Clear-only passes and primaries executing secondaries need no bound pipeline.
             if(pipeline==device->pipes.end()) {
                 if(compute) refuse(session,point,"Image consumer pipeline is unavailable");
-            } else for(const auto& stage:pipeline->second.shaders){
+            } else if(compute || cb->draws.size()>cb->pass.first_draw)for(const auto& stage:pipeline->second.shaders){
                 std::vector<std::pair<uint32_t,uint32_t>> bindings;std::string reason;
                 if(!stage.shader || !efmi::gpu::native_shader_image_bindings(stage.shader->code,stage.entry,bindings,reason)){
                     refuse(session,point,"Image consumer reflection is unavailable");accessed.clear();break;
@@ -301,6 +328,8 @@ public:
                     if(!accessed.count({slot,value.first.first}))continue;
                     const auto binding=contents->layout->bindings.find(value.first.first);
                     if(binding==contents->layout->bindings.end() || binding->second.flags || !value.second.known || !value.second.image_view)continue;
+                    const uint32_t category=binding->second.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?1u:4u;
+                    if(!(session->options & category))continue;
                     if(binding->second.count!=1){refuse(session,point,"Image descriptor arrays require element-use tracking");continue;}
                     // Only actual descriptors whose source is tracked. File uploads do not request transfer usage.
                     if(value.second.native){refuse(session,point,"Uploaded native images have no capture transfer usage");continue;}
@@ -316,6 +345,8 @@ public:
                 for(size_t i=0;i<cb->pass.info->views.size() && i<attachments.size();++i){
                     const auto& view=cb->pass.info->views[i];
                     if(!view.known || attachments[i].storeOp!=VK_ATTACHMENT_STORE_OP_STORE)continue;
+                    const uint32_t category=(view.view.range.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)?1u:2u;
+                    if(!(session->options & category))continue;
                     bool used=false;uint32_t mask=0;
                     for(const auto& subpass:cb->pass.recipe->subpasses){
                         auto use=[&](const VkAttachmentReference2& ref){if(ref.attachment==i){used=true;mask|=subpass.view_mask;}};
@@ -447,10 +478,10 @@ public:
     PFN_vkCmdPipelineBarrier CmdPipelineBarrier = nullptr;
 };
 
-void gpu_analysis_frame(Device* d, const char* directory) {
+void gpu_analysis_frame(Device* d, const char* directory, uint32_t options) {
     auto engine = std::atomic_load(&d->gpu_analysis);
     if (!engine && directory) { engine = std::make_shared<GpuAnalysis>(d); std::atomic_store(&d->gpu_analysis, engine); }
-    if (engine) engine->frame(directory);
+    if (engine) engine->frame(directory,options);
 }
 void gpu_analysis_dispatch(Device* d, CmdBuf* cb) { if (const auto engine = std::atomic_load(&d->gpu_analysis)) {engine->buffers(cb, true);engine->images(cb, true);} }
 void gpu_analysis_pass(Device* d, CmdBuf* cb) { if (const auto engine = std::atomic_load(&d->gpu_analysis)) {engine->buffers(cb, false);engine->images(cb, false);} }

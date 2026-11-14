@@ -20,7 +20,7 @@ def scene(checks, case):
     shader = compile_shader(source, root / "compiled", "12345678", "cs")
     mods = root / "Mods"; mods.mkdir()
     (root / "d3dx.ini").write_text("[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n"
-        "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\n", encoding="ascii")
+        "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\nanalyse_options = dump_rt dump_tex dump_cb dump_vb dump_ib buf\n", encoding="ascii")
     settings = root / "settings";settings.mkdir()
     keys = root / "keys.txt";keys.write_text("1\n", encoding="ascii")
     env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),

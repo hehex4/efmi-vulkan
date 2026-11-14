@@ -121,6 +121,7 @@ void Hunting::configure(const efmi::frontend::HuntingSettings& settings)
     mode_.store(settings.keys ? settings.hunting : 0, std::memory_order_relaxed);
     marking_mode_ = settings.marking_mode >= 0 && settings.marking_mode < 4 ? settings.marking_mode : 0;
     actions_ = settings.marking_actions;
+    analysis_options_ = settings.analysis_options;
 }
 
 std::string Hunting::line_locked(int kind) const
@@ -375,7 +376,7 @@ void Hunting::analyse(const DrawRec& r, const DrawFacts& facts)
 
 void Hunting::frame(const std::filesystem::path& folder, Device* device)
 {
-    std::string written, failed, capture;
+    std::string written, failed, capture;uint32_t options=0;
     {
         std::lock_guard<std::mutex> lock(mx_);
         // TimeoutHuntingBuffers: after a minute without a hunting key the sets start again (the selection stays).
@@ -403,14 +404,14 @@ void Hunting::frame(const std::filesystem::path& folder, Device* device)
             std::error_code error;
             std::filesystem::create_directories(folder, error);
             if (std::filesystem::create_directory(analysis_path_, error)) {
-                analysis_ = "analyse_options: the draws' shaders, index and vertex buffer hashes and render targets (GPU resource copies and explicit refusals in resources.jsonl)\n";
+                analysis_ = "analyse_options: " + std::to_string(analysis_options_) + "\nGPU exports: native raw bytes with explicit format/scope refusals in resources.jsonl\n";
                 analysed_draws_ = 0;
                 analysing_.store(true, std::memory_order_relaxed);
             } else failed = analysis_path_.u8string();
         }
-        if (analysing_.load(std::memory_order_relaxed)) capture = analysis_path_.u8string();
+        if (analysing_.load(std::memory_order_relaxed)) { capture = analysis_path_.u8string(); options = analysis_options_; }
     }
-    if (device && device->analysis_frame) device->analysis_frame(device, capture.empty() ? nullptr : capture.c_str());
+    if (device && device->analysis_frame) device->analysis_frame(device, capture.empty() ? nullptr : capture.c_str(), options);
     if (!written.empty()) {
         logf("Frame analysis saved to %s", written.c_str());
         notice(NoticeLevel::Info, "", ("Frame analysis saved to " + written).c_str());
@@ -425,7 +426,7 @@ void Hunting::status(JsonWriter& w)
     static const char* const keys[Kinds] = {"vertex", "pixel", "index", "buffer", "target", "compute", "geometry", "hull", "domain"};
     w.key("hunting"); w.begin_object();
     w.kb("keys", keys_); w.kn("mode", uint64_t(mode_.load(std::memory_order_relaxed)));
-    w.kv("marking_mode", kMarkingNames[marking_mode_]); w.kn("marking_actions", actions_);
+    w.kv("marking_mode", kMarkingNames[marking_mode_]); w.kn("marking_actions", actions_); w.kn("analyse_options", analysis_options_);
     w.key("visited"); w.begin_object();
     for (int k = 0; k < Kinds; ++k) w.kn(keys[k], visited_[k].size());
     w.end_object();

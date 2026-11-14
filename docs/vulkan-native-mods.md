@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-212. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-213. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -237,7 +237,8 @@ does (the user, 2026-11-12: consider the compatibility with the existing DX11 ro
   hash, the vertex buffers' region hashes, the colour targets, then the call as the original names it
   (`DrawIndexedInstanced(...)`, `DrawInstanced(...)`, the indirect forms); a notice says where.
   D-202 adds completed GPU buffer/image exports and D-203 adds geometry, within the explicit capture
-  scope described below. The original's full `analyse_options` selection semantics are not implemented.
+  scope described below. D-213 applies the original global `analyse_options` resource categories;
+  encoding/control flags and per-draw analysis commands still need adapters.
 - **What the player sees**: a notice per key with the selection (`PS 3/40: 8a1b2c3d`, `IB 2/5: ...`,
   `RT 1/1: image 7`) in place of the overlay's line. The status has a `hunting` object (mode, marking
   mode, the visited counts and selections of the nine kinds, the vertex buffer slot, draws skipped,
@@ -267,7 +268,8 @@ notices while playing; whether any game pipeline has no module hash (inline modu
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
    transfer-source resources and supported owned layouts. Broader capture synchronization,
-   indirect argument snapshots, dynamic vertex input and the original analyse_options remain work.
+   dynamic vertex input, encoding/control options and per-draw analysis commands remain work.
+   D-208 adds indirect argument/count data; D-212 adds bounded mip/layer cells; D-213 adds resource selection.
 4. Real-game shader/hunting/replacement acceptance and performance measurements require the user's
    authorization for that session. Sandbox results cannot settle them. See the current state and
    session log for the exact source, binary and historical game versions.
@@ -679,3 +681,18 @@ Image checks47 compare each GPU cell and metadata, including remaining ranges, b
 push/secondary paths and unsupported queues/usage. Target checks43 cover clear-only, prior graphics,
 secondary, exact framebuffer/multiview layers, unused attachments and store/usage refusals. Pipeline
 recipe/recreation and existing capture regressions pass; CURRENT_STATE records the exact binaries.
+
+### Analysis resource selection (D-213, 2.4.3; sandbox only)
+
+The installation's original `analyse_options` parser now selects native captures. `dump_rt` selects
+output attachments and UAVs, `dump_tex` selects SRVs, `dump_cb` selects uniform buffers, and
+`dump_vb`/`dump_ib` select geometry independently. Depth remains an explicit capture refusal.
+SPIR-V readonly declarations distinguish storage-buffer SRVs from UAVs; an unknown classification
+is reported. No resource flags, including an absent setting or `log`, means a draw log with no GPU
+copies. F10 loads the new selection, frozen for each analysis session. Indirect argument snapshots
+accompany selected captures as native call metadata. Clear-only passes do not export stale shader
+descriptors from an earlier pass.
+
+Exports remain native raw files. Unsupported requested encodings/control flags produce explicit
+options records in `resources.jsonl`; DDS/JPEG/text, hold/clear and per-draw command-list options
+are separate offline work. Existing capture ownership, completion, queue and layout guards remain.

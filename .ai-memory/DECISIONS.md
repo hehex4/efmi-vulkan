@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-213: Original analyse_options selects native capture resource classes (2026-11-14)
+
+- Original Hunting parsing and FrameAnalysisAfterDraw select DUMP_RT/UAV1, depth2, SRV4, CB8, VB16 and IB32. No selection means log only. DX11 supplies lifetime/hazards/context order; Vulkan retains explicit staged jobs and completion.
+- Carry the original parsed mask through HuntingSettings and the host callback, freeze it in each session, and reconfigure through F10 generations. Uniform descriptors are CB; sampled/input images are SRV; storage images are UAV. Storage buffers require SPIR-V BufferSrv/BufferUav classification, not guesses from resource usage. Preserve dynamic-offset indexing when categories are skipped. Vertex/index exports are independent; indirect snapshots accompany selected resource captures as native call metadata.
+- No resource flags means no GPU copies or queue-scope refusal. Clear-only passes do not borrow prior pipeline descriptors. Existing native raw export remains explicit; requested unsupported format/control flags produce options refusals. This does not claim DDS/JPG/text/hold/clear adapters or per-draw command-list analysis options, which remain later work.
+- Baseline25/30 with valid original application and validation. Tests select buffer/image classes, geometry, missing/log-only options, F10 and unsupported options diagnostics. Shared callback/settings changes require a newly stamped pair. Exact builds/final evidence in CURRENT_STATE.
+
 ## D-212: Capture bounded color view cells and actual attachment layers (2026-11-14)
 
 - Original FrameAnalysis _DumpTextures/GetResource and Dump2DResource/StageResource retain/stage GPU resources. DX11 supplies deferred ownership, hazards and context order. Vulkan preserves D-202 explicit retained jobs and completed submission publication.

@@ -5,7 +5,7 @@ struct ComputeScene {
     struct ReferenceImage { VkImage image=VK_NULL_HANDLE; VkImageView view=VK_NULL_HANDLE; VkDeviceMemory memory=VK_NULL_HANDLE; } reference_images[2];
     VkPipeline reference_pipeline=VK_NULL_HANDLE;
     bool indirect = false;
-    bool binding_scene = false, late_update = false;
+    bool binding_scene = false, late_update = false, constant_input = false;
     bool secondary = false, image_input = false, capture_usage = false, storage_image = false;
     bool reusable = false;
     VkImage writable_image = VK_NULL_HANDLE;
@@ -39,8 +39,8 @@ static bool create_compute_scene()
         !make_buffer(c.arguments, 12, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true)) return false;
     memset(c.data.map, 0, 16);
     if(c.binding_scene){
-        if(!make_buffer(c.alternate,16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,true,true) ||
-           !make_buffer(c.input,16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,true,true))return false;
+        if(!make_buffer(c.alternate,16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|(c.constant_input && c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true) ||
+           !make_buffer(c.input,16,(c.constant_input?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)|(c.constant_input && c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true))return false;
         memset(c.alternate.map,0,16);memset(c.input.map,0,16);
         *static_cast<uint32_t*>(c.input.map)=7;
     }
@@ -60,6 +60,7 @@ static bool create_compute_scene()
     VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     VkDescriptorSetLayoutCreateInfo si = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     VkDescriptorSetLayoutBinding bindings[5]={binding,binding,binding,binding,binding};bindings[1].binding=1;bindings[2].binding=2;bindings[3].binding=3;bindings[3].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    if(c.constant_input)bindings[2].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     if(c.image_input)bindings[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     const uint32_t sampler_slot=c.reference_shader_path.empty()?3:4;
     if(g.texture_shape)bindings[sampler_slot]={sampler_slot,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_COMPUTE_BIT,&g.sampler};
@@ -82,6 +83,7 @@ static bool create_compute_scene()
     if(c.binding_scene && (g.descriptor_mode==1 || g.descriptor_mode==3)){
         VkDescriptorUpdateTemplateEntry entries[3]{};
         for(uint32_t i=0;i<3;++i)entries[i]={i,0,1,VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,sizeof(VkDescriptorBufferInfo)*i,sizeof(VkDescriptorBufferInfo)};
+        if(c.constant_input)entries[2].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         VkDescriptorUpdateTemplateCreateInfo t{VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO};
         t.descriptorUpdateEntryCount=3;t.pDescriptorUpdateEntries=entries;t.descriptorSetLayout=c.set_layout;
         t.templateType=g.descriptor_mode==3?VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR:VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET;
@@ -89,9 +91,9 @@ static bool create_compute_scene()
         CHECK(vkCreateDescriptorUpdateTemplate(g.device,&t,nullptr,&c.update_template));
     }
     if(c.binding_scene && g.descriptor_mode>=2)return true;
-    VkDescriptorPoolSize capacities[3]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, c.binding_scene?3u:1u},{c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,c.reference_shader_path.empty()?1u:2u},{VK_DESCRIPTOR_TYPE_SAMPLER,1}};
+    VkDescriptorPoolSize capacities[4]={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, c.binding_scene?3u:1u},{c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,c.reference_shader_path.empty()?1u:2u},{VK_DESCRIPTOR_TYPE_SAMPLER,1},{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,1}};
     VkDescriptorPoolCreateInfo pool = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pool.maxSets = 1; pool.poolSizeCount = g.texture_shape?3:c.image_input?2:1; pool.pPoolSizes = capacities;
+    pool.maxSets = 1; pool.poolSizeCount = c.constant_input?4:g.texture_shape?3:c.image_input?2:1; pool.pPoolSizes = capacities;
     CHECK(vkCreateDescriptorPool(g.device, &pool, nullptr, &c.pool));
     VkDescriptorSetAllocateInfo allocate = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     allocate.descriptorPool = c.pool; allocate.descriptorSetCount = 1; allocate.pSetLayouts = &c.set_layout;
@@ -103,6 +105,7 @@ static bool create_compute_scene()
     if(c.binding_scene){
         buffer.buffer=c.alternate.buf;write.dstBinding=1;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
         buffer.buffer=c.input.buf;write.dstBinding=2;
+        if(c.constant_input)write.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:c.reference_images[0].view?c.reference_images[0].view:g.shaped_texture_view?g.shaped_texture_view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         if(c.image_input){write.descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.pImageInfo=&image;write.pBufferInfo=nullptr;}
         vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
@@ -121,6 +124,7 @@ static void bind_compute_descriptors(VkCommandBuffer cmd)
             VkWriteDescriptorSet writes[5]{};
             for(uint32_t i=0;i<3;++i){writes[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[i].dstBinding=i;
                 writes[i].descriptorCount=1;writes[i].descriptorType=VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;writes[i].pBufferInfo=&buffers[i];}
+            if(c.constant_input)writes[2].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:c.reference_images[0].view?c.reference_images[0].view:g.shaped_texture_view?g.shaped_texture_view:g.texture_view,c.storage_image?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
             if(c.image_input){writes[2].descriptorType=c.storage_image?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[2].pImageInfo=&image;writes[2].pBufferInfo=nullptr;}
             VkDescriptorImageInfo destination{VK_NULL_HANDLE,c.reference_images[1].view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};

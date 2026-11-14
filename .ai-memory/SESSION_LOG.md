@@ -2537,3 +2537,19 @@ resources55, geometry65, indirect121, image shapes47, targets43, validation76, t
 (d212-regression.out). Diff reviewed and memory synchronized. Continue D-213 analyse_options resource
 selection from ignored plan/test drafts, then further offline adapters. Root dist2.1.8 and historical
 game2.1.7 unchanged. No game/deployment/system/remote action.
+
+## 2026-11-14: Native analysis resource selection (D-213, 2.4.3)
+
+Original Hunting/FrameAnalysis option parsing and category dispatch now select RT/UAV, SRV, CB,
+VB and IB captures; absent/log-only settings issue no GPU copies. Storage-buffer classes use
+SPIR-V declarations. F10 changes future sessions, and clear-only passes ignore stale descriptors.
+Unsupported encoding/control requests remain explicit; ownership, layout and completion guards stay.
+
+Baseline25/30 became30/30. New shared settings/callback ABI22781b9e63b58c08 is verified in the pair
+and tracker; the INI planner was rebuilt. Final selection94, resources55, geometry65, indirect121,
+image shapes47, targets43, INI221, compute91, tracker260 and validation76 pass. An initial51/55 GPU
+result was an overbroad fixture TRANSFER_SRC flag; narrowed to the new constant-buffer fixture,
+rebuilt sandbox, failed cases14/14 and affected selection/resources94/55 pass. Artifacts are named
+in CURRENT_STATE. Text578 clean; diff reviewed. Commit/FF, then continue D-214 formats and D-215
+hold/release without ending at the commit. Root dist2.1.8/historical game2.1.7 unchanged; no game,
+deployment, launcher, system or remote action.
