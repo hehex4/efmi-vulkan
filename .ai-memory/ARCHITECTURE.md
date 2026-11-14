@@ -84,6 +84,10 @@ continuations LOAD every stored attachment; host End restores all introduced vie
 image overlaps and unmodeled view aliases refuse atomically. Even an initially all-null context
 requires exact single-sample pipeline state before introducing an actual image.
 
+D-243 extends unchanged attachment preservation to stored single-sample stencil-only and shared
+depth/stencil views. Exact per-aspect format/LOAD contracts and actual conflict identities survive
+color changes; real depth/stencil rebinding remains a separate adapter.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

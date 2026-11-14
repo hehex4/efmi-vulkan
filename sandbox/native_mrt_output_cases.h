@@ -73,4 +73,33 @@ static void native_mrt_output_cases()
     recipe->multisample.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
     check(prepare(),"exact single-sample pipeline contract permits the first actual attachment in an all-null context");
 
+    auto with_stencil=targets;with_stencil.has_depth=false;with_stencil.has_stencil=true;with_stencil.stencil=targets.depth;
+    with_stencil.views[4].view.format=VK_FORMAT_S8_UINT;recipe->rendering_depth=VK_FORMAT_UNDEFINED;recipe->rendering_stencil=VK_FORMAT_S8_UINT;
+    cb.target_contexts={with_stencil};cb.active_targets=1;output_commands.clear();
+    ready=prepare();check(ready && prepared.events[0]->targets.stencil.loadOp==VK_ATTACHMENT_LOAD_OP_LOAD && prepared.events[0]->images->attachments.count(9731),
+          "MRT color changes retain stencil-only LOAD and its actual conflict identity");if(!ready)return;
+    cb.target_contexts[0].stencil.storeOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;check(!prepare(),"discarded stencil cannot be preserved by a private LOAD");cb.target_contexts[0]=with_stencil;
+    cb.target_contexts[0].stencil.resolveMode=VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;check(!prepare(),"stencil resolve cannot run at a private intermediate End");cb.target_contexts[0]=with_stencil;
+    cb.target_contexts[0].views[4].known=false;check(!prepare(),"unknown stencil view cannot prove preserved continuation semantics");cb.target_contexts[0]=with_stencil;
+    recipe->rendering_stencil=VK_FORMAT_UNDEFINED;check(!prepare(),"actual stencil requires its exact pipeline attachment format");recipe->rendering_stencil=VK_FORMAT_S8_UINT;
+    cb.target_contexts[0].views[4].view.image=VkImage(resources[0]->image);check(!prepare(),"color destination cannot alias a preserved stencil-only image");cb.target_contexts[0]=with_stencil;
+    cb.target_contexts[0].stencil.imageView=VK_NULL_HANDLE;d.dynamic_unused_attachments=false;
+    check(!prepare(),"declared absent stencil cannot infer unused-attachments permission");d.dynamic_unused_attachments=true;
+    check(prepare() && !prepared.events[0]->images->attachments.count(9731),"enabled declared but null stencil contributes no image conflict");cb.target_contexts[0]=with_stencil;
+    ready=prepare();check(ready && output_commands.empty(),"stencil preparation remains atomic after invalid attempts");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);
+    check(!output_depth && output_stencil==with_stencil.stencil.imageView && output_stencil_load==VK_ATTACHMENT_LOAD_OP_LOAD,
+          "actual private Begin preserves a stencil-only view without inventing depth");native_targets_end(&d,&cb);
+    auto combined=targets;combined.has_stencil=true;combined.stencil=targets.depth;combined.views.resize(8);
+    combined.views[4].view.format=VK_FORMAT_D32_SFLOAT_S8_UINT;combined.views[6]=combined.views[4];
+    recipe->rendering_depth=recipe->rendering_stencil=VK_FORMAT_D32_SFLOAT_S8_UINT;
+    cb.target_contexts={combined};cb.active_targets=1;
+    cb.target_contexts[0].stencil.imageView=h<VkImageView>(9790);cb.target_contexts[0].views[6].handle=h<VkImageView>(9790);
+    check(!prepare(),"nonnull depth and stencil pointers cannot use different actual views");cb.target_contexts[0]=combined;
+    cb.target_contexts[0].depth.imageView=VK_NULL_HANDLE;check(!prepare(),"one null view with two depth/stencil pointers violates their shared-view contract");cb.target_contexts[0]=combined;
+    ready=prepare();check(ready && prepared.events[0]->images->attachments.size()==3,"combined depth/stencil keeps one shared image identity beside both colors");if(!ready)return;
+    record_native_target(&d,&cb,prepared,0);
+    check(output_depth==combined.depth.imageView && output_stencil==output_depth && output_depth_load==VK_ATTACHMENT_LOAD_OP_LOAD && output_stencil_load==VK_ATTACHMENT_LOAD_OP_LOAD,
+          "combined depth/stencil actually restarts both aspects with LOAD on their shared view");native_targets_end(&d,&cb);
+
 }

@@ -1,6 +1,10 @@
 # EFMI Vulkan - Tasks
 
 
+## D-243 verified; continue actual DSV null (2026-11-14)
+
+- D-242 merged819595c. Valid stencil-only/combined baseline24/33 precedes production edits. Full d243-pair.out completed; four2.7.3/ABI8af8de0e24586cd2 stamps, tracker528 and failed stencil GPU33/33 pass. Actual core screen0/owned6418 and post/combined_post902/6418 preserve6418 stencil-band pixels. Native-output-stencil area d243-regression.out passes stencil61/MRT39/preserved depth41/dynamic depth48/tracker528/validation76/text637. All processes exited; diff reviewed and memory synchronized for local commit/FF. Continue actual oD=null and remaining offline adapters without stopping at the commit.
+
 ## D-242 verified; continue stencil preservation (2026-11-14)
 
 - D-241 mergedbe58b24. Valid MRT baseline7/11 before production edits. Source2.7.2 production/fixture/cases applied; initial pair/ABI8af8de0e24586cd2/tracker512/failed GPU11 pass. BUG-109 sample-count follow-up has CPU baseline513/514 and applied guard; final changed-object pair/four stamps/tracker514/failed GPU11 pass; native-output-mrt area passes MRT39/preserved41/absent27/null38/output52/validation76/text636. D-243 stencil-only/combined fixture built after correcting an initial narrowing conversion; Valid d243-before.out24/33 on2.7.2: all five processes exit normally with clean validation, complete stencil bytes and6418 stencil-band pixels; control/combined_control retain expected screen6418/owned902, while core/post/combined_post refuse and retain those original colors. Production drafts remain UNAPPLIED. Review/memory/commit/FF, then continue remaining depth/stencil/classic/resolve and queue adapters without an intermediate stopping point.

@@ -955,3 +955,9 @@ Active depth rebinding, stencil, discarded depth and unsupported pass/queue scop
 Supported ordinary dynamic passes keep independent original/current state and exact pipeline format contracts for each color slot. Changing one slot preserves every other stored color and depth attachment through LOAD continuations. The host restores all introduced active images to their distinct earlier layouts at the application's End. Initially null slots retain declared format proof without an invented original image; the complete pipeline must explicitly use single-sample rasterization.
 
 Every event validates against the ordered full context before any GPU command records. A target cannot overlap another active color or depth image; alternate views of original or saved images remain guarded. Real depth/stencil changes, resolve/classic passes and broader synchronization scopes still need adapters. The two-output fixture reads the screen and two owned images independently, covering each slot, null/restore/post order, injection/KHR and alias refusal. CPU checks separately verify simultaneous destinations and exact host layout restoration.
+
+## Preserved stencil during color changes (D-243)
+
+Ordinary dynamic color-output changes preserve stored single-sample stencil attachments without resolve, including stencil-only S8 and combined depth/stencil. Every actual preserved aspect uses LOAD on continuation and retains its exact pipeline format, view/layout and conflict identity. When both depth and stencil attachment pointers exist they must share the same view. Color destinations cannot alias either aspect. Actual depth/stencil rebinding still requires its own adapter.
+
+The optional stencil fixture checks complete fenced stencil bytes and exact geometry, alongside separate color outputs. Combined depth/stencil barriers transition both aspects together; no separate-layout feature is assumed. These are sandbox results, not real-game acceptance.

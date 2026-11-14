@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-243: Color changes retain unchanged stored stencil (2026-11-14)
+
+- Original SetResource keeps the DSV while replacing an RTV. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order; Vulkan preserves exact stored single-sample no-resolve depth/stencil attachments with explicit dependencies and LOAD continuations. No new owner is invented for unchanged app attachments inside their original pass lifetime.
+- Stencil-only and shared depth/stencil views are distinct valid contexts. Both present pointers must share the same imageView, including null handling (VkRenderingInfo06085). Each actual aspect requires exact pipeline format proof and stays in attachment conflicts; null declared formats require the application's enabled unused-attachments feature. Resolve, discarded contents and real depth/stencil rebinding remain guarded.
+- GPU acceptance requires full fenced stencil bytes plus exact central-band geometry, independent of color readbacks. Combined-aspect barriers do not assume separateDepthStencilLayouts support.
+
 ## D-242: Color output slots keep independent restoration state (2026-11-14)
 
 - Review follow-up BUG-109 requires exact single-sample pipeline state even when every original attachment is null. CPU513/514 demonstrates missing refusal; mixed-sample or unknown pipeline state needs a separate adapter.

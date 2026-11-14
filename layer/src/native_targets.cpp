@@ -36,7 +36,7 @@ bool null_output(const efmi::assets::FilePlanItem& item){
 bool color_context(const RenderTargets& targets,std::string& why){
     const auto count=targets.dynamic_colors.size();
     if(!targets.known || !targets.dynamic || targets.flags || targets.view_mask || targets.layers!=1 ||
-       targets.has_stencil || !count || count>8 || targets.views.size()!=2*(count+size_t(targets.has_depth))){
+       !count || count>8 || targets.views.size()!=2*(count+size_t(targets.has_depth)+size_t(targets.has_stencil))){
         why="Native output destinations need an ordinary complete dynamic color pass";return false;
     }
     if(targets.area.offset.x<0 || targets.area.offset.y<0){why="Native output render area is invalid";return false;}
@@ -51,19 +51,27 @@ bool color_context(const RenderTargets& targets,std::string& why){
             why="Native output pass must retain single-sample stored color contents without resolve";return false;
         }
     }
-    if(targets.has_depth && targets.depth.imageView){
-        const auto& depth=targets.depth;const auto& actual=targets.views[2*count];
-        if(!actual.known || actual.handle!=depth.imageView || actual.image.samples!=VK_SAMPLE_COUNT_1_BIT ||
-           depth.storeOp!=VK_ATTACHMENT_STORE_OP_STORE || depth.resolveMode!=VK_RESOLVE_MODE_NONE ||
-           depth.imageLayout!=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL){
-            why="Native output preserved depth needs a known stored single-sample attachment without resolve";return false;
+    size_t index=2*count;
+    auto preserve=[&](bool present,const VkRenderingAttachmentInfo& attachment){
+        if(!present)return true;const auto& actual=targets.views[index];index+=2;
+        if(!attachment.imageView)return true;
+        if(!actual.known || actual.handle!=attachment.imageView || actual.image.samples!=VK_SAMPLE_COUNT_1_BIT ||
+           attachment.storeOp!=VK_ATTACHMENT_STORE_OP_STORE || attachment.resolveMode!=VK_RESOLVE_MODE_NONE ||
+           attachment.imageLayout!=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL){
+            why="Native output preserved depth/stencil needs known stored single-sample attachments without resolve";return false;
         }
+        return true;
+    };
+    if(!preserve(targets.has_depth,targets.depth) || !preserve(targets.has_stencil,targets.stencil))return false;
+    if(targets.has_depth && targets.has_stencil && targets.depth.imageView!=targets.stencil.imageView){
+        why="Native output depth/stencil attachments must preserve their shared actual view";return false;
     }
     return true;
 }
 void continue_targets(RenderTargets& targets){
     for(auto& color:targets.dynamic_colors)if(color.imageView)color.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
     if(targets.has_depth && targets.depth.imageView)targets.depth.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
+    if(targets.has_stencil && targets.stencil.imageView)targets.stencil.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
 }
 std::shared_ptr<NativeImageState> target_images(const CmdBuf* cb,const RenderTargets& targets){
     if(!cb->native_image_state)return {};
@@ -71,6 +79,7 @@ std::shared_ptr<NativeImageState> target_images(const CmdBuf* cb,const RenderTar
     for(size_t slot=0;slot<targets.dynamic_colors.size();++slot)
         if(targets.dynamic_colors[slot].imageView)images->attachments.insert(targets.views[2*slot].image.id);
     if(targets.has_depth && targets.depth.imageView)images->attachments.insert(targets.views[2*targets.dynamic_colors.size()].image.id);
+    if(targets.has_stencil && targets.stencil.imageView)images->attachments.insert(targets.views[2*(targets.dynamic_colors.size()+size_t(targets.has_depth))].image.id);
     return images;
 }
 VkImageMemoryBarrier transition(const NativeTargetState::Saved& saved,VkImageLayout before,VkImageLayout after){
@@ -146,10 +155,10 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     std::shared_lock<std::shared_mutex> lock(device->res_mx);
     const auto pipeline=device->pipes.find(draw.pipeline);
     const auto recipe=pipeline==device->pipes.end()?nullptr:pipeline->second.recipe;
-    const size_t count=targets.dynamic_colors.size();const size_t depth_index=2*count;
+    const size_t count=targets.dynamic_colors.size();const size_t depth_index=2*count,stencil_index=depth_index+2*size_t(targets.has_depth);
     if(!recipe || !recipe->geometry_complete || !recipe->dynamic_rendering || recipe->rendering_view_mask ||
        recipe->multisample.rasterizationSamples!=VK_SAMPLE_COUNT_1_BIT ||
-       recipe->rendering_colors.size()!=count || recipe->rendering_stencil!=VK_FORMAT_UNDEFINED)
+       recipe->rendering_colors.size()!=count)
         return refuse("Native output pipeline attachment contract is unavailable");
     if(next.state->colors.empty()){
         next.state->colors.resize(count);
@@ -167,9 +176,13 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             return refuse("Native output pipeline color contract is unavailable");
     }
     const bool depth_bound=targets.has_depth && targets.depth.imageView;
+    const bool stencil_bound=targets.has_stencil && targets.stencil.imageView;
     if(depth_bound?recipe->rendering_depth!=targets.views[depth_index].view.format:
        (recipe->rendering_depth!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
         return refuse("Native output pipeline depth contract is unavailable");
+    if(stencil_bound?recipe->rendering_stencil!=targets.views[stencil_index].view.format:
+       (recipe->rendering_stencil!=VK_FORMAT_UNDEFINED && !device->dynamic_unused_attachments))
+        return refuse("Native output pipeline stencil contract is unavailable");
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || no_op[i])continue;
         const auto& resource=item.native_resource;
@@ -207,8 +220,9 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(uint64_t(targets.area.offset.x)+targets.area.extent.width>width || uint64_t(targets.area.offset.y)+targets.area.extent.height>height)
             return refuse("Native output destination does not cover the render area");
         if(descriptor_conflict(device,cb,view->second.image,why))return false;
-        if(depth_bound && view->second.image==targets.views[depth_index].view.image)
-            return refuse("Native output color destination aliases the preserved depth image");
+        if((depth_bound && view->second.image==targets.views[depth_index].view.image) ||
+           (stencil_bound && view->second.image==targets.views[stencil_index].view.image))
+            return refuse("Native output color destination aliases a preserved depth/stencil image");
         const auto handle=view->first;
         for(size_t other=0;other<count;++other)if(other!=slot && targets.dynamic_colors[other].imageView && targets.views[2*other].view.image==view->second.image)
             return refuse("Native output destination overlaps another active color image");
@@ -260,7 +274,8 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     cb->native_graphics_ordered=true;
     VkRenderingInfo info{VK_STRUCTURE_TYPE_RENDERING_INFO};info.renderArea=targets.area;info.layerCount=1;
     info.colorAttachmentCount=uint32_t(targets.dynamic_colors.size());info.pColorAttachments=targets.dynamic_colors.data();
-    info.pDepthAttachment=targets.has_depth?&targets.depth:nullptr;begin(cb->handle,&info);
+    info.pDepthAttachment=targets.has_depth?&targets.depth:nullptr;
+    info.pStencilAttachment=targets.has_stencil?&targets.stencil:nullptr;begin(cb->handle,&info);
 }
 void native_targets_end(Device* device,CmdBuf* cb)
 {

@@ -5,6 +5,13 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.7.3: Preserve stencil across color changes, D-243 (2026-11-14; sandbox verified)
+
+- D-242 committed/merged819595c. Original CommandList.cpp10094 SetResource preserves the DSV when changing one RTV. DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan continuations need exact stored stencil views/layouts and LOAD dependencies; the actual attachment role is defined by depth/stencil pointers, not the view aspect mask.
+- Valid isolated d243-before.out24/33 on2.7.2/ABI8af8de0e24586cd2: all five processes exit normally, clean validation, full stencil readbacks and6418 stencil-band pixels. Controls retain screen6418/owned902; core/post/combined_post refuse color movement and retain those original colors. Both S8-only and combined D32/S8 cases are actual GPU evidence. Initial fixture narrowing compile failure was corrected before this baseline.
+- Production/integration drafts APPLIED, source2.7.3/sameABI8af8de0e24586cd2. Stored single-sample no-resolve stencil remains in full LOAD continuations and image conflicts, with exact pipeline format and alias checks. Both present depth/stencil pointers require their shared view. The optional fixture transitions both combined aspects together and reads stencil separately. Full d243-pair.out completed; four2.7.3/ABI8af8de0e24586cd2 stamps, tracker528 and failed stencil GPU33/33 pass. Actual core screen0/owned6418 and post/combined_post902/6418 preserve6418 stencil-band pixels. Native-output-stencil area d243-regression.out passes stencil61/MRT39/preserved depth41/dynamic depth48/tracker528/validation76/text637. All processes exited; diff reviewed and memory synchronized for local commit/FF. No game/deployment/system/launcher/remote action.
+- Continue actual depth/stencil null destinations and their shader-filter ordering, then remaining depth replacement/classic/resolve/queue adapters after this commit.
+
 ## Active source 2.7.2: Multiple color destinations, D-242 (2026-11-14; sandbox verified)
 
 - D-241 committed/mergedbe58b24. Original SetResource10094 preserves other RTVs and DSV; DX11 supplies retained/deferred lifetime, hazards and context order. Vulkan needs independent per-slot original/active state and format proof, all-attachment LOAD/conflict semantics and host restoration of every introduced output.

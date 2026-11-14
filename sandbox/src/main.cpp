@@ -238,6 +238,7 @@ struct App {
     int dynamic_rendering = 0;
     int dynamic_depth = 0;
     bool native_output_depth = false;
+    int native_output_stencil = 0;
     bool native_output_mrt = false;
     bool unused_attachments = false;
     VkImage depth_image = VK_NULL_HANDLE;
@@ -958,8 +959,12 @@ static bool create_pipeline()
     VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     VkFormat color_formats[2]{g.format,g.format};rendering.colorAttachmentCount=g.native_output_mrt?2:1;rendering.pColorAttachmentFormats=color_formats;
     VkPipelineDepthStencilStateCreateInfo depth{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};depth.depthCompareOp=VK_COMPARE_OP_ALWAYS;
-    if(g.native_output_depth)depth.depthTestEnable=depth.depthWriteEnable=VK_TRUE;
+    if(g.native_output_depth || g.native_output_stencil==2)depth.depthTestEnable=depth.depthWriteEnable=VK_TRUE;
+    if(g.native_output_stencil){depth.stencilTestEnable=VK_TRUE;depth.front.compareOp=VK_COMPARE_OP_ALWAYS;
+        depth.front.failOp=depth.front.depthFailOp=VK_STENCIL_OP_KEEP;depth.front.passOp=VK_STENCIL_OP_REPLACE;
+        depth.front.compareMask=depth.front.writeMask=255;depth.front.reference=7;depth.back=depth.front;}
     if(g.dynamic_depth){rendering.depthAttachmentFormat=VK_FORMAT_D32_SFLOAT;info.pDepthStencilState=&depth;}
+    if(g.native_output_stencil){rendering.depthAttachmentFormat=g.native_output_stencil==2?VK_FORMAT_D32_SFLOAT_S8_UINT:VK_FORMAT_UNDEFINED;rendering.stencilAttachmentFormat=g.native_output_stencil==2?VK_FORMAT_D32_SFLOAT_S8_UINT:VK_FORMAT_S8_UINT;}
     if(g.dynamic_rendering){info.renderPass=VK_NULL_HANDLE;info.pNext=&rendering;}
     CHECK(vkCreateGraphicsPipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &g.pipeline));
 
@@ -1777,8 +1782,9 @@ static bool render_frame()
         depth.imageView=(g.dynamic_depth==2 || g.dynamic_depth==4)?VK_NULL_HANDLE:g.depth_view;
         depth.imageLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;depth.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
         depth.storeOp=VK_ATTACHMENT_STORE_OP_STORE;depth.clearValue.depthStencil={1.0f,0};rendering.pDepthAttachment=&depth;
+        if(g.native_output_stencil){if(g.native_output_stencil==1)rendering.pDepthAttachment=nullptr;rendering.pStencilAttachment=&depth;}
         VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.image=g.depth_image;
-        barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;barrier.subresourceRange={VK_IMAGE_ASPECT_DEPTH_BIT,0,1,0,1};
+        barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;barrier.subresourceRange={VkImageAspectFlags(g.native_output_stencil==2?VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT:g.native_output_stencil?VK_IMAGE_ASPECT_STENCIL_BIT:VK_IMAGE_ASPECT_DEPTH_BIT),0,1,0,1};
         barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;barrier.newLayout=depth.imageLayout;
         barrier.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
@@ -2072,6 +2078,8 @@ int wmain(int argc, wchar_t** argv)
         else if (a == L"--unused-attachments")
             g.unused_attachments = true;
         else if (a == L"--native-output-mrt"){g.native_output_mrt=true;g.unused_attachments=true;}
+        else if (a == L"--native-output-stencil"){g.native_output_stencil=1;g.dynamic_depth=1;}
+        else if (a == L"--native-output-depth-stencil"){g.native_output_stencil=2;g.dynamic_depth=1;}
         else if (a == L"--native-output-depth"){g.native_output_depth=true;g.dynamic_depth=1;}
         else if (a == L"--native-output-query")
             native_output.query = true;
