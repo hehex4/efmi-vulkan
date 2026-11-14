@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-231: Native shader twins retain dynamic-rendering declarations (2026-11-14)
+
+- Original HackerContext422-448 switches shader objects without replacing IA/raster state. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order. Vulkan native twins must reproduce exact pipeline declarations and retain existing command owners.
+- GraphicsRecipe owns VkPipelineRenderingCreateInfo viewMask and color/depth/stencil formats, including unused slots and Vulkan empty defaults when omitted. Native keep_geometry creation reconstructs the chain with null renderPass and no classic render-pass allocation. Required depth/blend state follows declared formats; ignored state remains unread. Classic pipelines ignore these format fields. Unknown chains/libraries and missing required state refuse.
+- Dynamic recipes remain geometry-complete but mesh-incomplete: no vertex override or implicit mesh permission. Diagnostics expose rendering declarations while keeping complete=false. Shared ABI changes to f82a26c557da40e6, version2.6.1.
+- CPU263 checks include copied/moved owned arrays, exact multiview/depth/blend/format driver inputs, stencil-only/default/ignored state and variant cleanup. Actual core/KHR, dynamic geometry/raster, secondary/inject, reload/removal/module exchange and original/pink pixels pass49 checks. CURRENT_STATE records the full affected scope. This is sandbox evidence only.
+
 ## D-230: Imageless attachment context is resolved per pass (2026-11-14)
 
 - Original OMGetRenderTargets supplies the current RTV views; DX11 owns retained/deferred lifetime, hazards and one-context order. Vulkan imageless views arrive at Begin. They must establish exact per-instance layout transitions and attachment conflicts, rather than being inferred from the framebuffer template.

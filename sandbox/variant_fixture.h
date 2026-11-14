@@ -189,6 +189,7 @@ struct RecipeFixture {
         ba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; ba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
         ba.alphaBlendOp = VK_BLEND_OP_ADD; ba.colorWriteMask = 15;
         cb.attachmentCount = 1; cb.pAttachments = &ba; dyn.dynamicStateCount = 2; dyn.pDynamicStates = dynamic;
+        gp.renderPass = reinterpret_cast<VkRenderPass>(uintptr_t(1));
         gp.stageCount = 2; gp.pStages = stages; gp.pVertexInputState = &vi; gp.pInputAssemblyState = &ia;
         gp.pRasterizationState = &rs; gp.pMultisampleState = &ms; gp.pViewportState = &vp;
         gp.pDepthStencilState = &ds; gp.pColorBlendState = &cb; gp.pDynamicState = &dyn;

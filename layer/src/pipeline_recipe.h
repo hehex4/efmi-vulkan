@@ -79,6 +79,10 @@ struct GraphicsRecipe {
     uint32_t subpass = 0;
     VkPipelineCreateFlags flags = 0;
     std::shared_ptr<const RenderPassRecipe> render_pass;
+    bool dynamic_rendering = false;
+    uint32_t rendering_view_mask = 0;
+    std::vector<VkFormat> rendering_colors;
+    VkFormat rendering_depth = VK_FORMAT_UNDEFINED, rendering_stencil = VK_FORMAT_UNDEFINED;
     std::vector<RecipeStage> stages;
     VertexInputRecipe vertex;
     bool has_tessellation = false;

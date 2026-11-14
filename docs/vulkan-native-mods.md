@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-230. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-231. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -871,3 +871,15 @@ attachment-conflict checks. Each pass receives immutable metadata; reusing a fra
 views cannot alter earlier facts or the device template. Missing or unsupported Begin metadata
 remains unavailable. `sandbox/native_imageless_test.py` verifies actual later sampling, push
 descriptors, injection and module exchange with core and synchronization validation.
+
+### Dynamic-rendering native shader twins (D-231)
+
+Native ShaderFixes can recreate dynamic-rendering graphics pipelines with exact retained color,
+depth/stencil formats and view masks. The twin preserves original geometry and raster state; no
+classic render pass is invented. Empty/unused attachments and ignored state follow Vulkan's
+declarations. Unknown extensions and library pipelines remain unavailable. This native-only route
+does not grant mesh replacement permission or implement output destination rebinding.
+
+`sandbox/native_rendering_shader_test.py` verifies actual core/KHR entry points, geometry/raster
+dynamics, secondary/inject, reload/removal/module exchange and original/pink pixels. CPU recipe
+tests separately verify multiview and format-array ownership. No new game evidence is implied.

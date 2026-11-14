@@ -377,9 +377,27 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
     GraphicsRecipe r;
     r.render_pass = std::move(pass); r.flags = info.flags; r.subpass = info.subpass;
     // Reject libraries before touching any possibly ignored pointers.
-    if (info.pNext || info.flags) { r.reason = "pipeline_extension_or_flags"; return r; }
-    if (!r.render_pass || !r.render_pass->complete) { r.reason = "render_pass_unavailable"; return r; }
-    if (info.subpass >= r.render_pass->subpasses.size()) { r.reason = "subpass_unavailable"; return r; }
+    if (info.flags) { r.reason = "pipeline_extension_or_flags"; return r; }
+    const auto* rendering = static_cast<const VkPipelineRenderingCreateInfo*>(info.pNext);
+    if (rendering && (rendering->sType != VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO || rendering->pNext)) {
+        r.reason = "pipeline_extension_or_flags"; return r;
+    }
+    r.dynamic_rendering = !info.renderPass;
+    if (r.dynamic_rendering) {
+        r.render_pass.reset(); r.subpass = 0; // subpass is ignored without a render pass.
+        if (rendering) {
+            if (rendering->colorAttachmentCount > kMaxAttachments ||
+                (rendering->colorAttachmentCount && !rendering->pColorAttachmentFormats)) {
+                r.reason = "rendering_attachment_limit_or_missing"; return r;
+            }
+            r.rendering_view_mask = rendering->viewMask;
+            copy_array(r.rendering_colors, rendering->colorAttachmentCount, rendering->pColorAttachmentFormats);
+            r.rendering_depth = rendering->depthAttachmentFormat; r.rendering_stencil = rendering->stencilAttachmentFormat;
+        }
+    } else {
+        if (!r.render_pass || !r.render_pass->complete) { r.reason = "render_pass_unavailable"; return r; }
+        if (info.subpass >= r.render_pass->subpasses.size()) { r.reason = "subpass_unavailable"; return r; }
+    }
     if (info.stageCount == 0 || info.stageCount > 5 || shaders.size() != info.stageCount) {
         r.reason = "shader_stages_unsupported"; return r;
     }
@@ -460,13 +478,18 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
         if (ms.pNext || ms.flags) { r.reason = "multisample_extension"; return r; }
         r.multisample = ms; r.multisample.pSampleMask = nullptr;
         if (ms.pSampleMask) copy_array(r.sample_mask, (static_cast<uint32_t>(ms.rasterizationSamples) + 31) / 32, ms.pSampleMask);
-        const auto& sub = r.render_pass->subpasses[info.subpass];
-        if (sub.uses_depth()) {
+        const bool uses_depth = r.dynamic_rendering ?
+            r.rendering_depth != VK_FORMAT_UNDEFINED || r.rendering_stencil != VK_FORMAT_UNDEFINED :
+            r.render_pass->subpasses[info.subpass].uses_depth();
+        const bool uses_color = r.dynamic_rendering ?
+            std::any_of(r.rendering_colors.begin(), r.rendering_colors.end(), [](VkFormat f) { return f != VK_FORMAT_UNDEFINED; }) :
+            r.render_pass->subpasses[info.subpass].uses_color();
+        if (uses_depth) {
             if (!info.pDepthStencilState) { r.reason = "depth_state_missing"; return r; }
             if (info.pDepthStencilState->pNext || info.pDepthStencilState->flags) { r.reason = "depth_extension"; return r; }
             r.has_depth = true; r.depth = *info.pDepthStencilState;
         }
-        if (sub.uses_color()) {
+        if (uses_color) {
             if (!info.pColorBlendState) { r.reason = "blend_state_missing"; return r; }
             const auto& cb = *info.pColorBlendState;
             if (cb.pNext || cb.flags || cb.attachmentCount > kMaxAttachments) { r.reason = "blend_extension_or_limit"; return r; }
@@ -475,8 +498,9 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
         }
     }
     r.geometry_complete = true;
-    r.complete = !capture_only;
-    if (capture_only) r.reason = "extended_dynamic_state";
+    r.complete = !capture_only && !r.dynamic_rendering;
+    if (r.dynamic_rendering) r.reason = "dynamic_rendering_native_only";
+    else if (capture_only) r.reason = "extended_dynamic_state";
     return r;
 }
 
@@ -487,7 +511,7 @@ VkResult GraphicsRecipe::create(VkDevice dev, PFN_vkCreateGraphicsPipelines crea
 {
     *out = VK_NULL_HANDLE;
     if ((!complete && !(keep_geometry && geometry_complete)) || (keep_geometry && override_vertex) ||
-        !create_fn || !layout || !pass || modules.size() != stages.size())
+        !create_fn || !layout || (dynamic_rendering ? pass != VK_NULL_HANDLE : pass == VK_NULL_HANDLE) || modules.size() != stages.size())
         return VK_ERROR_FEATURE_NOT_PRESENT;
     std::vector<VkSpecializationInfo> specs(stages.size());
     std::vector<VkPipelineShaderStageCreateInfo> ss;
@@ -524,6 +548,13 @@ VkResult GraphicsRecipe::create(VkDevice dev, PFN_vkCreateGraphicsPipelines crea
     info.pDepthStencilState = has_depth ? &depth : nullptr; info.pColorBlendState = has_blend ? &cb : nullptr;
     info.pDynamicState = dynamic.empty() ? nullptr : &dyn;
     info.layout = layout; info.renderPass = pass; info.subpass = subpass; info.basePipelineIndex = -1;
+    VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    if (dynamic_rendering) {
+        rendering.viewMask = rendering_view_mask; rendering.colorAttachmentCount = uint32_t(rendering_colors.size());
+        rendering.pColorAttachmentFormats = rendering_colors.data();
+        rendering.depthAttachmentFormat = rendering_depth; rendering.stencilAttachmentFormat = rendering_stencil;
+        info.pNext = &rendering;
+    }
     return create_fn(dev, VK_NULL_HANDLE, 1, &info, nullptr, out);
 }
 
@@ -561,6 +592,12 @@ void GraphicsRecipe::write(JsonWriter& w) const
 {
     w.begin_object(); w.kb("complete", complete); w.kb("compute", compute); w.kv("reason", reason); w.kv("float_encoding", "ieee754_bits");
     w.key("render_pass"); if (render_pass) render_pass->write(w); else w.null();
+    w.kb("dynamic_rendering", dynamic_rendering);
+    if (dynamic_rendering && geometry_complete) {
+        w.kn("rendering_view_mask", rendering_view_mask);
+        w.key("rendering_colors"); w.begin_array(); for (auto format : rendering_colors) w.num(format); w.end_array();
+        w.kn("rendering_depth", rendering_depth); w.kn("rendering_stencil", rendering_stencil);
+    }
     // Partial fields must never masquerade as a usable recipe.
     if (!complete) { w.end_object(); return; }
     w.kn("flags", flags); w.kn("subpass", subpass);

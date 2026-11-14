@@ -37,6 +37,10 @@ pre-pass dependencies. The shared framebuffer template stays unresolved; exact r
 implicit layout changes and native attachment conflict proof. Missing/unknown Begin metadata
 cannot reuse earlier facts. Target history retains metadata, never allocation owners.
 
+D-231 native-only shader twins retain dynamic-rendering view masks and attachment format arrays.
+They recreate a null-renderPass pipeline without a classic pass allocation and preserve original
+geometry/raster state. Mesh replacement remains separately gated; unknown chains still refuse.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

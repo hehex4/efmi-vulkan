@@ -260,7 +260,7 @@ bool PipelineVariant::build_recipe(const GraphicsRecipe& recipe, const PipelineL
     layout_info.pushConstantRangeCount = static_cast<uint32_t>(source.pushes.size()); layout_info.pPushConstantRanges = source.pushes.data();
     if (!good(d_.CreatePipelineLayout(dev_, &layout_info, nullptr, &layout), "create_pipeline_layout")) { clear(); return false; }
     VkRenderPass pass = VK_NULL_HANDLE;
-    if (!recipe.compute && !good(recipe.render_pass->create(dev_, d_.CreateRenderPass, d_.CreateRenderPass2, &pass), "create_render_pass")) {
+    if (!recipe.compute && !recipe.dynamic_rendering && !good(recipe.render_pass->create(dev_, d_.CreateRenderPass, d_.CreateRenderPass2, &pass), "create_render_pass")) {
         clear(); return false;
     }
     std::vector<VkShaderModule> modules;

@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-231 verified; continue D-232 rendering boundaries (2026-11-14)
+
+- Source2.6.1/ABIf82a26c557da40e6 pair/tools and native-rendering area pass; exact evidence in CURRENT_STATE. All D-231 drafts applied. Review/memory/commit/FF.
+- D-232 isolated CPU370/376 proves forbidden boundary barriers/proof handling; GPU baseline already4/4 and is not failing GPU evidence. Unapplied build/d232 drafts ready. Then dynamic attachment conflicts, output destinations/pass adapters and queue graphs without stopping at the commit. No game/deployment authorization.
+
 ## D-230 verified; continue D-231 dynamic-rendering shader twins (2026-11-14)
 
 - Source2.6.0/ABI9bea4e5074840e2a pair/sandbox/tracker and native-imageless area pass. CURRENT_STATE records exact baseline, stamps and results; all D-230 drafts applied. Review/memory/commit/FF.

@@ -88,6 +88,8 @@ static PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
 static PFN_vkCmdDrawIndexedIndirectCountKHR vkCmdDrawIndexedIndirectCountKHR;
 static PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
 static PFN_vkCmdBindVertexBuffers2 dynamic_bind_vertices;
+static PFN_vkCmdBeginRendering dynamic_begin_rendering;
+static PFN_vkCmdEndRendering dynamic_end_rendering;
 static PFN_vkCmdSetPrimitiveTopology dynamic_topology;
 static PFN_vkCmdSetVertexInputEXT dynamic_vertex_input;
 static PFN_vkCmdSetPrimitiveRestartEnable dynamic_restart;
@@ -233,6 +235,7 @@ struct App {
     int extended_raster = 0;
     int restart_mode = 0;
     bool imageless = false;
+    int dynamic_rendering = 0;
     bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
@@ -549,6 +552,7 @@ static bool create_device()
     qinfo.pQueuePriorities = priorities;
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    if(g.dynamic_rendering==2)exts.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
     if(g.restart_mode==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME);
     if(g.dynamic_geometry>=4)exts.push_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
@@ -585,7 +589,14 @@ static bool create_device()
     if(g.restart_mode==2){extended2.extendedDynamicState2=VK_TRUE;extended2.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&extended2;}
     VkPhysicalDeviceImagelessFramebufferFeatures imageless{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGELESS_FRAMEBUFFER_FEATURES};
     if(g.imageless){imageless.imagelessFramebuffer=VK_TRUE;imageless.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&imageless;}
+    VkPhysicalDeviceDynamicRenderingFeatures rendering{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES};
+    if(g.dynamic_rendering){rendering.dynamicRendering=VK_TRUE;rendering.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&rendering;}
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
+    if(g.dynamic_rendering){
+        dynamic_begin_rendering=reinterpret_cast<PFN_vkCmdBeginRendering>(vkGetDeviceProcAddr(g.device,g.dynamic_rendering==2?"vkCmdBeginRenderingKHR":"vkCmdBeginRendering"));
+        dynamic_end_rendering=reinterpret_cast<PFN_vkCmdEndRendering>(vkGetDeviceProcAddr(g.device,g.dynamic_rendering==2?"vkCmdEndRenderingKHR":"vkCmdEndRendering"));
+        if(!dynamic_begin_rendering || !dynamic_end_rendering)return false;
+    }
     if(g.restart_mode){dynamic_restart=reinterpret_cast<PFN_vkCmdSetPrimitiveRestartEnable>(vkGetDeviceProcAddr(g.device,g.restart_mode==2?"vkCmdSetPrimitiveRestartEnableEXT":"vkCmdSetPrimitiveRestartEnable"));if(!dynamic_restart)return false;}
     if(g.extended_raster){
         raster_CmdSetCullMode=reinterpret_cast<PFN_vkCmdSetCullMode>(vkGetDeviceProcAddr(g.device,"vkCmdSetCullMode"));if(!raster_CmdSetCullMode)return false;
@@ -921,6 +932,9 @@ static bool create_pipeline()
     info.layout = g.layout;
     info.renderPass = g.render_pass;
     info.subpass = 0;
+    VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&g.format;
+    if(g.dynamic_rendering){info.renderPass=VK_NULL_HANDLE;info.pNext=&rendering;}
     CHECK(vkCreateGraphicsPipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &g.pipeline));
 
     return true;
@@ -1458,6 +1472,9 @@ static void record_worker(Worker* w, VkFramebuffer fb)
     inherit.renderPass = g.render_pass;
     inherit.subpass = 0;
     inherit.framebuffer = fb;
+    VkCommandBufferInheritanceRenderingInfo rendering{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO};
+    rendering.colorAttachmentCount=1;rendering.pColorAttachmentFormats=&g.format;rendering.rasterizationSamples=VK_SAMPLE_COUNT_1_BIT;
+    if(g.dynamic_rendering){inherit.renderPass=VK_NULL_HANDLE;inherit.framebuffer=VK_NULL_HANDLE;inherit.pNext=&rendering;}
     VkCommandBufferBeginInfo begin = {};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin.flags = VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT | VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1715,13 +1732,28 @@ static bool render_frame()
     VkRenderPassAttachmentBeginInfo late_views{VK_STRUCTURE_TYPE_RENDER_PASS_ATTACHMENT_BEGIN_INFO};
     late_views.attachmentCount=1;late_views.pAttachments=&g.views[image];if(g.imageless)rp.pNext=&late_views;
 
+    VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    color.imageView=g.views[image];color.imageLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;color.storeOp=VK_ATTACHMENT_STORE_OP_STORE;color.clearValue=clear;
+    VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};rendering.renderArea.extent=g.extent;rendering.layerCount=1;
+    rendering.colorAttachmentCount=1;rendering.pColorAttachments=&color;
+    if(g.threads)rendering.flags=VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT;
+    VkImageMemoryBarrier attachment_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    attachment_barrier.srcQueueFamilyIndex=attachment_barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+    attachment_barrier.image=g.images[image];attachment_barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+    if(g.dynamic_rendering){
+        attachment_barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;attachment_barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attachment_barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
+        dynamic_begin_rendering(g.primary,&rendering);
+    }
     if (g.threads == 0) {
-        vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_INLINE);
+        if(!g.dynamic_rendering)vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_INLINE);
         record_setup(g.primary);
         for (int i = 0; i < g.draws; i++)
             record_draw(g.primary, i);
     } else {
-        vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+        if(!g.dynamic_rendering)vkCmdBeginRenderPass(g.primary, &rp, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
         std::vector<std::thread> threads;
         for (Worker& w : g.workers)
             threads.emplace_back(record_worker, &w, g.framebuffers[image]);
@@ -1732,7 +1764,12 @@ static bool render_frame()
             list.push_back(w.cb);
         vkCmdExecuteCommands(g.primary, static_cast<uint32_t>(list.size()), list.data());
     }
-    vkCmdEndRenderPass(g.primary);
+    if(g.dynamic_rendering){
+        dynamic_end_rendering(g.primary);
+        attachment_barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;attachment_barrier.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        attachment_barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;attachment_barrier.dstAccessMask=0;
+        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
+    }else vkCmdEndRenderPass(g.primary);
     record_capture_target(g.primary, true);
     CHECK(vkEndCommandBuffer(g.primary));
     const double record_end = clock_ms();
@@ -1946,6 +1983,8 @@ int wmain(int argc, wchar_t** argv)
             g.geometry_capture = true;
         else if (a == L"--geometry-odd")
             g.geometry_odd = true;
+        else if (a == L"--dynamic-rendering")
+            g.dynamic_rendering = _wtoi(argv[++i]);
         else if (a == L"--imageless")
             g.imageless = true;
         else if (a == L"--native-target")
