@@ -276,6 +276,7 @@ void exchange(Device* device, bool promote)
         if (promote) {
             old = std::move(device->character); old_module = device->character_module;
             device->character = std::move(device->character_staged); device->character_module = device->staged_module;
+            device->character_module->activate(*device->character);
             version = device->character_module->version;
         } else {
             old = std::move(device->character_staged); old_module = device->staged_module;
@@ -342,6 +343,7 @@ void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const
         device->physical_properties=properties;device->memory_properties=memory;
         device->character_module=builtin_character_module();
         device->character=device->character_module->create(device,properties,memory);
+        if(device->character)device->character_module->activate(*device->character);
         device->character_mode=true;
         std::lock_guard<std::mutex> lock(g_module.mx);
         g_module.generation=0;g_module.path.clear();g_module.version=device->character_module->version;
@@ -366,6 +368,8 @@ void m2_stop(Device* device){
         {
             std::unique_lock<std::shared_mutex> lock(device->character_mx);
             device->character_stopped=true;
+            device->shader_draws.store(false,std::memory_order_relaxed);
+            device->native_binding_order.store(false,std::memory_order_relaxed);
             active.swap(device->character);staged.swap(device->character_staged);
             active_module=device->character_module;staged_module=device->staged_module;device->staged_module=nullptr;
         }
@@ -514,7 +518,7 @@ std::string probe_m2_module(const std::string& path,const std::string& package){
     api.notice=[](int level,const char* key,const char* text){notice(static_cast<NoticeLevel>(level),key,text);};
     const CharacterModule* module=entry?entry(&api):nullptr;
     api.config=nullptr;
-    if(!module || module->size!=sizeof(CharacterModule) || module->abi!=EFVK_ABI){
+    if(!module || module->size!=sizeof(CharacterModule) || module->abi!=EFVK_ABI || !module->activate){
         // Nothing of it ran beyond the entry, so it may go again.
         FreeLibrary(library);
         return fail("module was built against other structures of the layer; this layer cannot use it");

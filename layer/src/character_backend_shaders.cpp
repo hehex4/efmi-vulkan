@@ -539,8 +539,18 @@ void draw_facts(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, bool buffers,
 // ---------------------------------------------------------------------------------------------------------------------
 // ShaderOverride by SPIR-V hash.
 
-// After the folder generation's presentation, on the presenting thread: the acting hashes of the generation in place
-// (a new one after an F10 exchange), its hunting settings, and the hunting keys its input dispatcher met.
+// Publish only the backend installed by the host; candidate creation and retired cleanup never write these flags.
+void character_activate(CharacterBackend& b)
+{
+    if(!b.device)return;
+    std::shared_ptr<const CharacterBackend::ShaderHooks> current;
+    { std::shared_lock<std::shared_mutex> lock(b.index_mx); current=b.shader_hooks; }
+    auto* program=current?current->program:nullptr;
+    b.device->shader_draws.store((current && !current->hashes.empty()) || b.hunting.enabled() || b.hunting.analysing(),std::memory_order_relaxed);
+    b.device->native_binding_order.store(program && program->runtime() && !program->runtime()->native_bindings().empty(),std::memory_order_relaxed);
+}
+
+// Prepare local generation hooks; an active presentation also publishes settings and dispatched actions.
 void shader_hooks_frame(CharacterBackend& b, bool presenting)
 {
     native_file_frame(b.native_calls,b.textures.get());
@@ -594,9 +604,7 @@ void shader_hooks_frame(CharacterBackend& b, bool presenting)
     if(presenting)b.hunting.frame(folder, b.device);
     // The `hunting` operand reads the original's mode (docs/vulkan-native-mods.md section 6).
     if (program && program->runtime()) program->runtime()->hunting_mode(b.hunting.operand());
-    if (b.device)
-        b.device->shader_draws.store((current && !current->hashes.empty()) || b.hunting.enabled() || b.hunting.analysing(), std::memory_order_relaxed);
-    if(b.device)b.device->native_binding_order.store(program && program->runtime() && !program->runtime()->native_bindings().empty(),std::memory_order_relaxed);
+    if(presenting)character_activate(b);
 }
 
 // A draw no Mod section made the Mod's (it matched none, or its lists left it to the game): hunting's mark, and the

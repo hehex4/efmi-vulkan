@@ -18,6 +18,8 @@ std::shared_ptr<CharacterBackend> character_create(Device*, const VkPhysicalDevi
                                                    const VkPhysicalDeviceMemoryProperties&);
 bool character_usable(CharacterBackend&, std::string& reason);
 bool character_ready(CharacterBackend&);
+// Publish the installed backend under the host character lock, without running frame actions.
+void character_activate(CharacterBackend&);
 void character_stop(CharacterBackend&);
 // True when the original draw is to be dropped: its replacement was recorded, or the mod hides it.
 bool character_record(CharacterBackend&, CmdBuf*, const DrawRec&);

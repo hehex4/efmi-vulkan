@@ -1,5 +1,11 @@
 # EFMI Vulkan - Known issues
 
+## BUG-104: Candidate and retired backends overwrote active host dispatch flags (D-220, 2.5.0)
+
+- Isolated CPU baseline294/296 (d220-before.out) reproduces shared Device.shader_draws/native_binding_order changes from shader_hooks_frame(...,false), and shader_draws clearing from character_stop on a rejected/retired backend. The old module could thereby disable current callbacks until a later presentation. Module-local discard state is separate.
+- Original ReloadConfig holds its global critical section across configuration replacement. DX11 supplies deferred object lifetime, hazards and context order. Vulkan now publishes prepared flags through an explicit ABI-checked activation callback at initial installation and promotion, under host ownership; active frames refresh them. Candidate preparation/retired cleanup do not publish, and host teardown clears flags while detaching the active backend.
+- Activation does not simulate Present or fire analysis/display callbacks. Exact builds and the verified scope are recorded in CURRENT_STATE. No game/deployment evidence.
+
 ## BUG-103: Persistent mutable descriptors lacked dependencies outside native plans (fixed offline in D-219, 2.4.9)
 
 - During D-219 review, direct descriptor preparation/binding followed by the host's next compute call produced no memory dependency when that call had no native plan. Tracker291/292 in d219-dependency-before.out proves the missing entry-point behavior. Narrow-original-buffer-barrier GPU cases already pass8/8, and explicit sync-validation4/4; those observations are not represented as failing GPU evidence.

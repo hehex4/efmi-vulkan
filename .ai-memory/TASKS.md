@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## Active D-220 verified; continue D-221 graphics uniform dependencies (2026-11-14)
+
+- D-219 merged6d2a4a1. Source2.5.0 final pair ABI341d1236484e9dfc verified. Tracker299, native shader92, application images76, files42, compute91, persistent18, hunting45, validation76/text588 pass. Exact original failures and evidence in CURRENT_STATE.
+- Review/memory/session log/commit/FF, then D-221 missing pre-pass proof. Its isolated CPU baseline299/300 already fails; no tracked D-221 source applied. Run build/d221-uniform-test.py GPU baseline and follow build/d221-plan.md. Primary graphics uses threads=0. Continue offline work after the commit; no game/deployment authorization.
+
 ## Active D-219: Private writable file buffers (2026-11-14)
 
 - D-218 merged6910206. Source2.4.9 final pair ABI5b362dd82f6d34dc built/stamps verified. Final tracker294, GPU retry20 and upload/cache604 pass; d219-regression.out passes mutable49, files42, bindings48, resources89, character115/377, validation76/text587. CURRENT_STATE distinguishes the missing-dependency CPU failure from passing GPU observations.

@@ -325,7 +325,6 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
 void character_stop(CharacterBackend& b)
 {
     if (b.twins_sweep.valid()) b.twins_sweep.get();
-    if (b.device) b.device->shader_draws.store(false, std::memory_order_relaxed);
     { std::unique_lock<std::shared_mutex> lock(b.index_mx); b.shader_hooks.reset(); }
     for (auto& c : b.controllers) c->stop();
     if (b.folder_loading.valid()) { auto candidate = b.folder_loading.get(); if (candidate) candidate->stop(); }
@@ -535,7 +534,7 @@ const CharacterModule* builtin_character_module()
     static const CharacterModule module = [] {
         CharacterModule m;
         m.size = sizeof(CharacterModule); m.abi = EFVK_ABI; m.version = EFVK_VERSION;
-        m.create = character_create; m.usable = character_usable; m.ready = character_ready; m.stop = character_stop;
+        m.create = character_create; m.usable = character_usable; m.ready = character_ready; m.activate = character_activate; m.stop = character_stop;
         m.record = character_record; m.retire = character_retire; m.frame = character_frame; m.status = character_status;
         m.enable = character_enable; m.submit = character_submit; m.submitted = character_submitted; m.pass_end = character_pass_end;
         m.bind = [](CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline) { return character_bind(b, cb, pipeline); };

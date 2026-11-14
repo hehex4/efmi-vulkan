@@ -926,6 +926,7 @@ static void immutable_sampler_lifetime()
 #include "native_storage_cases.h"
 #include "hunting_idle_cases.h"
 #include "native_mutable_cases.h"
+#include "module_publication_cases.h"
 
 int main()
 {
@@ -954,6 +955,7 @@ int main()
     hunting_idle_cases();
     native_mutable_cases();
     native_mutable_dependencies();
+    module_publication_cases();
     secondary_publication_dependencies();
     image_layout_cases(check);
     image_layout_tracker_cases();

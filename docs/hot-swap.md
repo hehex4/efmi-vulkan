@@ -1,4 +1,4 @@
-# Exchanging the replacement code while the process runs (1.0.1)
+# Exchanging the replacement code while the process runs
 
 Requested by the user on 2026-10-13, after four restarts of the game in one afternoon: write the
 replacement logic as a module of its own, and let the agent swap it into the running game when a
@@ -10,8 +10,9 @@ The DLL that is injected into the game does two jobs. It hooks the Vulkan calls 
 tracker, the record of every object the game has created since it started; and it decides which
 draws to replace and records the replacements. A loaded DLL cannot be replaced, and the tracker
 cannot be rebuilt by a second copy (objects created before it arrived are unknown to it). The
-second job has no such state: everything it knows it reads from the tracker or learns again
-within a few frames.
+second job owns parsed frontend generations, derived caches and uploaded Mod resources. A new
+module builds a new generation from configuration and tracker facts; old recordings retain the
+actual objects they already use until completion.
 
 So the code of the second job exists twice. The layer DLL has it built in, as before, and uses
 that copy unless told otherwise. `efmi_vk_backend.dll`, the module, holds the same code alone:
@@ -23,7 +24,7 @@ that copy unless told otherwise. `efmi_vk_backend.dll`, the module, holds the sa
 | single-component backend of 0.9.x | yes | no |
 
 `layer/src/character_module.h` is the boundary: a table of the backend's functions
-(`CharacterModule`: create, usable, ready, stop, record, retire, frame, status, enable, submit)
+(`CharacterModule`: create, usable, ready, activate, stop, record, retire, frame, status, enable, submit)
 and a table of what a module needs from the host (`HostApi`: the log, CRC-32C, and the tracker's
 two readers of buffers). A module's one export, `efmi_vk_character_module`, takes the second and
 returns the first. `layer/module/module_main.cpp` is the only source the module has for itself.
@@ -38,8 +39,8 @@ place once a recording has been reset.
 Host and module exchange tracker structures, strings and vectors as they are. That is only
 sound when both were built from the same definitions with the same compiler settings. The build
 computes a 64-bit stamp over the headers that define what crosses (`state.h`,
-`character_module.h`, `command_owner.h`, `json.h` and everything they include from `layer/src`;
-at present ten files) and the compiler flags, and compiles it into both sides as `EFVK_ABI`. The
+`character_module.h`, `command_owner.h`, `json.h`, `native_images.h`, the frontend native binding
+contract and their local layer includes; the authoritative roots are `ABI_ROOTS` in `scripts/build.py`) and the compiler flags, and compiles it into both sides as `EFVK_ABI`. The
 version text is left out of it. A module with another stamp is refused before any of its code
 beyond the entry has run, and unloaded again. `scripts/hot_swap.py` compares the stamp of the
 working tree with the running layer's before it builds anything.
@@ -62,10 +63,15 @@ Probe command `{"cmd":"module","path":...,"package":...}` (`ProbeClient.swap_mod
    uploaded and published to the queues while the other still replaces every draw.
 4. At the end of a frame in which the staged backend reports ready, it takes over: every call
    into the backend in use holds `Device::character_mx` shared, the exchange takes it
-   exclusively, so it happens between two calls. A staged backend that is not ready after 30
+   exclusively, so it happens between two calls. The installed module's `activate` callback
+   publishes its prepared dispatch flags under this lock before its first draw. The initial
+   backend uses the same callback during device setup. A staged backend that is not ready after 30
    seconds is given up.
 5. The backend that was in use is stopped and destroyed on a thread of its own. What command
-   buffers still hold of it lives as long as they do.
+   buffers still hold of it lives as long as they do. Neither staging nor retired/rejected cleanup
+   changes the active host dispatch flags (D-220). Host teardown clears those flags while
+   detaching the active backend under its lock. Activation runs no Present, input, analysis
+   or display callbacks.
 
 A module that has been used is never unloaded: objects it made, and their code, may outlive its
 backend. Each exchange therefore needs a file name of its own; `scripts/hot_swap.py` copies the

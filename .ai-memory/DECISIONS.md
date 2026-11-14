@@ -4,6 +4,12 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-220: Host installation owns module dispatch-state publication (2026-11-14)
+
+- Original ReloadConfig serializes shared configuration under G's critical section. Vulkan's host already holds character_mx across active callbacks/exchange, but backend construction and janitor stop wrote Device.shader_draws/native_binding_order outside active ownership. Baseline and verification are in CURRENT_STATE.
+- Add an ABI-checked activate callback. Initial installation and promotion publish prepared flags before the first draw; active frame processing refreshes them. Candidate preparation and retired/rejected cleanup affect only their backend. Host device teardown clears flags while detaching the active backend under its lock.
+- Activation performs no Present, timer/input, analysis or display action. Keep deferred command owners and loaded module lifetime; DX11's deferred lifetime/hazards/context order are not replaced by a guessed wait. Module-local discard state is distinct from shared Device flags.
+
 ## D-219: Writable file buffers own persistent private storage and explicit compute dependencies (2026-11-14)
 
 - Original CustomResource AddFlags/Substantiate and LoadBufferFromFile/SubstantiateBuffer combine declaration flags and initialize one DEFAULT allocation. Each declaration owns subsequent GPU mutations; a new generation creates fresh writable storage. DX11 supplies deferred ownership, hazard tracking and single-context order.

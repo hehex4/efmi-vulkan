@@ -87,6 +87,8 @@ struct CharacterModule {
     bool (*usable)(CharacterBackend&, std::string& reason) = nullptr;
     // Mesh, arenas and images are in place: draws can be replaced from the first one on.
     bool (*ready)(CharacterBackend&) = nullptr;
+    // Initial installation and promotion only, under host ownership, before its first draw.
+    void (*activate)(CharacterBackend&) = nullptr;
     void (*stop)(CharacterBackend&) = nullptr;
     bool (*record)(CharacterBackend&, CmdBuf*, const DrawRec&) = nullptr;
     void (*retire)(CharacterBackend&, uint32_t pipeline_id) = nullptr;

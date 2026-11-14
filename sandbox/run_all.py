@@ -210,6 +210,7 @@ GROUPS = {
     "native-image-shapes": ["native image shapes", "native image bindings", "native file bindings", "native descriptor bindings", "native application images", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "native-images": ["native image bindings", "native file bindings", "native descriptor bindings", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "native-application-images": ["native application images", "native image bindings", "native descriptor bindings", "native tracker", "Vulkan validation", "text check"],
+    "module-publication": ["native game shader", "native compute", "persistent hunting overlay", "native hunting", "native file bindings", "native application images", "native tracker", "Vulkan validation", "text check"],
     "module-paths": ["native application images", "native file bindings", "native tracker", "text check"],
     "native-mutable-files": ["mutable native file buffers", "native file bindings", "native descriptor bindings", "native resource slots", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "native-files": ["native file bindings", "native descriptor bindings", "native resource slots", "native tracker", "Vulkan validation", "text check"],
