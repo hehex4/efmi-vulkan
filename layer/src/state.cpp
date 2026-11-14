@@ -304,6 +304,19 @@ DeviceRef::DeviceRef() : lock(g_dev_mx)
 // ---------------------------------------------------------------------------
 // Command buffer lookup
 
+void on_bind_vertex_buffers(CmdBuf* cb,uint32_t first,uint32_t count,const VkBuffer* buffers,const VkDeviceSize* offsets,
+                            const VkDeviceSize* sizes,const VkDeviceSize* strides)
+{
+    if(!cb || first>=kMaxVb)return;
+    const auto n=std::min(count,kMaxVb-first);
+    for(uint32_t i=0;i<n;++i){
+        auto& binding=cb->vb[first+i];binding.buf=buffers?buffers[i]:VK_NULL_HANDLE;
+        binding.off=offsets?offsets[i]:0;binding.size=sizes?sizes[i]:VK_WHOLE_SIZE;
+        // NULL strides, including legacy binds, preserve the independently set dynamic state.
+        if(strides){binding.stride_known=strides[i]<=UINT32_MAX;binding.stride=uint32_t(strides[i]);}
+    }
+}
+
 void CmdBuf::reset_recording()
 {
     image_layouts.reset();
@@ -315,7 +328,7 @@ void CmdBuf::reset_recording()
     character_frame = 0;
     m2_extended_bind = false;
     gfx_pipeline = VK_NULL_HANDLE;
-    gfx_bound = VK_NULL_HANDLE;
+    gfx_bound = VK_NULL_HANDLE; topology = UINT32_MAX;
     comp_pipeline = VK_NULL_HANDLE;
     comp_bound = VK_NULL_HANDLE;
     ib = VK_NULL_HANDLE;

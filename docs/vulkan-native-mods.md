@@ -561,8 +561,10 @@ interpretation. A non-indexed draw does not export an index buffer merely becaus
 
 These bytes are end-of-pass data for the original application's bindings, not per-draw snapshots or
 the replacement engine's private mesh buffers. Secondary recording identities are retained in uses.
-D-208 adds indirect calls below; dynamic input/topology and vertex slots beyond the four tracked slots remain
-refused. All D-202 ownership, usage, queue and completion restrictions still apply. Buffer copies
+D-208 adds indirect calls below. D-223 captures core/EXT dynamic strides and topology, including
+zero stride, null-stride/legacy rebinding and secondary snapshots. The manifest includes bound size.
+Static pipelines use their own geometry. Capture completeness never authorizes pipeline cloning.
+Full dynamic vertex input and slots beyond the four tracked slots remain refused. All D-202 ownership, usage, queue and completion restrictions still apply. Buffer copies
 preserve every byte, including sizes not divisible by four; VkBufferCopy has no such alignment rule.
 
 ### Shader-independent output attachments (D-204, 2.3.4; sandbox scope)

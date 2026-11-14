@@ -87,6 +87,8 @@ static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
 static PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
 static PFN_vkCmdDrawIndexedIndirectCountKHR vkCmdDrawIndexedIndirectCountKHR;
 static PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
+static PFN_vkCmdBindVertexBuffers2 dynamic_bind_vertices;
+static PFN_vkCmdSetPrimitiveTopology dynamic_topology;
 static std::atomic<uint32_t> validation_errors{0}, validation_warnings{0};
 static std::atomic<bool> validation_canary_seen{false};
 #define X(n) static PFN_vk##n vk##n;
@@ -211,6 +213,7 @@ struct App {
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
+    int dynamic_geometry = 0;
     bool reference_storage = false, storage_formatless = false, reference_float_source = false, reference_rgba = false, reference_sampled_source = false, reference_cube_arrays = false;
     bool reference_partial = false, reference_narrow = false, reference_remaining = false, capture_multiview = false;
     uint32_t reference_layer_count = 0;
@@ -527,6 +530,7 @@ static bool create_device()
     qinfo.pQueuePriorities = priorities;
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
     if(g.sync2 && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if(g.storage_formatless && g.api_version<VK_API_VERSION_1_3)exts.push_back(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
     if(g.descriptor_mode>=2)exts.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
@@ -552,7 +556,14 @@ static bool create_device()
     if(g.sync2){sync2.synchronization2=VK_TRUE;dinfo.pNext=&sync2;}
     VkPhysicalDeviceMultiviewFeatures multiview{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
     if(g.capture_multiview){multiview.multiview=VK_TRUE;multiview.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&multiview;}
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT};
+    if(g.dynamic_geometry==2){extended.extendedDynamicState=VK_TRUE;extended.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&extended;}
     CHECK(vkCreateDevice(g.phys, &dinfo, nullptr, &g.device));
+    if(g.dynamic_geometry){
+        dynamic_bind_vertices=reinterpret_cast<PFN_vkCmdBindVertexBuffers2>(vkGetDeviceProcAddr(g.device,g.dynamic_geometry==2?"vkCmdBindVertexBuffers2EXT":"vkCmdBindVertexBuffers2"));
+        dynamic_topology=reinterpret_cast<PFN_vkCmdSetPrimitiveTopology>(vkGetDeviceProcAddr(g.device,g.dynamic_geometry==2?"vkCmdSetPrimitiveTopologyEXT":"vkCmdSetPrimitiveTopology"));
+        if(!dynamic_bind_vertices || !dynamic_topology)return false;
+    }
 
 #define X(n)                                                                                                           \
     vk##n = reinterpret_cast<PFN_vk##n>(vkGetDeviceProcAddr(g.device, "vk" #n));                                       \
@@ -827,16 +838,17 @@ static bool create_pipeline()
     cb.attachmentCount = 1;
     cb.pAttachments = &cba;
 
-    VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE,VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY};
     VkPipelineDynamicStateCreateInfo dyn = {};
     dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dyn.dynamicStateCount = 2;
+    dyn.dynamicStateCount = g.dynamic_geometry && g.dynamic_geometry!=3?4:2;
     dyn.pDynamicStates = dyn_states;
 
     VkGraphicsPipelineCreateInfo info = {};
     info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     info.stageCount = stage_count;
     info.pStages = stages;
+    if(g.dynamic_geometry && g.dynamic_geometry!=3)vbind.stride=64;
     info.pVertexInputState = &vi;
     info.pInputAssemblyState = &ia;
     info.pTessellationState = tessellation ? &tess : nullptr;
@@ -1305,6 +1317,15 @@ static void record_draw(VkCommandBuffer cb, int i)
 {
     i %= kDrawCount;
     const DrawDef& d = kDraws[i];
+    if(g.dynamic_geometry){
+        const VkDeviceSize offset=0,size=sizeof(kVertices),stride=d.count==3?0:8;
+        dynamic_bind_vertices(cb,0,1,&g.vb.buf,&offset,&size,&stride);
+        // Neither this null-stride rebind nor the legacy rebind changes dynamic stride.
+        if(i%2)dynamic_bind_vertices(cb,0,1,&g.vb.buf,&offset,nullptr,nullptr);
+        else vkCmdBindVertexBuffers(cb,0,1,&g.vb.buf,&offset);
+        dynamic_topology(cb,d.count==3?VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP:VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        if(g.dynamic_geometry==3)vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
+    }
     if (d.ib == 0)
         vkCmdBindIndexBuffer(cb, g.ib_a.buf, 0, VK_INDEX_TYPE_UINT16);
     else
@@ -1869,6 +1890,8 @@ int wmain(int argc, wchar_t** argv)
             g.reference_cube_arrays = true;
         else if (a == L"--reference-sampled-source")
             g.reference_sampled_source = true;
+        else if (a == L"--geometry-dynamic" && i + 1 < argc)
+            g.dynamic_geometry = _wtoi(argv[++i]);
         else if (a == L"--reference-rgba")
             g.reference_rgba = true;
         else if (a == L"--reference-float-source")

@@ -4,6 +4,11 @@
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.
 
+D-223 geometry analysis snapshots core/EXT dynamic strides, bound ranges and topology per draw.
+Recipes distinguish capture completeness from replacement completeness; capture support alone
+cannot authorize pipeline cloning. Static pipeline geometry and existing capture ownership,
+submission limits and completion publication remain authoritative.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

@@ -355,7 +355,7 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
 {
     GraphicsRecipe r;
     r.render_pass = std::move(pass); r.flags = info.flags; r.subpass = info.subpass;
-    // Reject libraries and extended dynamic state before touching any possibly ignored pointers.
+    // Reject libraries before touching any possibly ignored pointers.
     if (info.pNext || info.flags) { r.reason = "pipeline_extension_or_flags"; return r; }
     if (!r.render_pass || !r.render_pass->complete) { r.reason = "render_pass_unavailable"; return r; }
     if (info.subpass >= r.render_pass->subpasses.size()) { r.reason = "subpass_unavailable"; return r; }
@@ -392,12 +392,15 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
             !info.pTessellationState->patchControlPoints) { r.reason = "tessellation_state_unsupported"; return r; }
         r.has_tessellation = true; r.tessellation = *info.pTessellationState;
     }
+    bool capture_only = false;
     if (info.pDynamicState) {
         const auto& d = *info.pDynamicState;
         if (d.pNext || d.flags || d.dynamicStateCount > kMaxDynamic) { r.reason = "dynamic_state_extension"; return r; }
         for (uint32_t i = 0; i < d.dynamicStateCount; i++) {
             if (d.pDynamicStates[i] < VK_DYNAMIC_STATE_VIEWPORT || d.pDynamicStates[i] > VK_DYNAMIC_STATE_STENCIL_REFERENCE) {
-                r.reason = "extended_dynamic_state"; return r;
+                if (d.pDynamicStates[i] == VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE ||
+                    d.pDynamicStates[i] == VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY) capture_only = true;
+                else { r.reason = "extended_dynamic_state"; return r; }
             }
             r.dynamic.push_back(d.pDynamicStates[i]);
         }
@@ -443,7 +446,9 @@ GraphicsRecipe GraphicsRecipe::capture(const VkGraphicsPipelineCreateInfo& info,
             copy_array(r.blend_attachments, cb.attachmentCount, cb.pAttachments);
         }
     }
-    r.complete = true;
+    r.geometry_complete = true;
+    r.complete = !capture_only;
+    if (capture_only) r.reason = "extended_dynamic_state";
     return r;
 }
 

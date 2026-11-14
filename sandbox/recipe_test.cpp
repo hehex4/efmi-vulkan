@@ -251,6 +251,25 @@ static void extended_stage_tests()
 
 static void ignored_pointer_tests()
 {
+    {
+        RecipeFixture f;
+        check(f.capture().complete && f.capture().geometry_complete, "static recipes support both capture and replacement");
+        VkDynamicState dynamic[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+            VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE, VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY};
+        f.dyn.dynamicStateCount = 4; f.dyn.pDynamicStates = dynamic;
+        auto recipe = f.capture();
+        check(recipe.geometry_complete && !recipe.complete && recipe.reason == "extended_dynamic_state" &&
+              recipe.vertex.bindings.size() == f.vi.vertexBindingDescriptionCount && recipe.dynamic.size() == 4,
+              "known dynamic geometry retains capture descriptions without authorizing replacement");
+        VkPipeline output = h<VkPipeline>(99);
+        const int before = allocation;
+        check(recipe.create(h<VkDevice>(1), create_pipe, h<VkPipelineLayout>(2), h<VkRenderPass>(3),
+              {h<VkShaderModule>(4), h<VkShaderModule>(5)}, &output) != VK_SUCCESS && !output && allocation == before,
+              "capture-only geometry cannot create a replacement pipeline");
+        dynamic[2] = VK_DYNAMIC_STATE_CULL_MODE;
+        check(!f.capture().geometry_complete && !f.capture().complete,
+              "untracked extended dynamics remain unavailable to capture and replacement");
+    }
     RecipeFixture f;
     f.gp.pTessellationState = h<const VkPipelineTessellationStateCreateInfo*>(1);
     f.vp.pViewports = h<const VkViewport*>(1); f.vp.pScissors = h<const VkRect2D*>(1);

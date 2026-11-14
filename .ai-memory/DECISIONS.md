@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-223: Dynamic geometry snapshots are independent of pipeline cloning (2026-11-14)
+
+- Original FrameAnalysis.cpp2493-2530 retrieves cached input layout and current vertex buffers/strides/offsets/topology. DX11 supplies retained getter references, deferred destruction, hazard tracking and context order. Vulkan retains the same existing completed GPU capture owners/dependencies but snapshots dynamic metadata at each draw.
+- Core/EXT vertex binding keeps declared range and known stride, including zero. Null stride and legacy binds preserve the previous value. Core/EXT topology hooks retain current topology. Reset clears validity; secondary execution preserves each draw without importing binding state into its caller. Static pipelines use static geometry even after dynamic setters.
+- geometry_complete explicitly differs from complete: a recipe with known dynamic stride/topology is capturable but cannot authorize pipeline cloning. Unknown dynamic states still refuse before ignored pointers are touched. Full dynamic declarations require D-224. Bound range is exported alongside complete allocation bytes; no new replacement or queue permission follows.
+- Contracts: https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdBindVertexBuffers2.html and https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdSetPrimitiveTopology.html . Exact builds and scoped evidence are in CURRENT_STATE.
+
 ## D-222: Writable native file images retain private GPU contents in GENERAL (2026-11-14)
 
 - Original CustomResource::LoadFromFile creates DEFAULT DDS/WIC textures using inferred/explicit bind flags and makes no assumed SRV. DX11 supplies deferred retained lifetime, hazard tracking and one context's order. Vulkan owns each writable declaration independently, retains upload publication and command owners, and supplies compute dependencies explicitly.

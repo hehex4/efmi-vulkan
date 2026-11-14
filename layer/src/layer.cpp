@@ -111,6 +111,7 @@ DrawRec make_rec(const CmdBuf* cb, uint8_t kind, bool compute)
             r.sets[i] = cb->comp_sets[i];
         return r;
     }
+    r.topology = cb->topology;
     r.pipeline = cb->gfx_pipeline;
     r.bound = cb->gfx_bound;
     r.ib = cb->ib;
@@ -462,24 +463,13 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2KHR(VkCommandBuffer cmd, VkBuff
     dev->d.CmdBindIndexBuffer2KHR(cmd, buf, off, size, type);
 }
 
-void track_vbs(CmdBuf* cb, uint32_t first, uint32_t count, const VkBuffer* bufs, const VkDeviceSize* offs)
-{
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t slot = first + i;
-        if (slot >= kMaxVb)
-            break;
-        cb->vb[slot].buf = bufs ? bufs[i] : VK_NULL_HANDLE;
-        cb->vb[slot].off = offs ? offs[i] : 0;
-    }
-}
-
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers(VkCommandBuffer cmd, uint32_t first, uint32_t count,
                                                    const VkBuffer* bufs, const VkDeviceSize* offs)
 {
     count_call(HI_CmdBindVertexBuffers);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd))
-        track_vbs(cb, first, count, bufs, offs);
+        on_bind_vertex_buffers(cb, first, count, bufs, offs);
     dev->d.CmdBindVertexBuffers(cmd, first, count, bufs, offs);
 }
 
@@ -491,7 +481,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers2(VkCommandBuffer cmd, uint32_
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         cb->m2_extended_bind = true;
-        track_vbs(cb, first, count, bufs, offs);
+        on_bind_vertex_buffers(cb, first, count, bufs, offs, sizes, strides);
     }
     dev->d.CmdBindVertexBuffers2(cmd, first, count, bufs, offs, sizes, strides);
 }
@@ -504,9 +494,22 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindVertexBuffers2EXT(VkCommandBuffer cmd, uint
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         cb->m2_extended_bind = true;
-        track_vbs(cb, first, count, bufs, offs);
+        on_bind_vertex_buffers(cb, first, count, bufs, offs, sizes, strides);
     }
     dev->d.CmdBindVertexBuffers2EXT(cmd, first, count, bufs, offs, sizes, strides);
+}
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetPrimitiveTopology(VkCommandBuffer cmd,VkPrimitiveTopology topology)
+{
+    count_call(HI_CmdSetPrimitiveTopology);Device* dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->topology=topology;
+    dev->d.CmdSetPrimitiveTopology(cmd,topology);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetPrimitiveTopologyEXT(VkCommandBuffer cmd,VkPrimitiveTopology topology)
+{
+    count_call(HI_CmdSetPrimitiveTopologyEXT);Device* dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd))cb->topology=topology;
+    dev->d.CmdSetPrimitiveTopologyEXT(cmd,topology);
 }
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindDescriptorSets(VkCommandBuffer cmd, VkPipelineBindPoint point, VkPipelineLayout layout,

@@ -73,6 +73,8 @@ struct GraphicsRecipe {
     // Compute uses only stages/flags. Keeping the owned envelope lets it share the variant queue and lifetime.
     bool compute = false;
     bool complete = false;
+    // Capture may understand geometry state that replacement pipelines cannot yet restore.
+    bool geometry_complete = false;
     std::string reason;
     uint32_t subpass = 0;
     VkPipelineCreateFlags flags = 0;

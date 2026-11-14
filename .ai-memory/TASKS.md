@@ -1,6 +1,11 @@
 # EFMI Vulkan - Tasks
 
 
+## D-223 verified; continue D-224 full dynamic vertex input (2026-11-14)
+
+- Source2.5.3 pair/planner ABI1b332932d3d0e09f verified. Tracker320, recipe206/cache61/snapshots52/GPUvariants63, selection94, geometry65, dynamic56, indirect121, validation76/text594 pass. CURRENT_STATE distinguishes initial recipe guard and corrected test fixture from production changes.
+- Commit/FF, then apply UNAPPLIED build/d224-fixture.py and run prepared build/d224-geometry-test.py baseline before source2.5.4. Full input requires immutable draw declarations and independent stride precedence; no mesh permission. Then narrow native-only dynamic shader twins (build/d225-plan.md), render-target and queue adapters. Continue after every verified commit. No game/deployment authorization.
+
 ## D-222 verified; continue D-223 dynamic geometry capture (2026-11-14)
 
 - Source2.5.2 pair/planner ABId41e63b89add86b0 verified; tracker314/upload684 pass. Affected area passes shapes70, images46, storage75, mutable buffers49, files42, validation76/text592. Mutable images79/81 had only the missing cube-array feature in its fixture; rebuilt sandbox and final enabled/disabled retry8/8 pass. CURRENT_STATE distinguishes production, fixture and integration failures and exact evidence.

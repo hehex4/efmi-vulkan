@@ -247,18 +247,30 @@ public:
                 const auto pipeline=device->pipes.find(draw.pipeline);
                 if(pipeline==device->pipes.end()){refuse(session,point,"Geometry pipeline metadata is unavailable");continue;}
                 const auto& pipe=pipeline->second;
-                if(!pipe.recipe || !pipe.recipe->complete){refuse(session,point,"Geometry pipeline extension state is not fully tracked");continue;}
-                bool dynamic=false;
-                for(const auto state:pipe.dynamic_states)dynamic|=state==VK_DYNAMIC_STATE_VERTEX_INPUT_EXT ||
-                    state==VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE || state==VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
-                if(dynamic){refuse(session,point,"Dynamic vertex input or topology requires a geometry adapter");continue;}
+                if(!pipe.recipe || !pipe.recipe->geometry_complete){refuse(session,point,"Geometry pipeline extension state is not fully tracked");continue;}
+                bool dynamic_input=false,dynamic_stride=false,dynamic_topology=false;
+                for(const auto state:pipe.dynamic_states){
+                    dynamic_input|=state==VK_DYNAMIC_STATE_VERTEX_INPUT_EXT;
+                    dynamic_stride|=state==VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
+                    dynamic_topology|=state==VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY;
+                }
+                if(dynamic_input){refuse(session,point,"Dynamic vertex input declarations require a geometry adapter");continue;}
+                if(dynamic_topology && draw.topology==UINT32_MAX){refuse(session,point,"Dynamic primitive topology was not recorded");continue;}
+                const auto topology=dynamic_topology?draw.topology:pipe.topology;
                 auto add=[&](VkBuffer buffer,const char* kind,uint64_t offset,const PipeInfo::Binding* binding){
                     if(!buffer)return;
                     auto& request=requests[allocation(buffer,kind)];
                     if(request.reason.empty() && offset>=request.bytes)request.reason="Geometry binding offset is outside its allocation";
-                    JsonWriter use;use.begin_object();describe(use);use.kn("pipeline",pipe.id);use.kn("bind_offset",offset);use.kn("topology",pipe.topology);
+                    JsonWriter use;use.begin_object();describe(use);use.kn("pipeline",pipe.id);use.kn("bind_offset",offset);use.kn("topology",topology);
                     if(binding){
-                        use.kn("slot",binding->binding);use.kn("stride",binding->stride);use.kb("per_instance",binding->per_instance!=0);
+                        const auto& bound=draw.vb[binding->binding];
+                        if(dynamic_stride && !bound.stride_known){request.reason="Dynamic vertex stride was not recorded";return;}
+                        const uint64_t size=bound.size==VK_WHOLE_SIZE && offset<=request.bytes?request.bytes-offset:bound.size;
+                        if(request.reason.empty() && (offset>request.bytes || size>request.bytes-offset)){
+                            request.reason="Geometry binding range exceeds its allocation";return;
+                        }
+                        use.kn("bind_size",size);
+                        use.kn("slot",binding->binding);use.kn("stride",dynamic_stride?bound.stride:binding->stride);use.kb("per_instance",binding->per_instance!=0);
                         use.key("attributes");use.begin_array();
                         for(const auto& attribute:pipe.attributes)if(attribute.binding==binding->binding){
                             use.begin_object();use.kn("location",attribute.location);use.kn("format",attribute.format);use.kn("offset",attribute.offset);use.end_object();
