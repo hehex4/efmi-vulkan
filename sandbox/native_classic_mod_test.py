@@ -10,7 +10,7 @@ from efmi_vk.probe_client import ProbeClient
 
 def scene(checks,case,matched=False):
  root=Path(test_dir('classic-null-'+case+'-'));mods=root/'Mods';mods.mkdir();vertex,fragment=sandbox_shader_hashes()
- parts=case.split('_');mrt='mrt' in parts;stencil='stencil' in parts or 'combined' in parts;combined='combined' in parts
+ parts=case.split('_');mrt='mrt' in parts;stencil='stencil' in parts or 'combined' in parts;combined='combined' in parts;ordered='ordered' in parts
  depth=stencil or 'depth' in parts;mode=parts[-1];hunting=mode in ('original','pink','pinkclear');filtered='filter' in parts;shader=mode=='shader';owned=not depth and not mrt and mode in ('restore','once')
  target='oD' if depth else 'o1' if mrt else 'o0'
  command='' if mode=='control' else 'post '+target+' = null\n' if mode=='post' else 'ResourceOriginal = ref '+target+'\n'+target+' = null\npost '+target+' = ref ResourceOriginal\n' if mode in ('restore','once') else target+' = null\n'
@@ -35,6 +35,17 @@ def scene(checks,case,matched=False):
  (mods/'index.buf').write_bytes(struct.pack('<3H',0,1,2))
  ini+='[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\nhandling = skip\nvb0 = ResourceVertex\nib = ResourceIndex\ndrawindexed = 3,0,0\n[ResourceVertex]\ntype = Buffer\nstride = 8\nfilename = vertex.buf\n[ResourceIndex]\ntype = Buffer\nformat = R16_UINT\nfilename = index.buf\n'%crc32c(struct.pack('<3I',14,15,16))
  if matched:ini=ini.replace('handling = skip\n','handling = skip\n'+command,1)
+ if matched and ordered:
+  ini=ini.replace('handling = skip\n'+command,'handling = skip\n',1)
+  (mods/'left.buf').write_bytes(struct.pack('<6f',-.90,.55,-.70,.55,-.80,.35))
+  (mods/'top.buf').write_bytes(struct.pack('<6f',-.10,-.35,.10,-.35,0,-.55))
+  sequence='ResourceOriginal = ref '+target+'\nvb0 = ResourceLeft\nib = ResourceIndex\ndrawindexed = '+('0' if mode=='empty' else '3')+',0,0\n'
+  if mode!='control':sequence+=target+' = null\n'
+  sequence+='vb0 = ResourceVertex\ndrawindexed = 3,0,0\n'
+  if mode=='restore':sequence+=target+' = ref ResourceOriginal\nvb0 = ResourceTop\ndrawindexed = 3,0,0\n'
+  else:sequence+='post '+target+' = ref ResourceOriginal\n'
+  ini=ini.replace('vb0 = ResourceVertex\nib = ResourceIndex\ndrawindexed = 3,0,0\n',sequence,1)
+  ini+='[ResourceLeft]\ntype = Buffer\nstride = 8\nfilename = left.buf\n[ResourceTop]\ntype = Buffer\nstride = 8\nfilename = top.buf\n'
  (mods/'mod.ini').write_text(ini,encoding='ascii')
  env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic null',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
  trigger=root/'readback.trigger';env['EFMI_VK_TEST_NOTICES_READBACK_TRIGGER']=str(trigger)
@@ -80,10 +91,22 @@ def scene(checks,case,matched=False):
  moved=sum(max(abs(a-b) for a,b in zip(pixel,clear))>12 for pixel in region)
  pink=sum(pixel==bytes((255,0,255)) for pixel in region)
  checks.check(moved>200,case+': the Mod triangle actually moved away from the original geometry')
+ if ordered:
+  def colored_region(data,lo,hi,ylo=.64,yhi=.8):
+   background=data[4*((height-2)*width+width-2):][:3]
+   return sum(max(abs(a-b) for a,b in zip(data[4*(y*width+x):][:3],background))>12 for y in range(int(height*ylo),int(height*yhi)) for x in range(int(width*lo),int(width*hi)))
+  checks.equal(colored_region(pixels,.04,.16)>200,mode!='empty',case+': independent first mesh precedes the output change or is empty')
+  if mode=='restore':checks.check(colored_region(pixels,.44,.56,.2,.34)>200,case+': independent third mesh follows output restoration')
  if shader or hunting or filtered:checks.equal(pink>200,shader or mode=='pink' or (filtered and mode==('active' if matched else 'inactive')),case+': moved Mod geometry follows the selected shader and actual depth filter')
  checks.equal(counts[1],902,case+': independent source color remains intact')
  if owned or mrt:
   value=band_pixels(Path(str(source)+('.original.raw' if owned else '.mrt.raw')));counts.append(value);checks.equal(value,wanted,case+': actual targeted owned color stops and restores at the requested boundary')
+  if ordered and mrt:
+   data=Path(str(source)+'.mrt.raw').read_bytes()
+   checks.equal(len(data),width*height*4,case+': complete independent MRT readback')
+   checks.equal(colored_region(data,.04,.16)>200,mode!='empty',case+': first mesh reaches the original MRT before unbind')
+   checks.equal(colored_region(data,.84,.96)>200,mode=='control',case+': second mesh reaches MRT only while still bound')
+   if mode=='restore':checks.check(colored_region(data,.44,.56,.2,.34)>200,case+': third mesh reaches the restored MRT')
  if depth:
   meta_path=Path(str(source)+'.json');meta=json.loads(meta_path.read_text()) if meta_path.exists() else {};width,height=meta.get('width',0),meta.get('height',0);size=1 if stencil else 4
   for label,suffix,want in [('original','.stencil.raw' if stencil else '.depth.raw',wanted),('source','.source-stencil.raw' if stencil else '.source-depth.raw',902)]:
@@ -94,6 +117,11 @@ def scene(checks,case,matched=False):
    if matched and label=='original' and not stencil:
     moved_depth=sum(struct.unpack_from('<f',data,4*(y*width+x))[0]<.99 for y in range(int(height*.64),int(height*.8)) for x in range(int(width*.84),int(width*.96)))
     checks.equal(moved_depth>200,mode in ('control','post'),case+': independent moved geometry writes depth only before the requested unbind');counts.append(moved_depth)
+    if ordered:
+     def depth_region(lo,hi,ylo=.64,yhi=.8):
+      return sum(struct.unpack_from('<f',data,4*(y*width+x))[0]<.99 for y in range(int(height*ylo),int(height*yhi)) for x in range(int(width*lo),int(width*hi)))
+     left_depth=depth_region(.04,.16);checks.equal(left_depth>200,mode!='empty',case+': first mesh depth remains after the ordered unbind');counts.append(left_depth)
+     if mode=='restore':checks.check(depth_region(.44,.56,.2,.34)>200,case+': third mesh writes depth after the ordered restoration')
  if hunting:checks.equal(colored_pixels(screen,(255,0,255)),5516 if mode=='pink' else 0,case+': compatible pipeline preserves marking and clear restoration')
  if filtered:checks.equal(colored_pixels(screen,(255,0,255)),5516 if matched and mode=='active' else 0 if matched else 902 if mode=='active' else 4614,case+': current shader selection survives unbind and next draw refreshes the actual depth filter')
  elif shader:checks.equal(colored_pixels(screen,(255,0,255)),5516,case+': compatible pipeline preserves selected replacement shader')

@@ -1121,6 +1121,12 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         return refuse(C_STATE, "a Mod's own mesh outside a primary classic render pass or after extended binds");
     // Output changes and every draw are prepared before recording the first pass split.
     // record() already holds res_mx; retained owners outlive the generation and its caches.
+    std::vector<size_t> output_before;
+    if(!scratch_outputs.items.empty()){
+        for(size_t i=0;i<scratch_outputs.items.size();++i)
+            if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed)output_before.push_back(i);
+        if(output_before.size()!=list.count)return refuse(C_STATE,"a Mod's own mesh output/draw order is incomplete");
+    }
     NativeTargetPlan targets;
     std::string target_reason;
     if (!prepare_native_targets(device, cb, r, scratch_outputs, targets, target_reason, &output_cache, true))
@@ -1200,7 +1206,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         compatible.resize(list.count);
         for(uint32_t i=0;i<list.count;++i){
             std::string reason;
-            if(!(compatible[i]=native_target_variant(device,cb,*variants[i],reason,&targets,scratch_outputs.pre_items)))
+            if(!(compatible[i]=native_target_variant(device,cb,*variants[i],reason,&targets,output_before.empty()?0:output_before[i])))
                 return refuse(C_VARIANT,"own mesh compatible pass: "+reason);
         }
     }
@@ -1246,16 +1252,22 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     const VkPipeline previous = r.bound ? r.bound : r.pipeline;
     if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), previous, original, true))
         return refuse(C_VARIANT, "a Mod's own mesh: draw transaction refused");
-    for (size_t i = 0; i < scratch_outputs.pre_items; ++i) record_native_target(device, cb, targets, i);
-    // A split may change the selected application's compatible handle. Restore that handle.
-    const VkPipeline restore = cb->gfx_bound ? cb->gfx_bound : previous;
-    emit_variant_draws(draw, cb->handle, items.data(), items.size(), restore, original);
+    size_t output_next=0;
+    if(output_before.empty()){
+        emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original);
+    }else for(size_t i=0;i<items.size();++i){
+        while(output_next<output_before[i])record_native_target(device,cb,targets,output_next++);
+        ++output_next; // The accepted draw marker has no output event.
+        // Every split restores the selected application's compatible handle for this draw.
+        const VkPipeline restore=cb->gfx_bound?cb->gfx_bound:previous;
+        emit_variant_draws(draw,cb->handle,&items[i],1,restore,original);
+    }
     if (restore_layout) {
         draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
                                    static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
         ++counters[C_SET3_RESTORED];
     }
-    for (size_t i = scratch_outputs.pre_items; i < targets.events.size(); ++i) record_native_target(device, cb, targets, i);
+    while(output_next<targets.events.size())record_native_target(device,cb,targets,output_next++);
     ++counters[C_OWN_MESH];
     if (origin) ++counters[origin == 1 ? C_DERIVED : C_INHERITED];
     counters[C_ITEMS] += list.count;

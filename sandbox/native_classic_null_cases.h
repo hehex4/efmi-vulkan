@@ -71,6 +71,17 @@ static void native_classic_null_cases(){
     check(!native_target_variant(&d,&cb,*mod,why,&oversized,1) && output_commands.empty() && !cb.native_target_state,
         "Mod retention budget includes later output events before recording the first split");
     oversized={};
+    efmi::assets::FilePlan interleaved;
+    efmi::assets::FilePlanItem marker,restore;
+    marker.operation=efmi::assets::FileOperation::DrawIndexed;restore=item;restore.native_resource=resources[0];
+    interleaved.items={marker,item,marker,restore,marker};
+    NativeTargetPlan ordered;
+    check(prepare_native_targets(&d,&cb,draw,interleaved,ordered,why,&cache),"all interleaved outputs prepare before any Mod draw");
+    check(native_target_variant(&d,&cb,*mod,why,&ordered,0)==mod->pipeline &&
+          native_target_variant(&d,&cb,*mod,why,&ordered,2)==future &&
+          native_target_variant(&d,&cb,*mod,why,&ordered,4)==mod->pipeline && output_commands.empty() && !cb.native_target_state,
+        "three successive Mod draws preflight original, masked and restored passes without commands");
+    ordered={};
     record_native_target(&d,&cb,prepared,0);VkImageLayout current;
     check(native_target_masked(&cb) && cb.pass.info->views.size()==1 && cb.pass.recipe->subpasses[0].colors[0].attachment==VK_ATTACHMENT_UNUSED &&
         cb.pass.recipe->subpasses[0].depth.attachment==0,"classic null publishes compact actual attachments and a remapped preserved depth reference");

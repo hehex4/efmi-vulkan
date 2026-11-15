@@ -4,6 +4,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-257: Preserve each accepted Mod draw in the output-event sequence (2026-11-15)
+
+- D-256 committed and main fast-forwarded as5adfe69. BUG-119 baseline d257-before.out on2.8.4/f910:22/28 checks. The two independent Mod triangles work in control; inserting a depth unbind between them rejects the plan, leaves6418 original center pixels and neither Mod triangle. Both exits and core/sync validation are clean, with complete independent color/depth bytes.
+- Original CommandList.cpp1601/1642 executes each draw against that point's context; SetResource10094/10112 preserves the other outputs. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order. The Vulkan plan now retains accepted draw markers interleaved with output events; skipped or zero draws cannot shift a later event. Geometry/material caches remain independent of transient outputs. All target changes and every per-draw compatible pipeline are prepared before any command; emission restores the actual selected application pipeline between segments and after the final draw.
+- Source2.8.5 retains ABIf9104b7b1d2fa5de. d257-pair.out fully builds tracker/layer/backend; tracker685 and four2.8.5/f910 stamps pass. d257-focused.out58/58 proves separate first/second depth1152/0, restored depth on a third mesh, and an empty first draw with no offset drift. Final d257-regression.out mod-output-order passes interleaved159, prefix/postfix158, tracker685, VVL76 and text653; all processes exit normally and core/sync errors0. Cases include depth and MRT null/restoration, actual filter selection, RenderPass2, inject and completed module exchange.
+- Ordinary hiding own-mesh plans now support output changes between individual draws. Output-only, beside-original, texture-only and transparent plans, plus the existing broader pass/resolve/persistent-image/queue adapters, remain separate work. Continue by adapting outputs around texture-only application geometry, then the remaining native routes. No game, deployment, launcher, system or remote action; root deployed artifacts remain historical and distinct.
+
+
 ## D-256: Preflight matched Mod outputs with their own mesh interfaces (2026-11-15)
 
 - D-255 committed and main fast-forwarded as7c6d755. BUG-118: d256-before-focused.out on2.8.3/ecc has20/22 checks: placing oD=null in the matched own-mesh list suppresses the Mod geometry. Both processes exit normally with clean core/sync validation and complete independent readbacks. The broader exploratory pilot contained irrelevant unmatched-override assertions; the focused report is the acceptance baseline.

@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-233. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-257. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -270,10 +270,10 @@ notices while playing; whether any game pipeline has no module hash (inline modu
    D-198/D-199 retain and bind application buffers with persistent context semantics;
    D-200/D-201 add published file buffers, null descriptors and sampled 2D file images.
    D-206 adds guarded retained application sampled images; D-209 adds sampled file arrays/cubes. D-219/D-222 add private writable compute file buffers/images. General cross-queue hazards
-   still need an adapter. Render-target rebinding is not implemented.
+   still need an adapter. D-238 through D-250 implement guarded dynamic/classic color and depth/stencil destinations; D-251/D-252 preserve Mod interfaces and actual depth filters. D-256/D-257 execute outputs inside ordinary own-mesh Mod lists, including changes between draws. Broader pass/resolve/persistent-image scopes and other Mod execution routes remain work.
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
-   transfer-source resources and supported owned layouts. Broader capture synchronization,
+   transfer-source resources and supported owned layouts. Broader capture synchronization remains work.
    D-223/D-224 add dynamic geometry/input capture; per-draw analysis commands remain work. D-214/D-215 add file encodings and held analysis sessions.
    D-208 adds indirect argument/count data; D-212 adds bounded mip/layer cells; D-213 adds resource selection.
 4. Real-game shader/hunting/replacement acceptance and performance measurements require the user's
@@ -1031,3 +1031,9 @@ Verification is offline: the unchanged library checks every pixel for cold, warm
 An ordinary hiding Mod mesh list can set color or depth/stencil outputs before its draws and after all of them. Its output events are planned afresh; cached geometry and material plans never own transient target state. Every output, compatible interface, draw argument and private descriptor is checked before the first pass split. Completion owners retain targets and pipelines even after module exchange, and the application pipeline restored after the mesh is the compatible handle for the actual current pass.
 
 This adapter uses the existing primary stored classic-pass, single-queue and legacy synchronization contract. Output changes between individual mesh draws, output-only plans, drawing beside the application, texture-only and transparent plans still require separate ordered adapters; the executor refuses these shapes explicitly. The sandbox verifies moved geometry and independent depth/color bytes, pre/post null bindings, retained DSV restoration, shader filter timing, MRT and combined depth/stencil, RenderPass2, imageless framebuffers, both entries and completed module exchange. These are offline results only.
+
+## Outputs interleaved with individual Mod draws (D-257)
+
+Ordinary hiding own-mesh lists can now change targets between their draws, including restoring a target and drawing again. The transient plan marks only draws actually accepted by the geometry planner. Every marker gets the compatible pipeline for its preceding output events; skipped and zero-count draws do not shift later commands. All changes and all draws still preflight before recording begins. The unchanged no-output path emits its original batch.
+
+Independent sandbox meshes prove depth writes before unbind, no depth writes while unbound, and resumed writes after restoration; corresponding MRT regions prove the same output ordering. Native shader filters retain their before-list selection. Empty draws, both entries, RenderPass2 and completed module exchange pass. This extends D-256's own-mesh route; output-only, beside-original, texture-only, merged and transparent execution still need their respective ordered adapters.
