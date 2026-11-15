@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-266. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-267. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1085,3 +1085,7 @@ Merged opacity-shadow draws execute immediately and now participate in the order
 ## Capture-time scene references (D-266)
 
 Queued transparency retains the colour/depth views from the capture, as the original library's resource references do. A later component's output changes cannot replace those identities. The last successful capture supplies the composition scene; its image layouts are read from the actual recorded transitions. Private view/framebuffer caches and command owners retain source resources through use. CPU destruction-order checks and five owned replay scenes cover this behavior, alongside depth-history and opacity-shadow regressions. Output events within the deferred capture's own list remain a separate adapter.
+
+## Output events within deferred capture lists (D-267)
+
+Merged component lists may change outputs before, between and after deferred captures. Each capture retains the scene references at its own list position; immediate geometry keeps its independent position and compatible pipeline. Capture-only lists also execute their output changes. Layer creation follows the original library: depth absent on a new layer leaves it incomplete even if restored later. Eight owned replay scenes validate these cases with complete target bytes. Deferred own-mesh events and changing capture dimensions still require their own adapters.

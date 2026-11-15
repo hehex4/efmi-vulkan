@@ -141,6 +141,7 @@ STEPS = [
     ("native translucency depth history", [os.path.join(HERE, "native_translucency_depth_test.py")]),
     ("native opacity shadow outputs", [os.path.join(HERE, "native_shadow_output_test.py")]),
     ("native capture attachment snapshots", [os.path.join(HERE, "native_capture_snapshot_test.py")]),
+    ("native deferred capture outputs", [os.path.join(HERE, "native_capture_output_test.py")]),
     ("original HLSL Vulkan compiler", [os.path.join(ROOT, "scripts", "check_shader_compiler.py")]),
     ("installed Mods and Core HLSL", [os.path.join(ROOT, "scripts", "check_hlsl_folder.py")]),
     ("directory HLSL evidence", [os.path.join(HERE, "hlsl_folder_test.py")]),
@@ -230,6 +231,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "capture-output": ["native deferred capture outputs", "native capture attachment snapshots", "native opacity shadow outputs", "merged skeleton output events", "original INI runtime", "native tracker", "Vulkan validation", "text check"],
     "capture-snapshot": ["native capture attachment snapshots", "native translucency depth history", "native opacity shadow outputs", "native tracker", "Vulkan validation", "text check"],
     "shadow-output": ["native opacity shadow outputs", "merged skeleton output events", "original INI runtime", "native tracker", "Vulkan validation", "text check"],
     "hunting-library": ["original frontend host", "original INI runtime", "captured frame with a library call", "native hunting", "native tracker", "Vulkan validation", "text check"],

@@ -1105,8 +1105,8 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     ordered_outputs=true;
                 }
             }
-            if(ordered_outputs && translucent)
-                throw std::runtime_error("Translucent Mod output events need their capture executor");
+            if(ordered_outputs && translucent && request.component==kCharacterNone)
+                throw std::runtime_error("Deferred own-mesh output events need their capture executor");
         }
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
         listing.p = this; listing.began = std::chrono::steady_clock::now();

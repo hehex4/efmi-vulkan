@@ -11,13 +11,14 @@ template<class Restore>
 bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,const DrawRec& r,
                           const std::vector<VariantDraw>& items,const DrawGeometry& original,
                           const efmi::assets::FilePlan& outputs,NativeTargetPlan& targets,
-                          const std::vector<size_t>& output_before,Restore&& restore)
+                          const std::vector<size_t>& output_before,Restore&& restore,bool validate_only=false)
 {
     const bool caller_in_outputs=!outputs.items.empty() && !outputs.skip_original;
     if((!output_before.empty() && output_before.size()!=items.size()) ||
        (caller_in_outputs && (r.kind!=DK_INDEXED || !draw.CmdDrawIndexed || outputs.pre_items>outputs.items.size())))return false;
     const VkPipeline previous=r.bound?r.bound:r.pipeline;
     if(!emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original,true))return false;
+    if(validate_only)return true;
     size_t output_next=0;bool private_pending=false,caller_recorded=false;
     auto restore_private=[&]{if(private_pending){restore();private_pending=false;}};
     auto caller_at_boundary=[&]{
@@ -32,7 +33,7 @@ bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,
         caller_at_boundary();
     };
     if(output_before.empty()){
-        emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original);private_pending=true;
+        emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original);private_pending=!items.empty();
     }else for(size_t i=0;i<items.size();++i){
         advance_outputs(output_before[i]);++output_next; // Accepted draw marker.
         emit_variant_draws(draw,cb->handle,&items[i],1,cb->gfx_bound?cb->gfx_bound:previous,original);private_pending=true;
@@ -231,8 +232,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     // The lists draw without hiding the game's draw (D-179): the Mod's draws are recorded and the game's goes after.
     bool beside = false;
     NativeTargetPlan targets;
-    std::vector<size_t> output_before;
-    std::shared_ptr<const TranslucentScene> capture_scene;
+    std::vector<size_t> output_before, emitted_output_before;
+    std::vector<std::shared_ptr<const TranslucentScene>> capture_scenes;
     uint32_t shadow_draws = 0; // translucent calls drawn in a shadow pass (D-185)
     CharacterCommand* bone_owner = nullptr; // the recording's owner, which carries the device imports (D-127)
     uint64_t borrowed_sources = 0; // components whose import this recording takes from one not yet submitted (D-127)
@@ -669,7 +670,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if(!scratch_outputs.items.empty()){
             for(size_t i=0;i<scratch_outputs.items.size();++i)
                 if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed ||
-                   (scratch_outputs.items[i].operation==efmi::assets::FileOperation::Translucent && scratch_outputs.items[i].shadow))
+                   scratch_outputs.items[i].operation==efmi::assets::FileOperation::Translucent)
                     output_before.push_back(i);
             if(output_before.size()!=list->count)return refuse(C_STATE,"character output/draw order is incomplete");
         }
@@ -764,20 +765,33 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (any_translucent) {
             std::string why;
             const uint32_t own_set = static_cast<uint32_t>(pipe->second.layout->sets.size());
-            const auto& ps = cb->pass;
-            const RenderSubpass* sub = ps.recipe && pipe->second.subpass < ps.recipe->subpasses.size() ? &ps.recipe->subpasses[pipe->second.subpass] : nullptr;
-            const TargetView* target = sub && !sub->colors.empty() && ps.info && sub->colors[0].attachment < ps.info->views.size()
-                                           ? &ps.info->views[sub->colors[0].attachment] : nullptr;
             capture_layers.reset();
-            const bool ready = translucency && program && program->efmittl() && target && target->known &&
-                               translucency->shaders(program->library_folder("efmittl"), own_set, why) &&
-                               (capture_layers = translucency->prepare(target->image.extent.width, target->image.extent.height, why)) != nullptr;
-            if (!ready && !why.empty()) note(why);
+            bool ready = translucency && program && program->efmittl() &&
+                         translucency->shaders(program->library_folder("efmittl"), own_set, why);
+            capture_scenes.resize(list->count);
             if (ready) {
                 if (!r.targets || r.targets > cb->target_contexts.size()) return refuse(C_STATE, "translucent capture: attachment context missing");
-                capture_scene = translucent_scene(device, cb->target_contexts[r.targets - 1], why);
-                if (!capture_scene) return refuse(C_STATE, why);
+                const RenderTargets* scene_targets = &cb->target_contexts[r.targets - 1];
+                size_t next_output = 0; uint32_t width = 0, height = 0;
+                for (uint32_t i = 0; i < list->count; ++i) {
+                    if (!output_before.empty()) while (next_output < output_before[i]) {
+                        const auto& event = targets.events[next_output++];
+                        if (event && event->change) scene_targets = &event->targets;
+                    }
+                    if (!package.draws[list->first + i].translucent) continue;
+                    auto& scene = capture_scenes[i]; scene = translucent_scene(device, *scene_targets, why);
+                    if (!scene) return refuse(C_STATE, why);
+                    const auto& extent = scene->colour.image.extent;
+                    if (width && (width != extent.width || height != extent.height))
+                        return refuse(C_STATE, "capture dimensions changing within a list need a layer-reset adapter");
+                    if (!width) {
+                        width = extent.width; height = extent.height;
+                        capture_layers = translucency->prepare(width, height, why);
+                        if (!capture_layers) { ready = false; break; }
+                    }
+                }
             }
+            if (!ready && !why.empty()) note(why);
             for (uint32_t i = 0; ready && i < list->count; ++i) {
                 const CharacterDraw& d = package.draws[list->first + i];
                 if (!d.translucent) continue;
@@ -1067,11 +1081,15 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         args.instances = d.instances; args.first_instance = d.first_instance; args.indexed = d.indexed;
         if (capturing[i]) {
-            if (!capture(cb, r, capture_sets, d, i, slot, g, args, append_bones, command_owner, capture_scene)) return false;
+            if (!capture(cb, r, capture_sets, d, i, slot, g, args, append_bones, command_owner, capture_scenes[i])) return false;
             continue;
         }
+        if (!output_before.empty()) emitted_output_before.push_back(output_before[i]);
         items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});
     }
+    // Validate ordinary draws and the application boundary before publishing any queued captures.
+    if (!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,emitted_output_before,[]{},true))
+        return refuse(C_VARIANT,"character draw transaction refused");
     // The captures go to the pass's queue once every draw of the list was decided.
     for (auto& c : scratch_pending_captures) {
         std::string why;
@@ -1081,7 +1099,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     scratch_pending_captures.clear();
     lap(S_SNAPSHOT);
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
-    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,output_before,[&]{
+    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,emitted_output_before,[&]{
         if(restore_layout){
             draw.CmdBindDescriptorSets(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,restore_layout,restore_slot,1,&restore_set,
                                        static_cast<uint32_t>(restore_offsets.size()),restore_offsets.empty()?nullptr:restore_offsets.data());
