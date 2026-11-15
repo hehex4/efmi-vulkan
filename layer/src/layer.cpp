@@ -12,6 +12,7 @@
 //            vulkan-1.dll to the hooks, which then call the original exports.
 #include "state.h"
 #include "semaphore_lifetime.h"
+#include "queue_signal_submission.h"
 #include "character_module.h"
 #include "m2_backend.h"
 #include "character_backend.h"
@@ -1105,18 +1106,6 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroySemaphore(VkDevice device,VkSemaphore semap
     count_call(HI_DestroySemaphore);
     destroy_application_semaphore(dev_of(device),semaphore,alloc);
 }
-// D-127's bounded signal history is cleared at application object lifetime
-// boundaries (D-288), not merely when the cap is reached. It remains a heuristic:
-// payload identity and timeline values are not a resource dependency graph (I-01).
-// A wait it does not know keeps the application's stages.
-constexpr size_t kQueueSignalledCap = 65536;
-void note_queue_signals(Device* dev, uint32_t count, const VkSemaphore* semaphores)
-{
-    if (!count) return;
-    std::lock_guard<std::mutex> lock(dev->queue_signal_mx);
-    if (dev->queue_signalled.size() + count > kQueueSignalledCap) dev->queue_signalled.clear();
-    dev->queue_signalled.insert(semaphores, semaphores + count);
-}
 // The stages of the layer's work at the front of a batch (the bone imports and copies, D-127).
 constexpr VkPipelineStageFlags kPrefixStages = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
 constexpr VkPipelineStageFlags2 kPrefixStages2 = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
@@ -1158,7 +1147,7 @@ VkResult submit_with_work(Device* dev, VkQueue queue, uint32_t count, const VkSu
     infos.clear();
     if (lists.size() < count) lists.resize(count);
     if (masks.size() < count) masks.resize(count);
-    std::unique_lock<std::mutex> known(dev->queue_signal_mx);
+    auto known=dev->queue_signals->read();
     for (uint32_t i = 0; i < count; ++i) {
         VkSubmitInfo info = submits[i];
         const auto& prefix = work.batches[i].prefix;
@@ -1177,7 +1166,7 @@ VkResult submit_with_work(Device* dev, VkQueue queue, uint32_t count, const VkSu
                     mask.assign(info.pWaitDstStageMask, info.pWaitDstStageMask + info.waitSemaphoreCount);
                     for (uint32_t k = 0; k < info.waitSemaphoreCount; ++k) {
                         if ((mask[k] & VK_PIPELINE_STAGE_ALL_COMMANDS_BIT) || (mask[k] & kPrefixStages) == kPrefixStages) continue;
-                        if (!dev->queue_signalled.count(info.pWaitSemaphores[k])) continue;
+                        if (!known.contains(info.pWaitSemaphores[k])) continue;
                         mask[k] |= kPrefixStages; ++dev->widened_waits;
                     }
                     info.pWaitDstStageMask = mask.data();
@@ -1213,7 +1202,7 @@ VkResult submit2_with_work(Device* dev, VkQueue queue, uint32_t count, const VkS
     size_t alone_total = 0;
     for (uint32_t i = 0; i < count; ++i) alone_total += work.batches[i].prefix.size();
     alone.reserve(alone_total); // pointers into it stay valid
-    std::unique_lock<std::mutex> known(dev->queue_signal_mx);
+    auto known=dev->queue_signals->read();
     for (uint32_t i = 0; i < count; ++i) {
         VkSubmitInfo2 info = submits[i];
         const auto& prefix = work.batches[i].prefix;
@@ -1235,7 +1224,7 @@ VkResult submit2_with_work(Device* dev, VkQueue queue, uint32_t count, const VkS
                     wait.assign(info.pWaitSemaphoreInfos, info.pWaitSemaphoreInfos + info.waitSemaphoreInfoCount);
                     for (auto& w : wait) {
                         if ((w.stageMask & VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT) || (w.stageMask & kPrefixStages2) == kPrefixStages2) continue;
-                        if (!dev->queue_signalled.count(w.semaphore)) continue;
+                        if (!known.contains(w.semaphore)) continue;
                         w.stageMask |= kPrefixStages2; ++dev->widened_waits;
                     }
                     info.pWaitSemaphoreInfos = wait.data();
@@ -1276,30 +1265,28 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_QueueSubmit(VkQueue queue, uint32_t count, con
         for (uint32_t i = 0; i < count; i++) {
             m2_seal(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
             on_submit(dev, submits[i].commandBufferCount, submits[i].pCommandBuffers);
-            note_queue_signals(dev, submits[i].signalSemaphoreCount, submits[i].pSignalSemaphores);
         }
     }
     StageMark stage(thread_trace(), "driver vkQueueSubmit");
-    const VkResult result = work.any_prefix() || !work.signals.empty() ? submit_with_work(dev, queue, count, submits, fence, work)
-                                                                       : dev->d.QueueSubmit(queue, count, submits, fence);
+    const VkResult result = with_application_signals(dev,count,submits,[&]{
+        return work.any_prefix() || !work.signals.empty() ? submit_with_work(dev, queue, count, submits, fence, work)
+                                                        : dev->d.QueueSubmit(queue, count, submits, fence);
+    });
     m2_submitted(dev, queue, work, result);
     gpu_analysis_submitted(work, result);
     return result;
 }
 
-// The command buffers and signals of a vkQueueSubmit2 call, for tracking.
+// The command buffers of a vkQueueSubmit2 call, for tracking.
 void track_submit2(Device* dev, uint32_t count, const VkSubmitInfo2* submits)
 {
     std::vector<VkCommandBuffer> list;
-    std::vector<VkSemaphore> signalled;
     for (uint32_t i = 0; i < count; i++) {
-        list.clear(); signalled.clear();
+        list.clear();
         for (uint32_t k = 0; k < submits[i].commandBufferInfoCount; k++)
             list.push_back(submits[i].pCommandBufferInfos[k].commandBuffer);
         on_submit(dev, static_cast<uint32_t>(list.size()), list.data());
         m2_seal(dev, static_cast<uint32_t>(list.size()), list.data());
-        for (uint32_t k = 0; k < submits[i].signalSemaphoreInfoCount; k++) signalled.push_back(submits[i].pSignalSemaphoreInfos[k].semaphore);
-        note_queue_signals(dev, static_cast<uint32_t>(signalled.size()), signalled.data());
     }
 }
 VkResult queue_submit2(Device* dev, VkQueue queue, uint32_t count, const VkSubmitInfo2* submits, VkFence fence, PFN_vkQueueSubmit2 call)
@@ -1311,8 +1298,10 @@ VkResult queue_submit2(Device* dev, VkQueue queue, uint32_t count, const VkSubmi
     if (result != VK_SUCCESS) { m2_submitted(dev, queue, work, result); return result; }
     gpu_analysis_prepare(dev, work);
     track_submit2(dev, count, submits);
-    const VkResult done = work.any_prefix() || !work.signals.empty() ? submit2_with_work(dev, queue, count, submits, fence, work, call)
-                                                                     : call(queue, count, submits, fence);
+    const VkResult done = with_application_signals(dev,count,submits,[&]{
+        return work.any_prefix() || !work.signals.empty() ? submit2_with_work(dev, queue, count, submits, fence, work, call)
+                                                        : call(queue, count, submits, fence);
+    });
     m2_submitted(dev, queue, work, done);
     gpu_analysis_submitted(work, done);
     return done;

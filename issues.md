@@ -6,7 +6,7 @@ Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 20
 
 ## Implementation audit (2026-11-15; remediation in progress)
 
-Current audit: source 3.1.4; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+Current audit: source 3.1.5; see [the consolidated results](docs/architecture-audit-3.1.3.md).
 
 The findings below are review inputs, not evidence that every proposed remedy is
 sufficient. Source inspection confirms the central problems, with these corrections:
@@ -31,6 +31,11 @@ sufficient. Source inspection confirms the central problems, with these correcti
   handles no longer inherit queue-signal history. Matching host/module artifacts,
   783 tracker checks, overlap/bone replays and module exchange pass. Payload/value
   provenance and full cross-queue scheduling remain open.
+  D-289 (3.1.5) isolates provisional history per submission. Failed calls no
+  longer leave new producer classifications or erase another queue's contribution;
+  detached object records cannot be resurrected. The old whole-map capacity purge
+  is removed now that lifetime hooks release entries. Tracker checks pass 801 and
+  the submission-area GPU/module checks pass. Payload/value scheduling is still open.
 - **I-02: accepted priority correction.** Freeze expansion of unobserved extension
   matrices. Existing compatibility code stays covered when touched. Historical
   captures establish observed behavior; they cannot prove future engine/device

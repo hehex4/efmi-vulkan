@@ -17,6 +17,14 @@ split. Current/future descriptors, saved fallbacks, suspended requests and pendi
 restoration accesses participate even when no longer visibly bound. Same-storage
 phase transitions and cross-queue accesses still require separate proof.
 
+D-289 puts host signal history behind an opaque shared owner. Submission attempts
+retain identity-specific contributions, commit on success and remove only their
+own provisional records on failure. Lifetime hooks replace wholesale capacity
+purges; late returns never resurrect forgotten objects. The shared Device change
+requires ABI 347c72b0cc7d0e40 at source 3.1.5. The concrete host bookkeeping header
+is not part of the exchange protocol. This is still a handle-classification
+heuristic, not a payload/value or resource-access scheduler.
+
 D-288 intercepts application semaphore creation/destruction and expires queue-signal
 history at those boundaries. Failed creation preserves the current history, and no
 ledger lock crosses a driver call. The shared dispatch table changes ABI to

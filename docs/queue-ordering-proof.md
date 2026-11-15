@@ -84,3 +84,21 @@ python -B sandbox/run_all.py --no-build --only queue-overlap
 
 All environment settings are scoped to the child processes. The production
 multi-queue guards remain unchanged until a full integration meets these contracts.
+
+## D-289: failed signal submissions
+
+3.1.5 replaces the old raw handle set with host-owned submission contributions.
+Provisional visibility remains while the driver runs; no history lock spans the
+call. Successful attempts commit their contributions; errors remove only their
+own pending records. Prior successes and overlapping attempts survive, and object
+destruction detaches the old identity so a late return cannot restore it. The old
+whole-map capacity purge is unnecessary with lifetime hooks and has been removed.
+
+The [QueueSubmit contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueueSubmit.html)
+and [sync2 contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueueSubmit2.html)
+require out-of-memory failures to leave referenced synchronization state unaffected.
+The extracted old failure behavior passes 793/801 mocked host checks; the corrected
+tracker passes 801/801, including controlled overlapping host threads. Actual GPU
+overlap, bone replay, module exchange and core/synchronization checks also pass.
+This is not a GPU out-of-memory reproduction, payload/value provenance or a
+production access scheduler; the original guards remain.

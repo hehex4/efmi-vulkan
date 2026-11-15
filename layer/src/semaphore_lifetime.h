@@ -1,5 +1,6 @@
 #pragma once
 #include "state.h"
+#include "queue_signal_history.h"
 
 namespace efvk {
 // Queue-signal history is scoped to one application object, never a recycled raw
@@ -7,8 +8,7 @@ namespace efvk {
 inline void forget_application_semaphore(Device* device,VkSemaphore semaphore)
 {
     if(!semaphore)return;
-    std::lock_guard<std::mutex> lock(device->queue_signal_mx);
-    device->queue_signalled.erase(semaphore);
+    device->queue_signals->forget(semaphore);
 }
 inline VkResult create_application_semaphore(Device* device,const VkSemaphoreCreateInfo* info,
                                              const VkAllocationCallbacks* alloc,VkSemaphore* semaphore)

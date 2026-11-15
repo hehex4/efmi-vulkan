@@ -21,6 +21,7 @@
 
 namespace efvk {
 class GpuAnalysis;
+class QueueSignalHistory;
 struct NativeImageState;
 struct NativeTargetState;
 struct NativePipelineSelection;
@@ -652,11 +653,11 @@ struct Device {
     const CharacterModule* character_module = nullptr;
     const CharacterModule* staged_module = nullptr;
     uint64_t character_recordings = 0; // frames of the character, counted across backends
-    // Semaphores the application signalled from a queue submission (D-127): a batch's wait for one of
-    // them orders it after the other queue's work, so the stages of the work the layer puts at the front
-    // of that batch are added to the wait. A semaphore of an image acquisition is left as it is.
-    std::mutex queue_signal_mx;
-    std::unordered_set<VkSemaphore> queue_signalled;
+    // D-127's queue-signal classification widens known waits for prefix work.
+    // Each submission has provisional contributions; failures roll back only their
+    // own history (D-289). Lifetime boundaries discard detached identities (D-288).
+    // This heuristic does not prove payload/value provenance or cross-queue hazards.
+    std::shared_ptr<QueueSignalHistory> queue_signals; // Host-owned; private bookkeeping stays outside the module ABI.
     std::atomic<uint64_t> prefixed_batches{0}, widened_waits{0}, prefix_alone{0};
     VkPhysicalDeviceProperties physical_properties = {};
     VkPhysicalDeviceMemoryProperties memory_properties = {};

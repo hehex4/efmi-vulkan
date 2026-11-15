@@ -1,5 +1,6 @@
 // Tracking of memory, buffers, pipelines and command buffers; frame assembly; probe requests.
 #include "state.h"
+#include "queue_signal_history.h"
 #include "command_owner.h"
 #include <condition_variable>
 #include <thread>
@@ -238,6 +239,7 @@ Device* dev_create(VkDevice handle)
 {
     watchdog_start();
     Device* dev = new Device();
+    dev->queue_signals=std::make_shared<QueueSignalHistory>();
     dev->trace = thread_trace;
     dev->handle = handle;
     void* key = *reinterpret_cast<void**>(handle);

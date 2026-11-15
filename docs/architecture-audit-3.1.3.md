@@ -1,8 +1,9 @@
-# Architecture audit after the 3.1.3 remediation
+# Architecture audit and remediation
 
 2026-11-15. The review input is `issues.md` against source 3.0.4. Changes below
-are local commits on main and engine-work. The candidate is built from source
-3.1.3, ABI `134dd78b13c38aaa`. No real-game verification is included in this audit.
+are local commits on main and engine-work. Current source is
+3.1.5, ABI `347c72b0cc7d0e40`. The latest separately checked no-probe candidate
+is 3.1.4; the 3.1.3 candidate below is historical. No real-game verification is included in this audit.
 
 | Finding | Implemented or verified | Remaining boundary |
 |---|---|---|
@@ -90,3 +91,15 @@ The current unpublished candidate is
 `341e7ae42754786dc5ba5215dbd16e24e6f7617c31607f29d5318a40f0705a93`. Its archive, no-probe binary, 22-package load and both sandbox unpack
 layout checks pass. It supersedes the 3.1.3 candidate described above. No actual
 game deployment or real-character verification occurred.
+
+## D-289 follow-up: source 3.1.5
+
+Failed queue calls now remove only their own provisional signal contributions.
+Successful/pending peers, object reuse and late returns are isolated, and lifetime
+cleanup replaces the wholesale capacity purge. The concrete bookkeeping is opaque
+to replacement modules; Device's changed storage requires the matching host.
+The corrected tracker passes 801 checks and all signal-submission regression
+steps pass, including actual overlap, both bone replays and module exchange.
+The first build hit the previously recorded LNK1163 error; the reviewed retry
+succeeded. No production cross-queue scheduler is claimed. The next implementation
+work is ordered image phases; no new release archive or real-game load occurred.

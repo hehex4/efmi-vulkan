@@ -208,3 +208,10 @@ hooks, so its ABI is d551ddcbfa805dbb. Install a matching host with the process
 closed before exchanging modules with this ABI. A 3.1.4 host/module sandbox pair
 passes cold file/output execution and completed exchange. No game deployment or
 real-game exchange is implied; the earlier 3.1.3 host has a different ABI.
+
+### D-289 host submission bookkeeping
+
+3.1.5 changes Device's signal-history storage to an opaque host-owned shared
+pointer, requiring ABI 347c72b0cc7d0e40 and the matching host/module pair. Its
+concrete history implementation is outside ABI_ROOTS. The pair passes an actual
+sandbox module exchange; this is not a module-only upgrade for an older host.
