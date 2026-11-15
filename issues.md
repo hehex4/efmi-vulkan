@@ -83,14 +83,16 @@ sufficient. Source inspection confirms the central problems, with these correcti
   private prefix bytes exchanges into the unchanged host, including classic target,
   image/uniform persistence, own-mesh and merged draws. Private header edits keep
   the ABI; shared protocol edits still change it. No real-game exchange occurred.
-- **I-08: selectable M2 prototype retired in D-282 (3.1.0).** The baseline
-  demonstrates that it was not wholly dead (6/12). Its executor, private mesh owner,
-  command owner and Device member are removed; the host's module exchange and
-  submission glue remain. Legacy files receive an explicit diagnostic and cannot
-  activate a backend (12/12). Modern character replacement passes 377 checks and
-  native scope exchanges pass. Removing shared Device state deliberately changes
-  the ABI. The `.bin` validation round trip and further responsibility-based file
-  separation remain open; file length alone is not a functional bug.
+- **I-08: named legacy paths resolved by D-282 and D-284 (3.1.2).** The selectable
+  M2 prototype is retired with explicit legacy-file diagnostics and modern scope
+  dispatch retained. Runtime package validation now shares the decoder's bounded
+  content checks while borrowing the existing mesh bytes. The prior round trip
+  serialized in memory; it did not require a temporary disk file. File framing and
+  CRC checks remain for actual files. Package checks pass 129, GPU cold materials
+  51, application texture routes 98 and 44 installed-Mod offline records match
+  their pre-change results after sorting the unordered image inventory. Runtime
+  metadata and payload ownership survive validation. Further file separation
+  should follow responsibilities; file length alone does not justify rewrites.
 - **I-09: verification gap confirmed, deployment claim clarified.** Verified host,
   injected and backend binaries are built in `.worktrees/fix/dist/` each round;
   the root `dist/` and real-game deployment are separate older artifacts. This

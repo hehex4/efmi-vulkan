@@ -186,3 +186,10 @@ not change the ABI stamp. Sandbox exchange is separate from an authorized real-g
 image layout requests with a snapshot taken before descriptor preparation.
 Classic image/output command lists, post ordering and a completed module exchange
 pass in the sandbox. The root deployment and real-game verification are unchanged.
+
+### D-284 package validation
+
+3.1.2 retains ABI 134dd78b13c38aaa. File decoding and runtime generation share
+bounded validation without serializing another mesh copy. Cold material package
+scenes exchange modules under both sandbox entries; runtime Mod paths also pass.
+No new deployment or real-game verification is implied by these results.

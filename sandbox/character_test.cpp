@@ -153,9 +153,55 @@ static std::filesystem::path package_file(const char* name, const std::vector<ui
     return path;
 }
 
-// ISSUE-011: 3DMigoto keeps no host copy of a buffer it made from a file (LoadBufferFromFile frees its
-// bytes once CreateBuffer took them). A loaded package holds no payload either: where each stream is
-// in its file, and the checksum of the bytes validated at load; its streams are read again from there.
+// Runtime validation keeps source bytes and non-file metadata in their existing generation.
+static void memory_validation_tests(const std::vector<uint8_t>& valid, const Model& m)
+{
+    CharacterPackage seed;std::string why;check(seed.decode(valid,why),"memory validator starts from independently decoded fixture bytes");
+    seed.images={"runtime.dds"};seed.image_flags={7};seed.sections[0].stride_slot=2;seed.sections[0].stride=16;seed.sections[0].computed=true;
+    seed.sources.push_back({"runtime.buf",12,34});seed.draws[0].instances=3;
+    auto p=seed;const auto* bytes=p.payload.data();const auto* images=p.images.data();
+    p.lists[0].required=UINT64_MAX;p.streams[0].spans=UINT64_MAX;p.components[0].remap_lod1={999};
+    check(p.validate(why) && p.payload.data()==bytes && p.images.data()==images && p.payload==seed.payload,
+          "runtime validation borrows the original payload and retains material storage without a serialized copy");
+    check(p.image_flags==seed.image_flags && p.sources.size()==1 && p.sources[0].offset==12 && p.draws[0].instances==3 &&
+          p.sections[0].computed && p.sections[0].stride_slot==2 && p.sections[0].stride==16,
+          "runtime-only loader flags, sources, draw instances and section predicates survive validation");
+    check(p.lists[0].required==seed.lists[0].required && p.streams[0].spans==seed.streams[0].spans &&
+          p.components[0].remap_lod1==seed.components[0].remap_lod1,"validation refreshes derived masks and remaps from the current bytes");
+    check(p.validate(why) && p.payload.data()==bytes && p.lists[0].required==seed.lists[0].required,"repeated validation is stable without reallocating mesh bytes");
+    auto reject=[&](auto change,const char* message){
+        auto candidate=seed;change(candidate);candidate.lists[0].required=12345;
+        const auto* storage=candidate.payload.data();const auto old_mask=candidate.streams[0].spans;
+        check(!candidate.validate(why) && !why.empty() && candidate.payload.data()==storage &&
+              candidate.lists[0].required==12345 && candidate.streams[0].spans==old_mask && candidate.image_flags==seed.image_flags,message);
+    };
+    reject([](auto& q){q.streams[0].offset=UINT64_MAX;},"in-memory overflowing stream is rejected before any read or derived-state publication");
+    reject([](auto& q){q.lists[0].first=UINT32_MAX;},"in-memory draw-list bounds preserve the previous package on rejection");
+    reject([&](auto& q){poke(q.payload,m.index_data+8,uint32_t(3));},"in-memory out-of-range indices are checked against actual vertex bytes");
+    reject([&](auto& q){poke(q.payload,m.blend_a+8,uint16_t(5));},"in-memory weighted bones retain the decoder's full bounds check");
+    reject([&](auto& q){poke(q.payload,m.remap_data,uint16_t(2000));},"in-memory remap source bounds are validated without a package checksum");
+    reject([](auto& q){for(auto& stream:q.streams)if(stream.bone_index_offset!=kCharacterNone){stream.bone_index_bytes=3;break;}},
+           "unsupported runtime bone widths are rejected atomically");
+    auto compact=seed;
+    for(auto& stream:compact.streams)if(stream.bone_index_offset!=kCharacterNone){
+        for(uint64_t at=stream.offset;at<stream.offset+stream.size;at+=stream.stride){
+            uint8_t indices[4];for(size_t k=0;k<4;++k){uint16_t bone;std::memcpy(&bone,compact.payload.data()+at+stream.bone_index_offset+2*k,2);indices[k]=uint8_t(bone);}
+            std::memcpy(compact.payload.data()+at+stream.bone_index_offset,indices,4);
+        }
+        stream.bone_index_bytes=1;
+    }
+    check(compact.validate(why) && compact.lists[0].required==seed.lists[0].required,
+          "validation preserves known runtime bone widths instead of resetting them to file-format defaults");
+    CharacterPackage plain;plain.payload.resize(16);CharacterStream vertex;vertex.size=vertex.stride=16;plain.streams={vertex};
+    CharacterSection section;section.match_count=3;section.component=section.lod=kCharacterNone;plain.sections={section};
+    const auto* plain_bytes=plain.payload.data();
+    check(plain.validate(why) && plain.payload.data()==plain_bytes && plain.payload_bytes==16,"bone-free runtime meshes use the same borrowed-payload entry");
+    plain.streams[0].bone_index_offset=0;
+    check(!plain.validate(why) && plain.payload.data()==plain_bytes,"bone-free runtime meshes cannot invent a skeleton reference");
+}
+
+// ISSUE-011: 3DMigoto frees source bytes after creating a buffer. Released package payloads
+// retain source locations and checksums so the upload can read and verify those bytes again.
 static void payload_tests(const std::vector<uint8_t>& valid, const Model& m)
 {
     const auto path = package_file("payload", valid);
@@ -1239,6 +1285,7 @@ int main(int argc, char** argv)
     { auto d = valid; poke(d, payload + m.remap_data, uint16_t(2000)); reject(d, "remap source outside the window refused"); }
     check(p.decode(valid, why), "valid package still accepted after the refusals");
     declaration_tests(p);
+    memory_validation_tests(valid, m);
     payload_tests(valid, m);
     material_tests(valid);
     register_tests();

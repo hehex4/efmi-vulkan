@@ -354,99 +354,87 @@ bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint3
     return true;
 }
 
-bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& reason)
+namespace {
+bool character_dimensions(uint64_t bones, size_t components, size_t streams, size_t sections,
+                          size_t lists, size_t draws, size_t edits, uint64_t bytes)
 {
-    reason.clear();
-    if (file.size() >= 8 && !std::memcmp(file.data(), kMaterialMagic, 8)) return decode_materials(file, *this, reason);
+    return bones && bones <= kCharacterBones && components && components <= kCharacterComponents &&
+        streams && streams <= kCharacterStreams && sections && sections <= kCharacterSections &&
+        lists == components * 2 && draws <= 16384 && edits <= 16 && bytes && bytes <= kMaxPayload;
+}
+// Both file decoding and runtime generation use this bounded validator. The payload
+// is borrowed: no serialization, checksum pass or second mesh allocation is needed.
+bool validate_contents(CharacterPackage& next, const uint8_t* payload, uint64_t payload_bytes, std::string& reason)
+{
     auto fail = [&](const char* text) { reason = text; return false; };
-    if (file.size() < kHeader || std::memcmp(file.data(), kMagic, 8)) return fail("unsupported character package");
-    uint32_t words[8];
-    std::memcpy(words, file.data() + 8, sizeof(words));
-    const uint32_t bone_count = words[0], component_count = words[1], stream_count = words[2], section_count = words[3];
-    const uint32_t list_count = words[4], draw_count = words[5], edit_count = words[6], checksum = words[7];
-    const uint64_t payload_bytes = at<uint64_t>(file.data() + 40);
-    // The original Core sizes its pools by the Mod's own counts; these bound what the format's indices and the
-    // component masks hold (D-141): 16-bit bone indices, 64 components.
-    if (!bone_count || bone_count > kCharacterBones || !component_count || component_count > kCharacterComponents || !stream_count ||
-        stream_count > kCharacterStreams || !section_count || section_count > kCharacterSections || list_count != component_count * 2 ||
-        draw_count > 16384 || edit_count > 16 ||
-        !payload_bytes || payload_bytes > kMaxPayload)
-        return fail("character package dimensions outside limits");
-    const uint64_t tables = uint64_t(component_count) * 24 + uint64_t(stream_count) * 32 + uint64_t(section_count) * 20 +
-                            uint64_t(list_count) * 8 + uint64_t(draw_count) * 32 + uint64_t(edit_count) * 12;
-    if (file.size() != kHeader + tables + payload_bytes) return fail("character package size disagrees with its header");
-    if (crc32c(0, file.data() + kHeader, file.size() - kHeader) != checksum) return fail("character package checksum mismatch");
-
-    CharacterPackage next;
-    next.bones = bone_count;
-    const uint8_t* p = file.data() + kHeader;
-    struct RawComponent { uint32_t first, count, remap, list0, list1, remap0; };
-    std::vector<RawComponent> raw_components;
-    uint64_t cursor = 0;
-    for (uint32_t i = 0; i < component_count; ++i, p += 24) {
-        // The sixth word is the LOD 0 remap's stream plus one, 0 for none (it was a zero before BUG-093).
-        RawComponent c = {at<uint32_t>(p), at<uint32_t>(p + 4), at<uint32_t>(p + 8), at<uint32_t>(p + 12), at<uint32_t>(p + 16), at<uint32_t>(p + 20)};
-        // In the order of their first bones. Two may share bones (BUG-093); bones between components stay
-        // as initialized (BUG-048).
-        if (!c.count || c.first < cursor || uint64_t(c.first) + c.count > bone_count) return fail("components out of order or leaving the skeleton");
-        if (c.list0 >= list_count || c.list1 >= list_count) return fail("component draw list out of range");
-        cursor = c.first;
-        raw_components.push_back(c);
+    if (next.components.empty()) {
+        // The runtime supports packages without a skeleton (D-174). They have no
+        // component, draw-list or bone references to derive.
+        const uint64_t bytes = payload_bytes;
+        if (next.bones || !next.lists.empty() || !next.draws.empty() || next.sections.empty() ||
+            next.sections.size() > kCharacterSections || next.streams.size() > kCharacterStreams) {
+            reason = "package without a skeleton outside its limits"; return false;
+        }
+        for (const auto& s : next.streams) {
+            const bool stride_ok = s.kind == CharacterStream::Vertex ? (s.stride >= 1 && s.stride <= 256) :
+                                   s.kind == CharacterStream::Index ? (s.stride == 2 || s.stride == 4) : false;
+            if (!s.size || s.offset > bytes || s.size > bytes - s.offset || !stride_ok || s.size % s.stride ||
+                (s.kind == CharacterStream::Index && s.offset % 4) || s.bone_index_offset != kCharacterNone || s.bone_weight_offset != kCharacterNone) {
+                reason = "stream outside the payload, or of an unsupported stride"; return false;
+            }
+        }
+        for (const auto& s : next.sections)
+            if (!s.match_count || s.component != kCharacterNone || s.lod != kCharacterNone) { reason = "section out of range"; return false; }
+        return true;
     }
-    for (uint32_t i = 0; i < stream_count; ++i, p += 32) {
-        CharacterStream s;
-        s.kind = at<uint32_t>(p); s.stride = at<uint32_t>(p + 4); s.offset = at<uint64_t>(p + 8); s.size = at<uint64_t>(p + 16);
-        s.bone_index_offset = at<uint32_t>(p + 24); s.bone_weight_offset = at<uint32_t>(p + 28);
+
+    const auto bone_count = next.bones;
+    const auto component_count = next.components.size(), stream_count = next.streams.size(), draw_count = next.draws.size();
+    if (!character_dimensions(bone_count, component_count, stream_count, next.sections.size(), next.lists.size(),
+                              draw_count, next.edits.size(), payload_bytes)) return fail("character package dimensions outside limits");
+    uint64_t cursor = 0;
+    for (const auto& c : next.components) {
+        if (!c.count || c.first < cursor || uint64_t(c.first) + c.count > bone_count) return fail("components out of order or leaving the skeleton");
+        if (c.lists[0] >= next.lists.size() || c.lists[1] >= next.lists.size()) return fail("component draw list out of range");
+        cursor = c.first;
+    }
+    for (auto& s : next.streams) {
         if (s.kind > CharacterStream::Remap || !s.size || s.offset > payload_bytes || s.size > payload_bytes - s.offset)
             return fail("stream outside the payload");
         const bool stride_ok = s.kind == CharacterStream::Vertex ? (s.stride >= 1 && s.stride <= 256) :
                                s.kind == CharacterStream::Index ? (s.stride == 2 || s.stride == 4) : s.stride == 2;
         if (!stride_ok || s.size % s.stride || (s.kind == CharacterStream::Index && s.offset % 4))
             return fail("stream stride, size or alignment unsupported");
+        s.spans = 0;
         if (s.bone_index_offset != kCharacterNone) {
-            if (s.kind != CharacterStream::Vertex || uint64_t(s.bone_index_offset) + 8 > s.stride) return fail("bone index element outside its stream");
+            if ((s.bone_index_bytes != 1 && s.bone_index_bytes != 2 && s.bone_index_bytes != 4) ||
+                (s.bone_weight_bytes != 2 && s.bone_weight_bytes != 4)) return fail("unsupported bone element width");
+            if (s.kind != CharacterStream::Vertex || uint64_t(s.bone_index_offset) + 4ull * s.bone_index_bytes > s.stride) return fail("bone index element outside its stream");
             if (s.bone_weight_offset != kCharacterNone &&
-                (uint64_t(s.bone_weight_offset) + 8 > s.stride ||
-                 (s.bone_weight_offset < s.bone_index_offset + 8 && s.bone_index_offset < s.bone_weight_offset + 8)))
+                (uint64_t(s.bone_weight_offset) + 4ull * s.bone_weight_bytes > s.stride ||
+                 (s.bone_weight_offset < s.bone_index_offset + 4 * s.bone_index_bytes && s.bone_index_offset < s.bone_weight_offset + 4 * s.bone_weight_bytes)))
                 return fail("bone weight element outside its stream or overlapping the indices");
         } else if (s.bone_weight_offset != kCharacterNone) {
             return fail("bone weights without bone indices");
         }
-        next.streams.push_back(s);
     }
-    for (uint32_t i = 0; i < section_count; ++i, p += 20) {
-        CharacterSection s = {at<uint32_t>(p), at<uint32_t>(p + 4), at<uint32_t>(p + 8), at<uint32_t>(p + 12), at<uint32_t>(p + 16)};
+    for (const auto& s : next.sections) {
         if (!s.match_count || (s.component != kCharacterNone && s.component >= component_count) ||
             (s.lod != kCharacterNone && s.lod > 1) || (s.component == kCharacterNone && s.lod != kCharacterNone))
             return fail("section out of range");
-        next.sections.push_back(s);
     }
-    for (uint32_t i = 0; i < list_count; ++i, p += 8) {
-        CharacterList l;
-        l.first = at<uint32_t>(p); l.count = at<uint32_t>(p + 4);
+    for (const auto& l : next.lists) {
         if (l.first > draw_count || l.count > draw_count - l.first || l.count > 64) return fail("draw list out of range");
-        next.lists.push_back(l);
     }
-    for (uint32_t i = 0; i < draw_count; ++i, p += 32) {
-        CharacterDraw d;
-        d.index_stream = at<uint32_t>(p); d.count = at<uint32_t>(p + 4); d.first = at<uint32_t>(p + 8); d.base = at<int32_t>(p + 12);
-        for (uint32_t s = 0; s < 4; ++s) d.vb[s] = at<uint32_t>(p + 16 + s * 4);
-        next.draws.push_back(d);
-    }
-    for (uint32_t i = 0; i < edit_count; ++i, p += 12) {
-        CharacterEdit e = {at<uint32_t>(p), static_cast<VkFormat>(at<uint32_t>(p + 4)), static_cast<VkFormat>(at<uint32_t>(p + 8))};
+    for (size_t i = 0; i < next.edits.size(); ++i) {
+        const auto& e = next.edits[i];
         if (e.binding >= 4 || e.source != VK_FORMAT_R8G8B8A8_UINT || e.format != VK_FORMAT_R16G16B16A16_UINT)
             return fail("layout edit outside the supported rule");
-        for (const auto& other : next.edits)
-            if (other.binding == e.binding && other.source == e.source) return fail("duplicate layout edit");
-        next.edits.push_back(e);
+        for (size_t j = 0; j < i; ++j)
+            if (next.edits[j].binding == e.binding && next.edits[j].source == e.source) return fail("duplicate layout edit");
     }
-    const uint8_t* payload = p;
-
-    for (uint32_t i = 0; i < component_count; ++i) {
-        const auto& raw = raw_components[i];
-        CharacterComponent c;
-        c.first = raw.first; c.count = raw.count; c.lists[0] = raw.list0; c.lists[1] = raw.list1;
+    for (auto& c : next.components) {
+        c.has_remap = false; c.remap_lod0.clear(); c.remap_lod1.clear();
         const auto remap_from = [&](uint32_t stream, std::vector<uint16_t>& table) {
             if (stream >= stream_count) { reason = "remap stream out of range"; return false; }
             const auto& s = next.streams[stream];
@@ -457,16 +445,13 @@ bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& rea
             for (uint16_t source : table) if (source >= 1024) { reason = "remap source bone outside the supported window"; return false; }
             return true;
         };
-        if (raw.remap != kCharacterNone) {
-            c.remap_stream = raw.remap;
-            if (!remap_from(raw.remap, c.remap_lod1)) return false;
+        if (c.remap_stream != kCharacterNone) {
+            if (!remap_from(c.remap_stream, c.remap_lod1)) return false;
             c.has_remap = true;
         }
-        if (raw.remap0) {
-            c.remap_stream0 = raw.remap0 - 1;
+        if (c.remap_stream0 != kCharacterNone) {
             if (!remap_from(c.remap_stream0, c.remap_lod0)) return false;
         }
-        next.components.push_back(std::move(c));
     }
     if (!next.make_spans(reason)) return false;
     for (auto& s : next.streams) {
@@ -495,12 +480,96 @@ bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& rea
         }
         if (!any) return fail("draw binds no vertex stream");
     }
-    for (auto& l : next.lists)
+    for (auto& l : next.lists) {
+        l.required = 0;
         for (uint32_t i = 0; i < l.count; ++i)
             for (uint32_t slot = 0; slot < 4; ++slot) {
                 const uint32_t stream = next.draws[l.first + i].vb[slot];
                 if (stream != kCharacterNone) l.required |= next.streams[stream].spans;
             }
+    }
+    return true;
+}
+}
+
+bool CharacterPackage::validate(std::string& reason)
+{
+    reason.clear();
+    if (components.empty()) {
+        if (!validate_contents(*this, payload.data(), payload.size(), reason)) return false;
+        payload_bytes = payload.size(); return true;
+    }
+    if (!character_dimensions(bones, components.size(), streams.size(), sections.size(), lists.size(),
+                              draws.size(), edits.size(), payload.size())) {
+        reason = "character package dimensions outside limits"; return false;
+    }
+    // Derive only into a metadata candidate. On rejection the existing package,
+    // including all owners and prior masks, remains intact. Mesh bytes never move.
+    CharacterPackage next; next.bones = bones; next.components = components; next.streams = streams;
+    next.sections = sections; next.lists = lists; next.draws = draws; next.edits = edits;
+    if (!validate_contents(next, payload.data(), payload.size(), reason)) return false;
+    components = std::move(next.components); streams = std::move(next.streams);
+    lists = std::move(next.lists); spans = std::move(next.spans); payload_bytes = payload.size();
+    return true;
+}
+
+bool CharacterPackage::decode(const std::vector<uint8_t>& file, std::string& reason)
+{
+    reason.clear();
+    if (file.size() >= 8 && !std::memcmp(file.data(), kMaterialMagic, 8)) return decode_materials(file, *this, reason);
+    auto fail = [&](const char* text) { reason = text; return false; };
+    if (file.size() < kHeader || std::memcmp(file.data(), kMagic, 8)) return fail("unsupported character package");
+    uint32_t words[8];
+    std::memcpy(words, file.data() + 8, sizeof(words));
+    const uint32_t bone_count = words[0], component_count = words[1], stream_count = words[2], section_count = words[3];
+    const uint32_t list_count = words[4], draw_count = words[5], edit_count = words[6], checksum = words[7];
+    const uint64_t payload_bytes = at<uint64_t>(file.data() + 40);
+    // The original Core sizes its pools by the Mod's own counts; these bound what the format's indices and the
+    // component masks hold (D-141): 16-bit bone indices, 64 components.
+    if (!character_dimensions(bone_count, component_count, stream_count, section_count, list_count, draw_count, edit_count, payload_bytes))
+        return fail("character package dimensions outside limits");
+    const uint64_t tables = uint64_t(component_count) * 24 + uint64_t(stream_count) * 32 + uint64_t(section_count) * 20 +
+                            uint64_t(list_count) * 8 + uint64_t(draw_count) * 32 + uint64_t(edit_count) * 12;
+    if (file.size() != kHeader + tables + payload_bytes) return fail("character package size disagrees with its header");
+    if (crc32c(0, file.data() + kHeader, file.size() - kHeader) != checksum) return fail("character package checksum mismatch");
+
+    CharacterPackage next;
+    next.bones = bone_count;
+    const uint8_t* p = file.data() + kHeader;
+    for (uint32_t i = 0; i < component_count; ++i, p += 24) {
+        CharacterComponent c; c.first = at<uint32_t>(p); c.count = at<uint32_t>(p + 4); c.remap_stream = at<uint32_t>(p + 8);
+        c.lists[0] = at<uint32_t>(p + 12); c.lists[1] = at<uint32_t>(p + 16);
+        const auto remap0 = at<uint32_t>(p + 20); c.remap_stream0 = remap0 ? remap0 - 1 : kCharacterNone;
+        next.components.push_back(std::move(c));
+    }
+    for (uint32_t i = 0; i < stream_count; ++i, p += 32) {
+        CharacterStream s;
+        s.kind = at<uint32_t>(p); s.stride = at<uint32_t>(p + 4); s.offset = at<uint64_t>(p + 8); s.size = at<uint64_t>(p + 16);
+        s.bone_index_offset = at<uint32_t>(p + 24); s.bone_weight_offset = at<uint32_t>(p + 28);
+        next.streams.push_back(s);
+    }
+    for (uint32_t i = 0; i < section_count; ++i, p += 20) {
+        CharacterSection s = {at<uint32_t>(p), at<uint32_t>(p + 4), at<uint32_t>(p + 8), at<uint32_t>(p + 12), at<uint32_t>(p + 16)};
+        next.sections.push_back(s);
+    }
+    for (uint32_t i = 0; i < list_count; ++i, p += 8) {
+        CharacterList l;
+        l.first = at<uint32_t>(p); l.count = at<uint32_t>(p + 4);
+        next.lists.push_back(l);
+    }
+    for (uint32_t i = 0; i < draw_count; ++i, p += 32) {
+        CharacterDraw d;
+        d.index_stream = at<uint32_t>(p); d.count = at<uint32_t>(p + 4); d.first = at<uint32_t>(p + 8); d.base = at<int32_t>(p + 12);
+        for (uint32_t s = 0; s < 4; ++s) d.vb[s] = at<uint32_t>(p + 16 + s * 4);
+        next.draws.push_back(d);
+    }
+    for (uint32_t i = 0; i < edit_count; ++i, p += 12) {
+        CharacterEdit e = {at<uint32_t>(p), static_cast<VkFormat>(at<uint32_t>(p + 4)), static_cast<VkFormat>(at<uint32_t>(p + 8))};
+        next.edits.push_back(e);
+    }
+    const uint8_t* payload = p;
+
+    if (!validate_contents(next, payload, payload_bytes, reason)) return false;
     next.payload.assign(payload, payload + payload_bytes);
     next.payload_bytes = payload_bytes;
     *this = std::move(next);

@@ -17,6 +17,13 @@ split. Current/future descriptors, saved fallbacks, suspended requests and pendi
 restoration accesses participate even when no longer visibly bound. Same-storage
 phase transitions and cross-queue accesses still require separate proof.
 
+D-284 shares package content validation between framed file decoding and runtime
+generations. Runtime validation borrows the existing payload and derives masks/remaps
+in a metadata candidate; rejection leaves previous state intact. File bounds and
+CRC framing are still checked for actual binary packages. The runtime no longer
+serializes/copies a complete mesh merely to validate it, and non-file fields remain
+owned by their generation.
+
 D-279 routes native pipeline/image/target scope callbacks through the installed module.
 The host retains Vulkan pipeline handles and opaque implementation owners; native_state.h
 defines the shared recording/cache protocol. Private planner and pipeline layouts do not

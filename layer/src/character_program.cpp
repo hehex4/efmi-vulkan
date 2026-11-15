@@ -191,61 +191,7 @@ template<class T> void put(std::vector<uint8_t>& out, T value)
 {
     const auto* p = reinterpret_cast<const uint8_t*>(&value); out.insert(out.end(), p, p + sizeof(T));
 }
-// Route refreshed source bytes back through the existing complete package
-// validator. It checks bone indices, weights, remaps, bounds and partitions.
-bool validate_refreshed(CharacterPackage& package, std::string& reason)
-{
-    if (package.components.empty()) {
-        // A package without a skeleton (D-174), which the package format does not hold: the checks decode
-        // makes of streams and sections, and nothing that refers to bones.
-        const uint64_t bytes = package.payload.size();
-        if (package.bones || !package.lists.empty() || !package.draws.empty() || package.sections.empty() ||
-            package.sections.size() > kCharacterSections || package.streams.size() > kCharacterStreams) {
-            reason = "package without a skeleton outside its limits"; return false;
-        }
-        for (const auto& s : package.streams) {
-            const bool stride_ok = s.kind == CharacterStream::Vertex ? (s.stride >= 1 && s.stride <= 256) :
-                                   s.kind == CharacterStream::Index ? (s.stride == 2 || s.stride == 4) : false;
-            if (!s.size || s.offset > bytes || s.size > bytes - s.offset || !stride_ok || s.size % s.stride ||
-                (s.kind == CharacterStream::Index && s.offset % 4) || s.bone_index_offset != kCharacterNone || s.bone_weight_offset != kCharacterNone) {
-                reason = "stream outside the payload, or of an unsupported stride"; return false;
-            }
-        }
-        for (const auto& s : package.sections)
-            if (!s.match_count || s.component != kCharacterNone || s.lod != kCharacterNone) { reason = "section out of range"; return false; }
-        package.payload_bytes = bytes;
-        return true;
-    }
-    std::vector<uint8_t> bytes{'E','F','M','I','C','H','0','1'};
-    for (auto value : {package.bones, uint32_t(package.components.size()), uint32_t(package.streams.size()), uint32_t(package.sections.size()),
-                      uint32_t(package.lists.size()), uint32_t(package.draws.size()), uint32_t(package.edits.size()), 0u}) put(bytes, value);
-    put(bytes, uint64_t(package.payload.size()));
-    for (const auto& c : package.components)
-        for (auto value : {c.first, c.count, c.remap_stream, c.lists[0], c.lists[1], c.remap_stream0 == kCharacterNone ? 0u : c.remap_stream0 + 1})
-            put(bytes, value);
-    for (const auto& s : package.streams) {
-        put(bytes, s.kind); put(bytes, s.stride); put(bytes, s.offset); put(bytes, s.size); put(bytes, s.bone_index_offset); put(bytes, s.bone_weight_offset);
-    }
-    for (const auto& s : package.sections)
-        for (auto value : {s.hash, s.match_count, s.match_first, s.component, s.lod}) put(bytes, value);
-    for (const auto& l : package.lists) { put(bytes, l.first); put(bytes, l.count); }
-    for (const auto& d : package.draws) {
-        put(bytes, d.index_stream); put(bytes, d.count); put(bytes, d.first); put(bytes, d.base);
-        for (auto value : d.vb) put(bytes, value);
-    }
-    for (const auto& e : package.edits) { put(bytes, e.binding); put(bytes, uint32_t(e.source)); put(bytes, uint32_t(e.format)); }
-    bytes.insert(bytes.end(), package.payload.begin(), package.payload.end());
-    const auto checksum = crc32c(0, bytes.data() + 48, bytes.size() - 48); std::memcpy(bytes.data() + 36, &checksum, 4);
-    CharacterPackage validated;
-    if (!validated.decode(bytes, reason)) return false;
-    for (size_t i = 0; i < validated.sections.size(); ++i) {
-        validated.sections[i].stride_slot = package.sections[i].stride_slot; validated.sections[i].stride = package.sections[i].stride;
-        validated.sections[i].computed = package.sections[i].computed;
-    }
-    validated.materials = package.materials; validated.material_vendor = package.material_vendor; validated.material_device = package.material_device;
-    validated.images = std::move(package.images); validated.profiles = std::move(package.profiles); validated.pixels = std::move(package.pixels);
-    package = std::move(validated); return true;
-}
+
 }
 bool CharacterProgram::configured(const std::string& path)
 {
@@ -278,7 +224,7 @@ bool CharacterProgram::init(const std::string& path, CharacterPackage& package, 
             if (s.kind == CharacterStream::Remap) remaps.emplace(key(source), i);
         }
         package.payload = std::move(payload);
-        if (!validate_refreshed(package, reason)) return false;
+        if (!package.validate(reason)) return false;
         if (!config.get("rabbit_textures").empty())
             throw std::runtime_error("RabbitFX texture-role inspection is not a complete runtime shader contract");
         auto facts = std::make_shared<efmi::frontend::CharacterDiscovery>();
@@ -726,7 +672,7 @@ bool CharacterProgram::adopt(efmi::frontend::CharacterDiscovery& found, Characte
         }
         made.payload = std::move(payload);
         made.materials = true;
-        if (!validate_refreshed(made, reason)) return false;
+        if (!made.validate(reason)) return false;
         for (const auto& mesh : meshes) {
             if (mesh.second != kCharacterNone) streams_.emplace(mesh.first, mesh.second);
             else absent_.insert(mesh.first);

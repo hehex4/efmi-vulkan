@@ -181,6 +181,9 @@ struct CharacterPackage {
     // Everything is checked before anything is accepted: sizes, ranges, index bounds of every
     // draw against its vertex streams, and every bone index against the bone count.
     bool decode(const std::vector<uint8_t>& file, std::string& reason);
+    // Validate runtime metadata and borrowed mesh bytes without a binary round trip.
+    // Failure preserves the package; success refreshes remaps and derived masks.
+    bool validate(std::string& reason);
     // The declaration a replaced draw needs. A stream the draw binds takes the file's stride;
     // an edit changes the format of matching elements of its binding in place. Streams the draw
     // does not bind, the application's default attributes among them, stay as they are.

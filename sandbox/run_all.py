@@ -156,6 +156,7 @@ STEPS = [
     ("captured shader rewrite corpus", [os.path.join(HERE, "variant_test.py"), "--corpus"]),
     ("legacy backend retirement", [os.path.join(HERE, "legacy_backend_retirement_test.py")]),
     ("character replacement", [os.path.join(HERE, "character_test.py")]),
+    ("character package validation", [os.path.join(HERE, "character_test.py"), "--cold-only"]),
     ("live INI rendering", [os.path.join(HERE, "runtime_test.py")]),
     ("native game shader replacement", [os.path.join(HERE, "native_shader_test.py")]),
     ("native compute uniform aliases", [os.path.join(HERE, "native_compute_uniform_test.py")]),
@@ -254,6 +255,7 @@ STEPS = [
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
     "backend-retirement": ["legacy backend retirement", "module ABI boundary", "native module", "character replacement", "matched native descriptors", "application texture rebinding", "native tracker", "Vulkan validation", "text check"],
+    "package-validation": ["character package validation", "installed Mods offline plans in one folder generation", "application texture rebinding", "native tracker", "Vulkan validation", "text check"],
     "texture-rebinding": ["application texture rebinding", "matched native descriptors", "nonblocking draw readiness", "native own mesh", "native merged opacity values", "texture-only Mod output events", "native application images", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check", "source-defined INI evaluation", "INI execution matrix"],
     "module-boundary": ["module ABI boundary", "native module", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "matched-descriptors": ["matched native descriptors", "nonblocking draw readiness", "native own mesh", "native merged opacity values", "Mod outputs beside original geometry", "texture-only Mod output events", "native call execution", "native descriptor bindings", "native graphics uniforms", "native file bindings", "original INI GPU resources", "native tracker", "Vulkan validation", "text check", "source-defined INI evaluation", "INI execution matrix"],
