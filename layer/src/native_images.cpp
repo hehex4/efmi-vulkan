@@ -122,7 +122,7 @@ void report(Device* device, CmdBuf* cb, const std::string& reason)
     if (reason.empty()) return;
     cb->native_image_reason = reason;
     const auto count = device->native_image_refused.fetch_add(1) + 1;
-    if (count <= 8 || !(count & (count - 1))) logf("Native image reference suspended: %s", reason.c_str());
+    if (count <= 8 || !(count & (count - 1))) logf("Native resource reference suspended: %s", reason.c_str());
 }
 DrawRec current(CmdBuf* cb, bool compute)
 {

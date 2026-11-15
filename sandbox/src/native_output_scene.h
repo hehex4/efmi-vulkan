@@ -13,6 +13,7 @@ struct NativeOutputScene {
 static bool create_native_output_one(NativeOutputScene& s)
 {
     if(s.output.empty())return true;
+    if(g.native_uniform_persistent && (!g.native_output_memory || g.dynamic_depth || g.native_output_mrt || g.native_output_owned))return false;
     if(g.native_output_owned && (!g.native_output_classic || g.native_output_mrt || g.dynamic_depth))return false;
     if((g.native_output_no_color && (!g.dynamic_depth || g.native_output_mrt)) || (!g.dynamic_rendering && !g.native_output_classic) || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth && !g.native_output_stencil))return false;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -23,7 +24,7 @@ static bool create_native_output_one(NativeOutputScene& s)
     VkMemoryRequirements requirements{};vkGetImageMemoryRequirements(g.device,s.image,&requirements);
     VkMemoryAllocateInfo memory{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};memory.allocationSize=requirements.size;
     VkDeviceSize buffer_offset=0;
-    if(g.native_output_memory){
+    if(g.native_output_memory && &s==&native_output){
         if(&s!=&native_output || g.native_output_mrt || g.native_output_owned || (g.native_output_memory!=1 && g.native_output_memory!=2))return false;
         VkBufferCreateInfo buffer{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};buffer.size=256;buffer.usage=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
         CHECK(vkCreateBuffer(g.device,&buffer,nullptr,&s.alias_buffer));
@@ -42,9 +43,10 @@ static bool create_native_output_one(NativeOutputScene& s)
     if(s.alias_buffer){
         CHECK(vkBindBufferMemory(g.device,s.alias_buffer,s.memory,buffer_offset));
         if(g.descriptor_mode<2){
-            VkDescriptorBufferInfo buffer{s.alias_buffer,0,256};VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            VkDescriptorBufferInfo buffer{g.native_uniform_persistent?g.ubo.buf:s.alias_buffer,0,256};VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             write.dstSet=g.material_set;write.dstBinding=6;write.descriptorCount=1;write.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             write.pBufferInfo=&buffer;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
+            if(g.native_uniform_persistent){write.dstBinding=7;buffer.buffer=s.alias_buffer;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);}
         }
     }
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=s.image;
@@ -59,9 +61,9 @@ static bool create_native_output_one(NativeOutputScene& s)
 static bool create_native_output()
 {
     if(!create_native_output_one(native_output))return false;
-    if(g.native_output_mrt || g.native_output_owned){
+    if(g.native_output_mrt || g.native_output_owned || g.native_uniform_persistent){
         if(native_output.output.empty())return false;
-        native_output_extra.output=native_output.output+(g.native_output_owned?L".original.raw":L".mrt.raw");
+        native_output_extra.output=native_output.output+(g.native_uniform_persistent?L".independent.raw":g.native_output_owned?L".original.raw":L".mrt.raw");
         return create_native_output_one(native_output_extra);
     }
     return true;
@@ -72,9 +74,9 @@ static VkImageMemoryBarrier native_output_barrier(VkImage image)
     barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;return barrier;
 }
-static void record_native_output_source(VkCommandBuffer command)
+static void record_native_output_source_one(VkCommandBuffer command,const NativeOutputScene& s)
 {
-    const auto& s=native_output;if(!s.image)return;
+    if(!s.image)return;
     if(g.native_output_classic){
         VkClearValue clears[3]{};clears[0].color=clears[1].color={{.05f,.05f,.08f,1.0f}};
         const uint32_t colors=g.native_output_mrt?2:1;if(g.dynamic_depth)clears[colors].depthStencil={1.0f,0};
@@ -116,6 +118,7 @@ static void record_native_output_source(VkCommandBuffer command)
     barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
 }
+static void record_native_output_source(VkCommandBuffer command){record_native_output_source_one(command,native_output);}
 static void record_native_output_readback_one(VkCommandBuffer command,const NativeOutputScene& s)
 {
     if(!s.image)return;
@@ -225,7 +228,7 @@ static bool create_native_classic_framebuffers()
     VkFramebufferCreateInfo create{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};create.renderPass=native_output.source_pass;
     create.attachmentCount=total;create.pAttachments=views;create.width=g.extent.width;create.height=g.extent.height;create.layers=1;
     CHECK(vkCreateFramebuffer(g.device,&create,nullptr,&native_output.source_framebuffer));
-    if(g.native_output_owned){
+    if(g.native_output_owned || g.native_uniform_persistent){
         CHECK(create_native_classic_pass(true,&native_output_extra.source_pass));create.renderPass=native_output_extra.source_pass;
         create.attachmentCount=1;create.pAttachments=&native_output_extra.view;
         CHECK(vkCreateFramebuffer(g.device,&create,nullptr,&native_output_extra.source_framebuffer));

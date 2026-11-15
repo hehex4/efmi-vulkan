@@ -246,6 +246,7 @@ struct App {
     VkImageUsageFlags output_swapchain_usage=0;
     bool native_output_owned=false;
     int native_output_memory=0; // 1: overlapping unused descriptor, 2: disjoint suballocation.
+    bool native_uniform_persistent=false,native_keep_material=false;
     bool native_depth_destination = false;
     bool native_depth_absent = false;
     VkImage native_depth_source = VK_NULL_HANDLE;
@@ -873,13 +874,14 @@ static bool create_pipeline()
     CHECK(vkCreateSampler(g.device, &sampler, nullptr, &g.sampler));
 
     // Deliberately unsorted bindings: dynamic offsets follow binding numbers, not creation order.
-    VkDescriptorSetLayoutBinding material[3] = {};
+    VkDescriptorSetLayoutBinding material[4] = {};
     material[0] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, g.mutable_sampler ? nullptr : &g.sampler};
     material[1] = {2, g.descriptor_mode >= 2 ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
                    2, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
     sl.flags = g.descriptor_mode >= 2 ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR : 0;
     material[2] = {6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
-    sl.bindingCount = g.native_output_memory ? 3 : 2;
+    material[3] = {7, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    sl.bindingCount = g.native_uniform_persistent ? 4 : g.native_output_memory ? 3 : 2;
     sl.pBindings = material;
     CHECK(vkCreateDescriptorSetLayout(g.device, &sl, nullptr, &g.material_layout));
 
@@ -1238,7 +1240,7 @@ static bool create_resources()
 
     VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1},
                                   {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 4},
-                                  {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2}, {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2}};
+                                  {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2}, {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, g.native_uniform_persistent?4u:2u}};
     VkDescriptorPoolCreateInfo dp = {};
     dp.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     dp.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -1531,7 +1533,9 @@ static void record_draw(VkCommandBuffer cb, int i)
                       kUboSlot * static_cast<uint32_t>(kDrawCount - i - 1)};
     VkDescriptorSet sets[] = {g.desc_set, g.material_set};
     // Exercise both a multi-set bind and a nonzero firstSet.
-    if (g.descriptor_mode >= 2) {
+    if(g.native_keep_material){
+        vkCmdBindDescriptorSets(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,g.layout,0,1,sets,1,dyn);
+    } else if (g.descriptor_mode >= 2) {
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 0, 1, sets, 1, dyn);
         MaterialData data = {};
         data.storage[0].buffer = {g.storage.buf, g.material_base + dyn[1], 16};
@@ -1551,9 +1555,11 @@ static void record_draw(VkCommandBuffer cb, int i)
             vkCmdPushDescriptorSetKHR(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 1, 1, &w);
         }
         if(native_output.alias_buffer){
-            VkDescriptorBufferInfo buffer{native_output.alias_buffer,0,256};VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            VkDescriptorBufferInfo buffer{g.native_uniform_persistent?g.ubo.buf:native_output.alias_buffer,0,256};VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             write.dstBinding=6;write.descriptorCount=1;write.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;write.pBufferInfo=&buffer;
             vkCmdPushDescriptorSetKHR(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,g.layout,1,1,&write);
+            if(g.native_uniform_persistent){write.dstBinding=7;buffer.buffer=native_output.alias_buffer;
+                vkCmdPushDescriptorSetKHR(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,g.layout,1,1,&write);}
         }
     } else if (i % 2 == 0)
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g.layout, 0, 2, sets, 3, dyn);
@@ -1943,6 +1949,12 @@ static bool render_frame()
         if(g.imageless)background.pNext=&late_views;
         vkCmdBeginRenderPass(g.primary,&background,VK_SUBPASS_CONTENTS_INLINE);vkCmdEndRenderPass(g.primary);
     }
+    if(g.native_uniform_persistent){
+        g.native_keep_material=true;
+        record_native_output_source_one(g.primary,native_output);
+        record_native_output_source_one(g.primary,native_output_extra);
+        g.native_keep_material=false;
+    }
     record_native_output_readback(g.primary);
     CHECK(vkEndCommandBuffer(g.primary));
     const double record_end = clock_ms();
@@ -2182,6 +2194,7 @@ int wmain(int argc, wchar_t** argv)
         else if (a == L"--native-depth-absent")g.native_depth_absent=true;
         else if (a == L"--native-output-owned")g.native_output_owned=true;
         else if (a == L"--native-output-memory" && i + 1 < argc)g.native_output_memory=_wtoi(argv[++i]);
+        else if (a == L"--native-uniform-persistent")g.native_uniform_persistent=true;
         else if (a == L"--native-output-classic" && i + 1 < argc)g.native_output_classic=_wtoi(argv[++i]);
         else if (a == L"--native-output-depth"){g.native_output_depth=true;g.dynamic_depth=1;}
         else if (a == L"--native-output-query")

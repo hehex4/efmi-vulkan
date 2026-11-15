@@ -471,7 +471,7 @@ struct CmdBuf {
     std::shared_ptr<NativePipelineSelection> native_pipeline;
     bool native_target_blocked = false;
     std::shared_ptr<NativeImageState> native_image_state;
-    bool native_images = false;
+    bool native_images = false; // Persistent image and graphics-buffer descriptor requests.
     bool native_mutable = false; // This recording carries mutable file bindings and their compute hazards.
     bool native_uniforms = false; // Persistent graphics application references need later-pass ordering too.
     VkRenderingFlags native_rendering_flags = 0; // Segment boundaries cannot contain injected synchronization.

@@ -38,7 +38,7 @@ bool hold_locked(Device* d,DescriptorSetInfo& contents,std::vector<std::shared_p
 {
     for(auto& pair:contents.values){
         auto& v=pair.second;if(!v.known)continue;
-        if(v.native_image_request)owners.push_back(v.native_image_request);
+        if(v.native_request)owners.push_back(v.native_request);
         if(v.application)owners.push_back(v.application);
         if(v.native)owners.push_back(v.native);
         else if(v.retained)owners.push_back(v.retained);
@@ -243,12 +243,14 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             if(!replacement)replacement=std::make_shared<const Resource>();
             const auto& resource=*replacement;
             auto value=set->contents.values[{target.binding,target.element}];
-            if((sampled || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) && !value.application){
-                if(!fallback_known || (fallback->bound && !fallback->keep))return refuse("Native image fallback has no retained application resource");
-                auto original=value;original.native=fallback;original.native_image_request.reset();original.application.reset();
+            const bool graphics_buffer=resource.bound && resource.buffer && !resource.uploaded_readonly && !resource.uploaded_mutable &&
+                draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT;
+            if((sampled || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || graphics_buffer) && !value.application){
+                if(!fallback_known || (fallback->bound && !fallback->keep))return refuse("Native descriptor fallback has no retained application resource");
+                auto original=value;original.native=fallback;original.native_request.reset();original.application.reset();
                 value.application=std::make_shared<const DescriptorElement>(std::move(original));
             }
-            value.type=type;value.known=true;value.native=replacement;value.retained.reset();value.native_image_request.reset();
+            value.type=type;value.known=true;value.native=replacement;value.retained.reset();value.native_request.reset();
             if(!resource.bound){
                 if(!device->null_descriptors)return refuse("Native null descriptors require the enabled nullDescriptor feature");
                 value.buffer=VK_NULL_HANDLE;value.buffer_view=VK_NULL_HANDLE;value.image_view=VK_NULL_HANDLE;
@@ -309,7 +311,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                         return refuse("Native file image is not published for sampling");
                 }else{
                     if(!native_image_binding(device,cb,draw,target,replacement,next.images,image_layout,why))return false;
-                    if(!resource.uploaded_mutable)value.native_image_request=replacement;
+                    if(!resource.uploaded_mutable)value.native_request=replacement;
                 }
                 value.image_view=VkImageView(resource.image_view);value.image_view_id=resource.image_view_id;
                 value.image_layout=image_layout;
@@ -319,6 +321,7 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                 value.buffer_view=VkBufferView(resource.buffer_view);
             }
             }
+            if(graphics_buffer)value.native_request=replacement;
             set->contents.values[{target.binding,target.element}]=value;
             if(!hold_locked(device,set->contents,set->owners))return refuse("Native descriptor set contains an unretainable application resource");
         }
@@ -335,7 +338,7 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
     if(std::find(cb->owners.begin(),cb->owners.end(),owner)==cb->owners.end())cb->owners.push_back(owner);
     owner->used=true;owner->sets.push_back(set);
     const bool compute=draw.kind==DK_DISPATCH || draw.kind==DK_DISPATCH_INDIRECT;
-    for(const auto& value:set->contents.values)if(value.second.native_image_request)cb->native_images=true;
+    for(const auto& value:set->contents.values)if(value.second.native_request)cb->native_images=true;
     for(const auto& value:set->contents.values)if(value.second.native){
         const auto& resource=*std::static_pointer_cast<const Resource>(value.second.native);
         cb->native_mutable|=resource.uploaded_mutable;
@@ -374,32 +377,46 @@ bool refresh_native_images(Device* device,CmdBuf* cb,const DrawRec& draw,std::st
             const auto found=device->descriptor_sets.find(bound.set);
             if(!source && found!=device->descriptor_sets.end() && found->second.id==bound.id)source=&found->second;
             if(!source)continue;
-            bool pending=false;for(const auto& entry:source->values)pending|=bool(entry.second.native_image_request);
+            bool pending=false;for(const auto& entry:source->values)pending|=bool(entry.second.native_request);
             if(!pending)continue;
             set->contents=*source;
             for(auto& entry:set->contents.values){
-                auto& value=entry.second;if(!value.native_image_request)continue;
-                const auto request=std::static_pointer_cast<const Resource>(value.native_image_request);
+                auto& value=entry.second;if(!value.native_request)continue;
+                const auto request=std::static_pointer_cast<const Resource>(value.native_request);
                 efmi::frontend::NativeBinding target;target.set=slot;target.binding=entry.first.first;target.element=entry.first.second;
                 target.kind=value.type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE?efmi::frontend::NativeBinding::Access:efmi::frontend::NativeBinding::Resource;
                 VkImageLayout layout;std::string reason;
                 auto replacement=value;
-                if(native_image_binding(device,cb,draw,target,request,plan.images,layout,reason)){
-                    replacement.native=request;replacement.retained.reset();replacement.image_view=VkImageView(request->image_view);
+                bool accepted=false;
+                if(request->buffer){
+                    const bool compute=draw.kind==DK_DISPATCH || draw.kind==DK_DISPATCH_INDIRECT;
+                    if(!compute && (cb->inherited_rp || !cb->native_graphics_ordered))reason="Native buffer reference lost its graphics dependency proof";
+                    else accepted=compute || native_attachment_memory(device,cb,*request,reason);
+                    if(accepted){
+                        replacement.native=request;replacement.retained.reset();
+                        if(buffer_type(value.type)){
+                            replacement.buffer=VkBuffer(request->buffer);replacement.buffer_id=uint32_t(request->identity>>2);
+                            replacement.offset=request->offset;replacement.range=request->range;
+                        }else replacement.buffer_view=VkBufferView(request->buffer_view);
+                    }
+                }else if(native_image_binding(device,cb,draw,target,request,plan.images,layout,reason)){
+                    accepted=true;replacement.native=request;replacement.retained.reset();replacement.image_view=VkImageView(request->image_view);
                     replacement.image_view_id=request->image_view_id;replacement.image_layout=layout;
-                }else{
+                }
+                if(!accepted){
                     supported=false;why=reason;
                     if(!value.application){cb->native_image_blocked=true;return false;}
                     replacement=*value.application;replacement.application=value.application;
-                    replacement.native_image_request=request;replacement.retained_sampler=value.retained_sampler;
+                    replacement.native_request=request;replacement.retained_sampler=value.retained_sampler;
                 }
-                changed|=replacement.image_view!=value.image_view || replacement.image_layout!=value.image_layout || replacement.native!=value.native;
+                changed|=replacement.image_view!=value.image_view || replacement.image_layout!=value.image_layout || replacement.native!=value.native ||
+                    replacement.buffer!=value.buffer || replacement.buffer_view!=value.buffer_view || replacement.offset!=value.offset || replacement.range!=value.range;
                 value=std::move(replacement);
             }
             if(!changed)continue;
             if(owner->sealed || owner->sets.size()+plan.items.size()>=4096 || bound.dyn_first>cb->dyn.size() ||
                bound.dyn_count>cb->dyn.size()-bound.dyn_first || !hold_locked(device,set->contents,set->owners)){
-                why="Native image refresh cannot retain or allocate a safe descriptor state";cb->native_image_blocked=true;return false;
+                why="Native resource refresh cannot retain or allocate a safe descriptor state";cb->native_image_blocked=true;return false;
             }
             set->zero_offsets.assign(cb->dyn.begin()+bound.dyn_first,cb->dyn.begin()+bound.dyn_first+bound.dyn_count);
         }

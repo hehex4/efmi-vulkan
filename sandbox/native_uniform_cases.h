@@ -14,6 +14,7 @@ static void native_uniform_prepass_cases()
     d.d.CreatePipelineLayout=[](VkDevice,const VkPipelineLayoutCreateInfo*,const VkAllocationCallbacks*,VkPipelineLayout* out){*out=h<VkPipelineLayout>(83);return VK_SUCCESS;};
     d.d.DestroyPipelineLayout=[](VkDevice,VkPipelineLayout,const VkAllocationCallbacks*){};
     d.d.CmdPushDescriptorSetKHR=[](VkCommandBuffer,VkPipelineBindPoint,VkPipelineLayout,uint32_t,uint32_t,const VkWriteDescriptorSet*){};
+    d.d.CmdPipelineBarrier=[](VkCommandBuffer,VkPipelineStageFlags,VkPipelineStageFlags,VkDependencyFlags,uint32_t,const VkMemoryBarrier*,uint32_t,const VkBufferMemoryBarrier*,uint32_t,const VkImageMemoryBarrier*){};
     auto layout=std::make_shared<DescriptorLayoutInfo>();layout->flags=VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
     layout->bindings[0]={VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,1,VK_SHADER_STAGE_VERTEX_BIT};
     layout->lifetime=std::make_shared<SetLayoutLifetime>();layout->lifetime->handle=h<VkDescriptorSetLayout>(84);
@@ -27,6 +28,11 @@ static void native_uniform_prepass_cases()
     item.native_target.kind=efmi::frontend::NativeBinding::Constant;item.native_target.stage=0;item.native_resource=resource;
     CmdBuf cb;cb.in_rp=true;NativeDescriptorPlan descriptors;std::string why;
     resource->memory=89;resource->memory_size=16;
+    resource->identity=uint64_t(88)<<2;BufInfo original;original.id=88;original.size=original.mem_size=16;
+    original.mem=h<VkDeviceMemory>(89);original.usage=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    original.lifetime=std::make_shared<BufferLifetime>();original.lifetime->dependencies.push_back(std::make_shared<MemoryLifetime>());
+    d.bufs[VkBuffer(resource->buffer)]=original;DescriptorElement value;value.known=true;value.type=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    value.buffer=VkBuffer(resource->buffer);value.buffer_id=original.id;value.range=16;contents->values[{0,0}]=value;
     auto empty_pass=std::make_shared<FramebufferInfo>();empty_pass->known=true;cb.pass.info=empty_pass;
     check(!prepare_native_descriptors(&d,&cb,draw,plan,descriptors,why),
         "a graphics application-buffer reference requires an actual dependency before this pass began");

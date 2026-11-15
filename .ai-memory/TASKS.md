@@ -1,6 +1,15 @@
 # EFMI Vulkan - Tasks
 
 
+## Architecture remediation takes priority after D-277 (2026-11-15)
+
+- Finished the already pending D-277 change while auditing issues.md; source 3.0.5 / ABI f1f9f5cf861f3caa. Retained application graphics uniforms now preserve their normalized application fallback, recheck attachment storage at later passes, suspend conflicting requests and restore them at a later independent pass without another native list. The same retained descriptor request mechanism serves images and buffers; private file publications remain separate.
+- Original CommandList.cpp 9692 retains resource bindings and 10000+ uses 16-byte constant-buffer units. DX11 provides reference-counted lifetime with deferred destruction, hazard tracking and one-context order. Vulkan must retain the original descriptor and fold dynamic offsets exactly once when cloning it.
+- Baselines on 3.0.4: d277-cpu-before.out 762/764 and d277-gpu-before.out 13/15. Real GPU descriptors are deliberately shader-unused: no undefined alias reads; CPU driver stubs verify actual handles/ranges, GPU counters verify suspension and restoration with real allocations. The initial new CPU fixture incorrectly combined a dynamic descriptor with a push layout and an older mock lacked the newly needed end barrier. Corrected to ordinary allocated dynamic descriptor sets and complete mock dispatch. The failed d277-pair.out / d277-cpu-final.out executions are not validation evidence.
+- d277-cpu-final2.out passes 764/764; d277-final-pair.out builds host/inject/backend and checks four matching version/ABI stamps. d277-regression.out passes the native-uniform-persistence area, including 52 persistence checks, existing application images, graphics uniforms, tracker, core/synchronization validation and English text. Only sandbox module exchange; no game load, deployment, launcher, system or remote changes.
+- Priority now follows the verified Endfield architecture review. Freeze expansion of unobserved Vulkan feature matrices. Audit actual cross-queue resource dependencies separately from per-queue completion; fix blocking draw readiness and the shared execution/ABI boundary. Game validation remains a separately authorized gate, not an offline result.
+
+
 ## Architecture review and prioritized roadmap for Endfield dual-route scope (2026-11-15; `issues.md`)
 
 - Recorded the Endfield-specific dual-route architecture review in `issues.md` (`I-01` through `I-09`):

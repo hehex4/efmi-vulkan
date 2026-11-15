@@ -136,7 +136,7 @@ struct PipelineLayoutInfo {
 
 struct DescriptorElement {
     std::shared_ptr<const void> native; // Native replacement's owned descriptor payload; opaque to the tracker.
-    std::shared_ptr<const void> native_image_request; // Desired app-image reference, even while its actual value falls back.
+    std::shared_ptr<const void> native_request; // Desired application image/buffer, including while suspended on its fallback.
     std::shared_ptr<const void> retained, retained_sampler;
     std::shared_ptr<const DescriptorElement> application; // Retained original value, never another pending request.
     uint32_t type = 0;

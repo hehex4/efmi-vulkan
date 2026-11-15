@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-276. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-277. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1129,3 +1129,7 @@ CPU cases cover overlapping images/buffers, granularity, overflow, retained refe
 New graphics buffer bindings and application sampled-image references check the actual attachment allocation ranges even when there is no output command. Image refresh uses the same proof. Dynamic colour/depth/stencil and enabled resolves, classic framebuffer snapshots and resolved imageless views are covered. Only tracked swapchain images imply independent WSI storage. A secondary may retain its exact existing application image view and readable layout; a different image still requires parent attachment proof.
 
 Real Vulkan input-only scenes verify both overlap refusal and disjoint suballocation acceptance without undefined reads. Existing graphics uniforms, application sampling, secondaries, reload and sandbox module exchange remain covered. Persistent application buffers across later passes require their own fallback/restore adapter; external allocation identity and allocator subrange reuse remain separate audits.
+
+## Persistent graphics uniform references (D-277)
+
+Retained application uniform requests are checked at each later pass. A conflicting attachment allocation restores the retained application descriptor; an independent later pass restores the request. Ordinary dynamic descriptor offsets are normalized once. CPU driver stubs verify handles, offsets and ranges; sandbox cases verify real allocation conflicts, completed module exchange and clean validation. This does not establish cross-queue resource safety or real-game acceptance.
