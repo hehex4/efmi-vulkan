@@ -132,7 +132,7 @@ private:
     struct Owner;
     Owner* owner(CmdBuf*, bool make);
     bool allocate_layer(Layers&, uint32_t layer, std::string& why);
-    bool composite_pipeline(VkFormat colour, VkImageLayout, const std::vector<VkDynamicState>&, VkPipeline&, std::string& why);
+    bool composite_pipeline(VkFormat colour, VkImageLayout, const std::vector<VkDynamicState>&, bool has_depth, VkPipeline&, std::string& why);
     VkImageView depth_view(const TargetView&, std::shared_ptr<const void>& keep, uint64_t& serial, std::string& why);
     VkFramebuffer colour_framebuffer(VkImageView, uint32_t view_id, VkFormat, VkImageLayout, uint32_t width, uint32_t height,
                                      std::shared_ptr<const void> source, std::shared_ptr<const void>& keep, std::string& why);
@@ -153,7 +153,7 @@ private:
     VkDescriptorSetLayout composite_set_layout_ = VK_NULL_HANDLE;
     VkPipelineLayout composite_layout_ = VK_NULL_HANDLE;
     std::map<std::pair<uint32_t, uint32_t>, VkRenderPass> composite_passes_; // colour format, final layout
-    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, VkPipeline> composite_pipelines_; // format, layout, dynamic mask
+    std::map<std::tuple<uint32_t, uint32_t, uint32_t, bool>, VkPipeline> composite_pipelines_; // format, layout, dynamic mask, scene depth
     struct Held;
     std::map<std::pair<uint64_t, uint32_t>, std::shared_ptr<Held>> depth_views_, framebuffers_;
     std::atomic<uint64_t> captures_{0}, composites_{0}, shadows_{0};

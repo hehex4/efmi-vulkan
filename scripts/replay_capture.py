@@ -425,7 +425,8 @@ def dimension_policy() -> str:
 def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation: Path, open_tests: bool = False,
         two_queues: bool = False, gpu_bones: bool | None = None, name: str | None = None, split_passes: bool = False,
         animate_bones: bool = False, rolling_bones: bool = False,
-        depth_null_after: int | None = None, depth_restore_after: int | None = None) -> dict:
+        depth_null_after: int | None = None, depth_restore_after: int | None = None,
+        no_null_descriptors: bool = False) -> dict:
     from harness import layer_env
     folder = out / (name or ("enabled" if enabled else "disabled"))
     folder.mkdir(parents=True, exist_ok=True)
@@ -449,6 +450,8 @@ def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation
     env["VK_LAYER_PATH"] = extra["VK_LAYER_PATH"]
     flags = (["open"] if open_tests else []) + (["split-passes"] if split_passes else ["two-queues"] if two_queues else [])
     flags += ["rolling-bones"] if rolling_bones else ["animate-bones"] if animate_bones else []
+    if no_null_descriptors:
+        flags.append("no-null-descriptors")
     if depth_null_after is not None:
         if depth_null_after < 0 or split_passes:
             raise ValueError("Null-depth replay requires a nonnegative frame in an ordinary pass")

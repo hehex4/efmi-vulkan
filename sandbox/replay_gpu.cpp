@@ -116,7 +116,7 @@ struct Swap {
 };
 // Gpu::init of the asset fixture, with the surface and swap chain extensions and a queue that presents.
 // two_queues: two queues of the graphics family (D-119); queues[1] stays null otherwise.
-static void init_with_window(Gpu& g,HWND window,Swap& swap,bool two_queues,VkQueue queues[2]){
+static void init_with_window(Gpu& g,HWND window,Swap& swap,bool two_queues,VkQueue queues[2],bool no_null_descriptors){
     auto loader=LoadLibraryW(L"vulkan-1.dll");if(!loader)throw std::runtime_error("Vulkan loader missing");
     auto gi=reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader,"vkGetInstanceProcAddr"));
     auto create=reinterpret_cast<PFN_vkCreateInstance>(gi(nullptr,"vkCreateInstance"));
@@ -174,9 +174,13 @@ static void init_with_window(Gpu& g,HWND window,Swap& swap,bool two_queues,VkQue
     enabled.samplerAnisotropy=available.samplerAnisotropy;
     if(two_queues && family_queues<2)throw std::runtime_error("two-queues needs a graphics family with two queues");
     const float priorities[2]={1,1};VkDeviceQueueCreateInfo q={VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};q.queueFamilyIndex=g.family;q.queueCount=two_queues?2:1;q.pQueuePriorities=priorities;
-    const char* device_ext=VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+    const char* device_exts[]={VK_KHR_SWAPCHAIN_EXTENSION_NAME,VK_EXT_ROBUSTNESS_2_EXTENSION_NAME};
     VkDeviceCreateInfo dc={VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};dc.queueCreateInfoCount=1;dc.pQueueCreateInfos=&q;dc.pEnabledFeatures=&enabled;
-    dc.enabledExtensionCount=1;dc.ppEnabledExtensionNames=&device_ext;
+    // An explicit application request with false features keeps nullDescriptor
+    // disabled through the layer, without changing any production setting.
+    VkPhysicalDeviceRobustness2FeaturesEXT robust{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+    dc.enabledExtensionCount=no_null_descriptors?2:1;dc.ppEnabledExtensionNames=device_exts;
+    if(no_null_descriptors)dc.pNext=&robust;
     CHECK_VK(pCreateDevice(g.physical,&dc,nullptr,&g.device));
 #define X(n) p##n=reinterpret_cast<PFN_vk##n>(pGetDeviceProcAddr(g.device,"vk" #n));if(!p##n)throw std::runtime_error("vk" #n);
     DEVICE_CALLS(X)
@@ -273,11 +277,12 @@ int wmain(int argc,wchar_t** argv){
     // then the game reuses the region for another frame. Every buffer that holds bones has a twin, frame
     // f binds copy f%2, and before a frame is submitted the copy the frame before used is zeroed, as the
     // game's next writes would overwrite it. A read of another frame's region then finds no bones.
-    bool open_tests=false,two_queues=false,split_passes=false,animate_bones=false,rolling_bones=false;
+    bool open_tests=false,two_queues=false,split_passes=false,animate_bones=false,rolling_bones=false,no_null_descriptors=false;
     uint32_t depth_null_after=UINT32_MAX,depth_restore_after=UINT32_MAX;
     for(int a=3;a<argc;++a){const std::wstring flag=argv[a];if(flag==L"open")open_tests=true;else if(flag==L"two-queues")two_queues=true;
         else if(flag==L"split-passes")two_queues=split_passes=true;else if(flag==L"animate-bones")animate_bones=true;
         else if(flag==L"rolling-bones")animate_bones=rolling_bones=true;
+        else if(flag==L"no-null-descriptors")no_null_descriptors=true;
         else if(flag.rfind(L"depth-null-after=",0)==0)depth_null_after=uint32_t(_wtoi(flag.c_str()+17));
         else if(flag.rfind(L"depth-restore-after=",0)==0)depth_restore_after=uint32_t(_wtoi(flag.c_str()+20));}
     const uint32_t W=960,H=600;
@@ -289,7 +294,7 @@ int wmain(int argc,wchar_t** argv){
         HWND window=replay_window(640,360);
         Swap swap;
         VkQueue queues[2]={};
-        Gpu g;init_with_window(g,window,swap,two_queues,queues);
+        Gpu g;init_with_window(g,window,swap,two_queues,queues,no_null_descriptors);
 #define X(n) p##n=reinterpret_cast<PFN_vk##n>(pGetDeviceProcAddr(g.device,"vk" #n));if(!p##n)throw std::runtime_error("vk" #n);
         X(CmdSetStencilReference) X(CmdSetDepthBias) X(CmdClearColorImage) X(CmdClearDepthStencilImage)
 #undef X

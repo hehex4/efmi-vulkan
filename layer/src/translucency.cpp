@@ -642,13 +642,19 @@ VkFramebuffer Translucency::colour_framebuffer(VkImageView view, uint32_t view_i
     return found->second->framebuffer;
 }
 
-bool Translucency::composite_pipeline(VkFormat colour, VkImageLayout layout, const std::vector<VkDynamicState>& dynamic, VkPipeline& out,
+bool Translucency::composite_pipeline(VkFormat colour, VkImageLayout layout, const std::vector<VkDynamicState>& dynamic, bool has_depth, VkPipeline& out,
                                       std::string& why)
 {
     uint32_t mask = 0;
     for (auto s : dynamic) if (uint32_t(s) < 32) mask |= 1u << uint32_t(s);
-    const auto key = std::make_tuple(uint32_t(colour), uint32_t(layout), mask);
+    const auto key = std::make_tuple(uint32_t(colour), uint32_t(layout), mask, has_depth);
     if (const auto found = composite_pipelines_.find(key); found != composite_pipelines_.end()) { out = found->second; return true; }
+    // The original library binds a null SceneDepth SRV when a retained complete
+    // layer is captured without a DSV. DX11 reads zero. Keep that behavior even
+    // when the application has explicitly left nullDescriptor disabled.
+    std::vector<uint32_t> depthless;
+    if (!has_depth && !efmi::gpu::null_fragment_images(composite_ps_,
+            {{0, efmi::gpu::HlslCompiler::binding('p', 't', 116)}}, depthless, why)) return false;
     VkDevice dev = device_->handle;
     auto pass = composite_passes_.find({uint32_t(colour), uint32_t(layout)});
     if (pass == composite_passes_.end()) {
@@ -665,7 +671,7 @@ bool Translucency::composite_pipeline(VkFormat colour, VkImageLayout layout, con
         pass = composite_passes_.emplace(std::make_pair(uint32_t(colour), uint32_t(layout)), rp).first;
     }
     VkShaderModule modules[2] = {};
-    const std::vector<uint32_t>* code[2] = {&composite_vs_, &composite_ps_};
+    const std::vector<uint32_t>* code[2] = {&composite_vs_, has_depth ? &composite_ps_ : &depthless};
     for (int i = 0; i < 2; ++i) {
         VkShaderModuleCreateInfo mi = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         mi.codeSize = code[i]->size() * 4; mi.pCode = code[i]->data();
@@ -781,13 +787,12 @@ void Translucency::pass_end(CmdBuf* cb)
     if (scene.image.extent.width != layers->width || scene.image.extent.height != layers->height) {
         fail("EFMITTL: retained scene size differs from capture layers"); return;
     }
-    if (!has_depth && !device_->null_descriptors) { fail("EFMITTL: null scene depth requires nullDescriptor"); return; }
     std::shared_ptr<const void> keep_depth, keep_fb;
     VkPipeline composite = VK_NULL_HANDLE;
-    if (!composite_pipeline(VkFormat(scene.view.format), colour_layout, dynamic, composite, why)) { fail(why); return; }
+    if (!composite_pipeline(VkFormat(scene.view.format), colour_layout, dynamic, has_depth, composite, why)) { fail(why); return; }
     uint64_t depth_serial = 0;
     const VkImageView scene_depth = sdepth ? depth_view(*sdepth, keep_depth, depth_serial, why)
-                                         : VK_NULL_HANDLE;
+                                         : layers->spare_depth.view;
     if (has_depth && !scene_depth) { fail(why); return; }
     const VkFramebuffer scene_fb = scene.handle ? colour_framebuffer(scene.handle, scene.view.id, VkFormat(scene.view.format),
                                     colour_layout, layers->width, layers->height, scene.view.lifetime, keep_fb, why)
@@ -813,7 +818,9 @@ void Translucency::pass_end(CmdBuf* cb)
                 colours.push_back({VK_NULL_HANDLE, real ? layers->colour[l][f].view : layers->spare_colour.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
                 depths.push_back({VK_NULL_HANDLE, real ? layers->depth[l][f].view : layers->spare_depth.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
             }
-        const VkDescriptorImageInfo scene_info{VK_NULL_HANDLE, scene_depth, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+        // The depthless shader has no access through this valid retained view.
+        const VkDescriptorImageInfo scene_info{VK_NULL_HANDLE, scene_depth,
+            has_depth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         const VkDescriptorImageInfo params_info{VK_NULL_HANDLE, layers->params_views[kCalls], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         std::vector<VkWriteDescriptorSet> writes;
         auto write = [&](uint32_t slot, uint32_t count, const VkDescriptorImageInfo* infos) {
@@ -908,7 +915,7 @@ void Translucency::pass_end(CmdBuf* cb)
     // The composite's set holds every layer (the unused ones hold nothing it uses) and the scene depth.
     {
         std::vector<VkImageMemoryBarrier> b;
-        if (made != 0xf) {
+        if (made != 0xf || !has_depth) {
             b.push_back(image_barrier(layers->spare_colour.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0,
                                       VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT));
             b.push_back(image_barrier(layers->spare_depth.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 0,

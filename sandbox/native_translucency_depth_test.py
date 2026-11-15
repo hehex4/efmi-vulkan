@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(ROOT) / 'scripts'))
 import replay_capture as replay
 
 
-def main():
+def main(no_null_descriptors=False):
     root = Path(ROOT)
     out = root / 'build/replay/vk11'
     prep = subprocess.run([sys.executable, '-B', str(root / 'scripts/replay_capture.py'),
@@ -22,15 +22,21 @@ def main():
     if prep.returncode:
         print(prep.stdout + prep.stderr)
         return prep.returncode
-    checks = Checks('native translucency depth history')
+    checks = Checks('native depth history without null descriptors' if no_null_descriptors else 'native translucency depth history')
+    prefix = 'depth-no-null-' if no_null_descriptors else 'depth-'
     results = {}
     for name, null_at, restore_at in (('control', None, None), ('cold', 0, None),
                                       ('warm', 60, None), ('recover', 0, 60), ('warm-restore', 40, 70)):
         run = replay.run(out / 'replay_gpu.exe', out, Path(DIST), 100, True,
-                         Path('F:/vulkan/validation-1.4.321.0/bin'), name='depth-' + name,
-                         depth_null_after=null_at, depth_restore_after=restore_at)
+                         Path('F:/vulkan/validation-1.4.321.0/bin'), name=prefix + name,
+                         depth_null_after=null_at, depth_restore_after=restore_at,
+                         no_null_descriptors=no_null_descriptors)
         checks.equal(run['returncode'], 0, name + ': normal completion')
         checks.check('validation errors=0 ' in run['output'], name + ': clean core/synchronization errors')
+        if no_null_descriptors:
+            log = (run['folder'] / 'layer.log').read_text(encoding='utf-8', errors='replace')
+            checks.check(any('device created on' in line and 'null descriptors off' in line for line in log.splitlines()),
+                         name + ': actual device has nullDescriptor disabled')
         replacement = run['status'].get('result', {}).get('replacement', {})
         transparency = replacement.get('translucency', {})
         captures = transparency.get('captures', 0)
@@ -40,7 +46,11 @@ def main():
         else:
             checks.check(captures > 80 and composites > 80, name + ': capture and composite continue past depth changes')
         checks.check(not transparency.get('last_error'), name + ': absent depth is an ordinary library state')
-        index = json.loads((run['folder'] / 'targets.json').read_text())
+        target_index = run['folder'] / 'targets.json'
+        if not target_index.is_file():
+            checks.check(False, name + ': complete target index', 'missing after replay')
+            return checks.finish()
+        index = json.loads(target_index.read_text())
         targets = {}
         complete = True
         for target in index['targets']:

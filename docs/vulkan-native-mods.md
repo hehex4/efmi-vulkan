@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-269. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-270. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1097,3 +1097,7 @@ Ordinary own meshes receive the same library shader groups as merged components.
 ## Ordinary mesh forward captures (D-269)
 
 Own meshes can use EFMITTL deferred forward captures with the application vertex shader and bone inputs. They share retained scene snapshots and capture preparation with merged components. Output changes before/after captures and mixed immediate/deferred draws retain their original order. Nine scenes verify visible opacity, mask channels/inversion, cold missing depth, output restoration and independent immediate colour contributions. These are sandbox results on owned geometry, not character acceptance. Replay validation preserves every diagnostic, matching the existing Sandbox setting and bypassing the pinned validation layer's unsynchronized duplicate-message counter.
+
+## Null scene depth without null descriptors (D-270)
+
+A retained complete EFMITTL layer continues to capture and composite when its scene depth is unbound, including on a Vulkan device with nullDescriptor disabled. A separate composite variant makes the absent SceneDepth reads typed zero and retains a valid unused descriptor view. Restoring depth selects the normal variant. The original incomplete cold-layer history remains unchanged. Five actual GPU history scenes have identical complete target bytes with the feature enabled and disabled; this is scoped to the composite's scene-depth slot.
