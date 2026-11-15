@@ -74,6 +74,91 @@ bool CharacterGeneration::prepare_shadows(const CharacterList& list, uint32_t ow
     return true;
 }
 
+bool CharacterGeneration::prepare_captures(const PipeInfo& pipe, const CharacterList& list, CmdBuf* cb, const DrawRec& r,
+                                           const NativeTargetPlan& targets, const std::vector<size_t>& output_before,
+                                           const std::vector<const StaticMaterial*>& material_plans,
+                                           const std::vector<std::vector<SnapshotImage>>& material_views,
+                                           std::vector<std::shared_ptr<const TranslucentScene>>& capture_scenes)
+{
+    // EFMITTL's translucent draws (D-113): captured at the end of the pass when the library's
+    // shaders, the layers and the pass's targets are there; otherwise drawn as before.
+    capturing.assign(list.count, 0); capture_masks.assign(list.count, SnapshotImage{}); capture_t4.assign(list.count, 0);
+    capture_sets = static_cast<uint32_t>(pipe.layout->sets.size());
+    for (auto& v : scratch_captures) { v.clear(); v.resize(list.count); }
+    bool any_translucent = false;
+    for (uint32_t i = 0; i < list.count; ++i) any_translucent |= package.draws[list.first + i].translucent;
+    if (any_translucent) {
+        std::string why;
+        const uint32_t own_set = static_cast<uint32_t>(pipe.layout->sets.size());
+        capture_layers.reset();
+        bool ready = translucency && program && program->efmittl() &&
+                     translucency->shaders(program->library_folder("efmittl"), own_set, why);
+        capture_scenes.resize(list.count);
+        if (ready) {
+            if (!r.targets || r.targets > cb->target_contexts.size()) return refuse(C_STATE, "translucent capture: attachment context missing");
+            const RenderTargets* scene_targets = &cb->target_contexts[r.targets - 1];
+            size_t next_output = 0; uint32_t width = 0, height = 0;
+            for (uint32_t i = 0; i < list.count; ++i) {
+                if (!output_before.empty()) while (next_output < output_before[i]) {
+                    const auto& event = targets.events[next_output++];
+                    if (event && event->change) scene_targets = &event->targets;
+                }
+                if (!package.draws[list.first + i].translucent) continue;
+                auto& scene = capture_scenes[i]; scene = translucent_scene(device, *scene_targets, why);
+                if (!scene) return refuse(C_STATE, why);
+                const auto& extent = scene->colour.image.extent;
+                if (width && (width != extent.width || height != extent.height))
+                    return refuse(C_STATE, "capture dimensions changing within a list need a layer-reset adapter");
+                if (!width) {
+                    width = extent.width; height = extent.height;
+                    capture_layers = translucency->prepare(width, height, why);
+                    if (!capture_layers) { ready = false; break; }
+                }
+            }
+        }
+        if (!ready && !why.empty()) note(why);
+        for (uint32_t i = 0; ready && i < list.count; ++i) {
+            const CharacterDraw& d = package.draws[list.first + i];
+            if (!d.translucent) continue;
+            capturing[i] = 1;
+            if (d.mask_image != kCharacterNone) {
+                if (!textures || d.mask_image >= image_ids.size()) return refuse(C_IMAGE, "translucency mask outside the package's images");
+                auto& mask_bindings = scratch_image_bindings;
+                frame_image(image_ids[d.mask_image]);
+                textures->bind({image_ids[d.mask_image]}, mask_bindings);
+                if (mask_bindings.empty() || mask_bindings[0].failed) return refuse(C_IMAGE, "translucency mask: " + (mask_bindings.empty() ? std::string() : mask_bindings[0].reason));
+                if (!mask_bindings[0].view) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
+                capture_masks[i] = {mask_bindings[0].view, mask_bindings[0].owner};
+            }
+            // The game's screen-space mask (ps-t4) is replaced by the neutral one while captured.
+            const FragmentRegisters* registers = nullptr;
+            {
+                auto known = fragment_registers.find(pipe.id);
+                if (known == fragment_registers.end()) {
+                    FragmentRegisters fresh; fresh.readable = true;
+                    for (const auto& stage : pipe.recipe->stages)
+                        if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) {
+                            std::string ignored; fresh.readable = efmi::gpu::source_registers(stage.shader->code, fresh.list, ignored);
+                        }
+                    if (fragment_registers.size() >= 8192) fragment_registers.clear();
+                    known = fragment_registers.emplace(pipe.id, std::move(fresh)).first;
+                }
+                registers = &known->second;
+            }
+            if (registers->readable)
+                if (const auto* reg = efmi::gpu::find_source_register(registers->list, 't', 4);
+                    reg && reg->kind == efmi::gpu::SourceRegister::ImageSrv && reg->count == 1 && reg->dim == 1 &&
+                    image_counts.count(uint32_t(material_views[i].size()) + 1)) {
+                    bool patched = false;
+                    for (const auto& image : material_plans[i]->patch.images) patched |= image.set == reg->set && image.binding == reg->binding;
+                    for (const auto& image : material_plans[i]->patch.nulls) patched |= image.set == reg->set && image.binding == reg->binding;
+                    if (!patched) { capture_t4[i] = 1; capture_t4_binding = {reg->set, reg->binding}; }
+                }
+        }
+    }
+    return true;
+}
+
 // One captured call (D-113): its opacity set and parameter layer, the game's sets and dynamic
 // state of the draw (`own`: the pipeline's sets below the private one), queued after the list.
 // Caller holds the mod lock.
@@ -788,82 +873,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!material_draws(pipe->second, section_index, r, present, *list,
                             material_plans, material_views, material_origin)) return false;
         lap(S_MATERIALS);
-        // EFMITTL's translucent draws (D-113): captured at the end of the pass when the library's
-        // shaders, the layers and the pass's targets are there; otherwise drawn as before.
-        capturing.assign(list->count, 0); capture_masks.assign(list->count, SnapshotImage{}); capture_t4.assign(list->count, 0);
-        capture_sets = static_cast<uint32_t>(pipe->second.layout->sets.size());
-        for (auto& v : scratch_captures) { v.clear(); v.resize(list->count); }
-        bool any_translucent = false;
-        for (uint32_t i = 0; i < list->count; ++i) any_translucent |= package.draws[list->first + i].translucent;
-        if (any_translucent) {
-            std::string why;
-            const uint32_t own_set = static_cast<uint32_t>(pipe->second.layout->sets.size());
-            capture_layers.reset();
-            bool ready = translucency && program && program->efmittl() &&
-                         translucency->shaders(program->library_folder("efmittl"), own_set, why);
-            capture_scenes.resize(list->count);
-            if (ready) {
-                if (!r.targets || r.targets > cb->target_contexts.size()) return refuse(C_STATE, "translucent capture: attachment context missing");
-                const RenderTargets* scene_targets = &cb->target_contexts[r.targets - 1];
-                size_t next_output = 0; uint32_t width = 0, height = 0;
-                for (uint32_t i = 0; i < list->count; ++i) {
-                    if (!output_before.empty()) while (next_output < output_before[i]) {
-                        const auto& event = targets.events[next_output++];
-                        if (event && event->change) scene_targets = &event->targets;
-                    }
-                    if (!package.draws[list->first + i].translucent) continue;
-                    auto& scene = capture_scenes[i]; scene = translucent_scene(device, *scene_targets, why);
-                    if (!scene) return refuse(C_STATE, why);
-                    const auto& extent = scene->colour.image.extent;
-                    if (width && (width != extent.width || height != extent.height))
-                        return refuse(C_STATE, "capture dimensions changing within a list need a layer-reset adapter");
-                    if (!width) {
-                        width = extent.width; height = extent.height;
-                        capture_layers = translucency->prepare(width, height, why);
-                        if (!capture_layers) { ready = false; break; }
-                    }
-                }
-            }
-            if (!ready && !why.empty()) note(why);
-            for (uint32_t i = 0; ready && i < list->count; ++i) {
-                const CharacterDraw& d = package.draws[list->first + i];
-                if (!d.translucent) continue;
-                capturing[i] = 1;
-                if (d.mask_image != kCharacterNone) {
-                    if (!textures || d.mask_image >= image_ids.size()) return refuse(C_IMAGE, "translucency mask outside the package's images");
-                    auto& mask_bindings = scratch_image_bindings;
-                    frame_image(image_ids[d.mask_image]);
-                    textures->bind({image_ids[d.mask_image]}, mask_bindings);
-                    if (mask_bindings.empty() || mask_bindings[0].failed) return refuse(C_IMAGE, "translucency mask: " + (mask_bindings.empty() ? std::string() : mask_bindings[0].reason));
-                    if (!mask_bindings[0].view) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
-                    capture_masks[i] = {mask_bindings[0].view, mask_bindings[0].owner};
-                }
-                // The game's screen-space mask (ps-t4) is replaced by the neutral one while captured.
-                const FragmentRegisters* registers = nullptr;
-                {
-                    auto known = fragment_registers.find(pipe->second.id);
-                    if (known == fragment_registers.end()) {
-                        FragmentRegisters fresh; fresh.readable = true;
-                        for (const auto& stage : pipe->second.recipe->stages)
-                            if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) {
-                                std::string ignored; fresh.readable = efmi::gpu::source_registers(stage.shader->code, fresh.list, ignored);
-                            }
-                        if (fragment_registers.size() >= 8192) fragment_registers.clear();
-                        known = fragment_registers.emplace(pipe->second.id, std::move(fresh)).first;
-                    }
-                    registers = &known->second;
-                }
-                if (registers->readable)
-                    if (const auto* reg = efmi::gpu::find_source_register(registers->list, 't', 4);
-                        reg && reg->kind == efmi::gpu::SourceRegister::ImageSrv && reg->count == 1 && reg->dim == 1 &&
-                        image_counts.count(uint32_t(material_views[i].size()) + 1)) {
-                        bool patched = false;
-                        for (const auto& image : material_plans[i]->patch.images) patched |= image.set == reg->set && image.binding == reg->binding;
-                        for (const auto& image : material_plans[i]->patch.nulls) patched |= image.set == reg->set && image.binding == reg->binding;
-                        if (!patched) { capture_t4[i] = 1; capture_t4_binding = {reg->set, reg->binding}; }
-                    }
-            }
-        }
+        if (!prepare_captures(pipe->second, *list, cb, r, targets, output_before,
+                              material_plans, material_views, capture_scenes)) return false;
         // EFMITTL's translucent calls in a shadow pass (D-185): drawn in place with the shadow fragment stage, the call's
         // mask (if any) its one private image. Where the library's shaders are not there, drawn as before: the library's
         // own rule for a shadow pass it does not recognise, the full shadow.
@@ -1235,14 +1246,15 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         return refuse(C_STATE, "a Mod's own mesh outside a primary classic render pass or after extended binds");
     // Output changes and every draw are prepared before recording the first pass split.
     // record() already holds res_mx; retained owners outlive the generation and its caches.
-    std::vector<size_t> output_before;
+    std::vector<size_t> output_before, emitted_output_before;
+    std::vector<std::shared_ptr<const TranslucentScene>> capture_scenes;
     const bool caller_in_outputs=!scratch_outputs.items.empty() && !scratch_outputs.skip_original;
     if(caller_in_outputs && (r.kind!=DK_INDEXED || !draw.CmdDrawIndexed || scratch_outputs.pre_items>scratch_outputs.items.size()))
         return refuse(C_STATE,"a Mod's ordered application caller is incomplete");
     if(!scratch_outputs.items.empty()){
         for(size_t i=0;i<scratch_outputs.items.size();++i)
             if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed ||
-               (scratch_outputs.items[i].operation==efmi::assets::FileOperation::Translucent && scratch_outputs.items[i].shadow))
+               scratch_outputs.items[i].operation==efmi::assets::FileOperation::Translucent)
                 output_before.push_back(i);
         if(output_before.size()!=list.count)return refuse(C_STATE,"a Mod's own mesh output/draw order is incomplete");
     }
@@ -1263,6 +1275,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     const uint32_t own = static_cast<uint32_t>(pipe.layout->sets.size());
     uint32_t shadow_draws = 0;
     if (!prepare_shadows(list, own, views, shadow_draws)) return false;
+    if (!prepare_captures(pipe, list, cb, r, targets, output_before, plans, views, capture_scenes)) return false;
     if (own >= kMaxSets) {
         if (device->max_layout_sets > own) return refuse(C_SET3, "a Mod's own mesh: the slot above the pipeline's sets is in use and not tracked");
     } else if (r.sets[own].pushed) {
@@ -1294,13 +1307,34 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     const bool no_dither = dithered && g_dither_off.load(std::memory_order_relaxed);
     auto& variants = scratch_variants; variants.assign(list.count, {});
     struct Waiting { uint32_t draw; VertexInputRecipe vertex; FragmentPatch patch;
-                     uint64_t identity; std::shared_ptr<const GraphicsRecipe> recipe; };
+                     uint64_t identity; std::shared_ptr<const GraphicsRecipe> recipe; uint32_t kind=UINT32_MAX; };
     std::vector<Waiting> waiting; // allocates only for a cold variant
     for (uint32_t i = 0; i < list.count; ++i) {
         VertexInputRecipe vertex;
         std::string reason;
         if (!package.vertex_input(package.draws[list.first + i], pipe.recipe->vertex, vertex, reason))
             return refuse(C_VERTEX, "a Mod's own mesh: vertex declaration: " + reason);
+        if (capturing[i]) {
+            for (uint32_t k = 0; k < kCaptureKinds; ++k) {
+                const auto recipe = translucency->recipe(pipe, CaptureKind(k), own, reason);
+                if (!recipe) return refuse(C_VARIANT, "own mesh capture: " + reason);
+                FragmentPatch patch;
+                if (k < 2) {
+                    patch = plans[i]->patch; patch.no_dither = no_dither;
+                    if (capture_t4[i]) patch.images.push_back({capture_t4_binding.first, capture_t4_binding.second});
+                } else patch.replacement_images = 2;
+                patch.keep_vertex = true; patch.own_geometry = true;
+                const auto identity = capture_identity(pipe.id, CaptureKind(k));
+                const auto result = cache->request(identity, recipe, pipe.layout, vertex, patch);
+                if (k < 2 && dithered) cache->prepare(identity, recipe, pipe.layout, vertex, other_state(patch));
+                if (result.variant) { scratch_captures[k][i] = result.variant; continue; }
+                if (result.state == VariantState::Queued || result.state == VariantState::Building) {
+                    waiting.push_back({i, vertex, std::move(patch), identity, recipe, k}); continue;
+                }
+                return refuse(C_VARIANT, "own mesh capture variant: " + result.reason);
+            }
+            continue;
+        }
         auto recipe = pipe.recipe; uint64_t identity = pipe.id;
         FragmentPatch patch;
         if (shadowing[i]) {
@@ -1328,7 +1362,11 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         const auto remaining = std::max(std::chrono::milliseconds(0),
             std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
         const auto result = cache->await(request.identity, request.recipe, pipe.layout, request.vertex, request.patch, remaining);
-        if (result.variant) { variants[request.draw] = result.variant; continue; }
+        if (result.variant) {
+            if (request.kind == UINT32_MAX) variants[request.draw] = result.variant;
+            else scratch_captures[request.kind][request.draw] = result.variant;
+            continue;
+        }
         if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
         return refuse(C_VARIANT, "a Mod's own mesh: variant: " + result.reason);
     }
@@ -1338,7 +1376,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     std::vector<VkPipeline> compatible;
     if(native_target_masked(cb) || !scratch_outputs.items.empty()){
         compatible.resize(list.count);
-        for(uint32_t i=0;i<list.count;++i){
+        for(uint32_t i=0;i<list.count;++i)if(!capturing[i]){
             std::string reason;
             if(!(compatible[i]=native_target_variant(device,cb,*variants[i],reason,&targets,output_before.empty()?0:output_before[i])))
                 return refuse(C_VARIANT,"own mesh compatible pass: "+reason);
@@ -1354,15 +1392,25 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     auto& geometry = scratch_geometry; if (geometry.size() < list.count) geometry.resize(list.count);
     auto& items = scratch_items; items.clear();
     static const InstanceEntry unused{};
+    scratch_pending_captures.clear();
+    const AppendBones append_owned = [&](DrawSnapshots& arena, const std::vector<SnapshotImage>& images, SnapshotSlot& slot) {
+        return arena.append_images(unused, images, slot);
+    };
     for (uint32_t i = 0; i < list.count; ++i) {
         const CharacterDraw& d = package.draws[list.first + i];
-        const uint32_t count = static_cast<uint32_t>(views[i].size());
+        const auto* slot_views = &views[i];
+        if (capturing[i] && capture_t4[i]) {
+            scratch_capture_views = views[i]; scratch_capture_views.push_back(Translucency::neutral_view(capture_layers));
+            if (!scratch_capture_views.back().view) return refuse(C_IMAGE, "own mesh capture layers missing");
+            slot_views = &scratch_capture_views;
+        }
+        const uint32_t count = static_cast<uint32_t>(slot_views->size());
         const auto arena = count ? command_owner->material_snapshots.find(count) : command_owner->material_snapshots.end();
         DrawSnapshots* const snapshots = count ? (arena == command_owner->material_snapshots.end() ? nullptr : arena->second.get())
                                                : command_owner->snapshots.get();
         if (!snapshots) return refuse(C_EXHAUSTED, "a Mod's own mesh: no arena for its images");
         SnapshotSlot slot;
-        if (!snapshots->append_images(unused, views[i], slot)) return refuse(C_EXHAUSTED, snapshots->reason);
+        if (!snapshots->append_images(unused, *slot_views, slot)) return refuse(C_EXHAUSTED, snapshots->reason);
         DrawGeometry& g = geometry[i];
         g = original;
         for (uint32_t s = 0; s < g.buffers.size() && s < 4; ++s) {
@@ -1380,10 +1428,23 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         }
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         args.instances = d.instances; args.first_instance = d.first_instance; args.indexed = d.indexed;
+        if (capturing[i]) {
+            if (!capture(cb, r, own, d, i, slot, g, args, append_owned, command_owner, capture_scenes[i])) return false;
+            continue;
+        }
+        if (!output_before.empty()) emitted_output_before.push_back(output_before[i]);
         items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});
     }
+    if (!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,emitted_output_before,[]{},true))
+        return refuse(C_VARIANT,"own mesh capture transaction refused");
+    for (auto& c : scratch_pending_captures) {
+        std::string why;
+        if (!translucency->queue(cb, std::move(c), why)) { scratch_pending_captures.clear(); return refuse(C_STATE, why); }
+        ++counters[C_TRANSLUCENT];
+    }
+    scratch_pending_captures.clear();
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
-    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,output_before,[&]{
+    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,emitted_output_before,[&]{
         if(restore_layout){
             draw.CmdBindDescriptorSets(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,restore_layout,restore_slot,1,&restore_set,
                                        static_cast<uint32_t>(restore_offsets.size()),restore_offsets.empty()?nullptr:restore_offsets.data());

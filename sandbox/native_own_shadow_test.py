@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(ROOT) / 'scripts'))
 import replay_capture as replay
 
 
-def main(merged=False):
+def main(merged=False, forward=False):
     root = Path(ROOT)
     out = root / 'build/replay/vk11'
     prep = subprocess.run([sys.executable, '-B', str(root / 'scripts/replay_capture.py'),
@@ -27,8 +27,8 @@ def main(merged=False):
         print(prep.stdout + prep.stderr)
         return prep.returncode
     source = replay.MODS / 'ardelia lily whisper 1.5'
-    prefix = 'merged-opacity-' if merged else 'own-shadow-'
-    mods = root / ('build/native-merged-opacity/Mods' if merged else 'build/native-own-shadow/Mods')
+    prefix = 'own-capture-' if forward else 'merged-opacity-' if merged else 'own-shadow-'
+    mods = root / ('build/native-own-capture/Mods' if forward else 'build/native-merged-opacity/Mods' if merged else 'build/native-own-shadow/Mods')
     mod = mods / 'mod'
     mod.mkdir(parents=True, exist_ok=True)
     shutil.copytree(replay.MODS / 'EFMITTL', mods / 'EFMITTL', dirs_exist_ok=True)
@@ -52,10 +52,13 @@ def main(merged=False):
     dds(mod / 'shadow-mask.dds', (255, 0, 128, 255))
     call = '    run = CommandList\\EFMITTL\\Draw'
     assert original.count(call) == 1
-    guard = '    if $\\EFMITTL\\vs_kind == 2 || $\\EFMITTL\\vs_kind == 3\n'
-    checks = Checks('native merged opacity values' if merged else 'native own mesh opacity shadows')
-    results = {}
-    for case in ('low', 'high', 'restore_before', 'restore', 'mask_zero', 'mask_one', 'mask_invert'):
+    guard = '    if $\\EFMITTL\\vs_kind == 1 && o0 !== null && o2 === null\n' if forward else '    if $\\EFMITTL\\vs_kind == 2 || $\\EFMITTL\\vs_kind == 3\n'
+    checks = Checks('native own mesh forward captures' if forward else 'native merged opacity values' if merged else 'native own mesh opacity shadows')
+    results, counters = {}, {}
+    cases = ('low', 'high', 'restore_before', 'restore', 'mask_zero', 'mask_one', 'mask_invert')
+    if forward:
+        cases += ('post_restore', 'mixed')
+    for case in cases:
         before, after = '', ''
         if case in ('restore_before', 'restore'):
             before = '        ResourceShadowDepth = ref oD\n        oD = null\n'
@@ -64,12 +67,18 @@ def main(merged=False):
                 before += restore
             else:
                 after = restore
+        if case == 'post_restore':
+            after = '        ResourceShadowDepth = ref oD\n        oD = null\n        oD = ref ResourceShadowDepth\n'
+        if case == 'mixed':
+            # The forward pass expects the opaque prepass depth. Remove that
+            # test for the immediate box, then restore it before capture.
+            before = '        ResourceShadowDepth = ref oD\n        oD = null\n        drawindexed = 36,0,0\n        oD = ref ResourceShadowDepth\n'
         if case.startswith('mask_'):
             before += '        Resource\\EFMITTL\\Mask = ref ResourceShadowMask\n'
             before += '        $\\EFMITTL\\mask_channel = ' + ('0' if case == 'mask_one' else '1') + '\n'
             before += '        $\\EFMITTL\\mask_invert = ' + ('1' if case == 'mask_invert' else '0') + '\n'
         text = original.replace(call, guard + before + call + '\n' + after + '    endif')
-        text = text.replace('$\\EFMITTL\\alpha = 0.7', '$\\EFMITTL\\alpha = ' + ('0.25' if case in ('low', 'restore_before', 'restore') else '0.75'))
+        text = text.replace('$\\EFMITTL\\alpha = 0.7', '$\\EFMITTL\\alpha = ' + ('0.25' if case in ('low', 'restore_before', 'restore', 'post_restore', 'mixed') else '0.75'))
         (mod / 'mod.ini').write_text(text.encode('ascii', 'backslashreplace').decode(), encoding='ascii')
         replay.MODS = mods
         run = replay.run(out / 'replay_gpu.exe', out, Path(DIST), 30, True,
@@ -79,9 +88,19 @@ def main(merged=False):
         replacement = run['status'].get('result', {}).get('replacement', {})
         totals = replacement.get('counters', {})
         checks.check(totals.get('replaced' if merged else 'own_mesh', 0) > 20, case + ': actual requested mesh route draws')
-        checks.check(totals.get('translucent_shadows', 0) > 40, case + ': opacity shadow variants execute')
+        if forward:
+            transparency = replacement.get('translucency', {})
+            captures, composites = transparency.get('captures', 0), transparency.get('composites', 0)
+            checks.check((captures == composites == 0 if case == 'restore' else captures > 20 and composites > 20)
+                         and not transparency.get('last_error'), case + ': forward capture follows cold depth history')
+        else:
+            checks.check(totals.get('translucent_shadows', 0) > 40, case + ': opacity shadow variants execute')
         checks.check(not any(v for k, v in totals.items() if k.startswith('refused_')), case + ': no refused plans')
-        index = json.loads((run['folder'] / 'targets.json').read_text())
+        target_index = run['folder'] / 'targets.json'
+        if not target_index.is_file():
+            checks.check(False, case + ': complete fenced target bytes', 'target index missing')
+            return checks.finish()
+        index = json.loads(target_index.read_text())
         targets, complete = {}, True
         for target in index['targets']:
             data = (run['folder'] / target['file']).read_bytes()
@@ -89,12 +108,22 @@ def main(merged=False):
             targets[target['group'], target['attachment']] = target['format'], hashlib.sha256(data).hexdigest()
         checks.check(complete and bool(targets), case + ': complete fenced target bytes')
         results[case] = targets
+        counters[case] = totals
         print(case, {k: totals.get(k, 0) for k in ('own_mesh', 'translucent_shadows', 'refused_state', 'refused_variant')})
     changed = {key for key in results['low'] if results['low'][key] != results['high'].get(key)}
-    checks.check(bool(changed) and all(124 <= results['low'][key][0] <= 130 for key in changed), 'opacity changes shadow depth only')
+    checks.check(bool(changed) and all((key[1] == 0 and results['low'][key][0] < 124) if forward
+                                     else (124 <= results['low'][key][0] <= 130) for key in changed),
+                 'opacity changes composed colour only' if forward else 'opacity changes shadow depth only')
     for case, control in (('restore_before', 'low'), ('mask_one', 'high'), ('mask_invert', 'high'), ('mask_zero', 'restore')):
         checks.equal(results[case], results[control], case + ': original mask/output semantics preserve every equivalent target byte')
-    checks.check(results['mask_zero'] != results['high'], 'a zero mask actually removes the shadow geometry')
+    checks.check(results['mask_zero'] != results['high'], 'a zero mask actually removes the visible contribution')
+    if forward:
+        checks.equal(results['post_restore'], results['low'], 'outputs restored after queuing preserve all captured target bytes')
+        checks.check(counters['mixed'].get('items', 0) > counters['low'].get('items', 0) and counters['mixed'].get('translucent', 0) > 20,
+                     'ordinary and deferred geometry both execute in one own-mesh list')
+        checks.check(any(results['low'][key] != results['mixed'][key] for key in results['low'] if results['low'][key][0] < 124)
+                     and all(results['low'][key] == results['mixed'][key] for key in results['low'] if results['low'][key][0] in (124, 126, 130)),
+                     'the immediate box changes scene colour while restored depth stays intact')
     return checks.finish()
 
 

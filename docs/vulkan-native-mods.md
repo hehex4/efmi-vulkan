@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-268. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-269. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1092,4 +1092,8 @@ Merged component lists may change outputs before, between and after deferred cap
 
 ## Library opacity shadows on both mesh routes (D-268)
 
-Ordinary own meshes receive the same library shader groups as merged components. Their opacity shadows retain the application's vertex shader and bone inputs while applying the library's fragment shader, mask channel and inversion. Both routes share retained mask preparation and execute output changes in list order. Generated native shaders explicitly opt into Vulkan preprocessing so their specialization declarations survive; ordinary Mod sources keep original preprocessing. Seven scenes per route prove opacity and mask behavior with complete target readbacks, alongside compiler and existing mesh/output regressions. Ordinary own-mesh forward captures remain a separate adapter.
+Ordinary own meshes receive the same library shader groups as merged components. Their opacity shadows retain the application's vertex shader and bone inputs while applying the library's fragment shader, mask channel and inversion. Both routes share retained mask preparation and execute output changes in list order. Generated native shaders explicitly opt into Vulkan preprocessing so their specialization declarations survive; ordinary Mod sources keep original preprocessing. Seven scenes per route prove opacity and mask behavior with complete target readbacks, alongside compiler and existing mesh/output regressions. Ordinary own-mesh forward captures are covered by D-269 below.
+
+## Ordinary mesh forward captures (D-269)
+
+Own meshes can use EFMITTL deferred forward captures with the application vertex shader and bone inputs. They share retained scene snapshots and capture preparation with merged components. Output changes before/after captures and mixed immediate/deferred draws retain their original order. Nine scenes verify visible opacity, mask channels/inversion, cold missing depth, output restoration and independent immediate colour contributions. These are sandbox results on owned geometry, not character acceptance. Replay validation preserves every diagnostic, matching the existing Sandbox setting and bypassing the pinned validation layer's unsynchronized duplicate-message counter.

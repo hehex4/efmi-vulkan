@@ -1093,20 +1093,15 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         if (!runtime_->draw(request, plan, reason)) return false;
         bool ordered_outputs=false;
         if(outputs){
-            bool translucent=false;
             for(const auto& item:plan.items){
                 using Op=efmi::assets::FileOperation;
-                if(item.operation==Op::DrawIndexed || item.operation==Op::Translucent){
-                    translucent|=item.operation==Op::Translucent && !item.shadow;
-                }else if(item.operation==Op::NativeBind){
+                if(item.operation==Op::NativeBind){
                     using B=efmi::frontend::NativeBinding;
                     if(item.native_target.kind!=B::ColorTarget && item.native_target.kind!=B::DepthTarget)
                         throw std::runtime_error("Mod native descriptors need their own executor");
                     ordered_outputs=true;
                 }
             }
-            if(ordered_outputs && translucent && request.component==kCharacterNone)
-                throw std::runtime_error("Deferred own-mesh output events need their capture executor");
         }
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
         listing.p = this; listing.began = std::chrono::steady_clock::now();

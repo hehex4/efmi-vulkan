@@ -416,6 +416,9 @@ public:
     // A capture's variant (`kind` its CaptureKind) or a translucent shadow's (`kind` UINT32_MAX, D-185) still being built.
     struct WaitingCapture { uint32_t draw, kind; VertexInputRecipe vertex; std::shared_ptr<const GraphicsRecipe> recipe; FragmentPatch patch; uint64_t identity; };
     std::vector<uint8_t> shadowing;                           // per list draw: a translucent call drawn in a shadow pass (D-185)
+    bool prepare_captures(const PipeInfo&, const CharacterList&, CmdBuf*, const DrawRec&, const NativeTargetPlan&,
+                          const std::vector<size_t>&, const std::vector<const StaticMaterial*>&,
+                          const std::vector<std::vector<SnapshotImage>>&, std::vector<std::shared_ptr<const TranslucentScene>>&);
     bool prepare_shadows(const CharacterList&, uint32_t own_set, std::vector<std::vector<SnapshotImage>>&, uint32_t& count);
     std::vector<WaitingCapture> waiting_captures;
     std::vector<SnapshotImage> scratch_capture_views;
