@@ -1,4 +1,5 @@
 // Native resource-reference ownership checks, included by tracker_test.
+#include "../layer/src/command_owner.h"
 #include "../layer/src/native_resources.h"
 #include "../layer/src/native_images.h"
 #include "../layer/src/character_module.h"

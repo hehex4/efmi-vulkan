@@ -2,8 +2,8 @@
 #include "gpu_analysis.h"
 // Entry points and the intercepted Vulkan functions.
 //
-// Ordinary probe hooks observe and forward. An explicitly configured M2 package can replace
-// its one matching component through the separately gated experimental backend.
+// Ordinary probe hooks observe and forward. Configured Mods and native shader overrides
+// dispatch through the shared, exchangeable replacement backend.
 //
 // The hooks get in front of the application in one of two ways:
 //   layer  - the Vulkan loader loads the DLL as a layer and chains it in through

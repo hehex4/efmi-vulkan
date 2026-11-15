@@ -73,10 +73,14 @@ sufficient. Source inspection confirms the central problems, with these correcti
   private prefix bytes exchanges into the unchanged host, including classic target,
   image/uniform persistence, own-mesh and merged draws. Private header edits keep
   the ABI; shared protocol edits still change it. No real-game exchange occurred.
-- **I-08: legacy remains, but is not wholly dead.** The non-character M2 branch is
-  still selectable and has a regression step. Retirement needs explicit removal
-  of that configuration/test surface and retention of the host exchange glue.
-  File length alone is not a functional bug.
+- **I-08: selectable M2 prototype retired in D-282 (3.1.0).** The baseline
+  demonstrates that it was not wholly dead (6/12). Its executor, private mesh owner,
+  command owner and Device member are removed; the host's module exchange and
+  submission glue remain. Legacy files receive an explicit diagnostic and cannot
+  activate a backend (12/12). Modern character replacement passes 377 checks and
+  native scope exchanges pass. Removing shared Device state deliberately changes
+  the ABI. The `.bin` validation round trip and further responsibility-based file
+  separation remain open; file length alone is not a functional bug.
 - **I-09: verification gap confirmed, deployment claim clarified.** Verified host,
   injected and backend binaries are built in `.worktrees/fix/dist/` each round;
   the root `dist/` and real-game deployment are separate older artifacts. This

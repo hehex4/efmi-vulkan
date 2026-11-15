@@ -1,8 +1,6 @@
-// Experimental single-component integration; inactive unless a package is explicitly configured.
+// Host dispatch, submission and exchange for the replacement module; hook names retain their historical prefix.
 #pragma once
-#include "command_owner.h"
-#include "draw_snapshots.h"
-#include "variant_cache.h"
+#include "common.h"
 
 namespace efvk {
 struct Device;
@@ -11,16 +9,6 @@ struct SubmitWork;
 struct CmdBuf;
 struct DrawRec;
 class JsonWriter;
-class M2Backend;
-struct M2GpuMesh;
-// The single-component backend's part of a command buffer.
-struct M2Command : CommandOwner {
-    std::shared_ptr<DrawSnapshots> snapshots;
-    std::shared_ptr<const M2GpuMesh> mesh;
-    std::vector<std::shared_ptr<const PipelineVariant>> variants;
-    void reset_after_completion() override { used = false; variants.clear(); snapshots->recycle_completed(); }
-    bool seal() override { if (snapshots->sealed()) return false; snapshots->seal(); return true; }
-};
 void m2_create(Device*,const VkPhysicalDeviceProperties&,const VkPhysicalDeviceMemoryProperties&);
 void m2_stop(Device*);
 void m2_retire(Device*,VkPipeline);

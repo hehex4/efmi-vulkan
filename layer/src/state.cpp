@@ -1,5 +1,6 @@
 // Tracking of memory, buffers, pipelines and command buffers; frame assembly; probe requests.
 #include "state.h"
+#include "command_owner.h"
 #include <condition_variable>
 #include <thread>
 #include "m2_backend.h"

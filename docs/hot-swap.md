@@ -21,7 +21,7 @@ that copy unless told otherwise. `efmi_vk_backend.dll`, the module, holds the sa
 |---|---|---|
 | hooks, tracker, probe pipe, captures | yes | no |
 | character backend, its package and materials, derived material rules, merged skeleton, pipeline variants and their cache, draw snapshots, texture upload | built in | yes |
-| single-component backend of 0.9.x | yes | no |
+| single-component backend of 0.9.x | retired in 3.1.0 | no |
 
 `layer/src/character_module.h` is the boundary: a table of the backend's functions
 (`CharacterModule`: create, usable, ready, activate, stop, record, retire, frame, status, enable, submit, native pipeline/image/target scope callbacks)
@@ -168,7 +168,7 @@ absence of every transient frame during takeover.
   old backend (with the mesh it keeps alive) in a command buffer that never draws the character
   again.
 - A fault in a module is a fault in the game process.
-- The single-component backend is not exchangeable.
+- Single-component EFMIM201 packages no longer select a runtime backend (D-282). Use a character package or Mods folder. The retirement removes shared Device state, so 3.1.0 requires its matching host.
 
 
 ## Stable installation paths (D-207, 2.3.7)

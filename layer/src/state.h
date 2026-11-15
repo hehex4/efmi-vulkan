@@ -26,7 +26,6 @@ struct NativeTargetState;
 struct NativePipelineSelection;
 struct NativeImageCache;
 
-class M2Backend;
 class CharacterBackend;
 struct PresentWork;
 struct CommandOwner;
@@ -637,7 +636,6 @@ struct Device {
     std::atomic<uint64_t> present_waits{0};
     PFN_vkSetDeviceLoaderData set_loader_data = nullptr;
     DeviceDispatch d;
-    std::shared_ptr<M2Backend> m2;
     // The character backend in use and the functions of the code it belongs to. Calls into it hold
     // character_mx shared; exchanging it (m2_backend.cpp) takes the lock exclusively. `staged` is a
     // backend of other code that is getting ready to take over.

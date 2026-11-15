@@ -4,6 +4,12 @@
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.
 
+D-282 retires the old single-component executor and its Device member. m2_backend.cpp
+now contains only replacement-module host dispatch, submission and exchange. The
+historical `m2` hook/probe names remain for compatibility; EFMIM201 files cannot
+activate a runtime backend. Character packages and Mods folders keep their shared
+backend, while legacy mesh decoding survives only as an offline fixture utility.
+
 D-279 routes native pipeline/image/target scope callbacks through the installed module.
 The host retains Vulkan pipeline handles and opaque implementation owners; native_state.h
 defines the shared recording/cache protocol. Private planner and pipeline layouts do not

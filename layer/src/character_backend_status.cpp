@@ -142,7 +142,7 @@ void generation_status(CharacterGeneration& backend, JsonWriter& w)
     w.kb("configured", bool(backend.cache));
     w.kb("enabled", backend.enabled.load());
     w.kb("ready", backend.ready.load());
-    // The names the single-component backend reports, so that one reader serves both.
+    // Keep the established probe counter names for existing clients.
     uint64_t unsupported = 0, unreadable = backend.counters[C_ENTRY].load() + backend.counters[C_BONES].load();
     for (uint32_t c = C_STATE; c <= C_BINDINGS; ++c) unsupported += backend.counters[c].load();
     unsupported += backend.counters[C_MATERIAL].load() + backend.counters[C_IMAGE].load();

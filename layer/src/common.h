@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "3.0.9"
+#define EFVK_VERSION "3.1.0"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -43,7 +43,7 @@ enum class Entry {
 struct Config {
     Mode mode = Mode::Probe;
     Entry entry = Entry::Layer;
-    std::string m2_package; // explicit experimental mesh package; empty keeps ordinary probe behavior
+    std::string m2_package; // character package or package directory; Mods folders use m2_mods
     // Directory generation (D-078): the EFMI Mods folder whose character Mods run without packages,
     // the Core folder they run with (default: Core\EFMI beside the Mods folder) and the project-owned
     // folder their settings are saved in (default: settings beside the replacement module).

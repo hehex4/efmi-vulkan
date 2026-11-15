@@ -4,6 +4,16 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-282: Keep one replacement backend and retire EFMIM201 runtime selection (2026-11-15)
+
+- I-08's single-component prototype was still selectable, not dead code: d282-before.out on 3.0.9 passes 6/12. Both layer and inject entries allocate/configure it for an EFMIM201 package, even with replacement disabled; the original application and validation remain correct.
+- Source 3.1.0 / ABI 134dd78b13c38aaa removes M2Backend, M2GpuMesh, M2Command and Device::m2. Character packages and Mods folders still use the shared replacement module. Unknown/legacy package files remain inactive with an explicit retirement diagnostic; the probe cannot enable an absent backend. Submission-owner sealing, native scope callbacks, module staging/retirement and character shutdown remain in the host glue. Historical hook/configuration names remain compatible for character packages. The offline legacy mesh decoder remains a fixture utility.
+- This removes a separate per-component execution architecture; it does not alter original INI semantics. The original BeforeDraw/AfterDraw lists operate on one retained context, with DX11 reference-counted lifetime and deferred destruction, hazard tracking and context order. Modern Vulkan replacements continue through their explicit command owners and shared module dispatch.
+- d282-final-pair.out builds the four artifacts, tracker 764/764 and matching stamps. The first build exposed CommandOwner declarations formerly supplied through the removed private includes; state.cpp, host glue and the lifetime fixture now include that public ownership interface explicitly. The failed d282-pair.out is not passing evidence. Removing an actual Device member changes the shared ABI deliberately; this version requires a matching host, rather than pretending it is a private implementation change.
+- d282-regression.out backend-retirement passes all steps: legacy refusal 12, character package 115 and replacement 377, matched descriptors 72, application texture references 98, module boundary 7, classic scope 17, image scope 13, uniform scope 13, own-mesh scope 24, merged scope 11, tracker 764, Vulkan validation 76 and text 683. Both loader entries exit normally. Modern module exchange is sandbox-only. No real-game, deployment, launcher, system or remote action.
+- I-08's binary round-trip validation and further file separation remain open; file length alone does not justify arbitrary rewrites. Continue I-04's shared pass/image state, preserving physical-storage checks and persistent requests. I-01 still needs a cross-queue dependency solution: a global completion chain can deadlock valid wait-before-signal submissions.
+
+
 ## D-281: Resolve application pixel references into the shared private material path (2026-11-15)
 
 - I-06 / BUG-146: d281-before.out on 3.0.8 passes 38/44. Cross-slot pixel references degrade to the original texture or are refused by the matched material planner; four independent scenes miss the requested green/zero pixels, with clean core/sync validation.
