@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-277. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-278. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1133,3 +1133,7 @@ Real Vulkan input-only scenes verify both overlap refusal and disjoint suballoca
 ## Persistent graphics uniform references (D-277)
 
 Retained application uniform requests are checked at each later pass. A conflicting attachment allocation restores the retained application descriptor; an independent later pass restores the request. Ordinary dynamic descriptor offsets are normalized once. CPU driver stubs verify handles, offsets and ranges; sandbox cases verify real allocation conflicts, completed module exchange and clean validation. This does not establish cross-queue resource safety or real-game acceptance.
+
+## Nonblocking matched draw readiness (D-278)
+
+Merged, own-mesh and texture-only plans queue cold pipeline variants and texture loads without waiting for workers under the device resource or generation locks. Completed upload publication and retained owners remain mandatory. Pending replacements are held until ready; lists that draw beside the application preserve their caller. Core/synchronization-clean cold-start scenes report zero pipeline and texture waits, with final geometry, material, shadow and capture output checked. This does not remove every synchronous preparation cost or close the separate multi-queue execution gap.

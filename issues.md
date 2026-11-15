@@ -4,6 +4,70 @@ Date: 2026-11-15
 Reviewed source version: `3.0.4` (`D-276`, commit `69ea1cc`)
 Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 2026-11-12)
 
+## Implementation audit (2026-11-15; remediation in progress)
+
+The findings below are review inputs, not evidence that every proposed remedy is
+sufficient. Source inspection confirms the central problems, with these corrections:
+
+- **I-01: confirmed blocker, still open.** The guards exist and conflict with the
+  measured two-graphics-queue device. Null no-ops and published immutable file
+  descriptors already have exemptions, so the claimed 100% refusal is too broad.
+  A per-queue completion timeline protects readback completion; it does not order
+  newly introduced accesses against other queues. `queue_signalled` is a bounded
+  set of semaphore handles, not a resource-hazard graph. Removing the guards alone
+  would be incorrect. Validation must include actual overlapping submissions and
+  semaphore stage coverage, not only alternating completed frames (`--two-queues`
+  currently drains the previous queue). See the [Vulkan synchronization rules](https://docs.vulkan.org/spec/latest/chapters/synchronization.html).
+- **I-02: accepted priority correction.** Freeze expansion of unobserved extension
+  matrices. Existing compatibility code stays covered when touched. Historical
+  captures establish observed behavior; they cannot prove future engine/device
+  configurations will never use other API features. Shared mechanisms remain
+  independent of character identity.
+- **I-03: confirmed.** Only `native_calls` prepares native descriptors. The matched
+  character paths share some lower-level emission already, but descriptor planning
+  is still disconnected. The fix must also connect INI resource resolution and
+  preserve command-list ordering, not merely call the descriptor helper four times.
+- **I-04: confirmed structural limitation.** A classic pass boundary is a valid
+  place for barriers, but is not sufficient by itself: allocation aliases between
+  different objects, persistent descriptor requests and saved layout restoration
+  state must participate in the same transaction. D-275 through D-277 provide
+  storage/fallback checks that must survive this consolidation.
+- **I-05: reproduced waits fixed in D-278 (3.0.6).** `d278-before.out` on 3.0.5 passes
+  17/20: cold merged/texture draws perform three pipeline waits and two texture
+  waits; own-mesh draws perform one pipeline wait. These scenes otherwise render
+  correctly with clean core/synchronization validation. Contrary to the original
+  location summary, the merged path's current await loop also remains inside
+  `res_mx`. The remediation queues background work and holds pending replacement
+  draws instead of waiting under resource/generation locks. The focused result is
+  20/20 with zero pipeline/texture waits; the draw-readiness regression also passes
+  real captured opacity/capture scenes and ordered output restoration. Other
+  synchronous preparation costs and unmatched native acquisition are not covered
+  by this claim.
+- **I-06: confirmed open compatibility work.** General in-draw application inputs,
+  matched cross-slot rebinding and input-layout edits need their shared execution
+  adapter. Unmatched Route 2 descriptor support is not evidence for these paths.
+- **I-07: confirmed coupling, incomplete proposed fix.** The roots are in
+  `scripts/build.py::ABI_ROOTS`; `scripts/build_character_module.py` does not exist.
+  `character_module.h` does not directly include the three headers listed below.
+  The host additionally calls image/scope helpers and reads
+  `native_target_state->classic`. Old recordings and device caches can survive a
+  module exchange, so moving only `native_target_bind` cannot safely remove their
+  layouts from the ABI. An opaque boundary must retain the code that owns each
+  object's representation. The actual replacement binary is `efmi_vk_backend.dll`.
+- **I-08: legacy remains, but is not wholly dead.** The non-character M2 branch is
+  still selectable and has a regression step. Retirement needs explicit removal
+  of that configuration/test surface and retention of the host exchange glue.
+  File length alone is not a functional bug.
+- **I-09: verification gap confirmed, deployment claim clarified.** Verified host,
+  injected and backend binaries are built in `.worktrees/fix/dist/` each round;
+  the root `dist/` and real-game deployment are separate older artifacts. This
+  round does not authorize loading into the game. Preparing a release candidate
+  cannot close the missing real-character validation.
+
+D-277 (`7e6eb5c`) completes the already pending uniform fallback fix before this
+architecture work. Its 764 CPU checks, 52 persistence checks, existing application
+images/uniforms and Vulkan validation pass. It is not a resolution of I-01.
+
 ---
 
 ## 1. Premise and Scope of This Review

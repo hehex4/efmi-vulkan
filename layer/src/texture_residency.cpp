@@ -241,7 +241,7 @@ void TextureResidency::demand(Image& image)
     if (image.skip_levels) ++reduced_;
 }
 
-void TextureResidency::bind(const std::vector<ImageId>& ids, std::vector<Binding>& bindings)
+void TextureResidency::bind(const std::vector<ImageId>& ids, std::vector<Binding>& bindings, bool wait)
 {
     bindings.clear(); bindings.resize(ids.size());
     if (ids.empty()) return;
@@ -285,7 +285,7 @@ void TextureResidency::bind(const std::vector<ImageId>& ids, std::vector<Binding
         if (accept(slot, snapshot)) continue;
         if (snapshot.state == assets::ResourceState::Dormant) demand(image);
         else if (snapshot.state == assets::ResourceState::Queued) cache_->prioritize(image.handle);
-        if (device_->upload_queue && image.resident) waiting.push_back({slot, image.handle});
+        if (wait && device_->upload_queue && image.resident) waiting.push_back({slot, image.handle});
         else ++pending_;
     }
     if (waiting.empty()) return;

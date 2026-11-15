@@ -52,7 +52,9 @@ public:
     // Queue all selected images before waiting on the owned queue. One bounded deadline per
     // transaction; only Ready images whose timeline publication completed can be returned.
     // Without an independent upload queue, unresolved bindings stay null for later submissions.
-    void bind(const std::vector<ImageId>&, std::vector<Binding>&);
+    // Draw planning passes wait=false: enqueue missing resources and return retained
+    // published bindings immediately, without waiting under resource/generation locks.
+    void bind(const std::vector<ImageId>&, std::vector<Binding>&, bool wait = true);
     // The images a package's frame needs, counted as bound now: what is not resident is demanded,
     // and true only when every one is published (D-097).
     bool ensure(const std::vector<ImageId>&);

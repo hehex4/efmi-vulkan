@@ -141,6 +141,7 @@ def scene(checks,case,matched=False):
  if mode!='control' and not matched:checks.check(status.get('executed',0)>0 and not status.get('last_reason'),case+': null binding executes without refusal')
  checks.check(not any(marker in sb.output() for marker in ('Validation Error','VALIDATION ERROR','VUID-','SYNC-HAZARD')),case+': core and synchronization validation clean')
  (root/'status.json').write_text(json.dumps(replacement,indent=2),encoding='ascii');print('artifacts:',root,'color/aspect counts',counts)
+ return replacement
 if __name__=='__main__':
  checks=Checks('native classic Mod variants');selected=set(sys.argv[1:])
  for case in ('depth_mesh_control','depth_mesh_null','mrt_mesh_null','depth_mesh_shader','depth_mesh_original','depth_mesh_pink','depth_mesh_pinkclear','depth_mesh_swap','depth_mesh_filter_active','depth_mesh_filter_inactive'):

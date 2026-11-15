@@ -16,18 +16,17 @@ void CharacterGeneration::begin_gate_frame(uint64_t present)
     last_variants_pending = frame_variants_pending; frame_variants_pending = false;
     gate_open = !last_variants_pending;
     if (gate_open && textures && !textures->ensure(last_frame_images)) {
-        // A texture of the frame before is not resident (evicted, demoted, or its load refused):
-        // the recording waits for it, as 3DMigoto loads a Mod's texture when it is first bound,
-        // rather than drawing the game's mesh meanwhile (the user's bar: a loaded Mod never shows
-        // the original again). The frame goes to the game only when the wait failed.
+        // Requeue missing textures and observe completed publication without blocking.
+        // record() holds pending replacements until a later complete frame; failed
+        // resources keep the existing explicit fallback and diagnostic.
         auto& bindings = scratch_image_bindings;
-        textures->bind(last_frame_images, bindings);
+        textures->bind(last_frame_images, bindings, false);
         gate_open = textures->ensure(last_frame_images);
         if (!gate_open && !gate_logged) {
             gate_logged = true;
             std::string why;
-            for (const auto& b : bindings) if (!b.view) { why = b.failed ? b.reason : "still loading after the wait"; break; }
-            logf("character frame gated: textures of %zu images not resident (%s); the game draws this package this frame",
+            for (const auto& b : bindings) if (!b.view) { why = b.failed ? b.reason : "still loading in the background"; break; }
+            logf("character frame gated: textures of %zu images not resident (%s); replacement waits for a complete frame",
                  last_frame_images.size(), why.c_str());
         }
     }
@@ -415,7 +414,7 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
         selected.push_back(image_ids[asset]); frame_image(image_ids[asset]);
     }
     auto& bindings = scratch_image_bindings;
-    if (!selected.empty()) textures->bind(selected, bindings);
+    if (!selected.empty()) textures->bind(selected, bindings, false);
     bool pending = false;
     size_t binding = 0;
     if (views.size() < plans.size()) views.resize(plans.size());
@@ -429,11 +428,11 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
             draw_views.push_back({bound.view, bound.owner});
         }
     }
-    // An image still on its way after the bind's wait (its load refused by the budget, or the wait
-    // timed out) closes the package's frame (D-097); logged once, as this shows the game's mesh.
+    // An unpublished image closes this package's frame without blocking its recording
+    // thread. The caller distinguishes pending work from a failed resource above.
     if (pending) {
         gate_open = false; ++counters[C_IMAGE_PENDING];
-        if (!gate_logged) { gate_logged = true; logf("character frame gated: a texture of the draw is not resident after the wait; the game draws this package this frame"); }
+        if (!gate_logged) { gate_logged = true; logf("character frame gated: a texture of the draw is not resident yet; replacement waits for a complete frame"); }
         return false;
     }
     return true;

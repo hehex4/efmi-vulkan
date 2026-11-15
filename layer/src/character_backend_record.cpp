@@ -61,7 +61,7 @@ bool CharacterGeneration::prepare_shadows(const CharacterList& list, uint32_t ow
             if (!image_counts.count(1)) return refuse(C_MATERIAL, "translucent shadow: no arena of one image");
             auto& mask_bindings = scratch_image_bindings;
             frame_image(image_ids[d.mask_image]);
-            textures->bind({image_ids[d.mask_image]}, mask_bindings);
+            textures->bind({image_ids[d.mask_image]}, mask_bindings, false);
             if (mask_bindings.empty() || mask_bindings[0].failed)
                 return refuse(C_IMAGE, "translucency mask: " + (mask_bindings.empty() ? std::string() : mask_bindings[0].reason));
             if (!mask_bindings[0].view) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
@@ -125,7 +125,7 @@ bool CharacterGeneration::prepare_captures(const PipeInfo& pipe, const Character
                 if (!textures || d.mask_image >= image_ids.size()) return refuse(C_IMAGE, "translucency mask outside the package's images");
                 auto& mask_bindings = scratch_image_bindings;
                 frame_image(image_ids[d.mask_image]);
-                textures->bind({image_ids[d.mask_image]}, mask_bindings);
+                textures->bind({image_ids[d.mask_image]}, mask_bindings, false);
                 if (mask_bindings.empty() || mask_bindings[0].failed) return refuse(C_IMAGE, "translucency mask: " + (mask_bindings.empty() ? std::string() : mask_bindings[0].reason));
                 if (!mask_bindings[0].view) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
                 capture_masks[i] = {mask_bindings[0].view, mask_bindings[0].owner};
@@ -367,6 +367,9 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     const uint64_t entered_us = host_time_us();
     StageMark locking(trace, "character draw (generation lock)");
     std::lock_guard<std::mutex> mod_lock(mod_mx);
+    const uint64_t pending_before = counters[C_PENDING] + counters[C_IMAGE_PENDING];
+    const uint64_t gated_before = counters[C_GATED];
+    const bool recorded = [&]() -> bool {
     ScratchScope scratch_scope{*this};
     StageMark stage(trace, "character draw (plan, variants, recording)");
     uint64_t mark_us = host_time_us();
@@ -490,6 +493,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 // A draw the plan added gets its material plans now: a later plan of the same state adds nothing.
                 if (added && !refresh_materials()) return false;
                 if (!skip && !textures) {
+                    beside = true;
                     // Draws beside the game's (D-179): the game's draw stays whatever happens to the Mod's, also while
                     // the package comes up.
                     if (!on_device) { bring_up(); return false; }
@@ -879,8 +883,6 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         // mask (if any) its one private image. Where the library's shaders are not there, drawn as before: the library's
         // own rule for a shadow pass it does not recognise, the full shadow.
         if (!prepare_shadows(*list, uint32_t(pipe->second.layout->sets.size()), material_views, shadow_draws)) return false;
-        struct WaitingVariant { uint32_t draw; VertexInputRecipe vertex; };
-        std::vector<WaitingVariant> waiting; // Allocates only for a cold variant.
         variants.resize(list->count);
         // While a discard gate is set (D-133) the draw's fragment stage goes without the character dither,
         // as the application's own draws of the pipeline do through its twin. The other state is prepared
@@ -922,7 +924,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 const auto result = cache->request(identity_key, recipe, pipe->second.layout, vertex, patch);
                 if (result.variant) { variants[i] = result.variant; continue; }
                 if (result.state == VariantState::Queued || result.state == VariantState::Building) {
-                    waiting_captures.push_back({i, UINT32_MAX, vertex, recipe, std::move(patch), identity_key}); continue;
+                    pending = true; continue;
                 }
                 return refuse(C_VARIANT, "translucent shadow variant: " + result.reason);
             }
@@ -942,7 +944,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     if (k < 2 && dithered) cache->prepare(capture_identity(pipe->second.id, CaptureKind(k)), recipe, pipe->second.layout, vertex, other_state(patch));
                     if (result.variant) { scratch_captures[k][i] = result.variant; continue; }
                     if (result.state == VariantState::Queued || result.state == VariantState::Building) {
-                        waiting_captures.push_back({i, k, vertex, recipe, std::move(patch), capture_identity(pipe->second.id, CaptureKind(k))}); continue;
+                        pending = true; continue;
                     }
                     return refuse(C_VARIANT, "translucent capture variant: " + result.reason);
                 }
@@ -954,33 +956,13 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             std::string reason;
             if (!package.vertex_input(package.draws[list->first + i], pipe->second.recipe->vertex, vertex, reason))
                 return refuse_shape(C_VERTEX, "character vertex declaration: " + reason);
-            // Issue all cold requests before waiting so the existing builders can run in parallel.
+            // Queue every cold variant before deferring this draw to a later frame.
             const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, patch_of(i));
             if (dithered) cache->prepare(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, other_state(patch_of(i)));
             if (keep_variant(i, result)) continue;
-            if (result.state == VariantState::Queued || result.state == VariantState::Building) { waiting.push_back({i, std::move(vertex)}); continue; }
-            return refuse_shape(C_VARIANT, "character variant: " + result.reason);
-        }
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
-        for (const auto& request : waiting) {
-            const auto remaining = std::max(std::chrono::milliseconds(0),
-                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
-            const auto result = cache->await(pipe->second.id, pipe->second.recipe, pipe->second.layout,
-                request.vertex, patch_of(request.draw), remaining);
-            if (keep_variant(request.draw, result)) continue;
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
             return refuse_shape(C_VARIANT, "character variant: " + result.reason);
         }
-        for (const auto& request : waiting_captures) {
-            const auto remaining = std::max(std::chrono::milliseconds(0),
-                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
-            const auto result = cache->await(request.identity, request.recipe, pipe->second.layout, request.vertex, request.patch, remaining);
-            if (result.variant && request.kind == UINT32_MAX) { variants[request.draw] = result.variant; continue; }
-            if (result.variant) { scratch_captures[request.kind][request.draw] = result.variant; continue; }
-            if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
-            return refuse(C_VARIANT, "translucent capture variant: " + result.reason);
-        }
-        waiting_captures.clear();
         if (pending) { gate_open = false; frame_variants_pending = true; ++counters[C_PENDING]; return false; }
         // Images and variants were asked for above, so a closed frame still brings them up.
         if (!gate_open) return gated();
@@ -1136,6 +1118,18 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (plan->compatibility) ++counters[C_COMPAT_ITEMS];
     }
     return !beside || !scratch_outputs.items.empty();
+    }();
+    // A background request may finish on a later frame. Hold a replacement draw
+    // while it is pending; a list drawing beside the application keeps its caller.
+    // Hard resource failures still use the existing explicit fallback path.
+    const bool pending = counters[C_PENDING] + counters[C_IMAGE_PENDING] != pending_before;
+    const bool frame_pending = counters[C_GATED] != gated_before &&
+        (!textures || !textures->any_failed(last_frame_images));
+    if (!recorded && !beside && (pending || frame_pending)) {
+        if (pending) ++counters[C_GATED];
+        return true;
+    }
+    return recorded;
 }
 
 bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present,
@@ -1192,12 +1186,15 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     const bool dithered = g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(pipe.id, *pipe.recipe);
     patch.no_dither = dithered && g_dither_off.load(std::memory_order_relaxed);
     apply_hunting(patch);
-    const auto result = cache->await(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, patch, std::chrono::milliseconds(4000));
+    const auto result = cache->request(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, patch);
     if (dithered) cache->prepare(pipe.id, pipe.recipe, pipe.layout, pipe.recipe->vertex, other_state(patch));
     if (!result.variant) {
-        if (result.state == VariantState::Queued || result.state == VariantState::Building) { ++counters[C_PENDING]; return false; }
+        if (result.state == VariantState::Queued || result.state == VariantState::Building) {
+            gate_open = false; frame_variants_pending = true; ++counters[C_PENDING]; return false;
+        }
         return refuse(C_VARIANT, "texture-only variant: " + result.reason);
     }
+    if (!gate_open) return gated();
     // Every character package that replaces draws of a recording has its own owner in it.
     std::string compatibility_reason;
     const auto compatible=native_target_variant(device,cb,*result.variant,compatibility_reason,&targets,scratch_outputs.pre_items);
@@ -1306,9 +1303,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     const bool dithered = g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(pipe.id, *pipe.recipe);
     const bool no_dither = dithered && g_dither_off.load(std::memory_order_relaxed);
     auto& variants = scratch_variants; variants.assign(list.count, {});
-    struct Waiting { uint32_t draw; VertexInputRecipe vertex; FragmentPatch patch;
-                     uint64_t identity; std::shared_ptr<const GraphicsRecipe> recipe; uint32_t kind=UINT32_MAX; };
-    std::vector<Waiting> waiting; // allocates only for a cold variant
+    bool pending = false;
     for (uint32_t i = 0; i < list.count; ++i) {
         VertexInputRecipe vertex;
         std::string reason;
@@ -1329,7 +1324,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
                 if (k < 2 && dithered) cache->prepare(identity, recipe, pipe.layout, vertex, other_state(patch));
                 if (result.variant) { scratch_captures[k][i] = result.variant; continue; }
                 if (result.state == VariantState::Queued || result.state == VariantState::Building) {
-                    waiting.push_back({i, vertex, std::move(patch), identity, recipe, k}); continue;
+                    pending = true; continue;
                 }
                 return refuse(C_VARIANT, "own mesh capture variant: " + result.reason);
             }
@@ -1353,20 +1348,6 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         const auto result = cache->request(identity, recipe, pipe.layout, vertex, patch);
         if (dithered && !shadowing[i]) cache->prepare(identity, recipe, pipe.layout, vertex, other_state(patch));
         if (result.variant) { variants[i] = result.variant; continue; }
-        if (result.state == VariantState::Queued || result.state == VariantState::Building) { waiting.push_back({i, std::move(vertex), std::move(patch), identity, recipe}); continue; }
-        return refuse(C_VARIANT, "a Mod's own mesh: variant: " + result.reason);
-    }
-    bool pending = false;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(4);
-    for (const auto& request : waiting) {
-        const auto remaining = std::max(std::chrono::milliseconds(0),
-            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
-        const auto result = cache->await(request.identity, request.recipe, pipe.layout, request.vertex, request.patch, remaining);
-        if (result.variant) {
-            if (request.kind == UINT32_MAX) variants[request.draw] = result.variant;
-            else scratch_captures[request.kind][request.draw] = result.variant;
-            continue;
-        }
         if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
         return refuse(C_VARIANT, "a Mod's own mesh: variant: " + result.reason);
     }

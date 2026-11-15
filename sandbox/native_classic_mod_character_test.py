@@ -11,7 +11,7 @@ from runtime_fixture import CORE, fixture
 from efmi_vk.hashes import crc32c
 
 
-def scene(checks, case, matched=False, output_only=False, merged_outputs=False):
+def scene(checks, case, matched=False, output_only=False, merged_outputs=False, cold=False):
     root = Path(test_dir('classic-mod-character-' + case + '-'))
     mods = root / 'Mods'
     folder = mods / 'fixture'
@@ -63,6 +63,7 @@ def scene(checks, case, matched=False, output_only=False, merged_outputs=False):
                  EFMI_VK_TEST_UNMATCHED_SHADE='5', EFMI_VK_TEST_CLASSIC_NULL='1',
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC='1',
                  VK_LAYER_DUPLICATE_MESSAGE_LIMIT='0', XDG_CACHE_HOME=str(root), TMPDIR=str(root), TEMP=str(root), TMP=str(root))
+    if cold:extra['EFMI_VK_M2_TEXTURE_PRELOAD']='0'
     if matched:extra['EFMI_VK_TEST_MOD_OUTPUT_DEPTH']='1'
     if output_only:extra['EFMI_VK_TEST_UNMATCHED_SHADE']='0' if case=='hide' else '1'
     if merged_outputs and case=='swap':extra['EFMI_VK_TEST_UNMATCHED_SHADE']='1'
@@ -112,6 +113,7 @@ def scene(checks, case, matched=False, output_only=False, merged_outputs=False):
     if result.returncode:
         print(output[-5000:])
     print('artifacts:', root)
+    return status
 
 
 if __name__ == '__main__':
