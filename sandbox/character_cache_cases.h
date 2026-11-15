@@ -4,6 +4,30 @@ namespace efvk {
 void character_cache_cases(void (*check)(bool, const char*))
 {
     Device device;
+    {
+        CharacterBackend backend;backend.device=&device;
+        CmdBuf cb;cb.in_rp=true;
+        auto pass=std::make_shared<RenderPassRecipe>();pass->complete=true;pass->subpasses.resize(1);
+        cb.pass.recipe=pass;DrawRec context_draw;context_draw.kind=DK_INDEXED;
+        FragmentPatch patch;
+        {
+            HuntingDrawScope outer(backend,&cb,context_draw,0);apply_hunting(patch);
+            check(patch.dynamic_depth==0,"Mod shader filters see the actual absent classic depth before lists");
+            auto with_depth=std::make_shared<RenderPassRecipe>(*pass);with_depth->subpasses[0].has_depth=true;
+            with_depth->subpasses[0].depth.attachment=0;cb.pass.recipe=with_depth;apply_hunting(patch);
+            check(patch.dynamic_depth==0,"changing outputs inside a draw does not reevaluate its chosen shader filter");
+            {
+                HuntingDrawScope inner(backend,&cb,context_draw,0);apply_hunting(patch);
+                check(patch.dynamic_depth==1,"a following draw samples the new actual depth presence");
+                DrawRec compute;compute.kind=DK_DISPATCH;
+                {HuntingDrawScope dispatch(backend,&cb,compute,0);apply_hunting(patch);
+                    check(patch.dynamic_depth==-1,"compute dispatch does not inherit a graphics depth filter");}
+                apply_hunting(patch);check(patch.dynamic_depth==1,"nested dispatch restores its enclosing graphics selection");
+            }
+            apply_hunting(patch);check(patch.dynamic_depth==0,"nested draw restores its enclosing depth-filter snapshot");
+        }
+        apply_hunting(patch);check(patch.dynamic_depth==-1,"draw exit restores the previous unselected filter context");
+    }
     std::vector<uint8_t> bytes(1024, 7);
     const auto memory = reinterpret_cast<VkDeviceMemory>(uintptr_t(0xc040));
     const auto buffer = reinterpret_cast<VkBuffer>(uintptr_t(0xc040));
@@ -40,12 +64,12 @@ void character_cache_cases(void (*check)(bool, const char*))
     std::vector<std::weak_ptr<const PipelineVariant>> retired;
     auto command_owner = std::make_shared<PipelineVariant>(VK_NULL_HANDLE, VariantDispatch{});
     auto other = std::make_shared<PipelineVariant>(VK_NULL_HANDLE, VariantDispatch{});
-    generation.variant_lookup.emplace(std::make_tuple(999u, 0u, &material, false, 0u), other);
+    generation.variant_lookup.emplace(std::make_tuple(999u, 0u, &material, false, 0u, -1), other);
     for (uint32_t id = 1; id <= 256; ++id) {
         auto variant = id == 1 ? command_owner : std::make_shared<PipelineVariant>(VK_NULL_HANDLE, VariantDispatch{});
         retired.push_back(variant);
-        generation.variant_lookup.emplace(std::make_tuple(id, 0u, &material, false, 0u), variant);
-        generation.variant_lookup.emplace(std::make_tuple(id, 1u, &material, true, 0u), variant);
+        generation.variant_lookup.emplace(std::make_tuple(id, 0u, &material, false, 0u, -1), variant);
+        generation.variant_lookup.emplace(std::make_tuple(id, 1u, &material, true, 0u, -1), variant);
         variant.reset(); generation_retire(generation, id);
     }
     check(generation.variant_lookup.size() == 1 && !retired[0].expired(),

@@ -778,7 +778,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             if (!result.variant->native_warning.empty()) note(result.variant->native_warning);
             variants[i] = result.variant;
             if (variant_lookup.size() < 65536)
-                variant_lookup.emplace(std::make_tuple(pipe->second.id, list->first + i, material_plans[i], no_dither, t_hunting_marking), result.variant);
+                variant_lookup.emplace(std::make_tuple(pipe->second.id, list->first + i, material_plans[i], no_dither, t_hunting_marking, t_shader_depth), result.variant);
             return true;
         };
         for (uint32_t i = 0; i < list->count; ++i) {
@@ -827,7 +827,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 }
                 continue;
             }
-            const auto lookup_key = std::make_tuple(pipe->second.id, list->first + i, material_plans[i], no_dither, t_hunting_marking);
+            const auto lookup_key = std::make_tuple(pipe->second.id, list->first + i, material_plans[i], no_dither, t_hunting_marking, t_shader_depth);
             if (const auto known = variant_lookup.find(lookup_key); known != variant_lookup.end()) { variants[i] = known->second; continue; }
             VertexInputRecipe vertex;
             std::string reason;

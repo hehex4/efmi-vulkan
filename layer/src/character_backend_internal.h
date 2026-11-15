@@ -68,7 +68,9 @@ namespace character_internal {
 
 constexpr uint32_t kHuntingPink = 1u << 31;
 inline thread_local uint32_t t_hunting_marking = 0;
+inline thread_local int t_shader_depth = -1;
 inline void apply_hunting(FragmentPatch& patch) {
+    patch.dynamic_depth = t_shader_depth;
     patch.original_stages = t_hunting_marking & ~kHuntingPink;
     patch.pink = (t_hunting_marking & kHuntingPink) != 0;
     if (patch.original_stages & VK_SHADER_STAGE_FRAGMENT_BIT) patch.no_dither = false;
@@ -571,7 +573,7 @@ public:
     bool init_materials();
     // The variant a (pipeline, draw, material plan) resolved to, kept per generation (D-106): the
     // variant cache's key building and lookup cost 5 us per replaced draw. Cleared with the plans.
-    std::map<std::tuple<uint32_t, uint32_t, const StaticMaterial*, bool, uint32_t>, std::shared_ptr<const PipelineVariant>> variant_lookup;
+    std::map<std::tuple<uint32_t, uint32_t, const StaticMaterial*, bool, uint32_t, int>, std::shared_ptr<const PipelineVariant>> variant_lookup;
     std::vector<FragmentPatch> scratch_patches; // a draw's material patch without the dither (D-133)
     bool refresh_materials();
     // `origin`: 0 the package's own profile or nothing to bind, 1 rules derived from the module, 2 the application's images.
@@ -902,12 +904,13 @@ void character_created(CharacterBackend& b, VkPipeline pipeline);
 class HuntingDrawScope {
 public:
     HuntingDrawScope(CharacterBackend&, CmdBuf*, const DrawRec&, uint32_t marking);
-    ~HuntingDrawScope() { t_hunting_marking = previous_; }
+    ~HuntingDrawScope() { t_hunting_marking = previous_; t_shader_depth = previous_depth_; }
     const DrawRec& draw() const { return marked_ ? *marked_ : original_; }
 private:
     const DrawRec& original_;
     std::unique_ptr<DrawRec> marked_;
     uint32_t previous_;
+    int previous_depth_;
 };
 
 } // namespace efvk

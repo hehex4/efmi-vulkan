@@ -79,7 +79,7 @@ def scene(checks,case):
  moved=sum(max(abs(a-b) for a,b in zip(pixel,clear))>12 for pixel in region)
  pink=sum(pixel==bytes((255,0,255)) for pixel in region)
  checks.check(moved>200,case+': the Mod triangle actually moved away from the original geometry')
- if shader or hunting:checks.equal(pink>200,shader or mode=='pink',case+': moved Mod geometry follows the selected shader')
+ if shader or hunting or filtered:checks.equal(pink>200,shader or mode=='pink' or (filtered and mode=='inactive'),case+': moved Mod geometry follows the selected shader and actual depth filter')
  checks.equal(counts[1],902,case+': independent source color remains intact')
  if owned or mrt:
   value=band_pixels(Path(str(source)+('.original.raw' if owned else '.mrt.raw')));counts.append(value);checks.equal(value,wanted,case+': actual targeted owned color stops and restores at the requested boundary')
@@ -91,12 +91,12 @@ def scene(checks,case):
    count=sum(data[y*width+x]==7 if stencil else struct.unpack_from('<f',data,4*(y*width+x))[0]<.99 for y in range(int(height*.46),int(height*.54)) for x in range(width)) if width and len(data)==width*height*size else None
    checks.equal(count,5516,case+': control original depth loses the moved Mod triangle') if mode=='control' and label=='original' else checks.equal(count,want,case+': '+label+' aspect follows ordered bindings');counts.append(count)
  if hunting:checks.equal(colored_pixels(screen,(255,0,255)),5516 if mode=='pink' else 0,case+': compatible pipeline preserves marking and clear restoration')
- if filtered:checks.equal(colored_pixels(screen,(255,0,255)),902 if mode=='active' else 5516,case+': current shader selection survives unbind and next draw refreshes the actual depth filter')
+ if filtered:checks.equal(colored_pixels(screen,(255,0,255)),902 if mode=='active' else 4614,case+': current shader selection survives unbind and next draw refreshes the actual depth filter')
  elif shader:checks.equal(colored_pixels(screen,(255,0,255)),5516,case+': compatible pipeline preserves selected replacement shader')
  if mode!='control':checks.check(status.get('executed',0)>0 and not status.get('last_reason'),case+': null binding executes without refusal')
  checks.check(not any(marker in sb.output() for marker in ('Validation Error','VALIDATION ERROR','VUID-','SYNC-HAZARD')),case+': core and synchronization validation clean')
  (root/'status.json').write_text(json.dumps(replacement,indent=2),encoding='ascii');print('artifacts:',root,'color/aspect counts',counts)
 checks=Checks('native classic Mod variants');selected=set(sys.argv[1:])
-for case in ('depth_mesh_control','depth_mesh_null','mrt_mesh_null','depth_mesh_shader','depth_mesh_original','depth_mesh_pink','depth_mesh_pinkclear','depth_mesh_swap'):
+for case in ('depth_mesh_control','depth_mesh_null','mrt_mesh_null','depth_mesh_shader','depth_mesh_original','depth_mesh_pink','depth_mesh_pinkclear','depth_mesh_swap','depth_mesh_filter_active','depth_mesh_filter_inactive'):
  if not selected or case in selected:scene(checks,case)
 raise SystemExit(checks.finish())

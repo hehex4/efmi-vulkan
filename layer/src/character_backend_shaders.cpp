@@ -730,11 +730,20 @@ bool character_shader_draw(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
 }
 
 HuntingDrawScope::HuntingDrawScope(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, uint32_t marking)
-    : original_(r), previous_(t_hunting_marking)
+    : original_(r), previous_(t_hunting_marking), previous_depth_(t_shader_depth)
 {
     t_hunting_marking = marking;
-    if (!marking || !cb) return;
     const bool compute = r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT;
+    // ProcessShaderOverride tests the DSV before lists; every Mod draw inherits that choice.
+    t_shader_depth = -1;
+    if (!compute && cb && cb->in_rp && !cb->inherited_rp) {
+        uint32_t outputs = 0;
+        if (cb->dyn_rp_count && native_dynamic_outputs(cb, cb->active_targets, outputs))
+            t_shader_depth = int((outputs >> 8) & 1);
+        else if (!cb->dyn_rp_count && cb->pass.recipe && cb->pass.recipe->complete && cb->pass.subpass < cb->pass.recipe->subpasses.size())
+            t_shader_depth = cb->pass.recipe->subpasses[cb->pass.subpass].uses_depth() ? 1 : 0;
+    }
+    if (!marking || !cb) return;
     auto pipeline = character_bind(b, cb, r.pipeline, marking);
     if(!compute)pipeline=native_target_bind(b.device,cb,pipeline);
     auto& bound = compute ? cb->comp_bound : cb->gfx_bound;
