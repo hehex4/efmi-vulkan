@@ -14,6 +14,9 @@ struct HlslRequest {
     uint32_t flags=1u<<15; // Original D3DCOMPILE_OPTIMIZATION_LEVEL3.
     uint32_t vulkan_version=VK_API_VERSION_1_1;
     int recursive_include=0;
+    // Generated native adapters may opt into __spirv__ for their Vulkan branch.
+    // The DXBC reference and ordinary Mod sources keep the original preprocessing.
+    bool native_spirv_defines=false;
 };
 struct ShaderDependency {std::filesystem::path path;std::vector<uint8_t> bytes;};
 enum class ShaderBufferKind {Unspecified,Typed,Raw,Structured};

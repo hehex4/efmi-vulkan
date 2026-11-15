@@ -325,6 +325,7 @@ bool Translucency::shadow_shaders(const std::filesystem::path& library, uint32_t
             efmi::gpu::HlslRequest request;
             // The library's opacity.hlsli is found through the working directory, as an include beside the source would be.
             request.source = file; request.working_directory = library / L"shaders"; request.stage = 'p';
+            request.native_spirv_defines = true;
             efmi::gpu::HlslProgram program;
             std::string reason;
             if (!compiler.compile(request, program, reason)) { why = "EFMITTL shadow shader: " + reason; return false; }

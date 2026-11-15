@@ -41,6 +41,39 @@ bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,
     restore_private();advance_outputs(targets.events.size());return true;
 }
 }
+// Both mesh routes use the original shadow pixel shader contract. The DX11 context
+// retains its views and tracks hazards; Vulkan snapshot owners retain every mask.
+bool CharacterGeneration::prepare_shadows(const CharacterList& list, uint32_t own_set,
+                                          std::vector<std::vector<SnapshotImage>>& views, uint32_t& count)
+{
+    shadowing.assign(list.count, 0); count = 0;
+    bool any = false;
+    for (uint32_t i = 0; i < list.count; ++i) any |= package.draws[list.first + i].shadow;
+    std::string why;
+    const bool ready = any && translucency && program && program->efmittl() &&
+                       translucency->shadow_shaders(program->library_folder("efmittl"), own_set, why);
+    if (any && !ready && !why.empty()) note(why);
+    for (uint32_t i = 0; ready && i < list.count; ++i) {
+        const CharacterDraw& d = package.draws[list.first + i];
+        if (!d.shadow) continue;
+        if (d.mask_image != kCharacterNone) {
+            if (!textures || d.mask_image >= image_ids.size()) return refuse(C_IMAGE, "translucency mask outside the package's images");
+            if (!image_counts.count(1)) return refuse(C_MATERIAL, "translucent shadow: no arena of one image");
+            auto& mask_bindings = scratch_image_bindings;
+            frame_image(image_ids[d.mask_image]);
+            textures->bind({image_ids[d.mask_image]}, mask_bindings);
+            if (mask_bindings.empty() || mask_bindings[0].failed)
+                return refuse(C_IMAGE, "translucency mask: " + (mask_bindings.empty() ? std::string() : mask_bindings[0].reason));
+            if (!mask_bindings[0].view) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
+            views[i] = {SnapshotImage{mask_bindings[0].view, mask_bindings[0].owner}};
+        } else {
+            views[i].clear();
+        }
+        shadowing[i] = 1; ++count;
+    }
+    return true;
+}
+
 // One captured call (D-113): its opacity set and parameter layer, the game's sets and dynamic
 // state of the draw (`own`: the pipeline's sets below the private one), queued after the list.
 // Caller holds the mod lock.
@@ -171,6 +204,13 @@ void CharacterGeneration::submit_draw_work(VkQueue queue)
 // for `vs` and `ps` (D-089).
 void CharacterGeneration::render_targets(const PipeInfo& pipe, efmi::frontend::RuntimeDraw& request)
 {
+    // ShaderRegex groups describe the current shader, independently of a Core component.
+    if (translucency && program && program->efmittl()) {
+        const LibraryHooks& hooks = library_hooks(pipe);
+        request.vertex_hook = efmi::frontend::VertexHook(hooks.vertex);
+        request.pixel_hooks = hooks.pixel; request.uv_colour_slot = hooks.colour_slot; request.uv_narrow_first = hooks.narrow_first;
+        translucency->listen();
+    }
     // The vertex slots the pipeline reads (D-161): a buffer the lists bind at another slot is nothing to the
     // draw. Not known where the vertex input is set at recording, or where the pipeline states none.
     if (!pipe.bindings.empty() &&
@@ -603,13 +643,6 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                      pipe->second.recipe ? "yes" : "no", pipe->second.recipe && pipe->second.recipe->render_pass ? "yes" : "no",
                      cb->pass.info ? "known" : "unknown", cb->pass.area.extent.width, cb->pass.area.extent.height);
             }
-            // EFMITTL's shader groups (D-113, D-171).
-            if (translucency && program->efmittl()) {
-                const LibraryHooks& hooks = library_hooks(pipe->second);
-                request.vertex_hook = efmi::frontend::VertexHook(hooks.vertex);
-                request.pixel_hooks = hooks.pixel; request.uv_colour_slot = hooks.colour_slot; request.uv_narrow_first = hooks.narrow_first;
-                translucency->listen();
-            }
             request.seconds = ini_seconds();
             request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
             request.pixel_texture = [this, &r](unsigned slot, efmi::frontend::RuntimeTexture& texture, std::string& why) {
@@ -834,34 +867,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         // EFMITTL's translucent calls in a shadow pass (D-185): drawn in place with the shadow fragment stage, the call's
         // mask (if any) its one private image. Where the library's shaders are not there, drawn as before: the library's
         // own rule for a shadow pass it does not recognise, the full shadow.
-        shadowing.assign(list->count, 0);
-        {
-            bool any = false;
-            for (uint32_t i = 0; i < list->count; ++i) any |= package.draws[list->first + i].shadow;
-            std::string why;
-            const uint32_t own_set = static_cast<uint32_t>(pipe->second.layout->sets.size());
-            const bool ready = any && translucency && program && program->efmittl() &&
-                               translucency->shadow_shaders(program->library_folder("efmittl"), own_set, why);
-            if (any && !ready && !why.empty()) note(why);
-            for (uint32_t i = 0; ready && i < list->count; ++i) {
-                const CharacterDraw& d = package.draws[list->first + i];
-                if (!d.shadow) continue;
-                if (d.mask_image != kCharacterNone) {
-                    if (!textures || d.mask_image >= image_ids.size()) return refuse(C_IMAGE, "translucency mask outside the package's images");
-                    if (!image_counts.count(1)) return refuse(C_MATERIAL, "translucent shadow: no arena of one image");
-                    auto& mask_bindings = scratch_image_bindings;
-                    frame_image(image_ids[d.mask_image]);
-                    textures->bind({image_ids[d.mask_image]}, mask_bindings);
-                    if (mask_bindings.empty() || mask_bindings[0].failed)
-                        return refuse(C_IMAGE, "translucency mask: " + (mask_bindings.empty() ? std::string() : mask_bindings[0].reason));
-                    if (!mask_bindings[0].view) { gate_open = false; ++counters[C_IMAGE_PENDING]; return false; }
-                    material_views[i] = {SnapshotImage{mask_bindings[0].view, mask_bindings[0].owner}};
-                } else {
-                    material_views[i].clear();
-                }
-                shadowing[i] = 1; ++shadow_draws;
-            }
-        }
+        if (!prepare_shadows(*list, uint32_t(pipe->second.layout->sets.size()), material_views, shadow_draws)) return false;
         struct WaitingVariant { uint32_t draw; VertexInputRecipe vertex; };
         std::vector<WaitingVariant> waiting; // Allocates only for a cold variant.
         variants.resize(list->count);
@@ -1235,7 +1241,9 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         return refuse(C_STATE,"a Mod's ordered application caller is incomplete");
     if(!scratch_outputs.items.empty()){
         for(size_t i=0;i<scratch_outputs.items.size();++i)
-            if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed)output_before.push_back(i);
+            if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed ||
+               (scratch_outputs.items[i].operation==efmi::assets::FileOperation::Translucent && scratch_outputs.items[i].shadow))
+                output_before.push_back(i);
         if(output_before.size()!=list.count)return refuse(C_STATE,"a Mod's own mesh output/draw order is incomplete");
     }
     NativeTargetPlan targets;
@@ -1253,6 +1261,8 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     VkDescriptorSet restore_set = VK_NULL_HANDLE;
     auto& restore_offsets = scratch_restore_offsets; restore_offsets.clear();
     const uint32_t own = static_cast<uint32_t>(pipe.layout->sets.size());
+    uint32_t shadow_draws = 0;
+    if (!prepare_shadows(list, own, views, shadow_draws)) return false;
     if (own >= kMaxSets) {
         if (device->max_layout_sets > own) return refuse(C_SET3, "a Mod's own mesh: the slot above the pipeline's sets is in use and not tracked");
     } else if (r.sets[own].pushed) {
@@ -1283,20 +1293,33 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     const bool dithered = g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(pipe.id, *pipe.recipe);
     const bool no_dither = dithered && g_dither_off.load(std::memory_order_relaxed);
     auto& variants = scratch_variants; variants.assign(list.count, {});
-    struct Waiting { uint32_t draw; VertexInputRecipe vertex; FragmentPatch patch; };
+    struct Waiting { uint32_t draw; VertexInputRecipe vertex; FragmentPatch patch;
+                     uint64_t identity; std::shared_ptr<const GraphicsRecipe> recipe; };
     std::vector<Waiting> waiting; // allocates only for a cold variant
     for (uint32_t i = 0; i < list.count; ++i) {
         VertexInputRecipe vertex;
         std::string reason;
         if (!package.vertex_input(package.draws[list.first + i], pipe.recipe->vertex, vertex, reason))
             return refuse(C_VERTEX, "a Mod's own mesh: vertex declaration: " + reason);
-        FragmentPatch patch = plans[i]->patch;
-        patch.keep_vertex = true; patch.own_geometry = true; patch.no_dither = no_dither;
-        apply_hunting(patch);
-        const auto result = cache->request(pipe.id, pipe.recipe, pipe.layout, vertex, patch);
-        if (dithered) cache->prepare(pipe.id, pipe.recipe, pipe.layout, vertex, other_state(patch));
+        auto recipe = pipe.recipe; uint64_t identity = pipe.id;
+        FragmentPatch patch;
+        if (shadowing[i]) {
+            const CharacterDraw& d = package.draws[list.first + i];
+            ShadowParams params;
+            const float alpha = std::isfinite(d.alpha) ? std::min(std::max(d.alpha, 0.0f), 1.0f) : 1.0f;
+            params.alpha = uint32_t(std::lround(alpha * 1023.0f));
+            params.masked = d.mask_image != kCharacterNone; params.channel = std::min<uint32_t>(d.mask_channel, 3); params.invert = d.mask_invert;
+            recipe = translucency->shadow_recipe(pipe, params, own, reason);
+            if (!recipe) return refuse(C_VARIANT, reason);
+            identity = shadow_identity(pipe.id, params);
+            patch.replacement_images = params.masked ? 1 : 0;
+        } else { patch = plans[i]->patch; patch.no_dither = no_dither; apply_hunting(patch); }
+        // The application's vertex shader and bones stay intact for a noncomponent mesh.
+        patch.keep_vertex = true; patch.own_geometry = true;
+        const auto result = cache->request(identity, recipe, pipe.layout, vertex, patch);
+        if (dithered && !shadowing[i]) cache->prepare(identity, recipe, pipe.layout, vertex, other_state(patch));
         if (result.variant) { variants[i] = result.variant; continue; }
-        if (result.state == VariantState::Queued || result.state == VariantState::Building) { waiting.push_back({i, std::move(vertex), std::move(patch)}); continue; }
+        if (result.state == VariantState::Queued || result.state == VariantState::Building) { waiting.push_back({i, std::move(vertex), std::move(patch), identity, recipe}); continue; }
         return refuse(C_VARIANT, "a Mod's own mesh: variant: " + result.reason);
     }
     bool pending = false;
@@ -1304,7 +1327,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     for (const auto& request : waiting) {
         const auto remaining = std::max(std::chrono::milliseconds(0),
             std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
-        const auto result = cache->await(pipe.id, pipe.recipe, pipe.layout, request.vertex, request.patch, remaining);
+        const auto result = cache->await(request.identity, request.recipe, pipe.layout, request.vertex, request.patch, remaining);
         if (result.variant) { variants[request.draw] = result.variant; continue; }
         if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
         return refuse(C_VARIANT, "a Mod's own mesh: variant: " + result.reason);
@@ -1368,6 +1391,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         }
     }))return refuse(C_VARIANT,"a Mod's own mesh: draw transaction refused");
     ++counters[C_OWN_MESH];
+    counters[C_SHADOWED] += shadow_draws;
     if (origin) ++counters[origin == 1 ? C_DERIVED : C_INHERITED];
     counters[C_ITEMS] += list.count;
     for (const auto* plan : plans) {

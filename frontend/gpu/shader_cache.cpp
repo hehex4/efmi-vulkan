@@ -258,6 +258,7 @@ std::string ShaderCache::hlsl_key(const HlslRequest& request) const
         .text(std::filesystem::absolute(request.working_directory).lexically_normal().u8string())
         .text(std::filesystem::absolute(request.source).lexically_normal().u8string())
         .word(source.size()).add(source.data(), source.size());
+    if(request.native_spirv_defines)digest.text("native-spirv-defines");
     return digest.hex();
 }
 

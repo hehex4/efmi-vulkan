@@ -416,6 +416,7 @@ public:
     // A capture's variant (`kind` its CaptureKind) or a translucent shadow's (`kind` UINT32_MAX, D-185) still being built.
     struct WaitingCapture { uint32_t draw, kind; VertexInputRecipe vertex; std::shared_ptr<const GraphicsRecipe> recipe; FragmentPatch patch; uint64_t identity; };
     std::vector<uint8_t> shadowing;                           // per list draw: a translucent call drawn in a shadow pass (D-185)
+    bool prepare_shadows(const CharacterList&, uint32_t own_set, std::vector<std::vector<SnapshotImage>>&, uint32_t& count);
     std::vector<WaitingCapture> waiting_captures;
     std::vector<SnapshotImage> scratch_capture_views;
     std::vector<TranslucentCapture> scratch_pending_captures;
@@ -613,7 +614,7 @@ public:
     bool plan_draw(const efmi::frontend::RuntimeDraw& request, CharacterList& output, bool& skip, bool& added, std::string& reason,
                    const VertexInputRecipe* vertex, bool* textures);
     void submit_draw_work(VkQueue queue);
-    static void render_targets(const PipeInfo& pipe, efmi::frontend::RuntimeDraw& request);
+    void render_targets(const PipeInfo& pipe, efmi::frontend::RuntimeDraw& request);
     // The application's draw made again with the Mod's textures (D-083). Caller holds res_mx and
     // mod_mx; `list` is a texture-only list of the program.
     bool record_textures(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present, const CharacterList& list);

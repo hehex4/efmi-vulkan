@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-267. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-268. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1089,3 +1089,7 @@ Queued transparency retains the colour/depth views from the capture, as the orig
 ## Output events within deferred capture lists (D-267)
 
 Merged component lists may change outputs before, between and after deferred captures. Each capture retains the scene references at its own list position; immediate geometry keeps its independent position and compatible pipeline. Capture-only lists also execute their output changes. Layer creation follows the original library: depth absent on a new layer leaves it incomplete even if restored later. Eight owned replay scenes validate these cases with complete target bytes. Deferred own-mesh events and changing capture dimensions still require their own adapters.
+
+## Library opacity shadows on both mesh routes (D-268)
+
+Ordinary own meshes receive the same library shader groups as merged components. Their opacity shadows retain the application's vertex shader and bone inputs while applying the library's fragment shader, mask channel and inversion. Both routes share retained mask preparation and execute output changes in list order. Generated native shaders explicitly opt into Vulkan preprocessing so their specialization declarations survive; ordinary Mod sources keep original preprocessing. Seven scenes per route prove opacity and mask behavior with complete target readbacks, alongside compiler and existing mesh/output regressions. Ordinary own-mesh forward captures remain a separate adapter.

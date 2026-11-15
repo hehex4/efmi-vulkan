@@ -76,6 +76,34 @@ static void shader_cache(HlslCompiler& compiler,const std::filesystem::path& roo
     check(again.bytecode_key(dxbc,'p',0)!=again.bytecode_key(dxbc,'p',1) && again.bytecode_key(dxbc,'p',0)!=again.bytecode_key(dxbc,'v',0),
           "Shipped bytecode keys by its bytes, stage and float mode");
 }
+static void native_specialization(HlslCompiler& compiler,const std::filesystem::path& root,const std::filesystem::path& dxc){
+    HlslRequest request;request.source=root/"native-shadow.hlsl";request.working_directory=root;request.stage='p';
+    write(request.source,R"hlsl(#ifdef __spirv__
+[[vk::constant_id(1)]] const float alpha = 1.0;
+#else
+static const float alpha = 1.0;
+#endif
+float4 main():SV_Target {return alpha.xxxx;}
+)hlsl");
+    auto original=compile(compiler,request,root);
+    ShaderCache cache(root/"native-cache",{dxc});const auto legacy_key=cache.hlsl_key(request);
+    request.native_spirv_defines=true;
+    auto native=compile(compiler,request,root);
+    auto specialized=[](const HlslProgram& p){
+        for(size_t at=5;at<p.spirv.size();){const uint32_t word=p.spirv[at],count=word>>16;
+            if(!count || count>p.spirv.size()-at)return false;
+            if((word&65535)==71 && count==4 && p.spirv[at+2]==1 && p.spirv[at+3]==1)return true;
+            at+=count;}
+        return false;
+    };
+    check(!specialized(original) && specialized(native),"Only an opted-in native adapter retains Vulkan specialization declarations");
+    check(native.dxbc==original.dxbc,"Native specialization retains the unchanged original SM5 reference");
+    check(cache.hlsl_key(request)!=legacy_key,"Native preprocessing cannot alias a legacy shader cache entry");
+    write(request.source,"#ifdef __spirv__\n#error Native branch refused\n#endif\nfloat4 main():SV_Target{return 1;}\n");
+    const auto saved=native.spirv;std::string why;std::vector<uint8_t> reference;
+    check(!compiler.compile(request,native,why,&reference) && why.find("Native Vulkan preprocessing failed")!=std::string::npos &&
+          native.spirv==saved && !reference.empty(),"A native-only preprocessing error preserves output and the DXBC fallback");
+}
 int wmain(int argc,wchar_t** argv){try{
     check(argc==3,"Shader fixture and compiler locations supplied");const auto root=std::filesystem::absolute(argv[1]);std::filesystem::create_directories(root);
     HlslCompiler compiler(argv[2]);HlslRequest request;request.source=root/"compute.hlsl";request.working_directory=root;
@@ -186,5 +214,6 @@ RWStructuredBuffer<float4> Out : register(u1);
           "A native warning cannot hide the following SPIR-V error behind a NUL terminator");
     original_graphics_link(compiler,root);
     shader_cache(compiler,root,argv[2]);
+    native_specialization(compiler,root,argv[2]);
     printf("shader_compile: %u checks passed; %u modules emitted\n",checks,compiled);return 0;
 }catch(const std::exception& e){printf("FAIL after %u checks, %u modules: %s\n",checks,compiled,e.what());return 1;}}

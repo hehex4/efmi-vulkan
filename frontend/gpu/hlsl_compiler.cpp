@@ -227,6 +227,13 @@ bool HlslCompiler::compile(const HlslRequest& request,HlslProgram& output,std::s
         auto refuse=[&](const std::string& why){if(reference)*reference=next.dxbc;throw std::runtime_error(why);};
         if(const auto fault=dxc_fault.load()){char code[16];snprintf(code,sizeof(code),"0x%08x",fault);
             refuse(std::string("DXC faulted earlier in this process (")+code+") and takes no further work");}
+        if(request.native_spirv_defines){
+            const D3D_SHADER_MACRO native_macros[]={{stage.macro,""},{"__spirv__","1"},{nullptr,nullptr}};
+            errors.Reset();expanded.Reset();
+            hr=D3DPreprocess(source.data(),source.size(),name.c_str(),native_macros,&includes,&expanded,&errors);
+            next.diagnostics+=blob_text(errors.Get());
+            if(FAILED(hr))refuse("Native Vulkan preprocessing failed: "+includes.error+next.diagnostics);
+        }
         std::vector<std::string> files;
         const auto text_aliased=aliased_lines(static_cast<const char*>(expanded->GetBufferPointer()),expanded->GetBufferSize(),files);
         std::vector<std::wstring> args={L"source.hlsl",L"-spirv",request.vulkan_version==VK_API_VERSION_1_2?L"-fspv-target-env=vulkan1.2":L"-fspv-target-env=vulkan1.1",L"-fspv-reflect",L"-fvk-use-dx-layout",
