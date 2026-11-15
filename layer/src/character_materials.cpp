@@ -17,12 +17,15 @@ bool prepare_character_profile(const CharacterPackage& package, const CharacterM
         for (const auto& pixels : package.pixels) {
             std::array<assets::BindingSource, 128> bindings{};
             std::array<uint32_t, 128> indices{};
+            std::array<uint32_t, 128> application; application.fill(kCharacterNone);
             CharacterMaterial material;
             for (const auto& pixel : pixels) {
-                bindings[pixel.slot] = pixel.asset == kCharacterNone ? assets::BindingSource::Null : assets::BindingSource::File;
+                bindings[pixel.slot] = pixel.asset == kCharacterNone && pixel.application_slot == kCharacterNone ?
+                    assets::BindingSource::Null : assets::BindingSource::File;
                 indices[pixel.slot] = pixel.asset;
+                application[pixel.slot] = pixel.application_slot;
             }
-            for (const auto& r : source.rules) if (r.kind == CharacterMaterialRule::ZeroFile && bindings[r.slot] == assets::BindingSource::File) {
+            for (const auto& r : source.rules) if (r.kind == CharacterMaterialRule::ZeroFile && bindings[r.slot] == assets::BindingSource::File && application[r.slot]==kCharacterNone) {
                 bindings[r.slot] = assets::BindingSource::Null;
                 material.compatibility = true;
             }
@@ -30,7 +33,7 @@ bool prepare_character_profile(const CharacterPackage& package, const CharacterM
             material.supported = profile.select(source.code, bindings, contract, material.reason);
             if (material.supported) {
                 material.patch = std::move(contract.patch);
-                for (uint32_t slot : contract.image_slots) material.assets.push_back(indices[slot]);
+                for (uint32_t slot : contract.image_slots) {material.assets.push_back(indices[slot]);material.application_slots.push_back(application[slot]);}
                 counts.insert(static_cast<uint32_t>(material.assets.size()));
             }
             plans.push_back(std::move(material));

@@ -1104,6 +1104,16 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         listing.p = this; listing.began = std::chrono::steady_clock::now();
 #endif
         skip = plan.skip_original;
+        auto remember_pixel = [&](const efmi::assets::FilePlanItem& item) {
+            auto& pixels=scratch_pixels_;
+            if(item.application_slot>=0){
+                if(uint32_t(item.application_slot)==item.slot){pixels.erase(item.slot);return;}
+                efmi::frontend::RuntimeTexture source;std::string why;
+                if(!request.pixel_rebinds || !request.pixel_texture || !request.pixel_texture(item.application_slot,source,why))
+                    throw std::runtime_error("Application pixel reference is unavailable: "+why);
+                pixels[item.slot]={kCharacterNone,source.bound?uint32_t(item.application_slot):kCharacterNone};
+            }else pixels[item.slot]={item.resource?image_index(item.resource):kCharacterNone,kCharacterNone};
+        };
         // A list that draws without `handling = skip` (review R-09, D-179): the original draws the Mod's draws on the
         // context and the game's draw after them. With the caller's pointer such a plan is read as a hiding one is,
         // and the caller draws the Mod's and lets the game's through (skip false, *textures false, draws in `output`).
@@ -1130,12 +1140,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 const auto& item = plan.items[i];
                 using Op = efmi::assets::FileOperation;
                 if (item.operation == Op::BindPixelResource) {
-                    if (item.application_slot >= 0) {
-                        if (uint32_t(item.application_slot) != item.slot) throw std::runtime_error("An application texture moved to another pixel slot");
-                        pixels.erase(item.slot); continue;
-                    }
-                    if (!item.resource) { pixels[item.slot] = kCharacterNone; continue; }
-                    pixels[item.slot] = image_index(item.resource);
+                    remember_pixel(item);
                 } else if (item.operation != Op::External && !(ordered_outputs && item.operation==Op::NativeBind)) {
                     if(ordered_outputs)throw std::runtime_error("Mod output plan changes the application's geometry");
                     return true;
@@ -1156,7 +1161,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 }
             }
             auto& signature = scratch_signature_; signature.clear(); signature.push_back('T');
-            for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
+            for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second.asset); put(signature, pixel.second.application_slot); }
             auto& id = scratch_id_; id.assign(signature.begin(), signature.end());
             const auto found = lists_.find(id);
             if (found == lists_.end()) {
@@ -1164,7 +1169,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 CharacterDraw draw;
                 draw.index_stream = kCharacterNone; draw.texture_only = true;
                 std::vector<CharacterPixel> material;
-                for (const auto& pixel : pixels) material.push_back({pixel.first, pixel.second});
+                for (const auto& pixel : pixels) material.push_back({pixel.first, pixel.second.asset, pixel.second.application_slot});
                 const CharacterList result{uint32_t(package.draws.size()), 1, 0};
                 package.draws.push_back(draw); package.pixels.push_back(std::move(material));
                 lists_.emplace(id, result); added = true; output = result;
@@ -1191,13 +1196,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
             const auto& item=plan.items[source_item];
             using Op = efmi::assets::FileOperation;
             if (item.operation == Op::BindPixelResource) {
-                if (item.application_slot >= 0) {
-                    // The application's own texture at its own slot: what the draw binds anyway.
-                    if (uint32_t(item.application_slot) != item.slot) throw std::runtime_error("An application texture moved to another pixel slot");
-                    pixels.erase(item.slot);
-                } else if (item.resource) {
-                    pixels[item.slot] = image_index(item.resource);
-                } else pixels[item.slot] = kCharacterNone;
+                remember_pixel(item);
             } else if (item.operation == Op::BindIndex || item.operation == Op::BindVertex) {
                 if (item.operation == Op::BindVertex && item.slot < 4)
                     bound.owned.erase(std::remove_if(bound.owned.begin(), bound.owned.end(), [&](const auto& o) { return o.slot == item.slot; }),
@@ -1422,7 +1421,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 if(ordered_outputs)outputs->items.push_back(item);
                 if (material_count == material.size()) material.emplace_back();
                 auto& slots = material[material_count++]; slots.clear();
-                for (const auto& pixel : pixels) slots.push_back({pixel.first, pixel.second});
+                for (const auto& pixel : pixels) slots.push_back({pixel.first, pixel.second.asset, pixel.second.application_slot});
                 put(signature, bound.index_stream); put(signature, bound.count); put(signature, bound.first); put(signature, bound.base);
                 put(signature, bound.instances); put(signature, bound.first_instance); put(signature, uint32_t(bound.indexed));
                 for (auto stream : bound.vb) put(signature, stream);
@@ -1432,7 +1431,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 put(signature, uint32_t(bound.offsets.size()));
                 for (const auto& o : bound.offsets) { put(signature, o.binding); put(signature, o.from); put(signature, o.to); }
                 put(signature, uint32_t(pixels.size()));
-                for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
+                for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second.asset); put(signature, pixel.second.application_slot); }
                 put(signature, uint8_t(bound.translucent) | uint8_t(bound.shadow) << 1);
                 if (bound.translucent || bound.shadow) { put(signature, bound.alpha); put(signature, bound.mask_image); put(signature, bound.mask_channel); put(signature, uint8_t(bound.mask_invert)); }
             } else if(item.operation==Op::NativeBind && outputs)outputs->items.push_back(item);

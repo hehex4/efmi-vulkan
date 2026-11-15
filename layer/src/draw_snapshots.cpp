@@ -286,7 +286,10 @@ bool DrawSnapshots::append(const std::vector<uint8_t>& bones, const InstanceEntr
 bool DrawSnapshots::valid_images(const std::vector<SnapshotImage>& images)
 {
     if (images.size() != image_count_) { reason = "snapshot image count mismatch"; return false; }
-    for (const auto& image : images) if (!image.view || !image.owner) { reason = "snapshot image requires ready view and owner"; return false; }
+    for (const auto& image : images) if (!image.view || !image.owner ||
+        (image.layout!=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && image.layout!=VK_IMAGE_LAYOUT_GENERAL && image.layout!=VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL)) {
+        reason = "snapshot image requires ready view, owner and shader-readable layout"; return false;
+    }
     return true;
 }
 
@@ -296,7 +299,7 @@ void DrawSnapshots::write_images(const std::vector<SnapshotImage>& images)
         VkDescriptorImageInfo infos[32]{};VkWriteDescriptorSet writes[32]{};
         for(uint32_t i=0;i<image_count_;++i){
             image_owners_[size_t(used_)*image_count_+i]=images[i].owner;
-            infos[i]={VK_NULL_HANDLE,images[i].view,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            infos[i]={VK_NULL_HANDLE,images[i].view,images[i].layout};
             writes[i].sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;writes[i].dstSet=sets_[used_];writes[i].dstBinding=2+i;
             writes[i].descriptorCount=1;writes[i].descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;writes[i].pImageInfo=&infos[i];
         }

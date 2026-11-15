@@ -170,6 +170,7 @@ STEPS = [
     ("native classic Mod character", [os.path.join(HERE, "native_classic_mod_character_test.py")]),
     ("nonblocking draw readiness", [os.path.join(HERE, "draw_readiness_test.py")]),
     ("matched native descriptors", [os.path.join(HERE, "native_matched_descriptor_test.py")]),
+    ("application texture rebinding", [os.path.join(HERE, "character_texture_rebind_test.py")]),
     ("module ABI boundary", [os.path.join(ROOT, "scripts", "check_module_boundary.py")]),
     ("native module classic scope", [os.path.join(HERE, "native_classic_null_test.py"), "color_swap", "depth_pinkclear"]),
     ("native module image scope", [os.path.join(HERE, "native_application_image_test.py"), "graphics_swap", "layout"]),
@@ -250,6 +251,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "texture-rebinding": ["application texture rebinding", "matched native descriptors", "nonblocking draw readiness", "native own mesh", "native merged opacity values", "texture-only Mod output events", "native application images", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check", "source-defined INI evaluation", "INI execution matrix"],
     "module-boundary": ["module ABI boundary", "native module", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "matched-descriptors": ["matched native descriptors", "nonblocking draw readiness", "native own mesh", "native merged opacity values", "Mod outputs beside original geometry", "texture-only Mod output events", "native call execution", "native descriptor bindings", "native graphics uniforms", "native file bindings", "original INI GPU resources", "native tracker", "Vulkan validation", "text check", "source-defined INI evaluation", "INI execution matrix"],
     "draw-readiness": ["nonblocking draw readiness", "Mod outputs beside original geometry", "texture-only Mod output events", "native own mesh", "native merged opacity values", "native tracker", "Vulkan validation", "text check"],

@@ -2,6 +2,7 @@
 // lists, the rules and plans of a fragment shader, the images a draw binds, and what a retired pipeline
 // leaves behind.
 #include "character_backend_internal.h"
+#include "native_resources.h"
 
 namespace efvk {
 namespace {
@@ -339,7 +340,7 @@ bool CharacterGeneration::init_materials()
     return true;
 }
 
-bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section, const DrawRec& r, uint64_t now,
+bool CharacterGeneration::material_draws(CmdBuf* cb, NativeDrawTransaction& transaction, const PipeInfo& pipe, uint32_t section, const DrawRec& r, uint64_t now,
                                       const CharacterList& list,
                                       std::vector<const StaticMaterial*>& plans, std::vector<std::vector<SnapshotImage>>& views,
                                       uint32_t& origin)
@@ -409,7 +410,9 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
     // Queue only this transaction's images together; the owned upload queue prepares them in
     // parallel before the draw uses them. Recordings retain their independent GPU owners.
     auto& selected = scratch_image_ids; selected.clear();
-    for (const auto* plan : plans) for (uint32_t asset : plan->assets) {
+    for (const auto* plan : plans) for (size_t i=0;i<plan->assets.size();++i) {
+        if(plan->application_slots[i]!=kCharacterNone)continue;
+        const auto asset=plan->assets[i];
         if (!textures || asset >= image_ids.size()) return refuse(C_IMAGE, "character texture outside the package's images");
         selected.push_back(image_ids[asset]); frame_image(image_ids[asset]);
     }
@@ -422,6 +425,27 @@ bool CharacterGeneration::material_draws(const PipeInfo& pipe, uint32_t section,
         const auto* plan = plans[i];
         auto& draw_views = views[i]; draw_views.clear();
         for (size_t asset = 0; asset < plan->assets.size(); ++asset) {
+            const auto application=plan->application_slots[asset];
+            if(application!=kCharacterNone){
+                std::string why;
+                const auto known=fragment_registers.find(pipe.id);
+                const auto* source=known==fragment_registers.end() || !known->second.readable?nullptr:
+                    efmi::gpu::find_source_register(known->second.list,'t',application);
+                if(!source || source->kind!=efmi::gpu::SourceRegister::ImageSrv || source->count!=1)
+                    return refuse(C_IMAGE,"Application pixel source is not a single sampled image");
+                efmi::frontend::NativeBinding address;address.kind=efmi::frontend::NativeBinding::Resource;
+                address.stage=4;address.slot=application;address.set=source->set;address.binding=source->binding;
+                auto resource=std::make_shared<efmi::frontend::NativeResource>();
+                if(!native_resource_locked(device,cb,r,address,*resource,why))return refuse(C_IMAGE,why);
+                // The shared planner verifies shape, retained storage, active attachments,
+                // existing layout and queue scope before the private variant reads the view.
+                native_images_observe_locked(device,cb,r);
+                address.set=plan->patch.images[asset].set;address.binding=plan->patch.images[asset].binding;
+                VkImageLayout layout=VK_IMAGE_LAYOUT_UNDEFINED;
+                if(!native_image_binding(device,cb,r,address,resource,transaction.descriptors.images,layout,why))return refuse(C_IMAGE,why);
+                draw_views.push_back({VkImageView(resource->image_view),resource->keep,layout});
+                continue;
+            }
             const auto& bound = bindings[binding++];
             if (bound.failed) return refuse(C_IMAGE, "character texture: " + bound.reason);
             if (!bound.view) { pending = true; continue; }

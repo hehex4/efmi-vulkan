@@ -148,6 +148,7 @@ struct PipelineFacts {
     bool native_calls = false;
     bool native_outputs = false; // Ordered outputs around a Mod's geometry, independent of its IA/material plan.
     bool native_descriptors = false; // Only slots with an explicit native address use ordered descriptor events.
+    bool pixel_rebinds = false; // The host can retain application images in another logical pixel slot.
 };
 enum class SlotClass : uint8_t { VertexBuffer, UnreadVertex, IndexBuffer, PixelTexture, StageBinding, AbsentStage, Compute, Output, AbsentOutput, PixelAccess, StreamOutput, Count };
 enum class ValueClass : uint8_t { InPlace, ModResource, Null, MovedAlike, Other, Count };
@@ -384,6 +385,8 @@ inline ValueClass value_class(const SlotId& id, const SlotValue& value)
 inline Honour honour(const SlotId& id, const SlotValue& value, const PipelineFacts& pipeline)
 {
     if(pipeline.native_outputs && (id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget))return Honour::Honoured;
+    if(pipeline.pixel_rebinds && slot_class(id,pipeline)==SlotClass::PixelTexture &&
+       value_class(id,value)==ValueClass::MovedAlike)return Honour::Honoured;
     static const auto lookup = [] {
         std::array<std::array<Honour, size_t(ValueClass::Count)>, size_t(SlotClass::Count)> table{};
         for (const auto& row : honour_table()) table[size_t(row.slots)][size_t(row.value)] = row.honour;

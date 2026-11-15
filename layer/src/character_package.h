@@ -129,6 +129,7 @@ struct CharacterEdit {
 };
 struct CharacterPixel {
     uint32_t slot = 0, asset = kCharacterNone; // none is an explicit null; missing slots inherit
+    uint32_t application_slot = kCharacterNone; // Runtime-only reference to this draw's source pixel slot.
 };
 struct CharacterMaterialRule {
     // ZeroFile is an explicit, device-bound compatibility policy for invalid source-API

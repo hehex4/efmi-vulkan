@@ -502,6 +502,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 facts.native_calls = p.current_draw->native_calls;
                 facts.native_outputs = p.current_draw->native_outputs;
                 facts.native_descriptors = p.current_draw->native_descriptors;
+                facts.pixel_rebinds = p.current_draw->pixel_rebinds;
                 facts.stages = p.current_draw->shader_stages; facts.vertex_slots = p.current_draw->vertex_slots;
                 if (p.current_draw->targets_known) facts.targets = p.current_draw->render_targets;
             }

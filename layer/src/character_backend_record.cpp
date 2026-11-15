@@ -458,7 +458,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 request.hash = section->hash; request.count = r.count; request.first = r.first;
                 request.base = r.vertex_offset; request.instances = r.instances; request.first_instance = r.first_instance;
                 request.mod = program->folder_index();
-                request.native_outputs = true; request.native_descriptors = true;
+                request.native_outputs = true; request.native_descriptors = true; request.pixel_rebinds = true;
                 request.native_resource = [this, cb, &r](const efmi::frontend::NativeBinding& binding,
                     efmi::frontend::NativeResource& resource, std::string& why) {
                     return native_resource_locked(device, cb, r, binding, resource, why);
@@ -693,7 +693,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (program) {
             efmi::frontend::RuntimeDraw request;
             request.hunting_skip = t_hunting_skip;
-            request.native_outputs = true; request.native_descriptors = true;
+            request.native_outputs = true; request.native_descriptors = true; request.pixel_rebinds = true;
             request.native_resource = [this,cb,&r](const efmi::frontend::NativeBinding& binding,
                 efmi::frontend::NativeResource& resource,std::string& why){
                 return native_resource_locked(device,cb,r,binding,resource,why);
@@ -882,7 +882,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
 
         bool pending = false;
-        if (!material_draws(pipe, section_index, r, present, *list,
+        if (!material_draws(cb,transaction,pipe, section_index, r, present, *list,
                             material_plans, material_views, material_origin)) return false;
         lap(S_MATERIALS);
         if (!prepare_captures(pipe, *list, cb, r, targets, output_before,
@@ -1168,7 +1168,7 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, PipeInfo
     std::vector<const StaticMaterial*> plans;
     std::vector<std::vector<SnapshotImage>> views;
     uint32_t origin = 0;
-    if (!material_draws(pipe, section, r, present, list, plans, views, origin)) return false;
+    if (!material_draws(cb,transaction,pipe, section, r, present, list, plans, views, origin)) return false;
     // Nothing the module can take: the application's draw stays as it is.
     if (plans.size() != 1 || (plans[0]->patch.images.empty() && plans[0]->patch.nulls.empty())) return false;
     // The private set above the pipeline's own sets, and an application set there bound again after.
@@ -1284,7 +1284,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, PipeInfo
     auto& plans = scratch_material_plans; plans.clear();
     auto& views = scratch_material_views;
     uint32_t origin = 0;
-    if (!material_draws(pipe, section, r, present, list, plans, views, origin)) return false;
+    if (!material_draws(cb,transaction,pipe, section, r, present, list, plans, views, origin)) return false;
     if (plans.size() != list.count) return refuse(C_MATERIAL, "a Mod's own mesh: material plans incomplete");
     // The private set above the pipeline's own sets, and an application set there bound again after.
     uint32_t restore_slot = 0;

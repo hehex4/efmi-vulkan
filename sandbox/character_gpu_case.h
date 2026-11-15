@@ -24,6 +24,13 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         recipe.render_pass=std::move(pass);
     }
     RecipeFixture layout_fixture(material);auto layout=layout_fixture.layout;
+    const bool cross_texture=material && GetEnvironmentVariableA("EFMI_VK_TEST_CROSS_TEXTURE",nullptr,0)!=0;
+    const VkImageLayout other_layout=GetEnvironmentVariableA("EFMI_VK_TEST_CROSS_GENERAL",nullptr,0)?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    if(cross_texture){
+        auto extra_image=std::make_shared<DescriptorLayoutInfo>(*layout.sets[1]);
+        extra_image->bindings[7]={VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,1,VK_SHADER_STAGE_FRAGMENT_BIT};
+        layout.sets[1]=extra_image;
+    }
     // D-133: the application's fragment shader with the character dither, for the scene that runs RabbitFX's
     // anti-dither (EFMI_VK_TEST_DITHER=1 in this process's environment): its pictures must be the same.
     const bool dither=[]{char value[4]={};return GetEnvironmentVariableA("EFMI_VK_TEST_DITHER",value,sizeof(value)) && value[0]=='1';}();
@@ -47,9 +54,10 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     // the character matches a texture of its own (the application's draw again with it, D-083): that draw shows
     // shade N once its package is on the device.
     const int unmatched_shade=[]{char value[8]={};return GetEnvironmentVariableA("EFMI_VK_TEST_UNMATCHED_SHADE",value,sizeof(value)) ? atoi(value) : 1;}();
+    const int own_shade=[]{char value[8]={};return GetEnvironmentVariableA("EFMI_VK_TEST_OWN_SHADE",value,sizeof(value)) ? atoi(value) : 1;}();
     if(material){
         auto fs=std::make_shared<ShaderInfo>();fs->id=2;
-        fs->code=variant_fixture::shader(false,true,6,dither?variant_fixture::Kill::Dither:variant_fixture::Kill::None);
+        fs->code=variant_fixture::shader(false,true,6,dither?variant_fixture::Kill::Dither:variant_fixture::Kill::None,cross_texture);
         fs->size=static_cast<uint32_t>(fs->code.size()*4);
         recipe.stages[1].shader=fs;recipe.blend_attachments[0].blendEnable=VK_FALSE;
     }
@@ -139,6 +147,8 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     Image depth=g.image(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|(output_depth?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),VK_IMAGE_ASPECT_DEPTH_BIT);
     Image original_image{};
     if(material)original_image=g.image(VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
+    Image other_image{};
+    if(cross_texture)other_image=g.image(VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
     VkImageView views[]={color.view,depth.view};
     VkFramebufferCreateInfo fi={VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};fi.renderPass=g.pass;fi.attachmentCount=2;fi.pAttachments=views;fi.width=fi.height=64;fi.layers=1;
     VK(vkCreateFramebuffer(g.device,&fi,nullptr,&g.framebuffer));
@@ -210,7 +220,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         ~DepthExport(){if(enabled){FILE* file=nullptr;fopen_s(&file,"depth.raw","wb");if(file){fwrite(buffer.mapped,1,64*64*4,file);fclose(file);}}}
     } depth_export{output_depth,depth_readback}; // Also exports completed frames on the short fixture paths.
     std::vector<VkDescriptorPoolSize> sizes={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1},{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,cb_bones?3u:2u}};
-    if(material)sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,2});
+    if(material)sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,cross_texture?3u:2u});
     if(cb_bones)sizes.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,2});
     VkDescriptorPoolCreateInfo pi={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};pi.maxSets=cb_bones?6:5;
     pi.poolSizeCount=static_cast<uint32_t>(sizes.size());pi.pPoolSizes=sizes.data();
@@ -240,6 +250,11 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};write.dstSet=sets[1];write.dstBinding=6;
         write.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.descriptorCount=1;write.pImageInfo=&image;
         vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
+        if(cross_texture){
+            image.imageView=other_image.view;image.imageLayout=other_layout;write.dstBinding=7;
+            vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
+            image.imageView=original_image.view;image.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        }
         VkDescriptorSetAllocateInfo ss={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         ss.descriptorPool=g.descriptors;ss.descriptorSetCount=1;ss.pSetLayouts=&shifted.set;VK(vkAllocateDescriptorSets(g.device,&ss,&shifted_set));
         write.dstSet=shifted_set;write.dstBinding=8;
@@ -284,6 +299,15 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
             VkClearColorValue white{{1,1,1,1}};vkCmdClearColorImage(cmd,b.image,b.newLayout,&white,1,&b.subresourceRange);
             b.oldLayout=b.newLayout;b.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;b.srcAccessMask=b.dstAccessMask;b.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
             vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,nullptr,0,nullptr,1,&b);
+            if(cross_texture){
+                b.image=other_image.handle;b.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;b.newLayout=VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                b.srcAccessMask=0;b.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
+                vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,nullptr,0,nullptr,1,&b);
+                VkClearColorValue green{{0,1,0,1}};vkCmdClearColorImage(cmd,b.image,b.newLayout,&green,1,&b.subresourceRange);
+                b.oldLayout=b.newLayout;b.newLayout=other_layout;
+                b.srcAccessMask=b.dstAccessMask;b.dstAccessMask=VK_ACCESS_SHADER_READ_BIT;
+                vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,nullptr,0,nullptr,1,&b);
+            }
             image_initialized=true;
         }
         VkClearValue clear[2]={};clear[0].color.float32[2]=clear[0].color.float32[3]=1;clear[1].depthStencil.depth=1;
@@ -372,7 +396,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     };
     // The draw no section of the character matches: the application's triangle at (.6,-.1), or, in D-176's
     // scene, the Mod's own in its place at (.6,.75) once its package is on the device (`live`).
-    auto unmatched=[&](bool live=true){return own_mesh ? shade_at(.6f,-.1f)==(beside?1:0) && shade_at(.6f,.75f)==(live?1:0) :
+    auto unmatched=[&](bool live=true){return own_mesh ? shade_at(.6f,-.1f)==(beside?1:0) && shade_at(.6f,.75f)==(live?own_shade:0) :
                                                   shade_at(.6f,-.1f)==(live || unmatched_shade==1 ? unmatched_shade : 0);};
     // What the game draws by itself: every component at bone zero of its own palette.
     auto original=[&]{return shade_at(-.6f,-.6f)==1 && shade_at(0,-.6f)==2 && shade_at(.6f,-.6f)==1 && shade_at(.6f,-.1f)==1 && shade_at(0,.6f)==1 &&
@@ -471,7 +495,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
         for(uint32_t i=0;i<6;++i){
             const float ux=i%2?.5f:.6f;
             row(U_CUR+3,ux,-.1f);frame(false);
-            moves&=shade_at(ux,.75f)==1 && shade_at(ux,-.1f)==(beside?1:0) && shade_at(-.6f,.3f)==a_shade && shade_at(0,0)==b_shade;
+            moves&=shade_at(ux,.75f)==own_shade && shade_at(ux,-.1f)==(beside?1:0) && shade_at(-.6f,.3f)==a_shade && shade_at(0,0)==b_shade;
         }
         row(U_CUR+3,.6f,-.1f);frame(false);
         check(moves && replaced(-.6f),"a Mod's own mesh under the application's vertex stage follows the application's bone of its draw");

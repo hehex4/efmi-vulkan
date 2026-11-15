@@ -1,5 +1,15 @@
 # EFMI Vulkan - Known issues
 
+## BUG-146 / I-06: Cross-slot application pixel references degraded or refused (D-281; sampled-image cases fixed)
+
+- I-06 / BUG-146: d281-before.out on 3.0.8 passes 38/44. Cross-slot pixel references degrade to the original texture or are refused by the matched material planner; four independent scenes miss the requested green/zero pixels, with clean core/sync validation.
+- Original CommandList.cpp 9700+ obtains an AddRef-held PS SRV and its resource; 10051 binds that view at the destination slot. DX11 provides reference-counted lifetime with deferred destruction, hazard tracking and one-context order. Vulkan must retain the view/memory and validate its actual layout, consumer shape, attachments and queue scope.
+- Source 3.0.9 / ABI 0aba80ce34aa46ca enables moved pixel references only for hosts with the adapter. Logical plans retain source slots, resolve empty sources to explicit null, and include the source slot in the cache key. Material snapshots resolve the current source view through the shared native resource/image checks and retain its owner and verified layout. File images and application images share the existing private material bindings; source/target application descriptors stay intact. The register map is cached, and no file wait is added.
+- d281-pair.out builds all four artifacts, tracker 764/764 and matching stamps. d281-fixtures.out rebuilds character, snapshot and GPU helpers. The added second source is statically accessed by the fixture shader, giving layout observation an independent application requirement. d281-after.out passes 88/88: texture-only and merged paths, absent sources, saved references after rewriting the source slot, and GENERAL layouts. d281-own.out adds 10/10 for own meshes replacing or accompanying the application, changing bones, disable/enable and restoration; its fixture-only rebuild is d281-own-fixture.out.
+- d281-regression.out texture-rebinding passes all steps: cross-slot scenes 88, matched descriptors 72, readiness 20, own shadows 48, own forward captures 63, merged opacity 48, texture outputs 45, native application images 76, recipe 404, cache 81, snapshots 52, pipeline variants 63, tracker 764, validation 76, text 682, original INI evaluation 65 and the execution matrix. The additional own-mesh cases run afterward against unchanged production DLLs; unaffected checks are not repeated.
+- I-06 is partly fixed, not closed: this is retained sampled-image rebinding with known layout and existing queue/storage proof, not general in-draw CustomShader imports, arbitrary InputLayout changes or native overrides of private merged-bone inputs. I-01, I-04 and legacy cleanup remain open. No real-game, deployment, launcher, system or remote changes.
+
+
 ## BUG-144 / BUG-145: Disconnected matched descriptors and mixed-upload starvation (D-280; reproduced cases fixed)
 
 - I-03 / BUG-144: d280-before.out on 3.0.7 passes 12/13. A matched own mesh ignores its explicit native constant: green 0, original pink 1152, while geometry/depth and core/sync checks pass.

@@ -136,10 +136,14 @@ DrawRec current(CmdBuf* cb, bool compute)
 
 void native_images_observe(Device* device, CmdBuf* cb, const DrawRec& draw)
 {
+    std::shared_lock<std::shared_mutex> lock(device->res_mx);
+    native_images_observe_locked(device,cb,draw);
+}
+void native_images_observe_locked(Device* device, CmdBuf* cb, const DrawRec& draw)
+{
     if (!device->track_image_layouts.load(std::memory_order_relaxed)) return;
     auto state = scope(cb, draw.kind == DK_DISPATCH || draw.kind == DK_DISPATCH_INDIRECT);
     state->required.clear();
-    std::shared_lock<std::shared_mutex> lock(device->res_mx);
     const auto access = access_locked(device, draw.pipeline);
     if (!access || !access->reason.empty()) return;
     for (const auto& use : access->images) {

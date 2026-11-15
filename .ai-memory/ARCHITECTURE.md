@@ -4,6 +4,19 @@
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.
 
+D-279 routes native pipeline/image/target scope callbacks through the installed module.
+The host retains Vulkan pipeline handles and opaque implementation owners; native_state.h
+defines the shared recording/cache protocol. Private planner and pipeline layouts do not
+enter the ABI digest, while genuine shared state does.
+
+D-280 gives matched and unmatched draws one NativeDrawTransaction for file publication,
+target/descriptor preflight, ordered bindings and capture binding snapshots. Geometry and
+translucency still keep specialized helpers. D-281 resolves cross-slot application pixel
+references through the current fragment register map into retained private material views.
+Those views use the shared native image checks and preserve their verified layout; source
+slots, rather than per-frame Vulkan handles, participate in the logical plan cache key.
+The cross-queue guard and broader in-draw CustomShader input gap remain open.
+
 D-223 geometry analysis snapshots core/EXT dynamic strides, bound ranges and topology per draw.
 D-224 retains full dynamic input declarations per draw, including divisor and independently updated
 stride; caller arrays and later setters cannot mutate earlier snapshots. Recipes distinguish capture completeness from replacement completeness; capture support alone
@@ -279,8 +292,12 @@ Order where nested: `character_mx` (shared; exclusive at a module exchange), the
 `mod_mx` (per package), `res_mx` (the tracker's, shared in `record()`), `plan_mx` (the folder generation),
 the generation's `Scope`, then component mutexes (texture residency, variant cache, bone merge, pool).
 Presenting: `present_mx`, `character_mx` shared, `plan_mx`, `Scope`. No inversion is known.
-Open: the first-use waits for textures and variants (up to 4 s each) are taken under `res_mx` and
-`mod_mx` (review L-04).
+D-278 replaces character first-use variant/texture waits with requests and a frame readiness
+gate. D-280 also requests matched native files without waiting and prepares native objects
+outside `res_mx`; lookup pointers are invalidated after that unlock, and the retained
+transaction outlives the recording locks. Unmatched native file acquisition, synchronous
+preparation costs and broader latency work remain separate audits. An idle image staging
+arena yields its budget to buffer uploads; live slices remain retained through completion.
 
 ## Lifetime
 

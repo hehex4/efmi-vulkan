@@ -17,7 +17,7 @@ namespace variant_fixture {
 // (a value of set 0), a noise test without the instance window (another fade), and the shape of the
 // field's foliage: the instance's LOD cross-fade against the noise and an alpha test in one kill.
 enum class Kill { None, Dither, Cutout, Noise, LodCutout };
-inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t image_binding=6,Kill kill=Kill::None)
+inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t image_binding=6,Kill kill=Kill::None,bool second_image=false)
 {
     using namespace spv;
     Builder b;
@@ -29,6 +29,7 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t ima
     auto p_uni_v4 = b.id(), label = b.id(), ptr_a = b.id(), ptr_b = b.id(), a = b.id(), v = b.id(), sum = b.id();
     auto in_pos = b.id(), x = b.id(), y = b.id(), position = b.id(), blend = b.id(), bone = b.id(), moved = b.id(), out_ptr = b.id();
     auto image_type=b.id(),image_ptr=b.id(),image_var=b.id(),image=b.id(),coord=b.id(),texel=b.id(),t_u2=b.id(),tinted=b.id();
+    const auto other_image=second_image && material && !vertex?b.id():0;
     b.op(OpCapability, {CapabilityShader});
     const uint32_t glsl = (!vertex && (kill == Kill::Dither || kill == Kill::LodCutout)) ? b.id() : 0;
     if (glsl) b.string_op(static_cast<Op>(11), {glsl}, "GLSL.std.450", {});   // OpExtInstImport
@@ -40,6 +41,7 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t ima
     b.op(OpDecorate, {instance_var, DecorationDescriptorSet, 2});
     b.op(OpDecorate, {instance_var, DecorationBinding, 0});
     if(material && !vertex){b.op(OpDecorate,{image_var,DecorationDescriptorSet,1});b.op(OpDecorate,{image_var,DecorationBinding,image_binding});}
+    if(other_image){b.op(OpDecorate,{other_image,DecorationDescriptorSet,1});b.op(OpDecorate,{other_image,DecorationBinding,image_binding+1});}
     b.op(OpDecorate, {bone_type, DecorationBufferBlock});
     b.op(OpMemberDecorate, {bone_type, 0, DecorationOffset, 0});
     b.op(OpMemberDecorate, {bone_type, 1, DecorationOffset, 258 * 16});
@@ -66,6 +68,7 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t ima
         b.op(OpTypeImage,{image_type,t_f,1,2,0,0,1,0});b.op(OpTypePointer,{image_ptr,StorageUniformConstant,image_type});
         b.op(OpTypeVector,{t_u2,t_u,2});b.op(OpConstantComposite,{t_u2,coord,c0,c0});
         b.op(OpVariable,{image_ptr,image_var,StorageUniformConstant});
+        if(other_image)b.op(OpVariable,{image_ptr,other_image,StorageUniformConstant});
     }
     if (vertex) {
         b.op(OpTypeStruct, {pv, t_v4}); b.op(OpTypePointer, {p_out, StorageOutput, pv});
@@ -122,6 +125,13 @@ inline std::vector<uint32_t> shader(bool vertex,bool material=false,uint32_t ima
             b.op(OpLabel, {merge});
         }
         if(material){
+            // Keep the second source statically accessed by the original shader. Its
+            // descriptor's layout is then an independent application requirement.
+            if(other_image){
+                const auto loaded=b.id(),fetched=b.id();
+                b.op(OpLoad,{image_type,loaded,other_image});
+                b.op(static_cast<Op>(95),{t_v4,fetched,loaded,coord,2,c0});
+            }
             b.op(OpLoad,{image_type,image,image_var});b.op(static_cast<Op>(95),{t_v4,texel,image,coord,2,c0});
             b.op(OpFMul,{t_v4,tinted,sum,texel});b.op(OpStore,{output,tinted});
         }else b.op(OpStore, {output, sum});

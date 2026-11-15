@@ -50,9 +50,15 @@ sufficient. Source inspection confirms the central problems, with these correcti
   by this claim. D-280 also makes matched native file acquisition nonblocking and
   fixes the idle image staging arena starving buffer uploads. Live image slices
   remain retained through completion; the draw thread does not wait for budget.
-- **I-06: confirmed open compatibility work.** General in-draw application inputs,
-  matched cross-slot rebinding and input-layout edits need their shared execution
-  adapter. Unmatched Route 2 descriptor support is not evidence for these paths.
+- **I-06: cross-slot sampled images fixed in D-281 (3.0.9); other gaps open.**
+  The 3.0.8 baseline passes 38/44. Matched material plans now retain logical source
+  slots and resolve current views through the shared native resource/image checks,
+  preserving ownership, verified layouts and private-binding restoration. Eight
+  merged/texture scenes pass 88 checks, and two own-mesh scenes pass 10, including
+  beside-original draws. Empty sources, saved references and GENERAL layouts have
+  independent pixel oracles. Queue, attachment and unknown-layout refusals remain.
+  General in-draw CustomShader inputs, private merged-bone overrides and arbitrary
+  InputLayout edits are still separate compatibility work.
 - **I-07: private implementation coupling fixed by D-279 (3.0.7).** The roots are in
   `scripts/build.py::ABI_ROOTS`; `scripts/build_character_module.py` does not exist.
   `character_module.h` does not directly include the three headers listed below.

@@ -9,6 +9,7 @@ struct CharacterMaterial {
     bool supported = false, compatibility = false;
     FragmentPatch patch;
     std::vector<uint32_t> assets;
+    std::vector<uint32_t> application_slots; // Parallel image sources; kCharacterNone selects the file asset.
     std::string reason;
 };
 // One profile against every mesh draw of the package. `counts` gains the image counts its

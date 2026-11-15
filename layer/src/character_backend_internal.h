@@ -589,7 +589,7 @@ public:
     std::vector<FragmentPatch> scratch_patches; // a draw's material patch without the dither (D-133)
     bool refresh_materials();
     // `origin`: 0 the package's own profile or nothing to bind, 1 rules derived from the module, 2 the application's images.
-    bool material_draws(const PipeInfo&, uint32_t section, const DrawRec&, uint64_t now, const CharacterList&,
+    bool material_draws(CmdBuf*, NativeDrawTransaction&, const PipeInfo&, uint32_t section, const DrawRec&, uint64_t now, const CharacterList&,
                         std::vector<const StaticMaterial*>&, std::vector<std::vector<SnapshotImage>>&, uint32_t& origin);
     bool rule_rules(const std::vector<uint32_t>& code, std::vector<CharacterMaterialRule>& rules, std::string& reason) const;
     bool pixel_texture(const DrawRec& r, unsigned slot, efmi::frontend::RuntimeTexture& texture, std::string& why);

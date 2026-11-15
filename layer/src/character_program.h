@@ -193,11 +193,12 @@ private:
     // A pixel slot's image (or kCharacterNone) while a plan is read: a few entries, kept sorted by
     // slot, no node per entry as a std::map has.
     struct PixelSlots {
-        std::vector<std::pair<uint32_t, uint32_t>> values;
-        uint32_t& operator[](uint32_t slot)
+        struct Value {uint32_t asset=kCharacterNone, application_slot=kCharacterNone;};
+        std::vector<std::pair<uint32_t, Value>> values;
+        Value& operator[](uint32_t slot)
         {
             auto it = std::lower_bound(values.begin(), values.end(), slot, [](const auto& v, uint32_t s) { return v.first < s; });
-            if (it == values.end() || it->first != slot) it = values.insert(it, {slot, 0});
+            if (it == values.end() || it->first != slot) it = values.insert(it, {slot, {}});
             return it->second;
         }
         void erase(uint32_t slot)

@@ -36,9 +36,10 @@ struct SnapshotTiming { std::atomic<uint64_t> copy_us{0}, descriptor_us{0}, imag
 extern SnapshotTiming g_snapshot_timing;
 struct SnapshotImage {
     VkImageView view = VK_NULL_HANDLE;
-    // Caller supplies a ready float-sampled 2D view in SHADER_READ_ONLY_OPTIMAL,
+    // Caller supplies a ready float-sampled 2D view in a verified shader-readable layout,
     // synchronized with this graphics queue, and its retained resource owner.
     std::shared_ptr<const void> owner;
+    VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 };
 
 class DrawSnapshots {

@@ -4,6 +4,7 @@ namespace efvk {
 // Direct compute ordering for original descriptors or private published resources.
 void native_compute_order(Device*, CmdBuf*, PFN_vkCmdPipelineBarrier);
 void native_images_observe(Device*, CmdBuf*, const DrawRec&);
+void native_images_observe_locked(Device*, CmdBuf*, const DrawRec&);
 bool native_image_binding(Device*, CmdBuf*, const DrawRec&, const efmi::frontend::NativeBinding&,
                           const std::shared_ptr<const efmi::frontend::NativeResource>&,
                           NativeImagePlan&, VkImageLayout&, std::string&);

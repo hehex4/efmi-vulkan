@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-280. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-281. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1147,3 +1147,18 @@ Native pipeline binds and image/output scope callbacks follow the installed repl
 Explicit `vk_binding` aliases also apply on matched merged geometry, own meshes and texture-only draws. The current shader hash selects the alias; ordinary Mod slots keep their established material/geometry handling. File publication, output and descriptor preflight complete before commands are emitted. Descriptor events follow the list's draw/post order, and deferred captures retain each draw's binding prefix. A pending matched file holds the replacement without waiting on the recording thread.
 
 The sandbox checks actual constant-driven colors in all three matched routes, interleaved descriptor/output commands, post restoration, mixed image/buffer publication and module exchange. Inputs relocated by merged-skeleton or private material rewrites, automatic cross-slot application mapping and in-draw CustomShader imports remain separate compatibility work. Existing image/output and queue safety checks still apply. No real-game verification is implied.
+
+## Application pixel references in matched Mods (D-281)
+
+`ps-tN = ref ps-tM` can use a retained application sampled image on merged geometry,
+own meshes and texture-only draws. A saved `Resource` reference keeps its original
+logical source when the INI later changes that source slot. Empty sources produce
+the existing explicit-null material behavior. Shader register reflection resolves
+the source and target for each actual pipeline; no character-specific map is used.
+
+Private descriptor snapshots retain the current image view and allocation owner,
+and preserve a verified shader-readable layout, including GENERAL. Shared native
+checks still reject unknown layouts, incompatible image shapes, attachment aliases
+and unsupported queue scopes. This does not implement in-draw CustomShader imports
+or arbitrary input-layout edits. Sandbox evidence includes all three matched routes,
+beside-original geometry, changing bones, saved references and state restoration.
