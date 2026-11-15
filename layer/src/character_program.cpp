@@ -1097,7 +1097,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
             for(const auto& item:plan.items){
                 using Op=efmi::assets::FileOperation;
                 if(item.operation==Op::DrawIndexed || item.operation==Op::Translucent){
-                    translucent|=item.operation==Op::Translucent;
+                    translucent|=item.operation==Op::Translucent && !item.shadow;
                 }else if(item.operation==Op::NativeBind){
                     using B=efmi::frontend::NativeBinding;
                     if(item.native_target.kind!=B::ColorTarget && item.native_target.kind!=B::DepthTarget)

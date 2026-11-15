@@ -665,7 +665,9 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!list->count) { if (!gate_open) return gated(); ++counters[C_HIDDEN]; return true; }
         if(!scratch_outputs.items.empty()){
             for(size_t i=0;i<scratch_outputs.items.size();++i)
-                if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed)output_before.push_back(i);
+                if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed ||
+                   (scratch_outputs.items[i].operation==efmi::assets::FileOperation::Translucent && scratch_outputs.items[i].shadow))
+                    output_before.push_back(i);
             if(output_before.size()!=list->count)return refuse(C_STATE,"character output/draw order is incomplete");
         }
         std::string target_reason;

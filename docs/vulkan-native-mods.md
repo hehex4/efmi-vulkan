@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-264. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-265. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1077,3 +1077,7 @@ An enabled replacement backend records attachment contexts even without ShaderOv
 ## Hunting and native library draws (D-264)
 
 Hunting suppression also covers native translucent capture, both opacity-shadow groups and the ordinary shadow fallback. The bridge skips count conversion, and direct native draw helpers skip parameter/resource evaluation while hidden. Mod list side effects and shader-group cleanup still run; clearing hunting restores the original draw arguments. CPU tests exercise these boundaries, while the existing library replay and hunting GPU checks cover their respective paths. Hidden transparent GPU pixel acceptance remains separate from those CPU assertions.
+
+## Output events around opacity shadows (D-265)
+
+Merged opacity-shadow draws execute immediately and now participate in the ordered output timeline. Their shadow fragment stage and full merged interfaces are retained when preparing compatible passes. Depth null/restoration can surround the shadow without dropping the component's other geometry. Five owned replay cases verify complete color/depth bytes, including unchanged bytes for restoration before the draw and changes made only after it. Deferred forward capture remains active in those scenes; its own output events still need capture-time attachment snapshots and remain separate work.
