@@ -1017,3 +1017,11 @@ Independent sandbox readbacks verify moved geometry, native replacement and hunt
 Mod variants snapshot actual output depth presence before the current command lists, matching ProcessShaderOverride. Own-mesh, texture-only and merged-skeleton shader selection inherit that snapshot, including the merged fast cache key. A list changing outputs does not retroactively select another shader for the same draw; following draws observe the new state. Nested draws restore the enclosing selection and compute bypasses the graphics depth filter.
 
 Independent GPU readbacks verify both active/inactive filters on a Mod triangle moved away from its original location, with the application's current and following draws checked separately. These are sandbox results. Missing-target transparency and output operations inside matched Mod plans remain separate work.
+
+## Missing scene depth and retained layer history (D-255)
+
+The native compositor follows the library's resource creation history. A cold capture without a DSV leaves an incomplete layer and draws nothing; restoring the DSV does not repair that layer. A capture-size change releases its logical state. A layer created with depth remains usable after scene depth is unbound. Additional calls cannot create a new complete layer while depth is absent; earlier complete layers remain usable. Logical history survives eviction of the native allocation cache.
+
+Warm captures composite with a null scene-depth sampled descriptor, matching the library's zero load, only with the device's enabled nullDescriptor feature. No depth image is transitioned or retained for that null binding. Actual nonnull depth retains all previous metadata, usage, layout and completion-ownership checks. The forward color0 target remains required; this does not expand other pass/queue scopes.
+
+Verification is offline: the unchanged library checks every pixel for cold, warm, restored, partial and resized cases on both shader compilation paths. Native archived replay checks five depth histories, complete completed readbacks, changes confined to forward color0 and byte-identical control output after restoring depth. No real-game acceptance is implied.

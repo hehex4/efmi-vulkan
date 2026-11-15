@@ -416,6 +416,78 @@ o0 = set_viewport ref ResourceOutput
     }
     f.release();printf("EFMITTL resize-neutral-mask: resized layers, neutral fill, target restoration and ownership passed\n");
 }
+static void depth_history_cases(Device& d,const std::filesystem::path& root) {
+    const char* names[]={"depth-cold","depth-warm","depth-recover","depth-partial","depth-resize"};
+    for(unsigned mode=0;mode<5;++mode){
+        const auto folder=root/names[mode];std::filesystem::create_directories(folder/"Mods");
+        std::filesystem::copy(root/"library",folder/"Mods/EFMITTL",std::filesystem::copy_options::recursive);
+        std::ostringstream body;
+        for(unsigned i=0;i<3;++i)
+            body<<"[ResourceSmall"<<i<<"]\ntype = Texture2D\nwidth = 4\nheight = 4\narray = 1\nmips = 1\nmsaa = 1\nformat = "
+                <<(i==0?"R32G32B32A32_FLOAT":i==1?"R32_TYPELESS":"R32_FLOAT")
+                <<"\nbind_flags = "<<(i==1?"depth_stencil":"render_target")<<" shader_resource\n";
+        body<<R"ini(
+[ResourceOutput]
+[ResourceZ]
+[ResourceCopyOutput]
+[Present]
+$resize = $resize + 1
+ResourceOutput = ref ResourceScene
+ResourceZ = ref ResourceDepth
+ResourceCopyOutput = ref ResourceCopy
+)ini";
+        if(mode==4)body<<R"ini(
+if $resize > 1
+ResourceOutput = ref ResourceSmall0
+ResourceZ = ref ResourceSmall1
+ResourceCopyOutput = ref ResourceSmall2
+endif
+)ini";
+        body<<R"ini(
+o0 = set_viewport ref ResourceOutput
+oD = ref ResourceZ
+ib = ref ResourceIndices
+clear = ResourceOutput 0.125 0.25 0.5 0.625
+clear = ResourceZ 0.1
+)ini";
+        if(mode==0)body<<"oD = null\n";
+        else body<<"if $resize "<<(mode==1?"> 1":mode==3?"== 2":"== 1")<<"\noD = null\nendif\n";
+        body<<R"ini(
+x181 = 1
+y181 = 0
+z181 = 0
+x182 = 0.6
+y182 = 0.4
+$\EFMITTL\vs_kind = 1
+$\EFMITTL\alpha = 0.5
+$\EFMITTL\count = 6
+run = CommandList\EFMITTL\Draw
+)ini";
+        if(mode==3)body<<"if $resize > 1\nrun = CommandList\\EFMITTL\\Draw\nendif\n";
+        body<<R"ini(
+$captures = $\EFMITTL\captures
+o0 = ref ResourceCopyOutput
+oD = null
+$\EFMITTL\copy_after_lit = 1
+run = CommandList\EFMITTL\Composite
+$composites = $\EFMITTL\composites
+o0 = set_viewport ref ResourceOutput
+)ini";
+        TransparencyFixture fixture(d,folder,body.str());
+        for(uint64_t frame=1;frame<=3;++frame){
+            const auto pixels=fixture.render(frame);
+            const bool captured=mode==1 || mode==3 || (mode==4 && frame>1);
+            const std::array<float,4> expected=captured?std::array<float,4>{.78125f,.0625f,.125f,.625f}
+                                                       :std::array<float,4>{.125f,.25f,.5f,.625f};
+            check(pixels.size()==size_t(mode==4 && frame>1?4*4*4:8*8*4),"Original depth-history readback is complete");
+            for(size_t i=0;i<pixels.size();++i)if(std::abs(pixels[i]-expected[i%4])>.001f)
+                throw std::runtime_error(std::string(names[mode])+" pixel differs at frame "+std::to_string(frame));
+            check(fixture.variable("captures")==float(captured),"Original depth history selects the expected capture count");
+            check(fixture.variable("composites")==float(captured),"Original depth history selects the expected composite count");
+        }
+        fixture.release();printf("EFMITTL %s: every pixel, layer history and ownership passed\n",names[mode]);
+    }
+}
 int wmain(int argc,wchar_t** argv) {
     setvbuf(stdout,nullptr,_IONBF,0);
     try {check(argc==3,"Transparency fixture path and cached/source mode required");
@@ -423,7 +495,7 @@ int wmain(int argc,wchar_t** argv) {
         require_cached=!wcscmp(argv[2],L"cached");
         {Device d;d.init(false,false,true,false,false,false,true,true,true);
             const auto root=std::filesystem::absolute(argv[1]);transparency_cases(d,root);shadow_cases(d,root);
-            fallback_case(d,root);mask_sampling_case(d,root);resize_mask_case(d,root);}
+            fallback_case(d,root);mask_sampling_case(d,root);resize_mask_case(d,root);depth_history_cases(d,root);}
         check(errors==0 && warnings==0,"Clean transparency Vulkan validation through shutdown");
         printf("EFMITTL cache translations per fixture: min=%zu max=%zu\n",cache_min,cache_max);
         printf("efmittl_gpu: %u checks passed; validation errors=%u warnings=%u\n",checks,unsigned(errors),unsigned(warnings));return 0;

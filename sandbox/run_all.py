@@ -138,6 +138,7 @@ STEPS = [
     # the step fails on a line that agreed and differs now, and on a recorded difference that agrees now.
     ("one line at a time under the original (XXMI DX11)", [os.path.join(ROOT, "scripts", "check_dx11_judge_draws.py"), "--sweep"]),
     ("EFMITTL owned transparency", [os.path.join(ROOT, "scripts", "check_efmittl.py")]),
+    ("native translucency depth history", [os.path.join(HERE, "native_translucency_depth_test.py")]),
     ("original HLSL Vulkan compiler", [os.path.join(ROOT, "scripts", "check_shader_compiler.py")]),
     ("installed Mods and Core HLSL", [os.path.join(ROOT, "scripts", "check_hlsl_folder.py")]),
     ("directory HLSL evidence", [os.path.join(HERE, "hlsl_folder_test.py")]),
@@ -253,6 +254,7 @@ GROUPS = {
     "shader-corpus": ["captured shader rewrite corpus"],
     "replay": ["captured frame"],
     "replay-readback": ["captured frame with a library call", "captured frame on two queues, bones on the GPU and the CPU", "text check"],
+    "translucency-depth": ["native translucency depth history", "EFMITTL owned transparency", "native tracker", "Vulkan validation", "text check"],
     "textures": ["texture first-use", "live INI rendering", "character replacement", "full card", "Mods folder"],
     "submission": ["two queues, bones", "bone regions reused", "probe end to end", "Vulkan validation", "live INI rendering"],
     "ini": ["INI", "frontend host", "declarations", "registers", "Core facts", "texture roles", "texture properties", "offline plans",

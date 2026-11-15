@@ -216,14 +216,14 @@ static PFN_vkCmdClearDepthStencilImage pCmdClearDepthStencilImage=nullptr;
 struct Pipe {
     HistoricalCase c;
     std::vector<VkDescriptorSetLayout> sets;
-    VkPipelineLayout layout{};VkRenderPass pass{},replay{},keep{},cont{};VkPipeline pipeline{};
+    VkPipelineLayout layout{};VkRenderPass pass{},replay{},keep{},cont{},null_pass{},null_keep{};VkPipeline pipeline{},null_pipeline{};
     std::vector<VkShaderModule> modules;
     bool reversed_depth=false;
 };
 struct Target {VkImage image{};VkDeviceMemory memory{};VkImageView view{};VkFormat format{};bool shared=false;};
 // `keep`: the group's depth is the one an earlier group wrote; `reversed`: a pipeline of the group
 // tests depth with GREATER or GREATER_OR_EQUAL, so the depth starts at 0.
-struct Group {uint32_t pipe=0;std::vector<Target> targets;VkFramebuffer framebuffer{};bool keep=false,reversed=false;};
+struct Group {uint32_t pipe=0;std::vector<Target> targets;VkFramebuffer framebuffer{},null_framebuffer{};bool keep=false,reversed=false;};
 
 // A fatal exception in the process (the layer, its module, a driver) is written to stderr with the
 // faulting stack, symbolized from the modules' own debug information, before the process ends.
@@ -274,9 +274,12 @@ int wmain(int argc,wchar_t** argv){
     // f binds copy f%2, and before a frame is submitted the copy the frame before used is zeroed, as the
     // game's next writes would overwrite it. A read of another frame's region then finds no bones.
     bool open_tests=false,two_queues=false,split_passes=false,animate_bones=false,rolling_bones=false;
+    uint32_t depth_null_after=UINT32_MAX,depth_restore_after=UINT32_MAX;
     for(int a=3;a<argc;++a){const std::wstring flag=argv[a];if(flag==L"open")open_tests=true;else if(flag==L"two-queues")two_queues=true;
         else if(flag==L"split-passes")two_queues=split_passes=true;else if(flag==L"animate-bones")animate_bones=true;
-        else if(flag==L"rolling-bones")animate_bones=rolling_bones=true;}
+        else if(flag==L"rolling-bones")animate_bones=rolling_bones=true;
+        else if(flag.rfind(L"depth-null-after=",0)==0)depth_null_after=uint32_t(_wtoi(flag.c_str()+17));
+        else if(flag.rfind(L"depth-restore-after=",0)==0)depth_restore_after=uint32_t(_wtoi(flag.c_str()+20));}
     const uint32_t W=960,H=600;
     try{
         if(argc<2)throw std::runtime_error("usage: replay_gpu replay.bin [frames]");
@@ -335,6 +338,18 @@ int wmain(int argc,wchar_t** argv){
                 a.loadOp=a.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_LOAD;a.initialLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             }
             CHECK_VK(replay.create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.keep));
+            // Optional missing-DSV fixture: every two-color forward pass gets a compatible
+            // null-depth twin. Both paths keep the same owned images for independent readback.
+            if(depth_null_after!=UINT32_MAX && replay.subpasses.size()==1 &&
+               replay.subpasses[0].colors.size()==2 && replay.subpasses[0].uses_depth()){
+                auto masked=replay;masked.subpasses[0].has_depth=false;
+                masked.subpasses[0].depth.attachment=VK_ATTACHMENT_UNUSED;
+                CHECK_VK(masked.create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.null_keep));
+                for(auto& a:masked.attachments)if(depth_format(a.format)){
+                    a.loadOp=a.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;a.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+                }
+                CHECK_VK(masked.create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.null_pass));
+            }
             // A pass continued in another command buffer: every attachment as the first part left it.
             for(auto& a:replay.attachments){a.loadOp=a.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_LOAD;a.initialLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;}
             CHECK_VK(replay.create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.cont));
@@ -347,6 +362,7 @@ int wmain(int argc,wchar_t** argv){
                 p.c.recipe.raster.cullMode=VK_CULL_MODE_NONE;
             }
             CHECK_VK(p.c.recipe.create(g.device,pCreateGraphicsPipelines,p.layout,p.pass,p.modules,&p.pipeline));
+            if(p.null_pass)CHECK_VK(p.c.recipe.create(g.device,pCreateGraphicsPipelines,p.layout,p.null_pass,p.modules,&p.null_pipeline));
             p.reversed_depth=p.c.recipe.has_depth && (p.c.recipe.depth.depthCompareOp==VK_COMPARE_OP_GREATER ||
                                                       p.c.recipe.depth.depthCompareOp==VK_COMPARE_OP_GREATER_OR_EQUAL);
         }
@@ -485,6 +501,8 @@ int wmain(int argc,wchar_t** argv){
             VkFramebufferCreateInfo fi={VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};fi.renderPass=pipes[d.pipeline].replay;
             fi.attachmentCount=static_cast<uint32_t>(attachments.size());fi.pAttachments=attachments.data();fi.width=W;fi.height=H;fi.layers=1;
             CHECK_VK(pCreateFramebuffer(g.device,&fi,nullptr,&gr.framebuffer));
+            if(pipes[d.pipeline].null_pass){fi.renderPass=pipes[d.pipeline].null_pass;
+                CHECK_VK(pCreateFramebuffer(g.device,&fi,nullptr,&gr.null_framebuffer));}
         }
         // Frames: the recorded draws in their order, each render pass instance its own pass.
         std::vector<Buffer> readbacks;std::vector<std::pair<uint32_t,uint32_t>> readback_of;
@@ -538,6 +556,7 @@ int wmain(int argc,wchar_t** argv){
             for(auto& sem:rendered)CHECK_VK(semaphore_make(g.device,&si,nullptr,&sem));
         }
         for(unsigned f=0;f<frames;++f){
+            const bool depth_null=f>=depth_null_after && f<depth_restore_after;
             pump();
             const unsigned slot=f%3;
             if(two_queues){CHECK_VK(fence_wait(g.device,1,&fences[slot],VK_TRUE,UINT64_MAX));CHECK_VK(fence_reset(g.device,1,&fences[slot]));}
@@ -582,10 +601,13 @@ int wmain(int argc,wchar_t** argv){
                     }
                     VkRenderPassBeginInfo bi={VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
                     bi.renderPass=current_part==1?pipes[gr.pipe].cont:gr.keep?pipes[gr.pipe].keep:pipes[gr.pipe].replay;bi.framebuffer=gr.framebuffer;
+                    if(depth_null && pipes[gr.pipe].null_pass){
+                        bi.renderPass=gr.keep?pipes[gr.pipe].null_keep:pipes[gr.pipe].null_pass;bi.framebuffer=gr.null_framebuffer;
+                    }
                     bi.renderArea.extent={W,H};bi.clearValueCount=static_cast<uint32_t>(clears.size());bi.pClearValues=clears.data();
                     pCmdBeginRenderPass(cb,&bi,VK_SUBPASS_CONTENTS_INLINE);
                 }
-                pCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,p.pipeline);
+                pCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,depth_null && p.null_pipeline?p.null_pipeline:p.pipeline);
                 for(auto state:p.c.recipe.dynamic){
                     if(state==VK_DYNAMIC_STATE_VIEWPORT){VkViewport vp{0,0,float(W),float(H),0,1};pCmdSetViewport(cb,0,1,&vp);}
                     else if(state==VK_DYNAMIC_STATE_SCISSOR){VkRect2D sc{{0,0},{W,H}};pCmdSetScissor(cb,0,1,&sc);}
@@ -691,10 +713,15 @@ int wmain(int argc,wchar_t** argv){
         self_probe("{\"cmd\":\"status\"}","status.json");
         pDeviceWaitIdle(g.device);
         for(auto& item:groups){pDestroyFramebuffer(g.device,item.second.framebuffer,nullptr);
+            if(item.second.null_framebuffer)pDestroyFramebuffer(g.device,item.second.null_framebuffer,nullptr);
             for(auto& t:item.second.targets)if(!t.shared){pDestroyImageView(g.device,t.view,nullptr);pDestroyImage(g.device,t.image,nullptr);pFreeMemory(g.device,t.memory,nullptr);}}
         pDestroyDescriptorPool(g.device,pool,nullptr);pDestroySampler(g.device,sampler,nullptr);
         for(auto v:views)pDestroyImageView(g.device,v,nullptr);
-        for(auto& p:pipes){pDestroyPipeline(g.device,p.pipeline,nullptr);for(auto m:p.modules)pDestroyShaderModule(g.device,m,nullptr);
+        for(auto& p:pipes){pDestroyPipeline(g.device,p.pipeline,nullptr);
+            if(p.null_pipeline)pDestroyPipeline(g.device,p.null_pipeline,nullptr);
+            if(p.null_pass)pDestroyRenderPass(g.device,p.null_pass,nullptr);
+            if(p.null_keep)pDestroyRenderPass(g.device,p.null_keep,nullptr);
+            for(auto m:p.modules)pDestroyShaderModule(g.device,m,nullptr);
             pDestroyRenderPass(g.device,p.pass,nullptr);pDestroyRenderPass(g.device,p.replay,nullptr);pDestroyRenderPass(g.device,p.keep,nullptr);pDestroyRenderPass(g.device,p.cont,nullptr);pDestroyPipelineLayout(g.device,p.layout,nullptr);
             for(auto s:p.sets)pDestroyDescriptorSetLayout(g.device,s,nullptr);}
         swap.DestroySemaphore(g.device,swap.acquired,nullptr);swap.DestroySemaphore(g.device,swap.rendered,nullptr);

@@ -424,7 +424,8 @@ def dimension_policy() -> str:
 
 def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation: Path, open_tests: bool = False,
         two_queues: bool = False, gpu_bones: bool | None = None, name: str | None = None, split_passes: bool = False,
-        animate_bones: bool = False, rolling_bones: bool = False) -> dict:
+        animate_bones: bool = False, rolling_bones: bool = False,
+        depth_null_after: int | None = None, depth_restore_after: int | None = None) -> dict:
     from harness import layer_env
     folder = out / (name or ("enabled" if enabled else "disabled"))
     folder.mkdir(parents=True, exist_ok=True)
@@ -445,6 +446,14 @@ def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation
     env["VK_LAYER_PATH"] = extra["VK_LAYER_PATH"]
     flags = (["open"] if open_tests else []) + (["split-passes"] if split_passes else ["two-queues"] if two_queues else [])
     flags += ["rolling-bones"] if rolling_bones else ["animate-bones"] if animate_bones else []
+    if depth_null_after is not None:
+        if depth_null_after < 0 or split_passes:
+            raise ValueError("Null-depth replay requires a nonnegative frame in an ordinary pass")
+        flags.append("depth-null-after=" + str(depth_null_after))
+    if depth_restore_after is not None:
+        if depth_null_after is None or depth_restore_after <= depth_null_after:
+            raise ValueError("Restoring depth requires a later frame than null depth")
+        flags.append("depth-restore-after=" + str(depth_restore_after))
     result = subprocess.run([str(exe), str(out / "replay.bin"), str(frames)] + flags, cwd=folder, env=env,
                             capture_output=True, text=True, errors="replace", timeout=600)
     (folder / "stdout.txt").write_text((result.stdout + result.stderr).encode("ascii", "backslashreplace").decode(), encoding="ascii")
@@ -529,6 +538,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--bundle", type=Path, required=True)
     ap.add_argument("--frames", type=int, default=90)
+    ap.add_argument("--prepare-only", action="store_true", help="prepare and build the owned replay without running GPU frames")
     ap.add_argument("--rp", type=int, action="append", help="replay only the draws of these recorded render pass instances")
     ap.add_argument("--open-tests", action="store_true", help="diagnosis: no depth, stencil or culling in the replayed pipelines")
     ap.add_argument("--probe-vertices", action="store_true", help="diagnosis: the original draws get a small known shape")
@@ -616,6 +626,9 @@ def main() -> int:
     (out / "replay.bin").write_bytes(bytes(replay.data))
     (out / "replay_case.inc").write_text(emit(replay, draws), encoding="ascii")
     exe = build(out)
+    if args.prepare_only:
+        print("built " + str(exe))
+        return 0
     results = {}
     for enabled in (False, True):
         r = run(exe, out, dist, args.frames, enabled, validation, args.open_tests, args.two_queues, split_passes=args.split_passes,

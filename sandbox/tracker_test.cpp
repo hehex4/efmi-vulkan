@@ -1,6 +1,7 @@
 // Offline tests of tracker lifetimes and descriptor semantics. No Vulkan driver.
 #include "../layer/src/state.h"
 #include "../layer/src/json.h"
+#include "../layer/src/translucency_history.h"
 #include "src/spirv.h"
 
 #include <cstdio>
@@ -989,6 +990,27 @@ int main()
     secondary_publication_dependencies();
     image_layout_cases(check);
     image_layout_tracker_cases();
+    {
+        TranslucencyHistory history;
+        history.begin(8, 8);
+        check(!history.capture(false), "original cold-null capture has no complete layer");
+        history.begin(8, 8);
+        check(!history.capture(true), "restoring depth does not repair the original partial layer");
+        history.begin(4, 4);
+        check(history.capture(true), "a size change releases the partial original layer");
+        history.begin(4, 4);
+        check(history.capture(false), "an existing original layer survives a null scene depth");
+        check(!history.capture(false), "another call cannot create a new layer from null depth");
+        history.begin(4, 4);
+        check(history.capture(true) && !history.capture(true), "the complete layer stays usable beside a persistent partial layer");
+        history.begin(8, 8);
+        bool complete = true;
+        for (unsigned i = 0; i < 6; ++i) complete &= history.capture(true);
+        check(complete, "four original layers accept later calls into the last layer");
+        history.begin(8, 8);
+        for (unsigned i = 0; i < 6; ++i) complete &= history.capture(false);
+        check(complete, "all retained original layers remain usable without scene depth");
+    }
     printf("tracker_test: %d/%d checks passed\n", passed, passed + failed);
     return failed ? 1 : 0;
 }

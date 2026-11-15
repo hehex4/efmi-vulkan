@@ -718,26 +718,42 @@ void Translucency::pass_end(CmdBuf* cb)
         fail("EFMITTL: the forward pass's targets are not known"); return;
     }
     const auto& sub = pass.recipe->subpasses[0];
-    if (sub.colors.empty() || !sub.has_depth) { fail("EFMITTL: the forward pass has no colour or depth target"); return; }
+    if (sub.colors.empty()) { fail("EFMITTL: the forward pass has no colour target"); return; }
+    const bool has_depth = sub.uses_depth();
     const uint32_t ci = sub.colors[0].attachment, di = sub.depth.attachment;
-    if (ci >= pass.info->views.size() || di >= pass.info->views.size() || ci >= pass.recipe->attachments.size() || di >= pass.recipe->attachments.size()) {
+    if (ci >= pass.info->views.size() || ci >= pass.recipe->attachments.size() ||
+        (has_depth && (di >= pass.info->views.size() || di >= pass.recipe->attachments.size()))) {
         fail("EFMITTL: forward pass attachments out of range"); return;
     }
     const TargetView& scene = pass.info->views[ci];
-    const TargetView& sdepth = pass.info->views[di];
-    const VkImageLayout colour_layout = pass.recipe->attachments[ci].finalLayout, depth_layout = pass.recipe->attachments[di].finalLayout;
-    if (!scene.known || !sdepth.known || colour_layout == VK_IMAGE_LAYOUT_UNDEFINED || colour_layout == VK_IMAGE_LAYOUT_PREINITIALIZED ||
-        depth_layout == VK_IMAGE_LAYOUT_UNDEFINED || depth_layout == VK_IMAGE_LAYOUT_PREINITIALIZED || !depth_format(VkFormat(sdepth.image.format)) ||
-        !(sdepth.image.usage & VK_IMAGE_USAGE_SAMPLED_BIT) || !(scene.image.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) ||
+    const TargetView* sdepth = has_depth ? &pass.info->views[di] : nullptr;
+    const VkImageLayout colour_layout = pass.recipe->attachments[ci].finalLayout;
+    const VkImageLayout depth_layout = has_depth ? pass.recipe->attachments[di].finalLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!scene.known || colour_layout == VK_IMAGE_LAYOUT_UNDEFINED || colour_layout == VK_IMAGE_LAYOUT_PREINITIALIZED ||
+        (sdepth && (!sdepth->known || depth_layout == VK_IMAGE_LAYOUT_UNDEFINED || depth_layout == VK_IMAGE_LAYOUT_PREINITIALIZED ||
+                    !depth_format(VkFormat(sdepth->image.format)) || !(sdepth->image.usage & VK_IMAGE_USAGE_SAMPLED_BIT))) ||
+        !(scene.image.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) ||
         scene.image.extent.width != layers->width || scene.image.extent.height != layers->height) {
         fail("EFMITTL: the forward pass's targets are not those the layers were made for"); return;
     }
+    history_.begin(layers->width, layers->height);
+    size_t kept = 0;
+    for (size_t i = 0; i < captures.size(); ++i) {
+        if (!history_.capture(has_depth)) continue;
+        if (kept != i) captures[kept] = std::move(captures[i]);
+        ++kept;
+    }
+    captures.resize(kept);
+    if (captures.empty()) { error_.clear(); return; }
+    if (!has_depth && !device_->null_descriptors) { fail("EFMITTL: null scene depth requires nullDescriptor"); return; }
     std::shared_ptr<const void> keep_depth, keep_fb;
     VkPipeline composite = VK_NULL_HANDLE;
     if (!composite_pipeline(VkFormat(scene.view.format), colour_layout, dynamic, composite, why)) { fail(why); return; }
     uint64_t depth_serial = 0;
-    const VkImageView scene_depth = depth_view(sdepth.view.image, sdepth.view.image_id, VkFormat(sdepth.image.format), keep_depth, depth_serial, why);
-    const VkFramebuffer scene_fb = scene_depth && scene.handle ? colour_framebuffer(scene.handle, scene.view.id, VkFormat(scene.view.format),
+    const VkImageView scene_depth = sdepth ? depth_view(sdepth->view.image, sdepth->view.image_id, VkFormat(sdepth->image.format), keep_depth, depth_serial, why)
+                                         : VK_NULL_HANDLE;
+    if (has_depth && !scene_depth) { fail(why); return; }
+    const VkFramebuffer scene_fb = scene.handle ? colour_framebuffer(scene.handle, scene.view.id, VkFormat(scene.view.format),
                                                                                     colour_layout, layers->width, layers->height, keep_fb, why)
                                                                : VK_NULL_HANDLE;
     if (!scene_fb) { fail(why); return; }
@@ -873,9 +889,11 @@ void Translucency::pass_end(CmdBuf* cb)
                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, drawn ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT : 0,
                                           VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_DEPTH_BIT));
             }
-        const VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT | (has_stencil(VkFormat(sdepth.image.format)) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
-        b.push_back(image_barrier(sdepth.view.image, depth_layout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, aspect));
+        if (sdepth) {
+            const VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT | (has_stencil(VkFormat(sdepth->image.format)) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+            b.push_back(image_barrier(sdepth->view.image, depth_layout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                                      VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, aspect));
+        }
         VkMemoryBarrier m = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
         m.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT; m.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         d_.CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
@@ -895,9 +913,9 @@ void Translucency::pass_end(CmdBuf* cb)
         d_.CmdDraw(cmd, 3, 1, 0, 0);
         d_.CmdEndRenderPass(cmd);
     }
-    {
-        const VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT | (has_stencil(VkFormat(sdepth.image.format)) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
-        VkImageMemoryBarrier b = image_barrier(sdepth.view.image, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depth_layout, VK_ACCESS_SHADER_READ_BIT,
+    if (sdepth) {
+        const VkImageAspectFlags aspect = VK_IMAGE_ASPECT_DEPTH_BIT | (has_stencil(VkFormat(sdepth->image.format)) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+        VkImageMemoryBarrier b = image_barrier(sdepth->view.image, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depth_layout, VK_ACCESS_SHADER_READ_BIT,
                                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, aspect);
         d_.CmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
                               0, 0, nullptr, 0, nullptr, 1, &b);

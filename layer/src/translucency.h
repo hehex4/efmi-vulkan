@@ -7,6 +7,7 @@
 #include "draw_snapshots.h"
 #include "pipeline_variant.h"
 #include "shader_hooks.h"
+#include "translucency_history.h"
 #include <chrono>
 #include <filesystem>
 #include <mutex>
@@ -134,6 +135,7 @@ private:
     VkPhysicalDeviceMemoryProperties memory_;
     std::mutex mx_;
     std::map<std::pair<uint32_t, uint32_t>, std::shared_ptr<Layers>> layer_sets_; // by width, height
+    TranslucencyHistory history_;
     uint64_t next_serial_ = 0;
     std::vector<uint32_t> alpha_, composite_vs_, composite_ps_;
     std::map<uint32_t, std::vector<uint32_t>> alpha_by_set_; // the alpha shader's images repointed to (own_set, 2/3)
