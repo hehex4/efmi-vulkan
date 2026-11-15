@@ -6,6 +6,8 @@ Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 20
 
 ## Implementation audit (2026-11-15; remediation in progress)
 
+Current audit: source 3.1.3; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+
 The findings below are review inputs, not evidence that every proposed remedy is
 sufficient. Source inspection confirms the central problems, with these corrections:
 
@@ -81,6 +83,10 @@ sufficient. Source inspection confirms the central problems, with these correcti
   independent pixel oracles. Queue, attachment and unknown-layout refusals remain.
   General in-draw CustomShader inputs, private merged-bone overrides and arbitrary
   InputLayout edits are still separate compatibility work.
+  D-287 surveys the retained historical shaders: 169 vertex modules and 1,044
+  located inputs have no names or HLSL semantic decorations. Arbitrary source
+  semantic edits therefore need evidence beyond Vulkan Location numbers. In-draw
+  owned imports also need ordered insertion; a query callback alone is insufficient.
 - **I-07: private implementation coupling fixed by D-279 (3.0.7).** The roots are in
   `scripts/build.py::ABI_ROOTS`; `scripts/build_character_module.py` does not exist.
   `character_module.h` does not directly include the three headers listed below.
@@ -110,6 +116,9 @@ sufficient. Source inspection confirms the central problems, with these correcti
   the root `dist/` and real-game deployment are separate older artifacts. This
   round does not authorize loading into the game. Preparing a release candidate
   cannot close the missing real-character validation.
+  D-287 prepares an unpublished 3.1.3 no-probe candidate and verifies its archive,
+  all 22 installed package loads and both sandbox unpack layouts. The release
+  checker's obsolete log parser is corrected. No real-game deployment occurred.
 
 D-277 (`7e6eb5c`) completes the already pending uniform fallback fix before this
 architecture work. Its 764 CPU checks, 52 persistence checks, existing application

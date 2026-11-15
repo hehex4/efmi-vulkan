@@ -1,4 +1,4 @@
-"""Checks the playable release archive (scripts/build.py release) before it is published.
+r"""Checks the playable release archive (scripts/build.py release) before it is published.
 
     python scripts/check_release.py build/release/EFMI-Vulkan-X.Y.Z.zip [--mods D:/.../EFMI/Mods]
 
@@ -40,6 +40,9 @@ ap.add_argument("--layout-mods", nargs="*",
 args = ap.parse_args()
 
 failures = []
+# D-176 also accepts ordinary meshes without skeletons, so the runtime reports
+# packages and their bone-free count. Keep the historical spelling for old archives.
+GENERATION_LINE = r"folder generation: (\d+) (?:character Mods|packages \(\d+ of them without a skeleton\)), (\d+) left out"
 
 
 def check(ok, what):
@@ -118,7 +121,7 @@ log, output, probes_seen = run(release, args.seconds)
 check(not probes_seen, "the injected release opens no probe pipe")
 check(re.search(r"efmi_vk_layer [0-9.]+ \(release, no probe\) loaded into efmi_vk_sandbox\.exe", log) is not None,
       "the release DLL loaded into the sandbox")
-loaded = re.search(r"folder generation: (\d+) character Mods, (\d+) left out", log)
+loaded = re.search(GENERATION_LINE, log)
 check(loaded is not None and loaded.group(2) == "0", "the installed Mods' folder generation loaded, none left out " +
       (loaded.group(0) if loaded else "(no line)"))
 check("crash:" not in log, "no fault in the layer")
@@ -152,7 +155,7 @@ for place in (efmi, efmi / "Mods"):
     text, out, _ = run(folder, 30, ["--handled-fault"])
     found = re.search(r"Mods folder found from the layer's folder: (.*)", text)
     check(found is not None and Path(found.group(1).strip()) == efmi / "Mods", label + ": the Mods folder found from the release's own folder")
-    loaded = re.search(r"folder generation: (\d+) character Mods, (\d+) left out", text)
+    loaded = re.search(GENERATION_LINE, text)
     check(loaded is not None and loaded.groups() == ("1", "0"), label + ": the character Mod loaded, none left out " +
           (loaded.group(0) if loaded else "(no line)"))
     check("planted.ini" not in text, label + ": an INI in the release's own folder is no Mod content")

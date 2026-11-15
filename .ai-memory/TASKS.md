@@ -1,6 +1,16 @@
 # EFMI Vulkan - Tasks
 
 
+## D-287 verifies the candidate; production queue and input boundaries remain (2026-11-15)
+
+- Source remains 3.1.3 / ABI 134dd78b13c38aaa. The original CommandList.cpp 282 applies InputLayout overrides using actual DX11 semantics/formats/offsets in order. DX11 provides reference-counted lifetime with deferred destruction, hazard tracking and one-context order; importing a descriptor alone supplies none of the missing Vulkan draw-insertion or access dependencies.
+- scripts/survey_vertex_semantics.py reads and SHA-256 deduplicates all 4,724 retained SPIR-V files: 637 unique modules, 169 vertex modules, 1,044 located input variables, no input names and no variable/member HLSL semantic decorations. build/d287-semantics.json records the inventory and example hashes. This is historical capture evidence. Arbitrary source semantic names cannot be recovered merely from Location numbers; no character table is introduced. In-draw owned application resources also require correctly ordered insertion, not only a resource-query callback.
+- d287-release-build.out builds an unpublished no-probe candidate in build/candidate-d287/EFMI-Vulkan-3.1.3.zip, SHA-256 420d4d446519174a3e7a958ef30b3688bf71142dbb2e3f02a213ef1ec260c2e8. The pre-existing C4018 warnings remain. Root dist and all real-game files remain unchanged. D-135's release deliberately has no probe/module-control pipe; development artifacts retain the module exchange path.
+- BUG-149 is in the release checker: d287-release-check.out falsely rejects three successful folder loads because it still expects the old character-Mod log spelling. Current character_backend_folder.cpp reports packages, including their bone-free count. The checker now parses both spellings while retaining zero-left-out and exact one-character layout assertions; its docstring is raw to avoid a Python escape warning. No runtime behavior changes for this fix.
+- d287-release-after.out passes archive contents, SHA-256, no-probe binary checks, loading all 22 installed character packages (23 enabled folders including EFMITTL), both project-owned EFMI/EFMI-Mods unpack layouts, handled-fault classification and core/synchronization validation. These prove sandbox loading, not rendering every installed Mod on its actual character. Cleanup validates resolved paths remain inside the owned test directory. Text check passes 690 files. No game load, deployment, launcher, system or remote action.
+- docs/architecture-audit-3.1.3.md consolidates implemented fixes and open boundaries. I-01 production scheduling, I-04 sequential same-storage phases and I-06 owned inputs/arbitrary semantics remain open; I-09 real-character verification is still gated. Continue inspecting the existing submission provenance/lifetime handling without removing queue guards.
+
+
 ## D-286 proves queue overlap and the binary forwarding boundary; I-01 remains open (2026-11-15)
 
 - I-01 now has actual pending GPU work rather than alternating drained frames. The new headless queue_overlap fixture submits a timeline-waiting consumer before its producer, verifies the consumer fence is pending, then checks all 64 copied words. No QueueWaitIdle/DeviceWaitIdle is used. A third private queue is used only for the scheduler experiment.
