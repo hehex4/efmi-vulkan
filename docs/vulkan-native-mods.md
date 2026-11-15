@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-273. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-274. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1113,3 +1113,7 @@ SRV assignments to proven buffer descriptor slots may interleave with supported 
 ## Published file images beside output changes (D-273)
 
 Native lists may combine supported output changes with independently owned read-only sampled file images. Existing descriptor, shape, ownership and publication checks still run before recording. Application-image references, writable images and current descriptor/attachment conflicts remain guarded. Sixteen GPU scenes verify visible image data, output order, supported rendering paths, incompatible declarations, file reload and sandbox module exchange.
+
+## Null image SRVs beside output changes (D-274)
+
+Clearing an SRV may interleave with supported output changes when the device enables nullDescriptor. The complete descriptor plan still validates its actual layout kind and feature before recording commands. Thirteen GPU scenes cover order, supported pass forms, pushed descriptors, exact zero reads and sandbox module exchange. An actual feature-disabled device preserves both original targets and reports refusal. These null-image scenes use mutable samplers because pinned VVL 1.4.321 incorrectly applies its YCbCr null restriction to ordinary immutable samplers; no validation check is disabled.

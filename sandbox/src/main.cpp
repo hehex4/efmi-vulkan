@@ -233,6 +233,7 @@ struct App {
     bool readable_swapchain = false; // test readback of what the layer drew into the image
     bool srgb_texture_view = false;
     bool mutable_sampler = false;
+    bool no_null_descriptors = false;
     int dynamic_geometry = 0;
     bool geometry_shader_scene = false;
     int extended_raster = 0;
@@ -577,6 +578,7 @@ static bool create_device()
     qinfo.pQueuePriorities = priorities;
 
     std::vector<const char*> exts{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    if(g.no_null_descriptors)exts.push_back(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
     if(g.dynamic_rendering==2)exts.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     if(g.dynamic_depth || g.unused_attachments)exts.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME);
     if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
@@ -603,8 +605,11 @@ static bool create_device()
     features.geometryShader = !g.geometry_shader.empty();
     features.tessellationShader = !g.hull_shader.empty() || !g.domain_shader.empty();
     dinfo.pEnabledFeatures = &features;
+    // An explicit false feature request prevents the layer from adding nullDescriptor.
+    VkPhysicalDeviceRobustness2FeaturesEXT robustness{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
+    if(g.no_null_descriptors)dinfo.pNext=&robustness;
     VkPhysicalDeviceSynchronization2Features sync2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES};
-    if(g.sync2){sync2.synchronization2=VK_TRUE;dinfo.pNext=&sync2;}
+    if(g.sync2){sync2.synchronization2=VK_TRUE;sync2.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&sync2;}
     VkPhysicalDeviceTimelineSemaphoreFeatures timeline{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
     if(g.submit2){timeline.timelineSemaphore=VK_TRUE;timeline.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&timeline;}
     VkPhysicalDeviceMultiviewFeatures multiview{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
@@ -2231,6 +2236,8 @@ int wmain(int argc, wchar_t** argv)
             g.texture_shape = _wtoi(argv[++i]);
         else if (a == L"--mutable-sampler")
             g.mutable_sampler = true;
+        else if (a == L"--no-null-descriptors")
+            g.no_null_descriptors = true;
         else if (a == L"--compute-image-reference" && i + 1 < argc){
             compute_scene.reference_shader_path=argv[++i];compute_scene.image_input=compute_scene.binding_scene=true;
         }

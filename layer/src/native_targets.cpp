@@ -64,6 +64,10 @@ bool buffer_destination(const efmi::frontend::NativeBinding& target,const DrawRe
 bool independent_descriptor(const efmi::assets::FilePlanItem& item,const DrawRec& draw){
     if(buffer_destination(item.native_target,draw))return true;
     const auto& resource=item.native_resource;
+    // Clearing an SRV introduces no image alias. The descriptor preflight still
+    // validates the actual slot and the device's enabled nullDescriptor feature.
+    if(item.native_target.kind==efmi::frontend::NativeBinding::Resource && !item.resource &&
+       (!resource || !resource->bound))return true;
     // Published read-only files own allocations that cannot be application
     // attachments. Their descriptor preflight and publication waits remain required.
     return item.native_target.kind==efmi::frontend::NativeBinding::Resource && resource &&

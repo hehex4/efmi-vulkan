@@ -13,8 +13,8 @@ def black_pixels(path):
  if len(data)!=w*h*4:return None
  return sum(data[4*(y*w+x):4*(y*w+x)+3]==bytes(3) for y in range(int(h*.46),int(h*.54)) for x in range(w))
 
-def scene(checks,case,constants=False,buffers=False,images=False):
- prefix='native-output-image-' if images else 'native-output-buffer-' if buffers else 'native-output-constant-' if constants else 'native-output-'
+def scene(checks,case,constants=False,buffers=False,images=False,null_images=False):
+ prefix='native-output-null-image-' if null_images else 'native-output-image-' if images else 'native-output-buffer-' if buffers else 'native-output-constant-' if constants else 'native-output-'
  root=Path(test_dir(prefix+case+'-'));mods=root/'Mods';mods.mkdir();_,fragment=sandbox_shader_hashes()
  body='if $saved == 0\nResourceSaved = ref o0\n$saved = 1\n'
  body+=('elif o0->bindflags == 32\no0 = ref ResourceSaved\n' if case=='once' else ('else\npost o0 = ref ResourceSaved\n' if case=='post' else ('else\no0 = null\n' if case=='null' else ('else\no0 = ref ResourceSaved\n' if case!='control' else ''))))+'endif\n'
@@ -44,6 +44,10 @@ def scene(checks,case,constants=False,buffers=False,images=False):
   declarations='[ResourceTexture]\nfilename = tint.dds\n'+('bind_flags = shader_resource unordered_access\n' if case=='mutable' else '')
   dds(mods/'tint.dds',(0,0,0,255) if case=='black' else (255,255,255,255),2 if case=='array' else 1)
   body=alias+(command+body if case=='before' else body+command)
+ if null_images:
+  alias='vk_binding = ps-t0, '+('0, 0' if case=='wrong_kind' else '1, 5')+'\n'
+  command='ps-t0 = ref ps-t0\n' if case=='image_mixed' else 'ps-t0 = null\n'
+  body=alias+(command+body if case=='before' else body+command)
  (mods/'mod.ini').write_text('namespace = native_output\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body+declarations,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
  if constants and case in ('file','file_before'):
@@ -56,9 +60,11 @@ def scene(checks,case,constants=False,buffers=False,images=False):
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if case=='khr' else '1','--native-output',str(owned)]
  if case=='query':args+=['--native-output-query']
  if case=='sync2':args+=['--submit2','1']
- if (buffers or images) and case=='push':args+=['--descriptors','push']
+ if (buffers or images or null_images) and case=='push':args+=['--descriptors','push']
  if case in ('classic','renderpass2'):
   args=['--readable-swapchain','--api','1.3','--native-output',str(owned),'--native-output-classic','2' if case=='renderpass2' else '1']
+ if null_images:args+=['--mutable-sampler']
+ if null_images and case=='no_feature':args+=['--no-null-descriptors']
  with Sandbox(seconds=12 if case in ('reload','swap') else 4,threads=0,entry='inject' if case=='inject' else 'layer',validation=True,env_extra=env,extra_args=args) as sb:
   time.sleep(1)
   with ProbeClient(sb.pid) as probe:
@@ -85,10 +91,10 @@ def scene(checks,case,constants=False,buffers=False,images=False):
   black=black_pixels(owned)
   checks.check(visible is not None and visible<30 and redirected is not None and redirected>6000 and black is not None and black>6000,case+': zero SRV values produce exact black geometry in the redirected target')
   checks.check(status.get('shader_overrides',{}).get('executed',0)>0 and not status.get('shader_overrides',{}).get('last_reason'),case+': combined SRV and output list executes')
- elif case in ('query','sync2','null','wrong_kind','image_mixed','application','bad_stride','array','mutable'):
+ elif case in ('query','sync2','null','wrong_kind','image_mixed','application','bad_stride','array','mutable','no_feature'):
   checks.check(visible is not None and redirected is not None and visible>4000 and 100<redirected<1500,case+': unsupported destination change preserves both original GPU results')
   reason=status.get('shader_overrides',{}).get('last_reason','')
-  checks.check({'query':'active query','sync2':'legacy synchronization','null':'enabled unused attachments','wrong_kind':'kind','image_mixed':'sequential alias preparation','application':'writable buffers','bad_stride':'stride','array':'shape','mutable':'compatible usage'}[case] in reason,case+': precise boundary refusal is reported')
+  checks.check({'query':'active query','sync2':'legacy synchronization','null':'enabled unused attachments','wrong_kind':'kind','image_mixed':'sequential alias preparation','application':'writable buffers','bad_stride':'stride','array':'shape','mutable':'compatible usage','no_feature':'nullDescriptor'}[case] in reason,case+': precise boundary refusal is reported')
  else:
   checks.check(visible is not None and (500<visible<1500 if case=='post' else visible<30),case+': target switch follows pre/post command order')
   checks.check(redirected is not None and redirected>(500 if case in ('file','file_before') else 2000),case+': actual owned destination receives main geometry')
@@ -96,17 +102,22 @@ def scene(checks,case,constants=False,buffers=False,images=False):
  if case in ('file','file_before'):
   checks.check(colored_pixels(owned,(0,255,0))>500 and colored_pixels(owned,(255,0,255))<20,
                case+': the published constant buffer controls pixels in the switched target')
+ if null_images and case not in ('control','no_feature','wrong_kind','image_mixed'):
+  checks.check((black_pixels(owned) or 0)>6000,case+': null image reads produce exact black geometry in the redirected target')
+ if null_images and case=='no_feature':
+  checks.check('null descriptors off' in (root/'layer.log').read_text(encoding='utf-8'),case+': actual device nullDescriptor feature is disabled')
  checks.check(not any(marker in sb.output() for marker in ('Validation Error','VALIDATION ERROR','VUID-','SYNC-HAZARD')),case+': core and synchronization validation clean')
  (root/'status.json').write_text(json.dumps(status,indent=2),encoding='ascii');print('artifacts:',root,'screen',visible,'owned',redirected)
-def main(constants=False,buffers=False,images=False):
- label='mixed output and file image bindings' if images else 'mixed output and buffer SRV bindings' if buffers else 'mixed output and constant-buffer bindings' if constants else 'native output destinations'
+def main(constants=False,buffers=False,images=False,null_images=False):
+ label='mixed output and null image bindings' if null_images else 'mixed output and file image bindings' if images else 'mixed output and buffer SRV bindings' if buffers else 'mixed output and constant-buffer bindings' if constants else 'native output destinations'
  checks=Checks(label);selected=set(sys.argv[1:])
- if images:cases=('control','core','before','khr','inject','post','classic','renderpass2','push','black','array','wrong_kind','image_mixed','mutable','reload','swap')
+ if null_images:cases=('control','core','before','khr','inject','post','classic','renderpass2','push','no_feature','wrong_kind','image_mixed','swap')
+ elif images:cases=('control','core','before','khr','inject','post','classic','renderpass2','push','black','array','wrong_kind','image_mixed','mutable','reload','swap')
  elif buffers:cases=('control','core','before','khr','inject','post','classic','renderpass2','push','black','null_buffer','wrong_kind','image_mixed','application','bad_stride','swap')
  elif constants:cases=('control','core','before','khr','inject','post','classic','renderpass2','file','file_before','wrong_kind','image_mixed','swap')
  else:cases=('control','core','khr','inject','once','post','reload','swap','query','sync2','null')
  for case in cases:
-  if not selected or case in selected:scene(checks,case,constants,buffers,images)
+  if not selected or case in selected:scene(checks,case,constants,buffers,images,null_images)
  return checks.finish()
 
 if __name__=='__main__':
