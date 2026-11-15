@@ -68,6 +68,7 @@ std::unique_ptr<EfmittlBridge> EfmittlBridge::install(DrawPlanAdapter& a, std::v
     // after CommandListDraw resolved the opacity: the call's draw goes to the renderer's layers.
     a.native(list->second, capture, [&b](CommandListState& state, unsigned phases, std::wstring& why) {
         if (!(phases & 1)) return true;
+        if (state.call_info && state.call_info->hunting_skip) return true;
         uint32_t count = 0, first = 0;
         if (!index_value(b.count_->fval, count) || !index_value(b.first_->fval, first)) { why = L"EFMITTL capture: invalid count or first index"; return false; }
         const float channel = std::isfinite(b.channel_->fval) ? std::fmin(std::fmax(b.channel_->fval, 0.0f), 3.0f) : 0.0f;
@@ -85,6 +86,7 @@ std::unique_ptr<EfmittlBridge> EfmittlBridge::install(DrawPlanAdapter& a, std::v
         boundaries.push_back(shadow);
         a.native(shadow_list->second, shadow, [&b](CommandListState& state, unsigned phases, std::wstring& why) {
             if (!(phases & 1)) return true;
+            if (state.call_info && state.call_info->hunting_skip) return true;
             uint32_t count = 0, first = 0;
             if (!index_value(b.count_->fval, count) || !index_value(b.first_->fval, first)) { why = L"EFMITTL shadow: invalid count or first index"; return false; }
             if (b.vs_kind_->fval != 2.0f && b.vs_kind_->fval != 3.0f) return b.adapter_->draw_indexed(state, count, first, why);

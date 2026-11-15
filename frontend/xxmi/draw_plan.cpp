@@ -1872,6 +1872,7 @@ bool DrawPlanAdapter::translucent(CommandListState& state,uint32_t count,uint32_
     why.clear();
     try{
         if(!runtime_->active)refuse(L"Translucent draw outside an active plan");
+        if(state.call_info && state.call_info->hunting_skip)return true;
         if(!std::isfinite(alpha) || channel>3)refuse(L"Translucent draw parameters out of range");
         if(!count)return true;
         PlanItem item;item.operation=PlanOperation::Translucent;item.index_count=count;item.first_index=first;
@@ -1891,6 +1892,7 @@ bool DrawPlanAdapter::draw_indexed(CommandListState& state,uint32_t count,uint32
     why.clear();
     try{
         if(!runtime_->active)refuse(L"Draw outside an active plan");
+        if(state.call_info && state.call_info->hunting_skip)return true;
         if(!count)return true;
         PlanItem item;item.operation=PlanOperation::DrawIndexed;item.index_count=count;item.first_index=first;
         runtime_->indexed(item,state);return true;

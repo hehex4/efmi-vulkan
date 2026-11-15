@@ -228,6 +228,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "hunting-library": ["original frontend host", "original INI runtime", "captured frame with a library call", "native hunting", "native tracker", "Vulkan validation", "text check"],
     "merged-output-tracking": ["merged skeleton output events", "native translucency depth history", "native tracker", "Vulkan validation", "text check"],
     "merged-output": ["merged skeleton output events", "Mod outputs beside original geometry", "texture-only Mod output events", "native translucency depth history", "native tracker", "Vulkan validation", "text check"],
     "mod-output-beside": ["Mod outputs beside original geometry", "interleaved Mod output events", "native classic Mod character", "native tracker", "Vulkan validation", "text check"],

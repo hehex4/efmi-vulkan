@@ -129,6 +129,7 @@ pool_size = 16
 pool_index_type = fifo
 pool_variable_default_value = -1
 [CommandListCapture]
+[CommandListShadow]
 [CommandListDraw]
 [CommandListComposite]
 [CommandListMark]
@@ -156,6 +157,18 @@ $slot_hook = 0
 $slot_clip = 0
 post $vs_kind = 0
 [ShaderRegexEFMITTLLitVSSkin.Pattern]
+^vs_5_0\n
+[ShaderRegexEFMITTLShadowVSPlain]
+shader_model = vs_5_0
+$vs_kind = 2
+post $vs_kind = 0
+[ShaderRegexEFMITTLShadowVSPlain.Pattern]
+^vs_5_0\n
+[ShaderRegexEFMITTLShadowVSFading]
+shader_model = vs_5_0
+$vs_kind = 3
+post $vs_kind = 0
+[ShaderRegexEFMITTLShadowVSFading.Pattern]
 ^vs_5_0\n
 [ShaderRegexEFMITTLOutlineVS]
 shader_model = vs_5_0
@@ -189,6 +202,34 @@ run = CommandList\EFMITTL\Mark
 [TextureOverrideRead]
 hash = 22222222
 run = CommandList\EFMITTL\Read
+[TextureOverrideCapture]
+hash = 33333333
+handling = skip
+$\EFMITTL\count = 3
+$\EFMITTL\first = 2
+$\EFMITTL\alpha = 0.5
+run = CommandList\EFMITTL\Capture
+post $\EFMITTL\answer = 31
+[TextureOverrideShadow]
+hash = 44444444
+handling = skip
+$\EFMITTL\count = 3
+$\EFMITTL\first = 2
+$\EFMITTL\alpha = 0.5
+run = CommandList\EFMITTL\Shadow
+post $\EFMITTL\answer = 41
+[TextureOverrideInvalidCapture]
+hash = 55555555
+handling = skip
+$\EFMITTL\count = -1
+run = CommandList\EFMITTL\Capture
+post $\EFMITTL\answer = 51
+[TextureOverrideInvalidShadow]
+hash = 66666666
+handling = skip
+$\EFMITTL\count = -1
+run = CommandList\EFMITTL\Shadow
+post $\EFMITTL\answer = 61
 )ini");
     std::filesystem::remove(folder / "library-hooks" / "settings" / "hooks.ini");
     RuntimeConfig config{mod, {mod / "mod.ini"}, folder / "library-hooks" / "settings", "hooks"};
@@ -227,4 +268,26 @@ run = CommandList\EFMITTL\Read
     draw(mark, VertexHook::Lit, true, 17, true);
     draw(read, VertexHook::None, false, -1, false);
     check(value("answer") == 17, "In the lit pass ClipFirst's own condition leaves the mark unset");
+    // Native callbacks stand for the original DrawCommands and must obey hunting too.
+    for (VertexHook hook : {VertexHook::Lit, VertexHook::ShadowPlain, VertexHook::ShadowFading, VertexHook::None}) {
+        const bool capture = hook == VertexHook::Lit, ordinary = hook == VertexHook::None;
+        RuntimeDraw request; request.hash = capture ? 0x33333333 : 0x44444444;
+        request.count = 30; request.vertex_hook = hook;
+        for (bool hidden : {false, true, false}) {
+            request.hunting_skip = hidden; request.frame = ++frame;
+            efmi::assets::FilePlan plan;
+            const bool ok = runtime->draw(request, plan, reason);
+            check(ok && plan.skip_original && (hidden ? plan.items.empty() :
+                  (plan.items.size() == 1 && plan.items[0].operation == (ordinary ? efmi::assets::FileOperation::DrawIndexed : efmi::assets::FileOperation::Translucent) &&
+                   plan.items[0].index_count == 3 && plan.items[0].first_index == 2 && plan.items[0].shadow == (!capture && !ordinary))),
+                  hidden ? "Hunting suppresses native library capture/shadow draws" : "Visible native library draws retain their arguments before and after hunting");
+            check(value("answer") == (capture ? 31 : 41) && value("vs_kind") == 0,
+                  "Native library hunting preserves the Mod post list and shader-group cleanup");
+        }
+        request.hash = capture ? 0x55555555 : 0x66666666;
+        request.hunting_skip = true; request.frame = ++frame;
+        efmi::assets::FilePlan plan;
+        check(runtime->draw(request, plan, reason) && plan.skip_original && plan.items.empty() &&
+              value("answer") == (capture ? 51 : 61), "Hidden native library draws ignore invalid count before continuing the post list");
+    }
 }

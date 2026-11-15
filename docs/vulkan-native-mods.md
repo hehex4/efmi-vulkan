@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-263. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-264. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1073,3 +1073,7 @@ Independent original, pre-Mod and post-Mod regions verify depth null/restoration
 Merged meshes use the same ordered output/draw executor as ordinary meshes, retaining their full bone and instance interfaces. All targets and variants are prepared before recording, and the application geometry and private descriptor slot are restored at the caller boundary. A component can also execute an output-only plan without private geometry. Output event order stays outside geometry/material cache keys.
 
 An enabled replacement backend records attachment contexts even without ShaderOverrides or hunting. Native output queries therefore use actual current attachments, including for library conditions. Eight generic merged scenes check depth changes, restoration, interleaved component draws, RenderPass2/inject and completed module exchange without incidental ShaderOverrides. The transparency depth-history regression also passes after correcting activation. Transparent output segmentation and broader pass/resolve/persistent-image/queue adapters remain open; these results are sandbox evidence only.
+
+## Hunting and native library draws (D-264)
+
+Hunting suppression also covers native translucent capture, both opacity-shadow groups and the ordinary shadow fallback. The bridge skips count conversion, and direct native draw helpers skip parameter/resource evaluation while hidden. Mod list side effects and shader-group cleanup still run; clearing hunting restores the original draw arguments. CPU tests exercise these boundaries, while the existing library replay and hunting GPU checks cover their respective paths. Hidden transparent GPU pixel acceptance remains separate from those CPU assertions.

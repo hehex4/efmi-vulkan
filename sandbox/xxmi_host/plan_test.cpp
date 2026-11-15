@@ -72,7 +72,8 @@ int HostPlanTests()
                      L"[CommandListMovedPixel]\nps-t3 = ref ps-t2\ndrawindexed = 3, 0, 0\n"
                      L"[CommandListPostSkip]\npost handling = skip\n"
                      L"[CommandListHunting]\n$after = 11\npost $after = 12\ndrawindexed = -3, 0, 0\npost drawindexed = 6, 0, 0\n"
-                     L"[CommandListKeep]\n[CommandListHuntingKeep]\nrun = CommandListKeep\npost $after = 13\n",
+                     L"[CommandListKeep]\n[CommandListHuntingKeep]\nrun = CommandListKeep\npost $after = 13\n"
+                     L"[CommandListEmit]\n[CommandListNativeDraws]\nhandling = skip\nrun = CommandListEmit\npost $after = 14\n",
                      L"planner.ini");
     std::wstring budget=L"namespace = planner\n[CommandListBudget]\n";
     for(int i=0;i<257;++i)budget+=L"drawindexed = 3, 0, 0\n";
@@ -82,10 +83,17 @@ int HostPlanTests()
     adapter.external(explicitCommandListSections.at(L"commandlist\\planner\\native"),L"test/native");
     adapter.native(explicitCommandListSections.at(L"commandlist\\planner\\keep"),L"test/keep",
         [&adapter](CommandListState&,unsigned,std::wstring&){adapter.keep_original();return true;});
+    unsigned native_kind=0;
+    adapter.native(explicitCommandListSections.at(L"commandlist\\planner\\emit"),L"test/draw",
+        [&adapter,&native_kind](CommandListState& state,unsigned phases,std::wstring& why){
+            if(!(phases&1))return true;
+            if(!native_kind)return adapter.draw_indexed(state,3,2,why);
+            return adapter.translucent(state,3,2,0.5f,nullptr,native_kind==3?4:0,false,why,native_kind==2);
+        });
     const wchar_t* names[]={L"draw",L"fail",L"empty",L"unset",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget",
                             L"vertexcopy",L"applicationvertex",L"restoredvs",L"nulledvs",L"movedvs",L"leftcb",
                             L"copyslot",L"unlessnull",L"slottoslot",L"savedvertex",L"savedpixel",L"copied",L"targets",L"targetback",L"targetkept",
-                            L"compute",L"later",L"movedpixel",L"postskip",L"hunting",L"huntingkeep"};
+                            L"compute",L"later",L"movedpixel",L"postskip",L"hunting",L"huntingkeep",L"nativedraws"};
     for(auto* name:names)HostCompileNamedList((L"commandlist\\planner\\"+std::wstring(name)).c_str());
     optimise_command_lists(nullptr);
     for(auto* name:names){
@@ -244,6 +252,19 @@ int HostPlanTests()
         caller.hunting_skip=false;
         check(adapter.execute_pair(kept.command_list,kept.post_command_list,state,out,reason) && !out.skip_original,
               "clearing hunting restores the native request to keep the original");
+        auto& native=explicitCommandListSections.at(L"commandlist\\planner\\nativedraws");
+        for(native_kind=0;native_kind<4;++native_kind){
+            caller.hunting_skip=true;after=0;g_notices.clear();
+            check(adapter.execute_pair(native.command_list,native.post_command_list,state,out,reason) &&
+                  out.skip_original && out.items.empty() && after==14 && g_notices.empty(),
+                  "Native draw helpers suppress hidden indexed, translucent, shadow and invalid-parameter work");
+            if(native_kind==3)continue;
+            caller.hunting_skip=false;
+            check(adapter.execute_pair(native.command_list,native.post_command_list,state,out,reason) &&
+                  out.items.size()==1 && out.items[0].index_count==3 && out.items[0].first_index==2 &&
+                  out.items[0].operation==(native_kind?PlanOperation::Translucent:PlanOperation::DrawIndexed) &&
+                  out.items[0].shadow==(native_kind==2),"Clearing hunting restores the native helper's exact draw");
+        }
     }
     check(run(L"empty",plan,reason) && plan.skip_original && plan.items.empty(),"empty hidden component is a deliberate skip");
     check(run(L"unset",plan,reason) && plan.items.size()==1 && !plan.items[0].resource,
