@@ -11,7 +11,7 @@ from runtime_fixture import CORE, fixture
 from efmi_vk.hashes import crc32c
 
 
-def scene(checks, case):
+def scene(checks, case, matched=False):
     root = Path(test_dir('classic-mod-character-' + case + '-'))
     mods = root / 'Mods'
     folder = mods / 'fixture'
@@ -24,15 +24,19 @@ def scene(checks, case):
     ini = ini.replace('[Constants]\n', '[Constants]\nglobal $null_once = 0\n', 1)
     ini = ini.replace('[Present]\n', '[Present]\n$null_once = 0\n', 1)
     ini += '\n[ShaderOverrideNull]\nhash = %08x\n' % shader_hash
-    if case != 'control':
+    if case != 'control' and not matched:
         ini += 'if $null_once == 0\n$null_once = 1\noD = null\nendif\n'
     (folder / 'mod.ini').write_text(ini, encoding='ascii')
     props = mods / 'props'
     props.mkdir()
-    (props / 'prop.ini').write_text(
+    prop_ini=(
         'namespace = runtime_prop\n[TextureOverrideProp]\nhash = %08x\nmatch_index_count = 3\n'
         'match_first_index = 30\nps-t1 = ResourceBorrowed\n[ResourceBorrowed]\n'
-        'filename = ..\\fixture\\red.dds\n' % crc32c(struct.pack('<3H', 0, 1, 2)), encoding='ascii')
+        'filename = ..\\fixture\\red.dds\n' % crc32c(struct.pack('<3H', 0, 1, 2)))
+    if matched:
+        command='' if case=='control' else 'post oD = null\n' if case=='post' else 'ResourceDepth = ref oD\noD = null\npost oD = ref ResourceDepth\n' if case=='restore' else 'oD = null\n'
+        prop_ini=prop_ini.replace('ps-t1 = ResourceBorrowed\n',command+'ps-t1 = ResourceBorrowed\n',1)+'[ResourceDepth]\n'
+    (props / 'prop.ini').write_text(prop_ini,encoding='ascii')
     (root / 'd3dx.ini').write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n'
                                   '[Rendering]\nrecursive_include = 1\n', encoding='ascii')
     settings = root / 'settings'
@@ -43,6 +47,7 @@ def scene(checks, case):
                  EFMI_VK_TEST_UNMATCHED_SHADE='5', EFMI_VK_TEST_CLASSIC_NULL='1',
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC='1',
                  VK_LAYER_DUPLICATE_MESSAGE_LIMIT='0', XDG_CACHE_HOME=str(root), TMPDIR=str(root), TEMP=str(root), TMP=str(root))
+    if matched:extra['EFMI_VK_TEST_MOD_OUTPUT_DEPTH']='1'
     env = (inject_env if case == 'rp2_inject' else layer_env)(str(root / 'layer.log'), extra=extra)
     env['VK_LAYER_PATH'] = extra['VK_LAYER_PATH']
     args = [str(Path(DIST) / 'efmi_vk_variant_gpu.exe'), '--character', '--material', '--lazy-packages']
@@ -54,6 +59,7 @@ def scene(checks, case):
     checks.equal(result.returncode, 0, case + ': independent scene pixels, changing bones and restoration')
     checks.check('validation: errors=0 warnings=0' in output, case + ': clean core and synchronization validation')
     report = folder / 'character-final.json'
+    if matched and not report.exists():report=folder/'character-active.json'
     status = json.loads(report.read_text(encoding='utf-8')).get('result', {}).get('replacement', {}) if report.exists() else {}
     packages = status.get('packages', [])
     merged = next((item for item in packages if item.get('components', 0) > 0), {})
@@ -61,9 +67,19 @@ def scene(checks, case):
     checks.check(merged.get('counters', {}).get('replaced', 0) > 0, case + ': merged bone variants actually execute')
     checks.check(texture.get('counters', {}).get('textured', 0) > 0 and not texture.get('last_reason'),
                  case + ': texture-only private image variants actually execute')
-    if case != 'control':
+    if case != 'control' and not matched:
         overrides = status.get('shader_overrides', {})
         checks.check(overrides.get('executed', 0) > 0 and not overrides.get('last_reason'), case + ': depth unbind executes')
+    if matched:
+        depth_path=folder/'depth.raw';data=depth_path.read_bytes() if depth_path.exists() else b''
+        checks.equal(len(data),64*64*4,case+': complete fenced depth readback')
+        if len(data)==64*64*4:
+            values=struct.unpack('<4096f',data)
+            checks.check(all(0<=value<=1 for value in values),case+': every depth texel has a valid value')
+            def depth_at(x,y):return values[int((y+1)*32)*64+int((x+1)*32)]<.99
+            checks.check(depth_at(-.6,.3),case+': preceding merged geometry retains its depth')
+            checks.equal(depth_at(.6,-.1),case in ('control','post'),case+': texture-only geometry writes depth at the requested pre/post boundary')
+            checks.equal(depth_at(0,.6),case in ('control','restore'),case+': following independent geometry observes null or restored depth')
     if result.returncode:
         print(output[-5000:])
     print('artifacts:', root)

@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-257. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-258. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -270,7 +270,7 @@ notices while playing; whether any game pipeline has no module hash (inline modu
    D-198/D-199 retain and bind application buffers with persistent context semantics;
    D-200/D-201 add published file buffers, null descriptors and sampled 2D file images.
    D-206 adds guarded retained application sampled images; D-209 adds sampled file arrays/cubes. D-219/D-222 add private writable compute file buffers/images. General cross-queue hazards
-   still need an adapter. D-238 through D-250 implement guarded dynamic/classic color and depth/stencil destinations; D-251/D-252 preserve Mod interfaces and actual depth filters. D-256/D-257 execute outputs inside ordinary own-mesh Mod lists, including changes between draws. Broader pass/resolve/persistent-image scopes and other Mod execution routes remain work.
+   still need an adapter. D-238 through D-250 implement guarded dynamic/classic color and depth/stencil destinations; D-251/D-252 preserve Mod interfaces and actual depth filters. D-256/D-257 execute outputs inside ordinary own-mesh Mod lists, including changes between draws. D-258 surrounds texture-only application geometry with its ordered outputs. Broader pass/resolve/persistent-image scopes and other Mod execution routes remain work.
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
    transfer-source resources and supported owned layouts. Broader capture synchronization remains work.
@@ -1037,3 +1037,9 @@ This adapter uses the existing primary stored classic-pass, single-queue and leg
 Ordinary hiding own-mesh lists can now change targets between their draws, including restoring a target and drawing again. The transient plan marks only draws actually accepted by the geometry planner. Every marker gets the compatible pipeline for its preceding output events; skipped and zero-count draws do not shift later commands. All changes and all draws still preflight before recording begins. The unchanged no-output path emits its original batch.
 
 Independent sandbox meshes prove depth writes before unbind, no depth writes while unbound, and resumed writes after restoration; corresponding MRT regions prove the same output ordering. Native shader filters retain their before-list selection. Empty draws, both entries, RenderPass2 and completed module exchange pass. This extends D-256's own-mesh route; output-only, beside-original, texture-only, merged and transparent execution still need their respective ordered adapters.
+
+## Outputs around texture-only application geometry (D-258)
+
+Matched texture-only lists now keep output commands before and after the original draw in their proper phases. Image declarations feed the private material variant; they do not move the original draw's output boundary. Targets, image descriptors, draw arguments and the compatible complete variant preflight together before recording. Post commands run after the application geometry with its replaced images, and subsequent draws see the resulting output state.
+
+An owned headless scene checks all depth bytes plus separate regions for preceding merged geometry, the texture-only draw and following independent geometry. Pre-null, post-null and retained DSV restoration have distinct verified depth results; ordinary and RenderPass2/inject entries pass core/synchronization validation. Output-only plans without an image replacement still require the native application-call executor; no real-game result is claimed.

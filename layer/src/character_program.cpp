@@ -1105,8 +1105,8 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     ordered_outputs=true;
                 }
             }
-            if(ordered_outputs && (!plan.skip_original || !drawn || translucent))
-                throw std::runtime_error("Mod output events require an ordinary hiding mesh plan");
+            if(ordered_outputs && (translucent || (plan.skip_original && !drawn) || (!plan.skip_original && drawn)))
+                throw std::runtime_error("Mod output events require an ordinary hiding mesh or texture-only plan");
         }
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
         listing.p = this; listing.began = std::chrono::steady_clock::now();
@@ -1119,7 +1119,10 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
             return item.operation == efmi::assets::FileOperation::DrawIndexed || item.operation == efmi::assets::FileOperation::Translucent; });
         if (!skip && !(has_draws && textures)) {
             output = {};
-            if (!textures) return true;
+            if (!textures) {
+                if(ordered_outputs)throw std::runtime_error("Mod outputs around application geometry require its executor");
+                return true;
+            }
             // The application's draw stays, with the textures the pre phase bound for it: under DX11
             // they are bound when the game's draw runs. Geometry or draws of the Mod make it no
             // texture-only plan; post commands come after the draw.
@@ -1134,9 +1137,25 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     }
                     if (!item.resource) { pixels[item.slot] = kCharacterNone; continue; }
                     pixels[item.slot] = image_index(item.resource);
-                } else if (item.operation != Op::External) return true;
+                } else if (item.operation != Op::External && !(ordered_outputs && item.operation==Op::NativeBind)) {
+                    if(ordered_outputs)throw std::runtime_error("Mod output plan changes the application's geometry");
+                    return true;
+                }
             }
-            if (pixels.empty()) return true;
+            if (pixels.empty()) {
+                if(ordered_outputs)throw std::runtime_error("Mod outputs without image replacement require the application-call executor");
+                return true;
+            }
+            if(ordered_outputs){
+                // Keep the original draw's boundary after filtering out image declarations.
+                // Those images belong to the private variant; outputs still follow list order.
+                for(size_t i=0;i<plan.items.size();++i){
+                    const auto& item=plan.items[i];using Op=efmi::assets::FileOperation;
+                    if(item.operation==Op::NativeBind){outputs->items.push_back(item);if(i<plan.pre_items)++outputs->pre_items;}
+                    else if(item.operation!=Op::BindPixelResource && item.operation!=Op::External)
+                        throw std::runtime_error("Texture-only output plan contains an unsupported operation");
+                }
+            }
             auto& signature = scratch_signature_; signature.clear(); signature.push_back('T');
             for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
             auto& id = scratch_id_; id.assign(signature.begin(), signature.end());

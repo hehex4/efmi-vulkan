@@ -1027,6 +1027,10 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     if (list.count != 1 || !package.draws[list.first].texture_only) return refuse(C_STATE, "texture-only list expected");
     if (cb->secondary || !cb->in_rp || cb->dyn_rp_count || cb->m2_extended_bind)
         return refuse(C_STATE, "texture-only draw outside a primary classic render pass or after extended binds");
+    NativeTargetPlan targets;
+    std::string target_reason;
+    if(!prepare_native_targets(device,cb,r,scratch_outputs,targets,target_reason,&output_cache,true))
+        return refuse(C_STATE,"texture-only outputs: "+target_reason);
     std::vector<const StaticMaterial*> plans;
     std::vector<std::vector<SnapshotImage>> views;
     uint32_t origin = 0;
@@ -1079,7 +1083,7 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     }
     // Every character package that replaces draws of a recording has its own owner in it.
     std::string compatibility_reason;
-    const auto compatible=native_target_variant(device,cb,*result.variant,compatibility_reason);
+    const auto compatible=native_target_variant(device,cb,*result.variant,compatibility_reason,&targets,scratch_outputs.pre_items);
     if(!compatible)return refuse(C_VARIANT,"texture-only compatible pass: "+compatibility_reason);
     const auto held = character_owner_for(cb->owners, generation_key.get(), [this] { return std::shared_ptr<CommandOwner>(command()); });
     if (!held) return refuse(C_EXHAUSTED, "character snapshot pool is at capacity or refilling");
@@ -1095,13 +1099,17 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     args.first_instance = r.first_instance;
     const VariantDraw item{result.variant.get(), slot.set, slot.offset, &original, args, compatible};
     command_owner->variants.push_back(result.variant);
-    if (!emit_variant_draws(draw, cb->handle, &item, 1, r.bound ? r.bound : r.pipeline, original))
+    const VkPipeline previous=r.bound?r.bound:r.pipeline;
+    if (!emit_variant_draws(draw, cb->handle, &item, 1, previous, original, true))
         return refuse(C_VARIANT, "texture-only draw transaction refused");
+    for(size_t i=0;i<scratch_outputs.pre_items;++i)record_native_target(device,cb,targets,i);
+    emit_variant_draws(draw,cb->handle,&item,1,cb->gfx_bound?cb->gfx_bound:previous,original);
     if (restore_layout) {
         draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
                                    static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
         ++counters[C_SET3_RESTORED];
     }
+    for(size_t i=scratch_outputs.pre_items;i<targets.events.size();++i)record_native_target(device,cb,targets,i);
     ++counters[C_TEXTURED];
     if (origin) ++counters[origin == 1 ? C_DERIVED : C_INHERITED];
     ++counters[C_MATERIAL_ITEMS];

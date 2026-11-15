@@ -9,10 +9,19 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     // character's (B's own) and another object's, which the application draws at (-.3,-.35).
     const bool instanced=[]{char value[4]={};return GetEnvironmentVariableA("EFMI_VK_TEST_INSTANCED",value,sizeof(value)) && value[0]=='1';}();
     auto recipe=m2_fixture::recipe(instanced);
+    const bool output_depth=GetEnvironmentVariableA("EFMI_VK_TEST_MOD_OUTPUT_DEPTH",nullptr,0)!=0;
     // D-251: an optional stored depth attachment lets the INI fixture unbind it before Mod draws.
-    if(GetEnvironmentVariableA("EFMI_VK_TEST_CLASSIC_NULL",nullptr,0)){
+    if(output_depth || GetEnvironmentVariableA("EFMI_VK_TEST_CLASSIC_NULL",nullptr,0)){
         auto pass=std::make_shared<RenderPassRecipe>(*recipe.render_pass);
-        pass->attachments[1].storeOp=VK_ATTACHMENT_STORE_OP_STORE;recipe.render_pass=std::move(pass);
+        pass->attachments[1].storeOp=VK_ATTACHMENT_STORE_OP_STORE;
+        if(output_depth){
+            pass->attachments[1].finalLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            for(auto& dependency:pass->dependencies)if(dependency.dstSubpass==VK_SUBPASS_EXTERNAL){
+                dependency.srcStageMask|=VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+                dependency.srcAccessMask|=VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            }
+        }
+        recipe.render_pass=std::move(pass);
     }
     RecipeFixture layout_fixture(material);auto layout=layout_fixture.layout;
     // D-133: the application's fragment shader with the character dither, for the scene that runs RabbitFX's
@@ -127,7 +136,7 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     }
     for(auto module:modules)vkDestroyShaderModule(g.device,module,nullptr);
     Image color=g.image(VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
-    Image depth=g.image(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,VK_IMAGE_ASPECT_DEPTH_BIT);
+    Image depth=g.image(VK_FORMAT_D32_SFLOAT,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|(output_depth?VK_IMAGE_USAGE_TRANSFER_SRC_BIT:0),VK_IMAGE_ASPECT_DEPTH_BIT);
     Image original_image{};
     if(material)original_image=g.image(VK_FORMAT_R8G8B8A8_UNORM,VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT,VK_IMAGE_ASPECT_COLOR_BIT);
     VkImageView views[]={color.view,depth.view};
@@ -195,6 +204,11 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
     auto extra=g.buffer(dynamic+65536,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
     {float shade[]={1,.25f,0,.5f};memcpy(static_cast<uint8_t*>(extra.mapped)+dynamic+16,shade,16);}
     auto readback=g.buffer(64*64*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    Buffer depth_readback{};if(output_depth)depth_readback=g.buffer(64*64*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    struct DepthExport {
+        bool enabled;const Buffer& buffer;
+        ~DepthExport(){if(enabled){FILE* file=nullptr;fopen_s(&file,"depth.raw","wb");if(file){fwrite(buffer.mapped,1,64*64*4,file);fclose(file);}}}
+    } depth_export{output_depth,depth_readback}; // Also exports completed frames on the short fixture paths.
     std::vector<VkDescriptorPoolSize> sizes={{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,1},{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,cb_bones?3u:2u}};
     if(material)sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,2});
     if(cb_bones)sizes.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,2});
@@ -338,12 +352,19 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
             vkCmdDrawIndexed(cmd,3,1,30,0,0);
         }
         vkCmdEndRenderPass(cmd);
+        if(output_depth){
+            // Order the original/private pass's final layout writes before both readbacks.
+            VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
+            vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,1,&memory,0,nullptr,0,nullptr);
+        }
         VkBufferImageCopy copy={};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={64,64,1};
         vkCmdCopyImageToBuffer(cmd,color.handle,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,readback.handle,1,&copy);
+        if(output_depth){copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;vkCmdCopyImageToBuffer(cmd,depth.handle,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,depth_readback.handle,1,&copy);}
         VkBufferMemoryBarrier barrier={VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};barrier.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask=VK_ACCESS_HOST_READ_BIT;barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
         barrier.buffer=readback.handle;barrier.size=VK_WHOLE_SIZE;
         vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_HOST_BIT,0,0,nullptr,1,&barrier,0,nullptr);
+        if(output_depth){barrier.buffer=depth_readback.handle;vkCmdPipelineBarrier(cmd,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_PIPELINE_STAGE_HOST_BIT,0,0,nullptr,1,&barrier,0,nullptr);}
         VK(vkEndCommandBuffer(cmd));
         VK(g.submit(cmd));VK(vkQueueWaitIdle(g.queue));
         // There is no swapchain here: tell the backend that a frame with draws ended.
