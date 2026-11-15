@@ -74,3 +74,19 @@ launcher/game locations remain read-only; layout checks use project-owned copies
 Open implementation work remains I-01's full submission contract, I-04's sequential
 access phases and I-06's owned input/semantic adapters. Real-game load and character
 verification require the user's on-the-spot authorization under AGENTS.md.
+
+## D-288 follow-up: source and candidate 3.1.4
+
+The current source is 3.1.4 / ABI d551ddcbfa805dbb. Application semaphore lifetime
+hooks now expire destroyed/recycled handle history. Failed creation, unrelated
+objects, null handles, exact forwarding and driver-call lock scope are checked.
+This changes the shared dispatch ABI and requires the matching host/module pair.
+It does not close I-01's payload/value and cross-queue access requirements.
+
+Tracker checks pass 783, the overlap/bone replay and 17 probe configurations pass,
+Vulkan validation passes 76 and the new host/module exchange passes 18 checks.
+The current unpublished candidate is
+`build/candidate-d288/EFMI-Vulkan-3.1.4.zip`, SHA-256
+`341e7ae42754786dc5ba5215dbd16e24e6f7617c31607f29d5318a40f0705a93`. Its archive, no-probe binary, 22-package load and both sandbox unpack
+layout checks pass. It supersedes the 3.1.3 candidate described above. No actual
+game deployment or real-character verification occurred.

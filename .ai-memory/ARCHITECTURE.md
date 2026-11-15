@@ -17,6 +17,12 @@ split. Current/future descriptors, saved fallbacks, suspended requests and pendi
 restoration accesses participate even when no longer visibly bound. Same-storage
 phase transitions and cross-queue accesses still require separate proof.
 
+D-288 intercepts application semaphore creation/destruction and expires queue-signal
+history at those boundaries. Failed creation preserves the current history, and no
+ledger lock crosses a driver call. The shared dispatch table changes ABI to
+d551ddcbfa805dbb, requiring a matching host and module. Raw signal history still
+does not prove payload identity, timeline values or cross-queue resource order.
+
 D-286's headless queue experiment proves that a global submission-order completion
 chain can deadlock a valid future timeline wait. Readiness-selected per-queue gates
 avoid that cycle, but binary consumers require every dependent gate signal to be

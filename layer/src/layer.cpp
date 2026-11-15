@@ -11,6 +11,7 @@
 //   inject - the DLL was loaded with LoadLibrary; bootstrap.cpp redirects the exports of
 //            vulkan-1.dll to the hooks, which then call the original exports.
 #include "state.h"
+#include "semaphore_lifetime.h"
 #include "character_module.h"
 #include "m2_backend.h"
 #include "character_backend.h"
@@ -1093,9 +1094,21 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdExecuteCommands(VkCommandBuffer cmd, uint32_t c
 // ---------------------------------------------------------------------------
 // Submission and frame boundary
 
-// The semaphores a batch of the call signals: a later wait for one of them orders that batch after
-// work of a queue (D-127). The set forgets everything when it grows past its cap (handles of
-// destroyed semaphores); a wait it does not know keeps the application's stages.
+VKAPI_ATTR VkResult VKAPI_CALL hk_CreateSemaphore(VkDevice device,const VkSemaphoreCreateInfo* info,
+                                                 const VkAllocationCallbacks* alloc,VkSemaphore* semaphore)
+{
+    count_call(HI_CreateSemaphore);
+    return create_application_semaphore(dev_of(device),info,alloc,semaphore);
+}
+VKAPI_ATTR void VKAPI_CALL hk_DestroySemaphore(VkDevice device,VkSemaphore semaphore,const VkAllocationCallbacks* alloc)
+{
+    count_call(HI_DestroySemaphore);
+    destroy_application_semaphore(dev_of(device),semaphore,alloc);
+}
+// D-127's bounded signal history is cleared at application object lifetime
+// boundaries (D-288), not merely when the cap is reached. It remains a heuristic:
+// payload identity and timeline values are not a resource dependency graph (I-01).
+// A wait it does not know keeps the application's stages.
 constexpr size_t kQueueSignalledCap = 65536;
 void note_queue_signals(Device* dev, uint32_t count, const VkSemaphore* semaphores)
 {

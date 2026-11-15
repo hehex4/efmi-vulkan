@@ -36,6 +36,7 @@ struct CharacterModule;
 // because a driver may offer only one of them.
 #define EFVK_TRACKED_FUNCS(X)                                                                                          \
     X(DestroyDevice) X(QueuePresentKHR)                                                                                \
+    X(CreateSemaphore) X(DestroySemaphore)                                                                            \
     X(CreateSwapchainKHR) X(DestroySwapchainKHR) X(GetSwapchainImagesKHR)                                              \
     X(AllocateMemory) X(FreeMemory) X(MapMemory) X(UnmapMemory)                                                        \
     X(MapMemory2) X(MapMemory2KHR) X(UnmapMemory2) X(UnmapMemory2KHR)                                                  \

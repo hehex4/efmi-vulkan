@@ -6,7 +6,7 @@ Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 20
 
 ## Implementation audit (2026-11-15; remediation in progress)
 
-Current audit: source 3.1.3; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+Current audit: source 3.1.4; see [the consolidated results](docs/architecture-audit-3.1.3.md).
 
 The findings below are review inputs, not evidence that every proposed remedy is
 sufficient. Source inspection confirms the central problems, with these corrections:
@@ -27,6 +27,10 @@ sufficient. Source inspection confirms the central problems, with these correcti
   rejected until its producer's gate signal is submitted (03238 canary). The
   [queue proof](docs/queue-ordering-proof.md) records remaining production contracts.
   This is evidence for the design boundary, not a runtime multi-queue fix.
+  D-288 (3.1.4) fixes a concrete lifetime defect: destroyed/recycled semaphore
+  handles no longer inherit queue-signal history. Matching host/module artifacts,
+  783 tracker checks, overlap/bone replays and module exchange pass. Payload/value
+  provenance and full cross-queue scheduling remain open.
 - **I-02: accepted priority correction.** Freeze expansion of unobserved extension
   matrices. Existing compatibility code stays covered when touched. Historical
   captures establish observed behavior; they cannot prove future engine/device
@@ -119,6 +123,8 @@ sufficient. Source inspection confirms the central problems, with these correcti
   D-287 prepares an unpublished 3.1.3 no-probe candidate and verifies its archive,
   all 22 installed package loads and both sandbox unpack layouts. The release
   checker's obsolete log parser is corrected. No real-game deployment occurred.
+  D-288 repeats the candidate check at 3.1.4 after the host lifetime fix; the
+  current unpublished archive passes the same package/layout checks.
 
 D-277 (`7e6eb5c`) completes the already pending uniform fallback fix before this
 architecture work. Its 764 CPU checks, 52 persistence checks, existing application

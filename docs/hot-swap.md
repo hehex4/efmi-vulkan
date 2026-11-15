@@ -200,3 +200,11 @@ No new deployment or real-game verification is implied by these results.
 the original draw until asynchronous publication; they no longer block recording.
 F10 and sandbox module exchange pass with ready-frame image checks. Compute first
 use keeps its existing wait policy. These results do not imply a real-game load.
+
+### D-288 semaphore lifetime hooks
+
+3.1.4 changes the shared DeviceDispatch to include application semaphore lifetime
+hooks, so its ABI is d551ddcbfa805dbb. Install a matching host with the process
+closed before exchanging modules with this ABI. A 3.1.4 host/module sandbox pair
+passes cold file/output execution and completed exchange. No game deployment or
+real-game exchange is implied; the earlier 3.1.3 host has a different ABI.
