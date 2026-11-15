@@ -5,6 +5,22 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Architecture review for Endfield dual-route scope (2026-11-15; `issues.md`)
+
+- The user clarified that the loader has two routes—Route 1 (DX11 compatibility for EFMI Mods) and Route 2 (Vulkan 3DMigoto)—and that **both routes target only *Arknights: Endfield*** (`Endfield.exe`), not arbitrary Vulkan applications.
+- Wrote `issues.md` at the repository root documenting nine architectural issues (`I-01` through `I-09`) against source `3.0.4` (`D-276`):
+  - `I-01` (Critical, Route 2): `native_targets.cpp:256`, `native_descriptors.cpp:171`, `native_images.cpp:176`, and `gpu_analysis.cpp:105` hard-refuse when `device->application_queue_count != 1 || device->material_queues.size() != 1`. Because *Endfield* creates two graphics queues (`BUG-008`, `BUG-050`, `BUG-052`), Route 2 output switches (`o0-o7`/`oD`), application resource bindings, image layout transitions, and `F8` GPU frame analysis unconditionally refuse in the real game.
+  - `I-02` (High, Route 2): Scope drift into Vulkan features unused by *Endfield*'s Unity `2021.3.34f5` renderer (Dynamic Rendering `vkCmdBeginRendering`, `VK_KHR_imageless_framebuffer`, `GS`/`HS`/`DS`, push descriptors, `VK_EXT_vertex_input_dynamic_state`).
+  - `I-03` (High, Both): Four split draw executors (`record`, `record_own_mesh`, `record_textures`, `native_calls`) duplicate target/shadow/capture/restore state and omit `prepare_native_descriptors` (`vk_binding`) from matched mesh/texture replacement draws.
+  - `I-04` (Medium, Route 2): Combinatorial pair whitelisting (`independent_descriptor`) in `native_targets.cpp` instead of unified pass-boundary barrier and descriptor planning.
+  - `I-05` (High, Both, `L-04` / `ISSUE-012`): First-use `cache->await` and `textures->bind` waits held under `device->res_mx` shared lock and `mod_mx`.
+  - `I-06` (Medium, Route 1, `P1-5` / `LIMIT-035`): In-draw `CustomShader` reading game `vs-t0`/`vs-cbN` bindings, cross-slot application texture rebinding, and general `InputLayout` edits.
+  - `I-07` (Medium, Both): `EFVK_ABI` coupling from exposing `native_targets.h`, `native_images.h`, and `pipeline_variant.h` in `character_module.h`.
+  - `I-08` (Low, Both, `L-09`): Legacy `M2Backend` and `.bin` round-trip validation in `load_mod`.
+  - `I-09` (High, Both): 86-version verification gap between `dist/` (`2.1.8`) and `HEAD` (`3.0.4`).
+- No source or binary changes; `scripts/check_text.py` passes (`674` files clean).
+
+
 ## Active source 3.0.4: Input-only attachment memory proof, D-276 (2026-11-15; sandbox verified)
 
 - D-275 committed and main fast-forwarded as 339c3e7. BUG-140: d276-cpu-before.out on 3.0.3 passes 743/744, accepting a sampled-only image whose distinct handle hides overlapping current attachment storage. d276-gpu-before.out passes 13/14: an input-only constant reference to the output allocation is accepted, with unchanged screen/owned pixels 6418/902. The extra descriptor is unused by the shader, so this is a valid conservative-policy baseline with normal exits and clean core/sync validation.

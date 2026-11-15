@@ -1,6 +1,16 @@
 # EFMI Vulkan - Tasks
 
 
+## Architecture review and prioritized roadmap for Endfield dual-route scope (2026-11-15; `issues.md`)
+
+- Recorded the Endfield-specific dual-route architecture review in `issues.md` (`I-01` through `I-09`):
+  1. **I-01 (Critical)**: Replace single-queue guards (`application_queue_count != 1`, `material_queues.size() != 1`) in `gpu_analysis.cpp`, `native_targets.cpp`, `native_descriptors.cpp`, and `native_images.cpp` with per-recording barriers and per-queue timeline completion for *Endfield*'s two-graphics-queue device.
+  2. **I-09 (High)**: Deploy and verify accumulated changes (`D-185` translucent shadow opacity, `D-186` dash `cb3/cb4` constant-buffer bones, and Route 2 hunting / `ShaderFixes` / `F8` analysis) in a user-started *Endfield* session once `I-01` is resolved.
+  3. **I-02 / I-03 / I-04 (High/Medium)**: Freeze non-*Endfield* Vulkan feature matrices (Dynamic Rendering, Imageless Framebuffers, GS/HS/DS, Push Descriptors, Dynamic Vertex Input); unify `record`, `record_own_mesh`, `record_textures`, and `native_calls` into one draw transaction executor so `vk_binding` works on matched character draws and classic render-pass boundaries handle layout transitions directly.
+  4. **I-05 / I-07 (High/Medium)**: Move `cache->await` and `textures->bind` outside `device->res_mx`; move `native_target_bind` behind `CharacterModule` to decouple `EFVK_ABI`.
+  5. **I-06 / I-08 (Medium/Low)**: Complete in-draw `CustomShader` reading of game `vs-t0`/`vs-cbN` bindings (`LIMIT-035`) and remove legacy `M2Backend` / `.bin` round-trip code.
+
+
 ## D-276 verified; continue persistent uniform attachment conflicts (2026-11-15)
 
 - D-275 committed and main fast-forwarded as 339c3e7. BUG-140: d276-cpu-before.out on 3.0.3 passes 743/744, accepting a sampled-only image whose distinct handle hides overlapping current attachment storage. d276-gpu-before.out passes 13/14: an input-only constant reference to the output allocation is accepted, with unchanged screen/owned pixels 6418/902. The extra descriptor is unused by the shader, so this is a valid conservative-policy baseline with normal exits and clean core/sync validation.
