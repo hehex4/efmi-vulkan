@@ -151,11 +151,14 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(native_output_binding(item.native_target)){
             no_op[i]=null_output(item) && !(written&(1u<<slot(item.native_target))) && absent_output(cb,item.native_target);
             needed|=!no_op[i];
-        }else mixed=true;
+        // Constant-buffer assignments cannot change image aliases. Their layout
+        // type, resource kind, range and ordering are still checked by the
+        // descriptor preflight before any output or descriptor command is emitted.
+        }else if(item.native_target.kind!=efmi::frontend::NativeBinding::Constant)mixed=true;
     }
     if(!needed){output=std::move(next);return true;}
     auto refuse=[&](const char* reason){why=reason;return false;};
-    if(mixed)return refuse("Mixed output and descriptor changes need sequential alias preparation");
+    if(mixed)return refuse("Mixed output and non-constant descriptor changes need sequential alias preparation");
     if(!cb->in_rp || cb->secondary || cb->inherited_rp || !cb->execution_scopes.splittable())
         return refuse("Native output pass splitting requires a primary with no active query or transform feedback");
     if(device->synchronization2_enabled || device->application_queue_count!=1 || device->material_queues.size()!=1)
@@ -223,7 +226,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
        (stencil_format!=VK_FORMAT_UNDEFINED && !classic && !device->dynamic_unused_attachments))
         return refuse("Native output pipeline stencil contract is unavailable");
     for(size_t i=0;i<plan.items.size();++i){
-        const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || no_op[i])continue;
+        const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || !native_output_binding(item.native_target) || no_op[i])continue;
         const auto& resource=item.native_resource;const bool empty=!resource || !resource->bound;
         const auto& binding=item.native_target;const bool depth=binding.kind==efmi::frontend::NativeBinding::DepthTarget;
         if(depth?binding.slot!=0:(binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot>=count))

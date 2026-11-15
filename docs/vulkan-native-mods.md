@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-270. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-271. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1101,3 +1101,7 @@ Own meshes can use EFMITTL deferred forward captures with the application vertex
 ## Null scene depth without null descriptors (D-270)
 
 A retained complete EFMITTL layer continues to capture and composite when its scene depth is unbound, including on a Vulkan device with nullDescriptor disabled. A separate composite variant makes the absent SceneDepth reads typed zero and retains a valid unused descriptor view. Restoring depth selects the normal variant. The original incomplete cold-layer history remains unchanged. Five actual GPU history scenes have identical complete target bytes with the feature enabled and disabled; this is scoped to the composite's scene-depth slot.
+
+## Constants beside output changes (D-271)
+
+Native lists may interleave constant-buffer assignments and supported output changes. The full list is validated before recording commands; descriptor type, range, retained ownership and graphics dependencies remain required. Published file uniforms and retained application uniforms work with dynamic and supported classic passes. Thirteen GPU scenes cover order, typed rejection, visible file data and sandbox module exchange. Mixed image bindings still require an alias-aware adapter.
