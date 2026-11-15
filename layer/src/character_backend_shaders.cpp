@@ -729,10 +729,11 @@ bool character_shader_draw(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
     return shader_draw_unmatched(b, cb, marking.draw(), facts.modules, true, skip);
 }
 
-HuntingDrawScope::HuntingDrawScope(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, uint32_t marking)
-    : original_(r), previous_(t_hunting_marking), previous_depth_(t_shader_depth)
+HuntingDrawScope::HuntingDrawScope(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, uint32_t marking,bool skip)
+    : original_(r), previous_(t_hunting_marking), previous_depth_(t_shader_depth),previous_skip_(t_hunting_skip)
 {
     t_hunting_marking = marking;
+    t_hunting_skip = skip;
     const bool compute = r.kind == DK_DISPATCH || r.kind == DK_DISPATCH_INDIRECT;
     // ProcessShaderOverride tests the DSV before lists; every Mod draw inherits that choice.
     t_shader_depth = -1;

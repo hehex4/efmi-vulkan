@@ -70,6 +70,7 @@ namespace character_internal {
 constexpr uint32_t kHuntingPink = 1u << 31;
 inline thread_local uint32_t t_hunting_marking = 0;
 inline thread_local int t_shader_depth = -1;
+inline thread_local bool t_hunting_skip = false;
 inline void apply_hunting(FragmentPatch& patch) {
     patch.dynamic_depth = t_shader_depth;
     patch.original_stages = t_hunting_marking & ~kHuntingPink;
@@ -119,7 +120,7 @@ enum Counter : uint32_t {
     C_ENTRY, C_BONES, C_IMPORT, C_EXHAUSTED, C_IDENTITIES, C_SET3_RESTORED,
     C_MATERIAL, C_IMAGE, C_IMAGE_PENDING, C_MATERIAL_ITEMS, C_COMPAT_ITEMS, C_DERIVED, C_INHERITED,
     C_IDENTITY_NEW, C_IDENTITY_EXPIRED, C_TEXTURED, C_KEPT, C_OWNED, C_MEMORY, C_GATED, C_GATED_FRAMES, C_SNAPSHOT_COPIES, C_IDENTITY_ADOPTED,
-    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_BATCH_MADE, C_HELD, C_ORIGINAL_FIRST, C_BONES_UNAVAILABLE, C_ACTIVATION, C_OWN_MESH, C_BESIDE, C_INSTANCED, C_COMPUTED, C_SHADOWED, C_CONSTANT_BONES, C_COUNT
+    C_PREPARING, C_TRANSLUCENT, C_BONE_JOBS, C_BONE_RING, C_BATCH_MADE, C_HELD, C_ORIGINAL_FIRST, C_BONES_UNAVAILABLE, C_ACTIVATION, C_OWN_MESH, C_BESIDE, C_INSTANCED, C_COMPUTED, C_SHADOWED, C_CONSTANT_BONES, C_OUTPUT_CALLS, C_COUNT
 };
 const char* const kCounterNames[C_COUNT] = {
     "matched", "replaced", "items", "hidden", "identifying", "incomplete", "pending",
@@ -130,7 +131,8 @@ const char* const kCounterNames[C_COUNT] = {
     "kept_original", "owned_streams", "waiting_memory", "gated", "gated_frames", "snapshot_copies", "identities_adopted", "preparing",
     "translucent", "bone_jobs", "bone_ring_busy", "batches_made_at_draw", "held_before_shown", "original_before_shown",
     "bones_unavailable", "activation_failed", "own_mesh", "drawn_beside", "instanced_draws", "components_handed", "translucent_shadows",
-    "constant_bones" // replaced draws whose bones a uniform block of 4096 vectors gave (D-186)
+    "constant_bones", // replaced draws whose bones a uniform block of 4096 vectors gave (D-186)
+    "output_calls"
 };
 // What the layer assumes of the game's character draws (review L-07, D-183): the instance entry at set 2 binding 0
 // in mapped memory, a pipeline the tracker knows, a primary command buffer in a classic render pass, the game's
@@ -474,6 +476,7 @@ public:
     std::vector<std::shared_ptr<const PipelineVariant>> scratch_variants;
     efmi::assets::FilePlan scratch_outputs;
     NativeTargetCache output_cache;
+    NativeCallCache output_calls;
     std::vector<const StaticMaterial*> scratch_material_plans;
     std::vector<std::vector<SnapshotImage>> scratch_material_views;
     std::vector<TextureResidency::ImageId> scratch_image_ids;
@@ -907,14 +910,15 @@ void character_created(CharacterBackend& b, VkPipeline pipeline);
 // Selection is one draw's state, including its Mod draws. The host restores the pipeline after forwarding.
 class HuntingDrawScope {
 public:
-    HuntingDrawScope(CharacterBackend&, CmdBuf*, const DrawRec&, uint32_t marking);
-    ~HuntingDrawScope() { t_hunting_marking = previous_; t_shader_depth = previous_depth_; }
+    HuntingDrawScope(CharacterBackend&, CmdBuf*, const DrawRec&, uint32_t marking,bool skip = false);
+    ~HuntingDrawScope() { t_hunting_marking = previous_; t_shader_depth = previous_depth_; t_hunting_skip = previous_skip_; }
     const DrawRec& draw() const { return marked_ ? *marked_ : original_; }
 private:
     const DrawRec& original_;
     std::unique_ptr<DrawRec> marked_;
     uint32_t previous_;
     int previous_depth_;
+    bool previous_skip_;
 };
 
 } // namespace efvk

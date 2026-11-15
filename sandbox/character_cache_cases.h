@@ -11,13 +11,15 @@ void character_cache_cases(void (*check)(bool, const char*))
         cb.pass.recipe=pass;DrawRec context_draw;context_draw.kind=DK_INDEXED;
         FragmentPatch patch;
         {
-            HuntingDrawScope outer(backend,&cb,context_draw,0);apply_hunting(patch);
+            HuntingDrawScope outer(backend,&cb,context_draw,0,true);apply_hunting(patch);
+            check(t_hunting_skip,"matched native caller snapshots hunting suppression before lists");
             check(patch.dynamic_depth==0,"Mod shader filters see the actual absent classic depth before lists");
             auto with_depth=std::make_shared<RenderPassRecipe>(*pass);with_depth->subpasses[0].has_depth=true;
             with_depth->subpasses[0].depth.attachment=0;cb.pass.recipe=with_depth;apply_hunting(patch);
             check(patch.dynamic_depth==0,"changing outputs inside a draw does not reevaluate its chosen shader filter");
             {
                 HuntingDrawScope inner(backend,&cb,context_draw,0);apply_hunting(patch);
+                check(!t_hunting_skip,"nested unmatched selection does not inherit its caller's hunting suppression");
                 check(patch.dynamic_depth==1,"a following draw samples the new actual depth presence");
                 DrawRec compute;compute.kind=DK_DISPATCH;
                 {HuntingDrawScope dispatch(backend,&cb,compute,0);apply_hunting(patch);
@@ -25,8 +27,10 @@ void character_cache_cases(void (*check)(bool, const char*))
                 apply_hunting(patch);check(patch.dynamic_depth==1,"nested dispatch restores its enclosing graphics selection");
             }
             apply_hunting(patch);check(patch.dynamic_depth==0,"nested draw restores its enclosing depth-filter snapshot");
+            check(t_hunting_skip,"nested draw restores enclosing native caller suppression");
         }
         apply_hunting(patch);check(patch.dynamic_depth==-1,"draw exit restores the previous unselected filter context");
+        check(!t_hunting_skip,"draw exit restores the prior native caller suppression");
     }
     std::vector<uint8_t> bytes(1024, 7);
     const auto memory = reinterpret_cast<VkDeviceMemory>(uintptr_t(0xc040));

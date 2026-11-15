@@ -4,6 +4,14 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-259: Execute output-only matched lists around the retained native caller (2026-11-15)
+
+- D-258 committed and main fast-forwarded as02a62d9. BUG-121 baseline d259-before.out on2.8.6/f910:16/18 checks. Removing the image replacement leaves output-only lists refused; current and following independent geometry still write depth after oD=null. Both scenes finish with complete fenced depth bytes and clean core/sync validation; the control and original images remain correct.
+- Original HackerContext.cpp1005/1029,3154 and1087 preserves command-list execution around a hidden application draw; CommandList.cpp10094/10112 changes one output while retaining the others. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order. Pure NativeBind plans now preserve skip_original and the exact pre/post boundary and run through the existing native application-call executor, without mesh activation or a private image variant. The executor reacquires and revalidates its resource proofs after the planner releases its shared lock. output_calls reports these executions. A nested hunting-suppression snapshot hides the caller while allowing its resource lists to run.
+- Source2.8.7/ABIf9104b7b1d2fa5de: d259-pair.out fully builds tracker/layer/backend; tracker689 and four matching stamps pass. Four new CPU checks cover nested hunting suppression. Focused30/30 passes, including handling skip. Final d259-regression.out mod-output-call passes output-only70, texture-only45, native hunting45, tracker689, VVL76 and text655. The new scenes have normal exits, complete depth bytes and validation0/0. Their declarations contain no image or mesh assets; pre/post null, retained restoration, explicit hide, RenderPass2/inject and two completed module exchanges pass. Existing hunting fixtures retain their own controlled shutdown behavior.
+- Continue the original native_calls hunting audit: its hunting_skip branch currently bypasses resource events as well as draw calls, whereas the original graphics pre/post lists still run. Reproduce that branch before changing it. Remaining beside-original/merged/transparent and broader pass/resolve/persistent-image/queue adapters stay open. No game, deployment, launcher, system or remote action; do not stop at this commit.
+
+
 ## D-258: Keep texture replacement and output events on the original draw boundary (2026-11-15)
 
 - D-257 committed and main fast-forwarded asaa5a43f. BUG-120 valid d258-before-valid.out on2.8.5/f910 has14/18 checks: control passes; a matched texture-only list with oD=null falls back to the original image and keeps writing depth for its own and the following independent geometry. Both runs have validation0/0 and complete fenced depth bytes; the negative scene exits1 for expected pixel assertions. Preceding merged geometry remains intact.

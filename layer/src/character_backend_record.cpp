@@ -309,6 +309,17 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 const bool planned = plan_draw(request, runtime_list, skip, added, reason, vertex, &textures);
                 if (handed_over()) return on_device ? true : bring_up();
                 if (!planned) return refuse(C_STATE, "INI hide: " + reason);
+                if(!textures && !runtime_list.count && !scratch_outputs.items.empty()){
+                    // BeforeDraw/AfterDraw keep resource commands even when hunting hides
+                    // the application call. No private Mod allocation is required here.
+                    scratch_outputs.skip_original|=t_hunting_skip;
+                    lock.unlock(); // The native executor acquires and rechecks its own resource proofs.
+                    if(!native_calls(output_calls,nullptr,device,cb,r,scratch_outputs,false,reason))
+                        return refuse(C_STATE,"INI output calls: "+reason);
+                    if(!on_device)++counters[C_MATCHED];
+                    ++counters[C_OUTPUT_CALLS];if(scratch_outputs.skip_original)++counters[C_HIDDEN];
+                    return true;
+                }
                 if (!skip && !textures && !runtime_list.count) return false;
                 // A draw the plan added gets its material plans now: a later plan of the same state adds nothing.
                 if (added && !refresh_materials()) return false;

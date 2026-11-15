@@ -1105,7 +1105,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     ordered_outputs=true;
                 }
             }
-            if(ordered_outputs && (translucent || (plan.skip_original && !drawn) || (!plan.skip_original && drawn)))
+            if(ordered_outputs && (translucent || (!plan.skip_original && drawn)))
                 throw std::runtime_error("Mod output events require an ordinary hiding mesh or texture-only plan");
         }
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
@@ -1117,6 +1117,13 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         // and the caller draws the Mod's and lets the game's through (skip false, *textures false, draws in `output`).
         const bool has_draws = std::any_of(plan.items.begin(), plan.items.end(), [](const efmi::assets::FilePlanItem& item) {
             return item.operation == efmi::assets::FileOperation::DrawIndexed || item.operation == efmi::assets::FileOperation::Translucent; });
+        if(ordered_outputs && !has_draws && std::all_of(plan.items.begin(),plan.items.end(),[](const auto& item){
+            return item.operation==efmi::assets::FileOperation::NativeBind;
+        })){
+            // No mesh, image rewrite or private descriptor is needed. The native caller
+            // executor owns the unchanged application draw between these pre/post events.
+            *outputs=plan;output={};if(textures)*textures=false;return true;
+        }
         if (!skip && !(has_draws && textures)) {
             output = {};
             if (!textures) {

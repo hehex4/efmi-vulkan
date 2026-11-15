@@ -11,7 +11,7 @@ from runtime_fixture import CORE, fixture
 from efmi_vk.hashes import crc32c
 
 
-def scene(checks, case, matched=False):
+def scene(checks, case, matched=False, output_only=False):
     root = Path(test_dir('classic-mod-character-' + case + '-'))
     mods = root / 'Mods'
     folder = mods / 'fixture'
@@ -35,7 +35,10 @@ def scene(checks, case, matched=False):
         'filename = ..\\fixture\\red.dds\n' % crc32c(struct.pack('<3H', 0, 1, 2)))
     if matched:
         command='' if case=='control' else 'post oD = null\n' if case=='post' else 'ResourceDepth = ref oD\noD = null\npost oD = ref ResourceDepth\n' if case=='restore' else 'oD = null\n'
+        if case=='hide':command='handling = skip\n'+command
         prop_ini=prop_ini.replace('ps-t1 = ResourceBorrowed\n',command+'ps-t1 = ResourceBorrowed\n',1)+'[ResourceDepth]\n'
+    if output_only:
+        prop_ini=prop_ini.replace('ps-t1 = ResourceBorrowed\n','').replace('[ResourceBorrowed]\nfilename = ..\\fixture\\red.dds\n','')
     (props / 'prop.ini').write_text(prop_ini,encoding='ascii')
     (root / 'd3dx.ini').write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n'
                                   '[Rendering]\nrecursive_include = 1\n', encoding='ascii')
@@ -48,11 +51,13 @@ def scene(checks, case, matched=False):
                  VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC='1',
                  VK_LAYER_DUPLICATE_MESSAGE_LIMIT='0', XDG_CACHE_HOME=str(root), TMPDIR=str(root), TEMP=str(root), TMP=str(root))
     if matched:extra['EFMI_VK_TEST_MOD_OUTPUT_DEPTH']='1'
+    if output_only:extra['EFMI_VK_TEST_UNMATCHED_SHADE']='0' if case=='hide' else '1'
     env = (inject_env if case == 'rp2_inject' else layer_env)(str(root / 'layer.log'), extra=extra)
     env['VK_LAYER_PATH'] = extra['VK_LAYER_PATH']
     args = [str(Path(DIST) / 'efmi_vk_variant_gpu.exe'), '--character', '--material', '--lazy-packages']
     if case == 'rp2_inject':
         args += ['--renderpass2', '--inject', INJECT_DLL]
+    if case=='swap':args+=['--module',str(Path(DIST)/'efmi_vk_backend.dll')]
     result = subprocess.run(args, env=env, cwd=folder, capture_output=True, text=True, errors='replace', timeout=120)
     output = result.stdout + result.stderr
     (root / 'stdout.txt').write_text(output.encode('ascii', 'backslashreplace').decode(), encoding='ascii')
@@ -65,8 +70,13 @@ def scene(checks, case, matched=False):
     merged = next((item for item in packages if item.get('components', 0) > 0), {})
     texture = next((item for item in packages if Path(item.get('path', '')).parent.name == 'props'), {})
     checks.check(merged.get('counters', {}).get('replaced', 0) > 0, case + ': merged bone variants actually execute')
-    checks.check(texture.get('counters', {}).get('textured', 0) > 0 and not texture.get('last_reason'),
-                 case + ': texture-only private image variants actually execute')
+    if output_only:
+        checks.equal(texture.get('counters',{}).get('textured',0),0,case+': application images stay original without a private texture variant')
+        if case!='control':checks.check(texture.get('counters',{}).get('output_calls',0)>0 and not texture.get('last_reason'),case+': matched native application-call executor runs without mesh activation')
+        if case=='hide':checks.check(texture.get('counters',{}).get('hidden',0)>0,case+': handling skip still executes its output list')
+    else:
+        checks.check(texture.get('counters', {}).get('textured', 0) > 0 and not texture.get('last_reason'),
+                     case + ': texture-only private image variants actually execute')
     if case != 'control' and not matched:
         overrides = status.get('shader_overrides', {})
         checks.check(overrides.get('executed', 0) > 0 and not overrides.get('last_reason'), case + ': depth unbind executes')
@@ -78,7 +88,7 @@ def scene(checks, case, matched=False):
             checks.check(all(0<=value<=1 for value in values),case+': every depth texel has a valid value')
             def depth_at(x,y):return values[int((y+1)*32)*64+int((x+1)*32)]<.99
             checks.check(depth_at(-.6,.3),case+': preceding merged geometry retains its depth')
-            checks.equal(depth_at(.6,-.1),case in ('control','post'),case+': texture-only geometry writes depth at the requested pre/post boundary')
+            checks.equal(depth_at(.6,-.1),case in ('control','post'),case+': application geometry writes depth at the requested pre/post boundary')
             checks.equal(depth_at(0,.6),case in ('control','restore'),case+': following independent geometry observes null or restored depth')
     if result.returncode:
         print(output[-5000:])
