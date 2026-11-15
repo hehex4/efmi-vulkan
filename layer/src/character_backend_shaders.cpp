@@ -547,6 +547,9 @@ void character_activate(CharacterBackend& b)
     std::shared_ptr<const CharacterBackend::ShaderHooks> current;
     { std::shared_lock<std::shared_mutex> lock(b.index_mx); current=b.shader_hooks; }
     auto* program=current?current->program:nullptr;
+    // Matched Mod output queries need attachment contexts even without ShaderOverrides
+    // or hunting. Publish tracking before the application's next render pass begins.
+    if(b.enabled.load(std::memory_order_relaxed))b.device->track_image_layouts.store(true,std::memory_order_relaxed);
     b.device->shader_draws.store((current && !current->hashes.empty()) || b.hunting.enabled() || b.hunting.analysing(),std::memory_order_relaxed);
     b.device->native_binding_order.store(program && program->runtime() && !program->runtime()->native_bindings().empty(),std::memory_order_relaxed);
 }

@@ -6,6 +6,40 @@
 #include "native_resources.h"
 
 namespace efvk {
+namespace {
+template<class Restore>
+bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,const DrawRec& r,
+                          const std::vector<VariantDraw>& items,const DrawGeometry& original,
+                          const efmi::assets::FilePlan& outputs,NativeTargetPlan& targets,
+                          const std::vector<size_t>& output_before,Restore&& restore)
+{
+    const bool caller_in_outputs=!outputs.items.empty() && !outputs.skip_original;
+    if((!output_before.empty() && output_before.size()!=items.size()) ||
+       (caller_in_outputs && (r.kind!=DK_INDEXED || !draw.CmdDrawIndexed || outputs.pre_items>outputs.items.size())))return false;
+    const VkPipeline previous=r.bound?r.bound:r.pipeline;
+    if(!emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original,true))return false;
+    size_t output_next=0;bool private_pending=false,caller_recorded=false;
+    auto restore_private=[&]{if(private_pending){restore();private_pending=false;}};
+    auto caller_at_boundary=[&]{
+        if(caller_in_outputs && !caller_recorded && output_next==outputs.pre_items){
+            restore_private();
+            draw.CmdDrawIndexed(cb->handle,r.count,r.instances,r.first,r.vertex_offset,r.first_instance);
+            caller_recorded=true;
+        }
+    };
+    auto advance_outputs=[&](size_t end){
+        while(output_next<end){caller_at_boundary();record_native_target(device,cb,targets,output_next++);}
+        caller_at_boundary();
+    };
+    if(output_before.empty()){
+        emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original);private_pending=true;
+    }else for(size_t i=0;i<items.size();++i){
+        advance_outputs(output_before[i]);++output_next; // Accepted draw marker.
+        emit_variant_draws(draw,cb->handle,&items[i],1,cb->gfx_bound?cb->gfx_bound:previous,original);private_pending=true;
+    }
+    restore_private();advance_outputs(targets.events.size());return true;
+}
+}
 // One captured call (D-113): its opacity set and parameter layer, the game's sets and dynamic
 // state of the draw (`own`: the pipeline's sets below the private one), queued after the list.
 // Caller holds the mod lock.
@@ -194,6 +228,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     bool gpu_draw = false; // this draw binds the device's merged skeleton (D-117) rather than the CPU master
     // The lists draw without hiding the game's draw (D-179): the Mod's draws are recorded and the game's goes after.
     bool beside = false;
+    NativeTargetPlan targets;
+    std::vector<size_t> output_before;
     uint32_t shadow_draws = 0; // translucent calls drawn in a shadow pass (D-185)
     CharacterCommand* bone_owner = nullptr; // the recording's owner, which carries the device imports (D-127)
     uint64_t borrowed_sources = 0; // components whose import this recording takes from one not yet submitted (D-127)
@@ -517,6 +553,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (program) {
             efmi::frontend::RuntimeDraw request;
             request.hunting_skip = t_hunting_skip;
+            request.native_outputs = true;
+            request.native_resource = [this,cb,&r](const efmi::frontend::NativeBinding& binding,
+                efmi::frontend::NativeResource& resource,std::string& why){
+                return native_output_resource_locked(device,cb,r,binding,resource,why);
+            };
             request.hash = section->hash; request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
             request.mod = program->folder_index();
@@ -591,6 +632,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             const bool planned = plan_draw(request, runtime_list, skip, added, reason, &pipe->second.recipe->vertex, &textures);
             if (handed_over()) return true;
             if (!planned) return refuse(C_STATE, "INI plan: " + reason);
+            if(!textures && !runtime_list.count && !scratch_outputs.items.empty()){
+                scratch_outputs.skip_original|=t_hunting_skip;
+                lock.unlock();
+                if(!native_calls(output_calls,nullptr,device,cb,r,scratch_outputs,false,reason))
+                    return refuse(C_STATE,"character output calls: "+reason);
+                ++counters[C_OUTPUT_CALLS];if(scratch_outputs.skip_original)++counters[C_HIDDEN];
+                return true;
+            }
             // Draws beside the game's (D-179): drawn as a hiding plan's are, and the game's draw goes after them.
             if (!skip && !textures && runtime_list.count) { skip = true; beside = true; }
             if (!skip) {
@@ -614,6 +663,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         }
         lap(S_PLAN);
         if (!list->count) { if (!gate_open) return gated(); ++counters[C_HIDDEN]; return true; }
+        if(!scratch_outputs.items.empty()){
+            for(size_t i=0;i<scratch_outputs.items.size();++i)
+                if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed)output_before.push_back(i);
+            if(output_before.size()!=list->count)return refuse(C_STATE,"character output/draw order is incomplete");
+        }
+        std::string target_reason;
+        if(!prepare_native_targets(device,cb,r,scratch_outputs,targets,target_reason,&output_cache,true))
+            return refuse(C_STATE,"character outputs: "+target_reason);
         // The bones the list's vertices read, span by span: each was imported by some component it lies in
         // (BUG-093: a LOD part of its own on another part's bones fills them as well as that part does). A uniform
         // block's bones are read off the CPU master: only an import into it covers them (D-186).
@@ -894,11 +951,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     }
 
     std::vector<VkPipeline> compatible;
-    if(native_target_masked(cb)){
+    if(native_target_masked(cb) || !scratch_outputs.items.empty()){
         compatible.resize(list->count);
         for(uint32_t i=0;i<list->count;++i)if(!capturing[i]){
             std::string reason;
-            if(!variants[i] || !(compatible[i]=native_target_variant(device,cb,*variants[i],reason)))
+            if(!variants[i] || !(compatible[i]=native_target_variant(device,cb,*variants[i],reason,&targets,output_before.empty()?0:output_before[i])))
                 return refuse(C_VARIANT,"character compatible pass: "+reason);
         }
     }
@@ -1014,13 +1071,13 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     scratch_pending_captures.clear();
     lap(S_SNAPSHOT);
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
-    if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.bound ? r.bound : r.pipeline, original))
-        return refuse(C_VARIANT, "character draw transaction refused");
-    if (restore_layout) {
-        draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
-                                   static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
-        ++counters[C_SET3_RESTORED];
-    }
+    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,output_before,[&]{
+        if(restore_layout){
+            draw.CmdBindDescriptorSets(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,restore_layout,restore_slot,1,&restore_set,
+                                       static_cast<uint32_t>(restore_offsets.size()),restore_offsets.empty()?nullptr:restore_offsets.data());
+            ++counters[C_SET3_RESTORED];
+        }
+    }))return refuse(C_VARIANT,"character draw transaction refused");
     lap(S_EMIT);
     ++counters[beside ? C_BESIDE : C_REPLACED];
     if (constant_bones) ++counters[C_CONSTANT_BONES];
@@ -1033,7 +1090,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (!plan->patch.images.empty() || !plan->patch.nulls.empty()) ++counters[C_MATERIAL_ITEMS];
         if (plan->compatibility) ++counters[C_COMPAT_ITEMS];
     }
-    return !beside;
+    return !beside || !scratch_outputs.items.empty();
 }
 
 bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present,
@@ -1275,42 +1332,13 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});
     }
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
-    const VkPipeline previous = r.bound ? r.bound : r.pipeline;
-    if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), previous, original, true))
-        return refuse(C_VARIANT, "a Mod's own mesh: draw transaction refused");
-    size_t output_next=0;
-    bool private_pending=false,caller_recorded=false;
-    auto restore_private=[&]{
-        if(restore_layout && private_pending){
+    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,output_before,[&]{
+        if(restore_layout){
             draw.CmdBindDescriptorSets(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,restore_layout,restore_slot,1,&restore_set,
                                        static_cast<uint32_t>(restore_offsets.size()),restore_offsets.empty()?nullptr:restore_offsets.data());
-            ++counters[C_SET3_RESTORED];private_pending=false;
+            ++counters[C_SET3_RESTORED];
         }
-    };
-    auto caller_at_boundary=[&]{
-        if(caller_in_outputs && !caller_recorded && output_next==scratch_outputs.pre_items){
-            restore_private();
-            draw.CmdDrawIndexed(cb->handle,r.count,r.instances,r.first,r.vertex_offset,r.first_instance);
-            caller_recorded=true;
-        }
-    };
-    auto advance_outputs=[&](size_t end){
-        while(output_next<end){caller_at_boundary();record_native_target(device,cb,targets,output_next++);}
-        caller_at_boundary();
-    };
-    if(output_before.empty()){
-        emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original);
-        private_pending=true;
-    }else for(size_t i=0;i<items.size();++i){
-        advance_outputs(output_before[i]);
-        ++output_next; // The accepted draw marker has no output event.
-        // Every split restores the selected application's compatible handle for this draw.
-        const VkPipeline restore=cb->gfx_bound?cb->gfx_bound:previous;
-        emit_variant_draws(draw,cb->handle,&items[i],1,restore,original);
-        private_pending=true;
-    }
-    restore_private();
-    advance_outputs(targets.events.size());
+    }))return refuse(C_VARIANT,"a Mod's own mesh: draw transaction refused");
     ++counters[C_OWN_MESH];
     if (origin) ++counters[origin == 1 ? C_DERIVED : C_INHERITED];
     counters[C_ITEMS] += list.count;

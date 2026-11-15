@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-262. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-263. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1067,3 +1067,9 @@ Owned GPU scenes verify an ordinary replacement mesh disappears with the selecte
 Ordinary Mod meshes can change outputs while retaining the application draw. The planner preserves the exact pre/post boundary even when an empty draw is omitted. All targets and compatible variants are prepared before recording, and the original indexed call runs once at that boundary with its geometry and descriptor state restored. Post-list output changes therefore affect only work that follows them. Geometry/material caches remain independent of output events.
 
 Independent original, pre-Mod and post-Mod regions verify depth null/restoration and call order. Interleaved and empty draws, both entries, RenderPass2 and completed module exchange are checked. Shader post lists provide the post-phase cases because the original does not revisit a matched index section after that section changes its index buffer. Merged-skeleton and transparent output adapters remain separate work; this is sandbox evidence only.
+
+## Merged output events and attachment queries (D-263)
+
+Merged meshes use the same ordered output/draw executor as ordinary meshes, retaining their full bone and instance interfaces. All targets and variants are prepared before recording, and the application geometry and private descriptor slot are restored at the caller boundary. A component can also execute an output-only plan without private geometry. Output event order stays outside geometry/material cache keys.
+
+An enabled replacement backend records attachment contexts even without ShaderOverrides or hunting. Native output queries therefore use actual current attachments, including for library conditions. Eight generic merged scenes check depth changes, restoration, interleaved component draws, RenderPass2/inject and completed module exchange without incidental ShaderOverrides. The transparency depth-history regression also passes after correcting activation. Transparent output segmentation and broader pass/resolve/persistent-image/queue adapters remain open; these results are sandbox evidence only.

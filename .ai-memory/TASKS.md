@@ -1,6 +1,15 @@
 # EFMI Vulkan - Tasks
 
 
+## D-263 verified; continue native bridge hunting suppression (2026-11-15)
+
+- D-262 committed and main fast-forwarded as e9f7206. BUG-125 baseline d263-before.out on 2.9.0/f910: 15/18. Adding oD=null inside a generic merged component drops its geometry, while later texture and independent geometry still write depth. The negative process exits1 for its independent geometry assertion; validation is0/0 and fenced depth readback is complete. A positive aggregate merged counter did not prove the affected component rendered.
+- Original CommandList.cpp10094/10112 retains other outputs when changing one, and DrawCommand1642 uses the current context. DX11 supplies retained references with deferred destruction, hazard tracking and one-context order. Merged plans now query actual outputs, prepare the whole target sequence and compatible full merged interfaces, then share the ordered output/draw executor with ordinary meshes. Bone imports, identity, private descriptors and command-owner lifetime remain intact; output-only component plans use the native caller executor.
+- Source2.9.1/ABIf9104b7b1d2fa5de: d263-pair.out fully builds tracker/layer/backend. Initial focused22/22 passes; initial merged-output regression passes merged88, beside131, texture45, tracker713, validation76 and text657 but fails translucency23/27. Native output conditions lacked attachment context when there were no ShaderOverrides or hunting, so the library selected the wrong branch. Backend activation now enables attachment/layout tracking before subsequent passes. d263-final-pair.out rebuilds this changed unit and relinks verified unchanged objects; tracker713 and four matching stamps pass.
+- Final d263-tracking-final.out merged-output-tracking passes merged88, translucency27, tracker713, validation76 and text657. All eight merged scenes now omit empty ShaderOverrides, proving tracking without incidental hooks. They cover pre/post null, save/restore, interleaved components, RenderPass2/inject and two completed module exchanges, with complete fenced depth bytes and clean core/sync validation. The unchanged beside131 and texture45 results belong to the initial regression; that initial regression as a whole failed. No real-game acceptance is claimed.
+- Continue the native bridge hunting audit: direct translucent and indexed helper emissions lack the parsed DrawCommand hunting guard. Reproduce before fixing. Transparent output events and broader pass/resolve/persistent-image/queue adapters remain open. No deployment, game, launcher, system or remote action; root deployed files remain historical.
+
+
 ## D-262 verified; continue merged-skeleton output events (2026-11-15)
 
 - D-261 committed and main fast-forwarded as afd05af. BUG-124 baseline d262-before.out on the initial 2.8.9/f910 pair (same output executor): 21/24. Beside-original control retains 6418 original depth pixels and 1152 independent moved Mod depth pixels. Adding oD=null refuses the Mod and leaves all 6418 original depth pixels instead of 5516. Both exits and core/sync validation are clean, with complete fenced color/depth readbacks.
