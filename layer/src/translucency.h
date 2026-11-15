@@ -40,6 +40,13 @@ struct ShadowParams {
 inline uint64_t shadow_identity(uint32_t pipeline_id, const ShadowParams& p) { return 1ull << 62 | uint64_t(p.key()) << 32 | pipeline_id; }
 
 class Translucency;
+// The library retains SceneColor/SceneDepth at capture, independently of later output binds.
+struct TranslucentScene {
+    TargetView colour, depth;
+    bool has_depth = false;
+};
+// Caller holds the device resource lock. Retains the exact live image/view owners.
+std::shared_ptr<const TranslucentScene> translucent_scene(Device*, const RenderTargets&, std::string& why);
 // One captured call, recorded at the end of its pass with the game's bindings of its draw.
 struct TranslucentCapture {
     std::shared_ptr<const PipelineVariant> variants[kCaptureKinds];
@@ -53,6 +60,7 @@ struct TranslucentCapture {
     float params[4] = {1, 0, 0, 0}; // IniParams[180] of the call: alpha, masked, channel, invert
     uint32_t params_layer = 0;
     std::shared_ptr<void> layers; // the layer set of the pass's size its sets took views of
+    std::shared_ptr<const TranslucentScene> scene;
 };
 
 class Translucency {
@@ -125,9 +133,9 @@ private:
     Owner* owner(CmdBuf*, bool make);
     bool allocate_layer(Layers&, uint32_t layer, std::string& why);
     bool composite_pipeline(VkFormat colour, VkImageLayout, const std::vector<VkDynamicState>&, VkPipeline&, std::string& why);
-    VkImageView depth_view(VkImage, uint32_t image_id, VkFormat, std::shared_ptr<const void>& keep, uint64_t& serial, std::string& why);
+    VkImageView depth_view(const TargetView&, std::shared_ptr<const void>& keep, uint64_t& serial, std::string& why);
     VkFramebuffer colour_framebuffer(VkImageView, uint32_t view_id, VkFormat, VkImageLayout, uint32_t width, uint32_t height,
-                                     std::shared_ptr<const void>& keep, std::string& why);
+                                     std::shared_ptr<const void> source, std::shared_ptr<const void>& keep, std::string& why);
     void restore(CmdBuf*);
     void fail(const std::string& why);
     Device* device_;

@@ -423,7 +423,8 @@ public:
     // ring slot bound (D-117).
     using AppendBones = std::function<bool(DrawSnapshots&, const std::vector<SnapshotImage>&, SnapshotSlot&)>;
     bool capture(CmdBuf* cb, const DrawRec& r, uint32_t own, const CharacterDraw& d, uint32_t i, const SnapshotSlot& colour,
-                 const DrawGeometry& geometry, const IndexedDraw& args, const AppendBones& append_bones, CharacterCommand* owner);
+                 const DrawGeometry& geometry, const IndexedDraw& args, const AppendBones& append_bones, CharacterCommand* owner,
+                 const std::shared_ptr<const TranslucentScene>& scene);
     const LibraryHooks& library_hooks(const PipeInfo& pipe);
     std::atomic<bool> enabled{false}, ready{false};
     std::atomic<uint64_t> frame{1};

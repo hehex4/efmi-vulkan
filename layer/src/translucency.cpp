@@ -137,6 +137,7 @@ constexpr auto kIdleLayers = std::chrono::seconds(5);
 } // namespace
 
 struct Translucency::Held {
+    std::shared_ptr<const void> source; // Destroy the private view/framebuffer before releasing its source.
     std::function<void()> release;
     uint64_t serial = 0; // unique for the device's lifetime, unlike a handle
     VkImageView view = VK_NULL_HANDLE;
@@ -560,9 +561,46 @@ bool depth_format(VkFormat f) { return f == VK_FORMAT_D16_UNORM || f == VK_FORMA
 bool has_stencil(VkFormat f) { return f == VK_FORMAT_D16_UNORM_S8_UINT || f == VK_FORMAT_D24_UNORM_S8_UINT || f == VK_FORMAT_D32_SFLOAT_S8_UINT; }
 }
 
-VkImageView Translucency::depth_view(VkImage image, uint32_t image_id, VkFormat format, std::shared_ptr<const void>& keep, uint64_t& serial,
-                                     std::string& why)
+std::shared_ptr<const TranslucentScene> translucent_scene(Device* device, const RenderTargets& targets, std::string& why)
 {
+    auto refuse = [&](const char* reason) -> std::shared_ptr<const TranslucentScene> { why = reason; return {}; };
+    if (!targets.known || targets.dynamic || !targets.recipe || targets.recipe->subpasses.size() != 1 ||
+        !targets.framebuffer || !targets.framebuffer->known || targets.framebuffer->layers != 1)
+        return refuse("EFMITTL capture requires a known ordinary classic attachment context");
+    const auto& sub = targets.recipe->subpasses[0];
+    const auto& views = targets.framebuffer->imageless ? targets.views : targets.framebuffer->views;
+    if (sub.colors.empty() || sub.colors[0].attachment == VK_ATTACHMENT_UNUSED)
+        return refuse("EFMITTL capture has no scene colour");
+    auto out = std::make_shared<TranslucentScene>();
+    auto retain = [&](uint32_t index, TargetView& target, bool depth) {
+        if (index >= views.size() || !views[index].known) return false;
+        target = views[index];
+        const auto view = device->image_views.find(target.handle);
+        if (view == device->image_views.end() || view->second.id != target.view.id || view->second.image_id != target.image.id) return false;
+        const auto image = device->images.find(view->second.image);
+        if (image == device->images.end() || image->second.id != target.image.id) return false;
+        target.view = view->second; target.image = image->second;
+        auto& range = target.view.range;
+        if (range.levelCount == VK_REMAINING_MIP_LEVELS) range.levelCount = target.image.levels - range.baseMipLevel;
+        if (range.layerCount == VK_REMAINING_ARRAY_LAYERS) range.layerCount = target.image.layers - range.baseArrayLayer;
+        if (!target.image.capture_safe || !target.view.native_safe || target.image.samples != VK_SAMPLE_COUNT_1_BIT ||
+            target.view.type != VK_IMAGE_VIEW_TYPE_2D || range.baseMipLevel || range.baseArrayLayer || range.levelCount != 1 || range.layerCount != 1 ||
+            !target.view.lifetime || target.view.lifetime->dependencies.empty() || !target.image.lifetime || target.image.lifetime->dependencies.empty()) return false;
+        if (depth) {
+            if (!depth_format(target.image.format) || target.view.format != target.image.format || !(target.image.usage & VK_IMAGE_USAGE_SAMPLED_BIT)) return false;
+            range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | (has_stencil(target.image.format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+        } else if (range.aspectMask != VK_IMAGE_ASPECT_COLOR_BIT || !(target.image.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) return false;
+        return true;
+    };
+    if (!retain(sub.colors[0].attachment, out->colour, false)) return refuse("EFMITTL scene colour needs a live retained single-sample view");
+    out->has_depth = sub.uses_depth();
+    if (out->has_depth && !retain(sub.depth.attachment, out->depth, true)) return refuse("EFMITTL scene depth needs a live retained sampled view");
+    return out;
+}
+
+VkImageView Translucency::depth_view(const TargetView& target, std::shared_ptr<const void>& keep, uint64_t& serial, std::string& why)
+{
+    const auto image = target.view.image; const auto image_id = target.image.id; const auto format = target.image.format;
     const auto key = std::make_pair(uint64_t(image), image_id);
     auto found = depth_views_.find(key);
     if (found == depth_views_.end()) {
@@ -570,6 +608,7 @@ VkImageView Translucency::depth_view(VkImage image, uint32_t image_id, VkFormat 
         VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         vi.image = image; vi.viewType = VK_IMAGE_VIEW_TYPE_2D; vi.format = format; vi.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
         auto held = std::make_shared<Held>();
+        held->source = target.image.lifetime;
         if (d_.CreateImageView(device_->handle, &vi, nullptr, &held->view) != VK_SUCCESS) { why = "EFMITTL composite: scene depth view"; return VK_NULL_HANDLE; }
         const auto d = d_; VkDevice dev = device_->handle; VkImageView view = held->view;
         held->release = [d, dev, view] { d.DestroyImageView(dev, view, nullptr); };
@@ -581,7 +620,7 @@ VkImageView Translucency::depth_view(VkImage image, uint32_t image_id, VkFormat 
 }
 
 VkFramebuffer Translucency::colour_framebuffer(VkImageView view, uint32_t view_id, VkFormat format, VkImageLayout layout, uint32_t width,
-                                               uint32_t height, std::shared_ptr<const void>& keep, std::string& why)
+                                               uint32_t height, std::shared_ptr<const void> source, std::shared_ptr<const void>& keep, std::string& why)
 {
     const auto key = std::make_pair(uint64_t(view), view_id);
     auto found = framebuffers_.find(key);
@@ -592,6 +631,7 @@ VkFramebuffer Translucency::colour_framebuffer(VkImageView view, uint32_t view_i
         VkFramebufferCreateInfo fi = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         fi.renderPass = pass->second; fi.attachmentCount = 1; fi.pAttachments = &view; fi.width = width; fi.height = height; fi.layers = 1;
         auto held = std::make_shared<Held>();
+        held->source = std::move(source);
         if (d_.CreateFramebuffer(device_->handle, &fi, nullptr, &held->framebuffer) != VK_SUCCESS) { why = "EFMITTL composite: framebuffer"; return VK_NULL_HANDLE; }
         const auto d = d_; VkDevice dev = device_->handle; VkFramebuffer fb = held->framebuffer;
         held->release = [d, dev, fb] { d.DestroyFramebuffer(dev, fb, nullptr); };
@@ -711,50 +751,45 @@ void Translucency::pass_end(CmdBuf* cb)
     // The pass's captures took views of one layer set, the one of its colour target's size.
     const auto layers = std::static_pointer_cast<Layers>(captures.front().layers);
     for (const auto& c : captures) if (c.layers != captures.front().layers) { fail("EFMITTL: captures of one pass in two layer sets"); return; }
-    const auto& pass = cb->pass;
     std::string why;
-    // The forward pass's colour target 0 and its depth, with the layouts the pass leaves them in.
-    if (!layers || !pass.info || !pass.info->known || !pass.recipe || pass.recipe->subpasses.size() != 1 || alpha_.empty()) {
-        fail("EFMITTL: the forward pass's targets are not known"); return;
-    }
-    const auto& sub = pass.recipe->subpasses[0];
-    if (sub.colors.empty()) { fail("EFMITTL: the forward pass has no colour target"); return; }
-    const bool has_depth = sub.uses_depth();
-    const uint32_t ci = sub.colors[0].attachment, di = sub.depth.attachment;
-    if (ci >= pass.info->views.size() || ci >= pass.recipe->attachments.size() ||
-        (has_depth && (di >= pass.info->views.size() || di >= pass.recipe->attachments.size()))) {
-        fail("EFMITTL: forward pass attachments out of range"); return;
-    }
-    const TargetView& scene = pass.info->views[ci];
-    const TargetView* sdepth = has_depth ? &pass.info->views[di] : nullptr;
-    const VkImageLayout colour_layout = pass.recipe->attachments[ci].finalLayout;
-    const VkImageLayout depth_layout = has_depth ? pass.recipe->attachments[di].finalLayout : VK_IMAGE_LAYOUT_UNDEFINED;
-    if (!scene.known || colour_layout == VK_IMAGE_LAYOUT_UNDEFINED || colour_layout == VK_IMAGE_LAYOUT_PREINITIALIZED ||
-        (sdepth && (!sdepth->known || depth_layout == VK_IMAGE_LAYOUT_UNDEFINED || depth_layout == VK_IMAGE_LAYOUT_PREINITIALIZED ||
-                    !depth_format(VkFormat(sdepth->image.format)) || !(sdepth->image.usage & VK_IMAGE_USAGE_SAMPLED_BIT))) ||
-        !(scene.image.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) ||
-        scene.image.extent.width != layers->width || scene.image.extent.height != layers->height) {
-        fail("EFMITTL: the forward pass's targets are not those the layers were made for"); return;
-    }
+    if (!layers || alpha_.empty()) { fail("EFMITTL: capture layers are unavailable"); return; }
     history_.begin(layers->width, layers->height);
     size_t kept = 0;
     for (size_t i = 0; i < captures.size(); ++i) {
-        if (!history_.capture(has_depth)) continue;
+        if (!captures[i].scene) { fail("EFMITTL: capture scene snapshot missing"); return; }
+        if (!history_.capture(captures[i].scene->has_depth)) continue;
         if (kept != i) captures[kept] = std::move(captures[i]);
         ++kept;
     }
     captures.resize(kept);
     if (captures.empty()) { error_.clear(); return; }
+    // The last successful capture assigned SceneColor/SceneDepth in the original library.
+    // Later output bindings cannot replace those references; layouts follow actual commands.
+    const auto scene_snapshot = captures.back().scene;
+    const bool has_depth = scene_snapshot->has_depth;
+    const TargetView& scene = scene_snapshot->colour;
+    const TargetView* sdepth = has_depth ? &scene_snapshot->depth : nullptr;
+    VkImageLayout colour_layout = VK_IMAGE_LAYOUT_UNDEFINED, depth_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    auto current_layout = [&](const TargetView& view, VkImageLayout& layout) {
+        return cb->image_layouts.get(view.image.id, view.image.levels, view.image.layers, view.view.range, layout) &&
+               layout != VK_IMAGE_LAYOUT_UNDEFINED && layout != VK_IMAGE_LAYOUT_PREINITIALIZED;
+    };
+    if (!current_layout(scene, colour_layout) || (sdepth && !current_layout(*sdepth, depth_layout))) {
+        fail("EFMITTL: retained scene image layout is not proven in this recording"); return;
+    }
+    if (scene.image.extent.width != layers->width || scene.image.extent.height != layers->height) {
+        fail("EFMITTL: retained scene size differs from capture layers"); return;
+    }
     if (!has_depth && !device_->null_descriptors) { fail("EFMITTL: null scene depth requires nullDescriptor"); return; }
     std::shared_ptr<const void> keep_depth, keep_fb;
     VkPipeline composite = VK_NULL_HANDLE;
     if (!composite_pipeline(VkFormat(scene.view.format), colour_layout, dynamic, composite, why)) { fail(why); return; }
     uint64_t depth_serial = 0;
-    const VkImageView scene_depth = sdepth ? depth_view(sdepth->view.image, sdepth->view.image_id, VkFormat(sdepth->image.format), keep_depth, depth_serial, why)
+    const VkImageView scene_depth = sdepth ? depth_view(*sdepth, keep_depth, depth_serial, why)
                                          : VK_NULL_HANDLE;
     if (has_depth && !scene_depth) { fail(why); return; }
     const VkFramebuffer scene_fb = scene.handle ? colour_framebuffer(scene.handle, scene.view.id, VkFormat(scene.view.format),
-                                                                                    colour_layout, layers->width, layers->height, keep_fb, why)
+                                    colour_layout, layers->width, layers->height, scene.view.lifetime, keep_fb, why)
                                                                : VK_NULL_HANDLE;
     if (!scene_fb) { fail(why); return; }
     const uint32_t used = uint32_t(std::min<size_t>(captures.size(), 4));
@@ -921,7 +956,7 @@ void Translucency::pass_end(CmdBuf* cb)
                               0, 0, nullptr, 0, nullptr, 1, &b);
     }
     restore(cb);
-    o->keep.push_back(layers); o->keep.push_back(keep_depth); o->keep.push_back(keep_fb);
+    o->keep.push_back(layers); o->keep.push_back(keep_depth); o->keep.push_back(keep_fb); o->keep.push_back(scene_snapshot);
     o->used = true;
     composites_.fetch_add(1, std::memory_order_relaxed);
     error_.clear();

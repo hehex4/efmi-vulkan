@@ -44,7 +44,8 @@ bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,
 // state of the draw (`own`: the pipeline's sets below the private one), queued after the list.
 // Caller holds the mod lock.
 bool CharacterGeneration::capture(CmdBuf* cb, const DrawRec& r, uint32_t own, const CharacterDraw& d, uint32_t i, const SnapshotSlot& colour,
-                                  const DrawGeometry& geometry, const IndexedDraw& args, const AppendBones& append_bones, CharacterCommand* owner)
+                                  const DrawGeometry& geometry, const IndexedDraw& args, const AppendBones& append_bones, CharacterCommand* owner,
+                                  const std::shared_ptr<const TranslucentScene>& scene)
 {
     uint32_t layer = 0;
     if (!translucency->reserve(cb, layer)) return refuse(C_STATE, "more translucent calls in one pass than the layers' parameters hold");
@@ -54,6 +55,7 @@ bool CharacterGeneration::capture(CmdBuf* cb, const DrawRec& r, uint32_t own, co
     auto arena = owner->material_snapshots.find(2);
     if (arena == owner->material_snapshots.end()) return refuse(C_EXHAUSTED, "no two-image arena for the translucent opacity");
     TranslucentCapture c;
+    c.scene = scene;
     if (!append_bones(*arena->second, views, c.slots[1])) return refuse(C_EXHAUSTED, arena->second->reason);
     c.slots[0] = colour;
     for (uint32_t k = 0; k < kCaptureKinds; ++k) { c.variants[k] = scratch_captures[k][i]; owner->variants.push_back(c.variants[k]); }
@@ -230,6 +232,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     bool beside = false;
     NativeTargetPlan targets;
     std::vector<size_t> output_before;
+    std::shared_ptr<const TranslucentScene> capture_scene;
     uint32_t shadow_draws = 0; // translucent calls drawn in a shadow pass (D-185)
     CharacterCommand* bone_owner = nullptr; // the recording's owner, which carries the device imports (D-127)
     uint64_t borrowed_sources = 0; // components whose import this recording takes from one not yet submitted (D-127)
@@ -770,6 +773,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                                translucency->shaders(program->library_folder("efmittl"), own_set, why) &&
                                (capture_layers = translucency->prepare(target->image.extent.width, target->image.extent.height, why)) != nullptr;
             if (!ready && !why.empty()) note(why);
+            if (ready) {
+                if (!r.targets || r.targets > cb->target_contexts.size()) return refuse(C_STATE, "translucent capture: attachment context missing");
+                capture_scene = translucent_scene(device, cb->target_contexts[r.targets - 1], why);
+                if (!capture_scene) return refuse(C_STATE, why);
+            }
             for (uint32_t i = 0; ready && i < list->count; ++i) {
                 const CharacterDraw& d = package.draws[list->first + i];
                 if (!d.translucent) continue;
@@ -1059,7 +1067,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         args.instances = d.instances; args.first_instance = d.first_instance; args.indexed = d.indexed;
         if (capturing[i]) {
-            if (!capture(cb, r, capture_sets, d, i, slot, g, args, append_bones, command_owner)) return false;
+            if (!capture(cb, r, capture_sets, d, i, slot, g, args, append_bones, command_owner, capture_scene)) return false;
             continue;
         }
         items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});

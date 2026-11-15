@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(ROOT) / 'scripts'))
 import replay_capture as replay
 
 
-def main():
+def main(snapshot=False):
     root = Path(ROOT)
     out = root / 'build/replay/vk11'
     prep = subprocess.run([sys.executable, '-B', str(root / 'scripts/replay_capture.py'),
@@ -41,13 +41,14 @@ def main():
     original += '\n[ResourceEventDepth]\n'
     call = '    run = CommandList\\EFMITTL\\Draw'
     assert original.count(call) == 1
-    guard = '    if $\\EFMITTL\\vs_kind == 2 || $\\EFMITTL\\vs_kind == 3\n'
+    guard = '    if $\\EFMITTL\\vs_kind == 1 && o0 !== null && o2 === null\n' if snapshot else '    if $\\EFMITTL\\vs_kind == 2 || $\\EFMITTL\\vs_kind == 3\n'
     save = '        ResourceEventDepth = ref oD\n'
     null = '        oD = null\n'
     restore = '        oD = ref ResourceEventDepth\n'
-    checks = Checks('native opacity shadow outputs')
+    checks = Checks('native capture attachment snapshots' if snapshot else 'native opacity shadow outputs')
     results, coverage = {}, {}
-    for case in ('control', 'null', 'restore', 'restore_before', 'post_restore'):
+    cases = ('control', 'null', 'colour_null', 'both_null', 'restore_before') if snapshot else ('control', 'null', 'restore', 'restore_before', 'post_restore')
+    for case in cases:
         before, after = '', ''
         if case == 'null':
             before = guard + null + '    endif\n'
@@ -59,10 +60,17 @@ def main():
         elif case == 'post_restore':
             after = '\n' + guard + save + null + restore + '    endif'
         text = original.replace(call, before + call + after)
+        if snapshot:
+            text = original
+            header = '[CommandList_Draw_Component2]\n'
+            assert text.count(header) == 1
+            if case in ('colour_null', 'both_null'):
+                before = guard + '        o0 = null\n' + (null if case == 'both_null' else '') + '    endif\n'
+            text = text.replace(header, header + before, 1)
         (mod / 'mod.ini').write_text(text.encode('ascii', 'backslashreplace').decode(), encoding='ascii')
         replay.MODS = mods
         run = replay.run(out / 'replay_gpu.exe', out, Path(DIST), 30, True,
-                         Path('F:/vulkan/validation-1.4.321.0/bin'), name='shadow-output-' + case)
+                         Path('F:/vulkan/validation-1.4.321.0/bin'), name=('capture-snapshot-' if snapshot else 'shadow-output-') + case)
         checks.equal(run['returncode'], 0, case + ': normal completion')
         checks.check('validation errors=0 ' in run['output'], case + ': clean core/sync validation')
         replacement = run['status'].get('result', {}).get('replacement', {})
@@ -84,6 +92,9 @@ def main():
         checks.check(complete and bool(targets), case + ': every fenced target readback is complete')
         results[case], coverage[case] = targets, depths
         print(case, {k: totals.get(k, 0) for k in ('items', 'translucent_shadows', 'refused_state', 'refused_variant')}, depths)
+    if snapshot:
+        checks.equal(results['restore_before'], results['control'], 'restored subsequent output bindings preserve every earlier captured target byte')
+        return checks.finish()
     for case in ('null', 'restore'):
         changed = {key for key in results['control'] if results['control'][key] != results[case].get(key)}
         checks.check(bool(changed) and all(124 <= results['control'][key][0] <= 130 for key in changed),

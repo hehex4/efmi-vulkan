@@ -942,6 +942,7 @@ static void immutable_sampler_lifetime()
 #include "native_uniform_cases.h"
 #include "native_rendering_boundary_cases.h"
 #include "dynamic_geometry_cases.h"
+#include "translucent_scene_cases.h"
 
 int main()
 {
@@ -958,6 +959,7 @@ int main()
     mapped_read_paths();
     unmap_selection();
     character_cache_cases(check);
+    translucent_scene_cases();
     capture_empty_intervals();
     render_target_cases();
     immutable_sampler_lifetime();
