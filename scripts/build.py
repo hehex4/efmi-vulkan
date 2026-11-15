@@ -413,13 +413,15 @@ def build_recipe_tests(vcvars: str, include: str, out: str, only: tuple = ()) ->
     result = {}
     generate_bone_merge_shader()
     for name, tracker in (("recipe_test", True), ("variant_gpu", False), ("cache_test", False), ("snapshot_test", False),
-                          ("mesh_test", False), ("character_test", False)):
+                          ("mesh_test", False), ("character_test", False), ("queue_overlap", False)):
         if only and name not in only:
             continue
         os.makedirs(os.path.join(folder, "build", name), exist_ok=True)
         exe = os.path.join(out, "efmi_vk_" + name + ".exe")
         sources = [name + ".cpp", "../layer/src/pipeline_recipe.cpp", "../layer/src/pipeline_variant.cpp",
                    "../layer/src/spirv_repoint.cpp", "../frontend/gpu/fragment_images.cpp", "../frontend/gpu/dither_kills.cpp"]
+        if name == "queue_overlap":
+            sources = [name + ".cpp"]
         if name in ("cache_test", "variant_gpu"):
             sources.append("../layer/src/variant_cache.cpp")
         if name in ("variant_gpu", "snapshot_test"):
@@ -612,7 +614,7 @@ def main() -> int:
                          "'release' the playable package in build/release)")
     ap.add_argument("--out", help="output directory (default: dist)")
     ap.add_argument("--test", action="append", default=[],
-                    choices=["recipe_test", "variant_gpu", "cache_test", "snapshot_test", "mesh_test", "character_test"],
+                    choices=["recipe_test", "variant_gpu", "cache_test", "snapshot_test", "mesh_test", "character_test", "queue_overlap"],
                     help="build only this test program (may be given several times); nothing else is built")
     args = ap.parse_args()
     targets = args.targets or ["layer", "sandbox"]
@@ -622,7 +624,7 @@ def main() -> int:
         print(str(e))
         return 1
     print("shared header stamp %s" % result["abi"])
-    for key in ("layer", "module", "sandbox", "tracker_test", "recipe_test", "variant_gpu", "character_test", "bone_test", "release", "release_archive"):
+    for key in ("layer", "module", "sandbox", "tracker_test", "recipe_test", "variant_gpu", "character_test", "queue_overlap", "bone_test", "release", "release_archive"):
         if key in result:
             print("built %s" % result[key])
     if "release_sha256" in result:

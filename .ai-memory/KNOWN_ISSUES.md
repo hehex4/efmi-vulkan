@@ -1,5 +1,15 @@
 # EFMI Vulkan - Known issues
 
+## I-01: Global completion serialization creates a measured cycle; gating needs binary forwarding
+
+- I-01 now has actual pending GPU work rather than alternating drained frames. The new headless queue_overlap fixture submits a timeline-waiting consumer before its producer, verifies the consumer fence is pending, then checks all 64 copied words. No QueueWaitIdle/DeviceWaitIdle is used. A third private queue is used only for the scheduler experiment.
+- Original HackerContext.cpp 1079 runs post lists and restores/releases shaders on one DX11 context. DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking and one-context order. Vulkan owners and per-queue completion counters do not supply the missing cross-queue access order.
+- A global completion chain demonstrably stalls this otherwise valid graph. Both counters stay zero and a bounded fence wait times out. Host signal 1, below pending device signal 2, legally releases the experiment; the consumer reads initial data and all work exits normally. Do not implement this rejected shortcut in the loader.
+- Readiness markers plus per-queue gates select the later ready producer before the earlier waiting consumer. A private GPU release queue waits on readiness and previous completion, then signals the selected gate. This yields correct data. CPU counter observations select work; GPU edges carry the memory dependency. An additional 03238 validation canary rejects a binary consumer whose producer's gate signal has not been submitted; forwarding succeeds once the complete dependency chain is submitted.
+- d286-build-binary.out builds the standalone fixture without warnings; production source and all four DLL stamps remain 3.1.3 / 134dd78b13c38aaa. d286-binary.out passes 16/16 native checks per entry (none/layer/inject), 18/18 wrapper checks and text 688. Each entry produces exactly the intentional binary validation canary and no unexpected core/synchronization diagnostics. Earlier 14/14 results predate that canary. No production guard is removed.
+- docs/queue-ordering-proof.md records the proof and integration requirements: original batch boundaries, binary/present forwarding, imported payloads and host signals, keyed mutexes, sparse work, submission metadata, idle/error/destruction semantics and upload-queue progress. I-01 remains open until these contracts and introduced graphics accesses are implemented together. Continue I-06's actual application-input and vertex-layout adapters without substituting sandbox evidence for real-game verification. No game, deployment, launcher, system or remote action.
+
+
 ## BUG-148: Graphics shader twins and unmatched files blocked recording (fixed 3.1.3)
 
 - I-05 / BUG-148: source 3.1.2 waits on cold unmatched graphics file publication and game-shader twins. Baselines d285-files-before.out (6/7) and d285-shaders-before.out (27/31) reproduce recording waits while rendering correctly with clean validation.

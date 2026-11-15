@@ -17,6 +17,12 @@ split. Current/future descriptors, saved fallbacks, suspended requests and pendi
 restoration accesses participate even when no longer visibly bound. Same-storage
 phase transitions and cross-queue accesses still require separate proof.
 
+D-286's headless queue experiment proves that a global submission-order completion
+chain can deadlock a valid future timeline wait. Readiness-selected per-queue gates
+avoid that cycle, but binary consumers require every dependent gate signal to be
+submitted first. The experiment is documented in docs/queue-ordering-proof.md;
+production access guards remain until full batch/payload/idle/lifetime integration.
+
 D-285 requests game-shader graphics twins and unmatched graphics file publications
 without waiting on the recording thread. Pending attempts retain the application
 draw until a later ready bind; they do not enter permanent-failure caches/notices.

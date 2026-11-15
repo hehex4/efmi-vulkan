@@ -18,6 +18,13 @@ sufficient. Source inspection confirms the central problems, with these correcti
   would be incorrect. Validation must include actual overlapping submissions and
   semaphore stage coverage, not only alternating completed frames (`--two-queues`
   currently drains the previous queue). See the [Vulkan synchronization rules](https://docs.vulkan.org/spec/latest/chapters/synchronization.html).
+  D-286 adds headless pending submissions through no-layer/layer/inject entries:
+  16 checks each and 18 wrapper checks pass. The global completion chain creates
+  a measured cycle; bounded host recovery exits cleanly. Readiness-selected GPU
+  gates preserve progress and copied data, but a binary consumer is correctly
+  rejected until its producer's gate signal is submitted (03238 canary). The
+  [queue proof](docs/queue-ordering-proof.md) records remaining production contracts.
+  This is evidence for the design boundary, not a runtime multi-queue fix.
 - **I-02: accepted priority correction.** Freeze expansion of unobserved extension
   matrices. Existing compatibility code stays covered when touched. Historical
   captures establish observed behavior; they cannot prove future engine/device
