@@ -1,5 +1,6 @@
 #include "variant_fixture.h"
-static void native_classic_null_cases(){
+#include "../layer/src/native_execution.h"
+static void native_classic_null_cases(unsigned hunting_case=0){
     using Resource=efmi::frontend::NativeResource;using Binding=efmi::frontend::NativeBinding;
     Device d;CmdBuf cb;DrawRec draw;NativeTargetCache cache;NativeTargetPlan prepared;std::string why;
     variant_fixture::RecipeFixture fixture;fixture.atts[1].storeOp=VK_ATTACHMENT_STORE_OP_STORE;
@@ -48,6 +49,23 @@ static void native_classic_null_cases(){
     native_target_bind(&d,&cb,draw.pipeline);efmi::assets::FilePlan plan;efmi::assets::FilePlanItem item;
     item.operation=efmi::assets::FileOperation::NativeBind;item.native_target.kind=Binding::ColorTarget;plan.items={item};
     auto prepare=[&]{prepared={};draw.bound=cb.gfx_bound;return prepare_native_targets(&d,&cb,draw,plan,prepared,why,&cache);};
+    if(hunting_case){
+        static uint32_t calls;calls=0;draw.kind=DK_INDEXED;draw.count=3;draw.instances=1;
+        d.pipes[draw.pipeline].shaders=fixture.shaders;
+        d.d.CmdDrawIndexed=[](VkCommandBuffer,uint32_t,uint32_t,uint32_t,int32_t,uint32_t){++calls;};
+        plan.pre_items=hunting_case==2?0:plan.items.size();
+        if(hunting_case==3){
+            efmi::assets::FilePlanItem hidden;hidden.operation=efmi::assets::FileOperation::DrawIndexed;
+            hidden.index_count=UINT32_MAX;plan.items.push_back(hidden);
+        }
+        NativeCallCache executor;output_commands.clear();
+        check(native_calls(executor,nullptr,&d,&cb,draw,plan,true,why),hunting_case==3?
+            "hunting-hidden invalid draw arguments cannot block resource commands":"hunting-hidden native graphics list remains executable");
+        check(native_target_masked(&cb) && !output_commands.empty(),hunting_case==2?
+            "hunting-hidden native draw retains post output commands":"hunting-hidden native draw retains pre output commands");
+        check(calls==0,"hunting-hidden caller is not issued while its resource commands run");
+        cb.reset_recording();return;
+    }
     output_commands.clear();fail_pipeline=true;
     check(!prepare() && output_commands.empty() && !cb.native_target_state,"failed compatible pipeline creation refuses before any pass split");
     fail_pipeline=false;bool ready=prepare();check(ready,"classic color null prepares without the dynamic-unused feature");if(!ready)return;

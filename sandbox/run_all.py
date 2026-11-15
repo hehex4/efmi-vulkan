@@ -156,6 +156,7 @@ STEPS = [
     ("native dynamic depth", [os.path.join(HERE, "native_dynamic_depth_test.py")]),
     ("native classic attachments", [os.path.join(HERE, "native_classic_attachment_test.py")]),
     ("native classic null", [os.path.join(HERE, "native_classic_null_test.py")]),
+    ("native output phases", [os.path.join(HERE, "native_classic_null_test.py"), "depth_pre", "depth_post", "depth_restore"]),
     ("native classic Mod geometry", [os.path.join(HERE, "native_classic_mod_test.py")]),
     ("native classic Mod character", [os.path.join(HERE, "native_classic_mod_character_test.py")]),
     ("matched Mod output events", [os.path.join(HERE, "native_mod_output_test.py")]),
@@ -225,6 +226,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "hunting-resources": ["native hunting", "native call execution", "native output phases", "native tracker", "Vulkan validation", "text check"],
     "native-classic-attachments": ["native classic attachments", "native classic outputs", "native MRT outputs", "native tracker", "Vulkan validation", "text check"],
     "native-classic-null": ["native classic null", "native classic attachments", "native classic outputs", "native depth null", "native hunting", "native tracker", "Vulkan validation", "text check"],
     "native-classic-mod": ["native classic Mod", "pipeline recipes and variants", "native hunting", "native tracker", "Vulkan validation", "text check"],

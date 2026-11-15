@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-259. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-260. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1049,3 +1049,9 @@ An owned headless scene checks all depth bytes plus separate regions for precedi
 A matched list containing only output assignments now uses the native application-call executor. The original geometry, images and selected stages remain current; the original draw runs between the planned pre/post events unless handling or hunting suppresses it. Explicit handling skip still executes its resource assignments. No Mod mesh or private image descriptor needs activation. The output_calls counter distinguishes this route from geometry and texture replacement.
 
 Owned scenes with no mesh/image declarations verify current and following depth before/after null and retained restoration, explicit hide, both entries, RenderPass2 and two completed module exchanges. Nested hunting state has CPU coverage. Broader descriptor commands, drawing beside the application, merged and transparent output events retain their separate adapters and refusals; this is not a real-game acceptance result.
+
+## Resource commands under native hunting skip (D-260)
+
+The native graphics executor keeps pre/post resource assignments when hunting hides the draw. Hidden explicit and implicit draw calls emit nothing, and unused explicit draw arguments cannot refuse the resource list. Resource operations still require their complete target, descriptor, residency and lifetime proofs before recording. Compute suppression is unchanged.
+
+Tracker cases directly cover hidden pre/post output changes and invalid hidden draw arguments. The affected GPU output phases, native caller and hunting checks retain their independent validation coverage; no real-game result is implied. Suppression of matched Mod geometry is the next separate audit.

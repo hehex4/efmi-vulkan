@@ -973,6 +973,9 @@ int main()
     native_classic_output_cases();
     native_classic_attachment_cases();
     native_classic_null_cases();
+    native_classic_null_cases(1);
+    native_classic_null_cases(2);
+    native_classic_null_cases(3);
     native_absent_output_cases();
     native_descriptor_references();
     native_image_scope_lifetime();

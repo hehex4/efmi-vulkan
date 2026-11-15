@@ -5,6 +5,14 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 2.8.8: Hidden native draws retain resource commands, D-260 (2026-11-15; offline verified)
+
+- D-259 committed and main fast-forwarded as f36a8c2. BUG-122: d260-before-complete.out on 2.8.7/f910 reproduces 694/698 tracker checks. Hidden native graphics calls lose both pre/post output events, and an invalid hidden draw argument also refuses the resource list. These are CPU command-recording proofs, not GPU pixels or game evidence.
+- Original HackerContext.cpp1005/1029,3154 and1087 still executes graphics lists around the hidden caller; CommandList.cpp1601 returns from DrawCommand before evaluating its arguments. DX11 supplies retained references with deferred destruction, hazard tracking and one-context order. Vulkan now preflights and records graphics resource events under hunting, skips hidden draw arguments and resolves files only for resource operations. Compute suppression keeps its existing behavior. Existing target/descriptor owners retain the recorded resources through completion.
+- Source 2.8.8 / ABI f9104b7b1d2fa5de: d260-pair.out fully builds tracker/layer/backend, tracker 713/713 and all four stamps pass. d260-regression.out hunting-resources passes the affected native caller, pre/post/restored outputs, hunting, tracker, validation and text checks. The new hidden-argument/pre/post assertions are CPU coverage; the output-phase GPU scenes have complete fenced depth bytes, normal exits and clean core/sync validation. Existing hunting fixtures use their controlled shutdown behavior.
+- Continue the matched-Mod hunting audit: character_record's comment claims custom draws survive hunting, contrary to the original DrawCommand. build/d261-before.py prepares a real sandbox skip/clear comparison before any fix. Beside-original, merged/transparent output events and broader pass/resolve/persistent-image/queue adapters remain open. No deployment, game, launcher, system or remote action; root deployment remains historical.
+
+
 ## Active source2.8.7: Output-only matched application calls, D-259 (2026-11-15; sandbox verified)
 
 - D-258 committed and main fast-forwarded as02a62d9. BUG-121 baseline d259-before.out on2.8.6/f910:16/18 checks. Removing the image replacement leaves output-only lists refused; current and following independent geometry still write depth after oD=null. Both scenes finish with complete fenced depth bytes and clean core/sync validation; the control and original images remain correct.

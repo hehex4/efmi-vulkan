@@ -52,6 +52,7 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
     {
         std::lock_guard<std::mutex> lock(cache.mutex);
         for(size_t i=0;i<input.items.size();++i){
+            if(input.items[i].operation!=efmi::assets::FileOperation::NativeBind)continue;
             const auto& file=input.items[i].resource;if(!file)continue;
             if(!residency){why="Native file residency is unavailable";return false;}
             auto found=cache.files.find(file.get());
@@ -168,6 +169,8 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         if(!known->second.empty()){why=known->second;return false;}
     }
     for (const auto& item : plan.items) {
+        // DrawCommand returns before evaluating arguments when hunting hides this draw.
+        if(hunting_skip && (item.operation==O::Caller || item.operation==O::DrawIndexed || item.operation==O::Dispatch))continue;
         if (!item.layout.empty() || item.automatic || (item.resource && item.operation!=O::NativeBind) || item.owned)
             return refuse("Native call plan contains an unsupported layout or resource operation");
         if (item.operation == O::Caller || item.operation == O::NativeBind) continue;
@@ -188,7 +191,7 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
     }
     lock.unlock();
     NativeDescriptorPlan descriptors;NativeTargetPlan targets;
-    if(!hunting_skip){
+    if(!hunting_skip || !compute){
         efmi::assets::FilePlan resolved;
         NativeTargetCache* target_cache;
         {std::lock_guard<std::mutex> cache_lock(cache.mutex);
@@ -198,12 +201,13 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
     record_native_images(device,cb,descriptors.images);
     const size_t split = std::min(plan.pre_items,plan.items.size());
     auto record = [&](size_t index) {
-        if (hunting_skip) return;
+        if (hunting_skip && compute) return;
         const auto& item=plan.items[index];
         if(item.operation==O::NativeBind){
             if(native_output_binding(item.native_target))record_native_target(device,cb,targets,index);
             else record_native_descriptor(device,cb,r,descriptors,index);return;
         }
+        if (hunting_skip) return;
         if (compute) native_compute_order(device,cb,cache.barrier);
         if (item.operation == O::Caller) caller(device,cb,r);
         else if (item.operation == O::Dispatch) device->d.CmdDispatch(cb->handle,item.index_count,item.instance_count,item.first_index);
