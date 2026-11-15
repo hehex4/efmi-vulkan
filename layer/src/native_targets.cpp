@@ -61,6 +61,17 @@ bool buffer_destination(const efmi::frontend::NativeBinding& target,const DrawRe
     default:return false;
     }
 }
+bool independent_descriptor(const efmi::assets::FilePlanItem& item,const DrawRec& draw){
+    if(buffer_destination(item.native_target,draw))return true;
+    const auto& resource=item.native_resource;
+    // Published read-only files own allocations that cannot be application
+    // attachments. Their descriptor preflight and publication waits remain required.
+    return item.native_target.kind==efmi::frontend::NativeBinding::Resource && resource &&
+        resource->bound && resource->keep && resource->uploaded_readonly && !resource->uploaded_mutable &&
+        !resource->buffer && resource->image && resource->image_view &&
+        (resource->usage&VK_IMAGE_USAGE_SAMPLED_BIT) &&
+        !(resource->usage&(VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT));
+}
 
 VkImageAspectFlags depth_aspects(VkFormat format){
     switch(format){
@@ -171,7 +182,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(native_output_binding(item.native_target)){
             no_op[i]=null_output(item) && !(written&(1u<<slot(item.native_target))) && absent_output(cb,item.native_target);
             needed|=!no_op[i];
-        }else if(!buffer_destination(item.native_target,draw))mixed=true;
+        }else if(!independent_descriptor(item,draw))mixed=true;
     }
     if(!needed){output=std::move(next);return true;}
     auto refuse=[&](const char* reason){why=reason;return false;};
