@@ -147,6 +147,7 @@ struct PipelineFacts {
     uint32_t targets = UINT32_MAX;
     bool native_calls = false;
     bool native_outputs = false; // Ordered outputs around a Mod's geometry, independent of its IA/material plan.
+    bool native_descriptors = false; // Only slots with an explicit native address use ordered descriptor events.
 };
 enum class SlotClass : uint8_t { VertexBuffer, UnreadVertex, IndexBuffer, PixelTexture, StageBinding, AbsentStage, Compute, Output, AbsentOutput, PixelAccess, StreamOutput, Count };
 enum class ValueClass : uint8_t { InPlace, ModResource, Null, MovedAlike, Other, Count };

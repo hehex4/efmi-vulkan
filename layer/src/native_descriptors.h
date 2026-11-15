@@ -13,5 +13,6 @@ struct NativeDescriptorPlan {
 };
 bool prepare_native_descriptors(Device*,CmdBuf*,const DrawRec&,const efmi::assets::FilePlan&,NativeDescriptorPlan&,std::string&);
 void record_native_descriptor(Device*,CmdBuf*,const DrawRec&,const NativeDescriptorPlan&,size_t);
+DrawRec native_descriptor_draw(const DrawRec&, const NativeDescriptorPlan&, size_t before);
 bool refresh_native_images(Device*, CmdBuf*, const DrawRec&, std::string&);
 }

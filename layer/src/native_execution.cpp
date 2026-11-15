@@ -45,7 +45,7 @@ void native_file_frame(NativeCallCache& cache,TextureResidency* residency)
 }
 namespace {
 bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi::assets::FilePlan& input,
-                  efmi::assets::FilePlan& output,std::string& why)
+                  efmi::assets::FilePlan& output,std::string& why,bool wait,bool* pending)
 {
     output=input;
     std::vector<uint32_t> ids;std::vector<size_t> indices;
@@ -69,11 +69,11 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
         }
     }
     if(ids.empty())return true;
-    std::vector<TextureResidency::Binding> bindings;residency->bind(ids,bindings);
+    std::vector<TextureResidency::Binding> bindings;residency->bind(ids,bindings,wait);
     for(size_t i=0;i<indices.size();++i){
         auto& item=output.items[indices[i]];const auto& file=*item.resource;const auto& binding=bindings[i];
         if(binding.failed){why="Native file upload failed: "+binding.reason;return false;}
-        if(!binding.buffer && !binding.owner){why="Native file upload is pending publication";return false;}
+        if(!binding.buffer && !binding.owner){if(pending)*pending=true;why="Native file upload is pending publication";return false;}
         auto resource=std::make_shared<efmi::frontend::NativeResource>();
         resource->bound=true;resource->format_known=true;
         if(binding.buffer){
@@ -111,8 +111,39 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
     return true;
 }
 }
+bool prepare_native_transaction(NativeCallCache& cache,TextureResidency* residency,Device* device,CmdBuf* cb,const DrawRec& draw,
+                                const efmi::assets::FilePlan& plan,NativeDrawTransaction& output,std::string& why,
+                                NativeTargetCache* target_cache,bool wait_files,bool* pending)
+{
+    if(pending)*pending=false;
+    NativeDrawTransaction next;
+    if(!target_cache){
+        std::lock_guard<std::mutex> lock(cache.mutex);
+        if(!cache.targets)cache.targets=std::make_shared<NativeTargetCache>();
+        target_cache=cache.targets.get();
+    }
+    if(!native_files(cache,residency,plan,next.plan,why,wait_files,pending) ||
+       !prepare_native_targets(device,cb,draw,next.plan,next.targets,why,target_cache) ||
+       !prepare_native_descriptors(device,cb,draw,next.plan,next.descriptors,why))return false;
+    output=std::move(next);return true;
+}
+void begin_native_transaction(Device* device,CmdBuf* cb,const NativeDrawTransaction& transaction)
+{
+    record_native_images(device,cb,transaction.descriptors.images);
+}
+void record_native_binding(Device* device,CmdBuf* cb,const DrawRec& draw,const NativeDrawTransaction& transaction,size_t i)
+{
+    const auto& item=transaction.plan.items[i];
+    if(item.operation!=efmi::assets::FileOperation::NativeBind)return;
+    if(native_output_binding(item.native_target))record_native_target(device,cb,transaction.targets,i);
+    else record_native_descriptor(device,cb,draw,transaction.descriptors,i);
+}
+DrawRec native_transaction_draw(const DrawRec& original,const NativeDrawTransaction& transaction,size_t before)
+{
+    return native_descriptor_draw(original,transaction.descriptors,before);
+}
 bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* device, CmdBuf* cb, const DrawRec& r, const efmi::assets::FilePlan& plan,
-                  bool hunting_skip, std::string& why)
+                  bool hunting_skip, std::string& why,bool wait_files,bool* pending)
 {
     using O = efmi::assets::FileOperation;
     auto refuse = [&](const char* text) { why = text; return false; };
@@ -190,22 +221,17 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         } else return refuse("Native resource bindings require the descriptor executor");
     }
     lock.unlock();
-    NativeDescriptorPlan descriptors;NativeTargetPlan targets;
+    NativeDrawTransaction transaction;
     if(!hunting_skip || !compute){
-        efmi::assets::FilePlan resolved;
-        NativeTargetCache* target_cache;
-        {std::lock_guard<std::mutex> cache_lock(cache.mutex);
-            if(!cache.targets)cache.targets=std::make_shared<NativeTargetCache>();target_cache=cache.targets.get();}
-        if(!native_files(cache,residency,plan,resolved,why) || !prepare_native_targets(device,cb,r,resolved,targets,why,target_cache) || !prepare_native_descriptors(device,cb,r,resolved,descriptors,why))return false;
+        if(!prepare_native_transaction(cache,residency,device,cb,r,plan,transaction,why,nullptr,wait_files,pending))return false;
     }
-    record_native_images(device,cb,descriptors.images);
+    begin_native_transaction(device,cb,transaction);
     const size_t split = std::min(plan.pre_items,plan.items.size());
     auto record = [&](size_t index) {
         if (hunting_skip && compute) return;
         const auto& item=plan.items[index];
         if(item.operation==O::NativeBind){
-            if(native_output_binding(item.native_target))record_native_target(device,cb,targets,index);
-            else record_native_descriptor(device,cb,r,descriptors,index);return;
+            record_native_binding(device,cb,r,transaction,index);return;
         }
         if (hunting_skip) return;
         if (compute) native_compute_order(device,cb,cache.barrier);

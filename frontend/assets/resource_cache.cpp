@@ -276,12 +276,12 @@ void ResourceCache::arena_give(uint64_t offset,uint64_t bytes)
     if(after!=arena_->free.end() && next->first+next->second==after->first){next->second+=after->second;arena_->free.erase(after);}
     if(!--arena_->slices)arena_->idle_since_us=steady_us();
 }
-void ResourceCache::arena_idle()
+void ResourceCache::arena_idle(bool pressure)
 {
     std::unique_ptr<Arena> released;
     {
         std::lock_guard<std::mutex> lock(arena_mutex_);
-        if(!arena_ || arena_->slices || steady_us()-arena_->idle_since_us<device_.arena_idle_us)return;
+        if(!arena_ || arena_->slices || (!pressure && steady_us()-arena_->idle_since_us<device_.arena_idle_us))return;
         released=std::move(arena_);
     }
     const auto& d=device_.dispatch;
@@ -311,6 +311,10 @@ std::shared_ptr<ResourceCache::Upload> ResourceCache::prepare(const ResourceHand
     const bool own_queue=device_.upload_queue!=VK_NULL_HANDLE && device_.upload_family!=UINT32_MAX;
     const uint32_t record_family=own_queue?device_.upload_family:device_.graphics_family;
     if(entry->buffer_usage_){
+        // An idle image arena can hold the entire shared staging budget. A buffer
+        // upload must not spend its retry deadline waiting for the arena's idle timer.
+        // Live slices still retain it through their GPU completion.
+        arena_idle(true);
         ticket->buffer=std::make_shared<BufferUpload>(device_.device,device_.buffer_dispatch,budgets_.resident,budgets_.staging);
         if(own_queue)ticket->buffer->share(device_.graphics_family,device_.upload_family);
         if(!ticket->buffer->prepare(bytes.data(),bytes.size(),entry->buffer_usage_,device_.memory) ||

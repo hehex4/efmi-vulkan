@@ -356,6 +356,13 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
     }else device->d.CmdBindDescriptorSets(cb->handle,point,set->bind.layout_handle,set->slot,1,&set->bind.set,uint32_t(set->zero_offsets.size()),set->zero_offsets.data());
     (compute?cb->comp_sets:cb->sets)[set->slot]=set->bind;
 }
+DrawRec native_descriptor_draw(const DrawRec& original,const NativeDescriptorPlan& plan,size_t before)
+{
+    DrawRec draw=original;
+    for(size_t i=0;i<std::min(before,plan.items.size());++i)
+        if(const auto& set=plan.items[i])draw.sets[set->slot]=set->bind;
+    return draw;
+}
 bool refresh_native_images(Device* device,CmdBuf* cb,const DrawRec& draw,std::string& why)
 {
     auto owner=std::static_pointer_cast<NativeDescriptorOwner>(owner_for(cb->owners,&native_descriptor_owner,[]{

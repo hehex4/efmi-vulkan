@@ -388,7 +388,8 @@ static void run_character(Gpu& g,bool use_rp2,bool material=false,bool reject_la
                 shade_at(.6f,-.1f),shade_at(0,.6f),shade_at(-.6f,.3f),shade_at(0,0),shade_at(.6f,.3f));};
     // The package: A's mesh on merged bone 1 moved by (0,-.3); B's on merged bone 3 and, moved by
     // (1.2,.9), on merged bone 0, which is A's; C hidden. `ax` is where A's bone zero currently is.
-    const int a_shade=material?5:1,b_shade=material?6:2,cross_shade=material?7:2;
+    const int expected_a=[]{char value[8]={};return GetEnvironmentVariableA("EFMI_VK_TEST_A_SHADE",value,sizeof(value))?atoi(value):-1;}();
+    const int a_shade=expected_a>=0?expected_a:material?5:1,b_shade=material?6:2,cross_shade=material?7:2;
     auto replaced=[&](float ax){return shade_at(-.6f,.3f)==a_shade && shade_at(0,0)==b_shade && shade_at(ax+1.2f,.3f)==cross_shade && shade_at(0,.6f)==1 &&
                                        shade_at(-.6f,-.6f)==0 && shade_at(0,-.6f)==0 && shade_at(.6f,-.6f)==0 && unmatched();};
 

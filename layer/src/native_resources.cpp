@@ -124,11 +124,17 @@ bool native_output_resource_locked(Device* device,CmdBuf* cb,const DrawRec& draw
 bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi::frontend::NativeBinding& alias,
                      efmi::frontend::NativeResource& output, std::string& why)
 {
+    if(!device){why="Native resource device is unavailable";return false;}
+    std::shared_lock<std::shared_mutex> lock(device->res_mx);
+    return native_resource_locked(device,cb,draw,alias,output,why);
+}
+bool native_resource_locked(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi::frontend::NativeBinding& alias,
+                            efmi::frontend::NativeResource& output, std::string& why)
+{
     using B = efmi::frontend::NativeBinding;
     auto refuse = [&](const char* reason) { why = reason; return false; };
     output = {};
     if (!device || !cb) return refuse("Native resource recording is unavailable");
-    std::shared_lock<std::shared_mutex> lock(device->res_mx);
     if(alias.kind==B::ColorTarget || alias.kind==B::DepthTarget)return target_resource(device,cb,draw,alias,output,why);
     if(alias.set>=kMaxSets)return refuse("Native descriptor set is outside tracked slots");
     const auto pipeline = device->pipes.find(draw.pipeline);

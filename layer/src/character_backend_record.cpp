@@ -10,7 +10,7 @@ namespace {
 template<class Restore>
 bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,const DrawRec& r,
                           const std::vector<VariantDraw>& items,const DrawGeometry& original,
-                          const efmi::assets::FilePlan& outputs,NativeTargetPlan& targets,
+                          const efmi::assets::FilePlan& outputs,NativeDrawTransaction& transaction,
                           const std::vector<size_t>& output_before,Restore&& restore,bool validate_only=false)
 {
     const bool caller_in_outputs=!outputs.items.empty() && !outputs.skip_original;
@@ -19,6 +19,7 @@ bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,
     const VkPipeline previous=r.bound?r.bound:r.pipeline;
     if(!emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original,true))return false;
     if(validate_only)return true;
+    begin_native_transaction(device,cb,transaction);
     size_t output_next=0;bool private_pending=false,caller_recorded=false;
     auto restore_private=[&]{if(private_pending){restore();private_pending=false;}};
     auto caller_at_boundary=[&]{
@@ -29,7 +30,7 @@ bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,
         }
     };
     auto advance_outputs=[&](size_t end){
-        while(output_next<end){caller_at_boundary();record_native_target(device,cb,targets,output_next++);}
+        while(output_next<end){caller_at_boundary();record_native_binding(device,cb,r,transaction,output_next++);}
         caller_at_boundary();
     };
     if(output_before.empty()){
@@ -38,7 +39,7 @@ bool emit_output_sequence(const VariantDispatch& draw,Device* device,CmdBuf* cb,
         advance_outputs(output_before[i]);++output_next; // Accepted draw marker.
         emit_variant_draws(draw,cb->handle,&items[i],1,cb->gfx_bound?cb->gfx_bound:previous,original);private_pending=true;
     }
-    restore_private();advance_outputs(targets.events.size());return true;
+    restore_private();advance_outputs(transaction.plan.items.size());return true;
 }
 }
 // Both mesh routes use the original shadow pixel shader contract. The DX11 context
@@ -356,7 +357,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     bool gpu_draw = false; // this draw binds the device's merged skeleton (D-117) rather than the CPU master
     // The lists draw without hiding the game's draw (D-179): the Mod's draws are recorded and the game's goes after.
     bool beside = false;
-    NativeTargetPlan targets;
+    NativeDrawTransaction transaction;
+    auto& targets=transaction.targets;
     std::vector<size_t> output_before, emitted_output_before;
     std::vector<std::shared_ptr<const TranslucentScene>> capture_scenes;
     uint32_t shadow_draws = 0; // translucent calls drawn in a shadow pass (D-185)
@@ -456,10 +458,10 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 request.hash = section->hash; request.count = r.count; request.first = r.first;
                 request.base = r.vertex_offset; request.instances = r.instances; request.first_instance = r.first_instance;
                 request.mod = program->folder_index();
-                request.native_outputs = true;
+                request.native_outputs = true; request.native_descriptors = true;
                 request.native_resource = [this, cb, &r](const efmi::frontend::NativeBinding& binding,
                     efmi::frontend::NativeResource& resource, std::string& why) {
-                    return native_output_resource_locked(device, cb, r, binding, resource, why);
+                    return native_resource_locked(device, cb, r, binding, resource, why);
                 };
                 request.frame = present; request.seconds = ini_seconds();
                 request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
@@ -482,9 +484,13 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     // BeforeDraw/AfterDraw keep resource commands even when hunting hides
                     // the application call. No private Mod allocation is required here.
                     scratch_outputs.skip_original|=t_hunting_skip;
+                    if(!on_device && std::any_of(scratch_outputs.items.begin(),scratch_outputs.items.end(),[](const auto& item){return bool(item.resource);}))return bring_up();
                     lock.unlock(); // The native executor acquires and rechecks its own resource proofs.
-                    if(!native_calls(output_calls,nullptr,device,cb,r,scratch_outputs,false,reason))
+                    bool pending=false;
+                    if(!native_calls(output_calls,this->textures,device,cb,r,scratch_outputs,false,reason,false,&pending)){
+                        if(pending){gate_open=false;++counters[C_IMAGE_PENDING];return false;}
                         return refuse(C_STATE,"INI output calls: "+reason);
+                    }
                     if(!on_device)++counters[C_MATCHED];
                     ++counters[C_OUTPUT_CALLS];if(scratch_outputs.skip_original)++counters[C_HIDDEN];
                     return true;
@@ -498,7 +504,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     // the package comes up.
                     if (!on_device) { bring_up(); return false; }
                     if (found == device->pipes.end() || !found->second.recipe || !found->second.layout) return false;
-                    const bool emitted=record_own_mesh(cb, r, found->second, section_index, present, runtime_list);
+                    const bool emitted=record_own_mesh(cb, r, found->second, section_index, present, runtime_list, lock, transaction);
                     // With output events, the executor already emitted the application
                     // draw at its exact pre/post boundary.
                     return emitted && !scratch_outputs.items.empty();
@@ -508,13 +514,13 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     const auto pipe = device->pipes.find(r.pipeline);
                     if (pipe == device->pipes.end() || !pipe->second.recipe || !pipe->second.layout)
                         return refuse(C_PIPELINE, "texture-only draw pipeline metadata missing");
-                    return record_textures(cb, r, pipe->second, section_index, present, runtime_list);
+                    return record_textures(cb, r, pipe->second, section_index, present, runtime_list, lock, transaction);
                 }
                 if (runtime_list.count) {
                     // The lists hide the game's draw and draw a mesh of their own (D-176).
                     if (found == device->pipes.end() || !found->second.recipe || !found->second.layout)
                         return refuse(C_PIPELINE, "a Mod's own mesh: pipeline metadata missing");
-                    return record_own_mesh(cb, r, found->second, section_index, present, runtime_list);
+                    return record_own_mesh(cb, r, found->second, section_index, present, runtime_list, lock, transaction);
                 }
             } else if (!on_device) return bring_up();
             // With the package's mesh left to the game this frame, what it would hide stays as well.
@@ -530,10 +536,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (cb->secondary || !cb->in_rp || cb->dyn_rp_count || cb->m2_extended_bind)
             return refuse_shape(C_STATE, "character draw outside a primary classic render pass or after extended binds");
         if (instance_index == UINT32_MAX && (r.instances != 1 || r.first_instance != 0)) return refuse(C_INSTANCES, "character draw is instanced");
-        auto pipe = device->pipes.find(r.pipeline);
-        if (pipe == device->pipes.end() || !pipe->second.recipe || !pipe->second.layout)
+        const auto live_pipe = device->pipes.find(r.pipeline);
+        if (live_pipe == device->pipes.end() || !live_pipe->second.recipe || !live_pipe->second.layout)
             return refuse_shape(C_PIPELINE, "character draw pipeline metadata missing");
-        lookups.pipeline = r.pipeline; lookups.pipe = &pipe->second;
+        const PipeInfo pipe=live_pipe->second;
+        lookups.pipeline = r.pipeline; lookups.pipe = &pipe;
 
         // The instance entry is at set 2 binding 0 in every pipeline of the game's characters.
         const auto& window = r.sets[2];
@@ -568,7 +575,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         uint32_t offsets[2];
         std::memcpy(offsets, entry.data() + 80, 8);
         uint8_t dynamic = (offsets[0] >= MergedSkeleton::kStaticRows ? 1 : 0) | (offsets[1] >= MergedSkeleton::kStaticRows ? 2 : 0);
-        const BoneSite site = site_of(pipe->second);
+        const BoneSite site = site_of(pipe);
         // Bones in a uniform block of 4096 vectors, the Core's vs-cb3 / vs-cb4 source (D-186): the block where the draw
         // binds it. Its row 0 has the poses' rows (y the current, z the previous; bone i at row offset + 4 + 3 * i), and
         // the Core's importer takes the current pose, and the previous where z differs from y, whatever the entry says.
@@ -686,16 +693,16 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         if (program) {
             efmi::frontend::RuntimeDraw request;
             request.hunting_skip = t_hunting_skip;
-            request.native_outputs = true;
+            request.native_outputs = true; request.native_descriptors = true;
             request.native_resource = [this,cb,&r](const efmi::frontend::NativeBinding& binding,
                 efmi::frontend::NativeResource& resource,std::string& why){
-                return native_output_resource_locked(device,cb,r,binding,resource,why);
+                return native_resource_locked(device,cb,r,binding,resource,why);
             };
             request.hash = section->hash; request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
             request.mod = program->folder_index();
             request.instance_entry = entry.data(); request.instance_entry_size = entry.size();
-            render_targets(pipe->second, request);
+            render_targets(pipe, request);
             // The size of colour target 0 for the list's rt_width and rt_height, as the original reads
             // them off the bound target (ProcessParamRTSize): none bound (a depth-only pass) answers -1,
             // as there; a bound one its image's size, or the pass's render area when the framebuffer's
@@ -704,8 +711,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 request.target_width = request.target_height = -2; // asked, nothing bound
             } else if (request.targets_known) {
                 bool sized = false;
-                if (cb->pass.info && cb->pass.info->known && cb->pass.recipe && pipe->second.recipe) {
-                    const uint32_t sub = pipe->second.recipe->subpass;
+                if (cb->pass.info && cb->pass.info->known && cb->pass.recipe && pipe.recipe) {
+                    const uint32_t sub = pipe.recipe->subpass;
                     if (sub < cb->pass.recipe->subpasses.size() && !cb->pass.recipe->subpasses[sub].colors.empty()) {
                         const uint32_t ci = cb->pass.recipe->subpasses[sub].colors[0].attachment;
                         if (ci < cb->pass.info->views.size() && cb->pass.info->views[ci].known) {
@@ -729,7 +736,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 target_size_logged = true;
                 logf("character draw without a render target size: targets %s (mask 0x%x), pipeline recipe %s, render pass %s, "
                      "framebuffer %s, area %ux%u", request.targets_known ? "known" : "unknown", request.render_targets,
-                     pipe->second.recipe ? "yes" : "no", pipe->second.recipe && pipe->second.recipe->render_pass ? "yes" : "no",
+                     pipe.recipe ? "yes" : "no", pipe.recipe && pipe.recipe->render_pass ? "yes" : "no",
                      cb->pass.info ? "known" : "unknown", cb->pass.area.extent.width, cb->pass.area.extent.height);
             }
             request.seconds = ini_seconds();
@@ -737,9 +744,9 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             request.pixel_texture = [this, &r](unsigned slot, efmi::frontend::RuntimeTexture& texture, std::string& why) {
                 return pixel_texture(r, slot, texture, why); };
             request.texture_roles = [this, &r](int32_t roles[3], std::string& why) { return texture_roles(r, roles, why); };
-            request.vertex_stride = [&pipe](unsigned slot, uint32_t& stride, std::string& why) { return vertex_stride(pipe->second, slot, stride, why); };
+            request.vertex_stride = [&pipe](unsigned slot, uint32_t& stride, std::string& why) { return vertex_stride(pipe, slot, stride, why); };
             if (section->computed) request.handed_component = [&handed_now](uint32_t component, uint32_t level) { handed_now = {component, level}; };
-            const SourceFacts& facts = facts_of(pipe->second, site);
+            const SourceFacts& facts = facts_of(pipe, site);
             request.source_vs_config_slot = facts.vs_config_slot;
             request.rolling_bone_source = facts.rolling_bones;
             request.constant_bone_source = facts.constant_bones;
@@ -755,14 +762,17 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 return true;
             };
             bool skip = false, added = false, textures = false; std::string reason;
-            const bool planned = plan_draw(request, runtime_list, skip, added, reason, &pipe->second.recipe->vertex, &textures);
+            const bool planned = plan_draw(request, runtime_list, skip, added, reason, &pipe.recipe->vertex, &textures);
             if (handed_over()) return true;
             if (!planned) return refuse(C_STATE, "INI plan: " + reason);
             if(!textures && !runtime_list.count && !scratch_outputs.items.empty()){
                 scratch_outputs.skip_original|=t_hunting_skip;
                 lock.unlock();
-                if(!native_calls(output_calls,nullptr,device,cb,r,scratch_outputs,false,reason))
+                bool pending=false;
+                if(!native_calls(output_calls,this->textures,device,cb,r,scratch_outputs,false,reason,false,&pending)){
+                    if(pending){gate_open=false;++counters[C_IMAGE_PENDING];return false;}
                     return refuse(C_STATE,"character output calls: "+reason);
+                }
                 ++counters[C_OUTPUT_CALLS];if(scratch_outputs.skip_original)++counters[C_HIDDEN];
                 return true;
             }
@@ -780,7 +790,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     ++counters[C_KEPT]; return false;
                 }
                 if (added && !refresh_materials()) return false;
-                const bool textured = record_textures(cb, r, pipe->second, section_index, present, runtime_list);
+                const bool textured = record_textures(cb, r, pipe, section_index, present, runtime_list, lock, transaction);
                 if (textured) identity->shown = true;
                 return textured;
             }
@@ -796,9 +806,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     output_before.push_back(i);
             if(output_before.size()!=list->count)return refuse(C_STATE,"character output/draw order is incomplete");
         }
-        std::string target_reason;
-        if(!prepare_native_targets(device,cb,r,scratch_outputs,targets,target_reason,&output_cache,true))
-            return refuse(C_STATE,"character outputs: "+target_reason);
+        if(!prepare_draw_transaction(cb,r,transaction,lock))return false;
         // The bones the list's vertices read, span by span: each was imported by some component it lies in
         // (BUG-093: a LOD part of its own on another part's bones fills them as well as that part does). A uniform
         // block's bones are read off the CPU master: only an import into it covers them (D-186).
@@ -839,7 +847,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             }
         // The private set is bound right above the pipeline's own sets: slot 3 for most character
         // pipelines, slot 4 for the four-set ones (the game's visibility pass among them).
-        const uint32_t own = static_cast<uint32_t>(pipe->second.layout->sets.size());
+        const uint32_t own = static_cast<uint32_t>(pipe.layout->sets.size());
         if (own >= kMaxSets) {
             // Not a tracked slot: usable only if no pipeline layout of the application reaches it.
             if (device->max_layout_sets > own) return refuse(C_SET3, "character draw: the slot above the pipeline's sets is in use and not tracked");
@@ -861,7 +869,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
 
         // Restore exactly the vertex bindings the pipeline can read among the four tracked ones.
         uint32_t slots = 0;
-        for (const auto& b : pipe->second.recipe->vertex.bindings) if (b.binding < kMaxVb) slots = std::max(slots, b.binding + 1);
+        for (const auto& b : pipe.recipe->vertex.bindings) if (b.binding < kMaxVb) slots = std::max(slots, b.binding + 1);
         for (uint32_t slot = 0; slot < 4; ++slot)
             for (uint32_t i = 0; i < list->count; ++i)
                 if (package.draws[list->first + i].vb[slot] != kCharacterNone) slots = std::max(slots, slot + 1);
@@ -874,20 +882,20 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         original.index_type = r.index_size == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
 
         bool pending = false;
-        if (!material_draws(pipe->second, section_index, r, present, *list,
+        if (!material_draws(pipe, section_index, r, present, *list,
                             material_plans, material_views, material_origin)) return false;
         lap(S_MATERIALS);
-        if (!prepare_captures(pipe->second, *list, cb, r, targets, output_before,
+        if (!prepare_captures(pipe, *list, cb, r, targets, output_before,
                               material_plans, material_views, capture_scenes)) return false;
         // EFMITTL's translucent calls in a shadow pass (D-185): drawn in place with the shadow fragment stage, the call's
         // mask (if any) its one private image. Where the library's shaders are not there, drawn as before: the library's
         // own rule for a shadow pass it does not recognise, the full shadow.
-        if (!prepare_shadows(*list, uint32_t(pipe->second.layout->sets.size()), material_views, shadow_draws)) return false;
+        if (!prepare_shadows(*list, uint32_t(pipe.layout->sets.size()), material_views, shadow_draws)) return false;
         variants.resize(list->count);
         // While a discard gate is set (D-133) the draw's fragment stage goes without the character dither,
         // as the application's own draws of the pipeline do through its twin. The other state is prepared
         // with the first, so the key finds it made.
-        const bool dithered = g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(pipe->second.id, *pipe->second.recipe);
+        const bool dithered = g_dither_gated.load(std::memory_order_relaxed) && pipeline_dither(pipe.id, *pipe.recipe);
         const bool no_dither = dithered && g_dither_off.load(std::memory_order_relaxed);
         auto patch_of = [&](uint32_t i) -> const FragmentPatch& {
             if (!no_dither && !t_hunting_marking) return material_plans[i]->patch;
@@ -901,7 +909,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             if (!result.variant->native_warning.empty()) note(result.variant->native_warning);
             variants[i] = result.variant;
             if (variant_lookup.size() < 65536)
-                variant_lookup.emplace(std::make_tuple(pipe->second.id, list->first + i, material_plans[i], no_dither, t_hunting_marking, t_shader_depth), result.variant);
+                variant_lookup.emplace(std::make_tuple(pipe.id, list->first + i, material_plans[i], no_dither, t_hunting_marking, t_shader_depth), result.variant);
             return true;
         };
         for (uint32_t i = 0; i < list->count; ++i) {
@@ -909,19 +917,19 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 const CharacterDraw& d = package.draws[list->first + i];
                 VertexInputRecipe vertex;
                 std::string reason;
-                if (!package.vertex_input(d, pipe->second.recipe->vertex, vertex, reason))
+                if (!package.vertex_input(d, pipe.recipe->vertex, vertex, reason))
                     return refuse(C_VERTEX, "character vertex declaration: " + reason);
                 ShadowParams params;
                 const float alpha = std::isfinite(d.alpha) ? std::min(std::max(d.alpha, 0.0f), 1.0f) : 1.0f;
                 params.alpha = uint32_t(std::lround(alpha * 1023.0f));
                 params.masked = d.mask_image != kCharacterNone; params.channel = std::min<uint32_t>(d.mask_channel, 3); params.invert = d.mask_invert;
-                const uint32_t own_set = static_cast<uint32_t>(pipe->second.layout->sets.size());
-                const auto recipe = translucency->shadow_recipe(pipe->second, params, own_set, reason);
+                const uint32_t own_set = static_cast<uint32_t>(pipe.layout->sets.size());
+                const auto recipe = translucency->shadow_recipe(pipe, params, own_set, reason);
                 if (!recipe) return refuse(C_VARIANT, reason);
                 FragmentPatch patch;
                 patch.replacement_images = params.masked ? 1 : 0;
-                const uint64_t identity_key = shadow_identity(pipe->second.id, params);
-                const auto result = cache->request(identity_key, recipe, pipe->second.layout, vertex, patch);
+                const uint64_t identity_key = shadow_identity(pipe.id, params);
+                const auto result = cache->request(identity_key, recipe, pipe.layout, vertex, patch);
                 if (result.variant) { variants[i] = result.variant; continue; }
                 if (result.state == VariantState::Queued || result.state == VariantState::Building) {
                     pending = true; continue;
@@ -931,17 +939,17 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             if (capturing[i]) {
                 VertexInputRecipe vertex;
                 std::string reason;
-                if (!package.vertex_input(package.draws[list->first + i], pipe->second.recipe->vertex, vertex, reason))
+                if (!package.vertex_input(package.draws[list->first + i], pipe.recipe->vertex, vertex, reason))
                     return refuse(C_VERTEX, "character vertex declaration: " + reason);
-                const uint32_t own_set = static_cast<uint32_t>(pipe->second.layout->sets.size());
+                const uint32_t own_set = static_cast<uint32_t>(pipe.layout->sets.size());
                 for (uint32_t k = 0; k < kCaptureKinds; ++k) {
-                    const auto recipe = translucency->recipe(pipe->second, CaptureKind(k), own_set, reason);
+                    const auto recipe = translucency->recipe(pipe, CaptureKind(k), own_set, reason);
                     if (!recipe) return refuse(C_VARIANT, "translucent capture: " + reason);
                     FragmentPatch patch;
                     if (k < 2) { patch = material_plans[i]->patch; patch.no_dither = no_dither; if (capture_t4[i]) patch.images.push_back({capture_t4_binding.first, capture_t4_binding.second}); }
                     else patch.replacement_images = 2;
-                    const auto result = cache->request(capture_identity(pipe->second.id, CaptureKind(k)), recipe, pipe->second.layout, vertex, patch);
-                    if (k < 2 && dithered) cache->prepare(capture_identity(pipe->second.id, CaptureKind(k)), recipe, pipe->second.layout, vertex, other_state(patch));
+                    const auto result = cache->request(capture_identity(pipe.id, CaptureKind(k)), recipe, pipe.layout, vertex, patch);
+                    if (k < 2 && dithered) cache->prepare(capture_identity(pipe.id, CaptureKind(k)), recipe, pipe.layout, vertex, other_state(patch));
                     if (result.variant) { scratch_captures[k][i] = result.variant; continue; }
                     if (result.state == VariantState::Queued || result.state == VariantState::Building) {
                         pending = true; continue;
@@ -950,15 +958,15 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 }
                 continue;
             }
-            const auto lookup_key = std::make_tuple(pipe->second.id, list->first + i, material_plans[i], no_dither, t_hunting_marking, t_shader_depth);
+            const auto lookup_key = std::make_tuple(pipe.id, list->first + i, material_plans[i], no_dither, t_hunting_marking, t_shader_depth);
             if (const auto known = variant_lookup.find(lookup_key); known != variant_lookup.end()) { variants[i] = known->second; continue; }
             VertexInputRecipe vertex;
             std::string reason;
-            if (!package.vertex_input(package.draws[list->first + i], pipe->second.recipe->vertex, vertex, reason))
+            if (!package.vertex_input(package.draws[list->first + i], pipe.recipe->vertex, vertex, reason))
                 return refuse_shape(C_VERTEX, "character vertex declaration: " + reason);
             // Queue every cold variant before deferring this draw to a later frame.
-            const auto result = cache->request(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, patch_of(i));
-            if (dithered) cache->prepare(pipe->second.id, pipe->second.recipe, pipe->second.layout, vertex, other_state(patch_of(i)));
+            const auto result = cache->request(pipe.id, pipe.recipe, pipe.layout, vertex, patch_of(i));
+            if (dithered) cache->prepare(pipe.id, pipe.recipe, pipe.layout, vertex, other_state(patch_of(i)));
             if (keep_variant(i, result)) continue;
             if (result.state == VariantState::Queued || result.state == VariantState::Building) { pending = true; continue; }
             return refuse_shape(C_VARIANT, "character variant: " + result.reason);
@@ -1080,14 +1088,14 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         args.instances = d.instances; args.first_instance = d.first_instance; args.indexed = d.indexed;
         if (capturing[i]) {
-            if (!capture(cb, r, capture_sets, d, i, slot, g, args, append_bones, command_owner, capture_scenes[i])) return false;
+            if (!capture(cb, native_transaction_draw(r,transaction,output_before.empty()?0:output_before[i]), capture_sets, d, i, slot, g, args, append_bones, command_owner, capture_scenes[i])) return false;
             continue;
         }
         if (!output_before.empty()) emitted_output_before.push_back(output_before[i]);
         items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});
     }
     // Validate ordinary draws and the application boundary before publishing any queued captures.
-    if (!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,emitted_output_before,[]{},true))
+    if (!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,transaction,emitted_output_before,[]{},true))
         return refuse(C_VARIANT,"character draw transaction refused");
     // The captures go to the pass's queue once every draw of the list was decided.
     for (auto& c : scratch_pending_captures) {
@@ -1098,7 +1106,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     scratch_pending_captures.clear();
     lap(S_SNAPSHOT);
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
-    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,emitted_output_before,[&]{
+    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,transaction,emitted_output_before,[&]{
         if(restore_layout){
             draw.CmdBindDescriptorSets(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,restore_layout,restore_slot,1,&restore_set,
                                        static_cast<uint32_t>(restore_offsets.size()),restore_offsets.empty()?nullptr:restore_offsets.data());
@@ -1132,16 +1140,31 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
     return recorded;
 }
 
-bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present,
-                                          const CharacterList& list)
+bool CharacterGeneration::prepare_draw_transaction(CmdBuf* cb,const DrawRec& r,NativeDrawTransaction& transaction,
+                                                    std::shared_lock<std::shared_mutex>& lock)
+{
+    if(scratch_outputs.items.empty())return true;
+    lock.unlock();
+    bool pending=false;std::string reason;
+    const bool ready=prepare_native_transaction(output_calls,textures,device,cb,r,scratch_outputs,
+                                                transaction,reason,&output_cache,false,&pending);
+    lock.lock();
+    lookups.pipeline=VK_NULL_HANDLE;lookups.pipe=nullptr;lookups.registers=nullptr;
+    lookups.set=VK_NULL_HANDLE;lookups.set_id=0;lookups.contents=nullptr;
+    lookups.answered[0]=lookups.answered[1]=0;
+    if(ready)return true;
+    if(pending){gate_open=false;++counters[C_IMAGE_PENDING];return false;}
+    return refuse(C_STATE,"draw resource transaction: "+reason);
+}
+
+bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, PipeInfo pipe, uint32_t section, uint64_t present,
+                                          const CharacterList& list, std::shared_lock<std::shared_mutex>& lock, NativeDrawTransaction& transaction)
 {
     if (list.count != 1 || !package.draws[list.first].texture_only) return refuse(C_STATE, "texture-only list expected");
     if (cb->secondary || !cb->in_rp || cb->dyn_rp_count || cb->m2_extended_bind)
         return refuse(C_STATE, "texture-only draw outside a primary classic render pass or after extended binds");
-    NativeTargetPlan targets;
-    std::string target_reason;
-    if(!prepare_native_targets(device,cb,r,scratch_outputs,targets,target_reason,&output_cache,true))
-        return refuse(C_STATE,"texture-only outputs: "+target_reason);
+    auto& targets=transaction.targets;
+    if(!prepare_draw_transaction(cb,r,transaction,lock))return false;
     std::vector<const StaticMaterial*> plans;
     std::vector<std::vector<SnapshotImage>> views;
     uint32_t origin = 0;
@@ -1216,14 +1239,15 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
     const VkPipeline previous=r.bound?r.bound:r.pipeline;
     if (!emit_variant_draws(draw, cb->handle, &item, 1, previous, original, true))
         return refuse(C_VARIANT, "texture-only draw transaction refused");
-    for(size_t i=0;i<scratch_outputs.pre_items;++i)record_native_target(device,cb,targets,i);
+    begin_native_transaction(device,cb,transaction);
+    for(size_t i=0;i<scratch_outputs.pre_items;++i)record_native_binding(device,cb,r,transaction,i);
     emit_variant_draws(draw,cb->handle,&item,1,cb->gfx_bound?cb->gfx_bound:previous,original);
     if (restore_layout) {
         draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
                                    static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
         ++counters[C_SET3_RESTORED];
     }
-    for(size_t i=scratch_outputs.pre_items;i<targets.events.size();++i)record_native_target(device,cb,targets,i);
+    for(size_t i=scratch_outputs.pre_items;i<transaction.plan.items.size();++i)record_native_binding(device,cb,r,transaction,i);
     ++counters[C_TEXTURED];
     if (origin) ++counters[origin == 1 ? C_DERIVED : C_INHERITED];
     ++counters[C_MATERIAL_ITEMS];
@@ -1236,8 +1260,8 @@ bool CharacterGeneration::record_textures(CmdBuf* cb, const DrawRec& r, const Pi
 // game's shaders and whatever else the game bound, its bone buffer among it. Here that is the game's
 // pipeline with its vertex stage kept (as a texture-only draw's, D-083) and the vertex input the Mod's
 // streams need; the game's sets stay bound, so the vertices read the game's own bones of this draw.
-bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present,
-                                          const CharacterList& list)
+bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, PipeInfo pipe, uint32_t section, uint64_t present,
+                                          const CharacterList& list, std::shared_lock<std::shared_mutex>& lock, NativeDrawTransaction& transaction)
 {
     if (cb->secondary || !cb->in_rp || cb->dyn_rp_count || cb->m2_extended_bind)
         return refuse(C_STATE, "a Mod's own mesh outside a primary classic render pass or after extended binds");
@@ -1255,10 +1279,8 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
                 output_before.push_back(i);
         if(output_before.size()!=list.count)return refuse(C_STATE,"a Mod's own mesh output/draw order is incomplete");
     }
-    NativeTargetPlan targets;
-    std::string target_reason;
-    if (!prepare_native_targets(device, cb, r, scratch_outputs, targets, target_reason, &output_cache, true))
-        return refuse(C_STATE, "a Mod's own mesh outputs: " + target_reason);
+    auto& targets=transaction.targets;
+    if(!prepare_draw_transaction(cb,r,transaction,lock))return false;
     auto& plans = scratch_material_plans; plans.clear();
     auto& views = scratch_material_views;
     uint32_t origin = 0;
@@ -1410,13 +1432,13 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         IndexedDraw args; args.count = d.count; args.first = d.first; args.vertex_offset = d.base;
         args.instances = d.instances; args.first_instance = d.first_instance; args.indexed = d.indexed;
         if (capturing[i]) {
-            if (!capture(cb, r, own, d, i, slot, g, args, append_owned, command_owner, capture_scenes[i])) return false;
+            if (!capture(cb, native_transaction_draw(r,transaction,output_before.empty()?0:output_before[i]), own, d, i, slot, g, args, append_owned, command_owner, capture_scenes[i])) return false;
             continue;
         }
         if (!output_before.empty()) emitted_output_before.push_back(output_before[i]);
         items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});
     }
-    if (!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,emitted_output_before,[]{},true))
+    if (!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,transaction,emitted_output_before,[]{},true))
         return refuse(C_VARIANT,"own mesh capture transaction refused");
     for (auto& c : scratch_pending_captures) {
         std::string why;
@@ -1425,7 +1447,7 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     }
     scratch_pending_captures.clear();
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
-    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,targets,emitted_output_before,[&]{
+    if(!emit_output_sequence(draw,device,cb,r,items,original,scratch_outputs,transaction,emitted_output_before,[&]{
         if(restore_layout){
             draw.CmdBindDescriptorSets(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,restore_layout,restore_slot,1,&restore_set,
                                        static_cast<uint32_t>(restore_offsets.size()),restore_offsets.empty()?nullptr:restore_offsets.data());

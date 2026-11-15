@@ -131,7 +131,7 @@ private:
     bool arena_take(uint64_t bytes,uint64_t& offset);
     void arena_give(uint64_t offset,uint64_t bytes);
     // The arena goes when no load used it for a while, as the original keeps no staging of its own.
-    void arena_idle();
+    void arena_idle(bool pressure = false);
     uint64_t arena_bytes() const;
     void publish(const ResourceHandle&,ResourceState,std::shared_ptr<Upload> upload={},std::string reason={});
     ResourceDevice device_;

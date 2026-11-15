@@ -620,7 +620,9 @@ public:
     void render_targets(const PipeInfo& pipe, efmi::frontend::RuntimeDraw& request);
     // The application's draw made again with the Mod's textures (D-083). Caller holds res_mx and
     // mod_mx; `list` is a texture-only list of the program.
-    bool record_textures(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present, const CharacterList& list);
+    bool prepare_draw_transaction(CmdBuf*, const DrawRec&, NativeDrawTransaction&, std::shared_lock<std::shared_mutex>&);
+    bool record_textures(CmdBuf* cb, const DrawRec& r, PipeInfo pipe, uint32_t section, uint64_t present, const CharacterList& list,
+                         std::shared_lock<std::shared_mutex>&, NativeDrawTransaction&);
     // An instanced draw of a section with a component (P2-4), as the Core's IterateInstances: each instance on its
     // own, with its own instance entry; one the Mod does not take is drawn alone as the application's. False: not
     // decomposed, the application's instanced draw stays.
@@ -628,7 +630,8 @@ public:
     // A section without a component whose lists draw a mesh of their own (D-176): the Mod's buffers and
     // textures in the game's pipeline with its vertex stage as it is. Caller holds res_mx and mod_mx, inside
     // record(); `list` is a list of the program with draws.
-    bool record_own_mesh(CmdBuf* cb, const DrawRec& r, const PipeInfo& pipe, uint32_t section, uint64_t present, const CharacterList& list);
+    bool record_own_mesh(CmdBuf* cb, const DrawRec& r, PipeInfo pipe, uint32_t section, uint64_t present, const CharacterList& list,
+                         std::shared_lock<std::shared_mutex>&, NativeDrawTransaction&);
 };
 
 // character_backend_generation.cpp

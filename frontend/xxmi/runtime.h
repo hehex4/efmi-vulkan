@@ -105,6 +105,7 @@ struct RuntimeDraw {
     std::function<bool(const NativeBinding&, NativeResource&, std::string&)> native_resource;
     bool native_calls = false; // Unmatched application pipeline; preserve caller and dispatch operations.
     bool native_outputs = false; // Preserve output events while planning the Mod's own geometry and materials.
+    bool native_descriptors = false; // Explicit aliases participate without replacing the Mod's IA/material planner.
     bool hunting_skip = false; // Suppress draw commands while still executing their graphics resource lists.
     uint32_t hash = 0, count = 0, first = 0, instances = 1, first_instance = 0;
     int32_t base = 0;

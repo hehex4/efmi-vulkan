@@ -501,6 +501,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if (p.current_draw) {
                 facts.native_calls = p.current_draw->native_calls;
                 facts.native_outputs = p.current_draw->native_outputs;
+                facts.native_descriptors = p.current_draw->native_descriptors;
                 facts.stages = p.current_draw->shader_stages; facts.vertex_slots = p.current_draw->vertex_slots;
                 if (p.current_draw->targets_known) facts.targets = p.current_draw->render_targets;
             }
@@ -509,7 +510,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         auto native_address=[&p](const SlotId& id,NativeBinding& address,std::wstring& why){
             if(!p.current_draw || !p.current_draw->native_resource)return false;
             const bool output=id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget;
-            if(!p.current_draw->native_calls && !(output && p.current_draw->native_outputs))return false;
+            if(!p.current_draw->native_calls && !p.current_draw->native_descriptors && !(output && p.current_draw->native_outputs))return false;
             NativeBinding::Kind kind;
             if(id.kind==SlotKind::ShaderResource)kind=NativeBinding::Resource;
             else if(id.kind==SlotKind::ConstantBuffer)kind=NativeBinding::Constant;
@@ -523,7 +524,10 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             const auto binding=std::find_if(p.native_bindings.begin(),p.native_bindings.end(),[&](const NativeBinding& b){
                 return b.stage==id.stage && b.kind==kind && b.slot==id.slot && (draw.stage_hash_mask>>b.stage&1u) && draw.stage_hashes[b.stage]==b.hash;
             });
-            if(binding==p.native_bindings.end()){why=L"Native resource slot has no vk_binding for this shader";return false;}
+            if(binding==p.native_bindings.end()){
+                if(draw.native_calls)why=L"Native resource slot has no vk_binding for this shader";
+                return false;
+            }
             address=*binding;return true;
         };
         p.adapter.native_addresses(native_address);

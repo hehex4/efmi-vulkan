@@ -905,10 +905,15 @@ struct DrawPlanAdapter::Runtime {
     {
         const PipelineFacts pipeline=facts?facts():PipelineFacts{};
         if(pipeline.native_calls)return true; // Native assignments are ordered events, including bind-only post lists.
+        auto native_slot=[&](const SlotId& id){
+            NativeBinding address;std::wstring why;
+            return pipeline.native_descriptors && native_address && native_address(id,address,why);
+        };
         auto& entries=context.entries();
         auto& wanted=scratch_wanted;wanted.resize(entries.size());
         for(size_t i=0;i<entries.size();++i){
             const auto& entry=entries[i];
+            if(native_slot(DrawState::slot(entry.cell))){wanted[i]=entry.value;continue;}
             if(pipeline.native_calls && !entry.value.same(SlotValue::application(DrawState::slot(entry.cell))))
                 refuse_draw(L"Native resource binding needs the descriptor executor: "+slot_name(DrawState::slot(entry.cell)));
             const Honour outcome=settle(entry,pipeline,wanted[i]);
@@ -929,6 +934,7 @@ struct DrawPlanAdapter::Runtime {
             if(entry.issued.same(wanted[i]))continue;
             const SlotId id=DrawState::slot(entry.cell);
             const SlotValue& value=wanted[i];
+            if(native_slot(id)){entry.issued=value;continue;}
             // The plan has items for the buffers of the input assembler and the pixel textures; a slot of
             // another kind is honoured only as it stands (the table), and there is nothing to bind.
             if(id.kind!=SlotKind::Vertex && id.kind!=SlotKind::Index && !(id.kind==SlotKind::ShaderResource && id.stage==kPixelStage)){
@@ -1127,10 +1133,14 @@ struct DrawPlanAdapter::Runtime {
                 value.kind=SlotValue::Kind::Owned;value.owned=std::make_shared<const PlanItem::OwnedBuffer>(std::move(buffer));
             }else value.kind=SlotValue::Kind::Foreign;
         }
-        if(facts && (facts().native_calls || (facts().native_outputs && (id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget)))){
-            PlanItem item;item.operation=PlanOperation::NativeBind;std::wstring why;
-            if(!native_address || !native_address(id,item.native_target,why))
-                refuse_draw(why.empty()?L"Native resource assignment has no descriptor address":why);
+        const auto pipeline=facts?facts():PipelineFacts{};
+        NativeBinding address;std::wstring address_reason;
+        const bool addressed=native_address && native_address(id,address,address_reason);
+        if(pipeline.native_calls || (pipeline.native_descriptors && addressed) ||
+           (pipeline.native_outputs && (id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget))){
+            PlanItem item;item.operation=PlanOperation::NativeBind;item.native_target=address;
+            if(!addressed)
+                refuse_draw(address_reason.empty()?L"Native resource assignment has no descriptor address":address_reason);
             else if(value.kind==SlotValue::Kind::Native || value.null()){
                 item.native_resource=value.native;append(std::move(item));
             }else if(value.kind==SlotValue::Kind::Resource && value.resource){

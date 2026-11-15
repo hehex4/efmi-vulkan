@@ -1096,9 +1096,6 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
             for(const auto& item:plan.items){
                 using Op=efmi::assets::FileOperation;
                 if(item.operation==Op::NativeBind){
-                    using B=efmi::frontend::NativeBinding;
-                    if(item.native_target.kind!=B::ColorTarget && item.native_target.kind!=B::DepthTarget)
-                        throw std::runtime_error("Mod native descriptors need their own executor");
                     ordered_outputs=true;
                 }
             }

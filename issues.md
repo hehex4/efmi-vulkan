@@ -23,10 +23,15 @@ sufficient. Source inspection confirms the central problems, with these correcti
   captures establish observed behavior; they cannot prove future engine/device
   configurations will never use other API features. Shared mechanisms remain
   independent of character identity.
-- **I-03: confirmed.** Only `native_calls` prepares native descriptors. The matched
-  character paths share some lower-level emission already, but descriptor planning
-  is still disconnected. The fix must also connect INI resource resolution and
-  preserve command-list ordering, not merely call the descriptor helper four times.
+- **I-03: shared resource transaction implemented in D-280 (3.0.8).**
+  Baseline 3.0.7 ignores an explicit file constant on a matched own mesh (12/13).
+  Matched merged, own-mesh, texture-only and application calls now share file,
+  target and descriptor preflight, ordered emission and capture binding snapshots.
+  Explicit aliases resolve against current shader hashes; 72 new GPU checks cover
+  actual colors, ordering, post restoration, mixed uploads and sandbox exchange.
+  Geometry-specific mesh/capture work still has its own helpers. This does not
+  provide automatic cross-slot mapping or application inputs relocated into the
+  private merged/material interface; those remain I-06 work.
 - **I-04: confirmed structural limitation.** A classic pass boundary is a valid
   place for barriers, but is not sufficient by itself: allocation aliases between
   different objects, persistent descriptor requests and saved layout restoration
@@ -42,7 +47,9 @@ sufficient. Source inspection confirms the central problems, with these correcti
   20/20 with zero pipeline/texture waits; the draw-readiness regression also passes
   real captured opacity/capture scenes and ordered output restoration. Other
   synchronous preparation costs and unmatched native acquisition are not covered
-  by this claim.
+  by this claim. D-280 also makes matched native file acquisition nonblocking and
+  fixes the idle image staging arena starving buffer uploads. Live image slices
+  remain retained through completion; the draw thread does not wait for budget.
 - **I-06: confirmed open compatibility work.** General in-draw application inputs,
   matched cross-slot rebinding and input-layout edits need their shared execution
   adapter. Unmatched Route 2 descriptor support is not evidence for these paths.
