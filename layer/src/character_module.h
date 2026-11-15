@@ -113,6 +113,14 @@ struct CharacterModule {
     // A non-indexed/indirect draw or direct/indirect dispatch, while Device::shader_draws is set (docs/vulkan-native-mods.md): true when it is
     // to be dropped (a ShaderOverride's `handling = skip`, hunting's skip). Indexed draws reach the same through record.
     bool (*shader_draw)(CharacterBackend&, CmdBuf*, const DrawRec&) = nullptr;
+    // Native execution follows the installed module too. Persistent recording data
+    // uses native_state.h; implementation objects cross only as opaque owners.
+    VkPipeline (*native_bind)(Device*, CmdBuf*, VkPipeline) = nullptr;
+    void (*native_call)(Device*, CmdBuf*, bool compute) = nullptr;
+    void (*native_begin_classic)(Device*, CmdBuf*, const VkRenderPassBeginInfo*) = nullptr;
+    void (*native_begin_rendering)(Device*, CmdBuf*, const VkRenderingInfo*) = nullptr;
+    void (*native_end_images)(Device*, CmdBuf*) = nullptr;
+    void (*native_end_targets)(Device*, CmdBuf*) = nullptr;
 };
 
 // The copy this binary was built with.

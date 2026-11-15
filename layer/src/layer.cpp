@@ -1,5 +1,4 @@
-#include "native_images.h"
-#include "native_targets.h"
+#include "native_state.h"
 #include "gpu_analysis.h"
 // Entry points and the intercepted Vulkan functions.
 //
@@ -558,7 +557,7 @@ struct DrawPipelineRestore {
     bool compute;
     DrawPipelineRestore(Device* dev, VkCommandBuffer cmd, bool comp = false) : device(dev), cb(cb_of(dev, cmd)),
         pipeline(cb ? (comp ? cb->comp_bound : cb->gfx_bound) : VK_NULL_HANDLE), compute(comp) {
-        if(cb)native_images_call(device,cb,comp);
+        if(cb)m2_native_call(device,cb,comp);
         // ProcessShaderOverride decides the legacy depth filter before this draw's command list.
         // A prior list can change actual outputs without another application pipeline bind.
         if(cb && !compute && !cb->native_image_blocked && cb->native_target_state && cb->gfx_pipeline){
@@ -568,7 +567,7 @@ struct DrawPipelineRestore {
         }
     }
     ~DrawPipelineRestore() {
-        if (compute && cb) { if(!cb->native_image_blocked && !cb->draws.empty())gpu_analysis_dispatch(device, cb); native_images_end(device,cb); }
+        if (compute && cb) { if(!cb->native_image_blocked && !cb->draws.empty())gpu_analysis_dispatch(device, cb); m2_native_end_images(device,cb); }
         // Lists may have changed the active classic attachment references. Restore hunting only
         // through a compatible pipeline for the final target state, after the complete post list.
         if(cb && !compute && cb->native_target_state && cb->native_target_state->classic && cb->gfx_pipeline)
@@ -846,7 +845,7 @@ template <typename Info> void rp_begin(Device* dev, VkCommandBuffer cmd, bool dy
         // The driver has not begun the pass; keep in_rp false until dependencies are recorded.
         on_begin_targets(dev, cb, info);
         on_begin_pass(dev, cb, info);
-        native_images_begin(dev,cb,info);
+        m2_native_begin(dev,cb,info);
         cb->in_rp = true;
         if (dynamic)
             cb->dyn_rp_count++;
@@ -876,8 +875,8 @@ void rp_ended(Device* dev, VkCommandBuffer cmd)
 {
     if (CmdBuf* cb = cb_of(dev, cmd)) {
         if (cb->pass.render_pass) { on_image_pass(dev, cb, true); m2_pass_end(dev, cb); gpu_analysis_pass(dev, cb); }
-        native_targets_end(dev,cb);
-        native_images_end(dev,cb);
+        m2_native_end_targets(dev,cb);
+        m2_native_end_images(dev,cb);
         cb->pass = CmdBuf::PassInstance{};
     }
 }
@@ -1045,8 +1044,8 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRendering(VkCommandBuffer cmd)
     dev->d.CmdEndRendering(cmd);
     if (cb) {
         gpu_analysis_rendering(dev, cb, context);
-        native_targets_end(dev, cb);
-        native_images_end(dev, cb);
+        m2_native_end_targets(dev, cb);
+        m2_native_end_images(dev, cb);
         cb->pass = CmdBuf::PassInstance{};
     }
 }
@@ -1060,8 +1059,8 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdEndRenderingKHR(VkCommandBuffer cmd)
     dev->d.CmdEndRenderingKHR(cmd);
     if (cb) {
         gpu_analysis_rendering(dev, cb, context);
-        native_targets_end(dev, cb);
-        native_images_end(dev, cb);
+        m2_native_end_targets(dev, cb);
+        m2_native_end_images(dev, cb);
         cb->pass = CmdBuf::PassInstance{};
     }
 }

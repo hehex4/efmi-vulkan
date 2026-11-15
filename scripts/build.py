@@ -206,7 +206,7 @@ def generate_overlay_shaders() -> str:
     return cpp
 # Headers whose structures cross between the layer and a module. A module built from other
 # contents of these is refused by the layer.
-ABI_ROOTS = ["state.h", "character_module.h", "command_owner.h", "json.h", "native_images.h", "native_targets.h", "../../frontend/xxmi/native_bindings.h"]
+ABI_ROOTS = ["state.h", "character_module.h", "command_owner.h", "json.h", "native_state.h", "../../frontend/xxmi/native_bindings.h"]
 
 _runtime_link = None
 

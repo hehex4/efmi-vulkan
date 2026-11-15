@@ -4,7 +4,7 @@
 #include "character_package.h"
 #include "m2_mesh.h"
 #include "state.h"
-#include "native_targets.h"
+#include "native_state.h"
 #include "json.h"
 #include <algorithm>
 #include <filesystem>
@@ -315,13 +315,26 @@ bool m2_shader_draw(Device* device,CmdBuf* cb,const DrawRec& r){
 }
 
 VkPipeline m2_bind(Device* device,CmdBuf* cb,VkPipeline pipeline){
+    std::shared_lock<std::shared_mutex> lock(device->character_mx);
+    const auto* module=device->character_module?device->character_module:builtin_character_module();
     VkPipeline selected=pipeline;
-    if(device->character_mode){
-        std::shared_lock<std::shared_mutex> lock(device->character_mx);
-        if(device->character && device->character_module->bind)selected=device->character_module->bind(*device->character,cb,pipeline);
-    }
-    return cb && cb->gfx_pipeline==pipeline?native_target_bind(device,cb,selected):selected;
+    if(device->character_mode && device->character && module->bind)
+        selected=module->bind(*device->character,cb,pipeline);
+    return cb && cb->gfx_pipeline==pipeline?module->native_bind(device,cb,selected):selected;
 }
+namespace {
+template<class Function,class... Args>
+void native_callback(Device* device,Function CharacterModule::* callback,Args... args){
+    std::shared_lock<std::shared_mutex> lock(device->character_mx);
+    const auto* module=device->character_module?device->character_module:builtin_character_module();
+    (module->*callback)(device,args...);
+}
+}
+void m2_native_call(Device* d,CmdBuf* cb,bool compute){native_callback(d,&CharacterModule::native_call,cb,compute);}
+void m2_native_begin(Device* d,CmdBuf* cb,const VkRenderPassBeginInfo* info){native_callback(d,&CharacterModule::native_begin_classic,cb,info);}
+void m2_native_begin(Device* d,CmdBuf* cb,const VkRenderingInfo* info){native_callback(d,&CharacterModule::native_begin_rendering,cb,info);}
+void m2_native_end_images(Device* d,CmdBuf* cb){native_callback(d,&CharacterModule::native_end_images,cb);}
+void m2_native_end_targets(Device* d,CmdBuf* cb){native_callback(d,&CharacterModule::native_end_targets,cb);}
 
 void m2_created(Device* device,VkPipeline pipeline){
     if(!device->character_mode)return;
@@ -522,7 +535,9 @@ std::string probe_m2_module(const std::string& path,const std::string& package){
     api.notice=[](int level,const char* key,const char* text){notice(static_cast<NoticeLevel>(level),key,text);};
     const CharacterModule* module=entry?entry(&api):nullptr;
     api.config=nullptr;
-    if(!module || module->size!=sizeof(CharacterModule) || module->abi!=EFVK_ABI || !module->activate){
+    if(!module || module->size!=sizeof(CharacterModule) || module->abi!=EFVK_ABI || !module->activate ||
+       !module->native_bind || !module->native_call || !module->native_begin_classic ||
+       !module->native_begin_rendering || !module->native_end_images || !module->native_end_targets){
         // Nothing of it ran beyond the entry, so it may go again.
         FreeLibrary(library);
         return fail("module was built against other structures of the layer; this layer cannot use it");

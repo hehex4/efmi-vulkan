@@ -2,6 +2,7 @@
 // its creation and stop, and what the module is called for when a pipeline is retired, a pass ends, the
 // application submits and a frame is presented. Its other parts: character_backend_internal.h.
 #include "character_backend_internal.h"
+#include "native_images.h"
 
 namespace efvk {
 namespace {
@@ -540,6 +541,9 @@ const CharacterModule* builtin_character_module()
         m.bind = [](CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline) { return character_bind(b, cb, pipeline); };
         m.created = character_created;
         m.shader_draw = character_shader_draw;
+        m.native_bind = native_target_bind; m.native_call = native_images_call;
+        m.native_begin_classic = native_images_begin; m.native_begin_rendering = native_images_begin;
+        m.native_end_images = native_images_end; m.native_end_targets = native_targets_end;
         return m;
     }();
     return &module;

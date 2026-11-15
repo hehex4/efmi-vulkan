@@ -10,7 +10,7 @@ constexpr uint32_t depth_slot=8; // The original DSV binding represents both dep
 struct TargetOwner:CommandOwner {
     std::vector<std::shared_ptr<const Resource>> resources;
     std::vector<std::shared_ptr<NativeClassicTarget>> classic;
-    std::vector<std::shared_ptr<const PipelineVariant>> pipelines;
+    std::vector<std::shared_ptr<const NativeBoundPipeline>> pipelines;
     bool sealed=false;
     void reset_after_completion()override{resources.clear();classic.clear();pipelines.clear();used=false;sealed=false;}
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}

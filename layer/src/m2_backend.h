@@ -30,6 +30,12 @@ bool m2_shader_draw(Device*,CmdBuf*,const DrawRec&);
 VkPipeline m2_bind(Device*,CmdBuf*,VkPipeline pipeline);
 // After the application created a graphics pipeline, its record made (D-133).
 void m2_created(Device*,VkPipeline pipeline);
+// Native scope callbacks use the installed module under the host exchange lock.
+void m2_native_call(Device*,CmdBuf*,bool compute);
+void m2_native_begin(Device*,CmdBuf*,const VkRenderPassBeginInfo*);
+void m2_native_begin(Device*,CmdBuf*,const VkRenderingInfo*);
+void m2_native_end_images(Device*,CmdBuf*);
+void m2_native_end_targets(Device*,CmdBuf*);
 // After the application ended the classic render pass CmdBuf::pass names (D-113).
 void m2_pass_end(Device*,CmdBuf*);
 void m2_seal(Device*,uint32_t,const VkCommandBuffer*);

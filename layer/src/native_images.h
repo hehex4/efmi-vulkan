@@ -1,40 +1,6 @@
 #pragma once
-#include "state.h"
-#include "../../frontend/xxmi/native_bindings.h"
-#include <set>
-
+#include "native_state.h"
 namespace efvk {
-// This cache is shared by the host and an exchanged backend, so its complete layout is stamped.
-struct NativeImageCache {
-    struct Resource {
-        uint32_t set = 0, binding = 0, dim = 0, depth = 0;
-        bool sampled = false, arrayed = false, multisampled = false, sampled_float32 = false;
-        uint32_t scalar_type = 0, image_format = 0;
-    };
-    struct Use { Resource resource; bool depth_reference = false, read = false, write = false, atomic = false; };
-    struct Access { std::vector<Use> images; std::string reason; };
-    std::map<uint32_t, std::shared_ptr<const Access>> pipelines;
-    std::map<uint32_t, VkFormatFeatureFlags2> storage_formats;
-};
-struct NativeImagePlan {
-    struct Cell {
-        std::shared_ptr<const efmi::frontend::NativeResource> resource;
-        uint32_t mip = 0, layer = 0;
-        VkImageLayout before = VK_IMAGE_LAYOUT_UNDEFINED;
-        VkImageLayout after = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        bool writable = false;
-    };
-    using Key = std::tuple<uint64_t, uint32_t, uint32_t>;
-    std::map<Key, Cell> cells;
-    // Every descriptor's layout, including references requiring no transition.
-    std::map<Key, VkImageLayout> layouts;
-};
-struct NativeImageState {
-    bool compute = false, attachments_known = false;
-    std::set<uint32_t> attachments;
-    NativeImagePlan active;
-    std::map<NativeImagePlan::Key, VkImageLayout> required;
-};
 // Direct compute ordering for original descriptors or private published resources.
 void native_compute_order(Device*, CmdBuf*, PFN_vkCmdPipelineBarrier);
 void native_images_observe(Device*, CmdBuf*, const DrawRec&);

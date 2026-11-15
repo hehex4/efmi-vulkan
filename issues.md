@@ -46,7 +46,7 @@ sufficient. Source inspection confirms the central problems, with these correcti
 - **I-06: confirmed open compatibility work.** General in-draw application inputs,
   matched cross-slot rebinding and input-layout edits need their shared execution
   adapter. Unmatched Route 2 descriptor support is not evidence for these paths.
-- **I-07: confirmed coupling, incomplete proposed fix.** The roots are in
+- **I-07: private implementation coupling fixed by D-279 (3.0.7).** The roots are in
   `scripts/build.py::ABI_ROOTS`; `scripts/build_character_module.py` does not exist.
   `character_module.h` does not directly include the three headers listed below.
   The host additionally calls image/scope helpers and reads
@@ -54,6 +54,12 @@ sufficient. Source inspection confirms the central problems, with these correcti
   module exchange, so moving only `native_target_bind` cannot safely remove their
   layouts from the ABI. An opaque boundary must retain the code that owns each
   object's representation. The actual replacement binary is `efmi_vk_backend.dll`.
+  D-279 moves all native scope callbacks through the installed module, retains
+  private PipelineVariant implementations behind an opaque owner, and stamps the
+  surviving protocol explicitly in native_state.h. A sandbox module with 64 extra
+  private prefix bytes exchanges into the unchanged host, including classic target,
+  image/uniform persistence, own-mesh and merged draws. Private header edits keep
+  the ABI; shared protocol edits still change it. No real-game exchange occurred.
 - **I-08: legacy remains, but is not wholly dead.** The non-character M2 branch is
   still selectable and has a regression step. Retirement needs explicit removal
   of that configuration/test surface and retention of the host exchange glue.

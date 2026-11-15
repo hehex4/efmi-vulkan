@@ -24,7 +24,7 @@ that copy unless told otherwise. `efmi_vk_backend.dll`, the module, holds the sa
 | single-component backend of 0.9.x | yes | no |
 
 `layer/src/character_module.h` is the boundary: a table of the backend's functions
-(`CharacterModule`: create, usable, ready, activate, stop, record, retire, frame, status, enable, submit)
+(`CharacterModule`: create, usable, ready, activate, stop, record, retire, frame, status, enable, submit, native pipeline/image/target scope callbacks)
 and a table of what a module needs from the host (`HostApi`: the log, CRC-32C, and the tracker's
 two readers of buffers). A module's one export, `efmi_vk_character_module`, takes the second and
 returns the first. `layer/module/module_main.cpp` is the only source the module has for itself.
@@ -39,7 +39,7 @@ place once a recording has been reset.
 Host and module exchange tracker structures, strings and vectors as they are. That is only
 sound when both were built from the same definitions with the same compiler settings. The build
 computes a 64-bit stamp over the headers that define what crosses (`state.h`,
-`character_module.h`, `command_owner.h`, `json.h`, `native_images.h`, the frontend native binding
+`character_module.h`, `command_owner.h`, `json.h`, `native_state.h`, the frontend native binding
 contract and their local layer includes; the authoritative roots are `ABI_ROOTS` in `scripts/build.py`) and the compiler flags, and compiles it into both sides as `EFVK_ABI`. The
 version text is left out of it. A module with another stamp is refused before any of its code
 beyond the entry has run, and unloaded again. `scripts/hot_swap.py` compares the stamp of the
@@ -50,6 +50,29 @@ from the process heap, so an object may be freed by the side that did not alloca
 
 A change inside the backend can be swapped. A change to a shared header, to the hooks or to the
 tracker cannot; it needs the layer replaced with the process closed.
+
+## Private native implementation boundary (D-279)
+
+The host sends native pipeline binds and image/target scope events through the installed
+module's function table, holding the same exchange lock as draw calls. Surviving recording
+state and device caches have an explicit shared protocol in `native_state.h`. Compatible
+pipeline cache entries contain a Vulkan pipeline handle and an opaque retained owner;
+only the creating binary knows the owner's PipelineVariant representation. Used modules
+stay mapped, including the code of old owners' destructors.
+
+`pipeline_variant.h`, `native_targets.h` and `native_images.h` are private implementation
+headers and no longer enter the ABI digest. The protocol itself remains stamped: changing
+NativeTargetState or NativeImageState still requires a new host. This distinction prevents
+private pipeline implementation changes from forcing a restart without concealing real
+shared-layout incompatibilities.
+
+`scripts/check_module_boundary.py` checks both sides of that rule.
+`scripts/build_private_module_probe.py` builds a sandbox module with an additional 64-byte
+prefix in PipelineVariant, keeps the normal host unchanged and restores the source header.
+Run it with no other build active, then run the `module-boundary` regression area with
+`EFMI_VK_DIST` set only for the test process to `build/private-module-probe`. This exercises
+actual different object layouts, classic compatible pipelines and surviving descriptors,
+in addition to rejection of an incompatible shared stamp. It never loads a real game.
 
 ## The exchange
 

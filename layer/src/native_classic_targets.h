@@ -142,7 +142,7 @@ uint32_t classic_mask(const RenderPassRecipe& recipe){
     for(size_t i=0;i<sub.colors.size();++i)if(sub.colors[i].attachment!=VK_ATTACHMENT_UNUSED)mask|=1u<<i;
     if(sub.has_depth && sub.depth.attachment!=VK_ATTACHMENT_UNUSED)mask|=1u<<8;return mask;
 }
-std::shared_ptr<const PipelineVariant> classic_pipeline(Device* device,NativeTargetState& state,
+std::shared_ptr<const NativeBoundPipeline> classic_pipeline(Device* device,NativeTargetState& state,
     const NativePipelineSelection& source,const std::shared_ptr<const RenderPassRecipe>& pass,std::string& why){
     if(!source.recipe || !source.layout || !source.recipe->geometry_complete || source.recipe->dynamic_rendering ||
        !source.recipe->render_pass || source.recipe->subpass || !classic_recipe(*source.recipe->render_pass) ||
@@ -169,8 +169,9 @@ std::shared_ptr<const PipelineVariant> classic_pipeline(Device* device,NativeTar
     if(!variant->build(recipe,*source.layout,recipe.vertex,device->physical_properties.limits.maxBoundDescriptorSets,patch,device->physical_properties.limits)){
         why="Native classic compatible pipeline creation failed: "+variant->reason;return {};
     }
-    auto entry=std::make_shared<NativeClassicPipeline>();entry->source=source.recipe;entry->layout=source.layout;entry->pass=pass;entry->variant=variant;
-    if(cache.pipelines.size()>=64)cache.pipelines.erase(cache.pipelines.begin());cache.pipelines.push_back(entry);return variant;
+    auto binding=std::make_shared<NativeBoundPipeline>();binding->pipeline=variant->pipeline;binding->owner=variant;
+    auto entry=std::make_shared<NativeClassicPipeline>();entry->source=source.recipe;entry->layout=source.layout;entry->pass=pass;entry->variant=binding;
+    if(cache.pipelines.size()>=64)cache.pipelines.erase(cache.pipelines.begin());cache.pipelines.push_back(entry);return binding;
 }
 }
 }

@@ -169,6 +169,12 @@ STEPS = [
     ("native classic Mod geometry", [os.path.join(HERE, "native_classic_mod_test.py")]),
     ("native classic Mod character", [os.path.join(HERE, "native_classic_mod_character_test.py")]),
     ("nonblocking draw readiness", [os.path.join(HERE, "draw_readiness_test.py")]),
+    ("module ABI boundary", [os.path.join(ROOT, "scripts", "check_module_boundary.py")]),
+    ("native module classic scope", [os.path.join(HERE, "native_classic_null_test.py"), "color_swap", "depth_pinkclear"]),
+    ("native module image scope", [os.path.join(HERE, "native_application_image_test.py"), "graphics_swap", "layout"]),
+    ("native module uniform scope", [os.path.join(HERE, "native_uniform_persistence_test.py"), "swap", "classic"]),
+    ("native module character scope", [os.path.join(HERE, "native_classic_mod_test.py"), "depth_mesh_swap", "depth_mesh_control"]),
+    ("native module merged scope", [os.path.join(HERE, "native_merged_output_test.py"), "swap"]),
     ("matched Mod output events", [os.path.join(HERE, "native_mod_output_test.py")]),
     ("interleaved Mod output events", [os.path.join(HERE, "native_mod_order_test.py")]),
     ("texture-only Mod output events", [os.path.join(HERE, "native_texture_output_test.py")]),
@@ -243,6 +249,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "module-boundary": ["module ABI boundary", "native module", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "draw-readiness": ["nonblocking draw readiness", "Mod outputs beside original geometry", "texture-only Mod output events", "native own mesh", "native merged opacity values", "native tracker", "Vulkan validation", "text check"],
     "capture-output": ["native deferred capture outputs", "native capture attachment snapshots", "native opacity shadow outputs", "merged skeleton output events", "original INI runtime", "native tracker", "Vulkan validation", "text check"],
     "capture-snapshot": ["native capture attachment snapshots", "native translucency depth history", "native opacity shadow outputs", "native tracker", "Vulkan validation", "text check"],

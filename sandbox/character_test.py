@@ -104,6 +104,8 @@ def main():
                 (1, True, False, "single", 0), (2, True, False, "single", 0), (1, True, True, "single", 0),
                 (1, True, False, "second-only", 0),
                 (1, True, False, "split", 0), (2, True, False, "split", 1), (1, True, False, "split", 2)):
+            if "--cold-only" in sys.argv and not (material and queue_case == "single" and rp == 1 and not reject_late):
+                continue
             folder = Path(test_dir("character-"))
             package = folder / "character.bin"
             fixture_package(package)
@@ -167,8 +169,8 @@ def main():
                 if cold_material:
                     before = json.loads((folder / "character-ready.json").read_text())["result"]["replacement"]
                     checks.equal(before.get("textures", {}).get("loads"), 0, label + " no image preloaded before first drawing")
-                    checks.check(textures.get("draw_wait_images", 0) > 0 and textures.get("draw_waits_timed_out") == 0,
-                                 label + " first-use material wait completed before emitting the checked pixels")
+                    checks.check(textures.get("draw_waits") == 0 and textures.get("draw_waits_timed_out") == 0,
+                                 label + " first-use materials reach the checked pixels without blocking the recording thread")
                 checks.check(r["materials"] and r["images_ready"] == 2 and r["images_failed"] == 0 and
                              textures.get("file_reads") == 2 and textures.get("submissions") == 2,
                              label + " each DDS decoded and uploaded once by the layer")
