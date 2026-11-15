@@ -10,10 +10,12 @@ from efmi_vk.probe_client import ProbeClient
 
 def scene(checks,case,matched=False):
  root=Path(test_dir('classic-null-'+case+'-'));mods=root/'Mods';mods.mkdir();vertex,fragment=sandbox_shader_hashes()
- parts=case.split('_');mrt='mrt' in parts;stencil='stencil' in parts or 'combined' in parts;combined='combined' in parts;ordered='ordered' in parts
+ parts=case.split('_');mrt='mrt' in parts;stencil='stencil' in parts or 'combined' in parts;combined='combined' in parts;ordered='ordered' in parts;beside='beside' in parts
  depth=stencil or 'depth' in parts;mode=parts[-1];hunting=mode in ('original','pink','pinkclear');filtered='filter' in parts;shader=mode=='shader';owned=not depth and not mrt and mode in ('restore','once')
  target='oD' if depth else 'o1' if mrt else 'o0'
  command='' if mode=='control' else 'post '+target+' = null\n' if mode=='post' else 'ResourceOriginal = ref '+target+'\n'+target+' = null\npost '+target+' = ref ResourceOriginal\n' if mode in ('restore','once') else target+' = null\n'
+ if beside and mode=='post':command=''
+ if beside and mode=='restore':command=command.replace('post '+target+' = ref ResourceOriginal\n','')
  if mode=='builtin':command='run = BuiltInCommandListUnbindAllRenderTargets\n'
  if mode=='first':command='if $once == 0\n$once = 1\n'+command+'endif\n'
  if mode=='once':command='if $once == 0\n$restore_now = 1\n$once = 1\nelse\n$restore_now = 0\nendif\nif $restore_now == 1\n'+command+'endif\n'
@@ -46,6 +48,16 @@ def scene(checks,case,matched=False):
   else:sequence+='post '+target+' = ref ResourceOriginal\n'
   ini=ini.replace('vb0 = ResourceVertex\nib = ResourceIndex\ndrawindexed = 3,0,0\n',sequence,1)
   ini+='[ResourceLeft]\ntype = Buffer\nstride = 8\nfilename = left.buf\n[ResourceTop]\ntype = Buffer\nstride = 8\nfilename = top.buf\n'
+ if beside:
+  ini=ini.replace('handling = skip\n','')
+  if 'empty' in parts and not ordered:ini=ini.replace('drawindexed = 3,0,0\n','drawindexed = 0,0,0\n',1)
+  if mode in ('post','restore'):
+   # A shader post list runs even after the matched mesh changes the index buffer.
+   post='post if $once == 1\npost '+target+(' = null\n' if mode=='post' else ' = ref ResourceOriginal\n')+'post vb0 = ResourceTop\npost drawindexed = 3,0,0\npost endif\n'
+   header='[ShaderOverrideTarget]\nhash = %08x\n'%vertex
+   ini=ini.replace(header,header+post,1)
+   (mods/'top.buf').write_bytes(struct.pack('<6f',-.10,-.35,.10,-.35,0,-.55))
+   ini+='[ResourceTop]\ntype = Buffer\nstride = 8\nfilename = top.buf\n'
  (mods/'mod.ini').write_text(ini,encoding='ascii')
  env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic null',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
  trigger=root/'readback.trigger';env['EFMI_VK_TEST_NOTICES_READBACK_TRIGGER']=str(trigger)
@@ -80,9 +92,9 @@ def scene(checks,case,matched=False):
    time.sleep(.2);trigger.touch()
   sb.proc.wait(timeout=25);checks.equal(sb.proc.returncode,0,case+': normal exit')
   (root/'layer.log').write_bytes(Path(sb.log_path).read_bytes());(root/'stdout.txt').write_text(sb.output(),encoding='utf-8')
- wanted=5516 if matched else 6418 if mode=='control' else 902 if mode=='post' else 5516 if mode=='once' else 0
+ wanted=(6418 if mode in ('control','post') else 5516) if beside else 5516 if matched else 6418 if mode=='control' else 902 if mode=='post' else 5516 if mode=='once' else 0
  counts=[band_pixels(screen),band_pixels(source)]
- checks.equal(counts[0],5516,case+': original last triangle is removed from the center band')
+ checks.equal(counts[0],6418 if beside else 5516,case+': original geometry is retained beside the Mod or hidden as requested')
  checks.check(replacement.get('counters',{}).get('own_mesh',0)>0,case+': Mod actually records its own mesh')
  meta=json.loads(Path(str(screen)+'.json').read_text());width,height=meta['width'],meta['height'];pixels=screen.read_bytes()
  checks.equal(len(pixels),width*height*4,case+': complete screen readback')
@@ -90,13 +102,13 @@ def scene(checks,case,matched=False):
  region=[pixels[4*(y*width+x):][:3] for y in range(int(height*.64),int(height*.8)) for x in range(int(width*.84),int(width*.96))]
  moved=sum(max(abs(a-b) for a,b in zip(pixel,clear))>12 for pixel in region)
  pink=sum(pixel==bytes((255,0,255)) for pixel in region)
- checks.check(moved>200,case+': the Mod triangle actually moved away from the original geometry')
- if ordered:
+ checks.equal(moved>200,not (beside and 'empty' in parts and not ordered),case+': independent Mod geometry is present unless its draw is empty')
+ if ordered or (beside and mode in ('post','restore')):
   def colored_region(data,lo,hi,ylo=.64,yhi=.8):
    background=data[4*((height-2)*width+width-2):][:3]
    return sum(max(abs(a-b) for a,b in zip(data[4*(y*width+x):][:3],background))>12 for y in range(int(height*ylo),int(height*yhi)) for x in range(int(width*lo),int(width*hi)))
-  checks.equal(colored_region(pixels,.04,.16)>200,mode!='empty',case+': independent first mesh precedes the output change or is empty')
-  if mode=='restore':checks.check(colored_region(pixels,.44,.56,.2,.34)>200,case+': independent third mesh follows output restoration')
+  if ordered:checks.equal(colored_region(pixels,.04,.16)>200,mode!='empty',case+': independent first mesh precedes the output change or is empty')
+  if mode=='restore' or (beside and mode=='post'):checks.check(colored_region(pixels,.44,.56,.2,.34)>200,case+': independent third mesh executes after the application draw')
  if shader or hunting or filtered:checks.equal(pink>200,shader or mode=='pink' or (filtered and mode==('active' if matched else 'inactive')),case+': moved Mod geometry follows the selected shader and actual depth filter')
  checks.equal(counts[1],902,case+': independent source color remains intact')
  if owned or mrt:
@@ -113,15 +125,16 @@ def scene(checks,case,matched=False):
    path=Path(str(source)+suffix);data=path.read_bytes() if path.exists() else b''
    checks.check(bool(width and height) and len(data)==width*height*size,case+': complete fenced '+label+' aspect')
    count=sum(data[y*width+x]==7 if stencil else struct.unpack_from('<f',data,4*(y*width+x))[0]<.99 for y in range(int(height*.46),int(height*.54)) for x in range(width)) if width and len(data)==width*height*size else None
-   checks.equal(count,5516,case+': control original depth loses the moved Mod triangle') if mode=='control' and label=='original' else checks.equal(count,want,case+': '+label+' aspect follows ordered bindings');counts.append(count)
+   checks.equal(count,6418 if beside else 5516,case+': control original depth follows the requested original geometry') if mode=='control' and label=='original' else checks.equal(count,want,case+': '+label+' aspect follows ordered bindings');counts.append(count)
    if matched and label=='original' and not stencil:
     moved_depth=sum(struct.unpack_from('<f',data,4*(y*width+x))[0]<.99 for y in range(int(height*.64),int(height*.8)) for x in range(int(width*.84),int(width*.96)))
-    checks.equal(moved_depth>200,mode in ('control','post'),case+': independent moved geometry writes depth only before the requested unbind');counts.append(moved_depth)
-    if ordered:
+    checks.equal(moved_depth>200,mode in ('control','post') and not (beside and 'empty' in parts and not ordered),case+': independent moved geometry writes depth only before the requested unbind');counts.append(moved_depth)
+    if ordered or (beside and mode in ('post','restore')):
      def depth_region(lo,hi,ylo=.64,yhi=.8):
       return sum(struct.unpack_from('<f',data,4*(y*width+x))[0]<.99 for y in range(int(height*ylo),int(height*yhi)) for x in range(int(width*lo),int(width*hi)))
-     left_depth=depth_region(.04,.16);checks.equal(left_depth>200,mode!='empty',case+': first mesh depth remains after the ordered unbind');counts.append(left_depth)
-     if mode=='restore':checks.check(depth_region(.44,.56,.2,.34)>200,case+': third mesh writes depth after the ordered restoration')
+     if ordered:
+      left_depth=depth_region(.04,.16);checks.equal(left_depth>200,mode!='empty',case+': first mesh depth remains after the ordered unbind');counts.append(left_depth)
+     if mode=='restore' or (beside and mode=='post'):checks.equal(depth_region(.44,.56,.2,.34)>200,mode=='restore',case+': third mesh observes the post-phase null or restored depth')
  if hunting:checks.equal(colored_pixels(screen,(255,0,255)),5516 if mode=='pink' else 0,case+': compatible pipeline preserves marking and clear restoration')
  if filtered:checks.equal(colored_pixels(screen,(255,0,255)),5516 if matched and mode=='active' else 0 if matched else 902 if mode=='active' else 4614,case+': current shader selection survives unbind and next draw refreshes the actual depth filter')
  elif shader:checks.equal(colored_pixels(screen,(255,0,255)),5516,case+': compatible pipeline preserves selected replacement shader')

@@ -1,6 +1,14 @@
 # EFMI Vulkan - Tasks
 
 
+## D-262 verified; continue merged-skeleton output events (2026-11-15)
+
+- D-261 committed and main fast-forwarded as afd05af. BUG-124 baseline d262-before.out on the initial 2.8.9/f910 pair (same output executor): 21/24. Beside-original control retains 6418 original depth pixels and 1152 independent moved Mod depth pixels. Adding oD=null refuses the Mod and leaves all 6418 original depth pixels instead of 5516. Both exits and core/sync validation are clean, with complete fenced color/depth readbacks.
+- Original HackerContext.cpp3154 preserves BeforeDraw, caller, AfterDraw order; CommandList.cpp10094/10112 changes one output while retaining the others. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order. The Vulkan plan now retains the true pre/post position among accepted draw markers and output events. The executor prepares every target/variant and validates the whole draw transaction, then emits the original indexed caller once at that boundary. Original geometry and the occupied private descriptor slot are restored before that caller. Transient output order stays outside mesh/material cache keys.
+- Source 2.9.0 / ABI f9104b7b1d2fa5de: d262-pair.out fully builds tracker/layer/backend; tracker 713 and four matching stamps pass. d262-focused.out passes 40/40 with independent pre-Mod, original and post-Mod color/depth regions: pre-null suppresses current depth, post-null preserves original depth, and post restoration re-enables the third mesh. Final d262-regression.out mod-output-beside passes beside117, interleaved159, merged/texture14, tracker713, validation76 and text656. The added empty-prefix/post-only mesh case passes14/14 separately in d262-empty-post.out, proving the caller at output position zero. Normal exits, complete fenced readbacks and clean core/sync validation; module exchange is completed, not merely requested.
+- Continue merged-skeleton output events. build/d263-before.py is prepared to add oD=null inside the generic fixture's component draw list while retaining the separate texture Mod as a control. Run it after these processes exit before changing that executor. Transparent output events and broader pass/resolve/persistent-image/queue adapters remain open. No deployment, game, launcher, system or remote action; root deployment remains historical.
+
+
 ## D-261 verified; continue output events beside the original draw (2026-11-15)
 
 - D-260 committed and main fast-forwarded as e2b4722. BUG-123 baseline d261-before.out on 2.8.8/f910: 11/12 checks. Selected hunting skip still leaves 902 Mod pixels; clearing selection restores 6418. Both sandbox captures have clean core/sync validation. The existing fixture uses controlled process termination, not a claimed normal exit.

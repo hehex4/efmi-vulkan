@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-261. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-262. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -270,7 +270,7 @@ notices while playing; whether any game pipeline has no module hash (inline modu
    D-198/D-199 retain and bind application buffers with persistent context semantics;
    D-200/D-201 add published file buffers, null descriptors and sampled 2D file images.
    D-206 adds guarded retained application sampled images; D-209 adds sampled file arrays/cubes. D-219/D-222 add private writable compute file buffers/images. General cross-queue hazards
-   still need an adapter. D-238 through D-250 implement guarded dynamic/classic color and depth/stencil destinations; D-251/D-252 preserve Mod interfaces and actual depth filters. D-256/D-257 execute outputs inside ordinary own-mesh Mod lists, including changes between draws. D-258 surrounds texture-only application geometry with its ordered outputs; D-259 executes output-only matched pre/post lists without private mesh or image allocations. Broader pass/resolve/persistent-image scopes and other Mod execution routes remain work.
+   still need an adapter. D-238 through D-250 implement guarded dynamic/classic color and depth/stencil destinations; D-251/D-252 preserve Mod interfaces and actual depth filters. D-256/D-257 execute outputs inside ordinary own-mesh Mod lists, including changes between draws. D-258 surrounds texture-only application geometry with its ordered outputs; D-259 executes output-only matched pre/post lists without private mesh or image allocations; D-262 preserves the caller between ordered pre/post Mod draws and output events. Broader pass/resolve/persistent-image scopes and other Mod execution routes remain work.
 3. D-202 exports completed GPU buffers/images; D-203 adds vertex/index allocation data and per-draw
    metadata. Scope is new one-time recordings, one application queue, synchronization2 disabled,
    transfer-source resources and supported owned layouts. Broader capture synchronization remains work.
@@ -1061,3 +1061,9 @@ Tracker cases directly cover hidden pre/post output changes and invalid hidden d
 Matched component and ordinary-mesh planning receive the current hunting flag. The original DrawCommand bridge already skips explicit draws before argument evaluation; the planner now also suppresses the implicit caller, including a Core request to keep that caller. Resource and variable commands still execute in their original phases. Clearing selection restores the normal keep-original decision.
 
 Owned GPU scenes verify an ordinary replacement mesh disappears with the selected shader and returns when selection clears, with complete image readbacks and clean validation. CPU checks cover both list phases, invalid hidden draw arguments, separate handling/hunting flags and native keep-original precedence. Hidden merged-character GPU acceptance and real-game acceptance remain separate.
+
+## Output events beside the application draw (D-262)
+
+Ordinary Mod meshes can change outputs while retaining the application draw. The planner preserves the exact pre/post boundary even when an empty draw is omitted. All targets and compatible variants are prepared before recording, and the original indexed call runs once at that boundary with its geometry and descriptor state restored. Post-list output changes therefore affect only work that follows them. Geometry/material caches remain independent of output events.
+
+Independent original, pre-Mod and post-Mod regions verify depth null/restoration and call order. Interleaved and empty draws, both entries, RenderPass2 and completed module exchange are checked. Shader post lists provide the post-phase cases because the original does not revisit a matched index section after that section changes its index buffer. Merged-skeleton and transparent output adapters remain separate work; this is sandbox evidence only.

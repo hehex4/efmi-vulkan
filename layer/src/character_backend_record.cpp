@@ -329,8 +329,10 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                     // the package comes up.
                     if (!on_device) { bring_up(); return false; }
                     if (found == device->pipes.end() || !found->second.recipe || !found->second.layout) return false;
-                    record_own_mesh(cb, r, found->second, section_index, present, runtime_list);
-                    return false;
+                    const bool emitted=record_own_mesh(cb, r, found->second, section_index, present, runtime_list);
+                    // With output events, the executor already emitted the application
+                    // draw at its exact pre/post boundary.
+                    return emitted && !scratch_outputs.items.empty();
                 }
                 if (!on_device) return bring_up();
                 if (!skip) {
@@ -1143,6 +1145,9 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     // Output changes and every draw are prepared before recording the first pass split.
     // record() already holds res_mx; retained owners outlive the generation and its caches.
     std::vector<size_t> output_before;
+    const bool caller_in_outputs=!scratch_outputs.items.empty() && !scratch_outputs.skip_original;
+    if(caller_in_outputs && (r.kind!=DK_INDEXED || !draw.CmdDrawIndexed || scratch_outputs.pre_items>scratch_outputs.items.size()))
+        return refuse(C_STATE,"a Mod's ordered application caller is incomplete");
     if(!scratch_outputs.items.empty()){
         for(size_t i=0;i<scratch_outputs.items.size();++i)
             if(scratch_outputs.items[i].operation==efmi::assets::FileOperation::DrawIndexed)output_before.push_back(i);
@@ -1274,21 +1279,38 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), previous, original, true))
         return refuse(C_VARIANT, "a Mod's own mesh: draw transaction refused");
     size_t output_next=0;
+    bool private_pending=false,caller_recorded=false;
+    auto restore_private=[&]{
+        if(restore_layout && private_pending){
+            draw.CmdBindDescriptorSets(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,restore_layout,restore_slot,1,&restore_set,
+                                       static_cast<uint32_t>(restore_offsets.size()),restore_offsets.empty()?nullptr:restore_offsets.data());
+            ++counters[C_SET3_RESTORED];private_pending=false;
+        }
+    };
+    auto caller_at_boundary=[&]{
+        if(caller_in_outputs && !caller_recorded && output_next==scratch_outputs.pre_items){
+            restore_private();
+            draw.CmdDrawIndexed(cb->handle,r.count,r.instances,r.first,r.vertex_offset,r.first_instance);
+            caller_recorded=true;
+        }
+    };
+    auto advance_outputs=[&](size_t end){
+        while(output_next<end){caller_at_boundary();record_native_target(device,cb,targets,output_next++);}
+        caller_at_boundary();
+    };
     if(output_before.empty()){
         emit_variant_draws(draw,cb->handle,items.data(),items.size(),previous,original);
+        private_pending=true;
     }else for(size_t i=0;i<items.size();++i){
-        while(output_next<output_before[i])record_native_target(device,cb,targets,output_next++);
+        advance_outputs(output_before[i]);
         ++output_next; // The accepted draw marker has no output event.
         // Every split restores the selected application's compatible handle for this draw.
         const VkPipeline restore=cb->gfx_bound?cb->gfx_bound:previous;
         emit_variant_draws(draw,cb->handle,&items[i],1,restore,original);
+        private_pending=true;
     }
-    if (restore_layout) {
-        draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
-                                   static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
-        ++counters[C_SET3_RESTORED];
-    }
-    while(output_next<targets.events.size())record_native_target(device,cb,targets,output_next++);
+    restore_private();
+    advance_outputs(targets.events.size());
     ++counters[C_OWN_MESH];
     if (origin) ++counters[origin == 1 ? C_DERIVED : C_INHERITED];
     counters[C_ITEMS] += list.count;

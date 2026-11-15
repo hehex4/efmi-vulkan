@@ -1093,11 +1093,11 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         if (!runtime_->draw(request, plan, reason)) return false;
         bool ordered_outputs=false;
         if(outputs){
-            bool drawn=false,translucent=false;
+            bool translucent=false;
             for(const auto& item:plan.items){
                 using Op=efmi::assets::FileOperation;
                 if(item.operation==Op::DrawIndexed || item.operation==Op::Translucent){
-                    drawn=true;translucent|=item.operation==Op::Translucent;
+                    translucent|=item.operation==Op::Translucent;
                 }else if(item.operation==Op::NativeBind){
                     using B=efmi::frontend::NativeBinding;
                     if(item.native_target.kind!=B::ColorTarget && item.native_target.kind!=B::DepthTarget)
@@ -1105,8 +1105,8 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                     ordered_outputs=true;
                 }
             }
-            if(ordered_outputs && (translucent || (!plan.skip_original && drawn)))
-                throw std::runtime_error("Mod output events require an ordinary hiding mesh or texture-only plan");
+            if(ordered_outputs && translucent)
+                throw std::runtime_error("Translucent Mod output events need their capture executor");
         }
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
         listing.p = this; listing.began = std::chrono::steady_clock::now();
@@ -1193,7 +1193,10 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
         const bool own_bones = request.component == UINT32_MAX;
         auto& signature = scratch_signature_; signature.clear();
         signature.push_back(own_bones ? 'P' : 'C');
-        for (const auto& item : plan.items) {
+        if(ordered_outputs){outputs->skip_original=plan.skip_original;outputs->pre_items=SIZE_MAX;}
+        for (size_t source_item=0;source_item<plan.items.size();++source_item) {
+            if(ordered_outputs && source_item==plan.pre_items)outputs->pre_items=outputs->items.size();
+            const auto& item=plan.items[source_item];
             using Op = efmi::assets::FileOperation;
             if (item.operation == Op::BindPixelResource) {
                 if (item.application_slot >= 0) {
@@ -1424,10 +1427,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 draws.push_back(bound);
                 // Only accepted draws get markers: a skipped invalid/empty mesh must not shift
                 // later output commands onto another draw. Geometry stays in the cached list.
-                if(ordered_outputs){
-                    if(draws.size()==1)outputs->pre_items=outputs->items.size();
-                    outputs->items.push_back(item);
-                }
+                if(ordered_outputs)outputs->items.push_back(item);
                 if (material_count == material.size()) material.emplace_back();
                 auto& slots = material[material_count++]; slots.clear();
                 for (const auto& pixel : pixels) slots.push_back({pixel.first, pixel.second});
@@ -1446,6 +1446,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
             } else if(item.operation==Op::NativeBind && outputs)outputs->items.push_back(item);
             else throw std::runtime_error("Unresolved runtime native operation");
         }
+        if(ordered_outputs && outputs->pre_items==SIZE_MAX)outputs->pre_items=outputs->items.size();
         if(outputs && !outputs->items.empty() && draws.empty())
             throw std::runtime_error("Mod output events require an emitted mesh draw");
         auto& id = scratch_id_; id.assign(signature.begin(), signature.end());
