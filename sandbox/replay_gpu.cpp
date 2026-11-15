@@ -308,12 +308,27 @@ int wmain(int argc,wchar_t** argv){
             VkPipelineLayoutCreateInfo li={VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};li.flags=p.c.layout.flags;
             li.setLayoutCount=static_cast<uint32_t>(p.sets.size());li.pSetLayouts=p.sets.data();
             CHECK_VK(pCreatePipelineLayout(g.device,&li,nullptr,&p.layout));
-            CHECK_VK(p.c.recipe.render_pass->create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.pass));
             auto replay=*p.c.recipe.render_pass;
             for(auto& a:replay.attachments){
                 a.loadOp=a.stencilLoadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;a.storeOp=a.stencilStoreOp=VK_ATTACHMENT_STORE_OP_STORE;
                 a.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;a.finalLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
             }
+            // These owned targets replace the capture's original image barriers. Make their
+            // initial transitions wait for earlier writes and the staged semaphore waits.
+            for(uint32_t sub=0;sub<replay.subpasses.size();++sub){
+                VkSubpassDependency2 before={VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
+                before.srcSubpass=VK_SUBPASS_EXTERNAL;before.dstSubpass=sub;
+                before.srcStageMask=VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                before.dstStageMask=VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+                before.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
+                before.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                replay.dependencies.push_back(before);
+            }
+            auto compatible=*p.c.recipe.render_pass;
+            compatible.dependencies=replay.dependencies;
+            CHECK_VK(compatible.create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.pass));
             CHECK_VK(replay.create(g.device,pCreateRenderPass,pCreateRenderPass2,&p.replay));
             // The same pass for a later instance: depth and stencil as the earlier instance left them.
             for(auto& a:replay.attachments)if(depth_format(a.format)){
@@ -591,7 +606,14 @@ int wmain(int argc,wchar_t** argv){
             }
             end_pass();
             cb=halves_cb[1];
-            if(f+1==frames)
+            if(f+1==frames){
+                // EndRenderPass also writes through final layout transitions. Order all completed
+                // target writes before the final transfer readback, including unused attachments.
+                VkMemoryBarrier readback_ready={VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+                readback_ready.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;
+                readback_ready.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
+                pCmdPipelineBarrier(cb,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                    0,1,&readback_ready,0,nullptr,0,nullptr);
                 for(auto& item:groups)for(uint32_t a=0;a<item.second.targets.size();++a){
                     auto& t=item.second.targets[a];const uint32_t bytes=texel_bytes(t.format);if(!bytes)continue;
                     auto b=g.readback(size_t(W)*H*bytes);
@@ -601,6 +623,7 @@ int wmain(int argc,wchar_t** argv){
                     pCmdCopyImageToBuffer(cb,t.image,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,b.buffer,1,&copy);
                     readbacks.push_back(b);readback_of.push_back({item.first,a});
                 }
+            }
             {
                 // The presented image: cleared and handed to the presentation engine.
                 VkImageMemoryBarrier b={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.image=swap.images[image];
@@ -679,5 +702,5 @@ int wmain(int argc,wchar_t** argv){
     }catch(const std::exception& error){++failed;printf("FAIL: %s\n",error.what());}
     printf("replay: %u draws per frame, %u frames, %d failed; validation errors=%u warnings=%u\n",
            drawn,frames,failed,validation_errors.load(),validation_warnings.load());
-    return failed?1:0;
+    return failed || validation_errors.load()?1:0;
 }

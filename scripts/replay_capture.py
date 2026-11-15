@@ -435,7 +435,7 @@ def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation
             shutil.copy2(item, folder / "settings" / item.name)
     extra = dict(EFMI_VK_M2_MODS=str(MODS), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(folder / "settings"),
                  EFMI_VK_M2_ENABLED="1" if enabled else "0", EFMI_VK_M2_DIMENSION_ZERO=dimension_policy() or "off",
-                 VK_LAYER_PATH=os.pathsep.join([str(dist), str(validation)]), XDG_CACHE_HOME=str(folder),
+                 VK_LAYER_PATH=os.pathsep.join([str(dist), str(validation)]), VK_LAYER_VALIDATE_SYNC="1", XDG_CACHE_HOME=str(folder),
                  TEMP=str(folder), TMP=str(folder), TMPDIR=str(folder))
     if gpu_bones is not None:
         extra["EFMI_VK_M2_GPU_BONES"] = "1" if gpu_bones else "0"

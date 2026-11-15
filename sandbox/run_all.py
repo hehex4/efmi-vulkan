@@ -252,6 +252,7 @@ GROUPS = {
     "bones": ["bones across recordings", "bone regions reused", "two queues, bones", "CPU skeleton import", "captured shader rewrite corpus"],
     "shader-corpus": ["captured shader rewrite corpus"],
     "replay": ["captured frame"],
+    "replay-readback": ["captured frame with a library call", "captured frame on two queues, bones on the GPU and the CPU", "text check"],
     "textures": ["texture first-use", "live INI rendering", "character replacement", "full card", "Mods folder"],
     "submission": ["two queues, bones", "bone regions reused", "probe end to end", "Vulkan validation", "live INI rendering"],
     "ini": ["INI", "frontend host", "declarations", "registers", "Core facts", "texture roles", "texture properties", "offline plans",
