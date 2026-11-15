@@ -41,6 +41,26 @@ bool absent_output(const CmdBuf* cb,const efmi::frontend::NativeBinding& binding
 bool null_output(const efmi::assets::FilePlanItem& item){
     return !item.resource && (!item.native_resource || !item.native_resource->bound);
 }
+bool buffer_destination(const efmi::frontend::NativeBinding& target,const DrawRec& draw){
+    using Kind=efmi::frontend::NativeBinding;
+    if(target.kind==Kind::Constant)return true;
+    if(target.kind!=Kind::Resource || target.set>=kMaxSets)return false;
+    const auto& bound=draw.sets[target.set];
+    if(bound.unsupported || !bound.layout || target.set>=bound.layout->sets.size())return false;
+    const auto& layout=bound.layout->sets[target.set];
+    if(!layout || !layout->complete)return false;
+    const auto found=layout->bindings.find(target.binding);
+    if(found==layout->bindings.end() || target.element>=found->second.count)return false;
+    // A proven buffer slot cannot introduce an attachment alias, even when null.
+    // Descriptor preflight still proves pipeline compatibility, resource kind,
+    // ownership and access ordering before any commands are emitted.
+    switch(found->second.type){
+    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+    case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:return true;
+    default:return false;
+    }
+}
 
 VkImageAspectFlags depth_aspects(VkFormat format){
     switch(format){
@@ -151,14 +171,11 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(native_output_binding(item.native_target)){
             no_op[i]=null_output(item) && !(written&(1u<<slot(item.native_target))) && absent_output(cb,item.native_target);
             needed|=!no_op[i];
-        // Constant-buffer assignments cannot change image aliases. Their layout
-        // type, resource kind, range and ordering are still checked by the
-        // descriptor preflight before any output or descriptor command is emitted.
-        }else if(item.native_target.kind!=efmi::frontend::NativeBinding::Constant)mixed=true;
+        }else if(!buffer_destination(item.native_target,draw))mixed=true;
     }
     if(!needed){output=std::move(next);return true;}
     auto refuse=[&](const char* reason){why=reason;return false;};
-    if(mixed)return refuse("Mixed output and non-constant descriptor changes need sequential alias preparation");
+    if(mixed)return refuse("Mixed output and image or unknown descriptor changes need sequential alias preparation");
     if(!cb->in_rp || cb->secondary || cb->inherited_rp || !cb->execution_scopes.splittable())
         return refuse("Native output pass splitting requires a primary with no active query or transform feedback");
     if(device->synchronization2_enabled || device->application_queue_count!=1 || device->material_queues.size()!=1)

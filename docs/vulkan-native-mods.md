@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-271. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-272. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1105,3 +1105,7 @@ A retained complete EFMITTL layer continues to capture and composite when its sc
 ## Constants beside output changes (D-271)
 
 Native lists may interleave constant-buffer assignments and supported output changes. The full list is validated before recording commands; descriptor type, range, retained ownership and graphics dependencies remain required. Published file uniforms and retained application uniforms work with dynamic and supported classic passes. Thirteen GPU scenes cover order, typed rejection, visible file data and sandbox module exchange. Mixed image bindings still require an alias-aware adapter.
+
+## Buffer SRVs beside output changes (D-272)
+
+SRV assignments to proven buffer descriptor slots may interleave with supported output changes. Published read-only buffers and null buffers keep their existing ownership, publication and device-feature requirements. Whole-list preflight still rejects incompatible layout kinds, incomplete file elements and untracked graphics access to application writable buffers. Sixteen GPU scenes cover visible data, ordering, dynamic/classic passes, pushed descriptors and sandbox module exchange. Image descriptor mixtures still require a separate proof or adapter.
