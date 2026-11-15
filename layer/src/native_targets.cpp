@@ -42,42 +42,6 @@ bool absent_output(const CmdBuf* cb,const efmi::frontend::NativeBinding& binding
 bool null_output(const efmi::assets::FilePlanItem& item){
     return !item.resource && (!item.native_resource || !item.native_resource->bound);
 }
-bool buffer_destination(const efmi::frontend::NativeBinding& target,const DrawRec& draw){
-    using Kind=efmi::frontend::NativeBinding;
-    if(target.kind==Kind::Constant)return true;
-    if(target.kind!=Kind::Resource || target.set>=kMaxSets)return false;
-    const auto& bound=draw.sets[target.set];
-    if(bound.unsupported || !bound.layout || target.set>=bound.layout->sets.size())return false;
-    const auto& layout=bound.layout->sets[target.set];
-    if(!layout || !layout->complete)return false;
-    const auto found=layout->bindings.find(target.binding);
-    if(found==layout->bindings.end() || target.element>=found->second.count)return false;
-    // Buffer slots are eligible; the backing-memory check below still proves independence.
-    // Descriptor preflight still proves pipeline compatibility, resource kind,
-    // ownership and access ordering before any commands are emitted.
-    switch(found->second.type){
-    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
-    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
-    case VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:return true;
-    default:return false;
-    }
-}
-bool independent_descriptor(const efmi::assets::FilePlanItem& item,const DrawRec& draw){
-    if(buffer_destination(item.native_target,draw))return true;
-    const auto& resource=item.native_resource;
-    // Clearing an SRV introduces no image alias. The descriptor preflight still
-    // validates the actual slot and the device's enabled nullDescriptor feature.
-    if(item.native_target.kind==efmi::frontend::NativeBinding::Resource && !item.resource &&
-       (!resource || !resource->bound))return true;
-    // Published read-only files own allocations that cannot be application
-    // attachments. Their descriptor preflight and publication waits remain required.
-    return item.native_target.kind==efmi::frontend::NativeBinding::Resource && resource &&
-        resource->bound && resource->keep && resource->uploaded_readonly && !resource->uploaded_mutable &&
-        !resource->buffer && resource->image && resource->image_view &&
-        (resource->usage&VK_IMAGE_USAGE_SAMPLED_BIT) &&
-        !(resource->usage&(VK_IMAGE_USAGE_STORAGE_BIT|VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT|VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT));
-}
-
 VkImageAspectFlags depth_aspects(VkFormat format){
     switch(format){
     case VK_FORMAT_D16_UNORM:case VK_FORMAT_X8_D24_UNORM_PACK32:case VK_FORMAT_D32_SFLOAT:return VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -126,14 +90,22 @@ void continue_targets(RenderTargets& targets){
     if(targets.has_depth && targets.depth.imageView)targets.depth.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
     if(targets.has_stencil && targets.stencil.imageView)targets.stencil.loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
 }
-std::shared_ptr<NativeImageState> target_images(const CmdBuf* cb,const RenderTargets& targets){
-    if(!cb->native_image_state)return {};
-    auto images=std::make_shared<NativeImageState>(*cb->native_image_state);images->attachments.clear();images->attachments_known=true;
+std::shared_ptr<NativeImageState> target_images(const RenderTargets& targets){
+    auto images=std::make_shared<NativeImageState>();images->attachments_known=true;
     for(size_t slot=0;slot<targets.dynamic_colors.size();++slot)
         if(targets.dynamic_colors[slot].imageView)images->attachments.insert(targets.views[2*slot].image.id);
     if(targets.has_depth && targets.depth.imageView)images->attachments.insert(targets.views[2*targets.dynamic_colors.size()].image.id);
     if(targets.has_stencil && targets.stencil.imageView)images->attachments.insert(targets.views[2*(targets.dynamic_colors.size()+size_t(targets.has_depth))].image.id);
     return images;
+}
+void continue_images(CmdBuf* cb,const std::shared_ptr<NativeImageState>& next){
+    // Descriptor preparation/recording follows target preflight. Transfer the live
+    // requests at emission time, never overwrite them with an earlier snapshot.
+    if(cb->native_image_state){
+        next->active=cb->native_image_state->active;
+        next->required=cb->native_image_state->required;
+    }
+    cb->native_image_state=next;
 }
 VkImageMemoryBarrier transition(const NativeTargetState::Saved& saved,VkImageLayout before,VkImageLayout after){
     VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};barrier.image=saved.view.view.image;
@@ -147,21 +119,9 @@ void layout(CmdBuf* cb,const NativeTargetState::Saved& saved,VkImageLayout value
     auto range=saved.view.view.range;range.levelCount=range.layerCount=1;
     cb->image_layouts.set(saved.view.image.id,saved.view.image.levels,saved.view.image.layers,range,value);
 }
-bool planned_memory_conflict(Device* device,VkImage image,const ImageInfo& info,const efmi::assets::FilePlan& plan,std::string& why){
-    if(!image)return false;
-    for(const auto& item:plan.items){
-        if(item.operation!=efmi::assets::FileOperation::NativeBind || native_output_binding(item.native_target) || !item.native_resource)continue;
-        const auto& resource=*item.native_resource;if(!resource.bound)continue;
-        if(resource.keep && (resource.uploaded_readonly || resource.uploaded_mutable))continue;
-        if(!resource.memory){why="Native pending descriptor memory identity is unavailable";return true;}
-        if(resource.image==uint64_t(image) || native_memory_overlap(native_memory(info),native_memory(resource),device->physical_properties.limits.bufferImageGranularity)){
-            why="Native pending descriptor overlaps preserved output memory";return true;
-        }
-    }
-    return false;
-}
 bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,
                          VkImage image,const ImageInfo& info,std::string& why){
+    if(!image)return false;
     const auto target=native_memory(info);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
     auto conflict=[&](const NativeMemoryRange& input){
         if(!input.memory){why="Native output input memory identity is unavailable";return true;}
@@ -180,6 +140,25 @@ bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efm
         if(found==device->bufs.end() || (id && found->second.id!=id)){why="Native output buffer identity is unavailable";return true;}
         return conflict(native_memory(found->second));
     };
+    auto element_conflict=[&](const DescriptorElement& value){
+        if(value.native && resource_conflict(*std::static_pointer_cast<const Resource>(value.native)))return true;
+        if(value.native_request && resource_conflict(*std::static_pointer_cast<const Resource>(value.native_request)))return true;
+        if(!value.buffer && !value.buffer_view && !value.image_view)return false;
+        if(!value.known){why="Native output descriptor identity is unavailable";return true;}
+        if(value.native)return false; // Its retained allocation survives logical destruction.
+        if(value.buffer_view){
+            const auto view=device->buffer_views.find(value.buffer_view);
+            if(view==device->buffer_views.end() || view->second.id!=value.buffer_view_id){why="Native output texel view identity is unavailable";return true;}
+            return buffer_conflict(view->second.buffer,view->second.buffer_id);
+        }
+        if(value.buffer)return buffer_conflict(value.buffer,value.buffer_id);
+        const auto view=device->image_views.find(value.image_view);
+        if(view==device->image_views.end() || view->second.id!=value.image_view_id){why="Native output descriptor image identity is unavailable";return true;}
+        if(view->second.image==image){why="Native output destination overlaps a bound descriptor";return true;}
+        const auto input=device->images.find(view->second.image);
+        if(input==device->images.end() || input->second.id!=view->second.image_id){why="Native output sampled image identity is unavailable";return true;}
+        return conflict(native_memory(input->second));
+    };
     for(const auto& bound:cb->sets){
         if(!bound.set && !bound.pushed)continue;
         const DescriptorSetInfo* contents=bound.pushed.get();
@@ -187,25 +166,15 @@ bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efm
         if(!contents && found!=device->descriptor_sets.end() && found->second.id==bound.id)contents=&found->second;
         if(!contents || bound.unsupported || contents->unsupported){why="Native output descriptor alias context is unavailable";return true;}
         for(const auto& entry:contents->values){const auto& value=entry.second;
-            if(!value.buffer && !value.buffer_view && !value.image_view)continue;
-            if(!value.known){why="Native output descriptor identity is unavailable";return true;}
-            if(value.native){
-                if(resource_conflict(*std::static_pointer_cast<const Resource>(value.native)))return true;
-            }else if(value.buffer_view){
-                const auto view=device->buffer_views.find(value.buffer_view);
-                if(view==device->buffer_views.end() || view->second.id!=value.buffer_view_id){why="Native output texel view identity is unavailable";return true;}
-                if(buffer_conflict(view->second.buffer,view->second.buffer_id))return true;
-            }else if(value.buffer){
-                if(buffer_conflict(value.buffer,value.buffer_id))return true;
-            }else{
-                const auto view=device->image_views.find(value.image_view);
-                if(view==device->image_views.end() || view->second.id!=value.image_view_id){why="Native output descriptor image identity is unavailable";return true;}
-                if(view->second.image==image){why="Native output destination overlaps a bound descriptor";return true;}
-                const auto input=device->images.find(view->second.image);
-                if(input==device->images.end() || input->second.id!=view->second.image_id){why="Native output sampled image identity is unavailable";return true;}
-                if(conflict(native_memory(input->second)))return true;
-            }
+            if(element_conflict(value))return true;
+            // Suspended requests and the application fallback remain future inputs.
+            if(value.application && element_conflict(*value.application))return true;
         }
+    }
+    // Layout restoration is an access even after its descriptor has been replaced.
+    if(cb->native_image_state)for(const auto& cell:cb->native_image_state->active.cells){
+        if(!cell.second.resource){why="Native image restoration resource is unavailable";return true;}
+        if(resource_conflict(*cell.second.resource))return true;
     }
     // Include future assignments before emitting the first event, in either command order.
     for(const auto& item:plan.items)if(item.operation==efmi::assets::FileOperation::NativeBind &&
@@ -218,7 +187,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
                             NativeTargetCache* cache,bool resource_lock_held)
 {
     using Operation=efmi::assets::FileOperation;
-    NativeTargetPlan next;next.events.resize(plan.items.size());bool needed=false,mixed=false;
+    NativeTargetPlan next;next.events.resize(plan.items.size());bool needed=false;
     std::vector<bool> no_op(plan.items.size());uint32_t written=0;
     auto slot=[](const efmi::frontend::NativeBinding& binding){
         return binding.kind==efmi::frontend::NativeBinding::DepthTarget?(binding.slot?9u:8u):std::min(binding.slot,9u);
@@ -230,17 +199,14 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(native_output_binding(item.native_target)){
             no_op[i]=null_output(item) && !(written&(1u<<slot(item.native_target))) && absent_output(cb,item.native_target);
             needed|=!no_op[i];
-        }else if(!independent_descriptor(item,draw))mixed=true;
+        }
     }
     if(!needed){output=std::move(next);return true;}
     auto refuse=[&](const char* reason){why=reason;return false;};
-    if(mixed)return refuse("Mixed output and image or unknown descriptor changes need sequential alias preparation");
     if(!cb->in_rp || cb->secondary || cb->inherited_rp || !cb->execution_scopes.splittable())
         return refuse("Native output pass splitting requires a primary with no active query or transform feedback");
     if(device->synchronization2_enabled || device->application_queue_count!=1 || device->material_queues.size()!=1)
         return refuse("Native output destinations require one application queue and legacy synchronization");
-    if(cb->native_images || (cb->native_image_state && !cb->native_image_state->active.cells.empty()))
-        return refuse("Native output changes with persistent image bindings need an alias restoration adapter");
     if(!cb->active_targets || cb->active_targets>cb->target_contexts.size())return refuse("Native output context is unavailable");
     auto targets=cb->target_contexts[cb->active_targets-1];const bool classic=!targets.dynamic;
     if(classic && !classic_context(targets,why))return false;
@@ -305,10 +271,10 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         return refuse("Native output pipeline stencil contract is unavailable");
     // Existing outputs and restoration storage also survive output-only/null events.
     // A future descriptor must not overwrite their retained contents in either order.
-    for(const auto& active:targets.views)if(active.known && planned_memory_conflict(device,active.view.image,active.image,plan,why))return false;
-    for(const auto& source:next.state->colors)if(planned_memory_conflict(device,source.original_image,source.original_storage,plan,why))return false;
-    if(planned_memory_conflict(device,next.state->depth.original_image,next.state->depth.original_storage,plan,why))return false;
-    for(const auto& saved:next.state->restore)if(planned_memory_conflict(device,saved.second.view.view.image,saved.second.view.image,plan,why))return false;
+    for(const auto& active:targets.views)if(active.known && descriptor_conflict(device,cb,draw,plan,active.view.image,active.image,why))return false;
+    for(const auto& source:next.state->colors)if(descriptor_conflict(device,cb,draw,plan,source.original_image,source.original_storage,why))return false;
+    if(descriptor_conflict(device,cb,draw,plan,next.state->depth.original_image,next.state->depth.original_storage,why))return false;
+    for(const auto& saved:next.state->restore)if(descriptor_conflict(device,cb,draw,plan,saved.second.view.view.image,saved.second.view.image,why))return false;
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || !native_output_binding(item.native_target) || no_op[i])continue;
         const auto& resource=item.native_resource;const bool empty=!resource || !resource->bound;
@@ -342,7 +308,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
                 if(targets.has_depth){targets.depth.imageView=VK_NULL_HANDLE;targets.views[depth_index]={};targets.views[depth_index+1]={};}
                 if(targets.has_stencil){targets.stencil.imageView=VK_NULL_HANDLE;targets.views[stencil_index]={};targets.views[stencil_index+1]={};}
             }else{targets.dynamic_colors[slot].imageView=VK_NULL_HANDLE;targets.views[view_index]={};targets.views[view_index+1]={};}
-            continue_targets(targets);event->images=target_images(cb,targets);
+            continue_targets(targets);event->images=target_images(targets);
             event->targets=targets;next.events[i]=std::move(event);continue;
         }
         if(depth && !targets.has_depth && !targets.has_stencil)
@@ -426,7 +392,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             if(targets.has_depth)publish(targets.depth,depth_index,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
             if(targets.has_stencil)publish(targets.stencil,stencil_index,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
         }else publish(targets.dynamic_colors[slot],view_index,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        continue_targets(targets);event->images=target_images(cb,targets);
+        continue_targets(targets);event->images=target_images(targets);
         event->targets=targets;next.events[i]=std::move(event);
     }
     if(lock.owns_lock())lock.unlock();
@@ -485,7 +451,7 @@ void record_classic_target(Device* device,CmdBuf* cb,const NativeTargetPlan& pla
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,count,barriers);
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());
-    cb->native_image_state=event->images;const auto& targets=cb->target_contexts.back();cb->native_graphics_ordered=true;
+    continue_images(cb,event->images);const auto& targets=cb->target_contexts.back();cb->native_graphics_ordered=true;
     state.private_pass=true;cb->pass.render_pass=event->classic->pass;cb->pass.framebuffer=event->classic->framebuffer;
     cb->pass.recipe=targets.recipe;cb->pass.info=targets.framebuffer;
     VkRenderPassBeginInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};info.renderPass=cb->pass.render_pass;
@@ -517,7 +483,7 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,barrier_count,barriers);
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());
-    cb->native_image_state=event->images;const auto& targets=cb->target_contexts.back();
+    continue_images(cb,event->images);const auto& targets=cb->target_contexts.back();
     cb->native_graphics_ordered=true;
     VkRenderingInfo info{VK_STRUCTURE_TYPE_RENDERING_INFO};info.renderArea=targets.area;info.layerCount=1;
     info.colorAttachmentCount=uint32_t(targets.dynamic_colors.size());info.pColorAttachments=targets.dynamic_colors.data();

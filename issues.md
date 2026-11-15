@@ -23,6 +23,12 @@ sufficient. Source inspection confirms the central problems, with these correcti
   captures establish observed behavior; they cannot prove future engine/device
   configurations will never use other API features. Shared mechanisms remain
   independent of character identity.
+  The review's descriptor-template claim is contradicted by the retained real-game
+  `captures/catalogue-20261019/vulkan/vk16/api-after.json`: 30,812,846 calls to
+  `vkUpdateDescriptorSetWithTemplate` and 409 template creations. That snapshot
+  also lists timeline and external Win32 semaphore extensions as enabled. Extension
+  enablement alone does not prove actual semaphore types, but a binary-only queue
+  assumption is not justified. These are historical facts, not a new game capture.
 - **I-03: shared resource transaction implemented in D-280 (3.0.8).**
   Baseline 3.0.7 ignores an explicit file constant on a matched own mesh (12/13).
   Matched merged, own-mesh, texture-only and application calls now share file,
@@ -32,11 +38,15 @@ sufficient. Source inspection confirms the central problems, with these correcti
   Geometry-specific mesh/capture work still has its own helpers. This does not
   provide automatic cross-slot mapping or application inputs relocated into the
   private merged/material interface; those remain I-06 work.
-- **I-04: confirmed structural limitation.** A classic pass boundary is a valid
-  place for barriers, but is not sufficient by itself: allocation aliases between
-  different objects, persistent descriptor requests and saved layout restoration
-  state must participate in the same transaction. D-275 through D-277 provide
-  storage/fallback checks that must survive this consolidation.
+- **I-04: pair whitelist and state handoff fixed in D-283 (3.1.1).** Baselines
+  pass 766/771 CPU checks and 2/5 GPU checks. One storage proof now includes live
+  and future inputs, suspended requests, saved fallbacks and pending layout
+  restoration against introduced and preserved outputs. Private pass splits
+  inherit live descriptor layout state at emission, preserving requests added
+  after preflight. The image/output scenes pass 29 checks, earlier file/buffer/null
+  combinations pass 53 and tracker checks pass 773. Same-storage read/write phase
+  changes needing new transitions still require sequential access planning; the
+  cross-queue boundary is unchanged. These are sandbox results only.
 - **I-05: reproduced waits fixed in D-278 (3.0.6).** `d278-before.out` on 3.0.5 passes
   17/20: cold merged/texture draws perform three pipeline waits and two texture
   waits; own-mesh draws perform one pipeline wait. These scenes otherwise render
@@ -111,7 +121,7 @@ From real-game probe captures and sessions (`docs/plan.md` Facts 1-3 and 17-25, 
 - **Command buffers**: Records a single frame across multiple primary command buffers (`4` submits, `2`+ command buffers per frame) and splits a single character's component draws across separate command buffers (`BUG-054`).
 - **Render passes**: Uses **classic `VkRenderPass` only** (`vkCmdBeginRenderPass` / `vkCmdEndRenderPass`, `28` passes per frame, subpass `0`, `1` sample) with concrete `VkFramebuffer` objects. Uses **zero** Vulkan 1.3 dynamic rendering (`vkCmdBeginRendering`), **zero** `VK_KHR_imageless_framebuffer`, and **zero** multi-subpass pipelines.
 - **Pipelines and shader stages**: All observed graphics pipelines (`936`+ in capture sessions) use **two stages only** (`VK_SHADER_STAGE_VERTEX_BIT` + `VK_SHADER_STAGE_FRAGMENT_BIT`) plus compute (`VK_SHADER_STAGE_COMPUTE_BIT`). Uses **zero** geometry (`GS`) or tessellation (`HS`/`DS`) shaders, **zero** push constants, **zero** specialization constants, and **zero** `VK_EXT_vertex_input_dynamic_state` (dynamic state is limited to viewport, scissor, stencil reference, and depth bias).
-- **Descriptors**: Binds `3` or `4` ordinary `VkDescriptorSet` slots via `vkCmdBindDescriptorSets` with dynamic uniform/storage offsets, updated via `vkUpdateDescriptorSets`. Uses **zero** `vkCmdPushDescriptorSetKHR` and **zero** `vkUpdateDescriptorSetWithTemplate` on character and scene draws.
+- **Descriptors**: Binds ordinary `VkDescriptorSet` slots via `vkCmdBindDescriptorSets` with dynamic uniform/storage offsets. Both update paths matter: the historical catalogue API snapshot records 30,812,846 `vkUpdateDescriptorSetWithTemplate` calls and 409 template creations. The original assertion of zero template use was incorrect. Push descriptor use is not established by that snapshot.
 - **Presentation**: Uses frame generation in fullscreen (`BUG-036`, `BUG-092`), producing multiple `vkQueuePresentKHR` calls per rendered scene frame.
 
 ---

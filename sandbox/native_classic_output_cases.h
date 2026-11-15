@@ -64,7 +64,15 @@ static void native_classic_output_cases(){
     pass->subpasses.push_back(pass->subpasses[0]);check(!prepare(),"classic multi-subpass output needs its own split adapter");pass->subpasses.pop_back();
     d.image_views[views[1].handle].id++;check(!prepare() && output_commands.empty(),"classic cache reuse still proves the destination's live view identity");d.image_views[views[1].handle].id--;
     ready=prepare();check(ready,"classic valid plan recovers after refused preparation");if(!ready)return;
+    auto late=std::make_shared<Resource>();late->bound=true;late->keep=std::make_shared<int>(1);
+    late->image=9840;late->identity=0xabc2;late->memory=9841;late->memory_size=8192;
+    const NativeImagePlan::Key late_key{late->identity,0,0};
+    cb.native_image_state->active.cells[late_key]={late,0,0,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,false};
+    cb.native_image_state->active.layouts[late_key]=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    cb.native_image_state->required[late_key]=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     record_native_target(&d,&cb,prepared,0);VkImageLayout current=VK_IMAGE_LAYOUT_UNDEFINED;
+    check(cb.native_image_state && cb.native_image_state->active.cells.count(late_key) &&
+          cb.native_image_state->required.count(late_key),"classic output handoff retains late image transitions and original layout requirements");
     check(output_commands.size()==3 && classic_bound==cb.pass.framebuffer && cb.pass.recipe==cb.target_contexts.back().recipe,"classic private End, dependency and Begin publish the actual pass instance");
     check(cb.image_layouts.get(views[0].image.id,1,1,range,current) && current==VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,"first private End accounts for the original implicit final transition");
     check(mrt_image_barriers.size()==1 && mrt_image_barriers[0].oldLayout==VK_IMAGE_LAYOUT_GENERAL && mrt_image_barriers[0].newLayout==VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -77,6 +85,10 @@ static void native_classic_output_cases(){
     native_targets_end(&d,&cb);
     check(mrt_image_barriers.size()==1 && mrt_image_barriers[0].oldLayout==VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL &&
         mrt_image_barriers[0].newLayout==VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,"host classic End restores the original final layout after a private roundtrip");
+    native_images_end(&d,&cb);
+    check(mrt_image_barriers.size()==1 && mrt_image_barriers[0].image==VkImage(late->image) &&
+          mrt_image_barriers[0].oldLayout==VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL && mrt_image_barriers[0].newLayout==VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+          "final application End restores an independent image transition across both private output switches");
     prepared={};cache.classic.clear();check(classic_destroys==0 && classic_fb_destroys==0,"cache eviction keeps recorded private objects alive until completion");
     for(auto& owner:cb.owners)owner->reset_after_completion();check(classic_destroys==2 && classic_fb_destroys==2,"completion releases both retained pass/framebuffer pairs after cache eviction");
     cb.target_contexts={context};cb.active_targets=1;cb.native_target_state.reset();plan=saved;output_commands.clear();classic_fail_fb=true;

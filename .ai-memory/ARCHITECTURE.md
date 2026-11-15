@@ -10,6 +10,13 @@ historical `m2` hook/probe names remain for compatibility; EFMIM201 files cannot
 activate a runtime backend. Character packages and Mods folders keep their shared
 backend, while legacy mesh decoding survives only as an offline fixture utility.
 
+D-283 replaces output/descriptor type-pair whitelists with the full transaction's
+allocation-range proof. NativeTargetPlan events contain their new attachment scope;
+recording transfers current image requests and restoration cells at the actual
+split. Current/future descriptors, saved fallbacks, suspended requests and pending
+restoration accesses participate even when no longer visibly bound. Same-storage
+phase transitions and cross-queue accesses still require separate proof.
+
 D-279 routes native pipeline/image/target scope callbacks through the installed module.
 The host retains Vulkan pipeline handles and opaque implementation owners; native_state.h
 defines the shared recording/cache protocol. Private planner and pipeline layouts do not

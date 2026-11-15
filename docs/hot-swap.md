@@ -179,3 +179,10 @@ that installation root for configured/default Mods, Core and settings paths. Rel
 settings use the same base, independent of the process working directory or the replacement DLL's
 location. Validation tools still use the owned toolchain lookup. This adds no HostApi field and does
 not change the ABI stamp. Sandbox exchange is separate from an authorized real-game exchange.
+
+### D-283 output/image scope continuity
+
+3.1.1 retains ABI 134dd78b13c38aaa. A private output event no longer replaces live
+image layout requests with a snapshot taken before descriptor preparation.
+Classic image/output command lists, post ordering and a completed module exchange
+pass in the sandbox. The root deployment and real-game verification are unchanged.

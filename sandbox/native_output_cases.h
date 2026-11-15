@@ -65,6 +65,23 @@ static void native_output_cases()
         descriptors->values[{0,0}].native=retained;d.bufs.erase(buffer);
         check(!prepare(),"retained native buffer still conflicts after its application map entry is destroyed");
         retained->memory_offset=8192;check(prepare(),"retained disjoint buffer remains usable after logical destruction");
+        descriptors->values[{0,0}].native.reset();descriptors->values[{0,0}].buffer=VK_NULL_HANDLE;
+        descriptors->values[{0,0}].native_request=retained;retained->memory_offset=4096;
+        check(!prepare(),"suspended native request still protects its future input storage from output writes");
+        retained->memory_offset=8192;check(prepare(),"independent suspended request permits output switching");
+        descriptors->values[{0,0}].native_request.reset();
+        auto fallback=std::make_shared<DescriptorElement>();fallback->known=true;fallback->buffer=buffer;fallback->native=retained;
+        descriptors->values[{0,0}].application=fallback;retained->memory_offset=4096;
+        check(!prepare(),"saved application fallback retains its storage conflict even behind a null descriptor");
+        retained->memory_offset=8192;check(prepare(),"independent saved fallback permits output switching");
+        descriptors->values[{0,0}].application.reset();
+        cb.sets[0]={};cb.native_images=true;cb.native_image_state=std::make_shared<NativeImageState>();
+        auto restoring=std::make_shared<efmi::frontend::NativeResource>(*retained);restoring->image=9908;
+        restoring->buffer=0;restoring->memory_offset=4096;
+        cb.native_image_state->active.cells[{9908,0,0}]={restoring,0,0,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,false};
+        check(!prepare(),"pending layout restoration conflicts even when its descriptor is no longer bound");
+        restoring->memory_offset=8192;check(prepare(),"independent persistent images and restoration cells permit output switching");
+        cb.native_images=false;cb.native_image_state.reset();
         cb.sets[0]={};retained->memory_offset=4096;
         auto future=plan.items[0];future.native_target.kind=efmi::frontend::NativeBinding::Constant;future.native_resource=retained;
         plan.items.push_back(future);check(!prepare() && output_commands.empty(),"later constant assignment refuses the whole output list on memory overlap");
@@ -116,7 +133,14 @@ static void native_output_cases()
     auto extra=plan.items[0];extra.native_target.slot=1;plan.items.push_back(extra);
     check(!prepare() && output_commands.empty() && cb.active_targets==1 && !cb.native_target_state,"later invalid output event refuses the whole plan before any earlier event records");plan.items.pop_back();
     check(prepare(),"valid output plan remains available after refused attempts");
+    const NativeImagePlan::Key late_key{0xabc2,0,0};
+    cb.native_image_state=std::make_shared<NativeImageState>();
+    cb.native_image_state->active.layouts[late_key]=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    cb.native_image_state->required[late_key]=VK_IMAGE_LAYOUT_GENERAL;
     record_native_target(&d,&cb,prepared,0);VkImageLayout actual=VK_IMAGE_LAYOUT_UNDEFINED;
+    check(cb.native_image_state && cb.native_image_state->active.layouts.count(late_key) &&
+          cb.native_image_state->required.count(late_key) && cb.native_image_state->attachments.count(image.id),
+          "output recording preserves image requests added after target preflight and updates attachment scope");
     check(output_commands==std::vector<char>({'E','D','B'}) && output_view==handle && output_load==VK_ATTACHMENT_LOAD_OP_LOAD && cb.active_targets==2 &&
           cb.image_layouts.get(image.id,1,1,view.range,actual) && actual==VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
           "actual output switch ends stored source, orders hazards and begins a LOAD continuation on the new view");
