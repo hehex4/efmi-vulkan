@@ -67,12 +67,15 @@ struct NativeTargetPlan {
     std::shared_ptr<NativeTargetState> state;
     std::shared_ptr<CommandOwner> owner;
 };
-bool prepare_native_targets(Device*,CmdBuf*,const DrawRec&,const efmi::assets::FilePlan&,NativeTargetPlan&,std::string&,NativeTargetCache* = nullptr);
+bool prepare_native_targets(Device*,CmdBuf*,const DrawRec&,const efmi::assets::FilePlan&,NativeTargetPlan&,std::string&,NativeTargetCache* = nullptr,
+                            bool resource_lock_held = false);
 void record_native_target(Device*,CmdBuf*,const NativeTargetPlan&,size_t);
 void native_targets_end(Device*,CmdBuf*);
 // Resolve the exact selected stages, then adapt to an active private classic pass if needed.
 VkPipeline native_target_bind(Device*,CmdBuf*,VkPipeline);
 bool native_target_masked(const CmdBuf*);
-// Prepare and retain a Mod variant for the active pass without changing the application selection.
-VkPipeline native_target_variant(Device*,CmdBuf*,const PipelineVariant&,std::string&);
+// Prepare and retain a Mod variant for the active pass, or the pass after a prepared prefix,
+// without recording output changes or changing the application's selected shaders.
+VkPipeline native_target_variant(Device*,CmdBuf*,const PipelineVariant&,std::string&,
+                                 const NativeTargetPlan* future = nullptr,size_t before = 0);
 }

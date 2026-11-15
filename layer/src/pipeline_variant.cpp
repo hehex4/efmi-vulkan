@@ -338,7 +338,7 @@ bool emit_variant_draw(const VariantDispatch& d, VkCommandBuffer cmd, const Pipe
 }
 
 bool emit_variant_draws(const VariantDispatch& d, VkCommandBuffer cmd, const VariantDraw* items, size_t count,
-                        VkPipeline original_pipeline, const DrawGeometry& original)
+                        VkPipeline original_pipeline, const DrawGeometry& original,bool validate_only)
 {
     if (count > 256 || (count && !items) || !cmd || !original_pipeline || !geometry_ready(original) ||
         !d.CmdBindPipeline || !d.CmdBindVertexBuffers || !d.CmdBindIndexBuffer || !d.CmdBindDescriptorSets || !d.CmdDrawIndexed)
@@ -350,7 +350,7 @@ bool emit_variant_draws(const VariantDispatch& d, VkCommandBuffer cmd, const Var
             item.geometry->first_binding != original.first_binding || item.geometry->buffers.size() != original.buffers.size())
             return false;
     }
-    if (!count) return true;
+    if (!count || validate_only) return true;
     for (size_t i = 0; i < count; ++i) {
         const auto& item = items[i]; const auto& replacement = *item.geometry; const auto& draw = item.draw;
         d.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, item.compatible_pipeline ? item.compatible_pipeline : item.variant->pipeline);

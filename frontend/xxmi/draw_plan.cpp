@@ -1127,7 +1127,7 @@ struct DrawPlanAdapter::Runtime {
                 value.kind=SlotValue::Kind::Owned;value.owned=std::make_shared<const PlanItem::OwnedBuffer>(std::move(buffer));
             }else value.kind=SlotValue::Kind::Foreign;
         }
-        if(facts && facts().native_calls){
+        if(facts && (facts().native_calls || (facts().native_outputs && (id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget)))){
             PlanItem item;item.operation=PlanOperation::NativeBind;std::wstring why;
             if(!native_address || !native_address(id,item.native_target,why))
                 refuse_draw(why.empty()?L"Native resource assignment has no descriptor address":why);

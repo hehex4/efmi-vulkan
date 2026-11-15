@@ -135,7 +135,8 @@ bool descriptor_conflict(Device* device,CmdBuf* cb,VkImage image,std::string& wh
     return false;
 }
 }
-bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,NativeTargetPlan& output,std::string& why,NativeTargetCache* cache)
+bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,NativeTargetPlan& output,std::string& why,
+                            NativeTargetCache* cache,bool resource_lock_held)
 {
     using Operation=efmi::assets::FileOperation;
     NativeTargetPlan next;next.events.resize(plan.items.size());bool needed=false,mixed=false;
@@ -173,7 +174,8 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     if(cb->target_contexts.size()+plan.items.size()>4096)return refuse("Native output context budget exceeded");
     next.state=cb->native_target_state?std::make_shared<NativeTargetState>(*cb->native_target_state):std::make_shared<NativeTargetState>();
     const auto& proof=cb->image_layouts;
-    std::shared_lock<std::shared_mutex> lock(device->res_mx);
+    std::shared_lock<std::shared_mutex> lock(device->res_mx,std::defer_lock);
+    if(!resource_lock_held)lock.lock();
     const auto pipeline=device->pipes.find(draw.pipeline);
     const auto recipe=pipeline==device->pipes.end()?nullptr:pipeline->second.recipe;
     const size_t count=targets.dynamic_colors.size();const size_t depth_index=2*count,stencil_index=depth_index+2*size_t(targets.has_depth);
@@ -327,7 +329,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         continue_targets(targets);event->images=target_images(cb,targets);
         event->targets=targets;next.events[i]=std::move(event);
     }
-    lock.unlock();
+    if(lock.owns_lock())lock.unlock();
     if(classic){
         if(!next.state->compatibility){
             std::lock_guard<std::mutex> cache_lock(cache->mutex);
@@ -470,17 +472,27 @@ VkPipeline native_target_bind(Device* device,CmdBuf* cb,VkPipeline pipeline){
     if(!held)owner->pipelines.push_back(variant);
     cb->native_target_blocked=false;selected->bound=variant->pipeline;return variant->pipeline;
 }
-VkPipeline native_target_variant(Device* device,CmdBuf* cb,const PipelineVariant& source,std::string& why){
-    if(!native_target_masked(cb))return source.pipeline;
+VkPipeline native_target_variant(Device* device,CmdBuf* cb,const PipelineVariant& source,std::string& why,
+                                 const NativeTargetPlan* future,size_t before){
+    if(!cb)return source.pipeline;
+    auto state=cb->native_target_state;auto pass=cb->pass.recipe;
+    if(future)for(size_t i=0;i<std::min(before,future->events.size());++i){
+        const auto& event=future->events[i];
+        if(event && event->classic){state=future->state;pass=event->classic->recipe;}
+    }
+    if(!state || !state->classic || !pass || !state->classic_recipe || classic_mask(*pass)==classic_mask(*state->classic_recipe))return source.pipeline;
     NativePipelineSelection selected;selected.source=selected.bound=source.pipeline;
     selected.recipe=source.effective_recipe;selected.layout=source.effective_layout;
-    const auto variant=classic_pipeline(device,*cb->native_target_state,selected,cb->pass.recipe,why);
+    const auto variant=classic_pipeline(device,*state,selected,pass,why);
     if(!variant)return VK_NULL_HANDLE;
     auto owner=target_owner(cb);
     const bool held=std::find(owner->pipelines.begin(),owner->pipelines.end(),variant)!=owner->pipelines.end();
-    if(owner->sealed || (!held && owner->pipelines.size()>=4096)){
+    const size_t pending=future?future->events.size():0;
+    if(owner->sealed || owner->pipelines.size()+size_t(!held)+pending>4096){
         why="Native classic Mod pipeline retention budget or sealed recording";return VK_NULL_HANDLE;
     }
+    // Retaining this Mod clone must not consume the capacity reserved for later output events.
+    owner->pipelines.reserve(owner->pipelines.size()+size_t(!held)+pending);
     owner->used=true;if(!held)owner->pipelines.push_back(variant);return variant->pipeline;
 }
 bool native_target_masked(const CmdBuf* cb){

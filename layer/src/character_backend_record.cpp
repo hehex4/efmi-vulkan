@@ -3,6 +3,7 @@
 // draw made again with the Mod's textures, and the owned work submitted before the application's.
 #include "character_backend_internal.h"
 #include "native_targets.h"
+#include "native_resources.h"
 
 namespace efvk {
 // One captured call (D-113): its opacity set and parameter layer, the game's sets and dynamic
@@ -97,7 +98,9 @@ bool CharacterGeneration::plan_draw(const efmi::frontend::RuntimeDraw& request, 
         try { program->gpu()->begin_draw(); gpu = program->gpu().get(); } catch (const std::exception&) {}
     }
     phase("phase gpu begin");
-    const bool planned = program->plan(request, package, output, skip, added, reason, vertex, textures);
+    scratch_outputs.items.clear(); scratch_outputs.pre_items = 0;
+    const bool planned = program->plan(request, package, output, skip, added, reason, vertex, textures,
+                                      request.native_outputs ? &scratch_outputs : nullptr);
     phase("phase program plan (whole)");
     if (gpu && gpu->scope_active()) { try { gpu->suspend(); } catch (const std::exception&) {} }
     if (gpu && gpu->pending()) draw_work_waiting.store(true, std::memory_order_release);
@@ -284,6 +287,11 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 request.hash = section->hash; request.count = r.count; request.first = r.first;
                 request.base = r.vertex_offset; request.instances = r.instances; request.first_instance = r.first_instance;
                 request.mod = program->folder_index();
+                request.native_outputs = true;
+                request.native_resource = [this, cb, &r](const efmi::frontend::NativeBinding& binding,
+                    efmi::frontend::NativeResource& resource, std::string& why) {
+                    return native_output_resource_locked(device, cb, r, binding, resource, why);
+                };
                 request.frame = present; request.seconds = ini_seconds();
                 request.frame_seconds = frame_seconds.load(std::memory_order_relaxed);
                 request.pixel_texture = [this, &r](unsigned slot, efmi::frontend::RuntimeTexture& texture, std::string& why) {
@@ -1111,6 +1119,12 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
 {
     if (cb->secondary || !cb->in_rp || cb->dyn_rp_count || cb->m2_extended_bind)
         return refuse(C_STATE, "a Mod's own mesh outside a primary classic render pass or after extended binds");
+    // Output changes and every draw are prepared before recording the first pass split.
+    // record() already holds res_mx; retained owners outlive the generation and its caches.
+    NativeTargetPlan targets;
+    std::string target_reason;
+    if (!prepare_native_targets(device, cb, r, scratch_outputs, targets, target_reason, &output_cache, true))
+        return refuse(C_STATE, "a Mod's own mesh outputs: " + target_reason);
     auto& plans = scratch_material_plans; plans.clear();
     auto& views = scratch_material_views;
     uint32_t origin = 0;
@@ -1182,11 +1196,11 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
     // Images and variants were asked for above, so a closed frame still brings them up.
     if (!gate_open) return gated();
     std::vector<VkPipeline> compatible;
-    if(native_target_masked(cb)){
+    if(native_target_masked(cb) || !scratch_outputs.items.empty()){
         compatible.resize(list.count);
         for(uint32_t i=0;i<list.count;++i){
             std::string reason;
-            if(!(compatible[i]=native_target_variant(device,cb,*variants[i],reason)))
+            if(!(compatible[i]=native_target_variant(device,cb,*variants[i],reason,&targets,scratch_outputs.pre_items)))
                 return refuse(C_VARIANT,"own mesh compatible pass: "+reason);
         }
     }
@@ -1229,13 +1243,19 @@ bool CharacterGeneration::record_own_mesh(CmdBuf* cb, const DrawRec& r, const Pi
         items.push_back({variants[i].get(), slot.set, slot.offset, &g, args, compatible.empty()?VK_NULL_HANDLE:compatible[i]});
     }
     command_owner->variants.insert(command_owner->variants.end(), variants.begin(), variants.end());
-    if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), r.bound ? r.bound : r.pipeline, original))
+    const VkPipeline previous = r.bound ? r.bound : r.pipeline;
+    if (!emit_variant_draws(draw, cb->handle, items.data(), items.size(), previous, original, true))
         return refuse(C_VARIANT, "a Mod's own mesh: draw transaction refused");
+    for (size_t i = 0; i < scratch_outputs.pre_items; ++i) record_native_target(device, cb, targets, i);
+    // A split may change the selected application's compatible handle. Restore that handle.
+    const VkPipeline restore = cb->gfx_bound ? cb->gfx_bound : previous;
+    emit_variant_draws(draw, cb->handle, items.data(), items.size(), restore, original);
     if (restore_layout) {
         draw.CmdBindDescriptorSets(cb->handle, VK_PIPELINE_BIND_POINT_GRAPHICS, restore_layout, restore_slot, 1, &restore_set,
                                    static_cast<uint32_t>(restore_offsets.size()), restore_offsets.empty() ? nullptr : restore_offsets.data());
         ++counters[C_SET3_RESTORED];
     }
+    for (size_t i = scratch_outputs.pre_items; i < targets.events.size(); ++i) record_native_target(device, cb, targets, i);
     ++counters[C_OWN_MESH];
     if (origin) ++counters[origin == 1 ? C_DERIVED : C_INHERITED];
     counters[C_ITEMS] += list.count;

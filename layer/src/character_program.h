@@ -131,7 +131,7 @@ public:
     // and *textures is true (D-083). Without the pointer such a plan is just the application's draw.
     void note_timing(const char* name, uint64_t microseconds) { if (runtime_) runtime_->note_timing(name, microseconds); }
     bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason,
-              const VertexInputRecipe* vertex = nullptr, bool* textures = nullptr);
+              const VertexInputRecipe* vertex = nullptr, bool* textures = nullptr, efmi::assets::FilePlan* outputs = nullptr);
     bool present(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason, bool keep_replay_state = true);
     bool replayable() const { return runtime_ && runtime_->replayable(); }
     // The last Present again, for another presentation of the same frame (BUG-036).

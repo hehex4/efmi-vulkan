@@ -1079,7 +1079,7 @@ bool CharacterProgram::forget_plans_when_full(CharacterPackage& package, size_t 
     return true;
 }
 bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, CharacterPackage& package, CharacterList& output,
-                            bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures)
+                            bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures, efmi::assets::FilePlan* outputs)
 {
     try {
         added = false; efmi::assets::FilePlan& plan = file_plan_;
@@ -1089,7 +1089,25 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                        ~Phase() { if (p) p->note_timing("phase list", uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - began).count())); } };
         Phase listing{nullptr, {}};
 #endif
+        if(outputs){outputs->items.clear();outputs->pre_items=0;outputs->skip_original=true;}
         if (!runtime_->draw(request, plan, reason)) return false;
+        if(outputs){
+            bool drawn=false,after=false,translucent=false;
+            for(const auto& item:plan.items){
+                using Op=efmi::assets::FileOperation;
+                if(item.operation==Op::DrawIndexed || item.operation==Op::Translucent){
+                    if(after)throw std::runtime_error("Output changes between Mod draws need a segmented executor");
+                    drawn=true;translucent|=item.operation==Op::Translucent;
+                }else if(item.operation==Op::NativeBind){
+                    using B=efmi::frontend::NativeBinding;
+                    if(item.native_target.kind!=B::ColorTarget && item.native_target.kind!=B::DepthTarget)
+                        throw std::runtime_error("Mod native descriptors need their own executor");
+                    outputs->items.push_back(item);if(drawn)after=true;else ++outputs->pre_items;
+                }
+            }
+            if(!outputs->items.empty() && (!plan.skip_original || !drawn || translucent))
+                throw std::runtime_error("Mod output events require an ordinary hiding mesh plan");
+        }
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
         listing.p = this; listing.began = std::chrono::steady_clock::now();
 #endif
@@ -1393,8 +1411,10 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second); }
                 put(signature, uint8_t(bound.translucent) | uint8_t(bound.shadow) << 1);
                 if (bound.translucent || bound.shadow) { put(signature, bound.alpha); put(signature, bound.mask_image); put(signature, bound.mask_channel); put(signature, uint8_t(bound.mask_invert)); }
-            } else throw std::runtime_error("Unresolved runtime native operation");
+            } else if(item.operation!=Op::NativeBind || !outputs)throw std::runtime_error("Unresolved runtime native operation");
         }
+        if(outputs && !outputs->items.empty() && draws.empty())
+            throw std::runtime_error("Mod output events require an emitted mesh draw");
         auto& id = scratch_id_; id.assign(signature.begin(), signature.end());
         auto found = lists_.find(id);
         if (found != lists_.end()) { output = found->second; return true; }

@@ -110,6 +110,15 @@ bool target_resource(Device* device, CmdBuf* cb, const DrawRec& draw,
     return true;
 }
 }
+bool native_output_resource_locked(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::frontend::NativeBinding& alias,
+                                   efmi::frontend::NativeResource& output,std::string& why)
+{
+    using B=efmi::frontend::NativeBinding;output={};
+    if(!device || !cb || (alias.kind!=B::ColorTarget && alias.kind!=B::DepthTarget)){
+        why="Native output resource context is unavailable";return false;
+    }
+    return target_resource(device,cb,draw,alias,output,why);
+}
 bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi::frontend::NativeBinding& alias,
                      efmi::frontend::NativeResource& output, std::string& why)
 {

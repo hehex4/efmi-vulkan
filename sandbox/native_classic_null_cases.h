@@ -51,6 +51,26 @@ static void native_classic_null_cases(){
     output_commands.clear();fail_pipeline=true;
     check(!prepare() && output_commands.empty() && !cb.native_target_state,"failed compatible pipeline creation refuses before any pass split");
     fail_pipeline=false;bool ready=prepare();check(ready,"classic color null prepares without the dynamic-unused feature");if(!ready)return;
+    VariantDispatch funcs;
+#define X(n) funcs.n=d.d.n;
+    EFVK_VARIANT_FUNCS(X)
+#undef X
+    auto mod=std::make_shared<PipelineVariant>(d.handle,funcs);
+    check(mod->build(*recipe,*source_layout,variant_fixture::RecipeFixture::mod_vertex(),8),"merged interface prepares the private bone and instance descriptors");
+    const auto original_context=cb.active_targets;
+    output_commands.clear();fail_pipeline=true;
+    check(!native_target_variant(&d,&cb,*mod,why,&prepared,1) && output_commands.empty() && !cb.native_target_state && cb.active_targets==original_context,
+        "future Mod pass clone failure precedes the first output split and leaves actual targets unchanged");
+    fail_pipeline=false;
+    const auto future=native_target_variant(&d,&cb,*mod,why,&prepared,1);
+    check(future && future!=mod->pipeline && output_commands.empty() && !cb.native_target_state && cb.active_targets==original_context,
+        "future Mod pass clone prepares the exact output prefix without recording it");
+    check(native_target_variant(&d,&cb,*mod,why,&prepared,0)==mod->pipeline,
+        "post-only output events do not change the Mod draw's pass");
+    auto oversized=prepared;oversized.events.resize(4096);
+    check(!native_target_variant(&d,&cb,*mod,why,&oversized,1) && output_commands.empty() && !cb.native_target_state,
+        "Mod retention budget includes later output events before recording the first split");
+    oversized={};
     record_native_target(&d,&cb,prepared,0);VkImageLayout current;
     check(native_target_masked(&cb) && cb.pass.info->views.size()==1 && cb.pass.recipe->subpasses[0].colors[0].attachment==VK_ATTACHMENT_UNUSED &&
         cb.pass.recipe->subpasses[0].depth.attachment==0,"classic null publishes compact actual attachments and a remapped preserved depth reference");
@@ -60,13 +80,10 @@ static void native_classic_null_cases(){
     check(!native_target_bind(&d,&cb,h<VkPipeline>(12999)) && cb.native_target_blocked,"unknown later pipeline is blocked instead of forwarded into an incompatible pass");
     check(native_target_bind(&d,&cb,draw.pipeline)==cb.gfx_bound && !cb.native_target_blocked,"known later pipeline recovers through the compatibility cache");
     const auto built=made;native_target_bind(&d,&cb,draw.pipeline);check(made==built,"repeated draws reuse the exact source and actual-pass pipeline");
-    VariantDispatch funcs;
-#define X(n) funcs.n=d.d.n;
-    EFVK_VARIANT_FUNCS(X)
-#undef X
-    auto mod=std::make_shared<PipelineVariant>(d.handle,funcs);
-    check(mod->build(*recipe,*source_layout,variant_fixture::RecipeFixture::mod_vertex(),8),"merged interface prepares the private bone and instance descriptors");
     const auto selected=cb.native_pipeline;
+    check(native_target_variant(&d,&cb,*mod,why)==future,"recorded prefix reuses its preflighted Mod pipeline");
+    // A distinct valid interface forces the existing cold-clone failure check below.
+    mod->effective_recipe=std::make_shared<GraphicsRecipe>(*mod->effective_recipe);
     output_commands.clear();fail_pipeline=true;
     check(!native_target_variant(&d,&cb,*mod,why) && output_commands.empty() && cb.native_pipeline==selected,
         "failed Mod pass clone emits nothing and retains the application's selected shaders");

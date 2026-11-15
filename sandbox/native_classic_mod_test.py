@@ -8,7 +8,7 @@ from runtime_test import sandbox_shader_hashes,band_pixels
 from native_shader_test import compile_pixel,compile_shader,colored_pixels
 from efmi_vk.probe_client import ProbeClient
 
-def scene(checks,case):
+def scene(checks,case,matched=False):
  root=Path(test_dir('classic-null-'+case+'-'));mods=root/'Mods';mods.mkdir();vertex,fragment=sandbox_shader_hashes()
  parts=case.split('_');mrt='mrt' in parts;stencil='stencil' in parts or 'combined' in parts;combined='combined' in parts
  depth=stencil or 'depth' in parts;mode=parts[-1];hunting=mode in ('original','pink','pinkclear');filtered='filter' in parts;shader=mode=='shader';owned=not depth and not mrt and mode in ('restore','once')
@@ -29,11 +29,12 @@ def scene(checks,case):
    hlsl=root/'mrt.hlsl';hlsl.write_text('struct Output { float4 a : SV_Target0; float4 b : SV_Target1; }; Output main() { Output o; o.a=o.b=float4(1,0,1,1); return o; }',encoding='ascii')
    compile_shader(hlsl,fixes,'%08x'%fragment,'ps')
   else:(fixes/('%08x-ps_replace.spv'%fragment)).write_bytes(compile_pixel(root,'1,0,1'))
- ini='namespace = classic_mesh\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%vertex+body
+ ini='namespace = classic_mesh\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%vertex+('' if matched else body)
  if filtered:ini+='[ShaderOverrideFilter]\nhash = %08x\ndepth_filter = depth_'%fragment+mode+'\n'
  (mods/'vertex.buf').write_bytes(struct.pack('<6f',.70,.55,.90,.55,.80,.35))
  (mods/'index.buf').write_bytes(struct.pack('<3H',0,1,2))
  ini+='[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\nhandling = skip\nvb0 = ResourceVertex\nib = ResourceIndex\ndrawindexed = 3,0,0\n[ResourceVertex]\ntype = Buffer\nstride = 8\nfilename = vertex.buf\n[ResourceIndex]\ntype = Buffer\nformat = R16_UINT\nfilename = index.buf\n'%crc32c(struct.pack('<3I',14,15,16))
+ if matched:ini=ini.replace('handling = skip\n','handling = skip\n'+command,1)
  (mods/'mod.ini').write_text(ini,encoding='ascii')
  env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic null',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
  trigger=root/'readback.trigger';env['EFMI_VK_TEST_NOTICES_READBACK_TRIGGER']=str(trigger)
@@ -68,7 +69,7 @@ def scene(checks,case):
    time.sleep(.2);trigger.touch()
   sb.proc.wait(timeout=25);checks.equal(sb.proc.returncode,0,case+': normal exit')
   (root/'layer.log').write_bytes(Path(sb.log_path).read_bytes());(root/'stdout.txt').write_text(sb.output(),encoding='utf-8')
- wanted=6418 if mode=='control' else 902 if mode=='post' else 5516 if mode=='once' else 0
+ wanted=5516 if matched else 6418 if mode=='control' else 902 if mode=='post' else 5516 if mode=='once' else 0
  counts=[band_pixels(screen),band_pixels(source)]
  checks.equal(counts[0],5516,case+': original last triangle is removed from the center band')
  checks.check(replacement.get('counters',{}).get('own_mesh',0)>0,case+': Mod actually records its own mesh')
@@ -79,7 +80,7 @@ def scene(checks,case):
  moved=sum(max(abs(a-b) for a,b in zip(pixel,clear))>12 for pixel in region)
  pink=sum(pixel==bytes((255,0,255)) for pixel in region)
  checks.check(moved>200,case+': the Mod triangle actually moved away from the original geometry')
- if shader or hunting or filtered:checks.equal(pink>200,shader or mode=='pink' or (filtered and mode=='inactive'),case+': moved Mod geometry follows the selected shader and actual depth filter')
+ if shader or hunting or filtered:checks.equal(pink>200,shader or mode=='pink' or (filtered and mode==('active' if matched else 'inactive')),case+': moved Mod geometry follows the selected shader and actual depth filter')
  checks.equal(counts[1],902,case+': independent source color remains intact')
  if owned or mrt:
   value=band_pixels(Path(str(source)+('.original.raw' if owned else '.mrt.raw')));counts.append(value);checks.equal(value,wanted,case+': actual targeted owned color stops and restores at the requested boundary')
@@ -90,13 +91,17 @@ def scene(checks,case):
    checks.check(bool(width and height) and len(data)==width*height*size,case+': complete fenced '+label+' aspect')
    count=sum(data[y*width+x]==7 if stencil else struct.unpack_from('<f',data,4*(y*width+x))[0]<.99 for y in range(int(height*.46),int(height*.54)) for x in range(width)) if width and len(data)==width*height*size else None
    checks.equal(count,5516,case+': control original depth loses the moved Mod triangle') if mode=='control' and label=='original' else checks.equal(count,want,case+': '+label+' aspect follows ordered bindings');counts.append(count)
+   if matched and label=='original' and not stencil:
+    moved_depth=sum(struct.unpack_from('<f',data,4*(y*width+x))[0]<.99 for y in range(int(height*.64),int(height*.8)) for x in range(int(width*.84),int(width*.96)))
+    checks.equal(moved_depth>200,mode in ('control','post'),case+': independent moved geometry writes depth only before the requested unbind');counts.append(moved_depth)
  if hunting:checks.equal(colored_pixels(screen,(255,0,255)),5516 if mode=='pink' else 0,case+': compatible pipeline preserves marking and clear restoration')
- if filtered:checks.equal(colored_pixels(screen,(255,0,255)),902 if mode=='active' else 4614,case+': current shader selection survives unbind and next draw refreshes the actual depth filter')
+ if filtered:checks.equal(colored_pixels(screen,(255,0,255)),5516 if matched and mode=='active' else 0 if matched else 902 if mode=='active' else 4614,case+': current shader selection survives unbind and next draw refreshes the actual depth filter')
  elif shader:checks.equal(colored_pixels(screen,(255,0,255)),5516,case+': compatible pipeline preserves selected replacement shader')
- if mode!='control':checks.check(status.get('executed',0)>0 and not status.get('last_reason'),case+': null binding executes without refusal')
+ if mode!='control' and not matched:checks.check(status.get('executed',0)>0 and not status.get('last_reason'),case+': null binding executes without refusal')
  checks.check(not any(marker in sb.output() for marker in ('Validation Error','VALIDATION ERROR','VUID-','SYNC-HAZARD')),case+': core and synchronization validation clean')
  (root/'status.json').write_text(json.dumps(replacement,indent=2),encoding='ascii');print('artifacts:',root,'color/aspect counts',counts)
-checks=Checks('native classic Mod variants');selected=set(sys.argv[1:])
-for case in ('depth_mesh_control','depth_mesh_null','mrt_mesh_null','depth_mesh_shader','depth_mesh_original','depth_mesh_pink','depth_mesh_pinkclear','depth_mesh_swap','depth_mesh_filter_active','depth_mesh_filter_inactive'):
- if not selected or case in selected:scene(checks,case)
-raise SystemExit(checks.finish())
+if __name__=='__main__':
+ checks=Checks('native classic Mod variants');selected=set(sys.argv[1:])
+ for case in ('depth_mesh_control','depth_mesh_null','mrt_mesh_null','depth_mesh_shader','depth_mesh_original','depth_mesh_pink','depth_mesh_pinkclear','depth_mesh_swap','depth_mesh_filter_active','depth_mesh_filter_inactive'):
+  if not selected or case in selected:scene(checks,case)
+ raise SystemExit(checks.finish())

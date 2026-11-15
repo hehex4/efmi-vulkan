@@ -25,6 +25,7 @@
 #include "character_backend.h"
 #include "shader_fixes.h"
 #include "native_execution.h"
+#include "native_targets.h"
 #include "../../frontend/gpu/dither_kills.h"
 #include "character_module.h"
 #include "command_owner.h"
@@ -471,6 +472,8 @@ public:
     // The per-draw containers of record(), kept for their capacity: the allocations of fresh ones
     // were a sixth of the recording in a profile (D-108). record() holds mod_mx.
     std::vector<std::shared_ptr<const PipelineVariant>> scratch_variants;
+    efmi::assets::FilePlan scratch_outputs;
+    NativeTargetCache output_cache;
     std::vector<const StaticMaterial*> scratch_material_plans;
     std::vector<std::vector<SnapshotImage>> scratch_material_views;
     std::vector<TextureResidency::ImageId> scratch_image_ids;
@@ -481,6 +484,7 @@ public:
         CharacterGeneration& owner;
         ~ScratchScope() {
             owner.scratch_variants.clear();
+            owner.scratch_outputs.items.clear();
             owner.scratch_image_bindings.clear();
             for (auto& views : owner.scratch_material_views) views.clear();
         }

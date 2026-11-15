@@ -138,7 +138,7 @@ struct VariantDraw {
 // emitting anything, then restore the application once. Empty sequences are intentional skips.
 // No resource creation, allocation, INI evaluation or component-specific dispatch here.
 bool emit_variant_draws(const VariantDispatch&, VkCommandBuffer, const VariantDraw*, size_t count,
-                        VkPipeline original_pipeline, const DrawGeometry& original);
+                        VkPipeline original_pipeline, const DrawGeometry& original,bool validate_only = false);
 
 // No commands on failure. Leaves sets 0..own_set-1 and dynamic state untouched; restores every
 // pipeline/vertex/index binding it changes. Private images belong to the supplied descriptor

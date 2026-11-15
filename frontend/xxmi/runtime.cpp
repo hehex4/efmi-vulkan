@@ -500,13 +500,16 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             PipelineFacts facts;
             if (p.current_draw) {
                 facts.native_calls = p.current_draw->native_calls;
+                facts.native_outputs = p.current_draw->native_outputs;
                 facts.stages = p.current_draw->shader_stages; facts.vertex_slots = p.current_draw->vertex_slots;
                 if (p.current_draw->targets_known) facts.targets = p.current_draw->render_targets;
             }
             return facts;
         });
         auto native_address=[&p](const SlotId& id,NativeBinding& address,std::wstring& why){
-            if(!p.current_draw || !p.current_draw->native_calls || !p.current_draw->native_resource)return false;
+            if(!p.current_draw || !p.current_draw->native_resource)return false;
+            const bool output=id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget;
+            if(!p.current_draw->native_calls && !(output && p.current_draw->native_outputs))return false;
             NativeBinding::Kind kind;
             if(id.kind==SlotKind::ShaderResource)kind=NativeBinding::Resource;
             else if(id.kind==SlotKind::ConstantBuffer)kind=NativeBinding::Constant;
@@ -527,7 +530,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         auto native_capture=[&p,native_address](const SlotId& id,NativeResource& resource,std::wstring& why){
             NativeBinding address;
             if(id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget){
-                if(!p.current_draw || !p.current_draw->native_calls || !p.current_draw->native_resource)return false;
+                if(!p.current_draw || (!p.current_draw->native_calls && !p.current_draw->native_outputs) || !p.current_draw->native_resource)return false;
                 address.kind=id.kind==SlotKind::RenderTarget?NativeBinding::ColorTarget:NativeBinding::DepthTarget;
                 address.slot=id.slot;
             }else if(!native_address(id,address,why))return false;

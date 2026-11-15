@@ -401,6 +401,12 @@ static void draw_sequence_tests()
     items[1]=saved;other.first_binding=0;reject(items,2,"all modified binding ranges must be restorable");other.first_binding=2;
     reject(nullptr,1,"null sequence rejected");reject(items,257,"sequence budget checked before dereferencing extra items");
     items[1]=saved;emitted.clear();
+    check(emit_variant_draws(d,cmd,items,2,original_pipe,original,true) && emitted.empty(),
+          "complete draw sequence preflights without recording before output events");
+    items[1].own=VK_NULL_HANDLE;
+    check(!emit_variant_draws(d,cmd,items,2,original_pipe,original,true) && emitted.empty(),
+          "preflight detects a late invalid draw before any output event can be recorded");
+    items[1]=saved;
     check(emit_variant_draws(d,cmd,items,2,original_pipe,original) && emitted.size()==13,"two items and one final restore emitted");
     if(emitted.size()==13){
         check(emitted[4].op=='d' && emitted[4].count==3 && emitted[4].first==17 && emitted[4].vertex_offset==-2,
