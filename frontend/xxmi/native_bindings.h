@@ -21,6 +21,8 @@ struct NativeResource {
     uint64_t identity = 0, size = 0, offset = 0, range = 0;
     uint64_t buffer = 0, image_view = 0, buffer_view = 0;
     uint64_t image = 0;
+    uint64_t memory = 0, memory_offset = 0, memory_size = 0;
+    bool memory_linear = true; // Retained allocation range survives logical application destruction.
     uint32_t image_view_id = 0, view_type = 0, view_format = 0;
     uint32_t aspect = 0, base_mip = 0, mip_count = 0, base_layer = 0, layer_count = 0;
     bool image_safe = false;

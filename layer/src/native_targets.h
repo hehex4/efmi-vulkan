@@ -48,6 +48,7 @@ struct NativeTargetState {
     struct Saved {TargetView view;VkImageLayout layout=VK_IMAGE_LAYOUT_UNDEFINED;std::shared_ptr<const efmi::frontend::NativeResource> resource;};
     struct Color {
         VkImage original_image=VK_NULL_HANDLE;
+        ImageInfo original_storage; // Original contents remain live through null/output transitions.
         VkFormat format=VK_FORMAT_UNDEFINED;
         VkImageView original=VK_NULL_HANDLE,active=VK_NULL_HANDLE;
     };

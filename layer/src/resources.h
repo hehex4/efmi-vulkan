@@ -66,7 +66,7 @@ struct ImageInfo {
     std::shared_ptr<ImageLifetime> lifetime;
     bool capture_safe = false;
     VkDeviceMemory mem = VK_NULL_HANDLE;
-    uint64_t mem_off = 0;
+    uint64_t mem_off = 0, mem_size = 0; // Driver requirements, including opaque image storage.
     uint32_t id = 0;
     VkImageType type = VK_IMAGE_TYPE_2D;
     VkFormat format = VK_FORMAT_UNDEFINED;

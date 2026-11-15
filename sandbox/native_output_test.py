@@ -13,8 +13,9 @@ def black_pixels(path):
  if len(data)!=w*h*4:return None
  return sum(data[4*(y*w+x):4*(y*w+x)+3]==bytes(3) for y in range(int(h*.46),int(h*.54)) for x in range(w))
 
-def scene(checks,case,constants=False,buffers=False,images=False,null_images=False):
+def scene(checks,case,constants=False,buffers=False,images=False,null_images=False,memory=0):
  prefix='native-output-null-image-' if null_images else 'native-output-image-' if images else 'native-output-buffer-' if buffers else 'native-output-constant-' if constants else 'native-output-'
+ if memory:prefix='native-output-memory-%d-'%memory
  root=Path(test_dir(prefix+case+'-'));mods=root/'Mods';mods.mkdir();_,fragment=sandbox_shader_hashes()
  body='if $saved == 0\nResourceSaved = ref o0\n$saved = 1\n'
  body+=('elif o0->bindflags == 32\no0 = ref ResourceSaved\n' if case=='once' else ('else\npost o0 = ref ResourceSaved\n' if case=='post' else ('else\no0 = null\n' if case=='null' else ('else\no0 = ref ResourceSaved\n' if case!='control' else ''))))+'endif\n'
@@ -60,11 +61,12 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if case=='khr' else '1','--native-output',str(owned)]
  if case=='query':args+=['--native-output-query']
  if case=='sync2':args+=['--submit2','1']
- if (buffers or images or null_images) and case=='push':args+=['--descriptors','push']
+ if (buffers or images or null_images or memory) and case=='push':args+=['--descriptors','push']
  if case in ('classic','renderpass2'):
   args=['--readable-swapchain','--api','1.3','--native-output',str(owned),'--native-output-classic','2' if case=='renderpass2' else '1']
  if null_images:args+=['--mutable-sampler']
  if null_images and case=='no_feature':args+=['--no-null-descriptors']
+ if memory:args+=['--native-output-memory',str(memory)]
  with Sandbox(seconds=12 if case in ('reload','swap') else 4,threads=0,entry='inject' if case=='inject' else 'layer',validation=True,env_extra=env,extra_args=args) as sb:
   time.sleep(1)
   with ProbeClient(sb.pid) as probe:
@@ -91,6 +93,9 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
   black=black_pixels(owned)
   checks.check(visible is not None and visible<30 and redirected is not None and redirected>6000 and black is not None and black>6000,case+': zero SRV values produce exact black geometry in the redirected target')
   checks.check(status.get('shader_overrides',{}).get('executed',0)>0 and not status.get('shader_overrides',{}).get('last_reason'),case+': combined SRV and output list executes')
+ elif memory==1:
+  checks.check(visible is not None and redirected is not None and visible>4000 and 100<redirected<1500,case+': alias refusal preserves original pixels')
+  checks.check('overlaps input memory' in status.get('shader_overrides',{}).get('last_reason',''),case+': actual allocation overlap is refused')
  elif case in ('query','sync2','null','wrong_kind','image_mixed','application','bad_stride','array','mutable','no_feature'):
   checks.check(visible is not None and redirected is not None and visible>4000 and 100<redirected<1500,case+': unsupported destination change preserves both original GPU results')
   reason=status.get('shader_overrides',{}).get('last_reason','')
@@ -107,6 +112,7 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
  if null_images and case=='no_feature':
   checks.check('null descriptors off' in (root/'layer.log').read_text(encoding='utf-8'),case+': actual device nullDescriptor feature is disabled')
  checks.check(not any(marker in sb.output() for marker in ('Validation Error','VALIDATION ERROR','VUID-','SYNC-HAZARD')),case+': core and synchronization validation clean')
+ if memory:checks.check('output storage: image size' in sb.output(),case+': actual driver allocation ranges were reported')
  (root/'status.json').write_text(json.dumps(status,indent=2),encoding='ascii');print('artifacts:',root,'screen',visible,'owned',redirected)
 def main(constants=False,buffers=False,images=False,null_images=False):
  label='mixed output and null image bindings' if null_images else 'mixed output and file image bindings' if images else 'mixed output and buffer SRV bindings' if buffers else 'mixed output and constant-buffer bindings' if constants else 'native output destinations'

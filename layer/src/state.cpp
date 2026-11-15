@@ -538,6 +538,9 @@ void on_create_buffer(Device* dev, VkBuffer buf, const VkBufferCreateInfo* info,
     b.id = dev->next_buf_id++;
     b.size = info->size;
     b.capture_safe = !info->pNext && !info->flags;
+    if(dev->d.GetBufferMemoryRequirements && !(info->flags & VK_BUFFER_CREATE_SPARSE_BINDING_BIT)){
+        VkMemoryRequirements requirements{};dev->d.GetBufferMemoryRequirements(dev->handle,buf,&requirements);b.mem_size=requirements.size;
+    }
     b.usage = info->usage;
     dev->buf_by_id[b.id] = buf;
 }

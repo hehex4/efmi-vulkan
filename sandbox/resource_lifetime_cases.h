@@ -88,6 +88,7 @@ void native_descriptor_references()
     VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};allocation.allocationSize=1024;
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};info.size=512;info.usage=VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     on_alloc_memory(&d,memory,&allocation);on_create_buffer(&d,buffer,&info);on_bind_buffer(&d,buffer,memory,0);
+    d.bufs.at(buffer).mem_size=768;
     auto layout=std::make_shared<DescriptorLayoutInfo>();layout->bindings[0]={VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,2,VK_SHADER_STAGE_COMPUTE_BIT};
     auto pipeline=std::make_shared<PipelineLayoutInfo>();pipeline->sets.push_back(layout);pipeline->prefix.push_back(100);
     d.pipes[pipe].layout=pipeline;
@@ -101,6 +102,8 @@ void native_descriptor_references()
     efmi::frontend::NativeResource reference;std::string why;
     check(native_resource(&d,&cb,draw,alias,reference,why) && reference.keep && reference.buffer==uint64_t(buffer) && reference.offset==80 && reference.range==32,
           "native reference retains its allocation and resolved dynamic range");
+    check(reference.memory==uint64_t(memory) && reference.memory_offset==0 && reference.memory_size==768 && reference.memory_linear,
+          "native references carry driver storage requirements independently of their descriptor byte range");
     auto prior=reference;prior.descriptor_type=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;prior.stride=16;prior.format=42;prior.buffer_view=123;
     auto& rebound=d.descriptor_sets[set].values[{0,0}];rebound.native=std::make_shared<const efmi::frontend::NativeResource>(prior);rebound.offset=256;
     cb.dyn[1]=cb.dyn[2]=0; // Private copies normalize offsets into the descriptors and bind zero dynamic offsets.
@@ -111,6 +114,7 @@ void native_descriptor_references()
     rebound.native.reset();prior={};rebound_query={};
     resource_destroy_order.clear();on_destroy_buffer(&d,buffer);on_free_memory(&d,memory);
     check(resource_destroy_order.empty() && reference.range==32,"retained native descriptor remains owned after logical application destruction");
+    check(reference.memory==uint64_t(memory) && reference.memory_size==768,"logical destruction preserves retained allocation overlap evidence");
     reference={};check(resource_destroy_order==std::vector<int>({2,3}),"native descriptor releases its buffer then allocation after the last reference");
 }
 void native_image_layout_conflicts()

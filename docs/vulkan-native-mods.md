@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-274. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-275. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -1117,3 +1117,9 @@ Native lists may combine supported output changes with independently owned read-
 ## Null image SRVs beside output changes (D-274)
 
 Clearing an SRV may interleave with supported output changes when the device enables nullDescriptor. The complete descriptor plan still validates its actual layout kind and feature before recording commands. Thirteen GPU scenes cover order, supported pass forms, pushed descriptors, exact zero reads and sandbox module exchange. An actual feature-disabled device preserves both original targets and reports refusal. These null-image scenes use mutable samplers because pinned VVL 1.4.321 incorrectly applies its YCbCr null restriction to ordinary immutable samplers; no validation check is disabled.
+
+## Output backing-memory independence (D-275)
+
+Different resource handles and buffer/image types do not prove separate storage. Output plans use driver memory requirements, allocation offsets and bufferImageGranularity to reject conflicts with inputs, other outputs and storage retained for restoration. References preserve these facts after logical application destruction. Future descriptor assignments also participate when an output is only unbound or another output is preserved. Disjoint ranges in the same allocation remain usable; private published files retain their independent ownership proof.
+
+CPU cases cover overlapping images/buffers, granularity, overflow, retained references and pending/null-only output lists. Real Vulkan allocations verify the conservative bound-descriptor policy with an unused descriptor, keeping even the old baseline valid; disjoint cases prove visible output redirection and sandbox module exchange. This covers ordinary allocation ranges in output plans. Input-only bindings, external allocation identity and persistent application-image layout integration remain separate audits.

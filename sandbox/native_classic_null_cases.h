@@ -37,7 +37,7 @@ static void native_classic_null_cases(unsigned hunting_case=0){
         view.image.samples=VK_SAMPLE_COUNT_1_BIT;view.image.capture_safe=true;view.image.extent={64,32,1};view.image.levels=view.image.layers=1;
         view.view.id=12200+i;view.view.image=h<VkImage>(12300+i);view.view.image_id=view.image.id;view.view.type=VK_IMAGE_VIEW_TYPE_2D;
         view.view.format=view.image.format;view.view.range={VkImageAspectFlags(i?VK_IMAGE_ASPECT_DEPTH_BIT:VK_IMAGE_ASPECT_COLOR_BIT),0,1,0,1};
-        d.images[view.view.image]=view.image;d.image_views[view.handle]=view.view;d.image_views[view.handle].lifetime=std::make_shared<ImageViewLifetime>();
+        view.image.mem=h<VkDeviceMemory>(view.image.id+20000);view.image.mem_size=8192;d.images[view.view.image]=view.image;d.image_views[view.handle]=view.view;d.image_views[view.handle].lifetime=std::make_shared<ImageViewLifetime>();
         auto resource=std::make_shared<Resource>();resource->bound=resource->image_safe=true;resource->keep=std::make_shared<int>(1);
         resource->image=uint64_t(view.view.image);resource->image_view=uint64_t(view.handle);resource->image_view_id=view.view.id;
         resource->identity=(uint64_t(view.image.id)<<2)|2;resource->usage=i?VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;resources[i]=resource;

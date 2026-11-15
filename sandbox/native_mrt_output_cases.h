@@ -33,7 +33,7 @@ static void native_mrt_output_cases()
     for(size_t i=0;i<2;++i){ImageInfo image;image.id=uint32_t(9740+i);image.type=VK_IMAGE_TYPE_2D;image.samples=VK_SAMPLE_COUNT_1_BIT;
         image.levels=image.layers=1;image.extent={64,32,1};ImageViewInfo view;view.id=uint32_t(9750+i);view.image=h<VkImage>(9740+i);view.image_id=image.id;
         view.format=VK_FORMAT_R8G8B8A8_UNORM;view.type=VK_IMAGE_VIEW_TYPE_2D;view.range=range;
-        const auto handle=h<VkImageView>(9750+i);d.images[view.image]=image;d.image_views[handle]=view;
+        const auto handle=h<VkImageView>(9750+i);image.mem=h<VkDeviceMemory>(image.id+20000);image.mem_size=8192;d.images[view.image]=image;d.image_views[handle]=view;
         cb.image_layouts.set(image.id,1,1,range,i?VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:VK_IMAGE_LAYOUT_GENERAL);
         auto resource=std::make_shared<Resource>();resource->bound=resource->image_safe=true;resource->keep=std::make_shared<int>(1);
         resource->image=uint64_t(view.image);resource->image_view=uint64_t(handle);resource->image_view_id=view.id;
@@ -162,7 +162,7 @@ static void native_mrt_output_cases()
         ImageInfo image;image.id=image_id;image.format=format;image.type=VK_IMAGE_TYPE_2D;image.samples=VK_SAMPLE_COUNT_1_BIT;
         image.levels=image.layers=1;image.extent={64,32,1};image.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         ImageViewInfo view;view.id=view_id;view.image=h<VkImage>(image_id);view.image_id=image_id;view.format=format;view.type=VK_IMAGE_VIEW_TYPE_2D;
-        view.range={aspects,0,1,0,1};d.images[view.image]=image;d.image_views[h<VkImageView>(view_id)]=view;
+        view.range={aspects,0,1,0,1};image.mem=h<VkDeviceMemory>(image.id+20000);image.mem_size=8192;d.images[view.image]=image;d.image_views[h<VkImageView>(view_id)]=view;
         cb.image_layouts.set(image_id,1,1,view.range,VK_IMAGE_LAYOUT_GENERAL);
         auto resource=std::make_shared<Resource>();resource->bound=resource->image_safe=true;resource->keep=std::make_shared<int>(1);
         resource->image=uint64_t(view.image);resource->image_view=uint64_t(h<VkImageView>(view_id));resource->image_view_id=view_id;

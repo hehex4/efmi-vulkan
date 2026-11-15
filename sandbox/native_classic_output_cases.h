@@ -39,7 +39,7 @@ static void native_classic_output_cases(){
         view.image.id=9820+i;view.image.type=VK_IMAGE_TYPE_2D;view.image.format=attachment.format;view.image.samples=VK_SAMPLE_COUNT_1_BIT;
         view.image.capture_safe=true;view.image.extent={64,32,1};view.image.levels=view.image.layers=1;
         view.view.id=9810+i;view.view.image=h<VkImage>(9820+i);view.view.image_id=view.image.id;view.view.type=VK_IMAGE_VIEW_TYPE_2D;
-        view.view.format=attachment.format;view.view.range=range;d.images[view.view.image]=view.image;d.image_views[view.handle]=view.view;
+        view.view.format=attachment.format;view.view.range=range;view.image.mem=h<VkDeviceMemory>(view.image.id+20000);view.image.mem_size=8192;d.images[view.view.image]=view.image;d.image_views[view.handle]=view.view;
         d.image_views[view.handle].lifetime=std::make_shared<ImageViewLifetime>();
         auto resource=std::make_shared<Resource>();resource->bound=resource->image_safe=true;resource->keep=std::make_shared<int>(1);
         resource->image=uint64_t(view.view.image);resource->image_view=uint64_t(view.handle);resource->image_view_id=view.view.id;
@@ -97,7 +97,7 @@ static void native_classic_attachment_cases(){
         v.image.capture_safe=true;v.image.samples=VK_SAMPLE_COUNT_1_BIT;v.image.extent={64,32,1};v.image.levels=v.image.layers=1;
         v.view.id=11100+i;v.view.image=h<VkImage>(11200+i);v.view.image_id=v.image.id;v.view.type=VK_IMAGE_VIEW_TYPE_2D;v.view.format=v.image.format;
         v.view.range={VkImageAspectFlags(depth?VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT:VK_IMAGE_ASPECT_COLOR_BIT),0,1,0,1};
-        d.images[v.view.image]=v.image;d.image_views[v.handle]=v.view;d.image_views[v.handle].lifetime=std::make_shared<ImageViewLifetime>();
+        v.image.mem=h<VkDeviceMemory>(v.image.id+20000);v.image.mem_size=8192;d.images[v.view.image]=v.image;d.image_views[v.handle]=v.view;d.image_views[v.handle].lifetime=std::make_shared<ImageViewLifetime>();
         auto r=std::make_shared<Resource>();r->bound=r->image_safe=true;r->keep=std::make_shared<int>(1);r->image=uint64_t(v.view.image);
         r->image_view=uint64_t(v.handle);r->image_view_id=v.view.id;r->identity=(uint64_t(v.image.id)<<2)|2;
         r->usage=depth?VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;resources[i]=r;

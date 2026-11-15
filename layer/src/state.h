@@ -88,6 +88,7 @@ struct CharacterModule;
 // application uses (descriptor updates, images, shaders, uploads) before tracking
 // for them exists.
 #define EFVK_COUNTED_FUNCS(X)                                                                                          \
+    X(GetImageMemoryRequirements) X(GetBufferMemoryRequirements)                                                       \
     X(CreateDescriptorPool)                                                                                           \
     X(CmdBindDescriptorBuffersEXT) X(CmdPushConstants)                                                                 \
     X(CmdCopyImageToBuffer) X(CmdBlitImage) X(FlushMappedMemoryRanges)                                                  \
@@ -223,7 +224,7 @@ struct BufInfo {
     uint64_t size = 0;
     uint32_t usage = 0;
     VkDeviceMemory mem = VK_NULL_HANDLE;
-    uint64_t mem_off = 0;
+    uint64_t mem_off = 0, mem_size = 0;
     // CPU copy of what tracked writes put into the buffer; `known` says which bytes are valid.
     std::vector<uint8_t> shadow;
     IntervalSet known;

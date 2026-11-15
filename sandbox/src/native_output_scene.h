@@ -6,6 +6,7 @@ struct NativeOutputScene {
     VkImage image=VK_NULL_HANDLE;
     VkImageView view=VK_NULL_HANDLE;
     VkDeviceMemory memory=VK_NULL_HANDLE;
+    VkBuffer alias_buffer=VK_NULL_HANDLE;
     Buffer readback,depth_readback,depth_source_readback;
 } native_output,native_output_extra;
 
@@ -21,8 +22,31 @@ static bool create_native_output_one(NativeOutputScene& s)
     CHECK(vkCreateImage(g.device,&image,nullptr,&s.image));
     VkMemoryRequirements requirements{};vkGetImageMemoryRequirements(g.device,s.image,&requirements);
     VkMemoryAllocateInfo memory{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};memory.allocationSize=requirements.size;
+    VkDeviceSize buffer_offset=0;
+    if(g.native_output_memory){
+        if(&s!=&native_output || g.native_output_mrt || g.native_output_owned || (g.native_output_memory!=1 && g.native_output_memory!=2))return false;
+        VkBufferCreateInfo buffer{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};buffer.size=256;buffer.usage=VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        CHECK(vkCreateBuffer(g.device,&buffer,nullptr,&s.alias_buffer));
+        VkMemoryRequirements buffer_requirements{};vkGetBufferMemoryRequirements(g.device,s.alias_buffer,&buffer_requirements);
+        VkPhysicalDeviceProperties properties{};vkGetPhysicalDeviceProperties(g.phys,&properties);
+        const auto alignment=std::max(buffer_requirements.alignment,properties.limits.bufferImageGranularity);
+        if(g.native_output_memory==2)buffer_offset=(requirements.size+alignment-1)/alignment*alignment;
+        memory.allocationSize=std::max(requirements.size,buffer_offset+buffer_requirements.size);
+        requirements.memoryTypeBits&=buffer_requirements.memoryTypeBits;
+        printf("output storage: image size %llu, buffer offset %llu, buffer size %llu, granularity %llu\n",
+               (unsigned long long)requirements.size,(unsigned long long)buffer_offset,
+               (unsigned long long)buffer_requirements.size,(unsigned long long)properties.limits.bufferImageGranularity);
+    }
     if(!find_memory_type(requirements.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,0,&memory.memoryTypeIndex))return false;
     CHECK(vkAllocateMemory(g.device,&memory,nullptr,&s.memory));CHECK(vkBindImageMemory(g.device,s.image,s.memory,0));
+    if(s.alias_buffer){
+        CHECK(vkBindBufferMemory(g.device,s.alias_buffer,s.memory,buffer_offset));
+        if(g.descriptor_mode<2){
+            VkDescriptorBufferInfo buffer{s.alias_buffer,0,256};VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            write.dstSet=g.material_set;write.dstBinding=6;write.descriptorCount=1;write.descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            write.pBufferInfo=&buffer;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
+        }
+    }
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=s.image;
     view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=g.format;view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
     CHECK(vkCreateImageView(g.device,&view,nullptr,&s.view));
@@ -168,6 +192,7 @@ static void destroy_native_output_one(NativeOutputScene& s)
     if(s.source_pass)vkDestroyRenderPass(g.device,s.source_pass,nullptr);
     if(s.view)vkDestroyImageView(g.device,s.view,nullptr);
     if(s.image)vkDestroyImage(g.device,s.image,nullptr);
+    if(s.alias_buffer)vkDestroyBuffer(g.device,s.alias_buffer,nullptr);
     if(s.memory)vkFreeMemory(g.device,s.memory,nullptr);
 }
 

@@ -20,6 +20,8 @@ bool image_resource(VkImageView handle, const ImageViewInfo& view, const ImageIn
 {
     output.image_view=uint64_t(handle);output.usage=resource.usage;
     output.image=uint64_t(view.image);output.image_view_id=view.id;
+    output.memory=uint64_t(resource.mem);output.memory_offset=resource.mem_off;output.memory_size=resource.mem_size;
+    output.memory_linear=resource.tiling==VK_IMAGE_TILING_LINEAR;
     output.view_type=view.type;output.view_format=view.format;
     const auto& range=view.range;
     output.aspect=range.aspectMask;output.base_mip=range.baseMipLevel;output.mip_count=range.levelCount;
@@ -196,6 +198,7 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
         output.bound = true; output.dimension = 1; output.identity = uint64_t(id) << 2;
         output.size = buffer->second.size; output.offset = offset; output.range = range;
         output.buffer=uint64_t(handle);output.buffer_view=uint64_t(value.buffer_view);
+        output.memory=uint64_t(buffer->second.mem);output.memory_offset=buffer->second.mem_off;output.memory_size=buffer->second.mem_size;
         if(buffer->second.lifetime && !buffer->second.lifetime->dependencies.empty()){
             if(texel){
                 const auto& owner=device->buffer_views.at(value.buffer_view).lifetime;

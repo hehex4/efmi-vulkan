@@ -133,6 +133,9 @@ void on_create_image(Device* dev, VkImage h, const VkImageCreateInfo* info, cons
     image.flags = info->flags;
     image.tiling = info->tiling;
     image.capture_safe = !info->pNext && !(info->flags & ~VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT);
+    if(application_owned && dev->d.GetImageMemoryRequirements && !(info->flags & (VK_IMAGE_CREATE_SPARSE_BINDING_BIT | VK_IMAGE_CREATE_DISJOINT_BIT))){
+        VkMemoryRequirements requirements{};dev->d.GetImageMemoryRequirements(dev->handle,h,&requirements);image.mem_size=requirements.size;
+    }
     dev->images[h] = image;
 }
 

@@ -51,7 +51,7 @@ bool buffer_destination(const efmi::frontend::NativeBinding& target,const DrawRe
     if(!layout || !layout->complete)return false;
     const auto found=layout->bindings.find(target.binding);
     if(found==layout->bindings.end() || target.element>=found->second.count)return false;
-    // A proven buffer slot cannot introduce an attachment alias, even when null.
+    // Buffer slots are eligible; the backing-memory check below still proves independence.
     // Descriptor preflight still proves pipeline compatibility, resource kind,
     // ownership and access ordering before any commands are emitted.
     switch(found->second.type){
@@ -146,28 +146,88 @@ void layout(CmdBuf* cb,const NativeTargetState::Saved& saved,VkImageLayout value
     auto range=saved.view.view.range;range.levelCount=range.layerCount=1;
     cb->image_layouts.set(saved.view.image.id,saved.view.image.levels,saved.view.image.layers,range,value);
 }
-bool descriptor_conflict(Device* device,CmdBuf* cb,VkImage image,std::string& why){
+struct MemoryRange {
+    uint64_t memory=0,offset=0,size=0;bool linear=false;
+};
+MemoryRange storage(const ImageInfo& image){return {uint64_t(image.mem),image.mem_off,image.mem_size,image.tiling==VK_IMAGE_TILING_LINEAR};}
+MemoryRange storage(const BufInfo& buffer){return {uint64_t(buffer.mem),buffer.mem_off,buffer.mem_size,true};}
+MemoryRange storage(const Resource& resource){return {resource.memory,resource.memory_offset,resource.memory_size,resource.memory_linear};}
+bool memory_overlap(const MemoryRange& a,const MemoryRange& b,uint64_t granularity){
+    if(!a.memory || !b.memory || a.memory!=b.memory)return false;
+    // Unknown or overflowing spans cannot establish independence within an allocation.
+    if(!a.size || !b.size || a.size-1>UINT64_MAX-a.offset || b.size-1>UINT64_MAX-b.offset)return true;
+    uint64_t first_a=a.offset,last_a=a.offset+a.size-1,first_b=b.offset,last_b=b.offset+b.size-1;
+    if(a.linear!=b.linear){
+        if(!granularity || (granularity&(granularity-1)))return true;
+        first_a/=granularity;last_a/=granularity;first_b/=granularity;last_b/=granularity;
+    }
+    return first_a<=last_b && first_b<=last_a;
+}
+bool planned_memory_conflict(Device* device,VkImage image,const ImageInfo& info,const efmi::assets::FilePlan& plan,std::string& why){
+    if(!image)return false;
+    for(const auto& item:plan.items){
+        if(item.operation!=efmi::assets::FileOperation::NativeBind || native_output_binding(item.native_target) || !item.native_resource)continue;
+        const auto& resource=*item.native_resource;if(!resource.bound)continue;
+        if(resource.keep && (resource.uploaded_readonly || resource.uploaded_mutable))continue;
+        if(!resource.memory){why="Native pending descriptor memory identity is unavailable";return true;}
+        if(resource.image==uint64_t(image) || memory_overlap(storage(info),storage(resource),device->physical_properties.limits.bufferImageGranularity)){
+            why="Native pending descriptor overlaps preserved output memory";return true;
+        }
+    }
+    return false;
+}
+bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,
+                         VkImage image,const ImageInfo& info,std::string& why){
+    const auto target=storage(info);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
+    auto conflict=[&](const MemoryRange& input){
+        if(!input.memory){why="Native output input memory identity is unavailable";return true;}
+        if(memory_overlap(target,input,granularity)){why="Native output destination overlaps input memory";return true;}
+        return false;
+    };
+    auto resource_conflict=[&](const Resource& resource){
+        if(!resource.bound)return false;
+        // Private file allocations are owned separately and never exposed as application outputs.
+        if(resource.keep && (resource.uploaded_readonly || resource.uploaded_mutable))return false;
+        if(resource.image==uint64_t(image)){why="Native output destination overlaps a bound descriptor";return true;}
+        return conflict(storage(resource));
+    };
+    auto buffer_conflict=[&](VkBuffer handle,uint32_t id=0){
+        if(!handle)return false;const auto found=device->bufs.find(handle);
+        if(found==device->bufs.end() || (id && found->second.id!=id)){why="Native output buffer identity is unavailable";return true;}
+        return conflict(storage(found->second));
+    };
     for(const auto& bound:cb->sets){
         if(!bound.set && !bound.pushed)continue;
         const DescriptorSetInfo* contents=bound.pushed.get();
         const auto found=device->descriptor_sets.find(bound.set);
         if(!contents && found!=device->descriptor_sets.end() && found->second.id==bound.id)contents=&found->second;
         if(!contents || bound.unsupported || contents->unsupported){why="Native output descriptor alias context is unavailable";return true;}
-        for(const auto& value:contents->values){
-            if(!value.second.image_view)continue;
-            if(value.second.native){
-                const auto& resource=*std::static_pointer_cast<const Resource>(value.second.native);
-                if(resource.image==uint64_t(image)){why="Native output destination overlaps a bound descriptor";return true;}
+        for(const auto& entry:contents->values){const auto& value=entry.second;
+            if(!value.buffer && !value.buffer_view && !value.image_view)continue;
+            if(!value.known){why="Native output descriptor identity is unavailable";return true;}
+            if(value.native){
+                if(resource_conflict(*std::static_pointer_cast<const Resource>(value.native)))return true;
+            }else if(value.buffer_view){
+                const auto view=device->buffer_views.find(value.buffer_view);
+                if(view==device->buffer_views.end() || view->second.id!=value.buffer_view_id){why="Native output texel view identity is unavailable";return true;}
+                if(buffer_conflict(view->second.buffer,view->second.buffer_id))return true;
+            }else if(value.buffer){
+                if(buffer_conflict(value.buffer,value.buffer_id))return true;
             }else{
-                const auto view=device->image_views.find(value.second.image_view);
-                if(!value.second.known || view==device->image_views.end() || view->second.id!=value.second.image_view_id){
-                    why="Native output descriptor image identity is unavailable";return true;
-                }
+                const auto view=device->image_views.find(value.image_view);
+                if(view==device->image_views.end() || view->second.id!=value.image_view_id){why="Native output descriptor image identity is unavailable";return true;}
                 if(view->second.image==image){why="Native output destination overlaps a bound descriptor";return true;}
+                const auto input=device->images.find(view->second.image);
+                if(input==device->images.end() || input->second.id!=view->second.image_id){why="Native output sampled image identity is unavailable";return true;}
+                if(conflict(storage(input->second)))return true;
             }
         }
     }
-    return false;
+    // Include future assignments before emitting the first event, in either command order.
+    for(const auto& item:plan.items)if(item.operation==efmi::assets::FileOperation::NativeBind &&
+       !native_output_binding(item.native_target) && item.native_resource && resource_conflict(*item.native_resource))return true;
+    for(const auto& binding:draw.vb)if(buffer_conflict(binding.buf))return true;
+    return buffer_conflict(draw.ib) || buffer_conflict(draw.indirect) || buffer_conflict(draw.indirect_count);
 }
 }
 bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,NativeTargetPlan& output,std::string& why,
@@ -233,11 +293,13 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         const auto actual=targets.has_depth && targets.depth.imageView?depth_index:stencil_index;
         next.state->depth.original=targets.has_depth && targets.depth.imageView?targets.depth.imageView:
             targets.has_stencil?targets.stencil.imageView:VK_NULL_HANDLE;
-        if(next.state->depth.original)next.state->depth.original_image=targets.views[actual].view.image;
+        if(next.state->depth.original){next.state->depth.original_image=targets.views[actual].view.image;
+            next.state->depth.original_storage=targets.views[actual].image;next.state->depth.original_storage.lifetime.reset();}
         next.state->colors.resize(count);
         for(size_t slot=0;slot<count;++slot){auto& color=next.state->colors[slot];
             color.original=targets.dynamic_colors[slot].imageView;
             color.original_image=color.original?targets.views[2*slot].view.image:VK_NULL_HANDLE;
+            if(color.original){color.original_storage=targets.views[2*slot].image;color.original_storage.lifetime.reset();}
             color.format=color_formats[slot];
         }
     }
@@ -257,6 +319,12 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     if(stencil_bound?stencil_format!=targets.views[stencil_index].view.format:
        (stencil_format!=VK_FORMAT_UNDEFINED && !classic && !device->dynamic_unused_attachments))
         return refuse("Native output pipeline stencil contract is unavailable");
+    // Existing outputs and restoration storage also survive output-only/null events.
+    // A future descriptor must not overwrite their retained contents in either order.
+    for(const auto& active:targets.views)if(active.known && planned_memory_conflict(device,active.view.image,active.image,plan,why))return false;
+    for(const auto& source:next.state->colors)if(planned_memory_conflict(device,source.original_image,source.original_storage,plan,why))return false;
+    if(planned_memory_conflict(device,next.state->depth.original_image,next.state->depth.original_storage,plan,why))return false;
+    for(const auto& saved:next.state->restore)if(planned_memory_conflict(device,saved.second.view.view.image,saved.second.view.image,plan,why))return false;
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || !native_output_binding(item.native_target) || no_op[i])continue;
         const auto& resource=item.native_resource;const bool empty=!resource || !resource->bound;
@@ -324,7 +392,20 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         const auto height=std::max(1u,image->second.extent.height>>std::min(range.baseMipLevel,31u));
         if(uint64_t(targets.area.offset.x)+targets.area.extent.width>width || uint64_t(targets.area.offset.y)+targets.area.extent.height>height)
             return refuse("Native output destination does not cover the render area");
-        if(descriptor_conflict(device,cb,view->second.image,why))return false;
+        if(!image->second.mem || !image->second.mem_size)return refuse("Native output destination memory range is unavailable");
+        if(descriptor_conflict(device,cb,draw,plan,view->second.image,image->second,why))return false;
+        const auto backing=storage(image->second);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
+        auto image_alias=[&](VkImage other,const ImageInfo& metadata){
+            return other && other!=view->second.image && memory_overlap(backing,storage(metadata),granularity);
+        };
+        for(const auto& active:targets.views)if(active.known && image_alias(active.view.image,active.image))
+            return refuse("Native output destination overlaps active attachment memory");
+        for(const auto& source:next.state->colors)if(image_alias(source.original_image,source.original_storage))
+            return refuse("Native output destination overlaps preserved original memory");
+        if(image_alias(next.state->depth.original_image,next.state->depth.original_storage))
+            return refuse("Native output destination overlaps preserved depth memory");
+        for(const auto& saved:next.state->restore)if(image_alias(saved.second.view.view.image,saved.second.view.image))
+            return refuse("Native output destination overlaps retained restoration memory");
         if(!depth && ((targets.has_depth && targets.depth.imageView && view->second.image==targets.views[depth_index].view.image) ||
            (targets.has_stencil && targets.stencil.imageView && view->second.image==targets.views[stencil_index].view.image)))
             return refuse("Native output color destination aliases a current depth/stencil image");
