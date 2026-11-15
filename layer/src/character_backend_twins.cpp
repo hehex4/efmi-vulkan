@@ -63,8 +63,8 @@ struct TwinOwner final : CommandOwner {
 // dither), a pipeline whose fragment stage has the character dither is bound as its twin without it, as
 // the original's replaced shader skips the discard on every draw it makes. The twin is a variant of the
 // pipeline (its own vertex stage and images, the dither branch steered away) built by the variant cache's
-// workers; the first bind waits for it, and binds the application's pipeline only when that wait runs out
-// or the twin cannot be made. Recording thread; the gate off costs one load.
+// workers. Graphics binds keep the application's pipeline until the twin is ready;
+// one-shot compute producers retain their bounded first-use wait. Recording thread.
 VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline, uint32_t marking)
 {
     // RabbitFX's state alone decides, as under DX11 its replaced shaders do whatever the character Mods do.
@@ -99,9 +99,12 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline, 
         if (found != b.twins.end()) twin = found->second;
     }
     if (!twin) {
-        // Prepared when the game created the pipeline (character_created), so normally made by now; a twin
-        // still being built is waited for (bounded), as a replaced draw waits for its variant (D-103).
-        const auto result = b.variants->await(twin_identity(id), recipe, layout, recipe->vertex, game_shader_patch(fixes, native, dither, marking, depth), std::chrono::milliseconds(4000));
+        // Creation/reload prewarms twins. A graphics request promotes unfinished
+        // work without waiting on the recording thread or caching Pending as failure.
+        const auto patch=game_shader_patch(fixes,native,dither,marking,depth);
+        const auto result=recipe->compute?
+            b.variants->await(twin_identity(id),recipe,layout,recipe->vertex,patch,std::chrono::milliseconds(4000)):
+            b.variants->request(twin_identity(id),recipe,layout,recipe->vertex,patch);
         std::unique_lock<std::shared_mutex> lock(b.twins_mx);
         if (result.variant) {
             twin = b.twins[key] = result.variant;

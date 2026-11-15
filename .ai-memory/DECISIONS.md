@@ -4,6 +4,16 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-285: Keep graphics warmup asynchronous and preserve one-shot compute semantics (2026-11-15)
+
+- I-05 / BUG-148: source 3.1.2 waits on cold unmatched graphics file publication and game-shader twins. Baselines d285-files-before.out (6/7) and d285-shaders-before.out (27/31) reproduce recording waits while rendering correctly with clean validation.
+- Original CommandList.cpp 6407 substantiates custom resources on first device use; LoadBufferFromFile at 6471 frees source bytes after SubstantiateBuffer at 6505. HackerContext.cpp 1079 runs post lists and restores/releases shaders. The original may synchronously prepare resources once. DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking and one-context order; the Vulkan implementation must retain uploads and variant owners explicitly.
+- Source 3.1.3 / ABI 134dd78b13c38aaa requests graphics twins asynchronously and leaves the application pipeline active while pending. Unmatched graphics native file requests also return pending without recording waits or permanent refusal notices; a separate status counter records these attempts. Creation/reload prewarming and completion-retained owners remain. Compute first-use waits stay because a dispatch can be a one-shot producer; this change does not claim all preparation is asynchronous.
+- d285-pair.out builds all four matching artifacts and passes tracker 773/773. The initial d285-regression.out passes compute 12, matched readiness 20, native files 42, tracker 773, validation 76 and text 685. Its two image failures captured the original warmup frame before asynchronous publication, despite later successful binds/execution. Test-client capture now waits for readiness and several recorded frames; no pixel oracle was relaxed.
+- d285-shaders-after.out passes 36/36, d285-files-after.out 18/18 and d285-output-after.out 64/64. These cover vertex/pixel replacement, an empty Mods folder, F10, cold file publication, sandbox module exchange, descriptor/output combinations, original restoration, zero recording waits and clean core/synchronization validation. Additional invalid/interface/deleted/unchanged/depth-filter/empty-folder shader boundaries: native game shaders: 91/91 checks passed.
+- I-01 remains the next architectural priority: establish actual overlapping queue submissions and future timeline waits before introducing access ordering. The existing two-queue frame fixture drains the prior queue and cannot establish that proof. I-06's general CustomShader/private bone/InputLayout adapters and I-09's real-character verification remain open. No real-game load, deployment, launcher, system or remote action.
+
+
 ## D-284: Validate borrowed payloads and publish derived metadata atomically (2026-11-15)
 
 - I-08's runtime validation serialized the entire resident mesh into an EFMICH01 byte vector, calculated a CRC and decoded another full payload merely to reuse checks. This was an in-memory round trip, not a temporary disk file. The unchanged decoder baseline passes 115 checks; d284-folder-before.out loads all 22 installed character Mods independently and in the folder generation.

@@ -5,7 +5,7 @@ from harness import Checks,Sandbox,test_dir,DIST
 from runtime_fixture import CORE
 from runtime_test import sandbox_shader_hashes,band_pixels
 from efmi_vk.probe_client import ProbeClient
-from native_shader_test import compile_shader,colored_pixels
+from native_shader_test import compile_shader,colored_pixels,wait_graphics_ready
 
 def black_pixels(path):
  if not path.is_file() or not Path(str(path)+'.json').is_file():return None
@@ -64,7 +64,7 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
   compile_shader(shader,fixes,'%08x'%fragment,'ps')
  trigger=root/'capture.trigger';keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii')
  env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output destinations',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1',EFMI_VK_TEST_KEYS=str(keys))
- if case in ('reload','swap'):env['EFMI_VK_TEST_NOTICES_READBACK_TRIGGER']=str(trigger)
+ env['EFMI_VK_TEST_NOTICES_READBACK_TRIGGER']=str(trigger)
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if case=='khr' else '1','--native-output',str(owned)]
  if case=='query':args+=['--native-output-query']
  if case=='sync2':args+=['--submit2','1']
@@ -90,8 +90,9 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
      if count>0:break
      time.sleep(.05)
     checks.check(count>0,case+': requested generation exchange completed')
-    time.sleep(.3);trigger.touch()
-   status=probe.status().get('replacement',{})
+   status,ready=wait_graphics_ready(probe,lambda s:s.get('textures',{}).get('loading',0)==0,2)
+   checks.check(ready,case+': file publication and recorded frames settle before capture')
+   trigger.touch()
   sb.proc.wait(timeout=25);checks.equal(sb.proc.returncode,0,case+': normal exit')
   (root/'layer.log').write_bytes(Path(sb.log_path).read_bytes());(root/'stdout.txt').write_text(sb.output(),encoding='utf-8')
  visible=band_pixels(pixels);redirected=band_pixels(owned)
@@ -126,6 +127,7 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
  checks.check(not any(marker in sb.output() for marker in ('Validation Error','VALIDATION ERROR','VUID-','SYNC-HAZARD')),case+': core and synchronization validation clean')
  if memory:checks.check('output storage: image size' in sb.output(),case+': actual driver allocation ranges were reported')
  (root/'status.json').write_text(json.dumps(status,indent=2),encoding='ascii');print('artifacts:',root,'screen',visible,'owned',redirected)
+ return status
 def main(constants=False,buffers=False,images=False,null_images=False):
  label='mixed output and null image bindings' if null_images else 'mixed output and file image bindings' if images else 'mixed output and buffer SRV bindings' if buffers else 'mixed output and constant-buffer bindings' if constants else 'native output destinations'
  checks=Checks(label);selected=set(sys.argv[1:])

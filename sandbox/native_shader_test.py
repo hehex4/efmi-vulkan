@@ -31,6 +31,22 @@ def colored_pixels(path, color, x_range=(0, 1)):
                if all(abs(data[4 * (y * width + x) + i] - color[i]) < 8 for i in range(3)))
 
 
+def wait_graphics_ready(probe, ready, timeout=5):
+    """Wait in the test client, then drain recorded frames before a one-shot image."""
+    deadline = time.monotonic() + timeout
+    first_frame = None
+    status = {}
+    while time.monotonic() < deadline:
+        status = probe.status().get("replacement", {})
+        frame = status.get("record", {}).get("frame_calls", 0)
+        if ready(status):
+            if first_frame is None: first_frame = frame
+            if frame >= first_frame + 3: return status, True
+        else: first_frame = None
+        time.sleep(.05)
+    return status, False
+
+
 def main():
     checks = Checks("native game shaders")
     selected = set(sys.argv[1:])
@@ -86,14 +102,22 @@ def main():
             path.write_bytes(data)
         else: path.write_bytes(compile_pixel(root, "1, 0, 1"))
         readback = root / "pixels.raw"
+        trigger = root / "capture.trigger"
         extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
                      EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_NOTICE="> native shader test",
-                     EFMI_VK_TEST_NOTICES_READBACK=str(readback))
-        with Sandbox(seconds=5, entry=entry, validation=True, env_extra=extra,
+                     EFMI_VK_TEST_NOTICES_READBACK=str(readback),
+                     EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
+        with Sandbox(seconds=7, entry=entry, validation=True, env_extra=extra,
                      extra_args=["--readable-swapchain"]) as sb:
-            time.sleep(2)
             with ProbeClient(sb.pid) as probe:
-                status = probe.status().get("replacement", {}).get("shader_fixes", {})
+                expected_bind = case not in ("interface", "stage", "image_type", "depth_active")
+                replacement, ready = wait_graphics_ready(probe, lambda s:
+                    not expected_bind or s.get("shader_fixes", {}).get("binds", 0) > 0)
+                checks.check(ready, label + ": ready frames precede the capture")
+                status = replacement.get("shader_fixes", {})
+                checks.equal(replacement.get("record", {}).get("variant_waits", -1), 0,
+                             label + ": graphics pipeline binding never waits for shader compilation")
+                trigger.touch()
             sb.proc.wait(timeout=60)
             checks.equal(sb.proc.returncode, 0, label + ": normal exit")
         if case == "vertex":
@@ -150,18 +174,19 @@ def main():
                 keys.write_text("1 121\n", encoding="ascii")
                 time.sleep(0.5)
                 keys.write_text("1\n", encoding="ascii")
-                deadline = time.monotonic() + 20
-                after = {}
-                while time.monotonic() < deadline:
-                    status = probe.status().get("replacement", {})
-                    after = status.get("shader_fixes", {})
-                    if status.get("folder_generation", {}).get("reloads", 0) >= 1:
-                        if not trigger.exists():
-                            time.sleep(.5)  # Drain the already recorded presentation frames before asking for the image.
-                            trigger.touch()
-                        if readback.is_file(): break
-                    time.sleep(.1)
+                status, ready = wait_graphics_ready(probe, lambda s:
+                    s.get("folder_generation", {}).get("reloads", 0) >= 1 and
+                    (change in ("removed", "depth_filter") or
+                     s.get("shader_fixes", {}).get("binds", 0) > before.get("binds", 0)), 20)
+                checks.check(ready, change + ": reloaded ready frames precede the capture")
+                after = status.get("shader_fixes", {})
+                trigger.touch()
+                deadline = time.monotonic() + 3
+                while not Path(str(readback) + ".json").is_file() and time.monotonic() < deadline:
+                    time.sleep(.05)
                 checks.check(before.get("loaded") == 1 and before.get("binds", 0) > 0, change + ": initial replacement active")
+                checks.equal(status.get("record", {}).get("variant_waits", -1), 0,
+                             change + ": graphics shader reload never waits on the recording thread")
                 if change == "removed":
                     checks.equal(after.get("loaded"), 0, "removed: F10 restores the game's shader")
                     checks.equal(colored_pixels(readback, (255, 0, 255)), 0, "removed: replacement color gone after F10")

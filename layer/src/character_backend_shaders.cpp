@@ -664,16 +664,21 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
             std::lock_guard<std::mutex> lock(b.shader_note_mx);
             if (b.shader_note.empty()) { b.shader_note = reason; logf("ShaderOverride at a draw no Mod section matched: %s; the game's draw stays", reason.c_str()); }
         } else if (!plan.items.empty()) {
-            if (native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason)) {
+            bool pending=false;
+            // Graphics can retain the caller until a publication is ready. Compute
+            // may be a one-shot producer, so it keeps its existing first-use policy.
+            if (native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason,request.compute,&pending)) {
                 ++b.shader_draws_executed; return true;
             }
             b.shader_draws_kept.fetch_add(1, std::memory_order_relaxed);
-            std::lock_guard<std::mutex> lock(b.shader_note_mx);
-            if (!b.shader_bindings_told) {
-                b.shader_bindings_told = true;
-                b.shader_note = reason;
-                notice(NoticeLevel::Warning, "shader override bindings",
-                       reason.c_str());
+            if(pending)b.shader_draws_pending.fetch_add(1,std::memory_order_relaxed);
+            else {
+                std::lock_guard<std::mutex> lock(b.shader_note_mx);
+                if (!b.shader_bindings_told) {
+                    b.shader_bindings_told = true;
+                    b.shader_note = reason;
+                    notice(NoticeLevel::Warning, "shader override bindings",reason.c_str());
+                }
             }
         } else if (plan.skip_original) {
             skip = true;
@@ -695,6 +700,7 @@ void shader_hooks_status(CharacterBackend& b, JsonWriter& w)
     w.kn("draws", b.shader_draws_run.load()); w.kn("skipped", b.shader_draws_skipped.load());
     w.kn("kept", b.shader_draws_kept.load()); w.kn("refused", b.shader_draws_refused.load());
     w.kn("executed", b.shader_draws_executed.load());
+    w.kn("pending", b.shader_draws_pending.load());
     { std::lock_guard<std::mutex> lock(b.shader_note_mx); w.kv("last_reason", b.shader_note); }
     w.end_object();
     const auto fixes = b.variants ? b.variants->native_shaders() : nullptr;

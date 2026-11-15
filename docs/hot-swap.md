@@ -193,3 +193,10 @@ pass in the sandbox. The root deployment and real-game verification are unchange
 bounded validation without serializing another mesh copy. Cold material package
 scenes exchange modules under both sandbox entries; runtime Mod paths also pass.
 No new deployment or real-game verification is implied by these results.
+
+### D-285 graphics first use
+
+3.1.3 retains ABI 134dd78b13c38aaa. Graphics shader and unmatched file warmup keep
+the original draw until asynchronous publication; they no longer block recording.
+F10 and sandbox module exchange pass with ready-frame image checks. Compute first
+use keeps its existing wait policy. These results do not imply a real-game load.

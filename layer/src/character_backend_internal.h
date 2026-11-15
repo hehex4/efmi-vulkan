@@ -810,6 +810,7 @@ public:
     std::shared_ptr<const ShaderHooks> shader_hooks;
     Hunting hunting;
     std::atomic<uint64_t> shader_draws_run{0}, shader_draws_skipped{0}, shader_draws_kept{0}, shader_draws_refused{0}, shader_draws_executed{0};
+    std::atomic<uint64_t> shader_draws_pending{0};
     NativeCallCache native_calls;
     std::mutex shader_note_mx;
     std::string shader_note;

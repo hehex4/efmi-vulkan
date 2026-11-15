@@ -17,6 +17,12 @@ split. Current/future descriptors, saved fallbacks, suspended requests and pendi
 restoration accesses participate even when no longer visibly bound. Same-storage
 phase transitions and cross-queue accesses still require separate proof.
 
+D-285 requests game-shader graphics twins and unmatched graphics file publications
+without waiting on the recording thread. Pending attempts retain the application
+draw until a later ready bind; they do not enter permanent-failure caches/notices.
+Creation/reload still prewarms variants, and command owners retain published GPU
+objects through completion. Compute first-use waits retain one-shot semantics.
+
 D-284 shares package content validation between framed file decoding and runtime
 generations. Runtime validation borrows the existing payload and derives masks/remaps
 in a metadata candidate; rejection leaves previous state intact. File bounds and

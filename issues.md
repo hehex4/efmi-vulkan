@@ -56,10 +56,15 @@ sufficient. Source inspection confirms the central problems, with these correcti
   draws instead of waiting under resource/generation locks. The focused result is
   20/20 with zero pipeline/texture waits; the draw-readiness regression also passes
   real captured opacity/capture scenes and ordered output restoration. Other
-  synchronous preparation costs and unmatched native acquisition are not covered
-  by this claim. D-280 also makes matched native file acquisition nonblocking and
-  fixes the idle image staging arena starving buffer uploads. Live image slices
-  remain retained through completion; the draw thread does not wait for budget.
+  synchronous preparation costs are not all covered by this claim. D-280 also
+  makes matched native file acquisition nonblocking and fixes idle image staging
+  starving buffer uploads. D-285 (3.1.3) removes unmatched graphics file waits and
+  game-shader twin waits: background requests retain the original graphics draw
+  during warmup, without caching pending work as a failure. Focused shader/file
+  checks pass 36/18, output combinations 64 and recording waits remain zero.
+  Test captures wait for ready frames instead of mistaking warmup for final output.
+  Compute first-use waits remain deliberately: a dispatch may be a one-shot producer.
+  Other synchronous preparation costs still need separate measurement.
 - **I-06: cross-slot sampled images fixed in D-281 (3.0.9); other gaps open.**
   The 3.0.8 baseline passes 38/44. Matched material plans now retain logical source
   slots and resolve current views through the shared native resource/image checks,

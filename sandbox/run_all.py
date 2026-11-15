@@ -159,6 +159,9 @@ STEPS = [
     ("character package validation", [os.path.join(HERE, "character_test.py"), "--cold-only"]),
     ("live INI rendering", [os.path.join(HERE, "runtime_test.py")]),
     ("native game shader replacement", [os.path.join(HERE, "native_shader_test.py")]),
+    ("native graphics shader readiness", [os.path.join(HERE, "native_shader_test.py"), "pixel", "vertex", "empty", "f10:reload"]),
+    ("native graphics file readiness", [os.path.join(HERE, "native_file_readiness_test.py")]),
+    ("native compute first use", [os.path.join(HERE, "native_compute_test.py"), "direct", "indirect", "reload"]),
     ("native compute uniform aliases", [os.path.join(HERE, "native_compute_uniform_test.py")]),
     ("native Submit2 resources", [os.path.join(HERE, "native_submit2_test.py")]),
     ("native dynamic depth", [os.path.join(HERE, "native_dynamic_depth_test.py")]),
@@ -256,6 +259,7 @@ STEPS = [
 GROUPS = {
     "backend-retirement": ["legacy backend retirement", "module ABI boundary", "native module", "character replacement", "matched native descriptors", "application texture rebinding", "native tracker", "Vulkan validation", "text check"],
     "package-validation": ["character package validation", "installed Mods offline plans in one folder generation", "application texture rebinding", "native tracker", "Vulkan validation", "text check"],
+    "native-graphics-readiness": ["native graphics shader readiness", "native graphics file readiness", "native compute first use", "nonblocking draw readiness", "native file bindings", "native tracker", "Vulkan validation", "text check"],
     "texture-rebinding": ["application texture rebinding", "matched native descriptors", "nonblocking draw readiness", "native own mesh", "native merged opacity values", "texture-only Mod output events", "native application images", "pipeline recipes and variants", "native tracker", "Vulkan validation", "text check", "source-defined INI evaluation", "INI execution matrix"],
     "module-boundary": ["module ABI boundary", "native module", "character replacement", "native tracker", "Vulkan validation", "text check"],
     "matched-descriptors": ["matched native descriptors", "nonblocking draw readiness", "native own mesh", "native merged opacity values", "Mod outputs beside original geometry", "texture-only Mod output events", "native call execution", "native descriptor bindings", "native graphics uniforms", "native file bindings", "original INI GPU resources", "native tracker", "Vulkan validation", "text check", "source-defined INI evaluation", "INI execution matrix"],
