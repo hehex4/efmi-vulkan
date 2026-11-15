@@ -13,9 +13,10 @@ def black_pixels(path):
  if len(data)!=w*h*4:return None
  return sum(data[4*(y*w+x):4*(y*w+x)+3]==bytes(3) for y in range(int(h*.46),int(h*.54)) for x in range(w))
 
-def scene(checks,case,constants=False,buffers=False,images=False,null_images=False,memory=0):
+def scene(checks,case,constants=False,buffers=False,images=False,null_images=False,memory=0,input_only=False):
  prefix='native-output-null-image-' if null_images else 'native-output-image-' if images else 'native-output-buffer-' if buffers else 'native-output-constant-' if constants else 'native-output-'
  if memory:prefix='native-output-memory-%d-'%memory
+ if input_only:prefix='native-input-memory-%d-'%memory
  root=Path(test_dir(prefix+case+'-'));mods=root/'Mods';mods.mkdir();_,fragment=sandbox_shader_hashes()
  body='if $saved == 0\nResourceSaved = ref o0\n$saved = 1\n'
  body+=('elif o0->bindflags == 32\no0 = ref ResourceSaved\n' if case=='once' else ('else\npost o0 = ref ResourceSaved\n' if case=='post' else ('else\no0 = null\n' if case=='null' else ('else\no0 = ref ResourceSaved\n' if case!='control' else ''))))+'endif\n'
@@ -49,6 +50,8 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
   alias='vk_binding = ps-t0, '+('0, 0' if case=='wrong_kind' else '1, 5')+'\n'
   command='ps-t0 = ref ps-t0\n' if case=='image_mixed' else 'ps-t0 = null\n'
   body=alias+(command+body if case=='before' else body+command)
+ if input_only:
+  body='vk_binding = ps-cb1, 1, 6\nif o0->bindflags == 40\nps-cb1 = ref ps-cb1\nendif\n' if case!='control' else ''
  (mods/'mod.ini').write_text('namespace = native_output\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body+declarations,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
  if constants and case in ('file','file_before'):
@@ -89,6 +92,11 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
   (root/'layer.log').write_bytes(Path(sb.log_path).read_bytes());(root/'stdout.txt').write_text(sb.output(),encoding='utf-8')
  visible=band_pixels(pixels);redirected=band_pixels(owned)
  if case=='control':checks.check(visible is not None and redirected is not None and visible>3*redirected and redirected>100,case+': main and owned fixture each have their original GPU geometry')
+ elif input_only:
+  checks.check(visible==6418 and redirected==902,case+': input-only binding preserves both original GPU results')
+  reason=status.get('shader_overrides',{}).get('last_reason','')
+  checks.check('attachment memory' in reason if memory==1 else not reason and status.get('shader_overrides',{}).get('executed',0)>0,
+               case+': input-only allocation overlap is refused' if memory==1 else case+': disjoint retained input binds without refusal')
  elif (buffers and case in ('black','null_buffer')) or (images and case in ('black','reload')):
   black=black_pixels(owned)
   checks.check(visible is not None and visible<30 and redirected is not None and redirected>6000 and black is not None and black>6000,case+': zero SRV values produce exact black geometry in the redirected target')

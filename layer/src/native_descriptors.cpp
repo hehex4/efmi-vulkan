@@ -1,4 +1,5 @@
 #include "native_descriptors.h"
+#include "resource_memory.h"
 #include "native_targets.h"
 #include "native_resources.h"
 #include "../../frontend/gpu/source_registers.h"
@@ -290,6 +291,8 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             if(resource.buffer && !resource.uploaded_readonly && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
                (cb->inherited_rp || !cb->native_graphics_ordered))
                 return refuse("Native graphics buffer references need a recorded dependency before this pass; inherited secondaries need parent proof");
+            if(resource.buffer && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
+               !native_attachment_memory(device,cb,resource,why))return false;
             if(constant || storage){
                 const auto usage=constant?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
                 const auto& limits=device->physical_properties.limits;

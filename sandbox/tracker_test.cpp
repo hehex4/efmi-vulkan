@@ -982,6 +982,7 @@ int main()
     native_descriptor_references();
     native_image_scope_lifetime();
     native_image_layout_conflicts();
+    native_image_storage_conflicts();
     native_storage_access_cases();
     native_storage_format_cases();
     hunting_idle_cases();

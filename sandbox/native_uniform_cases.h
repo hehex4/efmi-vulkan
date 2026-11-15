@@ -26,6 +26,8 @@ static void native_uniform_prepass_cases()
     efmi::assets::FilePlan plan;plan.items.emplace_back();auto& item=plan.items.back();item.operation=efmi::assets::FileOperation::NativeBind;
     item.native_target.kind=efmi::frontend::NativeBinding::Constant;item.native_target.stage=0;item.native_resource=resource;
     CmdBuf cb;cb.in_rp=true;NativeDescriptorPlan descriptors;std::string why;
+    resource->memory=89;resource->memory_size=16;
+    auto empty_pass=std::make_shared<FramebufferInfo>();empty_pass->known=true;cb.pass.info=empty_pass;
     check(!prepare_native_descriptors(&d,&cb,draw,plan,descriptors,why),
         "a graphics application-buffer reference requires an actual dependency before this pass began");
     d.native_barrier=uniform_dependency_fixture::barrier;d.native_binding_order=true;

@@ -170,4 +170,62 @@ void native_image_scope_lifetime()
     check(resource_destroy_order.empty(),"ending an image scope retains the allocation for queued GPU work");
     cb.reset_recording();check(resource_destroy_order==std::vector<int>({1,2,3}),"completed recording reset releases image view, image and memory once");
 }
+void native_image_storage_conflicts()
+{
+    Device d;d.application_queue_count=1;d.material_queues.push_back(h<VkQueue>(650));
+    const auto pipeline=h<VkPipeline>(651);d.pipes[pipeline].id=1;d.native_image_cache=std::make_shared<NativeImageCache>();
+    auto access=std::make_shared<NativeImageCache::Access>();access->images.push_back({{0,2,1,0,true,false,false,false,2,0},false});
+    d.native_image_cache->pipelines[1]=access;
+    auto image=std::make_shared<efmi::frontend::NativeResource>();image->bound=true;image->identity=6;
+    image->image=652;image->image_view=653;image->keep=std::make_shared<int>(1);image->image_safe=true;
+    image->view_type=VK_IMAGE_VIEW_TYPE_2D;image->view_format=VK_FORMAT_R32_UINT;image->usage=VK_IMAGE_USAGE_SAMPLED_BIT;
+    image->levels=image->layers=image->mip_count=image->layer_count=1;image->aspect=VK_IMAGE_ASPECT_COLOR_BIT;
+    image->memory=654;image->memory_size=1024;image->memory_linear=false;
+    CmdBuf cb;cb.in_rp=true;cb.active_targets=1;cb.native_image_state=std::make_shared<NativeImageState>();
+    cb.native_image_state->attachments_known=true;cb.native_image_state->attachments.insert(2);
+    RenderTargets targets;targets.known=targets.dynamic=true;targets.layers=1;targets.views.resize(2);
+    VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};color.imageView=h<VkImageView>(655);
+    targets.dynamic_colors.push_back(color);targets.views[0].known=true;targets.views[0].handle=color.imageView;
+    targets.views[0].view.image=h<VkImage>(656);targets.views[0].image.id=2;
+    targets.views[0].image.mem=h<VkDeviceMemory>(654);targets.views[0].image.mem_size=1024;cb.target_contexts.push_back(targets);
+    cb.image_layouts.set(1,1,1,{VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1},VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    DrawRec draw;draw.kind=DK_DRAW;draw.pipeline=pipeline;efmi::frontend::NativeBinding sampled;sampled.binding=2;
+    NativeImagePlan plan;VkImageLayout layout;std::string why;
+    check(!native_image_binding(&d,&cb,draw,sampled,image,plan,layout,why) && plan.cells.empty() && plan.layouts.empty() && why.find("memory")!=std::string::npos,
+          "input-only sampled image cannot alias attachment memory through a distinct image handle");
+    auto prepare=[&]{plan={};return native_image_binding(&d,&cb,draw,sampled,image,plan,layout,why);};
+    image->memory_offset=1024;check(prepare(),"adjacent optimal images do not require linear-image page padding");image->memory_offset=0;
+    cb.target_contexts[0].views[0].image.mem_off=2048;check(prepare(),"input-only sampling permits disjoint attachment suballocations");
+    cb.target_contexts[0].views[0].image.mem_off=0;image->memory_size=0;check(!prepare(),"input-only binding needs the retained driver allocation span");image->memory_size=1024;
+    cb.target_contexts[0].views[0].known=false;check(!prepare(),"unknown active attachment metadata cannot prove input independence");cb.target_contexts[0]=targets;
+    auto resolved=targets;resolved.views[0].image.mem=h<VkDeviceMemory>(657);resolved.views[1]=targets.views[0];
+    resolved.views[1].handle=h<VkImageView>(658);resolved.dynamic_colors[0].resolveImageView=resolved.views[1].handle;
+    cb.target_contexts[0]=resolved;check(prepare(),"disabled resolve metadata cannot invent an attachment conflict");
+    cb.target_contexts[0].dynamic_colors[0].resolveMode=VK_RESOLVE_MODE_AVERAGE_BIT;
+    check(!prepare(),"an active resolve destination contributes its full backing memory range");
+    auto depth=resolved;depth.dynamic_colors[0].imageView=VK_NULL_HANDLE;depth.has_depth=true;depth.views.resize(4);
+    depth.depth=targets.dynamic_colors[0];depth.views[2]=targets.views[0];cb.target_contexts[0]=depth;
+    check(!prepare(),"preserved depth attachment storage participates in sampled-input proof");
+    cb.target_contexts[0]=targets;cb.target_contexts[0].views[0].image.mem=VK_NULL_HANDLE;
+    check(!prepare(),"missing ordinary attachment allocation is not assumed to be implicit WSI memory");
+    d.swapchains[h<VkSwapchainKHR>(659)].images.push_back(targets.views[0].view.image);
+    check(prepare(),"tracked WSI images have implicit storage distinct from explicit input allocations");d.swapchains.clear();
+    auto framebuffer=std::make_shared<FramebufferInfo>();framebuffer->known=true;framebuffer->attachment_count=1;framebuffer->views={targets.views[0]};
+    cb.target_contexts[0]={};cb.target_contexts[0].known=true;cb.target_contexts[0].framebuffer=framebuffer;
+    check(!prepare(),"classic framebuffer snapshots retain input memory conflicts");
+    framebuffer->imageless=true;cb.target_contexts[0].views=framebuffer->views;
+    check(!prepare(),"resolved imageless framebuffer views retain input memory conflicts");
+    cb.target_contexts[0].views[0].image.mem_off=2048;
+    check(prepare(),"resolved imageless views permit proven disjoint sampled inputs");
+    cb.target_contexts[0].views.clear();check(!prepare(),"missing imageless runtime views cannot silently use template metadata");
+    cb.pass.info=framebuffer;cb.target_contexts[0].known=false;
+    check(!prepare(),"unsupported active targets cannot borrow an older framebuffer's memory proof");
+    cb.pass.info.reset();cb.active_targets=0;cb.in_rp=false;cb.inherited_rp=true;
+    auto contents=std::make_shared<DescriptorSetInfo>();DescriptorElement original;
+    original.known=true;original.image_view=VkImageView(image->image_view);original.image_view_id=image->image_view_id=660;
+    original.image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;contents->values[{2,0}]=original;draw.sets[0].pushed=contents;
+    check(prepare(),"secondary retains the exact application's readable SRV without introducing a new resource access");
+    image->image_view=661;image->image_view_id=662;
+    check(!prepare(),"a different secondary image view still requires parent attachment memory proof");
+}
 }

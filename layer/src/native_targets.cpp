@@ -1,4 +1,5 @@
 #include "native_targets.h"
+#include "resource_memory.h"
 #include "native_images.h"
 #include "native_classic_targets.h"
 namespace efvk {
@@ -146,23 +147,6 @@ void layout(CmdBuf* cb,const NativeTargetState::Saved& saved,VkImageLayout value
     auto range=saved.view.view.range;range.levelCount=range.layerCount=1;
     cb->image_layouts.set(saved.view.image.id,saved.view.image.levels,saved.view.image.layers,range,value);
 }
-struct MemoryRange {
-    uint64_t memory=0,offset=0,size=0;bool linear=false;
-};
-MemoryRange storage(const ImageInfo& image){return {uint64_t(image.mem),image.mem_off,image.mem_size,image.tiling==VK_IMAGE_TILING_LINEAR};}
-MemoryRange storage(const BufInfo& buffer){return {uint64_t(buffer.mem),buffer.mem_off,buffer.mem_size,true};}
-MemoryRange storage(const Resource& resource){return {resource.memory,resource.memory_offset,resource.memory_size,resource.memory_linear};}
-bool memory_overlap(const MemoryRange& a,const MemoryRange& b,uint64_t granularity){
-    if(!a.memory || !b.memory || a.memory!=b.memory)return false;
-    // Unknown or overflowing spans cannot establish independence within an allocation.
-    if(!a.size || !b.size || a.size-1>UINT64_MAX-a.offset || b.size-1>UINT64_MAX-b.offset)return true;
-    uint64_t first_a=a.offset,last_a=a.offset+a.size-1,first_b=b.offset,last_b=b.offset+b.size-1;
-    if(a.linear!=b.linear){
-        if(!granularity || (granularity&(granularity-1)))return true;
-        first_a/=granularity;last_a/=granularity;first_b/=granularity;last_b/=granularity;
-    }
-    return first_a<=last_b && first_b<=last_a;
-}
 bool planned_memory_conflict(Device* device,VkImage image,const ImageInfo& info,const efmi::assets::FilePlan& plan,std::string& why){
     if(!image)return false;
     for(const auto& item:plan.items){
@@ -170,7 +154,7 @@ bool planned_memory_conflict(Device* device,VkImage image,const ImageInfo& info,
         const auto& resource=*item.native_resource;if(!resource.bound)continue;
         if(resource.keep && (resource.uploaded_readonly || resource.uploaded_mutable))continue;
         if(!resource.memory){why="Native pending descriptor memory identity is unavailable";return true;}
-        if(resource.image==uint64_t(image) || memory_overlap(storage(info),storage(resource),device->physical_properties.limits.bufferImageGranularity)){
+        if(resource.image==uint64_t(image) || native_memory_overlap(native_memory(info),native_memory(resource),device->physical_properties.limits.bufferImageGranularity)){
             why="Native pending descriptor overlaps preserved output memory";return true;
         }
     }
@@ -178,10 +162,10 @@ bool planned_memory_conflict(Device* device,VkImage image,const ImageInfo& info,
 }
 bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,
                          VkImage image,const ImageInfo& info,std::string& why){
-    const auto target=storage(info);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
-    auto conflict=[&](const MemoryRange& input){
+    const auto target=native_memory(info);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
+    auto conflict=[&](const NativeMemoryRange& input){
         if(!input.memory){why="Native output input memory identity is unavailable";return true;}
-        if(memory_overlap(target,input,granularity)){why="Native output destination overlaps input memory";return true;}
+        if(native_memory_overlap(target,input,granularity)){why="Native output destination overlaps input memory";return true;}
         return false;
     };
     auto resource_conflict=[&](const Resource& resource){
@@ -189,12 +173,12 @@ bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efm
         // Private file allocations are owned separately and never exposed as application outputs.
         if(resource.keep && (resource.uploaded_readonly || resource.uploaded_mutable))return false;
         if(resource.image==uint64_t(image)){why="Native output destination overlaps a bound descriptor";return true;}
-        return conflict(storage(resource));
+        return conflict(native_memory(resource));
     };
     auto buffer_conflict=[&](VkBuffer handle,uint32_t id=0){
         if(!handle)return false;const auto found=device->bufs.find(handle);
         if(found==device->bufs.end() || (id && found->second.id!=id)){why="Native output buffer identity is unavailable";return true;}
-        return conflict(storage(found->second));
+        return conflict(native_memory(found->second));
     };
     for(const auto& bound:cb->sets){
         if(!bound.set && !bound.pushed)continue;
@@ -219,7 +203,7 @@ bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efm
                 if(view->second.image==image){why="Native output destination overlaps a bound descriptor";return true;}
                 const auto input=device->images.find(view->second.image);
                 if(input==device->images.end() || input->second.id!=view->second.image_id){why="Native output sampled image identity is unavailable";return true;}
-                if(conflict(storage(input->second)))return true;
+                if(conflict(native_memory(input->second)))return true;
             }
         }
     }
@@ -394,9 +378,9 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             return refuse("Native output destination does not cover the render area");
         if(!image->second.mem || !image->second.mem_size)return refuse("Native output destination memory range is unavailable");
         if(descriptor_conflict(device,cb,draw,plan,view->second.image,image->second,why))return false;
-        const auto backing=storage(image->second);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
+        const auto backing=native_memory(image->second);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
         auto image_alias=[&](VkImage other,const ImageInfo& metadata){
-            return other && other!=view->second.image && memory_overlap(backing,storage(metadata),granularity);
+            return other && other!=view->second.image && native_memory_overlap(backing,native_memory(metadata),granularity);
         };
         for(const auto& active:targets.views)if(active.known && image_alias(active.view.image,active.image))
             return refuse("Native output destination overlaps active attachment memory");

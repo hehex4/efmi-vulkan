@@ -1,4 +1,5 @@
 #include "native_images.h"
+#include "resource_memory.h"
 #include "native_descriptors.h"
 #include "command_owner.h"
 #include "../../frontend/gpu/native_shader.h"
@@ -103,6 +104,19 @@ std::shared_ptr<NativeImageState> scope(CmdBuf* cb, bool compute)
     return cb->native_image_state;
 }
 bool read_layout(VkImageLayout layout) { return layout == VK_IMAGE_LAYOUT_GENERAL || layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; }
+bool unchanged_application_image(Device* device,const DrawRec& draw,const efmi::frontend::NativeBinding& target,const ImageResource& image)
+{
+    if(target.set>=kMaxSets)return false;const auto& bound=draw.sets[target.set];
+    const DescriptorSetInfo* contents=bound.pushed.get();const auto found=device->descriptor_sets.find(bound.set);
+    if(!contents && found!=device->descriptor_sets.end() && found->second.id==bound.id)contents=&found->second;
+    if(!contents || bound.unsupported || contents->unsupported)return false;
+    const auto element=contents->values.find({target.binding,target.element});if(element==contents->values.end())return false;
+    const auto& value=element->second;
+    if(value.native && !value.application)return false;
+    const auto& original=value.application?*value.application:value;
+    return original.known && original.image_view==VkImageView(image.image_view) && original.image_view_id==image.image_view_id &&
+        read_layout(VkImageLayout(original.image_layout));
+}
 void report(Device* device, CmdBuf* cb, const std::string& reason)
 {
     if (reason.empty()) return;
@@ -214,6 +228,10 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
         layout=VK_IMAGE_LAYOUT_GENERAL;return true;
     }
     if (!used) { layout = VK_IMAGE_LAYOUT_GENERAL; return true; }
+    // A secondary may retain its exact application SRV without introducing an
+    // access absent from the original draw. A different view still needs parent proof.
+    if(!compute && !(cb->inherited_rp && unchanged_application_image(device,draw,target,image)) &&
+       !native_attachment_memory(device,cb,image,why))return false;
     auto state = scope(cb, compute);
     if (!compute && (image.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) &&
         (!state->attachments_known || state->attachments.count(uint32_t(image.identity >> 2))))
