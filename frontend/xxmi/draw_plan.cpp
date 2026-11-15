@@ -2274,7 +2274,8 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
     auto phase = [](const char*) {};
 #endif
     DrawPlan& candidate = runtime_->candidate;
-    candidate.items.clear(); candidate.skip_original = false; candidate.pre_items = SIZE_MAX;
+    const bool hunting_skip = state.call_info && state.call_info->hunting_skip;
+    candidate.items.clear(); candidate.skip_original = hunting_skip; candidate.pre_items = SIZE_MAX;
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     runtime_->keep_original=false;runtime_->shader_depth=0;
@@ -2324,7 +2325,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         phase("exec flush");
         // The application's draw, where it stays, sees the context as the pre lists left it; its bindings
         // stand before pre_items. A list that draws nothing has no draw to bind for.
-        if(!listing)runtime_->application_draw();
+        if(!listing && !hunting_skip)runtime_->application_draw();
         candidate.pre_items=candidate.items.size();
         runtime_->application_drawn=true;
         if(between){std::wstring why;if(!between(state,why))refuse(why.empty()?L"Root phase boundary refused":why);}
@@ -2353,7 +2354,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         // What the lists leave bound after their last draw reaches no draw of the plan: the game binds its
         // own for its next draw, and nothing is issued for it.
         nested();
-        if(runtime_->keep_original)candidate.skip_original=false;
+        if(runtime_->keep_original && !hunting_skip)candidate.skip_original=false;
         // The lists ran to their end (D-162): the Mod's variables are what the original leaves. Where the
         // host cannot draw the draw as the Mod's, the output stays and the reason goes back.
         if(!runtime_->draw_refused.empty())reason=runtime_->draw_refused;

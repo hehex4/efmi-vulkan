@@ -1,5 +1,14 @@
 # EFMI Vulkan - Known issues
 
+## BUG-123: Matched Mod draws survived hunting suppression (D-261; fixed offline)
+
+- D-260 committed and main fast-forwarded as e2b4722. BUG-123 baseline d261-before.out on 2.8.8/f910: 11/12 checks. Selected hunting skip still leaves 902 Mod pixels; clearing selection restores 6418. Both sandbox captures have clean core/sync validation. The existing fixture uses controlled process termination, not a claimed normal exit.
+- Original HackerContext.cpp1005/1014 sets the separate skip/hunting flags while retaining graphics pre/post lists; CommandList.cpp1601 suppresses custom draws before argument evaluation. DX11 supplies retained/deferred lifetime, hazard tracking and one-context order. Both matched planning entries now pass hunting into RuntimeDraw and DrawCallInfo. The planner suppresses the implicit caller and custom draw commands while continuing both list phases. The historical comment/document claiming Mod draws survive hunting was incorrect and is corrected.
+- The first GPU fix passed 14/14, including complete readbacks. The native Core keep-original edge then failed exactly one planner check (69/70 in d261-keep-before.out): it could override hunting. That request can no longer emit or revive the implicit caller while hidden; clearing hunting still restores its effect. d261-host-final.out compiles the two changed host units after checking every reused input digest. The final affected hunting-mods area in d261-regression.out passes original CPU host/runtime, hunting, matched output-only calls, tracker, validation and text checks.
+- Source 2.8.9 / ABI f9104b7b1d2fa5de: d261-pair.out builds tracker/layer/backend. d261-final-pair.out recompiles only the reviewed frontend correction and relinks verified unchanged production objects; tracker 713 and all four stamps pass. GPU hiding coverage is the ordinary Mod mesh; both component planning entries share the flag, but hidden merged-character GPU acceptance is not claimed. No deployment, game, launcher, system or remote action.
+- Continue beside-original output events. build/d262-before.py against the initial D-261 pair (the same output executor) gives 21/24: control has original plus independent moved mesh, while adding oD=null refuses the Mod and preserves unwanted original depth. Both exits, complete color/depth readbacks and core/sync validation are clean. The remaining merged/transparent and broader pass/resolve/persistent-image/queue adapters remain open.
+
+
 ## BUG-122: Hunting discarded native graphics resource events (D-260; fixed offline)
 
 - D-259 committed and main fast-forwarded as f36a8c2. BUG-122: d260-before-complete.out on 2.8.7/f910 reproduces 694/698 tracker checks. Hidden native graphics calls lose both pre/post output events, and an invalid hidden draw argument also refuses the resource list. These are CPU command-recording proofs, not GPU pixels or game evidence.

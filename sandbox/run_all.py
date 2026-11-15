@@ -226,6 +226,7 @@ STEPS = [
 
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
+    "hunting-mods": ["original frontend host", "original INI runtime", "native hunting", "matched output-only application calls", "native tracker", "Vulkan validation", "text check"],
     "hunting-resources": ["native hunting", "native call execution", "native output phases", "native tracker", "Vulkan validation", "text check"],
     "native-classic-attachments": ["native classic attachments", "native classic outputs", "native MRT outputs", "native tracker", "Vulkan validation", "text check"],
     "native-classic-null": ["native classic null", "native classic attachments", "native classic outputs", "native depth null", "native hunting", "native tracker", "Vulkan validation", "text check"],

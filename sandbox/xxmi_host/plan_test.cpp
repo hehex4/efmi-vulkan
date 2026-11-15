@@ -70,7 +70,9 @@ int HostPlanTests()
                      L"[CommandListCompute]\ncs-t0 = ResourceImage\ncs-t1 = ResourceVertices\ncs-u2 = null\ndrawindexed = 3, 0, 0\n"
                      L"[CommandListLater]\nhandling = skip\nps-t0 = ResourceImage\ndrawindexed = 3, 0, 0\nps-t0 = null\nvb9 = ResourceVertices\n"
                      L"[CommandListMovedPixel]\nps-t3 = ref ps-t2\ndrawindexed = 3, 0, 0\n"
-                     L"[CommandListPostSkip]\npost handling = skip\n",
+                     L"[CommandListPostSkip]\npost handling = skip\n"
+                     L"[CommandListHunting]\n$after = 11\npost $after = 12\ndrawindexed = -3, 0, 0\npost drawindexed = 6, 0, 0\n"
+                     L"[CommandListKeep]\n[CommandListHuntingKeep]\nrun = CommandListKeep\npost $after = 13\n",
                      L"planner.ini");
     std::wstring budget=L"namespace = planner\n[CommandListBudget]\n";
     for(int i=0;i<257;++i)budget+=L"drawindexed = 3, 0, 0\n";
@@ -78,10 +80,12 @@ int HostPlanTests()
     HostEnumerateLists();HostParseConstants();HostParseResources();
     DrawPlanAdapter adapter;
     adapter.external(explicitCommandListSections.at(L"commandlist\\planner\\native"),L"test/native");
+    adapter.native(explicitCommandListSections.at(L"commandlist\\planner\\keep"),L"test/keep",
+        [&adapter](CommandListState&,unsigned,std::wstring&){adapter.keep_original();return true;});
     const wchar_t* names[]={L"draw",L"fail",L"empty",L"unset",L"negative",L"nonfinite",L"recursion",L"gpuquery",L"statequery",L"slotquery",L"budget",
                             L"vertexcopy",L"applicationvertex",L"restoredvs",L"nulledvs",L"movedvs",L"leftcb",
                             L"copyslot",L"unlessnull",L"slottoslot",L"savedvertex",L"savedpixel",L"copied",L"targets",L"targetback",L"targetkept",
-                            L"compute",L"later",L"movedpixel",L"postskip"};
+                            L"compute",L"later",L"movedpixel",L"postskip",L"hunting",L"huntingkeep"};
     for(auto* name:names)HostCompileNamedList((L"commandlist\\planner\\"+std::wstring(name)).c_str());
     optimise_command_lists(nullptr);
     for(auto* name:names){
@@ -224,6 +228,22 @@ int HostPlanTests()
         DrawPlan out;
         check(adapter.execute_pair(section.command_list,section.post_command_list,state,out,reason) && !out.skip_original,
               "handling = skip in a post list does not hide the draw that already ran");
+    }
+    {
+        HackerContext context;CommandListState state;DrawCallInfo caller;caller.hunting_skip=true;
+        state.mHackerContext=&context;state.call_info=&caller;g_notices.clear();after=0;
+        auto& section=explicitCommandListSections.at(L"commandlist\\planner\\hunting");DrawPlan out;
+        check(adapter.execute_pair(section.command_list,section.post_command_list,state,out,reason) &&
+              out.skip_original && out.items.empty() && after==12 && g_notices.empty(),
+              "hunting runs both list phases while suppressing the caller and invalid custom draw arguments");
+        check(caller.hunting_skip && !caller.skip,"planning preserves the caller's distinct hunting and handling flags");
+        auto& kept=explicitCommandListSections.at(L"commandlist\\planner\\huntingkeep");
+        check(adapter.execute_pair(kept.command_list,kept.post_command_list,state,out,reason) &&
+              out.skip_original && out.items.empty() && after==13,
+              "a native request to keep the original cannot override hunting suppression");
+        caller.hunting_skip=false;
+        check(adapter.execute_pair(kept.command_list,kept.post_command_list,state,out,reason) && !out.skip_original,
+              "clearing hunting restores the native request to keep the original");
     }
     check(run(L"empty",plan,reason) && plan.skip_original && plan.items.empty(),"empty hidden component is a deliberate skip");
     check(run(L"unset",plan,reason) && plan.items.size()==1 && !plan.items[0].resource,

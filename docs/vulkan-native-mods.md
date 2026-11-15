@@ -5,7 +5,7 @@ game's Vulkan renderer, for Mods written against Vulkan itself, beside route 1 (
 Mods unchanged). Its order: the review's Phase 1 (a draw's lists run against a draw state) and Phase 2
 (any Mod replaces meshes), both done; then this step, ShaderOverride by SPIR-V hash and hunting; then
 replacing game shaders; then slots of other stages (`vs-cb`, `vs-t`, render targets). This document
-covers the implemented shader, resource-binding and capture steps through D-260. Section 8 separates
+covers the implemented shader, resource-binding and capture steps through D-261. Section 8 separates
 those deliverables from the remaining architecture and game-acceptance work.
 
 ## 1. What 3DMigoto does (read from `F:\vulkan\XXMI-Libs-Package\DirectX11`)
@@ -210,8 +210,8 @@ does (the user, 2026-11-12: consider the compatibility with the existing DX11 ro
   publish into the active module's display or analysis session. Existing fenced overlay ownership
   and presentation dependencies also cover this white count line.
 - **Selection and skip**: `next_`/`previous_` vertex and pixel shader as `HuntNext`/`HuntPrev`; with
-  `marking_mode = skip` every draw whose pipeline has the selected module is not forwarded (a draw a Mod
-  replaced keeps the Mod's draws, as `hunting_skip` keeps a list's own draws under the original).
+  `marking_mode = skip` every draw whose pipeline has the selected module is hidden. D-261 also suppresses
+  matched Mod draw commands while preserving their pre/post list execution, as the original does.
   D-192 adds `original` (restore only the selected VS/PS stage, including its native replacement and
   anti-dither patch) and `pink` (the selected draw's pixel output is float4(1,0,1,1) at location 0).
   Pink supports shader, buffer and target selections, including ordinary Mod mesh variants; a custom
@@ -1055,3 +1055,9 @@ Owned scenes with no mesh/image declarations verify current and following depth 
 The native graphics executor keeps pre/post resource assignments when hunting hides the draw. Hidden explicit and implicit draw calls emit nothing, and unused explicit draw arguments cannot refuse the resource list. Resource operations still require their complete target, descriptor, residency and lifetime proofs before recording. Compute suppression is unchanged.
 
 Tracker cases directly cover hidden pre/post output changes and invalid hidden draw arguments. The affected GPU output phases, native caller and hunting checks retain their independent validation coverage; no real-game result is implied. Suppression of matched Mod geometry is the next separate audit.
+
+## Hunting suppression in matched Mod plans (D-261)
+
+Matched component and ordinary-mesh planning receive the current hunting flag. The original DrawCommand bridge already skips explicit draws before argument evaluation; the planner now also suppresses the implicit caller, including a Core request to keep that caller. Resource and variable commands still execute in their original phases. Clearing selection restores the normal keep-original decision.
+
+Owned GPU scenes verify an ordinary replacement mesh disappears with the selected shader and returns when selection clears, with complete image readbacks and clean validation. CPU checks cover both list phases, invalid hidden draw arguments, separate handling/hunting flags and native keep-original precedence. Hidden merged-character GPU acceptance and real-game acceptance remain separate.

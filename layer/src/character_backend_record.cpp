@@ -284,6 +284,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
             // package on the device and brings it up.
             if (program) {
                 efmi::frontend::RuntimeDraw request;
+                request.hunting_skip = t_hunting_skip;
                 request.hash = section->hash; request.count = r.count; request.first = r.first;
                 request.base = r.vertex_offset; request.instances = r.instances; request.first_instance = r.first_instance;
                 request.mod = program->folder_index();
@@ -513,6 +514,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
         list = &package.lists[component.lists[lod]];
         if (program) {
             efmi::frontend::RuntimeDraw request;
+            request.hunting_skip = t_hunting_skip;
             request.hash = section->hash; request.count = r.count; request.first = r.first; request.base = r.vertex_offset;
             request.component = section->component; request.lod = lod; request.identity = identity->id; request.frame = now;
             request.mod = program->folder_index();

@@ -1,5 +1,6 @@
 """Selected native shaders and buffer/target draws: original/pink, restoration and real validation."""
 from pathlib import Path
+import json
 import sys
 import time
 import struct
@@ -16,7 +17,7 @@ def main():
     checks = Checks("hunting shader modes")
     vertex, fragment = sandbox_shader_hashes()
     selected = set(sys.argv[1:])
-    for case in ("original_pixel", "original_vertex", "pink_pixel", "pink_index", "pink_target", "pink_clear", "pink_mesh", "pink_clear_mesh", "pink_direct", "pink_indirect"):
+    for case in ("original_pixel", "original_vertex", "pink_pixel", "pink_index", "pink_target", "pink_clear", "pink_mesh", "pink_clear_mesh", "pink_direct", "pink_indirect", "skip_mesh", "skip_clear_mesh"):
         if selected and case not in selected: continue
         root = Path(test_dir("hunting-" + case + "-"))
         mods = root / "Mods"
@@ -71,7 +72,7 @@ def main():
                     time.sleep(.1)
                 keys.write_text("1\n", encoding="ascii")
                 checks.check(bool(status.get("selected", {}).get(kind)), case + ": selection active")
-                if case.startswith("pink_clear"):
+                if case.startswith(("pink_clear", "skip_clear")):
                     time.sleep(.5)
                     keys.write_text("1 107\n", encoding="ascii")
                     time.sleep(.5)
@@ -85,18 +86,24 @@ def main():
                     counters = replacement.get("counters", {})
                     checks.check(counters.get("own_mesh", 0) > 0, case + ": the Mod actually records its own mesh: " + str(counters))
             pixels, pink = band_pixels(readback) or 0, colored_pixels(readback, (255, 0, 255))
-            checks.check(pixels > 200, case + ": visible mesh image")
+            if case.startswith("skip"):
+                meta_path = Path(str(readback) + ".json")
+                meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+                checks.check(readback.exists() and meta.get("width", 0) > 0 and meta.get("height", 0) > 0 and
+                             readback.stat().st_size == meta["width"] * meta["height"] * 4, case + ": complete image readback")
+            if case == "skip_mesh": checks.equal(band_pixels(readback), 0, case + ": hunting hides all selected application and Mod geometry")
+            else: checks.check(pixels > 200, case + ": visible mesh image")
             if case == "pink_target":
                 # A render target selection is one swapchain image, not every presented image. The one-shot readback
                 # can belong to another image; prove selected draws bound a twin and validation accepted it.
                 checks.check(replacement.get("folder_generation", {}).get("dither_twin_binds", 0) > 0,
                              case + ": selected target draws bind the pink pipeline")
             else:
-                checks.equal(pink > 200, case != "original_pixel" and not case.startswith("pink_clear"), case + ": expected marking color")
+                checks.equal(pink > 200, case != "original_pixel" and not case.startswith(("pink_clear", "skip")), case + ": expected marking color")
             if case == "pink_index": checks.check(pixels - pink > 200, case + ": unselected draws retain their original colors")
             if case.endswith("mesh"):
                 own_pink = colored_pixels(readback, (255, 0, 255), (.84, .96))
-                checks.equal(own_pink > 50, not case.startswith("pink_clear"), case + ": the Mod's mesh region follows the marking state")
+                checks.equal(own_pink > 50, not case.startswith(("pink_clear", "skip")), case + ": the Mod's mesh region follows the marking state")
             sb.proc.terminate(); sb.proc.wait(timeout=30)
         checks.check("Validation Error" not in sb.output() and "VUID-" not in sb.output(), case + ": Vulkan validation clean")
         print("artifacts:", root)

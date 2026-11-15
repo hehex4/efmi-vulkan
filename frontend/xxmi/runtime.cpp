@@ -740,6 +740,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
                                              : (input.indexed ? DrawCall::DrawIndexedInstanced : DrawCall::DrawInstanced);
         DrawCallInfo call = input.indexed ? DrawCallInfo(type, 0, input.count, input.instances, uint32_t(input.base), input.first, input.first_instance, nullptr, 0)
                                           : DrawCallInfo(type, input.count, 0, input.instances, input.first, 0, input.first_instance, nullptr, 0);
+        call.skip = call.hunting_skip = input.hunting_skip;
         if (input.compute) {
             call.VertexCount = call.IndexCount = call.InstanceCount = 0;
             call.ThreadGroupCountX = input.indirect ? 0 : input.count;
@@ -760,7 +761,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             }
         phase("phase find");
         assets::FilePlan& result = p.draw_result;
-        result.items.clear(); result.skip_original = false; result.pre_items = SIZE_MAX;
+        result.items.clear(); result.skip_original = input.hunting_skip; result.pre_items = SIZE_MAX;
         auto s = p.command_state(); s.call_info = &call; std::wstring why;
         ResourceCopyTarget index_target;
         index_target.type = ResourceCopyTargetType::INDEX_BUFFER;

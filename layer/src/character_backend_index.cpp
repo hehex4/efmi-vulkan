@@ -159,7 +159,7 @@ bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
     HuntingDrawScope marking(b, cb, r, facts.marking,marked);
     if(cb->native_target_blocked)return true;
     const uint64_t plans = t_draw_plans;
-    // The Mod's draws stand: hunting's skip keeps a list's own draws, as the original's hunting_skip does.
+    // Matched lists still run; their planner receives hunting_skip to suppress their draw commands.
     if (character_record_matched(b, cb, marking.draw())) return true;
     return hooks && shader_draw_unmatched(b, cb, marking.draw(), facts.modules, t_draw_plans == plans, marked);
 }
