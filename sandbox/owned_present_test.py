@@ -1,7 +1,7 @@
 """Original INI Present work drawn on a real swap chain by the layer (phase 1, D-072).
 
-The sandbox program presents to a window; the character generation of the synthetic fixture
-carries a second INI in its Mod folder whose Present list runs a CustomShader into bb. The layer
+The sandbox program presents to a window; one original root configuration includes an INI
+whose Present list runs a CustomShader into bb. The layer
 must draw it into the presented image, ordered by semaphores, with clean validation. A test-only
 copy of the 20th owned presentation (efmi_vk_sandbox.exe only) gives the pixels.
 
@@ -12,7 +12,7 @@ descriptor pool (BUG-058; each allocation under the game's locks could wait for 
 The same folder runs a second time, as the next start of the game: the panel's stages come from the
 shader cache in the settings folder, none is compiled again, and the picture is the same (D-126).
 
-F10 after the Mod's folder went (BUG-062): the package with Present work is taken out without any wait
+F10 after an included Present list goes away (BUG-062): the configuration is exchanged without any wait
 for the GPU inside vkQueuePresentKHR (in the game such a wait held work that could complete only after
 the presentation went: the game froze). 3DMigoto's reload never waits for the GPU in Present.
 
@@ -22,11 +22,10 @@ its pre and post bodies, so a load that walks every body of every `if` without r
 saw takes 2^n steps for n options; the layer then held the engine lock for good and the game froze.
 """
 import json
-import shutil
 import time
 from pathlib import Path
 from harness import Checks, Sandbox, test_dir
-from runtime_fixture import fixture, CORE
+from native_image_test import dds
 from efmi_vk.probe_client import ProbeClient
 
 PANEL_HLSL = r"""struct V{float4 position:SV_Position;};
@@ -60,6 +59,15 @@ BGRA = (191, 128, 64, 255)
 RGBA = (64, 128, 191, 255)
 
 
+def configuration(root, include="Mods"):
+    """One original registry with explicit includes and reload keys; no package fixture."""
+    directory = root / include
+    directory.mkdir(parents=True, exist_ok=True)
+    (root / "d3dx.ini").write_text("[Include]\ninclude_recursive = " + include +
+                                  "\n[Hunting]\nhunting = 2\nreload_config = F10\n", encoding="ascii")
+    return directory
+
+
 def pixel(data, width, x, y):
     at = (y * width + x) * 4
     return tuple(data[at:at + 4])
@@ -70,31 +78,28 @@ def near(a, b):
 
 
 def removed_with_present_work(checks, entry):
-    """BUG-062: an F10 that finds a Mod with Present work gone must not wait for that work in Present.
+    """BUG-062: an F10 removing included Present work must not wait for that work in Present.
     3DMigoto's reload (ReloadConfig, run in Present) only releases objects and never waits for the GPU;
     the layer counts every wait of its own made inside vkQueuePresentKHR (`present_gpu_waits`)."""
     root = Path(test_dir("owned-present-removed-"))
-    mods = root / "Mods"
+    mods = configuration(root)
     folder = mods / "fixture"
     folder.mkdir(parents=True)
-    fixture(folder)
     (folder / "panel.hlsl").write_text(PANEL_HLSL, encoding="ascii")
     (folder / "panel.ini").write_text(PANEL_INI, encoding="ascii")
-    shutil.copy2(folder / "red.dds", folder / "panel.dds")
+    dds(folder / "panel.dds", (255, 0, 0, 255))
     keys = root / "keys.txt"
     keys.write_text("1\n", encoding="ascii")
-    extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(root / "settings"),
+    extra = dict(EFMI_VK_CONFIGURATION=str(root), EFMI_VK_M2_SETTINGS=str(root / "settings"),
                  EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys))
-    label = entry + ", F10 with the Mod gone:"
+    label = entry + ", F10 removes the included Present list:"
     before, after, panel = {}, {}, {}
     with Sandbox(seconds=6, env_extra=extra, entry=entry, validation=True) as sandbox:
         with ProbeClient(sandbox.pid) as probe:
             time.sleep(1.5)
             before = probe.status().get("replacement", {})
-            # One package: its fields are at the top of the status (more: under "packages").
-            panel = before.get("owned_present") or next(
-                (p.get("owned_present", {}) for p in before.get("packages", []) if "fixture" in p.get("path", "")), {})
-            (mods / "fixture").rename(mods / "DISABLED_fixture")
+            panel = before.get("configuration_generation", {}).get("owned_present", {})
+            configuration(root, "Empty")
             keys.write_text("1 121\n", encoding="ascii")  # F10, the original's reload key
             time.sleep(0.4)
             keys.write_text("1\n", encoding="ascii")
@@ -103,8 +108,11 @@ def removed_with_present_work(checks, entry):
         sandbox.proc.wait(timeout=90)
         output = sandbox.output()
         log = Path(sandbox.log_path).read_text(errors="replace") if Path(sandbox.log_path).is_file() else ""
-    checks.check(panel.get("submitted", 0) > 10, label + " the Mod's Present work ran before (the case under test)", panel)
-    checks.check("character package removed with its Mod" in log, label + " the F10 found the Mod gone", log[-2000:])
+    checks.check(panel.get("submitted", 0) > 10, label + " included Present work ran before reload", panel)
+    checks.check(after.get("configuration_generation", {}).get("reloads", 0) > before.get("configuration_generation", {}).get("reloads", 0),
+                 label + " F10 exchanged the complete configuration", after)
+    after_ini = after.get("configuration_generation", {}).get("ini", {})
+    checks.check("variables" in after_ini and not after_ini["variables"], label + " the removed include contributes no variables", after_ini)
     checks.equal((before.get("present_gpu_waits"), after.get("present_gpu_waits")), (0, 0),
                  label + " the layer never waited for the GPU inside vkQueuePresentKHR, as 3DMigoto's reload never does")
     checks.equal(sandbox.proc.returncode, 0, label + " the sandbox ran on and ended normally")
@@ -117,7 +125,7 @@ ELIF_OPTIONS = 40
 
 
 def elif_chain_ini(options):
-    lines = ["[Constants]", "global $choice = 0", "global $out = 0", "[Present]", "if $choice == 0", "  $out = 100"]
+    lines = ["namespace = owned_chain", "[Constants]", "global $choice = 0", "global $out = 0", "[Present]", "if $choice == 0", "  $out = 100"]
     for k in range(1, options):
         lines += ["else if $choice == %d" % k, "  $out = %d" % (100 + k)]
     lines += ["endif", ""]
@@ -127,9 +135,9 @@ def elif_chain_ini(options):
 def long_elif_chain(checks, entry):
     """BUG-063: a Present list with a 40-option else-if chain loads in bounded time."""
     folder = Path(test_dir("owned-present-elif-"))
-    package = fixture(folder)
-    (folder / "chain.ini").write_text(elif_chain_ini(ELIF_OPTIONS), encoding="ascii")
-    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_SETTINGS=str(folder / "settings"))
+    mods = configuration(folder)
+    (mods / "chain.ini").write_text(elif_chain_ini(ELIF_OPTIONS), encoding="ascii")
+    extra = dict(EFMI_VK_CONFIGURATION=str(folder), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_SETTINGS=str(folder / "settings"))
     label = entry + ", a %d-option else-if chain in Present:" % ELIF_OPTIONS
     status, started, error = {}, False, ""
     try:
@@ -143,8 +151,8 @@ def long_elif_chain(checks, entry):
     except Exception as e:  # the sandbox did not become ready: the load never finished
         error, code = str(e)[-600:], None
     checks.check(started, label + " the device came up (the load finished)", error)
-    variables = status.get("ini", {}).get("variables", {})
-    checks.equal(variables.get("$\\chain.ini\\out"), 100.0, label + " the chain ran in Present and took its first branch")
+    variables = status.get("configuration_generation", {}).get("ini", {}).get("variables", {})
+    checks.equal(variables.get("$\\owned_chain\\out"), 100.0, label + " the chain ran in Present and took its first branch")
     checks.equal(code, 0, label + " the sandbox ran and ended normally")
 
 
@@ -152,9 +160,9 @@ def notices_drawn(checks, entry):
     """D-137: the overlay's notices drawn over the presented image as 3DMigoto's (top left, the level's
     colour on a black backing), after the presentation's other work, with clean synchronization."""
     folder = Path(test_dir("owned-present-notices-"))
-    package = fixture(folder)
+    configuration(folder)
     readback = folder / "notices.raw"
-    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_SETTINGS=str(folder / "settings"),
+    extra = dict(EFMI_VK_CONFIGURATION=str(folder), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_SETTINGS=str(folder / "settings"),
                  EFMI_VK_TEST_NOTICE="> Reloaded config in 0.123s", EFMI_VK_TEST_NOTICES_READBACK=str(readback))
     label = entry + ", notices:"
     notices = {}
@@ -191,8 +199,8 @@ def notices_on_every_presentation(checks, entry):
     GPU at once (a frame generator presents a few images for one rendered frame) every presented image
     still carries them, and the text images are given back when no notice is shown any more."""
     folder = Path(test_dir("owned-present-notices-burst-"))
-    package = fixture(folder)
-    extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_SETTINGS=str(folder / "settings"),
+    configuration(folder)
+    extra = dict(EFMI_VK_CONFIGURATION=str(folder), EFMI_VK_M2_ENABLED="1", EFMI_VK_M2_SETTINGS=str(folder / "settings"),
                  EFMI_VK_TEST_NOTICE="> Reloaded config in 0.123s")
     label = entry + ", notices with five presentations behind a frame:"
     shown, after = {}, {}
@@ -227,13 +235,13 @@ def main():
         removed_with_present_work(checks, entry)
     for entry in ("layer", "inject"):
         folder = Path(test_dir("owned-present-"))
-        package = fixture(folder)
-        (folder / "panel").mkdir()
-        (folder / "panel/panel.hlsl").write_text(PANEL_HLSL, encoding="ascii")
-        (folder / "panel/panel.ini").write_text(PANEL_INI, encoding="ascii")
-        shutil.copy2(folder / "red.dds", folder / "panel/panel.dds")
+        panel = configuration(folder) / "panel"
+        panel.mkdir()
+        (panel / "panel.hlsl").write_text(PANEL_HLSL, encoding="ascii")
+        (panel / "panel.ini").write_text(PANEL_INI, encoding="ascii")
+        dds(panel / "panel.dds", (255, 0, 0, 255))
         readback = folder / "present.raw"
-        extra = dict(EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_PRESENT_READBACK=str(readback),
+        extra = dict(EFMI_VK_CONFIGURATION=str(folder), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_PRESENT_READBACK=str(readback),
                      EFMI_VK_M2_SETTINGS=str(folder / "settings"))
         owned = []
         with Sandbox(seconds=5, env_extra=extra, entry=entry, extra_args=["--readable-swapchain"], validation=True) as sandbox:
@@ -241,14 +249,14 @@ def main():
             with ProbeClient(sandbox.pid) as probe:
                 for _ in range(2):
                     time.sleep(1.5)
-                    owned.append(probe.status().get("replacement", {}).get("owned_present", {}))
+                    owned.append(probe.status().get("replacement", {}).get("configuration_generation", {}).get("owned_present", {}))
             sandbox.proc.wait(timeout=90)
             output = sandbox.output()
             log = Path(sandbox.log_path).read_text(errors="replace") if Path(sandbox.log_path).is_file() else ""
         label = entry + ":"
         checks.equal(sandbox.proc.returncode, 0, label + " the sandbox exits normally")
         checks.check("validation: errors=0 warnings=0" in output, label + " clean core and synchronization validation", output[-3000:])
-        checks.check("null descriptors added" in log or "null descriptors enabled" in log, label + " null descriptors are on in character mode")
+        checks.check("null descriptors added" in log or "null descriptors enabled" in log, label + " the original registry has null descriptor support")
         checks.check("owned GPU work unavailable" not in log, label + " the owned GPU tools are deployed beside the layer")
         if len(owned) == 2:
             first, second = owned
@@ -285,7 +293,7 @@ def main():
         with Sandbox(seconds=4, env_extra=extra, entry=entry, extra_args=["--readable-swapchain"], validation=True) as sandbox:
             with ProbeClient(sandbox.pid) as probe:
                 time.sleep(1.5)
-                shaders = probe.status().get("replacement", {}).get("owned_present", {}).get("shaders", {})
+                shaders = probe.status().get("replacement", {}).get("configuration_generation", {}).get("owned_present", {}).get("shaders", {})
             sandbox.proc.wait(timeout=90)
             output = sandbox.output()
         checks.equal(sandbox.proc.returncode, 0, label + " the second start exits normally")

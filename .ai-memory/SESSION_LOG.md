@@ -3557,3 +3557,26 @@ Next: migrate remaining package-based Present/capture fixtures, application imag
 ownership/source facts and ordered host insertion with pass/compute restoration,
 then native queue/access/readiness/capture work. Production Core is incomplete.
 No candidate refresh, game activity, installed/system mutation or remote write.
+
+## 2026-11-16: D-315 Present acceptance without character packages
+
+Continued the original-loading rewrite by retiring package/Core fixture dependencies
+from owned_present_test.py. Minimal root Includes load the panel/conditional lists;
+F10 selects an empty Include directory and exchanges the entire registry. Original
+ReloadConfig releases references without waiting in Present; DX11's reference-counted
+lifetime with deferred destruction, hazard tracking and context order still require
+Vulkan recording owners and explicit dependencies.
+
+The old entry reproduces a missing Present result at 2/3 in
+present-configuration-before.out. The first migration passes 68/82: actual pixels and
+validation already pass, while statistics still use old package status paths. Reading
+configuration_generation and requiring a real empty variable registry gives 82/82 plus
+text in present-configuration-reviewed.out, covering both entry modes, independent
+pixels, steady allocations, descriptor/upload reuse, cache restart, long condition
+chains, F10 and notices/bursts. Runtime/four DLLs remain verified 3.3.2 with ABI
+ff5c853cc3759e7d; no production change. Diff and memory accompany the local commit.
+
+Next: application image/source facts and full context import, ordered production
+insertion with attachment/compute restoration and recording lifetime, remaining capture
+fixtures, then native I-01/I-04/I-05/capture. Production Core is incomplete. No candidate
+refresh, game activity, installed/system mutation or remote write.

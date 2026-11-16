@@ -13,6 +13,15 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-315: Verify Present through the original root Include registry (2026-11-16)
+
+Use minimal project-owned root configurations for Present acceptance. No synthetic
+character packages or installed Core substitute for loading the tested lists. F10
+changes the Include selection and exchanges the complete registry; assert both
+generation exchange and actual variable removal. Keep independent swap-chain pixels,
+allocation/reuse/cache checks and zero waits in Present. Read statistics at the
+configuration_generation boundary. This migrates acceptance without changing runtime.
+
 ## D-314: Admit owned image state explicitly with ordered packets (2026-11-16)
 
 Keep image layout changes private until the host accepts a sealed packet. Publish

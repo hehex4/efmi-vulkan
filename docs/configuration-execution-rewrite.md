@@ -156,3 +156,9 @@ original boundary. Source/development DLLs are 3.3.2. GPU configuration 208, pre
 85, owned images/parameters 3,010, root 27 and interpreter 570 pass with clean Vulkan
 validation. Application image facts/ownership and ordered production insertion are
 still required; this does not enable real-game Core execution.
+
+D-315 removes character-package and installed-Core dependencies from swap-chain
+Present acceptance. Minimal root Includes and full F10 exchange pass 82/82 in both
+entry modes, including independent pixels, allocation/descriptor reuse, cache restart,
+conditional chains and notice bursts. Runtime stays 3.3.2. The earlier failed legacy
+entry and migrated status-path assertions are retained as separate evidence.
