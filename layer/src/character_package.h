@@ -66,6 +66,10 @@ struct CharacterDraw {
     // `from` reads the Mod's stream at `to`. Not in the file.
     struct Offset { uint32_t binding = 0, from = 0, to = 0; };
     std::vector<Offset> offsets;
+    // Exact source/replacement layouts from the original semantic evaluator.
+    // Runtime-only, retained with the generation/variants; never package bytes.
+    struct InputLayout { VertexInputRecipe source, replacement; };
+    std::shared_ptr<const InputLayout> input_layout;
     // Vertex slots a live plan binds to a buffer its owned GPU work wrote (P2, D-087): vb[slot] is
     // kCharacterOwned; the Vulkan buffer is bound as it is and `keep` holds it. Not in the file.
     struct OwnedStream { uint32_t slot = 0; uint64_t buffer = 0, offset = 0, size = 0; uint32_t stride = 0; std::shared_ptr<void> keep; };

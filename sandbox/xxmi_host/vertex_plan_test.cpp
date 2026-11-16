@@ -52,6 +52,12 @@ int HostVertexPlanTests()
     auto sequential=input;LayoutEdit second;second.match.format=12;second.replace.format=30;sequential.draws[0].layout.push_back(second);
     check(run(sequential,source) && output.draws[0].attributes[3].format==VK_FORMAT_R8G8B8A8_UINT,
           "later original layout overrides match the already modified element");
+    auto converted=input;converted.draws[0].layout[0].replace.format=10;
+    check(!run(converted,source) && reason.find("numeric class")!=std::string::npos,
+          "unsigned-to-float fetch edits require explicit shader lowering");
+    auto wide=input;wide.draws[0].layout[0].replace.format=3;wide.draws[0].vertex[2]=file(24);
+    check(run(wide,source) && output.draws[0].attributes[3].format==VK_FORMAT_R32G32B32A32_UINT,
+          "the shared semantic evaluator supports 32-bit unsigned blend indices");
     auto alias=source;alias.attributes.push_back({7,2,VK_FORMAT_R8G8B8A8_UINT,8});names.push_back({7,1,"BLENDINDICES"});profile.prepare(code,names,reason);
     check(!run(input,alias) && reason.find("Aliased")!=std::string::npos,"different edits to aliased source bytes require a location-aware backend");
     printf("XXMI vertex plans: %d checks passed, %d failed\n",passed,failed);return failed;

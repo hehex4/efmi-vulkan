@@ -17,8 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def build(out):
     out.mkdir(parents=True, exist_ok=True)
     libraries = build_runtime(ROOT / 'build/xxmi-runtime', test=False)
-    sources = [ROOT / p for p in ['sandbox/shader_input_index_test.cpp', 'frontend/xxmi/shader_input_index.cpp',
-                                 'frontend/xxmi/vertex_plan.cpp', 'layer/src/pipeline_recipe.cpp',
+    sources = [ROOT / p for p in ['sandbox/shader_input_index_test.cpp', 'layer/src/pipeline_recipe.cpp',
                                  'layer/src/merged_skeleton.cpp']]
     headers = [ROOT / p for p in ['frontend/xxmi/shader_input_index.h', 'frontend/xxmi/vertex_plan.h',
                                  'sandbox/material_fixture.h', 'sandbox/src/spirv.h', 'layer/src/pipeline_recipe.h',

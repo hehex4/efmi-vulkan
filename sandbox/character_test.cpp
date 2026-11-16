@@ -325,6 +325,20 @@ static void declaration_tests(const CharacterPackage& p)
                        {3, 16, VK_VERTEX_INPUT_RATE_VERTEX}, {4, 0, VK_VERTEX_INPUT_RATE_VERTEX}};
     source.attributes = {{0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0}, {1, 1, VK_FORMAT_R32G32_SFLOAT, 0}, {2, 2, VK_FORMAT_R16G16B16A16_UNORM, 0},
                          {3, 2, VK_FORMAT_R8G8B8A8_UINT, 8}, {4, 4, VK_FORMAT_R8G8B8A8_UNORM, 12}};
+    {
+        auto layout=std::make_shared<CharacterDraw::InputLayout>();layout->source=source;
+        check(p.vertex_input(p.draws[0],source,layout->replacement,why),"semantic fixture starts from a proven stream layout");
+        layout->replacement.attributes[0].offset=4;
+        auto draw=p.draws[0];draw.input_layout=layout;auto retained=draw;layout.reset();draw.input_layout.reset();
+        check(p.vertex_input(retained,source,result,why) && result.attributes[0].offset==4,
+              "copied runtime draws retain their immutable resolved layout");
+        auto changed=source;changed.bindings[0].stride+=4;
+        check(!p.vertex_input(retained,changed,result,why) && result.attributes[0].offset==4,
+              "another source stride cannot reuse a resolved layout or partially publish");
+        changed=source;changed.attributes[0].location=99;
+        check(!p.vertex_input(retained,changed,result,why) && result.attributes[0].offset==4,
+              "another shader location cannot reuse a resolved source declaration");
+    }
     check(p.vertex_input(p.draws[0], source, result, why) && result.bindings[2].stride == 16 && result.bindings[1].stride == 8 &&
           result.bindings[4].stride == 0 && result.attributes[3].format == VK_FORMAT_R16G16B16A16_UINT && result.attributes[3].offset == 8 &&
           result.attributes[2].format == VK_FORMAT_R16G16B16A16_UNORM && result.attributes[4].binding == 4,

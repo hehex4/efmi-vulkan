@@ -4,6 +4,15 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-295: Keep source and resolved layouts with each matched draw (2026-11-16)
+
+- Exact shader metadata is a generation-owned input to the original XXMI layout evaluator. It does not replace the current Vulkan declaration or bypass resource/queue proofs. No character names or captured-character profiles select runtime behavior.
+- Each runtime draw owns immutable source/resolved declarations; both participate in the plan key, and reuse requires the same source binding/location/format/offset. Merged bone interpretation follows resolved semantic locations and refuses incompatible reuse of an already adopted stream mask.
+- Cache data belongs to the host settings directory, not the physical directory of a staged replacement DLL. F10 reads a new generation's cache; in-flight owners retain their existing metadata. Optional EFMI_VK_SHADER_INPUTS selects an explicit read-only source.
+- Keep refusal for missing proof: inherited application input edits, semantic relinking, numeric-class conversion, declaration-order-sensitive realignment and unsupported formats. Original DX11 lifetime/deferred destruction, hazard tracking and single-context order still need explicit Vulkan ownership/order mechanisms.
+- Source 3.1.8 retains ABI 347c72b0cc7d0e40. The 81-check GPU suite and the input-semantics area pass; this does not close I-01, the remaining I-06 work, or the real-game gate.
+
+
 ## D-294: Cache complete shader identities and preserve unknown declaration-order boundaries (2026-11-16)
 
 - I-06 / D-294: the survey now checks all Vulkan variants before platform pairing. All 5,277 unique vertex modules are observed; the eleven unpaired-only modules add no historical match and no channel conflict. The existing 5,265 unambiguous candidates remain; 68 historical vertex modules are still unmatched.

@@ -4,11 +4,11 @@ Date: 2026-11-15
 Reviewed source version: `3.0.4` (`D-276`, commit `69ea1cc`)
 Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 2026-11-12)
 
-D-294 prepares a general input-semantic cache with 5,265 exact shader identities. The native reader accepts 101 historical modules and rejects ambiguous/unknown identities; 43 reader/layout checks pass. All unpaired Vulkan variants have also been examined. Loader integration, source declaration-order evidence and input conversions remain open; see [the metadata evidence](docs/shader-input-metadata.md). Runtime stays 3.1.7.
+D-294 supplies 5,265 exact shader input identities. D-295 integrates them into matched own/merged draws in 3.1.8, with 81 new GPU checks and affected-area regression passing. Input conversion, declaration-order and application-input limits remain; see [the metadata evidence](docs/shader-input-metadata.md).
 
 ## Implementation audit (2026-11-16; remediation in progress)
 
-Current audit: source 3.1.7; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+Current audit: source 3.1.8; see [the consolidated results](docs/architecture-audit-3.1.3.md).
 
 The findings below are review inputs, not evidence that every proposed remedy is
 sufficient. Source inspection confirms the central problems, with these corrections:
@@ -120,6 +120,13 @@ sufficient. Source inspection confirms the central problems, with these correcti
   historical vertex modules match exactly. Embedded schemas confirm the earlier
   fallback reads. One empty-input module with conflicting paired signatures is
   excluded globally. The remaining 68 modules and runtime integration stay open.
+  D-295 (3.1.8) connects the exact metadata to matched own/merged draw planning.
+  The original evaluator produces retained source/resolved layouts, both keyed in
+  the plan cache; merged bone interpretation uses the resolved semantic locations.
+  Unknown identities, numeric conversion and declaration-order-sensitive edits
+  retain explicit refusals. GPU 81, reader 43, original frontend/runtime and the
+  adjacent rendering checks pass. Full CustomShader/application-input adaptation
+  and real-character verification remain open.
 - **I-07: private implementation coupling fixed by D-279 (3.0.7).** The roots are in
   `scripts/build.py::ABI_ROOTS`; `scripts/build_character_module.py` does not exist.
   `character_module.h` does not directly include the three headers listed below.

@@ -273,6 +273,22 @@ bool CharacterProgram::load(const std::filesystem::path& ini, const std::filesys
 bool CharacterProgram::start(efmi::frontend::RuntimeConfig& options, std::shared_ptr<efmi::frontend::RuntimeExtension> extension,
                              bool declarations_only, std::string& reason)
 {
+    // Generation load only: no asset parser or file IO on the recording path.
+    // Folder packages share this immutable index; F10 reads the current cache.
+    shader_inputs_.reset();vertex_profiles_.clear();vertex_profile_bytes_=0;
+    std::wstring configured(32768,L'\0');
+    const DWORD length=GetEnvironmentVariableW(L"EFMI_VK_SHADER_INPUTS",configured.data(),DWORD(configured.size()));
+    // Settings belong to the host generation, even when a replacement DLL is
+    // staged elsewhere for exchange. Metadata must not follow that DLL path.
+    std::filesystem::path input_path=(options.settings_directory.empty()?layer_folder()/L"settings":options.settings_directory)/L"shader-inputs.bin";
+    if(length && length<configured.size()){configured.resize(length);input_path=configured;}
+    std::error_code input_error;
+    if(std::filesystem::is_regular_file(input_path,input_error)){
+        auto inputs=std::make_shared<efmi::frontend::ShaderInputIndex>();std::string why;
+        if(inputs->load(input_path,why)){
+            logf("shader input cache loaded: %zu exact module identities",inputs->size());shader_inputs_=std::move(inputs);
+        }else logf("shader input cache refused: %s",why.c_str());
+    }
     // The layer answers texture queries of replaced draws (D-077).
     options.texture_identity = true;
     if (gpu_) {
@@ -830,6 +846,7 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
                     const size_t i = a.members[k];
                     auto program = std::make_unique<CharacterProgram>();
                     program->runtime_ = a.loader->runtime_; program->gpu_ = a.loader->gpu_; program->gpu_reason_ = a.loader->gpu_reason_;
+                    program->shader_inputs_=a.loader->shader_inputs_;
                     program->folder_index_ = uint32_t(k);
                     program->libraries_ = called[i]; program->library_notes_ = notes[i];
                     program->folders_ = {folder_key(out[i].ini.parent_path()), folder_key(source.core)};
@@ -854,6 +871,7 @@ bool CharacterProgram::discover_folder(const FolderSource& source, std::vector<F
                     m.mod_namespace = ini.parent_path().lexically_relative(root).u8string();
                     auto program = std::make_unique<CharacterProgram>();
                     program->runtime_ = a.loader->runtime_; program->gpu_ = a.loader->gpu_; program->gpu_reason_ = a.loader->gpu_reason_;
+                    program->shader_inputs_=a.loader->shader_inputs_;
                     std::vector<std::filesystem::path> unit_inputs;
                     for (const auto& other : a.inputs) if (folder_key(other.parent_path()) == folder) unit_inputs.push_back(other);
                     for (const auto& library : libraries(source.mods, unit_inputs, efmi::frontend::character_core_libraries(), program->library_notes_, true))
@@ -1024,8 +1042,21 @@ bool CharacterProgram::forget_plans_when_full(CharacterPackage& package, size_t 
     ++plans_forgotten_;
     return true;
 }
+const efmi::frontend::VertexProfile* CharacterProgram::vertex_profile(const ShaderInfo* shader)
+{
+    if(!shader_inputs_ || !shader || shader->code.empty())return nullptr;
+    const auto found=vertex_profiles_.find(shader->id);
+    if(found!=vertex_profiles_.end())return found->second.get();
+    if(vertex_profiles_.size()>=4096 || shader->code.size()*4>64u*1024*1024-vertex_profile_bytes_)
+        throw std::runtime_error("Shader input profile budget exceeded");
+    auto profile=std::make_shared<efmi::frontend::VertexProfile>();std::string why;
+    if(!shader_inputs_->lookup(shader->code,*profile,why))profile.reset();
+    else {vertex_profile_bytes_+=shader->code.size()*4;logf("shader input semantics resolved for module %u",shader->id);}
+    return vertex_profiles_.emplace(shader->id,std::move(profile)).first->second.get();
+}
 bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, CharacterPackage& package, CharacterList& output,
-                            bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures, efmi::assets::FilePlan* outputs)
+                            bool& skip, bool& added, std::string& reason, const VertexInputRecipe* vertex, bool* textures,
+                            efmi::assets::FilePlan* outputs,const ShaderInfo* vertex_shader)
 {
     try {
         added = false; efmi::assets::FilePlan& plan = file_plan_;
@@ -1205,61 +1236,92 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 // Besides it, element offset edits whose game offset the Mod's lists name (D-085).
                 const efmi::assets::LayoutEdit* blend = nullptr;
                 bound.offsets.clear();
-                bool understood = true;
-                auto same = [](const efmi::assets::LayoutEdit& a, const efmi::assets::LayoutEdit& b) {
-                    const auto &x = a.match, &y = b.match; const auto &p = a.replace, &q = b.replace;
-                    return x.semantic_name == y.semantic_name && x.semantic_index == y.semantic_index && x.input_slot == y.input_slot &&
-                           x.format == y.format && x.format_byte_size == y.format_byte_size && x.aligned_byte_offset == y.aligned_byte_offset &&
-                           p.semantic_name == q.semantic_name && p.semantic_index == q.semantic_index && p.format == q.format &&
-                           p.aligned_byte_offset == q.aligned_byte_offset;
-                };
-                for (size_t e = 0; e < item.layout.size(); ++e) {
-                    const auto& edit = item.layout[e];
-                    const auto& m = edit.match; const auto& r = edit.replace;
-                    const bool plain_match = !m.format && m.format_byte_size == UINT32_MAX && m.aligned_byte_offset == UINT32_MAX &&
-                                             r.semantic_name.empty() && r.semantic_index == UINT32_MAX;
-                    // The original applies every override in order to each element it matches; a plain one
-                    // (by slot and semantic, keeping the semantic) given again later changes nothing more.
-                    if (plain_match && std::any_of(item.layout.begin() + e + 1, item.layout.end(), [&](const auto& later) { return same(later, edit); }))
-                        continue;
-                    if (!blend && plain_match && m.input_slot == 2 && m.semantic_name == "BLENDINDICES" && (r.format == 12 || r.format == 3) &&
-                        r.aligned_byte_offset == UINT32_MAX) { blend = &edit; continue; }
-                    if (plain_match && !r.format && r.aligned_byte_offset != UINT32_MAX && m.input_slot < 4 && m.semantic_index != UINT32_MAX) {
-                        const auto known = element_offsets_.find({m.input_slot, m.semantic_name, m.semantic_index});
-                        if (known != element_offsets_.end() && known->second.size() == 2 && known->second.count(r.aligned_byte_offset)) {
-                            const uint32_t game = *known->second.begin() == r.aligned_byte_offset ? *known->second.rbegin() : *known->second.begin();
-                            if (game != r.aligned_byte_offset) { bound.offsets.push_back({m.input_slot, game, r.aligned_byte_offset}); continue; }
+                bound.input_layout.reset();
+                const auto* semantics=vertex && !item.layout.empty()?vertex_profile(vertex_shader):nullptr;
+                uint32_t index_bytes=0;
+                if(semantics){
+                    // The shared evaluator consumes stride declarations, not file IO.
+                    // Both file and retained owned buffers already have proven strides.
+                    efmi::assets::FileDraws inputs;inputs.draws.emplace_back();auto& input=inputs.draws[0];
+                    input.layout=item.layout;
+                    for(uint32_t slot=0;slot<4;++slot){
+                        if(bound.vb[slot]==kCharacterNone || std::none_of(vertex->bindings.begin(),vertex->bindings.end(),
+                            [&](const auto& binding){return binding.binding==slot;}))continue;
+                        const auto* owned=bound.vb[slot]==kCharacterOwned?bound.owned_stream(slot):nullptr;
+                        if(bound.vb[slot]==kCharacterOwned && !owned)throw std::runtime_error("Semantic layout lacks its owned vertex stream");
+                        auto declaration=std::make_shared<efmi::assets::FileResource>();
+                        declaration->stride=owned?owned->stride:package.streams[bound.vb[slot]].stride;
+                        declaration->usage=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+                        input.vertex[slot].source=efmi::assets::BindingSource::File;input.vertex[slot].resource=std::move(declaration);
+                    }
+                    efmi::frontend::VertexPlan resolved;std::string why;
+                    if(!semantics->resolve(inputs,vertex_shader->code,*vertex,resolved,why))
+                        throw std::runtime_error("Semantic input layout: "+why);
+                    auto layout=std::make_shared<CharacterDraw::InputLayout>();layout->source=*vertex;
+                    layout->replacement=std::move(resolved.draws[0]);bound.input_layout=std::move(layout);
+                    bound.blend=VK_FORMAT_UNDEFINED;bound.pipeline_blend=true;
+                    for(const auto& attribute:bound.input_layout->replacement.attributes){
+                        const auto* semantic=semantics->semantic(attribute.location);
+                        if(attribute.binding==2 && semantic && semantic->name=="BLENDINDICES" && semantic->index==0){
+                            if(!blend_index_format(attribute.format))throw std::runtime_error("Semantic blend index format is unsupported");
+                            index_bytes=attribute.format==VK_FORMAT_R8G8B8A8_UINT?1:attribute.format==VK_FORMAT_R16G16B16A16_UINT?2:4;
                         }
                     }
-                    understood = false;
-                }
-                // An edit beyond those: the layer has the pipeline's Vulkan locations, not the game's DX11
-                // semantics, so it cannot tell which element the edit names, and the Mod's streams would be
-                // read wrongly. The draw stays the game's.
-                if (!understood) {
-                    std::string edits;
-                    for (const auto& edit : item.layout)
-                        edits += " slot " + std::to_string(edit.match.input_slot) + " " + edit.match.semantic_name + " to " +
-                                 (edit.replace.aligned_byte_offset != UINT32_MAX ? "offset " + std::to_string(edit.replace.aligned_byte_offset)
-                                                                                : "format " + std::to_string(edit.replace.format)) + ";";
-                    throw std::runtime_error("Runtime input-layout edits differ from the validated blend-index contract (" +
-                                             std::to_string(item.layout.size()) + " edits:" + edits + ")");
-                }
-                // The blend-index widening is the Mod's to make (R-08): a list without it has its blend
-                // stream read by the pipeline's own BLENDINDICES element, of the width the game declares
-                // (8-bit mostly). The width is then the pipeline's; without the pipeline (offline) it is not
-                // known and the stream's bones are not adopted.
-                uint32_t index_bytes = 0;
-                bound.pipeline_blend = !blend;
-                if (blend) {
-                    bound.blend = blend->replace.format == 3 ? VK_FORMAT_R32G32B32A32_UINT : VK_FORMAT_R16G16B16A16_UINT;
-                    index_bytes = bound.blend == VK_FORMAT_R32G32B32A32_UINT ? 4 : 2;
-                } else {
-                    bound.blend = VK_FORMAT_UNDEFINED;
-                    if (vertex)
-                        for (const auto& a : vertex->attributes)
-                            if (a.binding == 2 && blend_index_format(a.format))
-                                index_bytes = a.format == VK_FORMAT_R8G8B8A8_UINT ? 1 : a.format == VK_FORMAT_R16G16B16A16_UINT ? 2 : 4;
+                }else{
+                    bool understood = true;
+                    auto same = [](const efmi::assets::LayoutEdit& a, const efmi::assets::LayoutEdit& b) {
+                        const auto &x = a.match, &y = b.match; const auto &p = a.replace, &q = b.replace;
+                        return x.semantic_name == y.semantic_name && x.semantic_index == y.semantic_index && x.input_slot == y.input_slot &&
+                               x.format == y.format && x.format_byte_size == y.format_byte_size && x.aligned_byte_offset == y.aligned_byte_offset &&
+                               p.semantic_name == q.semantic_name && p.semantic_index == q.semantic_index && p.format == q.format &&
+                               p.aligned_byte_offset == q.aligned_byte_offset;
+                    };
+                    for (size_t e = 0; e < item.layout.size(); ++e) {
+                        const auto& edit = item.layout[e];
+                        const auto& m = edit.match; const auto& r = edit.replace;
+                        const bool plain_match = !m.format && m.format_byte_size == UINT32_MAX && m.aligned_byte_offset == UINT32_MAX &&
+                                                 r.semantic_name.empty() && r.semantic_index == UINT32_MAX;
+                        // The original applies every override in order to each element it matches; a plain one
+                        // (by slot and semantic, keeping the semantic) given again later changes nothing more.
+                        if (plain_match && std::any_of(item.layout.begin() + e + 1, item.layout.end(), [&](const auto& later) { return same(later, edit); }))
+                            continue;
+                        if (!blend && plain_match && m.input_slot == 2 && m.semantic_name == "BLENDINDICES" && (r.format == 12 || r.format == 3) &&
+                            r.aligned_byte_offset == UINT32_MAX) { blend = &edit; continue; }
+                        if (plain_match && !r.format && r.aligned_byte_offset != UINT32_MAX && m.input_slot < 4 && m.semantic_index != UINT32_MAX) {
+                            const auto known = element_offsets_.find({m.input_slot, m.semantic_name, m.semantic_index});
+                            if (known != element_offsets_.end() && known->second.size() == 2 && known->second.count(r.aligned_byte_offset)) {
+                                const uint32_t game = *known->second.begin() == r.aligned_byte_offset ? *known->second.rbegin() : *known->second.begin();
+                                if (game != r.aligned_byte_offset) { bound.offsets.push_back({m.input_slot, game, r.aligned_byte_offset}); continue; }
+                            }
+                        }
+                        understood = false;
+                    }
+                    // With no exact semantic evidence, only the existing validated contracts apply.
+                    // Arbitrary edits must not infer a DX11 semantic from a Vulkan location.
+                    if (!understood) {
+                        std::string edits;
+                        for (const auto& edit : item.layout)
+                            edits += " slot " + std::to_string(edit.match.input_slot) + " " + edit.match.semantic_name + " to " +
+                                     (edit.replace.aligned_byte_offset != UINT32_MAX ? "offset " + std::to_string(edit.replace.aligned_byte_offset)
+                                                                                    : "format " + std::to_string(edit.replace.format)) + ";";
+                        throw std::runtime_error("Runtime input-layout edits differ from the validated blend-index contract (" +
+                                                 std::to_string(item.layout.size()) + " edits:" + edits + ")");
+                    }
+                    // The blend-index widening is the Mod's to make (R-08): a list without it has its blend
+                    // stream read by the pipeline's own BLENDINDICES element, of the width the game declares
+                    // (8-bit mostly). The width is then the pipeline's; without the pipeline (offline) it is not
+                    // known and the stream's bones are not adopted.
+                    bound.pipeline_blend = !blend;
+                    if (blend) {
+                        bound.blend = blend->replace.format == 3 ? VK_FORMAT_R32G32B32A32_UINT : VK_FORMAT_R16G16B16A16_UINT;
+                        index_bytes = bound.blend == VK_FORMAT_R32G32B32A32_UINT ? 4 : 2;
+                    } else {
+                        bound.blend = VK_FORMAT_UNDEFINED;
+                        if (vertex)
+                            for (const auto& a : vertex->attributes)
+                                if (a.binding == 2 && blend_index_format(a.format))
+                                    index_bytes = a.format == VK_FORMAT_R8G8B8A8_UINT ? 1 : a.format == VK_FORMAT_R16G16B16A16_UINT ? 2 : 4;
+                    }
                 }
                 bound.count = item.index_count; bound.first = item.first_index; bound.base = item.indexed ? item.vertex_offset : 0;
                 bound.instances = item.instance_count; bound.first_instance = item.first_instance; bound.indexed = item.indexed;
@@ -1290,16 +1352,26 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 if (!own_bones && index_bytes && bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset != kCharacterNone &&
                     package.streams[bound.vb[2]].bone_index_bytes != index_bytes)
                     throw std::runtime_error("One blend stream under two blend-index widths");
-                if (!own_bones && index_bytes && bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset == kCharacterNone) {
+                if (!own_bones && index_bytes && bound.vb[2] != kCharacterNone &&
+                    (semantics || package.streams[bound.vb[2]].bone_index_offset == kCharacterNone)) {
                     const uint32_t stride = package.streams[bound.vb[2]].stride;
                     uint32_t indices = kCharacterNone, weights = kCharacterNone, weight_bytes = 2;
-                    if (vertex) {
+                    const auto* effective=bound.input_layout?&bound.input_layout->replacement:vertex;
+                    if (effective) {
                         // BLENDINDICES is the pipeline's unsigned four-component element of binding 2, of
                         // any width (BUG-038: 32-bit in Typhoeus' clothes pipeline), BLENDWEIGHT its
                         // normalized or float one.
-                        for (const auto& a : vertex->attributes) {
+                        for (const auto& a : effective->attributes) {
                             if (a.binding != 2) continue;
-                            if (blend_index_format(a.format)) indices = a.offset;
+                            const auto* semantic=semantics?semantics->semantic(a.location):nullptr;
+                            if(semantics){
+                                if(semantic && semantic->index==0 && semantic->name=="BLENDINDICES")indices=a.offset;
+                                else if(semantic && semantic->index==0 && (semantic->name=="BLENDWEIGHT" || semantic->name=="BLENDWEIGHTS")){
+                                    weight_bytes=blend_weight_bytes(a.format);
+                                    if(!weight_bytes)throw std::runtime_error("Semantic blend weight format is unsupported");
+                                    weights=a.offset;
+                                }
+                            }else if (blend_index_format(a.format)) indices = a.offset;
                             else if (const uint32_t bytes = blend_weight_bytes(a.format)) { weights = a.offset; weight_bytes = bytes; }
                         }
                     }
@@ -1307,7 +1379,12 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                         indices = stride - 8; weights = stride == 16 ? 0 : kCharacterNone; weight_bytes = 2;
                     }
                     std::string why;
-                    if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why, index_bytes, weight_bytes))
+                    const auto& stream=package.streams[bound.vb[2]];
+                    if(semantics && stream.bone_index_offset!=kCharacterNone){
+                        if(stream.bone_index_offset!=indices || stream.bone_weight_offset!=weights ||
+                           stream.bone_index_bytes!=index_bytes || stream.bone_weight_bytes!=weight_bytes)
+                            throw std::runtime_error("One blend stream under different semantic bone layouts");
+                    }else if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why, index_bytes, weight_bytes))
                         throw std::runtime_error("Blend stream refused: " + why);
                 }
                 // A non-indexed draw reads the vertices from `first` on (D-142).
@@ -1376,6 +1453,15 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 put(signature, uint32_t(bound.blend)); put(signature, uint8_t(bound.pipeline_blend));
                 put(signature, uint32_t(bound.offsets.size()));
                 for (const auto& o : bound.offsets) { put(signature, o.binding); put(signature, o.from); put(signature, o.to); }
+                put(signature,uint8_t(bool(bound.input_layout)));
+                if(bound.input_layout){
+                    for(const auto* layout:{&bound.input_layout->source,&bound.input_layout->replacement}){
+                        put(signature,uint32_t(layout->bindings.size()));
+                        for(const auto& b:layout->bindings){put(signature,b.binding);put(signature,b.stride);put(signature,uint32_t(b.inputRate));}
+                        put(signature,uint32_t(layout->attributes.size()));
+                        for(const auto& a:layout->attributes){put(signature,a.location);put(signature,a.binding);put(signature,uint32_t(a.format));put(signature,a.offset);}
+                    }
+                }
                 put(signature, uint32_t(pixels.size()));
                 for (const auto& pixel : pixels) { put(signature, pixel.first); put(signature, pixel.second.asset); put(signature, pixel.second.application_slot); }
                 put(signature, uint8_t(bound.translucent) | uint8_t(bound.shadow) << 1);

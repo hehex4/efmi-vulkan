@@ -615,7 +615,7 @@ public:
     // entries after the first; UINT32_MAX for a draw of one instance.
     bool record(CmdBuf* cb, const DrawRec& r, uint32_t section_index, uint32_t instance = UINT32_MAX);
     bool plan_draw(const efmi::frontend::RuntimeDraw& request, CharacterList& output, bool& skip, bool& added, std::string& reason,
-                   const VertexInputRecipe* vertex, bool* textures);
+                   const VertexInputRecipe* vertex, bool* textures, const GraphicsRecipe* recipe=nullptr);
     void submit_draw_work(VkQueue queue);
     void render_targets(const PipeInfo& pipe, efmi::frontend::RuntimeDraw& request);
     // The application's draw made again with the Mod's textures (D-083). Caller holds res_mx and

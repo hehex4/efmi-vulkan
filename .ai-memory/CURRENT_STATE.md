@@ -5,6 +5,16 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active source 3.1.8: Exact semantic layouts reach matched draws, D-295 (2026-11-16)
+
+- d295-before.out reproduces the missing adapter at 6/9: a valid POSITION offset keeps original geometry instead of rendering the Mod. Original CommandList.cpp 181-312 applies actual semantic/format/offset edits in order; DX11 also supplies reference-counted lifetime with deferred destruction, hazard tracking and single-context order.
+- Source 3.1.8 loads the generated shader-inputs.bin from the host generation's settings directory (optional EFMI_VK_SHADER_INPUTS read-only override), once per generation. Folder packages share it; F10 reloads it. Profiles use exact retained shader bytes, and source/resolved declarations enter each draw's cache identity. Matched own meshes and merged draws use the original evaluator; resolved bone offsets/widths cannot reuse an incompatible adopted mask.
+- Unknown identities keep only existing limited contracts. Semantic relinking, inherited application-stream edits, order-dependent realignment, numeric-class conversion and conflicting per-stream bone layouts remain refused. The cache provides no new resource lifetime, hazard or queue-ordering proof. No IO/asset parsing or GPU waits are added to recording; profile storage is bounded.
+- d295-focused.out passes 20/20 own-mesh/merged checks. A default-path check initially fails 6/10 when metadata follows the staged DLL; the final settings-directory lookup fixes it. d295-final-build.out builds four matching 3.1.8 / 347c72b0cc7d0e40 artifacts, tracker 829 and package 133. The shared ABI is unchanged; this is replacement logic with no new host hook.
+- d295-regression.out input-semantics passes all steps: new GPU 81, reader 43, original frontend (vertex plans 20), original INI 543, own-mesh forward captures 63, plus merged opacity, cold packages, draw readiness, tracker and Vulkan validation. The eight new scenes cover successive offsets, unknown/numeric refusal, default cache, injected entry, actual module exchange and merged bones. d295-captured-layouts.json finds seven supported formats in 214 historical pipeline records; missing sibling module bytes prevent claiming per-pipeline semantic coverage from that scan.
+- The exact asset cache still covers 101/169 historical vertex modules; it is not a real-game verification. The separately checked no-probe candidate remains 3.1.7 (D-291), without this change. Refresh packaging with the generated cache next, then continue I-01/I-04/I-06's remaining offline work. No game load/deployment, launcher/system mutation or remote write; root dist is unchanged.
+
+
 ## D-294: Verified whole-corpus input cache; loader integration next (2026-11-16; runtime 3.1.7)
 
 - I-06 / D-294: the survey now checks all Vulkan variants before platform pairing. All 5,277 unique vertex modules are observed; the eleven unpaired-only modules add no historical match and no channel conflict. The existing 5,265 unambiguous candidates remain; 68 historical vertex modules are still unmatched.

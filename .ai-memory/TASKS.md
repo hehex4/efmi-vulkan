@@ -1,6 +1,14 @@
 # EFMI Vulkan - Tasks
 
 
+## D-295 input integration verified; package the cache and continue open audit work (2026-11-16)
+
+- Done: exact shader semantics drive matched own/merged input layouts in 3.1.8; the input-semantics area passes, including 81 new GPU checks, default-path module exchange and original frontend/runtime checks. Commit evidence is summarized in CURRENT_STATE.md and docs/shader-input-metadata.md.
+- Next: refresh the no-probe candidate and its release checker to include the generated settings/shader-inputs.bin, with bounded content validation and artifact provenance. The last checked candidate is still 3.1.7; no game deployment has occurred.
+- Continue offline: I-01 production cross-queue scheduling/payload-value provenance, I-04 additional image transitions/automatic conflicting-input nulling, and I-06 ordered CustomShader/private-bone input adaptation. Arbitrary semantic relinking, inherited application inputs, numeric conversion and declaration-order-dependent edits remain explicit limits. The 68 unmatched historical vertex identities remain unexplained.
+- Real-game loading/character verification still requires on-the-spot user authorization. That gate does not prevent the outstanding offline work.
+
+
 ## D-294 supplies exact shader semantics; connect actual draw planning next (2026-11-16)
 
 - I-06 / D-294: the survey now checks all Vulkan variants before platform pairing. All 5,277 unique vertex modules are observed; the eleven unpaired-only modules add no historical match and no channel conflict. The existing 5,265 unambiguous candidates remain; 68 historical vertex modules are still unmatched.

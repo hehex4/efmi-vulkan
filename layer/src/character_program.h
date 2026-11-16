@@ -2,6 +2,7 @@
 #include "character_package.h"
 #include "../../frontend/xxmi/runtime.h"
 #include "../../frontend/xxmi/owned_runtime.h"
+#include "../../frontend/xxmi/shader_input_index.h"
 #include <algorithm>
 #include <functional>
 #include <string>
@@ -131,7 +132,8 @@ public:
     // and *textures is true (D-083). Without the pointer such a plan is just the application's draw.
     void note_timing(const char* name, uint64_t microseconds) { if (runtime_) runtime_->note_timing(name, microseconds); }
     bool plan(const efmi::frontend::RuntimeDraw&, CharacterPackage&, CharacterList&, bool& skip, bool& added, std::string& reason,
-              const VertexInputRecipe* vertex = nullptr, bool* textures = nullptr, efmi::assets::FilePlan* outputs = nullptr);
+              const VertexInputRecipe* vertex = nullptr, bool* textures = nullptr, efmi::assets::FilePlan* outputs = nullptr,
+              const ShaderInfo* vertex_shader = nullptr);
     bool present(const efmi::frontend::RuntimeInput&, uint64_t frame, float seconds, std::string& reason, bool keep_replay_state = true);
     bool replayable() const { return runtime_ && runtime_->replayable(); }
     // The last Present again, for another presentation of the same frame (BUG-036).
@@ -238,5 +240,9 @@ private:
     size_t outside_meshes_ = 0, left_to_game_ = 0;
     uint32_t identify_components_ = 0;
     std::map<std::tuple<uint32_t, std::string, uint32_t>, std::set<uint32_t>> element_offsets_;
+    std::shared_ptr<const efmi::frontend::ShaderInputIndex> shader_inputs_;
+    std::map<uint32_t,std::shared_ptr<efmi::frontend::VertexProfile>> vertex_profiles_;
+    uint64_t vertex_profile_bytes_=0;
+    const efmi::frontend::VertexProfile* vertex_profile(const ShaderInfo*);
 };
 }

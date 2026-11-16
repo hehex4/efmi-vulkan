@@ -234,7 +234,7 @@ bool CharacterGeneration::vertex_stride(const PipeInfo& pipe, unsigned slot, uin
 // A replaced draw's plan with a scope for its owned GPU work (P2, D-087): recorded without a
 // queue, pending until submit_draw_work. Caller holds mod_mx.
 bool CharacterGeneration::plan_draw(const efmi::frontend::RuntimeDraw& request, CharacterList& output, bool& skip, bool& added, std::string& reason,
-                                    const VertexInputRecipe* vertex, bool* textures)
+                                    const VertexInputRecipe* vertex, bool* textures, const GraphicsRecipe* recipe)
 {
     efmi::frontend::OwnedRuntime* gpu = nullptr;
 #if defined(EFMI_COMMAND_TIMING) || defined(EFMI_PHASE_TIMING)
@@ -255,8 +255,10 @@ bool CharacterGeneration::plan_draw(const efmi::frontend::RuntimeDraw& request, 
     }
     phase("phase gpu begin");
     scratch_outputs.items.clear(); scratch_outputs.pre_items = 0;
+    const ShaderInfo* vertex_shader=nullptr;
+    if(recipe)for(const auto& stage:recipe->stages)if(stage.stage==VK_SHADER_STAGE_VERTEX_BIT)vertex_shader=stage.shader.get();
     const bool planned = program->plan(request, package, output, skip, added, reason, vertex, textures,
-                                      request.native_outputs ? &scratch_outputs : nullptr);
+                                      request.native_outputs ? &scratch_outputs : nullptr,vertex_shader);
     phase("phase program plan (whole)");
     if (gpu && gpu->scope_active()) { try { gpu->suspend(); } catch (const std::exception&) {} }
     if (gpu && gpu->pending()) draw_work_waiting.store(true, std::memory_order_release);
@@ -477,7 +479,8 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 bool skip = false, added = false, textures = false; std::string reason;
                 // With the pipeline's vertex input, which a list that draws a mesh of its own is planned by (D-176).
                 const VertexInputRecipe* const vertex = found != device->pipes.end() && found->second.recipe ? &found->second.recipe->vertex : nullptr;
-                const bool planned = plan_draw(request, runtime_list, skip, added, reason, vertex, &textures);
+                const bool planned = plan_draw(request, runtime_list, skip, added, reason, vertex, &textures,
+                                              found!=device->pipes.end()?found->second.recipe.get():nullptr);
                 if (handed_over()) return on_device ? true : bring_up();
                 if (!planned) return refuse(C_STATE, "INI hide: " + reason);
                 if(!textures && !runtime_list.count && !scratch_outputs.items.empty()){
@@ -762,7 +765,7 @@ bool CharacterGeneration::record(CmdBuf* cb, const DrawRec& r, uint32_t section_
                 return true;
             };
             bool skip = false, added = false, textures = false; std::string reason;
-            const bool planned = plan_draw(request, runtime_list, skip, added, reason, &pipe.recipe->vertex, &textures);
+            const bool planned = plan_draw(request, runtime_list, skip, added, reason, &pipe.recipe->vertex, &textures,pipe.recipe.get());
             if (handed_over()) return true;
             if (!planned) return refuse(C_STATE, "INI plan: " + reason);
             if(!textures && !runtime_list.count && !scratch_outputs.items.empty()){

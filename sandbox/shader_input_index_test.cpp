@@ -13,8 +13,9 @@ static std::vector<uint32_t> code_at(const fs::path& path){
 }
 int wmain(int argc,wchar_t** argv){
     try {
-        if(argc==3 && std::wstring(argv[1])==L"--fixture"){
-            const auto code=material_fixture::shader(true);std::ofstream file(argv[2],std::ios::binary);
+        if(argc==3 && (std::wstring(argv[1])==L"--fixture" || std::wstring(argv[1])==L"--sandbox-vertex")){
+            const auto code=std::wstring(argv[1])==L"--fixture"?material_fixture::shader(true):spv::vertex_shader();
+            std::ofstream file(argv[2],std::ios::binary);
             file.write(reinterpret_cast<const char*>(code.data()),code.size()*4);return file?0:1;
         }
         int passed=0;auto check=[&](bool ok,const char* label){if(!ok)throw std::runtime_error(label);++passed;};

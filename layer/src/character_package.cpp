@@ -580,6 +580,16 @@ bool CharacterPackage::vertex_input(const CharacterDraw& draw, const VertexInput
                                     std::string& reason) const
 {
     reason.clear();
+    if(draw.input_layout){
+        const auto& expected=draw.input_layout->source;
+        auto fail=[&](){reason="Semantic layout belongs to another source declaration";return false;};
+        if(source.bindings.size()!=expected.bindings.size() || source.attributes.size()!=expected.attributes.size())return fail();
+        for(size_t i=0;i<source.bindings.size();++i){const auto &a=source.bindings[i],&b=expected.bindings[i];
+            if(a.binding!=b.binding || a.stride!=b.stride || a.inputRate!=b.inputRate)return fail();}
+        for(size_t i=0;i<source.attributes.size();++i){const auto &a=source.attributes[i],&b=expected.attributes[i];
+            if(a.location!=b.location || a.binding!=b.binding || a.format!=b.format || a.offset!=b.offset)return fail();}
+        output=draw.input_layout->replacement;return true;
+    }
     VertexInputRecipe next;
     // No stream patches: this only checks the source declaration (unique bindings and locations).
     if (!patch_vertex_streams(source, {}, next, reason)) return false;

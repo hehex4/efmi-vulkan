@@ -1,5 +1,13 @@
 # EFMI Vulkan - Known issues
 
+## BUG-154: Matched InputLayout edits could not use exact shader semantics (supported subset fixed 3.1.8)
+
+- The 3.1.7 baseline d295-before.out passes 6/9: a declared POSITION offset in a replacement file is rejected by the legacy blend/offset-only adapter, leaving the original mesh. This is a sandbox compatibility failure, not a reported real-character result.
+- D-295 supplies whole-corpus exact shader identities to the pinned original layout evaluator. Source/resolved declarations remain distinct in plan/variant caching, and merged bone offsets/widths follow the result. Metadata defaults to stable generation settings so staged module exchange keeps working.
+- New GPU checks pass 81/81, including independent triangles for successive offsets, unknown/numeric refusals, default cache, injection, exchange and changing merged bones. Reader, frontend/runtime, package, capture/readiness and validation checks pass. All four artifacts are 3.1.8 with unchanged ABI.
+- Remaining I-06 limits are explicit: application-stream edits, semantic relinking, numeric input lowering, unknown declaration order and different bone layouts for one adopted stream. Only 101/169 historical vertex modules currently have exact installed-asset identities. No real-game verification is claimed.
+
+
 ## BUG-153: Acquired semaphores inherited a stale queue producer (fixed 3.1.7)
 
 - I-01 / BUG-153: a binary semaphore reused for swapchain acquisition retained its old queue-producer classification. The extracted prior forward-only adapter passes 825/829 checks in d291-before.out; the four failures are successful/suboptimal acquisition through the two existing API entries. This is a mocked driver/history baseline, not an observed GPU acquisition failure.

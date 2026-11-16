@@ -247,3 +247,51 @@ D:/Python312/python.exe -B scripts/check_shader_inputs.py `
   --index build/d294-inputs/shader-inputs.bin --modules build/d293-validated-modules --expected 5265
 D:/Python312/python.exe -B sandbox/run_all.py --no-build --only shader-input-index
 ```
+
+## D-295: Matched draw integration in 3.1.8
+
+`CharacterProgram` reads `shader-inputs.bin` from the generation's settings
+directory while loading. `EFMI_VK_SHADER_INPUTS` can select an explicit read-only
+cache path; tests set it only in their own child processes. Folder packages share
+the immutable index. F10 loads the current file into the new generation, and
+module exchange keeps the host's settings path even when the new DLL is staged
+elsewhere. There is no file IO or asset decoding on the recording path.
+
+The original retained vertex module selects a profile by complete byte identity.
+Matched own-mesh and merged draws pass their current Vulkan declaration, actual
+file/owned strides and ordered layout edits to the original XXMI evaluator. Each
+draw retains both source and resolved declarations. Both enter its plan key;
+another source stride, location, format or offset cannot reuse the result. The
+variant receives the resolved declaration through the existing shared draw path.
+Existing resource owners, deferred GPU destruction and synchronization checks
+continue to govern buffer use; semantic evidence supplies none of those proofs.
+
+For merged draws, the resolved BLENDINDICES/BLENDWEIGHT(S) locations determine
+index/weight offsets and widths. A stream whose already adopted bone interpretation
+differs is refused, rather than reusing an incompatible mask. The shared evaluator
+also accepts the existing 32-bit unsigned blend-index format. Changing numeric
+class (for example float to unsigned fetch) requires explicit shader lowering and
+is refused. Semantic relinking, edits to inherited application streams,
+order-dependent realignment, unsupported formats and different bone layouts for
+one retained stream remain limits. Missing identity retains the existing limited
+blend/offset contracts; it does not permit arbitrary Location-based inference.
+
+The sandbox baseline `build/d295-before.out` passes 6/9 checks: the original mesh
+remains and the requested offset triangle is absent. After integration, the
+own-mesh and actual changing-bone scenes pass 20/20. The default-path check first
+fails 6/10 when metadata follows the DLL path; resolving it from the generation's
+settings fixes that boundary. The final new GPU suite passes 81/81: independent
+right/left triangles for successive offsets, unknown identity and numeric-class
+refusals, default cache, injected entry, actual module exchange and merged bones,
+all with clean core/synchronization validation. No recording pipeline wait is
+introduced. The four development artifacts are 3.1.8 / ABI 347c72b0cc7d0e40;
+tracker checks pass 829 and package checks pass 133. This is a backend behavior
+change with no new host hook or shared protocol field.
+
+`build/d295-captured-layouts.json` records the seven formats in 214 historical
+pipeline records; all are in the adapter's supported set. Most records lack a
+sibling module file, so that scan does not prove per-pipeline semantic coverage.
+The separate exact module survey still establishes 101/169 historical vertex
+identities. These are historical and sandbox results, not a new game load or
+real-character verification. Full queue scheduling and in-draw CustomShader input
+insertion remain open.

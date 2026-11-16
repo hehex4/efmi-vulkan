@@ -10,6 +10,7 @@ namespace {
 struct Format {DXGI_FORMAT dx;VkFormat vk;};
 const Format formats[]={
     {DXGI_FORMAT_R32G32B32A32_FLOAT,VK_FORMAT_R32G32B32A32_SFLOAT},
+    {DXGI_FORMAT_R32G32B32A32_UINT,VK_FORMAT_R32G32B32A32_UINT},
     {DXGI_FORMAT_R32G32B32_FLOAT,VK_FORMAT_R32G32B32_SFLOAT},
     {DXGI_FORMAT_R32G32_FLOAT,VK_FORMAT_R32G32_SFLOAT},{DXGI_FORMAT_R32_FLOAT,VK_FORMAT_R32_SFLOAT},
     {DXGI_FORMAT_R16G16B16A16_UNORM,VK_FORMAT_R16G16B16A16_UNORM},
@@ -21,6 +22,8 @@ const Format formats[]={
 };
 DXGI_FORMAT dx_format(VkFormat value){for(auto f:formats)if(f.vk==value)return f.dx;return DXGI_FORMAT_UNKNOWN;}
 VkFormat vk_format(uint32_t value){for(auto f:formats)if(f.dx==value)return f.vk;return VK_FORMAT_UNDEFINED;}
+bool unsigned_format(VkFormat value){return value==VK_FORMAT_R8G8B8A8_UINT || value==VK_FORMAT_R16G16B16A16_UINT ||
+    value==VK_FORMAT_R32G32B32A32_UINT;}
 bool name_valid(const std::string& name){
     if(name.empty() || name.size()>128)return false;
     for(unsigned char c:name)if(c<33 || c>126)return false;
@@ -125,6 +128,8 @@ bool VertexProfile::resolve(const assets::FileDraws& input,const std::vector<uin
                 if(after.SemanticIndex!=before.SemanticIndex || strcmp(after.SemanticName,before.SemanticName))
                     return refuse("Changing input semantics requires shader relinking");
                 const auto format=vk_format(after.Format);if(!format)return refuse("Changed vertex format is unsupported");
+                if(unsigned_format(format)!=unsigned_format(source.attributes[i].format))
+                    return refuse("Changing vertex numeric class requires shader input conversion");
                 efvk::VertexElementPatch element{before.AlignedByteOffset,source.attributes[i].format,after.AlignedByteOffset,format};
                 const auto previous=std::find_if(patch.elements.begin(),patch.elements.end(),[&](const auto& e){return e.source_offset==element.source_offset && e.source_format==element.source_format;});
                 if(previous!=patch.elements.end()){

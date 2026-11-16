@@ -17,6 +17,9 @@ public:
     // require another adapter. No GPU calls, file IO or partial publication.
     bool resolve(const assets::FileDraws&,const std::vector<uint32_t>& vertex,
                  const efvk::VertexInputRecipe&,VertexPlan&,std::string& reason) const;
+    const VertexSemantic* semantic(uint32_t location) const {
+        const auto found=semantics_.find(location);return found==semantics_.end()?nullptr:&found->second;
+    }
 private:
     std::vector<uint32_t> code_;
     std::map<uint32_t,VertexSemantic> semantics_;
