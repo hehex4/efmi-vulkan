@@ -8,7 +8,8 @@ D-294 supplies 5,265 exact shader input identities. D-295 integrates them into m
 
 ## Implementation audit (2026-11-16; remediation in progress)
 
-Current audit: source 3.2.0; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+Current audit: source 3.2.1; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+D-301 adds detached color-target read layouts and complete scope-end restoration; 125 GPU phase checks and the affected-area/module regression pass. It requires matching 3.2.1 host/backend binaries (ABI 7c4613bb6a168795).
 
 The findings below are review inputs, not evidence that every proposed remedy is
 sufficient. Source inspection confirms the central problems, with these corrections:

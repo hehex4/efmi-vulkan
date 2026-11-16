@@ -6,12 +6,14 @@
 
 namespace efvk {
 struct NativeDescriptorSet;
+struct NativeTargetPlan;
 struct NativeDescriptorPlan {
     std::vector<std::shared_ptr<NativeDescriptorSet>> items;
     std::shared_ptr<CommandOwner> owner;
     NativeImagePlan images;
 };
-bool prepare_native_descriptors(Device*,CmdBuf*,const DrawRec&,const efmi::assets::FilePlan&,NativeDescriptorPlan&,std::string&);
+bool prepare_native_descriptors(Device*,CmdBuf*,const DrawRec&,const efmi::assets::FilePlan&,NativeDescriptorPlan&,std::string&,
+                                const NativeTargetPlan* = nullptr);
 void record_native_descriptor(Device*,CmdBuf*,const DrawRec&,const NativeDescriptorPlan&,size_t);
 DrawRec native_descriptor_draw(const DrawRec&, const NativeDescriptorPlan&, size_t before);
 bool refresh_native_images(Device*, CmdBuf*, const DrawRec&, std::string&);

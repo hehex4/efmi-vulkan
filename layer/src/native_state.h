@@ -28,7 +28,13 @@ struct NativePipelineCache {
 };
 // Complete shared layout: the host finishes a scope that an exchanged module began.
 struct NativeTargetState {
-    struct Saved {TargetView view;VkImageLayout layout=VK_IMAGE_LAYOUT_UNDEFINED;std::shared_ptr<const efmi::frontend::NativeResource> resource;};
+    struct Saved {
+        TargetView view;
+        VkImageLayout layout=VK_IMAGE_LAYOUT_UNDEFINED;
+        std::shared_ptr<const efmi::frontend::NativeResource> resource;
+        // A proven detached sample phase uses GENERAL; scope end restores layout.
+        bool readable_when_detached=false;
+    };
     struct Color {
         VkImage original_image=VK_NULL_HANDLE;
         ImageInfo original_storage; // Original contents remain live through null/output transitions.

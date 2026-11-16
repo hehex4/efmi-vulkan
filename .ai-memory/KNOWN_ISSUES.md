@@ -1,5 +1,9 @@
 # EFMI Vulkan - Known issues
 
+## BUG-157: A detached color target could not acquire a sampled layout (supported subset fixed 3.2.1)
+
+The 3.2.0 baseline passes 9/12: an independent target write works, but sampling it after detachment refuses because its original COLOR_ATTACHMENT_OPTIMAL layout is unreadable. D-301 proves an earlier split for the exact retained non-original color view/subresource, uses GENERAL while detached and restores its original layout at scope end even when inactive. Focused checks pass 37; the full image-phase suite passes 125 and affected-area/module regressions pass. The shared restoration flag changes the ABI to 7c4613bb6a168795 and requires matching host/backend artifacts. Other phases, original-output aliases and implicit conflicting-input nulling remain open; queue guards are unchanged.
+
 ## BUG-156: Legacy blend width and offset edits used a mutable or stale interpretation (fixed 3.2.0)
 
 The no-cache path fixed a stream's index width after its first draw, rejected successive different plain width overrides, and read original pipeline offsets when proving bone usage. d299-before.out on 3.1.9 passes 16/20 with the width and ordered-edit diagnostics. D-299 uses the effective declaration and per-layout mask cache and applies supported plain edits in order. The focused 41 checks and full affected-area regression pass (GPU semantics 143). Missing identity still does not support arbitrary semantic mapping, numeric conversion or unknown declaration-order realignment; offline plan adoption retains its prior width rule.

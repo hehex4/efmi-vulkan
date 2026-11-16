@@ -120,6 +120,18 @@ void layout(CmdBuf* cb,const NativeTargetState::Saved& saved,VkImageLayout value
     auto range=saved.view.view.range;range.levelCount=range.layerCount=1;
     cb->image_layouts.set(saved.view.image.id,saved.view.image.levels,saved.view.image.layers,range,value);
 }
+VkImageLayout detached_layout(const NativeTargetState::Saved& saved){
+    return saved.readable_when_detached?VK_IMAGE_LAYOUT_GENERAL:saved.layout;
+}
+VkImageLayout attachment_source(CmdBuf* cb,const NativeTargetState::Saved& saved){
+    auto current=saved.layout;
+    if(saved.readable_when_detached){
+        auto range=saved.view.view.range;range.levelCount=range.layerCount=1;
+        // Preflight proved this cell; every introduced transition updates it.
+        cb->image_layouts.get(saved.view.image.id,saved.view.image.levels,saved.view.image.layers,range,current);
+    }
+    return current;
+}
 bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,
                          const std::vector<bool>& read_phases,VkImage image,const ImageInfo& info,std::string& why){
     if(!image)return false;
@@ -220,6 +232,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     auto targets=cb->target_contexts[cb->active_targets-1];const bool classic=!targets.dynamic;
     if(classic && !classic_context(targets,why))return false;
     if(!output_context(targets,why))return false;
+    const auto initial_targets=targets;
     const auto read_phases=native_image_read_phases(targets,plan);
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
@@ -405,6 +418,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         continue_targets(targets);event->images=target_images(targets);
         event->targets=targets;next.events[i]=std::move(event);
     }
+    native_image_phase_layouts(initial_targets,plan,read_phases,next);
     if(lock.owns_lock())lock.unlock();
     if(classic){
         if(!next.state->compatibility){
@@ -451,10 +465,10 @@ void record_classic_target(Device* device,CmdBuf* cb,const NativeTargetPlan& pla
     auto contains=[](const std::vector<TargetView>& views,VkImageView handle){return std::any_of(views.begin(),views.end(),[&](const TargetView& view){return view.handle==handle;});};
     if(!state.private_pass)for(const auto& original:state.classic_originals)layout(cb,original,original.layout);
     for(const auto& old:previous)if(!contains(next,old.handle)){
-        const auto& saved=classic_saved(state,old.handle);move(saved,work(old),saved.layout);
+        const auto& saved=classic_saved(state,old.handle);move(saved,work(old),detached_layout(saved));
     }
     for(const auto& view:next)if(!contains(previous,view.handle)){
-        const auto& saved=classic_saved(state,view.handle);move(saved,saved.layout,work(view));
+        const auto& saved=classic_saved(state,view.handle);move(saved,attachment_source(cb,saved),work(view));
     }
     auto& attachment=event->slot==depth_slot?state.depth:state.colors[event->slot];
     attachment.active=event->target!=attachment.original?event->target:VK_NULL_HANDLE;
@@ -486,10 +500,10 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     auto& state=*plan.state;const bool depth=event->slot==depth_slot;
     auto& attachment=depth?state.depth:state.colors[event->slot];
     const auto attachment_layout=depth?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    if(attachment.active){const auto& saved=state.restore.at(attachment.active);barriers[barrier_count++]=transition(saved,attachment_layout,saved.layout);layout(cb,saved,saved.layout);}
+    if(attachment.active){const auto& saved=state.restore.at(attachment.active);const auto after=detached_layout(saved);barriers[barrier_count++]=transition(saved,attachment_layout,after);layout(cb,saved,after);}
     const auto target=event->target;
     attachment.active=target && target!=attachment.original?target:VK_NULL_HANDLE;
-    if(attachment.active){const auto& saved=state.restore.at(attachment.active);barriers[barrier_count++]=transition(saved,saved.layout,attachment_layout);layout(cb,saved,attachment_layout);}
+    if(attachment.active){const auto& saved=state.restore.at(attachment.active);barriers[barrier_count++]=transition(saved,attachment_source(cb,saved),attachment_layout);layout(cb,saved,attachment_layout);}
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,barrier_count,barriers);
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());
@@ -503,20 +517,29 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
 void native_targets_end(Device* device,CmdBuf* cb)
 {
     auto state=std::move(cb->native_target_state);if(!state)return;
-    VkImageMemoryBarrier barriers[9]{};uint32_t count=0;
+    std::vector<VkImageMemoryBarrier> barriers;
+    auto move=[&](const NativeTargetState::Saved& saved,VkImageLayout current){
+        barriers.push_back(transition(saved,current,saved.layout));layout(cb,saved,saved.layout);
+    };
     auto restore=[&](const NativeTargetState::Color& attachment,VkImageLayout current){if(attachment.active){
-        const auto& saved=state->restore.at(attachment.active);barriers[count++]=transition(saved,current,saved.layout);layout(cb,saved,saved.layout);
+        move(state->restore.at(attachment.active),current);
     }};
     if(state->classic){
         if(state->private_pass)for(size_t i=0;i<cb->pass.info->views.size();++i){
             const auto& saved=classic_saved(*state,cb->pass.info->views[i].handle);
-            barriers[count++]=transition(saved,depth_aspects(saved.view.view.format)?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,saved.layout);layout(cb,saved,saved.layout);
+            move(saved,depth_aspects(saved.view.view.format)?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         }
     }else{
         for(const auto& color:state->colors)restore(color,VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         restore(state->depth,VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     }
-    if(count)device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,count,barriers);
+    // Detached sampled targets also need restoration even though they are no
+    // longer active outputs. Active targets above already have their old layout.
+    for(const auto& entry:state->restore)if(entry.second.readable_when_detached){
+        const auto current=attachment_source(cb,entry.second);
+        if(current!=entry.second.layout)move(entry.second,current);
+    }
+    if(!barriers.empty())device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,uint32_t(barriers.size()),barriers.data());
     if(state->classic && state->private_pass){
         const auto source=cb->native_pipeline?cb->native_pipeline->source:cb->gfx_pipeline;
         if(source && source!=cb->gfx_bound){device->d.CmdBindPipeline(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,source);cb->gfx_bound=source;}

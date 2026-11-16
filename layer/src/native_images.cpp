@@ -185,12 +185,15 @@ void native_images_observe_locked(Device* device, CmdBuf* cb, const DrawRec& dra
 
 // Caller holds res_mx; planning changes metadata only, never GPU state.
 bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi::frontend::NativeBinding& target,
-                          const std::shared_ptr<const ImageResource>& resource, NativeImagePlan& plan, VkImageLayout& layout, std::string& why)
+                          const std::shared_ptr<const ImageResource>& resource, NativeImagePlan& plan, VkImageLayout& layout, std::string& why,
+                          VkImageLayout phase_layout)
 {
     auto refuse = [&](const char* text) { why = text; return false; };
     const auto& image = *resource;
     const bool compute = draw.kind == DK_DISPATCH || draw.kind == DK_DISPATCH_INDIRECT;
     const bool storage = target.kind == efmi::frontend::NativeBinding::Access;
+    if(phase_layout!=VK_IMAGE_LAYOUT_UNDEFINED && (compute || storage || phase_layout!=VK_IMAGE_LAYOUT_GENERAL))
+        return refuse("Native image phase layout requires a proven detached sampled target");
     if (device->application_queue_count != 1 || device->material_queues.size() != 1)
         return refuse("Native application images require one application graphics queue");
     if (device->synchronization2_enabled && !(image.uploaded_mutable && draw.kind == DK_DISPATCH))
@@ -245,7 +248,8 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
         const NativeImagePlan::Key key{image.identity, range.baseMipLevel + mip, range.baseArrayLayer + layer};
         VkImageLayout current_layout;
         const auto active = state->active.cells.find(key), planned=plan.cells.find(key);
-        if(active!=state->active.cells.end())current_layout=active->second.after;
+        if(phase_layout!=VK_IMAGE_LAYOUT_UNDEFINED)current_layout=phase_layout;
+        else if(active!=state->active.cells.end())current_layout=active->second.after;
         else if(planned!=plan.cells.end())current_layout=planned->second.after;
         else if (!cb->image_layouts.get(uint32_t(image.identity >> 2), image.levels, image.layers,
                     {VK_IMAGE_ASPECT_COLOR_BIT, range.baseMipLevel + mip, 1, range.baseArrayLayer + layer, 1}, current_layout))

@@ -124,7 +124,7 @@ bool prepare_native_transaction(NativeCallCache& cache,TextureResidency* residen
     }
     if(!native_files(cache,residency,plan,next.plan,why,wait_files,pending) ||
        !prepare_native_targets(device,cb,draw,next.plan,next.targets,why,target_cache) ||
-       !prepare_native_descriptors(device,cb,draw,next.plan,next.descriptors,why))return false;
+       !prepare_native_descriptors(device,cb,draw,next.plan,next.descriptors,why,&next.targets))return false;
     output=std::move(next);return true;
 }
 void begin_native_transaction(Device* device,CmdBuf* cb,const NativeDrawTransaction& transaction)

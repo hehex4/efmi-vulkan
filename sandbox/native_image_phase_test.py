@@ -10,7 +10,14 @@ from native_image_test import dds
 
 
 def scene(checks,case):
- root=Path(test_dir('native-image-phase-'+case+'-'));mods=root/'Mods';mods.mkdir()
+ label=case
+ color_layout=case.startswith('color-')
+ if color_layout:case=case[len('color-'):]
+ dynamic=case.startswith('dynamic')
+ if dynamic:case=case[len('dynamic'):].lstrip('-') or 'after'
+ rp2=case=='rp2'
+ if rp2:case='after'
+ root=Path(test_dir('native-image-phase-'+label+'-'));mods=root/'Mods';mods.mkdir()
  settings=root/'settings';settings.mkdir();fixes=settings/'ShaderFixes';fixes.mkdir()
  _,fragment=sandbox_shader_hashes()
  shader=root/'sample.hlsl'
@@ -33,6 +40,7 @@ float4 main() : SV_Target0 {
  elif case=='late_overlap':commands=write+leave+read.replace('ps-t0 = ResourceWhite\n','')+write
  elif case=='read_before':commands=read+write+leave
  elif case=='repeat':commands=read+write+leave+read
+ elif case=='cycle':commands=write+leave+read+write+leave+read
  elif case=='post':commands=write+''.join('post '+line+'\n' for line in (leave+read).splitlines())
  else:commands=write+leave+read
  ini='''namespace = native_image_phase
@@ -72,7 +80,9 @@ else
           EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> ordered native image phases',
           EFMI_VK_TEST_NOTICES_READBACK=str(screen),EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger),
           VK_LAYER_VALIDATE_SYNC='1')
- args=['--readable-swapchain','--api','1.3','--native-output',str(owned),'--native-output-classic','1','--native-output-owned']
+ if color_layout:env['EFMI_VK_TEST_PHASE_COLOR_LAYOUT']='1'
+ args=['--readable-swapchain','--api','1.3','--native-output',str(owned),'--native-output-owned']
+ args+=['--dynamic-rendering','1'] if dynamic else ['--native-output-classic','2' if rp2 else '1']
  with Sandbox(seconds=12,threads=0,entry='inject' if case=='inject' else 'layer',validation=True,env_extra=env,extra_args=args) as sb:
   with ProbeClient(sb.pid) as probe:
    if case=='swap':
@@ -92,7 +102,7 @@ else
   log=sb.output();checks.check(not any(s in log for s in ('Validation Error','VALIDATION ERROR','VUID-','SYNC-HAZARD')),case+': core and synchronization validation clean')
  main=Path(str(owned)+'.original.raw')
  green=colored_pixels(main,(0,255,0));white=colored_pixels(main,(255,255,255));painted=colored_pixels(owned,(0,255,0))
- print(case,'screen green/white, target green:',green,white,painted,flush=True)
+ print(label,'screen green/white, target green:',green,white,painted,flush=True)
  reason=status.get('shader_overrides',{}).get('last_reason','')
  refused=case in ('overlap','late_overlap')
  checks.check(('overlaps' in reason) if refused else not reason,case+': '+('simultaneous target sampling is refused' if refused else 'ordered image plan executes without refusal'))
@@ -108,7 +118,9 @@ else
 
 def main():
  checks=Checks('native image phases')
- for case in sys.argv[1:] or ('control','after','read_before','repeat','post','overlap','late_overlap','inject','swap'):scene(checks,case)
+ for case in sys.argv[1:] or ('control','after','read_before','repeat','post','overlap','late_overlap','inject','swap',
+                            'color-control','color-after','color-cycle','color-post','color-overlap','color-late_overlap','color-inject','color-swap',
+                            'color-rp2','color-dynamic','color-dynamic-cycle','color-dynamic-swap'):scene(checks,case)
  return checks.finish()
 
 

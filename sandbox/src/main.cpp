@@ -1858,6 +1858,7 @@ static bool render_frame()
     color.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;color.storeOp=VK_ATTACHMENT_STORE_OP_STORE;color.clearValue=clear;
     VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};rendering.renderArea.extent=g.extent;rendering.layerCount=1;
     VkRenderingAttachmentInfo color_targets[2]{color,color};color_targets[1].imageView=native_output_extra.view;
+    if(g.native_output_owned)color_targets[0].imageView=native_output_extra.view;
     rendering.colorAttachmentCount=g.native_output_mrt?2:1;rendering.pColorAttachments=color_targets;
     VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     if(g.dynamic_depth){
@@ -1877,10 +1878,12 @@ static bool render_frame()
     VkImageMemoryBarrier attachment_barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     attachment_barrier.srcQueueFamilyIndex=attachment_barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
     attachment_barrier.image=g.images[image];attachment_barrier.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};
+    if(g.native_output_owned)attachment_barrier.image=native_output_extra.image;
     if(g.dynamic_rendering){
         attachment_barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;attachment_barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         attachment_barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
+        if(g.native_output_owned)attachment_barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+        vkCmdPipelineBarrier(g.primary,g.native_output_owned?VK_PIPELINE_STAGE_ALL_COMMANDS_BIT:VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
         if(g.native_output_mrt){auto extra=attachment_barrier;extra.image=native_output_extra.image;
             extra.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
             vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&extra);}
@@ -1940,10 +1943,20 @@ static bool render_frame()
         dynamic_end_rendering(g.primary);
         attachment_barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;attachment_barrier.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
         attachment_barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;attachment_barrier.dstAccessMask=0;
-        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
+        if(g.native_output_owned){attachment_barrier.newLayout=VK_IMAGE_LAYOUT_GENERAL;attachment_barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;}
+        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,g.native_output_owned?VK_PIPELINE_STAGE_ALL_COMMANDS_BIT:VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&attachment_barrier);
     }else if(g.native_output_classic==2){VkSubpassEndInfo sub{VK_STRUCTURE_TYPE_SUBPASS_END_INFO};vkCmdEndRenderPass2(g.primary,&sub);}else vkCmdEndRenderPass(g.primary);
     record_capture_target(g.primary, true);
-    if(g.native_output_owned){
+    if(g.native_output_owned && g.dynamic_rendering){
+        auto barrier=native_output_barrier(g.images[image]);barrier.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+        auto background=rendering;background.colorAttachmentCount=1;background.pColorAttachments=&color;
+        dynamic_begin_rendering(g.primary,&background);dynamic_end_rendering(g.primary);
+        barrier.oldLayout=barrier.newLayout;barrier.newLayout=VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=0;
+        vkCmdPipelineBarrier(g.primary,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+    }else if(g.native_output_owned){
         VkRenderPassBeginInfo background{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};background.renderPass=g.render_pass;
         background.framebuffer=g.framebuffers[image];background.renderArea.extent=g.extent;background.clearValueCount=1;background.pClearValues=&clear;
         if(g.imageless)background.pNext=&late_views;

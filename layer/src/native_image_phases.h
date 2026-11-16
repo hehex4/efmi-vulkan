@@ -54,4 +54,41 @@ inline std::vector<bool> native_image_read_phases(const RenderTargets& initial,c
     }
     return disjoint;
 }
+
+// Plan a readable detached phase only for a retained, non-original color target
+// with the exact same view and subresource. Other transitions still need proof.
+inline void native_image_phase_layouts(const RenderTargets& initial,const efmi::assets::FilePlan& plan,
+                                      const std::vector<bool>& disjoint,NativeTargetPlan& targets)
+{
+    targets.read_layouts.assign(plan.items.size(),VK_IMAGE_LAYOUT_UNDEFINED);
+    if(!targets.state)return;
+    auto current=initial;
+    std::unordered_set<uint32_t> detached;
+    for(size_t i=0;i<plan.items.size();++i){
+        const auto event=i<targets.events.size()?targets.events[i]:nullptr;
+        if(event && event->change){
+            const auto& next=event->targets;
+            for(const auto& old:current.views)if(old.known &&
+                std::none_of(next.views.begin(),next.views.end(),[&](const TargetView& view){return view.known && view.image.id==old.image.id;}))
+                detached.insert(old.image.id);
+            for(const auto& view:next.views)if(view.known)detached.erase(view.image.id);
+            current=next;
+        }
+        if(i>=disjoint.size() || !disjoint[i])continue;
+        const auto& resource=plan.items[i].native_resource;
+        if(!resource || !detached.count(uint32_t(resource->identity>>2)))continue;
+        const auto found=targets.state->restore.find(VkImageView(resource->image_view));
+        if(found==targets.state->restore.end())continue;
+        auto& saved=found->second;
+        const auto& range=saved.view.view.range;
+        if(saved.layout!=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL ||
+           resource->identity!=((uint64_t(saved.view.image.id)<<2)|2) || resource->image!=uint64_t(saved.view.view.image) ||
+           resource->image_view_id!=saved.view.view.id || resource->aspect!=VK_IMAGE_ASPECT_COLOR_BIT ||
+           resource->base_mip!=range.baseMipLevel || resource->base_layer!=range.baseArrayLayer ||
+           (resource->mip_count!=1 && !(resource->mip_count==VK_REMAINING_MIP_LEVELS && resource->base_mip<resource->levels && resource->levels-resource->base_mip==1)) ||
+           (resource->layer_count!=1 && !(resource->layer_count==VK_REMAINING_ARRAY_LAYERS && resource->base_layer<resource->layers && resource->layers-resource->base_layer==1)))continue;
+        saved.readable_when_detached=true;
+        targets.read_layouts[i]=VK_IMAGE_LAYOUT_GENERAL;
+    }
+}
 }

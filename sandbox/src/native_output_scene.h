@@ -14,7 +14,7 @@ static bool create_native_output_one(NativeOutputScene& s)
 {
     if(s.output.empty())return true;
     if(g.native_uniform_persistent && (!g.native_output_memory || g.dynamic_depth || g.native_output_mrt || g.native_output_owned))return false;
-    if(g.native_output_owned && (!g.native_output_classic || g.native_output_mrt || g.dynamic_depth))return false;
+    if(g.native_output_owned && (g.native_output_mrt || g.dynamic_depth))return false;
     if((g.native_output_no_color && (!g.dynamic_depth || g.native_output_mrt)) || (!g.dynamic_rendering && !g.native_output_classic) || g.threads || g.rendering_split || (g.dynamic_depth && !g.native_output_depth && !g.native_output_stencil))return false;
     VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     image.imageType=VK_IMAGE_TYPE_2D;image.format=g.format;image.extent={g.extent.width,g.extent.height,1};
@@ -118,11 +118,26 @@ static void record_native_output_source_one(VkCommandBuffer command,const Native
     barrier.srcAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,1,&barrier);
 }
-static void record_native_output_source(VkCommandBuffer command){record_native_output_source_one(command,native_output);}
+static bool native_output_color_phase()
+{
+    return g.native_output_owned && GetEnvironmentVariableA("EFMI_VK_TEST_PHASE_COLOR_LAYOUT",nullptr,0)!=0;
+}
+static void record_native_output_source(VkCommandBuffer command)
+{
+    record_native_output_source_one(command,native_output);
+    if(native_output_color_phase()){
+        auto barrier=native_output_barrier(native_output.image);
+        barrier.oldLayout=VK_IMAGE_LAYOUT_GENERAL;barrier.newLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+        barrier.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&barrier);
+    }
+}
 static void record_native_output_readback_one(VkCommandBuffer command,const NativeOutputScene& s)
 {
     if(!s.image)return;
     auto barrier=native_output_barrier(s.image);barrier.oldLayout=VK_IMAGE_LAYOUT_GENERAL;barrier.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    if(&s==&native_output && native_output_color_phase())barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;barrier.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT;
     VkBufferMemoryBarrier buffer{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};buffer.buffer=s.readback.buf;buffer.size=VK_WHOLE_SIZE;
     buffer.srcQueueFamilyIndex=buffer.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;

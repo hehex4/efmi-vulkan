@@ -160,7 +160,7 @@ bool materialize(Device* device,CmdBuf* cb,const std::shared_ptr<NativeDescripto
 const char native_descriptor_owner=0;
 }
 bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,
-                                NativeDescriptorPlan& output,std::string& why)
+                                NativeDescriptorPlan& output,std::string& why,const NativeTargetPlan* targets)
 {
     auto refuse=[&](const char* reason){why=reason;return false;};
     NativeDescriptorPlan next;next.items.resize(plan.items.size());
@@ -310,7 +310,8 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                     if(!sampled || !(resource.usage&VK_IMAGE_USAGE_SAMPLED_BIT) || resource.image_layout!=image_layout)
                         return refuse("Native file image is not published for sampling");
                 }else{
-                    if(!native_image_binding(device,cb,draw,target,replacement,next.images,image_layout,why))return false;
+                    const auto phase=targets && i<targets->read_layouts.size()?targets->read_layouts[i]:VK_IMAGE_LAYOUT_UNDEFINED;
+                    if(!native_image_binding(device,cb,draw,target,replacement,next.images,image_layout,why,phase))return false;
                     if(!resource.uploaded_mutable)value.native_request=replacement;
                 }
                 value.image_view=VkImageView(resource.image_view);value.image_view_id=resource.image_view_id;

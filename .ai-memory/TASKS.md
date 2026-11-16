@@ -1,6 +1,17 @@
 # EFMI Vulkan - Tasks
 
 
+## D-301: Detached color targets can become sampled inputs (2026-11-16)
+
+- Runtime 3.2.1 / ABI 7c4613bb6a168795 fixes the supported subset of BUG-157 / I-04. A non-original retained color target initially in COLOR_ATTACHMENT_OPTIMAL can be written, detached and sampled through an exact-view/subresource proof. Actual output splits establish GENERAL for its read phases; reattachment uses the tracked current layout, and scope end restores the original layout even for an inactive target.
+- Original CommandList.cpp 10043-10051 binds shader resources; 10094-10119 retains other OM views, changes an output and releases temporary references. DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking and one-context order. Vulkan now records those proven phase transitions explicitly rather than requiring this input to start in a readable layout.
+- The 3.2.0 baseline d301-before.out passes 9/12: the independent write control succeeds but the ordered read is refused with Native image layout transition must be prepared before the render pass. d301-focused.out passes 37/37 after the fix, including classic, dynamic rendering, RenderPass2, repeated phases and actual module exchange, with independent pixels and layout-restoration validation.
+- d301-build.out builds four matching DLLs and passes package 148 / tracker 838. Nine new deterministic cases cover detachment proof, repeated phases, earlier/unexecuted splits, overlap, recycled identities and wider ranges. d301-sandbox-build.out adds actual owned dynamic-rendering fixtures and an application-owned COLOR layout/readback oracle.
+- d301-regression.out passes every native-image-phases and module-boundary step: image phases 125, character replacement 377, matched descriptors 72, output memory 52, mixed images 35, output transactions 64, uniform persistence 52, application images 79 and Vulkan validation 76, plus all five module scope checks and the static boundary check. Text and diff checks pass. Simultaneous accesses, allocation aliases, queue and synchronization2 guards retain their checks.
+- The restoration flag is shared scope state, so this revision needs matching host/backend binaries; a backend-only update to a 3.2.0 host is not supported. The separately verified candidate stays 3.2.0 until refreshed. I-04 still needs other phase transitions, original-output aliases and automatic conflicting-input nulling. I-01 production resource/queue scheduling, I-05 one-shot compute and broader I-06 inputs remain open.
+- No game load/deployment, launcher/system mutation or remote write. Root dist is unchanged. The earlier temporary-directory cleanup rejection is not retried or bypassed.
+
+
 ## D-300: Verified no-probe 3.2.0 candidate (2026-11-16)
 
 - The current candidate is build/candidate-current/EFMI-Vulkan-3.2.0.zip, SHA-256 6dbefa52ed36dcb2d50efd3a54d0f6e45df84a6b15b2816fb88e6a0b1298f227. Runtime source is 0e16a7e (D-299), including D-298. ABI stays 347c72b0cc7d0e40. build-result.json records provenance; the archive and SHA sidecar are canonical deliverables.

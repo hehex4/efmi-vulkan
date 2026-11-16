@@ -30,6 +30,8 @@ struct NativeTargetCache {
 struct NativeTargetPlan {
     struct Event {std::shared_ptr<NativeClassicTarget> classic;std::shared_ptr<const NativeBoundPipeline> pipeline;VkPipeline bound=VK_NULL_HANDLE;VkImageView target=VK_NULL_HANDLE;RenderTargets targets;std::shared_ptr<const efmi::frontend::NativeResource> resource;std::shared_ptr<NativeImageState> images;bool change=false;uint32_t slot=0;};
     std::vector<std::shared_ptr<Event>> events;
+    // A prior output split establishes this layout before the corresponding input bind.
+    std::vector<VkImageLayout> read_layouts;
     std::shared_ptr<NativeTargetState> state;
     std::shared_ptr<CommandOwner> owner;
 };
