@@ -4,7 +4,24 @@
 namespace efmi::frontend {
 struct OwnedRuntime::Impl {
     std::shared_ptr<GpuShaderRuntime> gpu;
+    std::weak_ptr<RuntimeExtension> extension;
 };
+struct PreparedConfigurationDraw::Impl {
+    std::shared_ptr<IniRuntime> registry;
+    std::shared_ptr<GpuShaderRuntime> gpu;
+    assets::FilePlan plan;
+    bool armed=false,admitted=false;
+    ~Impl(){if(armed && !admitted)gpu->resources().discard();}
+};
+PreparedConfigurationDraw::PreparedConfigurationDraw():impl_(std::make_unique<Impl>()){}
+PreparedConfigurationDraw::~PreparedConfigurationDraw()=default;
+const assets::FilePlan& PreparedConfigurationDraw::plan() const {return impl_->plan;}
+bool PreparedConfigurationDraw::admit(std::string& reason){
+    reason.clear();
+    if(impl_->admitted)return true;
+    try{impl_->gpu->resources().accept_prepared();impl_->admitted=true;return true;}
+    catch(const std::exception& error){reason=error.what();return false;}
+}
 OwnedRuntime::OwnedRuntime(gpu::ResourceDevice device,gpu::ShaderHost host,const Tools& tools,std::filesystem::path working):impl_(std::make_unique<Impl>()){
     impl_->gpu=std::make_shared<GpuShaderRuntime>(device,std::move(host),tools.compiler,gpu::ResourceBudgets{},std::move(working));
     impl_->gpu->enable_cached_bytecode(tools.bytecode,tools.mode);
@@ -13,7 +30,29 @@ OwnedRuntime::OwnedRuntime(gpu::ResourceDevice device,gpu::ShaderHost host,const
     catch(const std::exception&){}
 }
 OwnedRuntime::~OwnedRuntime()=default;
-std::shared_ptr<RuntimeExtension> OwnedRuntime::combine(std::shared_ptr<RuntimeExtension> native){return owned_generation(std::move(native),impl_->gpu);}
+std::shared_ptr<RuntimeExtension> OwnedRuntime::combine(std::shared_ptr<RuntimeExtension> native){
+    if(!impl_->extension.expired())throw std::runtime_error("One GPU registry belongs to one combined configuration");
+    auto extension=owned_generation(std::move(native),impl_->gpu);impl_->extension=extension;return extension;
+}
+std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_draw(std::shared_ptr<IniRuntime> registry,
+    const RuntimeDraw& draw,const ApplicationResourceState& application,bool shader_only,std::string& reason){
+    reason.clear();const auto extension=impl_->extension.lock();
+    if(!registry || !registry->uses_extension(extension.get())){reason="Prepared draw needs its matching original configuration";return {};}
+    auto pending=std::unique_ptr<PreparedConfigurationDraw>(new PreparedConfigurationDraw);
+    auto& state=*pending->impl_;state.registry=std::move(registry);state.gpu=impl_->gpu;
+    try{
+        auto& resources=state.gpu->resources();resources.begin_prepared_plan(application);state.armed=true;
+        const bool ran=shader_only?state.registry->shader_draw(draw,state.plan,reason):state.registry->draw(draw,state.plan,reason);
+        if(!ran || resources.failed()){
+            if(reason.empty())reason="Original configuration refused prepared GPU work";
+            return {};
+        }
+        // The original plan must have cut its tail at AfterDraw. Never silently
+        // append an unpositioned operation after a host caller.
+        if(resources.finish_prepared())throw std::runtime_error("Original draw plan left an unpositioned GPU segment");
+        return pending;
+    }catch(const std::exception& error){reason=error.what();return {};}
+}
 void OwnedRuntime::begin(VkQueue queue){impl_->gpu->resources().begin(queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);}
 void OwnedRuntime::begin_deferred(){impl_->gpu->resources().begin(VK_NULL_HANDLE,GpuResourceRuntime::ExecutionSite::Deferred);}
 bool OwnedRuntime::pending() const {return impl_->gpu->resources().pending();}

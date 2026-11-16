@@ -8,6 +8,7 @@
 #include <tuple>
 
 namespace efmi::frontend {
+struct ApplicationResourceState;
 struct GpuResourceBinding {
     enum class View {None,ShaderResource,UnorderedAccess,RenderTarget,DepthStencil};
     gpu::Buffer buffer;
@@ -94,14 +95,7 @@ public:
         VkImageSubresourceRange range{};
         UINT flags=0; // Read-only depth views need their own original hazard rules.
     };
-    struct ApplicationResourceState {
-        std::vector<ApplicationBufferBinding> buffers;
-        std::vector<ApplicationImageBinding> images;
-        // Fresh layout facts for saved named references that are no longer bound.
-        std::vector<std::shared_ptr<const ApplicationImageSource>> observations;
-        // Every omitted source slot is proven unbound. Unknown context refuses.
-        bool omitted_slots_unbound=false;
-    };
+    using ApplicationResourceState=frontend::ApplicationResourceState;
     void begin_prepared(const ApplicationResourceState&);
     // Same transaction, but root source calls become ordered retained plan items.
     // CustomShader compute still records into the surrounding GPU segments.
@@ -254,5 +248,15 @@ private:
     // Commands that failed after recording part of their work: not run again in this generation.
     std::unordered_set<const CommandListCommand*> disabled_;
     bool active_=false,installed_=false,failed_=false;
+};
+// Defined here for source-aware providers; host orchestration only needs the
+// forward declaration and never imports the original engine headers.
+struct ApplicationResourceState {
+    std::vector<GpuResourceRuntime::ApplicationBufferBinding> buffers;
+    std::vector<GpuResourceRuntime::ApplicationImageBinding> images;
+    // Fresh layout facts for saved named references that are no longer bound.
+    std::vector<std::shared_ptr<const GpuResourceRuntime::ApplicationImageSource>> observations;
+    // Every omitted source slot is proven unbound. Unknown context refuses.
+    bool omitted_slots_unbound=false;
 };
 }

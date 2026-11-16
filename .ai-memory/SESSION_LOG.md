@@ -3800,3 +3800,27 @@ Continue production original command insertion with complete resource facts,
 attachment/compute restoration and recording ownership, then native I-01/I-04/I-05
 and capture migration. No game, deployment, candidate refresh, installed/system
 mutation or remote action. Historical artifacts were not deleted.
+
+## 2026-11-16: D-325 host-facing original draw transaction
+
+Read original BeforeDraw/caller/AfterDraw and CustomShader restoration. Added
+OwnedRuntime::prepare_draw and PreparedConfigurationDraw to retain the matching
+original registry through positioned planning, explicit admission or automatic
+rollback. Incomplete source state, unpublished Constants, overlap, a foreign
+registry and contained original failures refuse without consuming another scope.
+The host must serialize this transaction through complete native preflight.
+
+The first fixture incorrectly expects GPU work from scalar-only Constants; an
+explicit resource copy fixes the fixture. Its next readback incorrectly crosses
+resource execution domains; independent Vulkan copies into application buffers
+fix the oracle. prepared-host-reviewed.out passes GPU 376 with zero validation
+errors/warnings and observations 7/12/7 before/pre-call/post. This includes same-frame
+quota retry and packet execution after host/configuration destruction. Four DLLs
+are 3.4.1 / ABI fd2102f32b81fd00 (prepared-host-build.out). Fresh root 27/interpreter
+570 pass (prepared-host-runtime.out); production registry 13, tracker 867,
+Present/F10 82, ABI 9 and text 733 pass (prepared-host-regression.out).
+
+Continue native pass breaks preserving attachments, complete source mapping,
+per-call admission and recording ownership before enabling production insertion.
+Native I-01/I-04/I-05 and capture migration remain. No game, deployment, candidate
+refresh, installed/system mutation or remote action.

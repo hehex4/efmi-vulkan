@@ -13,6 +13,17 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-325: Original draw planning has one cancellable host transaction (2026-11-16)
+
+OwnedRuntime prepares only its matching combined original configuration, retaining
+both registry and GPU adapter until explicit host admission or destruction-driven
+rollback. Reject overlap without cancelling the earlier transaction and reject
+unpublished ordinary work without discarding it. Original execution must position
+every GPU segment; an unpositioned tail is an error. Admission follows full host
+preflight and records nothing. The caller serializes the whole transaction against
+Present/reload, then retains the accepted plan's allocation owners with the command
+buffer. This is a host API boundary, not permission to enable incomplete Core work.
+
 ## D-324: Keep obsolete package tools out of the loader (2026-11-16)
 
 Historical capture inspection may read old package files offline, but the layer,

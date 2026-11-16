@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-325 host transaction verified
+
+- Added the host-facing cancellable original draw transaction and matching-registry guard. Complete original context, original execution, positioned sealing and explicit admission remain one serialized operation; cancellation retains the registry through rollback. GPU 376 passes cleanly with independent 7/12/7 observations after two fixture corrections. Four development DLLs are 3.4.1 / ABI fd2102f32b81fd00. Fresh root 27/interpreter 570, production registry 13, tracker 867, Present/F10 82, ABI 9 and text 733 pass.
+- Next: supply complete native source facts, preflight each call's bindings/pipeline, preserve attachments around work segments and retain recording owners before enabling production insertion. Continue native I-01/I-04/I-05/capture and remaining fixture migration. No game authorization.
+
 ## D-324 obsolete runtime code removal verified
 
 - Removed package decoding from production targets and deleted the unused specialized bone batch implementation/shader/generator. Historical decoder is compile-isolated in sandbox/offline. Retired the legacy package-loading test driver after its decoding passes but its removed-loader assertions fail. Four development DLLs are 3.4.0 / ABI fd2102f32b81fd00. Fresh root 27/interpreter 570, production registry 13, tracker 867, recipes 410, cache 81, snapshots 52, variants 63, offline decoder 148, ABI 9 and text 739 pass.

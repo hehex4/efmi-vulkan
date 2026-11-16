@@ -282,6 +282,8 @@ public:
     // OverrideTextures over t0 to t22) runs them. For checks that plan with such a texture bound (D-184).
     std::vector<uint32_t> texture_hashes() const;
 private:
+    friend class OwnedRuntime;
+    bool uses_extension(const RuntimeExtension*) const;
     struct Impl;
     std::unique_ptr<Impl> impl_;
     IniRuntime();

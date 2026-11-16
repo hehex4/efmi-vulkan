@@ -6,6 +6,26 @@
 
 namespace efmi::frontend {
 class RuntimeExtension;
+struct ApplicationResourceState;
+// Retains the original registry until its speculative changes are admitted or
+// cancelled. The caller serializes this entire lifetime with Present/reload and
+// other commands of the same configuration. Destruction cancels an unadmitted
+// draw; after admission the host retains plan packets with the executable CB.
+class PreparedConfigurationDraw {
+public:
+    ~PreparedConfigurationDraw();
+    PreparedConfigurationDraw(const PreparedConfigurationDraw&)=delete;
+    PreparedConfigurationDraw& operator=(const PreparedConfigurationDraw&)=delete;
+    const assets::FilePlan& plan() const;
+    // Only after complete host resource/pipeline/pass/recording preflight.
+    // Admission emits no command and does not authorize queue submission.
+    bool admit(std::string& reason);
+private:
+    friend class OwnedRuntime;
+    PreparedConfigurationDraw();
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 // The owned GPU runtime as a host renderer sees it (D-072): made on the application's device, it
 // joins one generation with that generation's native extension and runs the original GPU
 // commands only inside scopes the host opens. This interface keeps the original engine's headers
@@ -24,6 +44,11 @@ public:
     OwnedRuntime& operator=(const OwnedRuntime&) = delete;
     // The extension of one generation: `native` with this runtime behind the host scope.
     std::shared_ptr<RuntimeExtension> combine(std::shared_ptr<RuntimeExtension> native);
+    // The matching combined registry, complete application source state and
+    // original pre/caller/post execution form one cancellable host transaction.
+    // No command is recorded/submitted here and no first-use work is waited.
+    std::unique_ptr<PreparedConfigurationDraw> prepare_draw(std::shared_ptr<IniRuntime>,
+        const RuntimeDraw&,const ApplicationResourceState&,bool shader_only,std::string& reason);
     // Scopes: one on the presenting queue, or a deferred one while a generation loads in the
     // background, suspended after loading and submitted with the first scope's finish().
     void begin(VkQueue);

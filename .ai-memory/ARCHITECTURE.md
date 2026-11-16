@@ -1,5 +1,13 @@
 # EFMI Vulkan - Architecture
 
+D-325 (3.4.1) exposes a host-facing PreparedConfigurationDraw. It retains the
+matching original registry and GPU adapter through explicit admission or automatic
+rollback, preserving positioned pre/caller/post packets. The host must serialize
+its lifetime against other configuration work and preflight complete native
+resources, pipelines, passes and recording ownership. Preparation/admission emit
+no commands; packets remain executable after the accepted registry is released.
+Production Core insertion still requires that complete host integration.
+
 D-324 (3.4.0) excludes historical package/material decoding from all production
 builds; it resides in sandbox/offline under an inspection-only compiler define.
 The old BoneMerge submission-batch implementation and its specialized shader are

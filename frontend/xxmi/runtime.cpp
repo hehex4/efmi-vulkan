@@ -346,6 +346,7 @@ struct IniRuntime::Impl {
 };
 
 IniRuntime::IniRuntime() : impl_(std::make_unique<Impl>()) {}
+bool IniRuntime::uses_extension(const RuntimeExtension* extension) const {return extension && impl_->extension.get()==extension;}
 IniRuntime::~IniRuntime()
 {
     // Nothing else holds this generation now. Original destructors may write through G

@@ -226,3 +226,12 @@ specialized shader and generator. The old live package test driver is retired;
 offline inspection remains explicitly separate. Four DLLs 3.4.0 pass the affected
 configuration/tracker/recipe/cache/snapshot/variant/ABI checks, offline decoder 148,
 fresh root 27 and interpreter 570. Production Core insertion remains incomplete.
+
+D-325 exposes one cancellable original draw transaction to host orchestration.
+Matching-registry ownership, complete application import, original ordered planning,
+positioned sealing and explicit admission remain under the caller's serialization.
+GPU 376 passes with clean validation and independent 7/12/7 captures after the host
+and registry retire. Four DLLs 3.4.1, fresh root 27/interpreter 570 and affected
+production/Present/F10/tracker/ABI checks pass. Native pass preservation, complete
+source mapping, per-call admission and recording ownership still gate production
+Core insertion; the host API alone is not an enabled rendering path.
