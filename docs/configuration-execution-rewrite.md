@@ -171,3 +171,10 @@ copies, current producer data, source hazards and rollback. Review reproduces an
 fixes omitted image allocation-pool rollback (BUG-164). Root 27/interpreter 570 and
 affected regressions pass. Ordered packet segmentation, production source mapping,
 pass/compute restoration and recording lifetime remain open before Core execution.
+
+D-318 adds ordered prepared segments under one registry transaction and final
+admission. Image initialization stays private until acceptance; aggregate budgets and
+physical alias checks span cuts. Application writes between segments produce 18/30,
+and original copy segments expose 7 then 13 at the respective host positions. Prepared
+135 and GPU 282 pass on 3.3.5 with clean validation, plus affected regressions. This
+provides segmentation, not production draw-plan insertion or pass/queue restoration.

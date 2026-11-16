@@ -13,6 +13,21 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-318: Cut ordered GPU segments without partial registry admission (2026-11-16)
+
+cut_prepared may close one GPU segment while the original resource transaction stays
+open. Segments retain one sequence identity and ordinals; host calls remain between
+their exact positions. Only whole-scope finish and accept enable recording. Discard
+invalidates every cut segment and restores the common registry journal. Owned image
+initialization/layout state remains private across cuts until admission.
+
+Enforce aggregate command/access/image bounds and a nonempty-segment bound; no budget
+resets at a cut. Refuse physical image aliases across segments without explicit phase
+proof. Original BeforeDraw/context draw/AfterDraw uses DX11 reference-counted lifetime
+with deferred destruction, hazard tracking and one-context order. This protocol retains
+the necessary positions but does not implement production pass/compute restoration,
+source mapping, queue scheduling or recording lifetime on behalf of the host.
+
 ## D-317: Import one complete observed original resource binding state (2026-11-16)
 
 ApplicationResourceState combines buffers and explicitly known original image views.

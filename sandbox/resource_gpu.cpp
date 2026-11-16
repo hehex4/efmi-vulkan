@@ -1481,8 +1481,10 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "prepared_resource_cases.h"
 #include "prepared_image_cases.h"
 #include "prepared_imported_image_cases.h"
+#include "prepared_segment_cases.h"
 #include "prepared_parameter_cases.h"
 #include "prepared_registry_cases.h"
+#include "prepared_registry_segment_cases.h"
 #include "prepared_application_cases.h"
 #include "prepared_application_image_cases.h"
 #include "prepared_pool_cases.h"
@@ -1548,7 +1550,8 @@ int wmain(int argc,wchar_t** argv){
     if(argc==3 && !wcscmp(argv[1],L"--prepared")){
         try{{Device device;device.init();low_level(device);prepared_resource_cases(device,std::filesystem::absolute(argv[2]));
             prepared_image_cases(device,std::filesystem::absolute(argv[2])/"images");
-            prepared_imported_image_cases(device,std::filesystem::absolute(argv[2])/"imported-images");}
+            prepared_imported_image_cases(device,std::filesystem::absolute(argv[2])/"imported-images");
+            prepared_segment_cases(device,std::filesystem::absolute(argv[2])/"segments");}
             printf("prepared resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
             return errors || warnings?1:0;
         }catch(const std::exception& e){fprintf(stderr,"prepared resources: %s\n",e.what());return 1;}
@@ -1573,6 +1576,7 @@ int wmain(int argc,wchar_t** argv){
             prepared_registry_cases(device,std::filesystem::absolute(argv[2])/"prepared-registry");
             prepared_application_cases(device,std::filesystem::absolute(argv[2])/"prepared-application");
             prepared_application_image_cases(device,std::filesystem::absolute(argv[2])/"prepared-application-images");
+            prepared_registry_segment_cases(device,std::filesystem::absolute(argv[2])/"prepared-registry-segments");
             prepared_pool_cases(device,std::filesystem::absolute(argv[2])/"prepared-pools");
             prepared_parameter_cases(device,std::filesystem::absolute(argv[2])/"prepared-parameters");}
             printf("configuration resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));

@@ -323,3 +323,38 @@ copies of both application-written layers. Missing saved-reference observations
 refuse and retry. Named/instruction copy allocations retire after cancellation.
 Fresh root 27/interpreter 570, ordinary image/parameter 3,010, production registry 13,
 tracker 838 and ABI 9 pass. The initial pool-retention failure remains recorded.
+
+## Ordered segments with one registry admission (D-318)
+
+cut_prepared seals the current transfer/compute segment but leaves preparation and
+the original registry undo journal open. Later commands may use the same speculative
+resources. Every nonempty segment carries a retained sequence identity and its ordinal;
+the host must preserve all segments and intervening caller operations in exact order.
+finish_prepared closes the scope and returns only its last uncut segment, possibly null.
+Only one later accept_prepared admits every segment. Discard leaves them all unrecordable.
+
+Owned image layout state advances privately between segments, so a later reader uses
+GENERAL after an earlier initializer without publishing that initialization before
+whole-scope admission. Application images keep their observed layout contract at each
+boundary. Every segment reports its own compute-state changes and restores its images.
+The host still must split passes, restore bindings and keep executable recordings;
+segmentation itself does none of those host operations.
+
+The scope has one aggregate budget of 4,096 commands and 16,384 access entries, plus
+conservative bounds of 256 images and 256 nonempty segments. Cutting does not reset
+these allowances. Physical image/buffer aliases still refuse across segment boundaries
+without an explicit alias-phase proof. Resource snapshots and the original pool/name
+journal remain one transaction until admission; CPU scalar assignments still persist.
+
+Original HackerContext.cpp 3149-3172 calls BeforeDraw, the original context draw and
+AfterDraw in that order. DX11 supplies reference-counted lifetime with deferred
+destruction, hazard tracking and one-context order. This segmented Vulkan protocol
+preserves places for that intervening draw, rather than collecting all copies and
+compute work into one block before the application submission.
+
+Headless checks produce 18 from saved/current image values 7/11, then 30 from 13/17,
+with application writes between the two segments. The registry fixture independently
+captures 7 before a later original copy changes the same allocation to 13. Cancellation,
+private initialization, cross-segment aliases, aggregate limits and owner retirement
+pass: prepared 135 and configuration GPU 282, with clean core/synchronization validation.
+This remains a frontend execution primitive; production plan insertion is still open.

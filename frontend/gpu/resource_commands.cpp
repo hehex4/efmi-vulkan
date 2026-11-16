@@ -75,44 +75,65 @@ void PreparedResourceCommands::record(VkCommandBuffer command) const {
 }
 void ResourceCommands::begin_prepared() {
     if(preparing_ || pending_ || awaiting_admission_)throw std::runtime_error("Prepared resource scope requires no pending work or admission");
+    prepared_sequence_=std::make_shared<const uint8_t>(0);
     preparing_=true;prepared_compute_=false;prepared_.clear();prepared_accesses_.clear();
     prepared_image_accesses_.clear();prepared_image_states_.clear();
-    observed_image_layouts_.clear();
+    observed_image_layouts_.clear();prepared_image_finals_.clear();sealed_segments_.clear();sealed_commands_=sealed_accesses_=0;
 }
-std::shared_ptr<const PreparedResourceCommands> ResourceCommands::finish_prepared() {
+std::shared_ptr<const PreparedResourceCommands> ResourceCommands::cut_prepared() {
     if(!preparing_)throw std::runtime_error("No prepared resource scope is active");
-    if(!pending_){preparing_=false;awaiting_admission_=true;return {};}
+    if(!pending_)return {};
+    if(sealed_segments_.size()>=256)throw std::runtime_error("Prepared segment budget exceeded");
     // Optimal image byte placement cannot be derived from texel coordinates.
     // Distinct aliased image/buffer objects require an explicit alias scheduler.
     auto overlap=[](VkDeviceSize a,VkDeviceSize n,VkDeviceSize b,VkDeviceSize m){return a<b+m && b<a+n;};
+    auto images_overlap=[&](const Image& a,const Image& b){return a!=b && a->memory()==b->memory() &&
+        overlap(a->memory_offset(),a->memory_size(),b->memory_offset(),b->memory_size());};
     for(size_t i=0;i<prepared_image_states_.size();++i){const auto& image=prepared_image_states_[i].image;
         for(size_t j=0;j<i;++j){const auto& other=prepared_image_states_[j].image;
-            if(image->memory()==other->memory() && overlap(image->memory_offset(),image->memory_size(),other->memory_offset(),other->memory_size()))
+            if(images_overlap(image,other))
                 throw std::runtime_error("Prepared aliased images require explicit allocation phase proof");
         }
+        for(const auto& other:prepared_image_finals_)if(images_overlap(image,other.first))
+            throw std::runtime_error("Prepared segments alias image allocations without phase proof");
+        for(const auto& segment:sealed_segments_)for(const auto& access:segment->accesses_)
+            if(access.overlaps(image->memory(),image->memory_offset(),image->memory_size()))
+                throw std::runtime_error("Prepared segments alias image/buffer allocations without phase proof");
         for(const auto& access:prepared_accesses_)
             if(access.overlaps(image->memory(),image->memory_offset(),image->memory_size()))
                 throw std::runtime_error("Prepared image/buffer allocation aliases require explicit phase proof");
     }
+    for(const auto& image:prepared_image_finals_)for(const auto& access:prepared_accesses_)
+        if(access.overlaps(image.first->memory(),image.first->memory_offset(),image.first->memory_size()))
+            throw std::runtime_error("Prepared segments alias buffer/image allocations without phase proof");
+    sealed_segments_.reserve(sealed_segments_.size()+1);
     // Every operation reserved its final layout transitions and publication.
     for(const auto& item:pending_->image_layouts_)
         transition(item.first,item.first->external_?item.first->external_layout_:VK_IMAGE_LAYOUT_GENERAL);
     barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
     auto result=std::make_shared<PreparedResourceCommands>();
+    // Only private logical state advances between segments. Cancellation must
+    // not publish an image initialization whose commands never execute.
+    for(const auto& state:prepared_image_states_)prepared_image_finals_[state.image]=state.final;
     result->commands_=std::move(prepared_);result->owners_=std::move(pending_);
     result->accesses_=std::move(prepared_accesses_);
     result->image_accesses_=std::move(prepared_image_accesses_);
     result->image_states_=std::move(prepared_image_states_);
     result->device_=device_.device;result->queue_family_=device_.queue_family;result->compute_=prepared_compute_;
-    preparing_=prepared_compute_=false;awaiting_admission_=true;sealed_=result;return result;
+    result->sequence_=prepared_sequence_;result->segment_=sealed_segments_.size();
+    sealed_commands_+=result->commands_.size();sealed_accesses_+=result->accesses_.size()+result->image_accesses_.size();
+    sealed_segments_.push_back(result);prepared_.clear();prepared_accesses_.clear();
+    prepared_image_accesses_.clear();prepared_image_states_.clear();prepared_compute_=false;return result;
+}
+std::shared_ptr<const PreparedResourceCommands> ResourceCommands::finish_prepared() {
+    auto result=cut_prepared();preparing_=false;awaiting_admission_=true;return result;
 }
 void ResourceCommands::accept_prepared() {
     if(preparing_ || pending_ || !awaiting_admission_)throw std::runtime_error("Prepared admission requires a sealed scope");
-    if(sealed_){
-        for(const auto& state:sealed_->image_states_)state.image->initialized_=true;
-        sealed_->admitted_=true;
-    }
-    sealed_.reset();awaiting_admission_=false;observed_image_layouts_.clear();
+    for(const auto& state:prepared_image_finals_)state.first->initialized_=true;
+    for(const auto& segment:sealed_segments_)segment->admitted_=true;
+    sealed_segments_.clear();prepared_image_finals_.clear();prepared_sequence_.reset();sealed_commands_=sealed_accesses_=0;
+    awaiting_admission_=false;observed_image_layouts_.clear();
 }
 Buffer ResourceCommands::import_buffer(VkBuffer handle,VkDeviceSize size,VkBufferUsageFlags usage,VkDeviceMemory memory,
     VkDeviceSize memory_offset,VkDeviceSize memory_size,std::shared_ptr<const void> owner) {
@@ -192,7 +213,7 @@ void ResourceCommands::retain_pending() {
     pending_=std::make_shared<ResourceSubmission>();pending_->device_=device_;pending_->recycler_=recycler_;
 }
 void ResourceCommands::emit_prepared(std::function<void(VkCommandBuffer)> operation) {
-    if(prepared_.size()>=4096)throw std::runtime_error("Prepared resource command budget exceeded");
+    if(sealed_commands_+prepared_.size()>=4096)throw std::runtime_error("Prepared resource command budget exceeded");
     retain_pending();prepared_.push_back(std::move(operation));++recorded_;
 }
 void ResourceCommands::reserve_prepared(size_t commands,size_t accesses,size_t image_accesses,size_t images) {
@@ -201,9 +222,10 @@ void ResourceCommands::reserve_prepared(size_t commands,size_t accesses,size_t i
     // this operation later finds an already retained image. Never omit closure.
     const size_t image_count=prepared_image_states_.size()+images;
     const size_t closure=1+image_count;
-    if(image_count>256 || commands>4096-closure || prepared_.size()>4096-closure-commands ||
+    if(sealed_segments_.size()>=256 || prepared_image_finals_.size()+image_count>256 || commands>4096-closure ||
+       sealed_commands_+prepared_.size()>4096-closure-commands ||
        accesses>16384 || image_accesses>16384-accesses ||
-       prepared_accesses_.size()+prepared_image_accesses_.size()+image_count>16384-accesses-image_accesses)
+       sealed_accesses_+prepared_accesses_.size()+prepared_image_accesses_.size()+image_count>16384-accesses-image_accesses)
         throw std::runtime_error("Prepared resource command/access budget exceeded");
     const auto grow=[](size_t capacity,size_t need,size_t maximum){return std::min(maximum,std::max(need,std::max(size_t(16),capacity*2)));};
     if(prepared_.capacity()<prepared_.size()+commands+closure)prepared_.reserve(grow(prepared_.capacity(),prepared_.size()+commands+closure,4096));
@@ -332,6 +354,7 @@ std::vector<uint8_t> ResourceCommands::read_stage(const Buffer& stage,VkDeviceSi
 }
 void ResourceCommands::discard(){
     prepared_.clear();prepared_accesses_.clear();prepared_image_accesses_.clear();prepared_image_states_.clear();
-    sealed_.reset();pending_.reset();observed_image_layouts_.clear();preparing_=prepared_compute_=awaiting_admission_=false;
+    sealed_segments_.clear();prepared_image_finals_.clear();prepared_sequence_.reset();sealed_commands_=sealed_accesses_=0;
+    pending_.reset();observed_image_layouts_.clear();preparing_=prepared_compute_=awaiting_admission_=false;
 }
 }

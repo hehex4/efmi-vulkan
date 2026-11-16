@@ -146,6 +146,11 @@ std::shared_ptr<const gpu::PreparedResourceCommands> GpuResourceRuntime::finish_
     if(!prepared_state_ || failed_)throw std::runtime_error("Cannot seal a failed or ordinary resource scope");
     auto result=commands_.finish_prepared();active_=false;return result;
 }
+std::shared_ptr<const gpu::PreparedResourceCommands> GpuResourceRuntime::cut_prepared(){
+    active();
+    if(!prepared_state_ || failed_)throw std::runtime_error("Cannot cut a failed or ordinary resource scope");
+    return commands_.cut_prepared();
+}
 void GpuResourceRuntime::accept_prepared(){
     if(active_ || !prepared_state_ || commands_.preparing() || commands_.pending() || failed_)
         throw std::runtime_error("Prepared registry admission requires a successfully sealed scope");

@@ -238,6 +238,8 @@ public:
     VkDevice device() const {return device_;}
     uint32_t queue_family() const {return queue_family_;}
     size_t size() const {return commands_.size();}
+    const void* sequence() const {return sequence_.get();}
+    size_t segment() const {return segment_;}
     const std::vector<PreparedBufferAccess>& buffer_accesses() const {return accesses_;}
     const std::vector<PreparedImageAccess>& image_accesses() const {return image_accesses_;}
     const std::vector<PreparedImageState>& image_states() const {return image_states_;}
@@ -248,6 +250,8 @@ private:
     std::vector<PreparedImageAccess> image_accesses_;
     std::vector<PreparedImageState> image_states_;
     std::shared_ptr<ResourceSubmission> owners_;
+    std::shared_ptr<const uint8_t> sequence_;
+    size_t segment_=0;
     VkDevice device_=VK_NULL_HANDLE;
     uint32_t queue_family_=0;
     bool compute_=false,admitted_=false;
@@ -273,6 +277,10 @@ public:
     // Discard invalidates unadmitted packets and leaves image state unchanged.
     void begin_prepared();
     bool preparing() const {return preparing_;}
+    // End one ordered segment without closing the scope. All segments remain
+    // unrecordable until finish_prepared and one whole-scope acceptance. Host
+    // calls may occur between them; every segment must keep its exact position.
+    std::shared_ptr<const PreparedResourceCommands> cut_prepared();
     std::shared_ptr<const PreparedResourceCommands> finish_prepared();
     void accept_prepared();
     Buffer import_buffer(VkBuffer,VkDeviceSize,VkBufferUsageFlags,VkDeviceMemory,
@@ -367,7 +375,10 @@ private:
     std::vector<PreparedBufferAccess> prepared_accesses_;
     std::vector<PreparedImageAccess> prepared_image_accesses_;
     std::vector<PreparedImageState> prepared_image_states_;
-    std::shared_ptr<PreparedResourceCommands> sealed_;
+    std::vector<std::shared_ptr<PreparedResourceCommands>> sealed_segments_;
+    std::shared_ptr<const uint8_t> prepared_sequence_;
+    std::map<Image,VkImageLayout,std::owner_less<Image>> prepared_image_finals_;
+    size_t sealed_commands_=0,sealed_accesses_=0;
     bool awaiting_admission_=false;
     bool preparing_=false,prepared_compute_=false;
     uint64_t recorded_=0;

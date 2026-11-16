@@ -1,5 +1,12 @@
 # EFMI Vulkan - Architecture
 
+D-318 (3.3.5) cuts prepared commands into immutable ordered segments while keeping
+one original resource journal and one final admission. Private image state advances
+between segments; cancellation publishes no initialization and admits no earlier cut.
+Sequence identities/ordinals, aggregate budgets and cross-segment alias checks support
+host plan insertion. The host still must preserve caller positions, split attachments,
+restore compute state and retain recording/module ownership; production is not enabled.
+
 D-316 (3.3.3) adds retained optimal application images to prepared commands. Each
 scope requires a fresh uniform whole-image layout observation and complete actual
 allocation span/owner. Packet layout contracts stay immutable and restore the observed

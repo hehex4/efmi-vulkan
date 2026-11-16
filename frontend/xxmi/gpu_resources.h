@@ -99,6 +99,8 @@ public:
         bool omitted_slots_unbound=false;
     };
     void begin_prepared(const ApplicationResourceState&);
+    // Cut without admitting any registry changes or releasing the undo journal.
+    std::shared_ptr<const gpu::PreparedResourceCommands> cut_prepared();
     std::shared_ptr<const gpu::PreparedResourceCommands> finish_prepared();
     void accept_prepared();
     bool scope_active() const {return active_;}

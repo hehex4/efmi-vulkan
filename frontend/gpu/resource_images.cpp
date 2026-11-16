@@ -263,8 +263,9 @@ ImageView ResourceCommands::view(const Image& image,VkImageViewType type,VkForma
 }
 void ResourceCommands::transition(const Image& image,VkImageLayout layout) {
     validate(image);retain_pending();auto found=pending_->image_layouts_.find(image);
+    const auto earlier=prepared_image_finals_.find(image);
     const auto old=found!=pending_->image_layouts_.end()?found->second:image->external_?image->external_layout_:
-        (image->initialized_?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED);
+        earlier!=prepared_image_finals_.end()?earlier->second:(image->initialized_?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED);
     if(preparing_ && found==pending_->image_layouts_.end())
         prepared_image_states_.push_back({image,old,image->external_?image->external_layout_:VK_IMAGE_LAYOUT_GENERAL});
     // Insertion retains the owner before a command can refer to its image.

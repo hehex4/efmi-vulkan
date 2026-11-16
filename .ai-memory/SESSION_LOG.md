@@ -3634,3 +3634,33 @@ Continue ordered packet segmentation and production source mapping/insertion,
 attachment preservation, compute restoration and recording lifetime, then remaining
 native capture fixtures and I-01/I-04/I-05. Production Core remains incomplete.
 No candidate refresh, game activity, installed/system mutation or remote write.
+
+## 2026-11-16: D-318 ordered prepared segments with one registry admission
+
+Read original HackerContext.cpp 3149-3172: BeforeDraw, original context draw and
+AfterDraw execute in that order. DX11 supplies reference-counted lifetime with
+deferred destruction, hazard tracking and one-context order. cut_prepared now seals
+one immutable GPU segment while keeping the common registry journal open. Segments
+share a retained sequence identity and ordinals; all remain unrecordable until one
+whole-scope finish/accept. Cancellation restores the registry and leaves every earlier
+cut unadmitted. Owned image initialization/layouts advance only in private scope state.
+Command/access/image budgets span cuts, segment count is bounded, and unproved physical
+image aliases still refuse across segment boundaries.
+
+prepared-segments-first.out passes 135: intervening application producers yield
+7+11=18 and 13+17=30, private initialization cancels correctly, aggregate budgets and
+cross-segment aliases refuse, and owners retire after executable packets.
+prepared-segments-registry.out passes 282: original lists share speculative resources
+across cuts, cancellation restores binding/allocation state, and host captures read
+7 before a later original copy changes that same allocation to 13. No test failed;
+core/synchronization validation is clean. Four DLLs build as 3.3.5 / ABI
+ff5c853cc3759e7d in prepared-segments-build.out. Regression passes production 13,
+ordinary images/parameters 3,010, tracker 838, ABI 9 and text. No new full interpreter
+run is claimed for this primitive-only change; the last fresh run is D-317's 570.
+
+Next: verify original per-frame shader/reset counters on cancelled retries, then
+integrate ordered plan positions with production source mapping, attachment/compute
+restoration and recording/module ownership. Production Core remains incomplete;
+native I-01/I-04/I-05/capture and legacy fixture migration remain open. No candidate
+refresh, game activity, installed/system mutation or remote write. Diff and memory
+accompany the local commit.
