@@ -1745,3 +1745,12 @@ and location sets; 323 unique vertex modules pass independent validation. Only
 3 unique modules match historical captures. Broad asset discovery and runtime
 integration remain open. Missing SPIR-V names alone no longer justify declaring
 input identity irrecoverable. See docs/shader-input-metadata.md; runtime is 3.1.7.
+
+## I-06 corpus limits and ambiguous empty-input shader (D-293)
+
+Initial VFS discovery validates 5,266 unique vertex modules and matches 101/169
+historical vertex modules. The unmatched 68, 1,276 unpaired platform entries and
+runtime semantic integration remain open. 512 ProceduralSky pairs share a Vulkan
+empty-input module with incompatible DXBC signatures; that identity is excluded
+globally. None of the 101 historical matches has the ambiguity. Compute programs
+can occupy the serialized vertex-program container; inspect actual entry points.

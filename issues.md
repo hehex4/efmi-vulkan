@@ -113,6 +113,11 @@ sufficient. Source inspection confirms the central problems, with these correcti
   captures. Register numbers disagree with locations in 211 pairs. VFS coverage,
   compiler-encoding confirmation and runtime semantic integration remain open;
   see [the input metadata evidence](docs/shader-input-metadata.md).
+  D-293 expands to all 1,075 initial VFS bundles, containing 232 Shader objects.
+  All 5,266 recovered unique vertex modules pass independent validation; 101/169
+  historical vertex modules match exactly. Embedded schemas confirm the earlier
+  fallback reads. One empty-input module with conflicting paired signatures is
+  excluded globally. The remaining 68 modules and runtime integration stay open.
 - **I-07: private implementation coupling fixed by D-279 (3.0.7).** The roots are in
   `scripts/build.py::ABI_ROOTS`; `scripts/build_character_module.py` does not exist.
   `character_module.h` does not directly include the three headers listed below.

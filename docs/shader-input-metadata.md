@@ -110,3 +110,79 @@ D:/Python312/python.exe -B sandbox/run_all.py --no-build --only shader-asset-met
 Reports contain metadata only. Optional decoded validation modules remain under
 the checkout's ignored build directory. No runtime, GPU, launcher or system-wide
 configuration changes are made by this survey.
+
+## D-293: VFS initial shader corpus
+
+The version-5 VFS reader checks all 17 index CRC32s and before/after source hashes.
+They contain 418,339 entries. Container type 2 selects the complete initial bundle
+group without character names: 1,075 ranges, 281,932,483 bytes. Every selected
+payload matches its recorded MD5. Version 5 has eight-byte extension fields where
+the older local reader assumed four; the final ten opaque extension bytes are
+retained and CRC-covered, without inferring their meaning.
+
+The separately installed AnimeStudio VFS library decodes those bundles in a
+console child process. Warnings/errors invalidate the operation; file logging is
+disabled and all output stays under the project build directory. Resource-data
+streams are not written. The result is 1,076 serialized files containing 232
+Shader objects. The tracked adapter reproduces all 1,076 original prototype file
+hashes. No decoder or game data is linked into the Vulkan layer.
+
+Those 232 assets have embedded type trees. They are used directly, and independently
+confirm the complete decoded values of all 39 stripped initial Shader objects.
+The authoritative names are `m_EnableShaderLODStreaming`, `subShaderBlobs`,
+`m_ShaderLOD`, `m_CompressedBlob`, `m_Offsets`, `m_CompressedLengths` and
+`m_DecompressedLengths`; the earlier inferred external-blob names are corrected.
+The fallback descriptor collection is named `m_Bindings`. The original inferred
+byte ranges and shader payloads remain identical.
+
+| VFS survey check | Result |
+|---|---|
+| Paired references in the serialized vertex-program table | 20,653 |
+| Unique actual vertex binary pairs | 18,957 |
+| Pairs with checked channel/signature identity | 18,445 |
+| Unique vertex modules independently validated for Vulkan 1.1 | 5,266 |
+| Unique modules with unambiguous candidate semantics | 5,265 |
+| Exact historical capture matches | 2,981 pair records, 101 unique vertex modules |
+| Missing or ambiguous platform pairs | 1,276; not inferred |
+| Compute programs found in the vertex-program container | 1,025 unique pairs; excluded by actual entry-point stage |
+| Refused channel/signature pairs | 512, all for one empty-input Vulkan module |
+
+The 512 refusals belong to HGRP/ProceduralSky. The same Vulkan module is paired
+with either an empty DXBC signature or POSITION/TEXCOORD inputs. A successful
+pair must not conceal a conflicting one: the entire module is excluded from
+candidate semantic results. None of the 101 exact historical matches has this
+ambiguity. The other mappings have no semantic conflict. The JSON counter formerly
+named `vertex_pairs` is now `paired_program_references`, because container names
+alone do not establish an executable shader stage.
+
+Evidence is `build/d293-validated.json/.out`, `build/d293-compare.out`,
+`build/d293-repro/index.json`, `build/d293-repro/unpacked/inventory.json` and
+`build/d293-regression.out`. The focused regression passes 27 input metadata and
+17 VFS framing/range checks. Reproduced assets and unchanged decoded modules are
+compared by content rather than redundantly revalidated.
+
+The initial VFS corpus still does not match 68 of the 169 unique historical vertex
+modules. Other bundle groups, Vulkan-only variants and version changes remain
+possible explanations, not established causes. General runtime input-layout
+integration and full queue ordering remain open. Source and candidate remain
+3.1.7; this offline work does not load the game.
+
+Additional dependencies are PyCryptodome 4.5.0 under the same isolated `packages`
+directory and the read-only VFS reader `AnimeStudio.dll` under
+`F:/vulkan/unity-analysis/anime-reader`, with its license. The examined library's
+SHA-256 is `4b1d4676772e71482996f0219625d3a7df596ff557d68284291795f310165eb4`.
+The adapter uses the existing .NET 9 SDK. NuGet sources are cleared; SDK state,
+temporary files and package caches are scoped to `F:/vulkan` in child processes.
+
+```powershell
+D:/Python312/python.exe -B scripts/read_shader_vfs.py `
+  'D:/Hypergryph Launcher/games/EndField Game/Endfield_Data/StreamingAssets/VFS' `
+  --output build/shader-vfs/index.json
+D:/Python312/python.exe -B scripts/unpack_shader_assets.py `
+  build/shader-vfs/index.json --output build/shader-vfs/unpacked
+D:/Python312/python.exe -B scripts/survey_unity_shader_pairs.py `
+  --asset-list build/shader-vfs/unpacked/inventory.json `
+  --captures 'F:/efmi vulkan/captures' --output build/shader-vfs/survey.json `
+  --validation-dir build/shader-vfs/modules `
+  --validator 'F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/build/install/bin/spirv-val.exe'
+```

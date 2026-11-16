@@ -8,6 +8,10 @@ import hashlib
 import struct
 
 
+class NonVertexProgram(ValueError):
+    """A decoded module belongs to a different shader stage."""
+
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -51,7 +55,7 @@ def shader_tree(original):
                 [node('unsigned int', x, 4) for x in ['m_PackedBinding', 'm_PackedInfo']])
             descriptor = node('DescriptorSetParam', 'data', children=[integer(x)
                 for x in ['m_NameIndex', 'm_SetId', 'm_MaxBindingIndex']] +
-                [vector('m_SetBindings', binding)])
+                [vector('m_Bindings', binding)])
             item.m_Children = item.m_Children + [vector('m_DescriptorSetParams', descriptor)]
         elif item.m_Type == 'SerializedShader':
             children = []
@@ -77,12 +81,12 @@ def shader_tree(original):
     for child in tree.m_Children:
         children.append(child)
         if child.m_Name == 'm_ParsedForm':
-            children.append(node('bool', 'm_UseExternalBlobs', 1, align=0x4000))
-            chunk = node('SubShaderBinaryData', 'data', children=[integer('m_LOD'),
-                vector('compressedBlob', node('UInt8', 'data', 1))] +
+            children.append(node('bool', 'm_EnableShaderLODStreaming', 1, align=0x4000))
+            chunk = node('SubShaderBlob', 'data', children=[integer('m_ShaderLOD'),
+                vector('m_CompressedBlob', node('UInt8', 'data', 1))] +
                 [vector(x, vector('data', node('unsigned int', 'data', 4)))
-                 for x in ['offsets', 'compressedLengths', 'decompressedLengths']])
-            children.append(vector('m_SubShaderBinaryData', chunk))
+                 for x in ['m_Offsets', 'm_CompressedLengths', 'm_DecompressedLengths']])
+            children.append(vector('subShaderBlobs', chunk))
         if child.m_Name == 'stageCounts':
             children.append(integer('m_CompressionType'))
     tree.m_Children = children
@@ -152,7 +156,9 @@ def vertex_locations(data):
             require(len(args) >= 2, 'Truncated SPIR-V name')
             names[args[0]] = struct.pack('<' + str(len(args) - 1) + 'I', *args[1:]).split(b'\0')[0].decode('utf-8')
         pos += count
-    require(models == [0], 'Expected one vertex entry point')
+    require(len(models) == 1, 'Expected exactly one shader entry point')
+    if models != [0]:
+        raise NonVertexProgram(f'Expected one vertex entry point, found {models}')
     result = sorted((locations[i], names.get(i, '')) for i in inputs if i in locations)
     require(len({loc for loc, _ in result}) == len(result), 'Ambiguous vertex locations')
     return result
@@ -180,7 +186,8 @@ def signature(code):
                 require(name < len(chunk), 'Invalid signature string offset')
                 end = chunk.index(0, name)
                 records.append(dict(semantic=chunk[name:end].decode('ascii'), index=semantic_index,
-                                    system=system, type=value_type, register=register, mask=chunk[record + 20]))
+                                    system=system, type=value_type, register=register, mask=chunk[record + 20],
+                                    read_mask=chunk[record + 21]))
     require(vertex and signatures == 1, 'Expected one vertex input signature')
     return hashlib.sha256(data).hexdigest(), records
 

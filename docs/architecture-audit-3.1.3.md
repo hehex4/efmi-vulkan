@@ -12,7 +12,7 @@ is 3.1.7; earlier candidates below are historical. No real-game verification is 
 | I-03, duplicated resource execution | D-280 gives application, merged, own-mesh and texture-only draws a shared native resource transaction. Explicit descriptor aliases, preflight, ordered emission and restoration share that path. | Geometry-specific capture and mesh preparation still have separate responsibilities. |
 | I-04, pairwise refusal and stale state | D-283 replaces pair whitelists with storage-range checks and preserves split-pass state. D-290 admits the same image across disjoint sampled/output binding intervals, with readable-layout proof and existing split barriers. | Additional phase-local transitions and DX11 automatic conflicting-input nulling remain open; physical aliases, restoration accesses and queue guards retain their checks. |
 | I-05, synchronous recording waits | D-278/D-280 make matched pipeline/file readiness nonblocking. D-285 extends this to graphics shader twins and unmatched graphics file publication. Pending graphics work keeps the application's draw until a later ready bind. | Compute first-use waits remain for one-shot producers. Other preparation costs are not declared eliminated. Reused command buffers retain what was recorded. |
-| I-06, DX11 input compatibility | D-281 implements retained cross-slot textures. D-292 recovers paired input metadata from 39 initial asset shaders: 1,682 binary pairs, 323 validated vertex modules, 3 exact historical vertex matches. | VFS coverage, compiler-encoding confirmation and runtime semantic integration remain open. In-draw CustomShader/private-bone inputs still need ordered representation adapters. |
+| I-06, DX11 input compatibility | D-281 implements retained cross-slot textures. D-292/D-293 recover asset input metadata through general VFS discovery: 232 initial VFS shaders, 5,266 validated vertex modules and 101 exact historical vertex matches; one ambiguous module is excluded. | VFS coverage, compiler-encoding confirmation and runtime semantic integration remain open. In-draw CustomShader/private-bone inputs still need ordered representation adapters. |
 | I-07, private ABI coupling | D-279 puts native scope callbacks behind the module and retains private pipeline objects through opaque owners. A module with a different private object layout exchanges into the unchanged sandbox host. | Shared tracker/protocol layout changes correctly require a matching host. |
 | I-08, old execution paths | D-282 retires the selectable single-component M2 executor. D-284 removes full-mesh binary re-encoding/decoding during runtime validation. File framing and content validation remain shared. | File size alone does not justify unrelated rewrites. |
 | I-09, verification and artifacts | Four development artifacts and a separate no-probe candidate are built at 3.1.7. Focused regressions, 22-package loading and both owned unpack layouts pass. | Root dist and game deployment remain older. Sandbox loads and historical captures do not close real-character verification. |
@@ -146,3 +146,15 @@ The current unpublished archive is `build/candidate-d291/EFMI-Vulkan-3.1.7.zip`,
 SHA-256 `20ed0a51ff1bfe7aa8659aa713f859f710441289af9a83afb43366d7ef854401`. Its digest/no-probe checks, all 22 installed character packages,
 both owned unpack layouts and core/synchronization validation pass. It supersedes
 the 3.1.4 candidate with D-289/D-290/D-291 included. No game was loaded or deployed.
+
+## D-293 follow-up: VFS shader identity evidence
+
+All 17 version-5 indices pass CRC checks; all 1,075 initial bundle ranges match
+their recorded MD5s. The unpacked 232 Shader objects include embedded schemas
+that independently validate the earlier 39 stripped-object reads. The expanded
+survey independently validates 5,266 unique vertex modules and exactly matches
+101 of the 169 historical vertex modules. One empty-input sky module has
+conflicting DXBC signatures and is excluded globally; no historical match is
+affected. Unpaired variants, the remaining 68 historical modules and runtime
+integration remain open. See shader-input-metadata.md for reproducible evidence.
+This changes offline tools only; runtime and candidate remain 3.1.7.

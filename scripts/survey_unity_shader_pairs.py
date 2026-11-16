@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from unity_shader_metadata import Smolv, channel_semantics, program, require, shader_tree, signature, span
+from unity_shader_metadata import NonVertexProgram, Smolv, channel_semantics, program, require, shader_tree, signature, span
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,21 +56,24 @@ def survey(args):
             if obj.type.name != 'Shader':
                 continue
             source['shader_objects'] += 1
-            data = obj.read_typetree(nodes=shader_tree(obj._get_typetree_node()), check_read=True)
+            embedded = obj.serialized_type.node if obj.serialized_type else None
+            tree = embedded if embedded is not None else shader_tree(obj._get_typetree_node())
+            data = obj.read_typetree(nodes=tree, check_read=True)
             source['parsed'] += 1
-            source['serialized_version'] = str(obj.version)
+            source['serialized_version'] = obj.assets_file.unity_version
+            source['embedded_type_tree'] = embedded is not None
             stats['shaders'] += 1
             require(data['platforms'] == [4, 18] and data['m_CompressionType'] == 3,
                     'Unsupported platform/compression contract')
-            require(data['m_UseExternalBlobs'] and not data['compressedBlob'], 'Expected inline per-LOD payloads')
-            chunks, subshaders = data['m_SubShaderBinaryData'], data['m_ParsedForm']['m_SubShaders']
+            require(data['m_EnableShaderLODStreaming'] and not data['compressedBlob'], 'Expected inline per-LOD payloads')
+            chunks, subshaders = data['subShaderBlobs'], data['m_ParsedForm']['m_SubShaders']
             require(len(chunks) == len(subshaders), 'Subshader binary count differs')
             for sub, chunk in zip(subshaders, chunks):
-                require(sub['m_LOD'] == chunk['m_LOD'], 'Subshader LOD identity differs')
-                blob, platforms = bytes(chunk['compressedBlob']), []
+                require(sub['m_LOD'] == chunk['m_ShaderLOD'], 'Subshader LOD identity differs')
+                blob, platforms = bytes(chunk['m_CompressedBlob']), []
                 for platform in range(2):
                     sizes, offsets, decoded = [chunk[k][platform] for k in
-                                               ['compressedLengths', 'offsets', 'decompressedLengths']]
+                                               ['m_CompressedLengths', 'm_Offsets', 'm_DecompressedLengths']]
                     require(len(sizes) == len(offsets) == len(decoded) and sizes, 'Invalid segment dimensions')
                     require(all(0 < size <= 64 * 1024 * 1024 for size in decoded), 'Oversized decoded segment')
                     segments = [lz4.block.decompress(span(blob, off, size), uncompressed_size=length)
@@ -84,22 +87,29 @@ def survey(args):
                             key = (tuple(item['m_KeywordIndices']), item['m_ShaderRequirements'])
                             groups[key][item['m_GpuProgramType']].append(item)
                         for key, pair in groups.items():
-                            identity = dict(source=str(path), object_id=obj.path_id, lod=chunk['m_LOD'],
+                            identity = dict(source=str(path), object_id=obj.path_id, lod=chunk['m_ShaderLOD'],
                                             shader=data['m_ParsedForm']['m_Name'], render_pass=pass_index, tier=tier)
                             if set(pair) != {25, 33} or any(len(x) != 1 for x in pair.values()):
                                 stats['unpaired'] += 1
                                 refused.append(dict(identity, reason='Missing or ambiguous platform pairing',
                                                     program_types=sorted(pair)))
                                 continue
-                            stats['vertex_pairs'] += 1
+                            stats['paired_program_references'] += 1
                             dx, vk = pair[33][0]['m_BlobIndex'], pair[25][0]['m_BlobIndex']
-                            pair_key = (str(path), obj.path_id, chunk['m_LOD'], dx, vk)
+                            pair_key = (str(path), obj.path_id, chunk['m_ShaderLOD'], dx, vk)
                             if pair_key in unique_pairs:
                                 continue
                             unique_pairs.add(pair_key)
                             vcode, vtail = program(platforms[1], vk, 25)
                             dcode, dtail = program(platforms[0], dx, 33)
-                            module, locations = decoder.vertex(vcode)
+                            try:
+                                module, locations = decoder.vertex(vcode)
+                            except NonVertexProgram as error:
+                                stats['non_vertex_program_pairs'] += 1
+                                refused.append(dict(identity, reason=str(error)))
+                                continue
+                            except ValueError as error:
+                                raise ValueError(f'{identity}, blob {vk}: {error}') from error
                             digest = hashlib.sha256(module).hexdigest()
                             dxhash, inputs = signature(dcode)
                             row = dict(identity, vk_blob=vk, dx_blob=dx, spirv_sha256=digest, dxbc_sha256=dxhash,
@@ -118,7 +128,8 @@ def survey(args):
                                 stats['channel_mapping_valid'] += 1
                             except ValueError as error:
                                 stats['channel_mapping_refused'] += 1
-                                refused.append(dict(identity, reason=str(error)))
+                                refused.append(dict(identity, reason=str(error), spirv_sha256=digest,
+                                                    signature=inputs, vk_channels=vtail, locations=locations))
                             if digest not in vertices:
                                 if validation_dir:
                                     destination = validation_dir / (digest + '.spv')
@@ -139,9 +150,19 @@ def survey(args):
     stats['semantic_mapping_conflicts'] = sum(len(value) > 1 for value in mappings.values())
     stats['capture_matches'] = len(matches)
     stats['unique_capture_matches'] = len({row['spirv_sha256'] for row in matches})
-    report = dict(scope='Explicitly supplied unbundled assets; offline evidence only. No runtime index or game load.',
+    rejected_modules = {row['spirv_sha256'] for row in refused if 'spirv_sha256' in row}
+    rejected_modules.update(key for key, values in mappings.items() if len(values) != 1)
+    for row in list(vertices.values()) + examples + matches:
+        if row['spirv_sha256'] in rejected_modules:
+            row.pop('candidate_semantics', None)
+            row['identity_status'] = 'Ambiguous or refused pair; no semantic map admitted'
+    stats['unambiguous_semantic_modules'] = sum('candidate_semantics' in row for row in vertices.values())
+    stats['ambiguous_semantic_modules'] = len(rejected_modules)
+    report = dict(scope='Explicitly supplied serialized assets; offline evidence only. No runtime index or game load.',
                   counts=dict(stats), sources=sources, examples=examples, matches=matches, vertices=vertices, refused=refused,
                   dependencies=dict(UnityPy=UnityPy.__version__, smolv_bridge_sha256=fingerprint(args.decoder)))
+    report['signature_conflicts'] = {key: [json.loads(value) for value in sorted(values)]
+                                     for key, values in signatures.items() if len(values) > 1}
     if args.validator:
         report['dependencies']['spirv_validator_sha256'] = fingerprint(args.validator)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -151,11 +172,18 @@ def survey(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('assets', type=Path, nargs='+')
+    parser.add_argument('assets', type=Path, nargs='*')
+    parser.add_argument('--asset-list', type=Path, help='JSON path array or unpack_shader_assets.py inventory')
     parser.add_argument('--packages', type=Path, default=Path('F:/vulkan/unity-analysis/packages'))
     parser.add_argument('--decoder', type=Path, default=ROOT / 'build/shader-survey-decoder/smolv_bridge.dll')
     parser.add_argument('--captures', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--validator', type=Path)
     parser.add_argument('--validation-dir', type=Path)
-    survey(parser.parse_args())
+    args = parser.parse_args()
+    if args.asset_list:
+        listing = json.loads(args.asset_list.read_text())
+        args.assets += [Path(path) for path in (listing['shader_assets'] if isinstance(listing, dict) else listing)]
+    require(args.assets and len({path.resolve() for path in args.assets}) == len(args.assets),
+            'Supply distinct serialized asset paths')
+    survey(args)

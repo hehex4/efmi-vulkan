@@ -417,3 +417,14 @@ binary matches. Initial assets demonstrate that stripped SPIR-V names do not
 imply loss of all installed input identity. No runtime index is installed. See
 docs/shader-input-metadata.md for the 39-object/323-module scope and remaining
 VFS discovery, compiler-encoding and runtime integration requirements.
+
+## Offline VFS discovery (D-293)
+
+Version-5 index CRCs and payload ranges/MD5s establish read-only content identity.
+Container file types select the corpus, not characters. A separate console reader
+unpacks serialized assets under build; embedded Shader schemas take precedence
+over the stripped-asset fallback. All 232 initial VFS shaders produce 5,266
+independently validated vertex modules. Conflicting/refused pairs exclude an
+entire SPIR-V identity from candidate semantics, including the empty-input sky
+stub. 101 historical vertex modules match exactly; 68 do not yet. This pipeline
+is offline evidence, not a runtime index. See docs/shader-input-metadata.md.
