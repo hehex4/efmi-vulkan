@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-312 application buffer registry verified; complete pools, images and insertion
+
+- Done: complete retained buffer-context import with original source facts, shared alias identity, cancellation to the current application snapshot, named-reference rollback, invalid/recycled context rejection, and original INI copy/CustomShader insertion-point output. Source/four DLLs 3.3.0 / ABI ff5c853cc3759e7d. Root 27, GPU 126, fresh interpreter 570, prepared primitive 65, production 13, tracker 838 and ABI 9 pass with clean Vulkan validation.
+- Next: original pool metadata/index/element transactions and image/parameter transactions, then production host source mapping, ordered packet insertion, pass preservation, compute restoration and recording owners. ApplicationBufferState requires proven omitted-null facts; never enable it with unknown or image-bearing context. Production Core remains incomplete. Continue native I-01/I-04/I-05/capture afterward; no game authorization.
+
 ## D-311 native shader queries restored; continue application imports
 
 - Done: original shader filter semantics through the single configuration, six-stage queries, compute skip conditions and source-declaration diagnostics; five native test entry points migrated. Source/four DLLs 3.2.9 / ABI ff5c853cc3759e7d. Configuration 27, interpreter 570, compute 91, empty inputs 45, registry 13, tracker 838 and ABI 9 pass. The idle hunting assertion now follows the original first-key behavior.

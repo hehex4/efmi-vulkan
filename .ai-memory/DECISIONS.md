@@ -13,6 +13,20 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-312: Import complete source buffer facts into prepared execution (2026-11-16)
+
+ApplicationBufferState explicitly asserts a complete source context, with omitted
+slots proven unbound. Every bound buffer carries original description/view facts,
+tracking identity and the complete Vulkan allocation owner. Weak identity/handle
+caches preserve source alias semantics and reject recycled live identities. Native
+storage bindings do not imply original structured/raw/typed registers. Seeding is
+atomic; cancellation restores the observed application context while undoing named
+resource changes. Actual copies/compute stay at their prepared insertion point.
+Original GetResource relies on DX11 reference-counted lifetime with deferred
+destruction, hazard tracking and one-context order. This import boundary supplies
+retention and source facts, not production queue/pass or mapping proofs. It remains
+disabled in interception until those proofs and pool/image transactions exist.
+
 ## D-311: Query native shader identity through the shared registry (2026-11-16)
 
 Original CommandList.cpp::process_shader_filter reads the bound shader identity and

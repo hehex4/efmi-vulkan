@@ -122,3 +122,43 @@ checks pool refusal before mutation and verifies ordinary pool execution afterwa
 It also exhausts allocation capacity halfway through a copy, discards the partial
 preparation and retries the same instruction successfully. Test evidence and the
 corrected pool-fixture failure are recorded in CURRENT_STATE.md and SESSION_LOG.md.
+
+## Application buffer snapshots (D-312)
+
+The original registry can begin preparation with a complete buffer-only source
+context. Every supplied binding includes the retained Vulkan resource/allocation,
+stable resource identity and explicitly verified original buffer description and
+view/IA metadata. The caller must prove that all omitted slots are unbound. Unknown
+source registers, image/output state or ownership cannot be treated as an empty
+context to enable this path. This boundary is not yet used by production interception.
+
+Imports share a weak identity cache, so multiple views and saved named references
+retain one source allocation without making the cache a resource owner. Descriptor
+and allocation changes under a still-retained identity refuse. Original hash matching
+uses supplied tracking facts; newly allocated copies remain untracked. The imported
+view does not infer a DX11 structured/raw/typed declaration from Vulkan storage.
+
+Seeding is atomic. Invalid metadata leaves the preceding registry usable. After a
+valid seed, cancellation restores the newly observed application binding snapshot,
+including known nulls, while undoing speculative named-resource assignments. GPU
+bytes are not copied at snapshot time. Copies and CustomShader commands remain in
+the prepared packet and consume the application producer at their insertion point.
+Imported resources cannot enter the former deferred-submit execution domain.
+
+Original CommandList.cpp::ResourceCopyTarget::GetResource obtains referenced resource
+and view objects from the current context; IA getters also supply offset/stride/format.
+DX11 provides reference-counted lifetime with deferred destruction, hazard tracking
+and one-context order. The Vulkan host must preserve complete owners and prove actual
+source facts, queue order and insertion. Buffer snapshots do not establish any of
+those missing host proofs. Pool/image/parameter transactions, pass splitting, caller
+compute restoration and recording lifetime still gate production Core execution.
+
+The application fixture executes the original INI reference/copy/CustomShader chain,
+then records its packet after different application fills in one primary. All 64
+words independently read back as 22 and 26. It cancels an initial preparation and a
+later source change, checks admitted named-reference preservation, refuses invalid
+source metadata/aliases and live handle recycling, destroys the interpreter/caller
+before replay and checks owner retirement. The combined configuration GPU suite
+passes 126 with zero core/synchronization errors or warnings; root 27, interpreter
+570 and prepared primitives 65 also pass. This is a headless frontend result, not
+production interception or real-game Core acceptance.

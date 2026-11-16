@@ -133,3 +133,11 @@ scripts use root Include configuration and explicit F10 keys. Configuration 27,
 interpreter 570, native compute 91 and empty-input 45 checks pass on 3.2.9. Original
 register declarations still need verified source facts; Core GPU integration remains
 unfinished and no game acceptance is claimed.
+
+D-312 adds retained application-buffer snapshots to the original prepared registry.
+It requires complete verified source binding facts, rejects identity/handle reuse and
+preserves admitted references through cancellation. Original INI copy/CustomShader
+packets consume two different application producers at their actual insertion points
+and retain owners beyond interpreter destruction. Configuration GPU 126, root 27,
+interpreter 570 and prepared 65 pass on 3.3.0 with clean validation. Production host
+mapping, pool/image/parameter transactions and ordered pass insertion remain open.

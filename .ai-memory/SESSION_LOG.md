@@ -3468,3 +3468,38 @@ transactions, ordered host insertion, pass/compute restoration and recording own
 Production original Core execution remains incomplete. Native queue/access/readiness
 and capture work follows the shared rewrite. No candidate refresh, game load,
 installed/system mutation or remote write; existing untracked root .codex/ is untouched.
+
+## 2026-11-16: D-312 - Original application buffer preparation
+
+Added an application buffer snapshot boundary to GpuResourceRuntime. Bound resources
+need complete Vulkan ownership and original source descriptions/view windows/hash
+facts. The host explicitly proves omitted slots unbound; unknown/image contexts
+cannot enter this buffer-only boundary. Weak bounded caches share source identity
+across views and reject changes beneath a retained identity or handle. Source hash
+providers can be shared as immutable facts. Invalid seeding leaves the old registry
+usable; cancelling valid preparation restores the current observed application slots,
+while speculative named references roll back to their admitted values.
+
+Original CommandList.cpp::ResourceCopyTarget::GetResource uses referenced current
+context resources/views and IA getters. DX11 supplies reference-counted lifetime
+with deferred destruction, hazard tracking and one-context order. Vulkan imports
+remain in prepared commands and cannot escape into the former deferred-submit path.
+The snapshot does not capture bytes or supply a queue/source-mapping proof.
+
+application-import-first.out passes root 27 / GPU 124. Review adds retained-handle
+identity rejection and shared source-fact providers; application-import-reviewed.out
+passes GPU 126 with zero core/synchronization errors or warnings. The original INI
+reference/copy/CustomShader chain reads two immediately preceding application fills
+at its insertion points: all 64 output words are 22 then 26. Cancellation, retained
+named references, invalid metadata/aliases and owner retirement after interpreter
+and caller destruction are checked. No failed check occurred. Fresh interpreter 570,
+primitive 65, production registry 13, tracker 838, ABI 9 and text pass in
+application-import-runtime/primitives/regression.out. Four DLLs build as 3.3.0 with
+unchanged ABI ff5c853cc3759e7d in application-import-build.out. Diff review accompanies
+the local commit.
+
+Production interception does not yet call this boundary. Continue original pool
+metadata/index/element rollback, image/parameter transactions, host source facts,
+ordered packet insertion, attachment preservation, compute restoration and recording
+owners. Native I-01/I-04/I-05/capture remains after the shared rewrite. No candidate
+refresh, game load, installed/system mutation or remote write.

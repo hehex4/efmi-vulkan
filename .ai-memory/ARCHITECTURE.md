@@ -1,5 +1,14 @@
 # EFMI Vulkan - Architecture
 
+D-312 (3.3.0) adds a prepared application-buffer snapshot boundary to the original
+GPU registry. Complete source descriptions, view windows, hashes and omitted-null
+facts are explicit inputs; bounded weak caches preserve original alias identity.
+Cancelled preparation restores the current observed bindings and admitted named
+references. Actual copy/CustomShader packets retain allocation/pipeline owners and
+consume application producers at insertion. Production does not invoke this API:
+source mapping, pool/image/parameter transactions and ordered host pass/compute
+restoration remain required. See docs/prepared-resource-commands.md.
+
 Current migration, D-304 (2026-11-16): production loads one original root INI and
 Include registry through ConfigurationProgram. CharacterProgram, CharacterCore,
 CharacterGeneration and per-package controllers/activation have been deleted.

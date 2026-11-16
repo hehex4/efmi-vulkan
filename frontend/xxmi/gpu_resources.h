@@ -57,6 +57,26 @@ public:
     // mutation is allowed. Finish seals commands but keeps the registry undo
     // journal until host admission calls accept_prepared(), or discard rolls back.
     void begin_prepared();
+    struct ApplicationBufferBinding {
+        wchar_t stage=0;
+        ResourceCopyTargetType type=ResourceCopyTargetType::INVALID;
+        unsigned slot=0;
+        NativeResource resource;
+        // Proven source description and view format, never inferred from a
+        // Vulkan storage binding. resource.offset/range describe the view or IA.
+        bool source_known=false;
+        D3D11_BUFFER_DESC description{};
+        DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
+        uint32_t stride=0;
+        std::shared_ptr<const SourceResourceIdentity> identity;
+    };
+    struct ApplicationBufferState {
+        std::vector<ApplicationBufferBinding> bindings;
+        // A complete buffer-only source context: every omitted slot is proven
+        // unbound, including image/output slots. Unknown context must refuse.
+        bool omitted_slots_unbound=false;
+    };
+    void begin_prepared(const ApplicationBufferState&);
     std::shared_ptr<const gpu::PreparedResourceCommands> finish_prepared();
     void accept_prepared();
     bool scope_active() const {return active_;}
@@ -114,6 +134,12 @@ private:
     void remember(ResourceCopyOperation&);
     void remember(SlotRangeCopyOperation&);
     void rollback_prepared() noexcept;
+    struct ImportedBuffer {
+        std::weak_ptr<gpu::BufferResource> buffer;
+        D3D11_BUFFER_DESC description{};
+    };
+    std::map<uint64_t,ImportedBuffer> imported_buffers_;
+    std::map<uint64_t,std::pair<uint64_t,std::weak_ptr<gpu::BufferResource>>> imported_handles_;
     using Slot=std::tuple<wchar_t,ResourceCopyTargetType,unsigned>;
     GpuResourceBinding backbuffer_;
     bool backbuffer_targeted_=false;

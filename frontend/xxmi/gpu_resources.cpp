@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <typeinfo>
 #include "gpu_prepared_state.h"
+#include "gpu_application_bindings.h"
 
 void FrontendBufferViewElements(UINT,UINT,DXGI_FORMAT,UINT,UINT&,UINT&);
 
