@@ -1,5 +1,14 @@
 # EFMI Vulkan - Known issues
 
+## BUG-159: Generic file geometry lacked layout variants (supported subset fixed 3.2.4)
+
+D-305 accepts only matching static strides and rejects all layout edits. Its baseline
+passes 6/12 for different-stride/semantic-offset pixel cases. D-306 uses exact module
+metadata and the original ordered evaluator, builds retained asynchronous variants and
+supports explicit/caller/implicit draws in classic and dynamic rendering. Geometry GPU
+checks pass 122. Dynamic vertex input/stride edits, unknown semantics, numeric conversion,
+inherited application edits and owned producer ordering remain open.
+
 ## BUG-158: Root geometry assignments entered the descriptor adapter (file subset fixed 3.2.3)
 
 D-304 root execution sent vb/ib assignments to native descriptor addressing and refused

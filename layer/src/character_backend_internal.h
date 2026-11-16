@@ -3,6 +3,7 @@
 #include "character_backend.h"
 #include "shader_fixes.h"
 #include "native_execution.h"
+#include "native_geometry.h"
 #include "native_targets.h"
 #include "../../frontend/gpu/dither_kills.h"
 #include "character_module.h"
@@ -69,6 +70,7 @@ struct ConfigurationGeneration {
     Device* device = nullptr;
     std::shared_ptr<const NativeShaderSet> shader_fixes;
     std::shared_ptr<OwnedPresenter> presenter;
+    std::shared_ptr<NativeGeometryContext> geometry;
     std::shared_ptr<std::mutex> plan_mx = std::make_shared<std::mutex>();
     std::shared_ptr<ConfigurationProgram> generation;
     ConfigurationProgram* program = nullptr;

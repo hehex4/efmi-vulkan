@@ -131,9 +131,10 @@ bool FilePlanCompiler::compile(const DrawPlan& source,assets::FilePlan& output,s
             }
             next.items.push_back(std::move(own));continue;
         case PlanOperation::Caller:case PlanOperation::Dispatch:
-            if(++draws>256 || !item.layout.empty())return refuse(L"Invalid native call plan");
+            if(++draws>256 || item.layout.size()>256 || (item.operation==PlanOperation::Dispatch && !item.layout.empty()))return refuse(L"Invalid native call plan");
             own.operation=item.operation==PlanOperation::Caller?assets::FileOperation::Caller:assets::FileOperation::Dispatch;
             own.index_count=item.index_count;own.instance_count=item.instance_count;own.first_index=item.first_index;
+            for(const auto& layout:item.layout)own.layout.push_back(copy_layout(layout));
             next.items.push_back(std::move(own));continue;
         case PlanOperation::BindVertex: own.operation=assets::FileOperation::BindVertex;break;
         case PlanOperation::BindIndex: own.operation=assets::FileOperation::BindIndex;break;

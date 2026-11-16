@@ -40,6 +40,16 @@ std::shared_ptr<ConfigurationGeneration> folder_create(Device* device, const VkP
     folder->device = device;
     const auto root = configuration_root();
     const auto settings = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
+    folder->geometry=std::make_shared<NativeGeometryContext>();folder->geometry->variants=variants;
+    wchar_t input_path[32768]={};const DWORD input_length=GetEnvironmentVariableW(L"EFMI_VK_SHADER_INPUTS",input_path,32768);
+    const auto input_file=input_length && input_length<32768?std::filesystem::path(input_path):settings/"shader-inputs.bin";
+    std::error_code input_error;
+    if(std::filesystem::is_regular_file(input_file,input_error)){
+        auto inputs=std::make_shared<efmi::frontend::ShaderInputIndex>();std::string input_reason;
+        if(inputs->load(input_file,input_reason)){
+            logf("configuration shader inputs: %zu exact identities",inputs->size());folder->geometry->inputs=std::move(inputs);
+        }else logf("configuration shader inputs refused: %s",input_reason.c_str());
+    }
     efmi::frontend::RuntimeConfig source{root, {}, settings, "configuration"};
     source.installation = root;
     std::string gpu_reason;
@@ -61,8 +71,7 @@ std::shared_ptr<ConfigurationGeneration> folder_create(Device* device, const VkP
     return folder;
 }
 
-// The folder generation's part of a presentation: its INI Present once, under the lock its packages'
-// plans take, and its saves (D-131).
+// The configuration's Present and draw plans share one interpreter lock.
 void folder_frame(ConfigurationGeneration& folder, bool had_draws, PresentWork* present, const efmi::frontend::RuntimeInput& base)
 {
     const uint64_t now = host_time_us();

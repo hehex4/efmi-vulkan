@@ -13,6 +13,16 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-306: Layout identity belongs to the effective draw, not a package (2026-11-16)
+
+Load exact shader input metadata with the root configuration. Resolve named element
+edits through the pinned original evaluator; unproven names never map by position.
+Request immutable pipeline variants for each effective declaration and retain them
+through recording completion. Preserve the exact already-selected native shaders and
+restore the temporary pipeline after each call, while IA resource assignments persist.
+Dynamic rendering may change a complete static declaration; dynamic input/stride edits
+require their own command adapter and remain refused. No character data enters the index.
+
 ## D-305: Preserve original IA assignment lifetime (2026-11-16)
 
 Original CommandList.cpp 10064-10072 binds IA resources into persistent context state.

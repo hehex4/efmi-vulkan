@@ -22,7 +22,7 @@ def changed_stamp(name):
 for name, shared in (
     ('pipeline_variant.h', False), ('native_targets.h', False), ('native_images.h', False),
     ('state.h', True), ('resources.h', True), ('character_module.h', True),
-    ('native_state.h', True),
+    ('native_state.h', True), ('native_geometry_state.h', True), ('native_geometry.h', False),
 ):
     if (changed_stamp(name) != baseline) == shared:
         passed += 1

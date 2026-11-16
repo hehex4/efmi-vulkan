@@ -956,10 +956,14 @@ struct DrawPlanAdapter::Runtime {
     std::vector<SlotValue> scratch_wanted;
     // The pre lists ran: where the application's draw stays it sees the context as they left it. Its
     // bindings stand before `pre_items`; changed targets hide it, as it would not reach them (the table).
-    void application_draw()
+    void application_draw(CommandListState& state)
     {
         if(active->skip_original && !keep_original)return;
-        if(!issue(true)){active->skip_original=true;keep_original=false;}
+        if(!issue(true)){active->skip_original=true;keep_original=false;return;}
+        if(facts && facts().native_calls && !state.input_layout_overrides.empty()){
+            PlanItem call;call.operation=PlanOperation::Caller;indexed(call,state);
+            active->skip_original=true;keep_original=false;
+        }
     }
     // A slot range's single slot operations, one per slot of the range, kept with the command (D-143).
     std::unordered_map<const SlotRangeCopyOperation*,std::vector<std::shared_ptr<ResourceCopyOperation>>> range_ops;
@@ -2346,7 +2350,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         phase("exec flush");
         // The application's draw, where it stays, sees the context as the pre lists left it; its bindings
         // stand before pre_items. A list that draws nothing has no draw to bind for.
-        if(!listing && !hunting_skip)runtime_->application_draw();
+        if(!listing && !hunting_skip)runtime_->application_draw(state);
         candidate.pre_items=candidate.items.size();
         runtime_->application_drawn=true;
         if(between){std::wstring why;if(!between(state,why))refuse(why.empty()?L"Root phase boundary refused":why);}

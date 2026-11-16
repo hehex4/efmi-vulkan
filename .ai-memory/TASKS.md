@@ -7,6 +7,12 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-306 generic layouts verified; bridge actual application resources next
+
+- Done: exact shader semantic cache in the root generation, generic file-stride and original ordered layout evaluation, asynchronous retained variants, explicit/caller/implicit calls, dynamic rendering and private classic target adaptation. Source/four DLLs 3.2.4 / ABI 54ef0e38e8e5228f. GPU geometry 122, tracker 825, calls 60, fresh original runtime 553 and corrected recipe/cache/snapshot/GPU wrapper checks pass; initial stale test failures remain recorded.
+- Next: supply actual application IA properties/references and source shader resource facts to the original registry, bridge live resources to Core GPU commands and implement ordered in-draw insertion. Do not restore CharacterCore/package discovery or substitute native initializer dispatch.
+- Retire/migrate old package acceptance fixtures and obsolete environment usage. Preserve precise verification scope, then continue native I-01 queue/resource provenance, I-04 phases, I-05 readiness and capture. No real-game authorization.
+
 ## D-305 file geometry verified; continue generic declarations and live resources
 
 - Done: root-driven file VB/IB assignments, per-recording persistent IA state, exact named application rebinds, bounded retained uploads and publication waits. Source/four DLLs 3.2.3 / ABI 54ef0e38e8e5228f. Geometry GPU 52, calls 60, files 42, tracker 825 and original runtime 553 pass; the initial stale activation assertion is recorded separately.

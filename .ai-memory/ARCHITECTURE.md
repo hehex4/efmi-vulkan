@@ -15,6 +15,13 @@ publication dependencies. Draws validate effective ranges before recording any p
 The current subset requires matching static strides; layouts and live Core resources
 remain migration work.
 
+D-306 supersedes that stride/layout limit for supported static declarations. The root
+configuration owns exact module semantics and bounded lookup identities. Each draw's
+ordered edits produce its effective Vulkan input declaration and an asynchronous
+variant of the exact selected shaders. Recording owners keep these pipelines; temporary
+pipeline binds restore immediately while resource IA state persists. Dynamic rendering
+uses the same path. Live application/Core resource ordering is still migration work.
+
 > Rewritten 2026-11-10 from the code (docs/architecture-review-2.1.md, P4-1). What was here before, the
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.

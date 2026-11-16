@@ -150,7 +150,7 @@ DrawRec native_transaction_draw(const DrawRec& original,const NativeDrawTransact
     return native_descriptor_draw(original,transaction.descriptors,before);
 }
 bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* device, CmdBuf* cb, const DrawRec& r, const efmi::assets::FilePlan& plan,
-                  bool hunting_skip, std::string& why,bool wait_files,bool* pending)
+                  bool hunting_skip, std::string& why,bool wait_files,bool* pending,NativeGeometryContext* geometry_context)
 {
     using O = efmi::assets::FileOperation;
     auto refuse = [&](const char* text) { why = text; return false; };
@@ -210,7 +210,8 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         // DrawCommand returns before evaluating arguments when hunting hides this draw.
         if(hunting_skip && (item.operation==O::Caller || item.operation==O::DrawIndexed || item.operation==O::Dispatch))continue;
         const bool geometry=item.operation==O::BindVertex || item.operation==O::BindIndex;
-        if (!item.layout.empty() || item.automatic || (item.resource && item.operation!=O::NativeBind && !geometry) || item.owned)
+        if ((!item.layout.empty() && item.operation!=O::DrawIndexed && item.operation!=O::Caller) || item.automatic ||
+            (item.resource && item.operation!=O::NativeBind && !geometry) || item.owned)
             return refuse("Native call plan contains an unsupported layout or resource operation");
         if(geometry){if(compute)return refuse("Native geometry cannot run in a compute scope");continue;}
         if (item.operation == O::Caller || item.operation == O::NativeBind) continue;
@@ -238,8 +239,7 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         if(!prepare_native_transaction(cache,residency,device,cb,r,plan,transaction,why,nullptr,wait_files,pending))return false;
     }
     NativeGeometryPlan geometry;
-    if(!hunting_skip && !prepare_native_geometry(device,cb,r,transaction.plan,geometry,why))return false;
-    if(hunting_skip && !compute && !prepare_native_geometry(device,cb,r,transaction.plan,geometry,why))return false;
+    if((!hunting_skip || !compute) && !prepare_native_geometry(device,cb,r,transaction.plan,geometry,why,geometry_context,&transaction.targets,pending))return false;
     begin_native_transaction(device,cb,transaction);
     const size_t split = std::min(plan.pre_items,plan.items.size());
     auto record = [&](size_t index) {
@@ -253,13 +253,20 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         }
         if (hunting_skip) return;
         if (compute) native_compute_order(device,cb,cache.barrier);
+        else bind_native_geometry_pipeline(device,cb,geometry,index);
         if (item.operation == O::Caller) caller(device,cb,r);
         else if (item.operation == O::Dispatch) device->d.CmdDispatch(cb->handle,item.index_count,item.instance_count,item.first_index);
         else if (item.indexed) device->d.CmdDrawIndexed(cb->handle,item.index_count,item.instance_count,item.first_index,item.vertex_offset,item.first_instance);
         else device->d.CmdDraw(cb->handle,item.index_count,item.instance_count,item.first_index,item.first_instance);
+        if(!compute && geometry.draws[index].variant)device->d.CmdBindPipeline(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,cb->gfx_bound);
     };
     for (size_t i=0;i<split;++i) record(i);
-    if (!plan.skip_original && !hunting_skip) { if (compute) native_compute_order(device,cb,cache.barrier); caller(device,cb,r); }
+    if (!plan.skip_original && !hunting_skip) {
+        if (compute) native_compute_order(device,cb,cache.barrier);
+        else bind_native_geometry_pipeline(device,cb,geometry,plan.items.size());
+        caller(device,cb,r);
+        if(!compute && geometry.draws.back().variant)device->d.CmdBindPipeline(cb->handle,VK_PIPELINE_BIND_POINT_GRAPHICS,cb->gfx_bound);
+    }
     for (size_t i=split;i<plan.items.size();++i) record(i);
     if (compute && !hunting_skip) native_compute_order(device,cb,cache.barrier);
     return true;

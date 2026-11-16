@@ -6,6 +6,7 @@
 
 namespace efvk {
 class TextureResidency;
+struct NativeGeometryContext;
 struct NativeTargetCache;
 struct NativeCallCache {
     std::shared_ptr<NativeTargetCache> targets;
@@ -31,5 +32,5 @@ void record_native_binding(Device*, CmdBuf*, const DrawRec&, const NativeDrawTra
 DrawRec native_transaction_draw(const DrawRec&, const NativeDrawTransaction&, size_t before);
 // Validate the entire native call plan before recording any work. True consumes the original call.
 bool native_calls(NativeCallCache&, TextureResidency*, Device*, CmdBuf*, const DrawRec&, const efmi::assets::FilePlan&, bool hunting_skip, std::string&,
-                  bool wait_files = true, bool* pending = nullptr);
+                  bool wait_files = true, bool* pending = nullptr, NativeGeometryContext* = nullptr);
 }

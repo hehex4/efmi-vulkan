@@ -36,8 +36,15 @@ static void native_rendering_recipe_tests()
           "a dynamic recipe does not authorize ordinary mesh recreation");
     check(moved.create(h<VkDevice>(1),create_rendering_native,h<VkPipelineLayout>(2),h<VkRenderPass>(3),modules,&output,nullptr,true)!=VK_SUCCESS && !output,
           "native dynamic recreation rejects an accidental classic render pass");
-    check(moved.create(h<VkDevice>(1),create_rendering_native,h<VkPipelineLayout>(2),VK_NULL_HANDLE,modules,&output,&moved.vertex,true)!=VK_SUCCESS,
-          "dynamic native recreation cannot override geometry");
+    check(moved.create(h<VkDevice>(1),create_rendering_native,h<VkPipelineLayout>(2),VK_NULL_HANDLE,modules,&output,&moved.vertex,true)==VK_SUCCESS,
+          "complete native dynamic recipes accept an explicit static vertex declaration");
+    destroy_pipe(h<VkDevice>(1),output,nullptr);
+    for(const auto dynamic:{VK_DYNAMIC_STATE_VERTEX_INPUT_EXT,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE}){
+        moved.dynamic.push_back(dynamic);
+        check(moved.create(h<VkDevice>(1),create_rendering_native,h<VkPipelineLayout>(2),VK_NULL_HANDLE,modules,&output,&moved.vertex,true)!=VK_SUCCESS && !output,
+              "static native edits cannot silently replace a dynamic vertex declaration or stride");
+        moved.dynamic.pop_back();
+    }
     JsonWriter json;moved.write(json);
     check(json.out.find("\"dynamic_rendering\":true")!=std::string::npos && json.out.find("\"rendering_view_mask\":5")!=std::string::npos,
           "diagnostics retain rendering context without claiming a mesh recipe is complete");

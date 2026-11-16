@@ -510,7 +510,8 @@ VkResult GraphicsRecipe::create(VkDevice dev, PFN_vkCreateGraphicsPipelines crea
                                 const VertexInputRecipe* override_vertex, bool keep_geometry) const
 {
     *out = VK_NULL_HANDLE;
-    if ((!complete && !(keep_geometry && geometry_complete)) || (keep_geometry && override_vertex) ||
+    if ((!complete && !(keep_geometry && geometry_complete)) || (keep_geometry && override_vertex &&
+        (dynamic_has(*this,VK_DYNAMIC_STATE_VERTEX_INPUT_EXT) || dynamic_has(*this,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE))) ||
         !create_fn || !layout || (dynamic_rendering ? pass != VK_NULL_HANDLE : pass == VK_NULL_HANDLE) || modules.size() != stages.size())
         return VK_ERROR_FEATURE_NOT_PRESENT;
     std::vector<VkSpecializationInfo> specs(stages.size());

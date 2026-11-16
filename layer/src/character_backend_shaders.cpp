@@ -665,7 +665,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
             bool pending=false;
             // Graphics can retain the caller until a publication is ready. Compute
             // may be a one-shot producer, so it keeps its existing first-use policy.
-            if (native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason,request.compute,&pending)) {
+            if (native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason,request.compute,&pending,hooks->folder->geometry.get())) {
                 ++b.shader_draws_executed; return true;
             }
             b.shader_draws_kept.fetch_add(1, std::memory_order_relaxed);
@@ -687,7 +687,8 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         efmi::assets::FilePlan plan;plan.skip_original=true;
         efmi::assets::FilePlanItem call;call.operation=efmi::assets::FileOperation::Caller;plan.items.push_back(call);
         std::string reason;
-        if(native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason,false))return true;
+        if(native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason,false,nullptr,
+                        hooks && hooks->folder?hooks->folder->geometry.get():nullptr))return true;
         std::lock_guard<std::mutex> lock(b.shader_note_mx);b.shader_note=reason;
         ++b.shader_draws_refused;return true;
     }

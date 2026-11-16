@@ -88,3 +88,13 @@ and module exchange pass 52 checks, with 825 tracker and 553 original runtime ch
 Native call/file regressions pass 60/42. Layout and stride variants, retained application
 IA inputs and owned GPU producer ordering remain incomplete. Source/development DLLs
 are 3.2.3; this is sandbox evidence only.
+
+D-306 connects the exact shader input index to the generic executor and resolves
+supported original semantic edits and file strides without packages. Explicit, caller
+and implicit calls retain independent asynchronous pipeline variants; selected shaders
+are preserved, and temporary pipelines restore after each call. Classic, RenderPass2,
+dynamic rendering and private target scopes pass actual-pixel checks (122 geometry
+assertions). Fresh interpreter checks pass 553; tracker 825 and current pipeline tests
+also pass after updating the former dynamic-layout refusal assertion. Source/development
+DLLs are 3.2.4. Application IA facts, original Core resource imports and ordered in-draw
+GPU commands remain active work; no real-game acceptance is claimed.
