@@ -35,11 +35,13 @@ InputLayoutElementOverride original_edit(const assets::LayoutEdit& edit)
     return out;
 }
 }
-bool VertexProfile::prepare(const std::vector<uint32_t>& vertex,const std::vector<VertexSemantic>& source,std::string& reason)
+bool VertexProfile::prepare(const std::vector<uint32_t>& vertex,const std::vector<VertexSemantic>& source,std::string& reason,
+                            bool declaration_order_known)
 {
     reason.clear();
     if(vertex.size()<5 || vertex.size()>(1u<<22) || source.size()>256){reason="Vertex profile budget exceeded";return false;}
-    VertexProfile next;next.code_=vertex;std::set<std::pair<std::string,uint32_t>> names;
+    VertexProfile next;next.code_=vertex;next.declaration_order_known_=declaration_order_known;
+    std::set<std::pair<std::string,uint32_t>> names;
     for(const auto& semantic:source){
         if(semantic.location>=256 || !name_valid(semantic.name) || semantic.index>=256 ||
            !next.semantics_.emplace(semantic.location,semantic).second || !names.emplace(semantic.name,semantic.index).second){
@@ -86,6 +88,24 @@ bool VertexProfile::resolve(const assets::FileDraws& input,const std::vector<uin
             edits.push_back(original_edit(edit));
         }
         CommandListState state;for(auto& edit:edits)state.input_layout_overrides.push_back(&edit);
+        if(!declaration_order_known_){
+            // Shader identity does not prove the DX11 declaration's element order.
+            // Prove each element independent before invoking the original on the
+            // Vulkan order. Its pinned RealignInputLayoutOffsets uses the numeric
+            // original FORMAT plus its size as the boundary, not original_offset.
+            // Preserve that behavior; do not silently repair the source evaluator.
+            std::vector<D3D11_INPUT_ELEMENT_DESC> isolated;isolated.reserve(original.size());
+            for(const auto& element:original){std::vector<D3D11_INPUT_ELEMENT_DESC> one{element};
+                FrontendApplyInputLayoutOverrides(one,state);isolated.push_back(one[0]);}
+            for(size_t i=0;i<original.size();++i){
+                const auto before=original[i].Format,after=isolated[i].Format;
+                if(before==after || dxgi_format_size(before)==dxgi_format_size(after))continue;
+                const uint32_t boundary=uint32_t(before)+dxgi_format_size(before);
+                for(size_t j=0;j<original.size();++j)if(i!=j && original[j].InputSlot==original[i].InputSlot &&
+                    (original[j].AlignedByteOffset>=boundary || isolated[j].AlignedByteOffset>=boundary))
+                    return refuse("Format realignment requires the original input declaration order");
+            }
+        }
         auto changed=original;FrontendApplyInputLayoutOverrides(changed,state);
         std::vector<efvk::VertexStreamPatch> patches;
         for(uint32_t slot=0;slot<draw.vertex.size();++slot){

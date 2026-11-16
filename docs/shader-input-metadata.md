@@ -186,3 +186,64 @@ D:/Python312/python.exe -B scripts/survey_unity_shader_pairs.py `
   --validation-dir build/shader-vfs/modules `
   --validator 'F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/build/install/bin/spirv-val.exe'
 ```
+
+## D-294: Content-addressed input cache and native reader
+
+The survey now examines every Vulkan variant before platform pairing, including
+variants without a DXBC counterpart. All 5,277 unique vertex modules have their
+channel tables checked against any paired semantic evidence for that identity.
+The eleven additional modules have no independently paired identity and are not
+admitted. No new channel contradiction was found; 5,265 candidates remain. The
+unpaired variants do not explain the 68 missing historical vertex modules.
+
+`build_shader_input_index.py` rechecks source asset hashes, module bytes, actual
+SPIR-V locations and the paired channel/signature relation. Every admitted module
+must be present in the independent validation report. Existing D-293 validated
+bytes are reused without rerunning unchanged modules through the validator.
+
+The generated `build/d294-inputs/shader-inputs.bin` has 5,265 entries and 909,088
+bytes; SHA-256 is
+`ac322f7e4132d1670007e535360fc451d02f9d3704088546a858af279403bfe2`.
+It contains no shader code, character names, captures, mesh layouts or source
+paths. It is a whole-corpus derived cache, not a per-character profile. The format
+is little-endian: `EFVIS001`, entry count and payload length (two uint32 values),
+payload SHA-256 (32 bytes), then entries. Each entry has a full module SHA-256,
+module byte length and semantic count, followed by location/index/name-length
+uint32 values and unpadded ASCII name bytes. The reader caps the file at 8 MiB,
+entries at 65,536, each module at 16 MiB and each semantic list at 32. Duplicate
+identities, duplicate locations/names, malformed framing, checksum failures and
+out-of-range fields refuse atomically, preserving the previous index.
+
+The C++ `ShaderInputIndex` owns metadata and produces the existing `VertexProfile`
+only on a full byte-length/SHA-256 match. A different generator/header word is a
+different identity. The checker accepts exactly 5,265 of the 5,266 validated
+modules and 101 of all 637 unique historical capture modules. Unknown stages and
+the ambiguous sky module are absent. The 43 reader/layout checks include malformed
+payloads with recomputed checksums, failure atomicity and an actual sparse-location
+offset edit evaluated by the pinned original XXMI code.
+
+Semantic correspondence does not prove the original DX11 element declaration
+order. Cache-produced profiles therefore prove element independence before
+applying format edits. If format resizing could realign another element, they
+refuse pending declaration-order evidence. The pinned original
+`RealignInputLayoutOffsets` uses the numeric original format plus its byte size
+as its boundary; this adapter preserves that source behavior rather than changing
+it to an offset-based calculation. Direct known-order callers keep their explicit
+contract. DX11's reference-counted lifetime/deferred destruction, hazard tracking
+and single-context order are still separate Vulkan responsibilities.
+
+Evidence: `build/d294-unpaired.json`, `d294-survey.json`, `d294-reader.out`,
+`d294-corpus.out`, `d294-captures.out` and `d294-regression.out`. The cache and native
+reader are not yet consumed by the loaded layer in D-294. Runtime integration,
+unsupported input conversions and source declaration order remain separate work.
+Runtime and the offline candidate remain 3.1.7; no game load or deployment occurs.
+
+```powershell
+D:/Python312/python.exe -B scripts/build_shader_input_index.py build/d294-survey.json `
+  --validation-report build/d293-validated.json --modules build/d293-validated-modules `
+  --output build/d294-inputs/shader-inputs.bin
+D:/Python312/python.exe -B scripts/check_shader_inputs.py
+D:/Python312/python.exe -B scripts/check_shader_inputs.py `
+  --index build/d294-inputs/shader-inputs.bin --modules build/d293-validated-modules --expected 5265
+D:/Python312/python.exe -B sandbox/run_all.py --no-build --only shader-input-index
+```

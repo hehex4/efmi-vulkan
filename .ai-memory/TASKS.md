@@ -1,6 +1,15 @@
 # EFMI Vulkan - Tasks
 
 
+## D-294 supplies exact shader semantics; connect actual draw planning next (2026-11-16)
+
+- I-06 / D-294: the survey now checks all Vulkan variants before platform pairing. All 5,277 unique vertex modules are observed; the eleven unpaired-only modules add no historical match and no channel conflict. The existing 5,265 unambiguous candidates remain; 68 historical vertex modules are still unmatched.
+- A whole-corpus content cache rechecks source hashes, exact module bytes, SPIR-V locations, paired channels/signatures and independent validation membership. build/d294-inputs/shader-inputs.bin has 5,265 entries / 909,088 bytes, SHA-256 ac322f7e4132d1670007e535360fc451d02f9d3704088546a858af279403bfe2. It contains only module identity and semantics, never character names, captures, mesh data or shader bytecode; it is generated and uncommitted.
+- The bounded C++ ShaderInputIndex reader produces VertexProfile only for exact module SHA-256/length. Invalid replacement leaves the previous index intact. Cache-produced profiles reject format realignment that depends on unknown DX11 declaration order; the pinned original's numeric-format boundary is preserved. Original CommandList.cpp 181-312 applies ordered edits; DX11 additionally provides reference-counted lifetime with deferred destruction, hazard tracking and one-context order.
+- d294-reader.out passes 43 malformed/atomicity/identity/layout checks. d294-corpus.out accepts exactly 5,265 of 5,266 independently validated modules; d294-captures.out accepts exactly 101 of all 637 unique retained capture modules. d294-regression.out passes the reader, 27 metadata checks, 17 VFS checks, original frontend host including 18 vertex-plan checks and text 715. The first standalone link omitted merged_skeleton.cpp; adding that existing dependency fixes the harness without a runtime change. Unchanged modules were not revalidated.
+- The layer does not consume this cache yet. Next: integrate it into actual matched draw planning, preserve exact layout identity in cached variants/bone interpretation, and verify pixels, unknown-input refusals and module exchange. Type-changing fetch conversions and original declaration order remain explicit limits. Runtime/four development binaries/candidate remain 3.1.7 / ABI 347c72b0cc7d0e40. No game load/deployment, launcher/system mutation or remote write.
+
+
 ## D-293 validates VFS input provenance; 68 historical vertex modules remain unmatched (2026-11-16)
 
 - I-06 / D-293: generic version-5 VFS discovery reads all 17 indices with matching CRC32 and before/after source hashes: 418,339 entries. Selecting container type 2 finds all 1,075 initial bundles (281,932,483 bytes); every range matches its indexed MD5. Version-5 extension fields are eight bytes, unlike the older reader's four. The final ten opaque bytes remain CRC-covered and are recorded without guessing their meaning. No character names select content.

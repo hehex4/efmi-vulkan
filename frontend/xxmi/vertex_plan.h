@@ -10,7 +10,8 @@ struct VertexPlan {std::vector<efvk::VertexInputRecipe> draws;};
 // offsets/formats/rates come from the current owned Vulkan pipeline recipe.
 class VertexProfile {
 public:
-    bool prepare(const std::vector<uint32_t>& vertex,const std::vector<VertexSemantic>&,std::string& reason);
+    bool prepare(const std::vector<uint32_t>& vertex,const std::vector<VertexSemantic>&,std::string& reason,
+                 bool declaration_order_known=true);
     // Calls the pinned original XXMI layout evaluator. Only supported format/
     // offset edits are accepted; semantic relinking and instance-rate files
     // require another adapter. No GPU calls, file IO or partial publication.
@@ -19,5 +20,6 @@ public:
 private:
     std::vector<uint32_t> code_;
     std::map<uint32_t,VertexSemantic> semantics_;
+    bool declaration_order_known_=true;
 };
 }

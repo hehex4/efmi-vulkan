@@ -4,6 +4,8 @@ Date: 2026-11-15
 Reviewed source version: `3.0.4` (`D-276`, commit `69ea1cc`)
 Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 2026-11-12)
 
+D-294 prepares a general input-semantic cache with 5,265 exact shader identities. The native reader accepts 101 historical modules and rejects ambiguous/unknown identities; 43 reader/layout checks pass. All unpaired Vulkan variants have also been examined. Loader integration, source declaration-order evidence and input conversions remain open; see [the metadata evidence](docs/shader-input-metadata.md). Runtime stays 3.1.7.
+
 ## Implementation audit (2026-11-16; remediation in progress)
 
 Current audit: source 3.1.7; see [the consolidated results](docs/architecture-audit-3.1.3.md).

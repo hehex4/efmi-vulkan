@@ -46,6 +46,7 @@ def survey(args):
             captures.setdefault(fingerprint(path), path.relative_to(args.captures).as_posix())
     stats, sources, matches, examples, vertices, refused = Counter(), [], [], [], {}, []
     unique_pairs, signatures, mappings = set(), defaultdict(set), defaultdict(set)
+    channel_variants = defaultdict(set)
     for path in args.assets:
         path = path.resolve()
         before = fingerprint(path)
@@ -80,10 +81,27 @@ def survey(args):
                                 for off, size, length in zip(offsets, sizes, decoded)]
                     require([len(x) for x in segments] == decoded, 'Decoded segment length differs')
                     platforms.append(segments)
+                decoded_vertices = {}
+                def vertex(index):
+                    if index not in decoded_vertices:
+                        code, tail = program(platforms[1], index, 25)
+                        try:
+                            module, locations = decoder.vertex(code)
+                        except NonVertexProgram:
+                            decoded_vertices[index] = None
+                        else:
+                            digest = hashlib.sha256(module).hexdigest()
+                            channel_variants[digest].add(tuple(tail))
+                            decoded_vertices[index] = (module, locations, digest, tail)
+                    return decoded_vertices[index]
                 for pass_index, render_pass in enumerate(sub['m_Passes']):
                     for tier, programs in enumerate(render_pass['progVertex']['m_PlayerSubPrograms']):
                         groups = defaultdict(lambda: defaultdict(list))
                         for item in programs:
+                            # A missing DX counterpart must not hide contradictory
+                            # channel metadata for an otherwise accepted module.
+                            if item['m_GpuProgramType'] == 25:
+                                vertex(item['m_BlobIndex'])
                             key = (tuple(item['m_KeywordIndices']), item['m_ShaderRequirements'])
                             groups[key][item['m_GpuProgramType']].append(item)
                         for key, pair in groups.items():
@@ -100,17 +118,13 @@ def survey(args):
                             if pair_key in unique_pairs:
                                 continue
                             unique_pairs.add(pair_key)
-                            vcode, vtail = program(platforms[1], vk, 25)
                             dcode, dtail = program(platforms[0], dx, 33)
-                            try:
-                                module, locations = decoder.vertex(vcode)
-                            except NonVertexProgram as error:
+                            decoded_vertex = vertex(vk)
+                            if decoded_vertex is None:
                                 stats['non_vertex_program_pairs'] += 1
-                                refused.append(dict(identity, reason=str(error)))
+                                refused.append(dict(identity, reason='Non-vertex SPIR-V entry point'))
                                 continue
-                            except ValueError as error:
-                                raise ValueError(f'{identity}, blob {vk}: {error}') from error
-                            digest = hashlib.sha256(module).hexdigest()
+                            module, locations, digest, vtail = decoded_vertex
                             dxhash, inputs = signature(dcode)
                             row = dict(identity, vk_blob=vk, dx_blob=dx, spirv_sha256=digest, dxbc_sha256=dxhash,
                                        locations=locations, signature=inputs, vk_channels=vtail, dx_channels=dtail)
@@ -152,6 +166,19 @@ def survey(args):
     stats['unique_capture_matches'] = len({row['spirv_sha256'] for row in matches})
     rejected_modules = {row['spirv_sha256'] for row in refused if 'spirv_sha256' in row}
     rejected_modules.update(key for key, values in mappings.items() if len(values) != 1)
+    for digest, row in vertices.items():
+        if 'candidate_semantics' not in row:
+            continue
+        for tail in channel_variants[digest]:
+            try:
+                require(channel_semantics(tail, row['locations'], row['signature']) == row['candidate_semantics'],
+                        'Another Vulkan variant contradicts the paired semantics')
+            except ValueError as error:
+                rejected_modules.add(digest)
+                refused.append(dict(spirv_sha256=digest, reason=str(error), vk_channels=tail))
+                stats['variant_channel_refusals'] += 1
+    stats['channel_observed_vertex_modules'] = len(channel_variants)
+    stats['unpaired_only_vertex_modules'] = len(set(channel_variants) - set(vertices))
     for row in list(vertices.values()) + examples + matches:
         if row['spirv_sha256'] in rejected_modules:
             row.pop('candidate_semantics', None)

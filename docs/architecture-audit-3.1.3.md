@@ -17,6 +17,8 @@ is 3.1.7; earlier candidates below are historical. No real-game verification is 
 | I-08, old execution paths | D-282 retires the selectable single-component M2 executor. D-284 removes full-mesh binary re-encoding/decoding during runtime validation. File framing and content validation remain shared. | File size alone does not justify unrelated rewrites. |
 | I-09, verification and artifacts | Four development artifacts and a separate no-probe candidate are built at 3.1.7. Focused regressions, 22-package loading and both owned unpack layouts pass. | Root dist and game deployment remain older. Sandbox loads and historical captures do not close real-character verification. |
 
+D-294 prepares a general input-semantic cache with 5,265 exact shader identities. The native reader accepts 101 historical modules and rejects ambiguous/unknown identities; 43 reader/layout checks pass. All unpaired Vulkan variants have also been examined. Loader integration, source declaration-order evidence and input conversions remain open; see [the metadata evidence](shader-input-metadata.md). Runtime stays 3.1.7.
+
 ## Input-layout evidence
 
 `scripts/survey_vertex_semantics.py` reads the retained capture directory without
