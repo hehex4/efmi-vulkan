@@ -98,3 +98,11 @@ assertions). Fresh interpreter checks pass 553; tracker 825 and current pipeline
 also pass after updating the former dynamic-layout refusal assertion. Source/development
 DLLs are 3.2.4. Application IA facts, original Core resource imports and ordered in-draw
 GPU commands remain active work; no real-game acceptance is claimed.
+
+D-307 supplies actual application IA properties and retained references. Original size,
+stride and offset rules and index-region matching pass 34 focused checks. Restoring a
+reference requires the exact current original binding; foreign/recycled resources still
+need ordered import. Tracker 838, migrated native aliases 89, original interpreter 553
+and ABI 9 pass, alongside geometry/call/file checks. The empty-config file test's early
+normal exit before probe connection is recorded; its isolated rerun passes. Source/four
+development DLLs are 3.2.5. These results still do not establish live Core execution.

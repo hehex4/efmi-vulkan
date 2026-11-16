@@ -3327,3 +3327,33 @@ Continued the root rewrite. Original CommandList.cpp 282-316 and HackerContext.c
 Baseline stride/offset checks fail 6/12; the intermediate scope check fails only dynamic rendering (15/18). Final area evidence passes geometry 122, tracker 825, calls 60 and ABI/text checks. Pipeline recipes initially fail 397/407 because the former dynamic-layout rejection assertion leaves its now-created fake handle alive; update the assertion, release the handle and add two dynamic-state guards. Corrected recipe/cache/snapshot/GPU wrapper checks pass 410/81/52/63. Freshly linked current original-runtime checks pass 553. D-305's direct invocation had reused an earlier executable; its standalone 553 result was insufficient to cover changed frontend objects, now covered by this fresh link. An initial custom build named nonexistent variant_test and therefore built no recipe target; configuration-layout-variants-build.out subsequently builds all four actual targets.
 
 Source and four development DLLs are 3.2.4 / ABI 54ef0e38e8e5228f. No candidate refresh, game activity or external mutation. Next: actual application IA/resource facts, original Core live imports and ordered GPU insertion, legacy fixture migration and the remaining Vulkan-native queue/access/readiness/capture work.
+
+## 2026-11-16: D-307 actual application IA properties and references
+
+Continued the original-root rewrite. Read CommandList.cpp IAGet bindings and the exact
+GetResourceStride/Size/Offset implementations: ByteWidth is not visible range, an index
+offset includes FirstIndex, and plain index structure stride/custom-resource offset are
+UNKNOWN. DX11 supplies reference-counted lifetime with deferred destruction, hazards and
+one-context order. Vulkan now retains the actual allocation chain, exposes dynamic and
+persistent IA facts and restores only the proven current original binding. Exact index
+region matching remains separate from whole-resource identity in filters and nested
+CheckTextureOverride. Explicit native descriptor-view properties retain their contract.
+
+The initial 2/11 fixture used some assumed stride/offset expectations; those were corrected
+from source. The refined fixture reproduces the first implementation's errors at 18/34.
+Final IA passes 34, geometry 122, tracker 838, native calls 60, migrated native aliases 89,
+freshly linked original runtime 553 and module boundary 9. Native alias tests now use the
+root configuration and verify whole-registry rejection/prior-registry retention on a bad
+reload, removing the former per-input exclusion assumption. The first nine file cases
+pass, but empty_swap exits normally with zero validation diagnostics before its probe
+connects; an isolated rerun passes 4/4, completing the 42 assertions across both runs.
+The exit's cause is not established. Final restore pixels pass 6/6. Logs are named
+configuration-ia-*.out. An earlier selector used nonexistent file/module step names; the
+reviewed selector actually runs both. Four matching DLLs are 3.2.5 / ff5c853cc3759e7d.
+
+Next, original Core imports and GPU commands need execution at the real point in the
+application command stream, with explicit ownership and rollback. Recording a separate
+primary and submitting it before all application commands would read an earlier version
+of data produced before this draw in that same command buffer. Continue this shared
+execution work and native queue/access/readiness/capture work. No candidate update, game
+activity, installation/launcher/system change or remote write.

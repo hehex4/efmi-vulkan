@@ -15,6 +15,71 @@ bool native_dynamic_outputs(const CmdBuf* cb, uint32_t context, uint32_t& mask)
 }
 
 namespace {
+uint32_t buffer_bind_flags(uint32_t usage) {
+    return ((usage&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)?1u:0u) | ((usage&VK_BUFFER_USAGE_INDEX_BUFFER_BIT)?2u:0u) |
+        ((usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)?4u:0u) |
+        ((usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT))?8u:0u) |
+        ((usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT))?128u:0u);
+}
+bool ia_resource(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::frontend::NativeBinding& address,
+                 efmi::frontend::NativeResource& output,std::string& why)
+{
+    using B=efmi::frontend::NativeBinding;
+    auto refuse=[&](const char* reason){why=reason;return false;};
+    const bool vertex=address.kind==B::Vertex;
+    if(vertex?address.slot>=kMaxVb:address.slot!=0)return refuse("Native IA slot is outside tracked inputs");
+    if(cb->native_geometry){
+        const auto& state=*cb->native_geometry;
+        const auto found=state.vertices.find(address.slot);
+        const bool overridden=vertex?found!=state.vertices.end():state.index_overridden;
+        if(overridden){
+            const auto& resource=vertex?found->second:state.index;
+            if(resource){
+                output=*resource;output.descriptor_type=VK_DESCRIPTOR_TYPE_MAX_ENUM;
+                output.bind_flags=buffer_bind_flags(output.usage);
+                if(!vertex){output.format=output.resource_format=output.index_size==2?57u:42u;output.format_known=true;}
+            }
+            return true;
+        }
+    }
+    const VkBuffer handle=vertex?draw.vb[address.slot].buf:draw.ib;
+    if(!handle)return true;
+    const auto found=device->bufs.find(handle);
+    if(found==device->bufs.end())return refuse("Native IA buffer is no longer tracked");
+    const auto& buffer=found->second;
+    output.bound=true;output.dimension=1;output.identity=uint64_t(buffer.id)<<2;output.buffer=uint64_t(handle);
+    output.descriptor_type=VK_DESCRIPTOR_TYPE_MAX_ENUM;
+    output.size=buffer.size;output.offset=vertex?draw.vb[address.slot].off:draw.ib_off;
+    if(output.offset>output.size)return refuse("Native IA offset exceeds the buffer");
+    output.range=output.size-output.offset;
+    output.usage=buffer.usage;output.bind_flags=buffer_bind_flags(buffer.usage);
+    output.memory=uint64_t(buffer.mem);output.memory_offset=buffer.mem_off;output.memory_size=buffer.mem_size;
+    if(buffer.lifetime && !buffer.lifetime->dependencies.empty())output.keep=buffer.lifetime;
+    if(vertex){
+        const auto& bound=draw.vb[address.slot];
+        if(bound.size!=VK_WHOLE_SIZE)output.range=std::min(output.range,bound.size);
+        const auto pipeline=device->pipes.find(draw.pipeline);
+        if(pipeline==device->pipes.end() || !pipeline->second.recipe)return refuse("Native IA declaration is unavailable");
+        const auto& recipe=*pipeline->second.recipe;
+        const bool dynamic_input=std::find(recipe.dynamic.begin(),recipe.dynamic.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)!=recipe.dynamic.end();
+        if(dynamic_input && !draw.vertex_input)return refuse("Native IA dynamic declaration is unknown");
+        const bool dynamic_stride=std::find(recipe.dynamic.begin(),recipe.dynamic.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE)!=recipe.dynamic.end();
+        if(draw.vertex_input || dynamic_stride){
+            if(!bound.stride_known)return refuse("Native IA dynamic stride is unknown");
+            output.stride=bound.stride;
+        }else{
+            const auto binding=std::find_if(recipe.vertex.bindings.begin(),recipe.vertex.bindings.end(),[&](const auto& b){return b.binding==address.slot;});
+            if(binding==recipe.vertex.bindings.end())return refuse("Native IA slot has no static stride declaration");
+            output.stride=binding->stride;
+        }
+        output.format_known=true;
+    }else{
+        if(draw.index_size!=2 && draw.index_size!=4)return refuse("Native IA index type is unsupported");
+        output.index_size=output.stride=draw.index_size;
+        output.format=output.resource_format=draw.index_size==2?57u:42u;output.format_known=true;
+    }
+    return true;
+}
 bool image_resource(VkImageView handle, const ImageViewInfo& view, const ImageInfo& resource,
                     efmi::frontend::NativeResource& output)
 {
@@ -135,6 +200,7 @@ bool native_resource_locked(Device* device, CmdBuf* cb, const DrawRec& draw, con
     auto refuse = [&](const char* reason) { why = reason; return false; };
     output = {};
     if (!device || !cb) return refuse("Native resource recording is unavailable");
+    if(alias.kind==B::Vertex || alias.kind==B::Index)return ia_resource(device,cb,draw,alias,output,why);
     if(alias.kind==B::ColorTarget || alias.kind==B::DepthTarget)return target_resource(device,cb,draw,alias,output,why);
     if(alias.set>=kMaxSets)return refuse("Native descriptor set is outside tracked slots");
     const auto pipeline = device->pipes.find(draw.pipeline);
@@ -213,10 +279,7 @@ bool native_resource_locked(Device* device, CmdBuf* cb, const DrawRec& draw, con
         }
         const auto usage = buffer->second.usage;
         output.usage=usage;
-        output.bind_flags = ((usage & VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) ? 1u : 0u) |
-            ((usage & VK_BUFFER_USAGE_INDEX_BUFFER_BIT) ? 2u : 0u) | ((usage & VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT) ? 4u : 0u) |
-            ((usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT)) ? 8u : 0u) |
-            ((usage & (VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)) ? 128u : 0u);
+        output.bind_flags = buffer_bind_flags(usage);
         return true;
     }
     if (image) {

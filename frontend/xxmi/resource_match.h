@@ -30,7 +30,7 @@ void source_resource_matches(const SourceResourceMatch&,ResourceCopyTargetType,
                              CommandListState&,TextureOverrideMatches&);
 // Native descriptors may have a known description without readable upload bytes. Unknown content
 // matches no exact hash, while the original descriptor predicates remain available.
-void native_resource_matches(const SourceResourceMatch&,CommandListState&,TextureOverrideMatches&);
+void native_resource_matches(const SourceResourceMatch&,CommandListState&,TextureOverrideMatches&,uint32_t index_region_hash=0);
 // The original's match_* sections a texture of this description meets in this draw, appended in its order.
 void described_resource_matches(const D3D11_TEXTURE2D_DESC&,CommandListState&,TextureOverrideMatches&);
 // The original's region path for the matched draw's own index buffer (D-144): its hash sections prefiltered

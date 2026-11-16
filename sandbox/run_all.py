@@ -40,6 +40,7 @@ STEPS = [
     ("original root configuration", [os.path.join(ROOT, "scripts", "check_configuration.py")]),
     ("configuration backend", [os.path.join(HERE, "configuration_backend_test.py")]),
     ("configuration geometry", [os.path.join(HERE, "configuration_geometry_test.py")]),
+    ("configuration IA facts", [os.path.join(HERE, "configuration_ia_test.py")]),
     # D-129: every writable global of the runtime is per generation, per thread, the load's, locked or
     # classified as safe to share; run after the runtime's build above.
     ("INI runtime globals classified", [os.path.join(ROOT, "scripts", "check_engine_globals.py")]),

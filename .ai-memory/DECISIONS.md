@@ -13,6 +13,16 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-307: IA references preserve identity without inventing producer order (2026-11-16)
+
+Query the actual tracked binding and retain its full allocation lifetime. Follow the
+original IA getters, including region offsets, whole-buffer size and unknown index
+structure stride. Keep an exact current index-region hash separate from resource
+content identity. A saved reference can restore the current original slot; a different
+identity or binding window needs ordered import. Dynamic declarations require actual
+tracked state. The shared geometry protocol advances when native IA address kinds are
+introduced, so a backend with the new address protocol cannot run on an old host.
+
 ## D-306: Layout identity belongs to the effective draw, not a package (2026-11-16)
 
 Load exact shader input metadata with the root configuration. Resolve named element

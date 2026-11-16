@@ -1,5 +1,15 @@
 # EFMI Vulkan - Known issues
 
+## BUG-160: Root commands could not query or retain application IA (supported subset fixed 3.2.5)
+
+The generic root lacked vertex/index addresses, so actual application properties were
+unavailable. The first metadata implementation also confused visible range with size,
+raw bind offset with draw-region offset and index width with structure stride; it hid
+the existing region matcher. The original-derived fixture reproduces those errors at
+18/34. D-307 supplies retained IA facts and current-region matching (34/34), with exact
+current-original restore checks. Foreign/recycled references, ordered Core imports and
+application-index content range proof remain open. No live game acceptance is claimed.
+
 ## BUG-159: Generic file geometry lacked layout variants (supported subset fixed 3.2.4)
 
 D-305 accepts only matching static strides and rejects all layout edits. Its baseline

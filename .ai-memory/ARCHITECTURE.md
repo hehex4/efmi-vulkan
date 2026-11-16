@@ -22,6 +22,13 @@ variant of the exact selected shaders. Recording owners keep these pipelines; te
 pipeline binds restore immediately while resource IA state persists. Dynamic rendering
 uses the same path. Live application/Core resource ordering is still migration work.
 
+D-307 exposes application IA through retained resource snapshots. Original IA getters
+use actual static/dynamic metadata, whole-buffer size and the original region helpers.
+The current index-region hash remains distinct from whole-resource content identity.
+Restoring the same current original slot needs no new producer; foreign references
+remain refused until an ordered application-resource import exists. No package boundary
+or per-character activation participates in these queries or restores.
+
 > Rewritten 2026-11-10 from the code (docs/architecture-review-2.1.md, P4-1). What was here before, the
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.

@@ -7,6 +7,12 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-307 application IA verified; prepare ordered GPU command insertion next
+
+- Implemented actual IA properties, retained current-original references, exact region matching after restore and explicit dynamic/persistent metadata. Source/four DLLs 3.2.5 / ABI ff5c853cc3759e7d. IA 34, geometry 122, tracker 838, native calls 60, native aliases 89, fresh interpreter 553 and ABI 9 pass. The first nine file cases pass; empty_swap exits before probe connection and passes 4/4 on isolated rerun, completing 42 assertions across both runs. Final restore pixels pass 6/6; the unexplained early normal exit is recorded.
+- Next: bridge application resources to ordinary original Core commands at their real command-stream position. Build a retained prepared command sequence, preserving producer/consumer order and rollback; do not submit in-draw work ahead of its application's earlier producer or revive character/Core substitutions.
+- Complete legacy fixture migration and remaining native queue/access/readiness/capture work. Exact source shader resource contracts and dynamic geometry edits remain explicit limits. No real-game authorization.
+
 ## D-306 generic layouts verified; bridge actual application resources next
 
 - Done: exact shader semantic cache in the root generation, generic file-stride and original ordered layout evaluation, asynchronous retained variants, explicit/caller/implicit calls, dynamic rendering and private classic target adaptation. Source/four DLLs 3.2.4 / ABI 54ef0e38e8e5228f. GPU geometry 122, tracker 825, calls 60, fresh original runtime 553 and corrected recipe/cache/snapshot/GPU wrapper checks pass; initial stale test failures remain recorded.

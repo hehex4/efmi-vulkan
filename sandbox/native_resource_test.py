@@ -5,9 +5,8 @@ import struct
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_compute_test import compile_compute
-from runtime_fixture import CORE
 from runtime_test import sandbox_shader_hashes, band_pixels
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
@@ -50,7 +49,7 @@ def run_compute(checks, case):
     ini = mods / "mod.ini"; ini.write_text(text, encoding="ascii")
     settings = root / "settings"; settings.mkdir()
     output, keys = root / "compute.raw", root / "keys.txt"; keys.write_text("1\n", encoding="ascii")
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys))
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys))
     args = ["--compute-shader", str(original), "--compute-output", str(output)]
     if case == "indirect": args.append("--compute-indirect")
     with Sandbox(seconds=5 if case in ("reload", "reload_conflict") else 3, validation=True, entry="inject" if case == "inject" else "layer", env_extra=env, extra_args=args) as sb:
@@ -68,13 +67,15 @@ def run_compute(checks, case):
         sb.proc.wait(timeout=30)
         checks.equal(sb.proc.returncode, 0, case + ": normal exit")
         (root / "layer.log").write_bytes(Path(sb.log_path).read_bytes())
-    checks.equal(status.get("shader_overrides", {}).get("native_bindings", 0), 0 if case in ("conflict", "reload_conflict") else 2 if case == "alias" else 1, case + ": native alias generation loaded")
+    checks.equal(status.get("shader_overrides", {}).get("native_bindings", 0), 0 if case == "conflict" else 2 if case == "alias" else 1, case + ": native alias generation loaded")
     if case in ("conflict", "reload_conflict"):
-        folder = status.get("folder_generation", {})
-        checks.check(any("Conflicting vk_binding" in item.get("reason", "") for item in folder.get("left_inputs", [])), case + ": invalid input isolated with its reason")
-        checks.equal(folder.get("ini", {}).get("variables", {}).get("$\\unrelated\\kept"), 1, case + ": unrelated input remains active")
+        generation = status.get("configuration_generation", {})
+        checks.check("Conflicting vk_binding" in generation.get("reload_error", "") + status.get("reason", ""),
+                     case + ": invalid complete configuration reports its reason")
+        checks.equal(generation.get("ini", {}).get("variables", {}).get("$\\unrelated\\kept"), 1 if case == "reload_conflict" else None,
+                     case + ": reload retains the entire prior registry; initial invalid registry loads no files")
     data = output.read_bytes() if output.exists() else b""
-    checks.equal(struct.unpack_from("<I", data)[0] if len(data) >= 4 else None, 7 if case in ("kind", "element", "conflict", "reload", "reload_conflict") else 0,
+    checks.equal(struct.unpack_from("<I", data)[0] if len(data) >= 4 else None, 7 if case in ("kind", "element", "conflict", "reload") else 0,
                  case + ": descriptor queries control the real dispatch")
     checks.check("Validation Error" not in sb.output() and "VUID-" not in sb.output(), case + ": Vulkan validation clean")
     print("artifacts:", root)
@@ -92,7 +93,7 @@ def run_graphics(checks, mode, vertex, fragment, srgb=False):
         "[TextureOverrideImage]\nmatch_type = Texture2D\nmatch_width = 4\nmatch_height = 4\nmatch_format = R8G8B8A8_UNORM\n$matched = 1\n" % (vertex, fragment, 29 if srgb else 28), encoding="ascii")
     settings = root / "settings"; settings.mkdir()
     pixels = root / "pixels.raw"
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
                EFMI_VK_TEST_NOTICE="> native resources", EFMI_VK_TEST_NOTICES_READBACK=str(pixels))
     with Sandbox(seconds=3, validation=True, env_extra=env, extra_args=["--readable-swapchain", "--descriptors", ("ordinary", "template", "push", "push-template")[mode]] + (["--srgb-texture-view"] if srgb else [])) as sb:
         sb.proc.wait(timeout=30)

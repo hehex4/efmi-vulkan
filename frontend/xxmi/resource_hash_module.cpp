@@ -52,10 +52,11 @@ void region_hash_matches(uint32_t hash,CommandListState& state,TextureOverrideMa
     if(auto* candidates=get_fuzzy_matches_by_draw_info(state.call_info))
         find_texture_overrides_by_hash_from_fuzzy_matches(hash,candidates,&matches,state.call_info);
 }
-void native_resource_matches(const SourceResourceMatch& source,CommandListState& state,TextureOverrideMatches& matches){
+void native_resource_matches(const SourceResourceMatch& source,CommandListState& state,TextureOverrideMatches& matches,uint32_t index_region_hash){
     match_require(G && matches.empty(),"Native resource matching needs an active generation and empty output");
     if(!source.bound)return;
-    if(source.identity.hash_known && source.identity.hash)
+    if(index_region_hash)region_hash_matches(index_region_hash,state,matches);
+    else if(source.identity.hash_known && source.identity.hash)
         find_texture_override_for_hash(source.identity.hash,&matches,state.call_info);
     if(!G->mFuzzyTextureOverrides.empty())std::visit([&](const auto& description){using T=std::decay_t<decltype(description)>;
         if constexpr(!std::is_same_v<T,std::monostate>)find_texture_overrides_for_desc(&description,&matches,state.call_info);

@@ -82,9 +82,12 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
         selected=cb->native_pipeline->recipe;selected_layout=cb->native_pipeline->layout;
     }
     const auto& recipe=*selected;
-    uint64_t app_sizes[kMaxVb]={};bool app_valid[kMaxVb]={};
+    uint64_t app_sizes[kMaxVb]={};uint32_t app_ids[kMaxVb]={};bool app_valid[kMaxVb]={};
     for(uint32_t slot=0;slot<kMaxVb;++slot){const auto found=device->bufs.find(original.vb[slot].buf);
-        if(found!=device->bufs.end()){app_valid[slot]=true;app_sizes[slot]=found->second.size;}}
+        if(found!=device->bufs.end()){app_valid[slot]=true;app_sizes[slot]=found->second.size;app_ids[slot]=found->second.id;}}
+    const auto app_index=device->bufs.find(original.ib);
+    const uint32_t app_index_id=app_index==device->bufs.end()?0:app_index->second.id;
+    const uint64_t app_index_size=app_index==device->bufs.end()?0:app_index->second.size;
     lock.unlock();
     auto validate=[&](const DrawRec& call,const std::vector<efmi::assets::LayoutEdit>& edits,size_t at,size_t before){
         if(recipe.compute)return true; // IA state does not affect dispatch.
@@ -209,12 +212,28 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
             const bool vertex=item.operation==Operation::BindVertex;
             if(vertex && item.slot>=kMaxVb)return refuse("Geometry vertex slot is outside tracked inputs");
             const auto& resource=item.native_resource;
-            if(resource && (!resource->bound || !resource->buffer || !resource->keep || !resource->uploaded_readonly ||
+            if(resource && (!resource->bound || !resource->buffer || !resource->keep ||
                 !(resource->usage&(vertex?VK_BUFFER_USAGE_VERTEX_BUFFER_BIT:VK_BUFFER_USAGE_INDEX_BUFFER_BIT))))
-                return refuse("Geometry binding needs a retained immutable upload with the correct usage");
+                return refuse("Geometry binding needs a retained buffer with the correct usage");
+            const bool original_reference=resource && !resource->uploaded_readonly;
+            if(original_reference){
+                if(resource->uploaded_mutable || cb->m2_extended_bind)return refuse("Original IA reference needs exact binding-window and producer proof");
+                if(vertex){
+                    const auto& app=original.vb[item.slot];
+                    const auto binding=std::find_if(original_recipe->vertex.bindings.begin(),original_recipe->vertex.bindings.end(),[&](const auto& b){return b.binding==item.slot;});
+                    if(!app_valid[item.slot] || resource->identity!=(uint64_t(app_ids[item.slot])<<2) || resource->buffer!=uint64_t(app.buf) ||
+                       resource->size!=app_sizes[item.slot] || resource->offset!=app.off || binding==original_recipe->vertex.bindings.end() || resource->stride!=binding->stride)
+                        return refuse("Retained application vertices need the current original slot or an ordered import");
+                }else if(!app_index_id || resource->identity!=(uint64_t(app_index_id)<<2) || resource->buffer!=uint64_t(original.ib) ||
+                         resource->size!=app_index_size || resource->offset!=original.ib_off || resource->index_size!=original.index_size)
+                    return refuse("Retained application indices need the current original slot or an ordered import");
+            }
             if(resource && retained.insert(resource_key(*resource)).second && retained.size()>4096)
                 return refuse("Geometry recording resource budget exceeded");
-            if(item.application_slot>=0){
+            if(original_reference){
+                if(vertex)state->vertices.erase(item.slot);
+                else{state->index_overridden=false;state->index.reset();}
+            }else if(item.application_slot>=0){
                 if(vertex){
                     if(cb->native_geometry && cb->native_geometry->vertices.count(item.slot))return refuse("Original vertex reference needs the persistent binding snapshot");
                     if(!original.vb[item.slot].buf)return refuse("Original vertex binding is null");

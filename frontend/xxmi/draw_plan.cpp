@@ -1143,6 +1143,7 @@ struct DrawPlanAdapter::Runtime {
             item.slot=id.slot;
             if(value.kind==SlotValue::Kind::Resource)item.resource=value.resource;
             else if(value.kind==SlotValue::Kind::Owned)item.owned=value.owned;
+            else if(value.kind==SlotValue::Kind::Native)item.native_resource=value.native;
             else if(value.kind==SlotValue::Kind::Application && value.source==id)item.application_slot=int(id.slot);
             else if(!value.null())refuse_draw(L"Native geometry binding needs a file, owned buffer or original slot");
             append(std::move(item));context.set(id,std::move(value));return;
@@ -1172,7 +1173,7 @@ struct DrawPlanAdapter::Runtime {
         const bool native = application_query && application_query(resolved,state,application,application_why);
         if (!native && !application_why.empty()) refuse(application_why);
         if (native) {
-            bound=application.source.bound; native_resource_matches(application.source,state,matches);
+            bound=application.source.bound; native_resource_matches(application.source,state,matches,application.index_region_hash);
         } else if(resource_match && gpu()){
             SourceResourceMatch source;std::wstring why;
             if(!resource_match(resolved,state,source,why))refuse(why.empty()?L"Original resource identity is unknown":why);
@@ -2015,7 +2016,7 @@ void DrawPlanAdapter::application_resources(ApplicationQuery query)
         if(texture_property_mode(mode))return texture_property(mode,info.source.bound,info.properties,value,why);
         if(mode==ResourceCopyTargetEvaluationMode::RESOURCE){
             if(!info.source.bound){value=-0.0f;return true;}
-            TextureOverrideMatches matches;native_resource_matches(info.source,state,matches);
+            TextureOverrideMatches matches;native_resource_matches(info.source,state,matches,info.index_region_hash);
             value=matches.empty()?0.0f:1.0f;
             for(auto it=matches.rbegin();it!=matches.rend();++it)if((*it)->filter_index!=FLT_MAX){value=(*it)->filter_index;break;}
             return true;
@@ -2028,9 +2029,25 @@ void DrawPlanAdapter::application_resources(ApplicationQuery query)
         case ResourceCopyTargetEvaluationMode::RESOURCE_SIZE:
             value=info.properties.dimension==D3D11_RESOURCE_DIMENSION_BUFFER?float(info.size):-3.0f;return true;
         case ResourceCopyTargetEvaluationMode::RESOURCE_STRIDE:
+            // GetResourceStride passes no format pointer to IAGetIndexBuffer,
+            // so the original falls back to StructureByteStride for this slot.
+            if(target.type==ResourceCopyTargetType::INDEX_BUFFER){
+                const auto* desc=std::get_if<D3D11_BUFFER_DESC>(&info.source.description);
+                value=desc && desc->StructureByteStride?float(desc->StructureByteStride):-1.0f;return true;
+            }
             value=info.source.stride?float(info.source.stride):info.properties.dimension==D3D11_RESOURCE_DIMENSION_BUFFER?-1.0f:-3.0f;return true;
         case ResourceCopyTargetEvaluationMode::RESOURCE_OFFSET:
-            value=info.properties.dimension==D3D11_RESOURCE_DIMENSION_BUFFER?float(info.source.offset):-3.0f;return true;
+            if(info.properties.dimension!=D3D11_RESOURCE_DIMENSION_BUFFER){value=-3.0f;return true;}
+            if(!info.ia){value=float(info.source.offset);return true;}
+            value=-1.0f;
+            if(target.type==ResourceCopyTargetType::CONSTANT_BUFFER)value=float(info.source.offset);
+            else if(target.type==ResourceCopyTargetType::VERTEX_BUFFER || target.type==ResourceCopyTargetType::INDEX_BUFFER){
+                if(!state.call_info){why=L"Application IA offset requires a draw context";return false;}
+                value=float(target.type==ResourceCopyTargetType::VERTEX_BUFFER?
+                    GetVertexBufferRegionOffset(info.source.stride,state.call_info,info.source.offset):
+                    GetIndexBufferRegionOffset(info.source.format,state.call_info,info.source.offset));
+            }
+            return true;
         case ResourceCopyTargetEvaluationMode::RESOURCE_BIND_FLAGS:
             value=std::visit([](const auto& desc)->float{using T=std::decay_t<decltype(desc)>;
                 if constexpr(std::is_same_v<T,std::monostate>)return 0.0f;else return float(desc.BindFlags);},info.source.description);return true;

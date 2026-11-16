@@ -523,6 +523,10 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if(id.kind==SlotKind::ShaderResource)kind=NativeBinding::Resource;
             else if(id.kind==SlotKind::ConstantBuffer)kind=NativeBinding::Constant;
             else if(id.kind==SlotKind::UnorderedAccess)kind=NativeBinding::Access;
+            else if(id.kind==SlotKind::Vertex || id.kind==SlotKind::Index){
+                address.kind=id.kind==SlotKind::Vertex?NativeBinding::Vertex:NativeBinding::Index;
+                address.slot=id.slot;return true;
+            }
             else if(id.kind==SlotKind::RenderTarget || id.kind==SlotKind::DepthTarget){
                 address.kind=id.kind==SlotKind::RenderTarget?NativeBinding::ColorTarget:NativeBinding::DepthTarget;
                 address.slot=id.slot;return true;
@@ -580,9 +584,21 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             auto& properties=output.properties;properties.dimension=D3D11_RESOURCE_DIMENSION(resource.dimension);
             properties.format_known=resource.format_known;properties.format=source.format;properties.width=resource.width;
             properties.height=resource.height;properties.mips=resource.levels;properties.array=resource.layers;
-            output.identity=resource.identity;output.size=resource.range;
+            // IA has no view size: GetResourceSize falls back to ByteWidth. A
+            // retained IA reference carries this same extent into its declaration.
+            const bool ia=resource.dimension==1 && resource.descriptor_type==0x7fffffffu;
+            output.ia=ia;
+            output.identity=resource.identity;output.size=ia?resource.size:resource.range;
+            if(target.type==ResourceCopyTargetType::INDEX_BUFFER && p.current_draw->hash &&
+               !resource.uploaded_readonly && !resource.uploaded_mutable){
+                NativeResource current;std::wstring ignored;
+                if(native_capture(SlotId{SlotKind::Index,0,0},current,ignored) && current.bound &&
+                   current.identity==resource.identity && current.buffer==resource.buffer &&
+                   current.offset==resource.offset && current.index_size==resource.index_size)
+                    output.index_region_hash=p.current_draw->hash;
+            }
             switch(properties.dimension){
-            case D3D11_RESOURCE_DIMENSION_BUFFER:{D3D11_BUFFER_DESC d{};d.ByteWidth=UINT(resource.size);d.BindFlags=resource.bind_flags;d.StructureByteStride=resource.stride;source.description=d;break;}
+            case D3D11_RESOURCE_DIMENSION_BUFFER:{D3D11_BUFFER_DESC d{};d.ByteWidth=UINT(resource.size);d.BindFlags=resource.bind_flags;d.StructureByteStride=ia?resource.buffer_stride:resource.stride;source.description=d;break;}
             case D3D11_RESOURCE_DIMENSION_TEXTURE1D:{D3D11_TEXTURE1D_DESC d{};d.Width=resource.width;d.MipLevels=resource.levels;d.ArraySize=resource.layers;d.Format=DXGI_FORMAT(resource.resource_format);d.BindFlags=resource.bind_flags;source.description=d;break;}
             case D3D11_RESOURCE_DIMENSION_TEXTURE2D:{D3D11_TEXTURE2D_DESC d{};d.Width=resource.width;d.Height=resource.height;d.MipLevels=resource.levels;d.ArraySize=resource.layers;d.Format=DXGI_FORMAT(resource.resource_format);d.SampleDesc.Count=resource.samples;d.BindFlags=resource.bind_flags;source.description=d;break;}
             case D3D11_RESOURCE_DIMENSION_TEXTURE3D:{D3D11_TEXTURE3D_DESC d{};d.Width=resource.width;d.Height=resource.height;d.Depth=resource.depth;d.MipLevels=resource.levels;d.Format=DXGI_FORMAT(resource.resource_format);d.BindFlags=resource.bind_flags;source.description=d;break;}

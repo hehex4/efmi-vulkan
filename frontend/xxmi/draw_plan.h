@@ -157,6 +157,8 @@ public:
         SourceResourceMatch source;
         TextureProperties properties;
         uint64_t identity = 0, size = 0;
+        uint32_t index_region_hash = 0; // Proven current IA region, never a whole-resource content hash.
+        bool ia = false; // Original IA getters, distinct from explicit native descriptor-view properties.
     };
     // False with an empty reason means this target is outside the provider's domain.
     using ApplicationQuery = std::function<bool(ResourceCopyTarget&,CommandListState&,ApplicationResource&,std::wstring&)>;

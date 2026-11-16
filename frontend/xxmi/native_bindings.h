@@ -5,7 +5,7 @@
 namespace efmi::frontend {
 // Descriptor aliases are explicit; output source slots follow the active Vulkan attachment mapping.
 struct NativeBinding {
-    enum Kind : uint8_t { Resource, Constant, Access, ColorTarget, DepthTarget };
+    enum Kind : uint8_t { Resource, Constant, Access, ColorTarget, DepthTarget, Vertex, Index };
     uint32_t hash = 0;
     uint8_t stage = 0; // v, h, d, g, p, c
     Kind kind = Resource;
