@@ -5,6 +5,15 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## D-296: Semantic cache packaged and sandbox release verified (2026-11-16)
+
+- Source/runtime remains 3.1.8 / ABI 347c72b0cc7d0e40. No C++ or shared ABI changes. The no-probe candidate now includes settings/shader-inputs.bin: 5,265 identities / 909,088 bytes, SHA-256 ac322f7e4132d1670007e535360fc451d02f9d3704088546a858af279403bfe2.
+- The packager validates bounded framing, checksum, unique fields and canonical encoding before replacing output. The optional cache preserves legacy archives without it. Release cleanup resolves paths within the project's build directory. Bad-cache preflight leaves an existing candidate intact.
+- build/d296-cache-check.out passes 20 portable packaging and 43 C++ reader checks. d296-release-build.out produces build/candidate-d296/EFMI-Vulkan-3.1.8.zip, SHA-256 8b7b7bd5bce0ee6d3e06cb9fa33f45a120ff84a9da53f0d34207ba9d23ffeed6. d296-release-check.out passes all 22 installed package loads and both owned unpack layouts, including default semantic-cache loading, no probe and clean core/synchronization validation. Both 3.1.7/3.1.8 archive layouts, CRCs and recorded SHA-256s also pass; text check is clean.
+- Candidate provenance distinguishes runtime source 90208a3 from the packaging commit. The archive is unpublished and sandbox verified only. Root runtime DLLs, real-game deployment, launcher and system settings are unchanged. I-01/I-04/I-06 and real-character verification remain open.
+- The user's current request is project-wide cleanup. Remove obsolete test/build copies and superseded candidates; retain the current archive, exact semantic dataset and original game evidence. Historical artifact paths can be retired after their conclusions are recorded; see the subsequent cleanup record.
+
+
 ## Active source 3.1.8: Exact semantic layouts reach matched draws, D-295 (2026-11-16)
 
 - d295-before.out reproduces the missing adapter at 6/9: a valid POSITION offset keeps original geometry instead of rendering the Mod. Original CommandList.cpp 181-312 applies actual semantic/format/offset edits in order; DX11 also supplies reference-counted lifetime with deferred destruction, hazard tracking and single-context order.

@@ -1,6 +1,13 @@
 # EFMI Vulkan - Tasks
 
 
+## D-296 complete; project-wide cleanup requested (2026-11-16)
+
+- Done: the 3.1.8 no-probe candidate includes the verified semantic cache; packaging/reader checks and all 22 package loads plus both unpack layouts pass. Evidence and hashes are in CURRENT_STATE.md.
+- Current user priority: remove unnecessary files throughout the project, including completed tests, merged obsolete worktrees, duplicate fixture/Mod copies, old candidates and build intermediates. Keep source, live work, current deliverables and irreplaceable game evidence; verify retained-file hashes and record reclaimed space.
+- Remaining architecture work is unchanged: I-01 queue scheduling/provenance, I-04 additional transitions/nulling, and broader I-06 inputs. No real-game authorization is implied by cleanup.
+
+
 ## D-295 input integration verified; package the cache and continue open audit work (2026-11-16)
 
 - Done: exact shader semantics drive matched own/merged input layouts in 3.1.8; the input-semantics area passes, including 81 new GPU checks, default-path module exchange and original frontend/runtime checks. Commit evidence is summarized in CURRENT_STATE.md and docs/shader-input-metadata.md.

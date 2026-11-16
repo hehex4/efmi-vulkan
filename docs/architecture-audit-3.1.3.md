@@ -3,7 +3,7 @@
 Review input: 2026-11-15; updated 2026-11-16. The review input is `issues.md` against source 3.0.4. Changes below
 are local commits on main and engine-work. Current source is
 3.1.8, ABI `347c72b0cc7d0e40`. The latest separately checked no-probe candidate
-is 3.1.7; earlier candidates below are historical. No real-game verification is included in this audit.
+is 3.1.8 with the exact semantic cache (D-296); earlier candidates below are historical. No real-game verification is included in this audit.
 
 | Finding | Implemented or verified | Remaining boundary |
 |---|---|---|
@@ -15,7 +15,7 @@ is 3.1.7; earlier candidates below are historical. No real-game verification is 
 | I-06, DX11 input compatibility | D-281 implements cross-slot textures. D-292..D-294 establish 5,265 unambiguous asset identities and 101 exact historical vertex matches. D-295 uses them for matched own/merged semantic layouts; 81 new GPU checks and the affected-area regression pass. | 68 historical vertex identities remain unmatched. Inherited application inputs, semantic relinking, numeric conversion and order-dependent edits remain limited; in-draw CustomShader/private-bone inputs still need ordered adapters. |
 | I-07, private ABI coupling | D-279 puts native scope callbacks behind the module and retains private pipeline objects through opaque owners. A module with a different private object layout exchanges into the unchanged sandbox host. | Shared tracker/protocol layout changes correctly require a matching host. |
 | I-08, old execution paths | D-282 retires the selectable single-component M2 executor. D-284 removes full-mesh binary re-encoding/decoding during runtime validation. File framing and content validation remain shared. | File size alone does not justify unrelated rewrites. |
-| I-09, verification and artifacts | Four development artifacts are 3.1.8 and focused checks pass. The last checked no-probe candidate is 3.1.7, with 22-package loading and both owned unpack layouts verified. | Refresh the candidate with semantic metadata. Root dist and game deployment remain older; sandbox and historical evidence do not close real-character verification. |
+| I-09, verification and artifacts | Four development artifacts are 3.1.8 and focused checks pass. D-296 packages the 3.1.8 no-probe candidate with semantic metadata; 22-package loading and both owned unpack layouts pass. | Root dist and game deployment remain older; sandbox and historical evidence do not close real-character verification. |
 
 D-294 supplies the content-addressed semantic cache; D-295 loads it at generation creation and applies it to matched draws. Source declaration order, numeric conversion and other input limits remain explicit; see [the metadata evidence](shader-input-metadata.md).
 

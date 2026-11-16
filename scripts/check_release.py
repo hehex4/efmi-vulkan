@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "sandbox"))
 sys.path.insert(0, str(ROOT / "server"))
 import build  # noqa: E402
+from build_shader_input_index import inspect as inspect_inputs, MAX_BYTES as INPUT_MAX_BYTES
 
 ap = argparse.ArgumentParser()
 ap.add_argument("archive", type=Path)
@@ -55,10 +56,23 @@ def check(ok, what):
 with zipfile.ZipFile(args.archive) as z:
     names = sorted(z.namelist())
 expected = sorted(build.RELEASE_NAME + "/" + name for name in build.RELEASE_FILES)
+input_name = build.RELEASE_NAME + "/" + build.RELEASE_SHADER_INPUTS
+input_count = None
+if input_name in names:
+    expected = sorted(expected + [input_name])
+    with zipfile.ZipFile(args.archive) as z:
+        if z.getinfo(input_name).file_size > INPUT_MAX_BYTES:
+            raise ValueError("Packaged shader input cache exceeds its budget")
+        input_data = z.read(input_name)
+        input_count = inspect_inputs(input_data)
+    check(True, "semantic cache framing/checksum: %d exact identities, SHA-256 %s" %
+          (input_count, hashlib.sha256(input_data).hexdigest()))
 check(names == expected, "the archive holds exactly the release files " + str(sorted(set(names) ^ set(expected))))
 digest = hashlib.sha256(args.archive.read_bytes()).hexdigest()
 recorded = (args.archive.parent / (args.archive.name + ".sha256")).read_text(encoding="ascii").split()[0]
 check(digest == recorded, "the archive's SHA-256 matches its .sha256 file")
+if failures:
+    sys.exit("release check: archive preflight failed before extraction/loading")
 
 work = Path(build.ROOT) / "build" / "tests" / ("release-check-%d" % int(time.time()))
 work.mkdir(parents=True)
@@ -118,6 +132,9 @@ def run(folder: Path, seconds: int, extra=()):
 
 
 log, output, probes_seen = run(release, args.seconds)
+if input_count is not None:
+    check("shader input cache loaded: %d exact module identities" % input_count in log,
+          "the release loads its packaged semantic cache from default settings")
 check(not probes_seen, "the injected release opens no probe pipe")
 check(re.search(r"efmi_vk_layer [0-9.]+ \(release, no probe\) loaded into efmi_vk_sandbox\.exe", log) is not None,
       "the release DLL loaded into the sandbox")
@@ -150,9 +167,12 @@ for place in (efmi, efmi / "Mods"):
     with zipfile.ZipFile(args.archive) as z:
         z.extractall(place)
     folder = place / build.RELEASE_NAME
-    (folder / "settings").mkdir()
+    (folder / "settings").mkdir(exist_ok=True)
     (folder / "settings" / "planted.ini").write_text("[Constants]\nthis line is not an INI entry\n", encoding="ascii")
     text, out, _ = run(folder, 30, ["--handled-fault"])
+    if input_count is not None:
+        check("shader input cache loaded: %d exact module identities" % input_count in text,
+              label + ": packaged semantic cache loads from the default settings directory")
     found = re.search(r"Mods folder found from the layer's folder: (.*)", text)
     check(found is not None and Path(found.group(1).strip()) == efmi / "Mods", label + ": the Mods folder found from the release's own folder")
     loaded = re.search(GENERATION_LINE, text)
@@ -162,6 +182,9 @@ for place in (efmi, efmi / "Mods"):
     check("exception: access violation writing address 0000000000000000 at efmi_vk_sandbox.exe" in text and "crash:" not in text,
           label + ": a fault the program handles itself is logged as its exception, not as a crash")
     check("validation: errors=0 warnings=0" in out, label + ": clean validation")
+    resolved = folder.resolve()
+    if not work.resolve().is_relative_to(ROOT.resolve() / "build") or not resolved.is_relative_to(work.resolve()):
+        raise ValueError("Release-check cleanup escaped its owned workspace")
     shutil.rmtree(folder)
 print("artifacts:", work)
 print("release check: %s (%d enabled folders in the Mods folder: %s)" % ("FAILED" if failures else "passed", len(enabled), ", ".join(enabled)))

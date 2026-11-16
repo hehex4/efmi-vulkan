@@ -7,8 +7,8 @@ from pathlib import Path
 import struct
 import subprocess
 
-from build import find_vcvars, run_cl
-from build_shader_input_index import encode
+from build import build_release, find_vcvars, run_cl
+from build_shader_input_index import encode, inspect
 from build_xxmi_runtime import build_runtime, runtime_flags
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +82,25 @@ def fixtures(exe, out):
     payload('payload-trailing', original + b'\0')
     for name, data in bad.items():
         (root / ('bad-' + name + '.bin')).write_bytes(data)
+    assert inspect(good) == 1
+    for name, data in bad.items():
+        try:
+            inspect(data)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Packager accepted malformed cache: ' + name)
+    candidate = root / 'candidate'
+    candidate.mkdir(exist_ok=True)
+    marker = candidate / 'retained.txt'
+    marker.write_text('Previous candidate stays intact', encoding='ascii')
+    try:
+        build_release('unused', 'unused', str(candidate), str(root / 'bad-checksum.bin'))
+    except ValueError:
+        assert marker.read_text(encoding='ascii') == 'Previous candidate stays intact'
+    else:
+        raise AssertionError('Invalid cache reached release output mutation')
+    print(f'Shader input cache packaging: {len(bad) + 2} checks passed')
     run([exe, root])
 
 

@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-296: Validate and ship optional exact shader metadata (2026-11-16)
+
+- Keep settings/shader-inputs.bin optional for archive compatibility. Validate its bounded canonical encoding and checksum before output replacement; do not package raw assets, shader bytecode or character-specific profiles.
+- Verify metadata admission from default settings in the no-probe release's full Mods load and both supported unpack layouts. Preserve the distinction between sandbox loading and real-character rendering.
+- Retain runtime 3.1.8 / ABI 347c72b0cc7d0e40; packaging changes need no runtime version bump. Archive SHA-256 is 8b7b7bd5bce0ee6d3e06cb9fa33f45a120ff84a9da53f0d34207ba9d23ffeed6.
+
+
 ## D-295: Keep source and resolved layouts with each matched draw (2026-11-16)
 
 - Exact shader metadata is a generation-owned input to the original XXMI layout evaluator. It does not replace the current Vulkan declaration or bypass resource/queue proofs. No character names or captured-character profiles select runtime behavior.

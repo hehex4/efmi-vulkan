@@ -161,6 +161,9 @@ sufficient. Source inspection confirms the central problems, with these correcti
   checker's obsolete log parser is corrected. No real-game deployment occurred.
   D-288 repeats the candidate check at 3.1.4 after the host lifetime fix; the
   current unpublished archive passes the same package/layout checks.
+  D-296 supersedes it with the 3.1.8 candidate and exact semantic cache: all 22
+  packages, both owned unpack layouts, cache loading and Vulkan validation pass.
+  This is sandbox evidence; I-09 real-character verification remains open.
 
 D-277 (`7e6eb5c`) completes the already pending uniform fallback fix before this
 architecture work. Its 764 CPU checks, 52 persistence checks, existing application

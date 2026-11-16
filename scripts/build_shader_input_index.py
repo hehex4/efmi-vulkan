@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import struct
 
-from unity_shader_metadata import channel_semantics, require, vertex_locations
+from unity_shader_metadata import channel_semantics, require, span, vertex_locations
 
 ROOT = Path(__file__).resolve().parents[1]
 MAGIC = b'EFVIS001'
@@ -35,6 +35,41 @@ def encode(records):
     require(len({row[0] for row in records}) == len(records), 'Duplicate shader identities')
     require(len(payload) <= MAX_BYTES - 48, 'Shader input cache budget exceeded')
     return MAGIC + struct.pack('<2I', len(records), len(payload)) + hashlib.sha256(payload).digest() + payload
+
+
+def inspect(data):
+    """Validate a generated cache before packaging; return its entry count.
+
+    Canonical re-encoding checks the same field domains as the writer. Runtime
+    admission still checks the complete module identity independently in C++.
+    """
+    require(48 <= len(data) <= MAX_BYTES and data[:8] == MAGIC, 'Invalid input cache size/version')
+    count, size = struct.unpack('<2I', data[8:16])
+    require(count <= 65536 and size == len(data) - 48 and count <= size // 40, 'Invalid input cache framing')
+    require(hashlib.sha256(data[48:]).digest() == data[16:48], 'Input cache checksum mismatch')
+    records, pos = [], 48
+    for _ in range(count):
+        digest = span(data, pos, 32)
+        module_size, names = struct.unpack('<2I', span(data, pos + 32, 8))
+        pos += 40
+        require(names <= 32, 'Too many input cache semantics')
+        semantics = []
+        for _ in range(names):
+            location, index, length = struct.unpack('<3I', span(data, pos, 12))
+            pos += 12
+            require(0 < length <= 128, 'Invalid input cache semantic length')
+            name = span(data, pos, length).decode('ascii')
+            pos += length
+            semantics.append((location, name, index))
+        records.append((digest, module_size, semantics))
+    require(pos == len(data) and encode(records) == data, 'Input cache is not canonical or contains trailing data')
+    return count
+
+
+def read_checked(path):
+    with Path(path).open('rb') as stream:
+        data = stream.read(MAX_BYTES + 1)
+    return data, inspect(data)
 
 
 def build(report, validation, modules):

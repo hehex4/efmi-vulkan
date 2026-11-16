@@ -30,6 +30,8 @@ Use
 - F10 reloads the Mods folder after you add, remove or edit Mods.
 - RabbitFX's anti-dither key (\) works while RabbitFX is installed.
 - The Mods' saved settings are in EFMI-Vulkan\settings.
+- Keep settings\shader-inputs.bin when the archive includes it. It enables supported game input-layout
+  edits. After replacing this file with an updated cache, press F10 to reload it.
 
 If something goes wrong
 -----------------------

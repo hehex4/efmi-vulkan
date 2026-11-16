@@ -489,6 +489,7 @@ def deploy_owned_gpu_tools(out: str) -> list[str]:
 # probe pipe (EFVK_NO_PROBE, ipc.cpp left out), no tests, no sandbox, no replacement module files, no
 # layer manifest, no symbols (they stay in layer/build/release for crash logs), no dxil.dll.
 RELEASE_NAME = "EFMI-Vulkan"
+RELEASE_SHADER_INPUTS = "settings/shader-inputs.bin"
 RELEASE_TOOLS = [tool for tool in OWNED_GPU_TOOLS if os.path.basename(tool) != "dxil.dll"]
 RELEASE_LICENSES = {
     "vkd3d-LGPL-2.1.txt": "F:/vulkan/vkd3d-2.1/LICENSE",
@@ -520,17 +521,23 @@ def license_comment(path: str, first: str, last: str) -> str:
     return "\n".join(lines[begin:end + 1]) + "\n"
 
 
-def build_release(vcvars: str, include: str, out: str) -> dict:
+def build_release(vcvars: str, include: str, out: str, shader_inputs: str | None = None) -> dict:
     import hashlib
     import re
     import zipfile
+    from pathlib import Path
+    input_data, input_count = None, 0
+    if shader_inputs:
+        from build_shader_input_index import read_checked
+        input_data, input_count = read_checked(shader_inputs)
     folder = os.path.join(ROOT, "layer")
     objects = os.path.join(folder, "build", "release")
     os.makedirs(objects, exist_ok=True)
     out = os.path.abspath(out)
+    resolved, owned = Path(out).resolve(), Path(ROOT).resolve() / "build"
+    if resolved == owned or not resolved.is_relative_to(owned):
+        raise BuildError("release output must be inside build/: " + out)
     if os.path.isdir(out):
-        if not os.path.abspath(out).startswith(os.path.join(ROOT, "build") + os.sep):
-            raise BuildError("release output must be inside build/: " + out)
         shutil.rmtree(out)
     os.makedirs(os.path.join(out, "licenses"))
     dll = os.path.join(out, INJECT_DLL)
@@ -559,23 +566,33 @@ def build_release(vcvars: str, include: str, out: str) -> dict:
     for name, (path, first, last) in RELEASE_LICENSE_COMMENTS.items():
         with open(os.path.join(out, "licenses", name), "w", encoding="utf-8", newline="\n") as f:
             f.write(license_comment(path, first, last))
+    release_files = list(RELEASE_FILES)
+    if input_data is not None:
+        destination = os.path.join(out, RELEASE_SHADER_INPUTS)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        with open(destination, "wb") as stream:
+            stream.write(input_data)
+        release_files = sorted(release_files + [RELEASE_SHADER_INPUTS])
     found = sorted(os.path.relpath(os.path.join(d, n), out).replace(os.sep, "/") for d, _, names in os.walk(out) for n in names)
-    if found != RELEASE_FILES:
+    if found != release_files:
         raise BuildError("release files differ from the list: extra %s, missing %s" %
-                         (sorted(set(found) - set(RELEASE_FILES)), sorted(set(RELEASE_FILES) - set(found))))
+                         (sorted(set(found) - set(release_files)), sorted(set(release_files) - set(found))))
     with open(os.path.join(folder, "src", "common.h"), encoding="utf-8") as f:
         version = re.search(r'#define EFVK_VERSION "([0-9.]+)"', f.read()).group(1)
     archive = os.path.join(os.path.dirname(out), "%s-%s.zip" % (RELEASE_NAME, version))
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
-        for name in RELEASE_FILES:
+        for name in release_files:
             z.write(os.path.join(out, name), RELEASE_NAME + "/" + name)
     digest = hashlib.sha256(open(archive, "rb").read()).hexdigest()
     with open(archive + ".sha256", "w", encoding="ascii", newline="\n") as f:
         f.write("%s  %s\n" % (digest, os.path.basename(archive)))
-    return {"release": out, "release_archive": archive, "release_sha256": digest}
+    result = {"release": out, "release_archive": archive, "release_sha256": digest}
+    if input_data is not None:
+        result.update(shader_input_entries=input_count, shader_input_sha256=hashlib.sha256(input_data).hexdigest())
+    return result
 
 
-def build(targets, out: str | None = None, tests: tuple = ()) -> dict:
+def build(targets, out: str | None = None, tests: tuple = (), shader_inputs: str | None = None) -> dict:
     release_out = out or os.path.join(ROOT, "build", "release", RELEASE_NAME)
     out = os.path.abspath(out or os.path.join(ROOT, "dist"))
     os.makedirs(out, exist_ok=True)
@@ -603,7 +620,7 @@ def build(targets, out: str | None = None, tests: tuple = ()) -> dict:
         result["sandbox"] = build_sandbox(vcvars, include, out)
         result["loader_proxy"] = build_loader_proxy(vcvars)
     if "release" in targets:
-        result.update(build_release(vcvars, include, release_out))
+        result.update(build_release(vcvars, include, release_out, shader_inputs))
     return result
 
 
@@ -613,13 +630,16 @@ def main() -> int:
                     help="what to build (default: layer and sandbox; 'module' builds the replacement module alone; "
                          "'release' the playable package in build/release)")
     ap.add_argument("--out", help="output directory (default: dist)")
+    ap.add_argument("--shader-inputs", help="validated whole-corpus semantic cache to include in a release")
     ap.add_argument("--test", action="append", default=[],
                     choices=["recipe_test", "variant_gpu", "cache_test", "snapshot_test", "mesh_test", "character_test", "queue_overlap"],
                     help="build only this test program (may be given several times); nothing else is built")
     args = ap.parse_args()
     targets = args.targets or ["layer", "sandbox"]
+    if args.shader_inputs and ("release" not in targets or args.test):
+        ap.error("--shader-inputs requires a release build")
     try:
-        result = build(targets, args.out, tuple(args.test))
+        result = build(targets, args.out, tuple(args.test), args.shader_inputs)
     except BuildError as e:
         print(str(e))
         return 1
@@ -629,6 +649,8 @@ def main() -> int:
             print("built %s" % result[key])
     if "release_sha256" in result:
         print("release sha256 %s" % result["release_sha256"])
+    if "shader_input_entries" in result:
+        print("shader inputs %d identities, sha256 %s" % (result["shader_input_entries"], result["shader_input_sha256"]))
     return 0
 
 

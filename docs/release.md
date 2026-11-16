@@ -19,9 +19,13 @@ Launcher (next to `EFMI\Mods`):
   in the latter, BUG-073; a named folder may be relative to the DLL's folder), replacement on, the
   settings the game was played with. The layer's own folder is never part of the Mods folder's content.
 - `README.txt` (install and use), `LICENSE.txt` (GPLv3), `THIRD_PARTY_NOTICES.md`, `licenses\`.
+- Optional `settings/shader-inputs.bin`: generated whole-corpus semantic metadata for exact shader
+  identities (D-294/D-295), selected with `--shader-inputs`. It contains no shader code, character
+  names, capture data or saved player settings. The packager validates bounded framing, checksum,
+  unique fields and canonical encoding before building or replacing an output folder.
 
 Not in it: tests, the sandbox, the replacement module files, the layer manifest, symbols (kept in
-`layer/build/release` for crash logs), logs, settings, caches.
+`layer/build/release` for crash logs), logs, saved player settings or generated GPU caches.
 
 Why not one DLL: DXC exists only as Microsoft's DLL (a static build of it is unsupported and large);
 vkd3d-shader is built with MinGW GCC, the layer with MSVC; loading DLLs from memory is how cheats
@@ -31,9 +35,13 @@ hide code and is never done here. SPIRV-Tools could be linked statically if one 
 
 1. `python scripts/build.py layer sandbox release`: the development build (for the checks) and the
    release in `build/release/EFMI-Vulkan`, `build/release/EFMI-Vulkan-X.Y.Z.zip` and its `.sha256`.
+   To include semantic metadata, append `--shader-inputs build/shader-inputs.bin`, using the checked
+   output of [the asset metadata pipeline](shader-input-metadata.md). An omitted cache does not enable
+   arbitrary semantic edits. Generated metadata is never committed to the source repository.
 2. The touched regression areas, then `python scripts/check_release.py build/release/EFMI-Vulkan-X.Y.Z.zip`
    (contents, no probe in the binary, the release injected into the sandbox with the installed Mods, and
    unpacked into an EFMI folder of its own and into its Mods folder).
-3. Commit, fast-forward main, push; tag `vX.Y.Z` on that commit.
-4. `gh release create vX.Y.Z build/release/EFMI-Vulkan-X.Y.Z.zip --title "EFMI Vulkan X.Y.Z" --notes-file ...`:
-   the notes say how to install and use it, and the archive's SHA-256.
+   The checker also verifies an included semantic cache and confirms that the no-probe binary loads it
+   in the full Mods-folder check and both unpack layouts. These remain sandbox loading checks.
+3. Commit and fast-forward main. The archive remains an unpublished local candidate. Remote publication
+   is separate and requires a repository named by the user; game loading remains subject to Gate G1.
