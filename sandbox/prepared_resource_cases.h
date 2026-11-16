@@ -50,6 +50,19 @@ RWStructuredBuffer<uint> Output : register(u0);
     check(prepared && prepared->changes_compute_state() && prepared->device()==d.resource.device && prepared->queue_family()==d.resource.queue_family,
           "prepared work reports compute restoration and queue-family obligations");
     check(!work->pending() && !work->preparing(),"finish detaches all prepared owners without pending submission");
+    const auto& accesses=prepared->buffer_accesses();
+    check(accesses.size()==4 && accesses[0].buffer==input && accesses[0].offset==0 && accesses[0].size==bytes &&
+        accesses[0].stages==VK_PIPELINE_STAGE_TRANSFER_BIT && accesses[0].access==VK_ACCESS_TRANSFER_READ_BIT &&
+        accesses[1].buffer==scratch && accesses[1].access==VK_ACCESS_TRANSFER_WRITE_BIT && accesses[0].command==accesses[1].command,
+        "prepared copy exposes both exact transfer spans at the same command position");
+    check(accesses[2].buffer==scratch && accesses[3].buffer==destination && accesses[2].size==bytes && accesses[3].size==bytes &&
+        accesses[2].stages==VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT && (accesses[3].access&VK_ACCESS_SHADER_WRITE_BIT) &&
+        accesses[2].command==accesses[3].command && accesses[2].command>accesses[0].command,
+        "prepared compute exposes conservative descriptor access after its transfer producer");
+    check(accesses[0].overlaps(source->memory(),source->memory_offset()+bytes-1,1) &&
+        !accesses[0].overlaps(source->memory(),source->memory_offset()+bytes,1) &&
+        !accesses[0].overlaps(source->memory(),UINT64_MAX,2) && !accesses[0].overlaps(source->memory(),0,0) &&
+        !accesses[0].overlaps(output->memory(),0,bytes),"physical overlap proof distinguishes adjacency, overflow, empty spans and other allocations");
     reject([&]{work->fill(destination,0,bytes,1);},"saved imports cannot escape through ordinary commands");
     reject([&]{prepared->record(VK_NULL_HANDLE);},"prepared replay requires a real recording target");
     check(app.readback(d.queue,output,0,bytes)==std::vector<uint8_t>(size_t(bytes),0),"preparation emits no commands and cannot change GPU data");
@@ -93,4 +106,15 @@ RWStructuredBuffer<uint> Output : register(u0);
     cancelled.begin_prepared();
     reject([&]{for(size_t i=0;i<2050;++i)cancelled.fill(cancel_output,0,bytes,99);},"prepared emission has a bounded operation budget");
     cancelled.discard();check(words(output,26),"budget refusal and discard leave application output unchanged");
+    cancelled.begin_prepared();cancelled.fill(cancel_output,32,64,99);auto partial=cancelled.finish_prepared();
+    const auto& span=partial->buffer_accesses();
+    check(span.size()==1 && span[0].offset==32 && span[0].size==64 && span[0].access==VK_ACCESS_TRANSFER_WRITE_BIT &&
+        !span[0].overlaps(output->memory(),0,32) && span[0].overlaps(output->memory(),31,2) && !span[0].overlaps(output->memory(),96,4),
+        "fill access tracks its subrange rather than the entire buffer");
+    partial.reset();
+    cancelled.begin_prepared();
+    reject([&]{for(size_t i=0;i<2050;++i)cancelled.fill(cancel_output,0,bytes,99);},"operation budget reserves publication capacity");
+    auto bounded=cancelled.finish_prepared();
+    check(bounded && bounded->size()==4095 && bounded->buffer_accesses().size()==2047,
+        "a refused next operation leaves a complete bounded packet with its final publication barrier");
 }

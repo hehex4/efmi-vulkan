@@ -1,4 +1,5 @@
 #include "resource_commands.h"
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
@@ -62,13 +63,18 @@ ResourceCommands::ResourceCommands(ResourceDevice device,ResourceBudgets budgets
     recycler_=std::make_shared<SubmissionRecycler>();recycler_->device=device_;
 }
 ResourceCommands::~ResourceCommands()=default;
+bool PreparedBufferAccess::overlaps(VkDeviceMemory memory,VkDeviceSize begin,VkDeviceSize length) const noexcept {
+    if(!buffer || !memory || !length || begin>UINT64_MAX-length || buffer->memory()!=memory)return false;
+    const auto own=buffer->memory_offset()+offset;
+    return own<begin+length && begin<own+size;
+}
 void PreparedResourceCommands::record(VkCommandBuffer command) const {
     if(!command)throw std::runtime_error("Prepared commands need a recording command buffer");
     for(const auto& emit:commands_)emit(command);
 }
 void ResourceCommands::begin_prepared() {
     if(preparing_ || pending_)throw std::runtime_error("Prepared resource scope requires no pending work");
-    preparing_=true;prepared_compute_=false;prepared_.clear();
+    preparing_=true;prepared_compute_=false;prepared_.clear();prepared_accesses_.clear();
 }
 std::shared_ptr<const PreparedResourceCommands> ResourceCommands::finish_prepared() {
     if(!preparing_)throw std::runtime_error("No prepared resource scope is active");
@@ -76,6 +82,7 @@ std::shared_ptr<const PreparedResourceCommands> ResourceCommands::finish_prepare
     barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
     auto result=std::make_shared<PreparedResourceCommands>();
     result->commands_=std::move(prepared_);result->owners_=std::move(pending_);
+    result->accesses_=std::move(prepared_accesses_);
     result->device_=device_.device;result->queue_family_=device_.queue_family;result->compute_=prepared_compute_;
     preparing_=prepared_compute_=false;return result;
 }
@@ -159,6 +166,20 @@ void ResourceCommands::emit_prepared(std::function<void(VkCommandBuffer)> operat
     if(prepared_.size()>=4096)throw std::runtime_error("Prepared resource command budget exceeded");
     retain_pending();prepared_.push_back(std::move(operation));++recorded_;
 }
+void ResourceCommands::reserve_prepared(size_t commands,size_t accesses) {
+    if(!preparing_)return;
+    // Reserve one final publication barrier too. A refusal leaves the current
+    // packet intact and never emits half an operation's access description.
+    if(commands>4095 || prepared_.size()>4095-commands || accesses>16384 || prepared_accesses_.size()>16384-accesses)
+        throw std::runtime_error("Prepared resource command/access budget exceeded");
+    const auto grow=[](size_t capacity,size_t need,size_t maximum){return std::min(maximum,std::max(need,std::max(size_t(16),capacity*2)));};
+    if(prepared_.capacity()<prepared_.size()+commands+1)prepared_.reserve(grow(prepared_.capacity(),prepared_.size()+commands+1,4096));
+    if(prepared_accesses_.capacity()<prepared_accesses_.size()+accesses)
+        prepared_accesses_.reserve(grow(prepared_accesses_.capacity(),prepared_accesses_.size()+accesses,16384));
+}
+void ResourceCommands::buffer_access(const Buffer& buffer,VkDeviceSize offset,VkDeviceSize size,VkPipelineStageFlags stages,VkAccessFlags access) {
+    if(preparing_)prepared_accesses_.push_back({buffer,offset,size,stages,access,prepared_.size()});
+}
 void ResourceCommands::barrier(VkPipelineStageFlags destination,VkAccessFlags access) {
     VkMemoryBarrier b={VK_STRUCTURE_TYPE_MEMORY_BARRIER};b.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;b.dstAccessMask=access;
     const auto barrier=device_.dispatch.CmdPipelineBarrier;
@@ -170,14 +191,17 @@ void ResourceCommands::copy(const Buffer& source,VkDeviceSize from,const Buffer&
     const auto source_begin=source->memory_offset_+from,destination_begin=destination->memory_offset_+to;
     if(source->memory_==destination->memory_ && source_begin<destination_begin+size && destination_begin<source_begin+size)
         throw std::runtime_error("Overlapping resource copy");
-    barrier();VkBufferCopy region{from,to,size};const auto copy=device_.dispatch.CmdCopyBuffer;
+    reserve_prepared(2,2);barrier();VkBufferCopy region{from,to,size};const auto copy=device_.dispatch.CmdCopyBuffer;
+    buffer_access(source,from,size,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+    buffer_access(destination,to,size,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);
     emit([copy,source,destination,region](VkCommandBuffer command){copy(command,source->buffer_,destination->buffer_,1,&region);});
     pending_->retained_.push_back(source);pending_->retained_.push_back(destination);
 }
 void ResourceCommands::fill(const Buffer& buffer,VkDeviceSize offset,VkDeviceSize size,uint32_t word) {
     validate(buffer,offset,size);
     if(offset%4 || size%4 || !(buffer->usage_&VK_BUFFER_USAGE_TRANSFER_DST_BIT))throw std::runtime_error("Resource fill requires an aligned transfer destination");
-    barrier();const auto fill=device_.dispatch.CmdFillBuffer;
+    reserve_prepared(2,1);barrier();const auto fill=device_.dispatch.CmdFillBuffer;
+    buffer_access(buffer,offset,size,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);
     emit([fill,buffer,offset,size,word](VkCommandBuffer command){fill(command,buffer->buffer_,offset,size,word);});
     pending_->retained_.push_back(buffer);
 }
@@ -266,5 +290,5 @@ std::vector<uint8_t> ResourceCommands::read_stage(const Buffer& stage,VkDeviceSi
     if(status==VK_SUCCESS)memcpy(result.data(),mapped,result.size());device_.dispatch.UnmapMemory(device_.device,stage->memory_);
     check(status,"Invalidate resource readback");return result;
 }
-void ResourceCommands::discard(){prepared_.clear();pending_.reset();preparing_=prepared_compute_=false;}
+void ResourceCommands::discard(){prepared_.clear();prepared_accesses_.clear();pending_.reset();preparing_=prepared_compute_=false;}
 }

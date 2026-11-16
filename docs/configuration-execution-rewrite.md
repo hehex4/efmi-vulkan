@@ -113,3 +113,8 @@ root/owned/registry/runtime checks also pass. Source/development DLLs are 3.2.6.
 not wired into production draw interception yet: access footprints, original registry
 imports/rollback, ordered packets, pass splitting and compute-state restoration remain.
 See prepared-resource-commands.md for the contract and verification scope.
+
+D-309 adds ordered physical buffer access metadata and bounded admission, passing 65
+headless checks with clean validation. Source/development DLLs are 3.2.7. Original
+registry rollback/imports and host insertion remain open; this does not enable live
+Core execution or close the native queue scheduler.

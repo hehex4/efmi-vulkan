@@ -569,11 +569,26 @@ void ShaderCommands::record(const Compute& pipeline,const std::vector<ShaderDesc
     if(commands.preparing_)for(const auto& value:descriptors)
         require(!value.image,"Prepared compute images require application layout and access planning");
     auto invocation=this->descriptors(pipeline->impl_,descriptors);invocation->arguments=arguments;
+    commands.reserve_prepared(2,descriptors.size()+(arguments?1:0));
     // Retain every descriptor owner before any recorded command refers to it.
     commands.retain_pending();commands.pending_->shader_owners_.push_back(invocation);
     for(const auto& value:descriptors)if(value.image)commands.transition(value.image->owner(),VK_IMAGE_LAYOUT_GENERAL);
     commands.barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|(arguments?VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT:0),
         VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_UNIFORM_READ_BIT|(arguments?VK_ACCESS_INDIRECT_COMMAND_READ_BIT:0));
+    if(commands.preparing_){
+        for(const auto& value:descriptors)if(value.buffer){
+            const auto& bindings=pipeline->impl_->bindings;
+            const auto found=std::find_if(bindings.begin(),bindings.end(),[&](const auto& b){return b.binding==value.binding;});
+            // Descriptor validation above proved this binding. Storage remains
+            // conservatively read/write unless executable analysis proves less.
+            VkAccessFlags access=VK_ACCESS_SHADER_READ_BIT;
+            if(found->type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)access=VK_ACCESS_UNIFORM_READ_BIT;
+            else if(found->type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || found->type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER)
+                access|=VK_ACCESS_SHADER_WRITE_BIT;
+            commands.buffer_access(value.buffer,value.offset,value.size,VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,access);
+        }
+        if(arguments)commands.buffer_access(arguments,offset,sizeof(VkDispatchIndirectCommand),VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,VK_ACCESS_INDIRECT_COMMAND_READ_BIT);
+    }
     commands.emit([d,pipeline,invocation,arguments,offset,groups](VkCommandBuffer command){
         d->CmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline->impl_->pipeline);
         d->CmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline->impl_->layout,0,1,&invocation->set,0,nullptr);

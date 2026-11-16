@@ -35,7 +35,7 @@ remain alive until the host releases the recording.
 
 The initial supported commands contain buffer operations only. Images, graphics,
 feedback and automatic submission remain refused in prepared mode. Production
-integration still needs resource access footprints, application binding import into
+integration still needs application binding import into
 the original GPU registry, logical registry rollback, ordered plan items, attachment
 split planning, compute-state restoration and recording ownership. Do not enable
 `OwnedRuntime::begin_draw` and submit its old pending primary ahead of the application
@@ -63,3 +63,25 @@ passes 59 with zero core and synchronization validation errors or warnings. Root
 ordinary GPU and production registry checks also pass, as recorded in CURRENT_STATE.md
 and the session log. This evidence is a headless command-order
 check, not a production-layer or real-game Core rendering result.
+
+## Prepared buffer access admission (D-309)
+
+Every prepared packet exposes ordered buffer access spans: exact buffer-relative
+bytes, retained physical allocation identity, pipeline stages, access masks and
+the command position. Transfer reads/writes and fills use their actual ranges;
+compute descriptors conservatively mark storage as read/write, uniform buffers
+as uniform reads and sampled texel buffers as shader reads. Indirect dispatch
+includes its twelve-byte argument range. Null descriptors add no access.
+
+The host can compare these retained spans with application resource allocations,
+including different handles bound into the same memory. The overlap helper rejects
+empty/overflowing queries and treats adjacent intervals as disjoint. This metadata
+does not prove queue order or authorize use while a render pass is active. Admission
+and recording ownership remain host obligations.
+
+Commands and access entries have separate budgets. Admission reserves the complete
+operation and its final publication barrier before appending metadata. A refused
+next operation cannot leave a partial access description or prevent an otherwise
+complete packet from being finished. The focused fixture passes 65 checks with clean
+core/synchronization validation, including exact spans, physical aliases and budget
+boundaries. This is still a prepared-command primitive, not live Core integration.

@@ -10,6 +10,13 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+## D-309: Prepared buffer access spans are explicit (2026-11-16)
+
+- Source/four development DLLs are 3.2.7 / unchanged ABI ff5c853cc3759e7d. Prepared commands expose retained physical byte ranges, stages, access masks and command positions. Copies/fills are exact; storage compute descriptors are conservatively read/write. Indirect dispatch also includes its argument range. Bounded admission reserves an operation and final publication before changing its metadata.
+- The original still relies on DX11 reference-counted lifetime with deferred destruction, hazard tracking and one-context order (CommandList.cpp 12540-12561). Vulkan allocation overlap metadata is an input to host admission, not a queue/order proof or permission for an in-pass barrier.
+- prepared-access-first.out and prepared-access-regression.out pass 65 prepared assertions with zero core/synchronization errors or warnings; the latter also passes production registry 13, tracker 838, ABI 9 and text. prepared-access-configuration.out passes root 10 / owned GPU 40 with the current resource executable. The root CPU executable was unchanged; no new full interpreter run is claimed. Four DLLs build in prepared-access-build.out. No check failed.
+- Continue original GPU registry rollback/imports, ordered insertion, attachment preservation and compute restoration; the primitive is still not enabled by production interception. No candidate refresh or game/installed/system mutation. Native queue/access/readiness work remains required after the shared rewrite.
+
 ## D-308: Prepared buffer commands preserve their insertion point (2026-11-16)
 
 - Source/four development DLLs are 3.2.6 / unchanged ABI ff5c853cc3759e7d. ResourceCommands can prepare a bounded immutable transfer/compute sequence without recording or submitting it. Complete buffer/pipeline/descriptor owners survive the preparing engine. Imported application buffers carry actual allocation ranges, cannot escape into deferred submissions and use physical-range copy overlap checks. Replay exposes device/family and compute-restoration obligations.

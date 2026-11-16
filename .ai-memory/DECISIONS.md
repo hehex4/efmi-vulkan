@@ -13,6 +13,15 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-309: Expose prepared resource accesses before host admission (2026-11-16)
+
+Each prepared buffer operation exposes retained allocation identity, byte range,
+stages, access masks and command position. Track exact transfer/argument ranges and
+conservative storage-descriptor reads/writes; do not infer original resource contracts
+from Vulkan bindings. Reserve the complete next operation and final publication barrier
+before changing packet metadata. Host queue/pass/access admission remains mandatory;
+an overlap query is neither a submission dependency nor a producer readiness proof.
+
 ## D-308: Prepare buffer commands for their actual application insertion point (2026-11-16)
 
 Retain a bounded immutable CPU sequence of transfer/compute commands and all its

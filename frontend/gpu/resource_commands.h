@@ -187,6 +187,16 @@ private:
 // position on this device/family, restores compute state when indicated, and
 // retains this object for the complete executable/pending recording lifetime.
 // This is not a queue-order proof and does not make mutable contents snapshots.
+struct PreparedBufferAccess {
+    Buffer buffer;
+    VkDeviceSize offset=0,size=0;
+    VkPipelineStageFlags stages=0;
+    VkAccessFlags access=0;
+    size_t command=0;
+    // Allocation identity remains valid because buffer retains its memory owner.
+    // Overflowing or empty caller spans are not valid overlap queries.
+    bool overlaps(VkDeviceMemory,VkDeviceSize,VkDeviceSize) const noexcept;
+};
 class PreparedResourceCommands {
 public:
     void record(VkCommandBuffer) const;
@@ -194,9 +204,11 @@ public:
     VkDevice device() const {return device_;}
     uint32_t queue_family() const {return queue_family_;}
     size_t size() const {return commands_.size();}
+    const std::vector<PreparedBufferAccess>& buffer_accesses() const {return accesses_;}
 private:
     friend class ResourceCommands;
     std::vector<std::function<void(VkCommandBuffer)>> commands_;
+    std::vector<PreparedBufferAccess> accesses_;
     std::shared_ptr<ResourceSubmission> owners_;
     VkDevice device_=VK_NULL_HANDLE;
     uint32_t queue_family_=0;
@@ -296,6 +308,8 @@ private:
     VkCommandBuffer command();
     void retain_pending();
     void emit_prepared(std::function<void(VkCommandBuffer)>);
+    void reserve_prepared(size_t commands,size_t accesses);
+    void buffer_access(const Buffer&,VkDeviceSize,VkDeviceSize,VkPipelineStageFlags,VkAccessFlags);
     template<class Operation> void emit(Operation&& operation) {
         if(!preparing_){operation(command());return;}
         emit_prepared(std::forward<Operation>(operation));
@@ -307,6 +321,7 @@ private:
     std::shared_ptr<const uint8_t> domain_=std::make_shared<const uint8_t>(0);
     std::shared_ptr<ResourceSubmission> pending_;
     std::vector<std::function<void(VkCommandBuffer)>> prepared_;
+    std::vector<PreparedBufferAccess> prepared_accesses_;
     bool preparing_=false,prepared_compute_=false;
     uint64_t recorded_=0;
     std::shared_ptr<SubmissionRecycler> recycler_;

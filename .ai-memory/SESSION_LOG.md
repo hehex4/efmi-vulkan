@@ -3383,3 +3383,23 @@ access footprints, original GPU registry imports/rollback, ordered plan packets,
 splits, compute-state restoration and recording retention are connected. Those are the
 next implementation work; the native queue/access/readiness guards stay in place. No
 candidate update, game activity, installation/launcher/system mutation or remote write.
+
+## 2026-11-16: D-309 prepared accesses precede host admission
+
+Continued from D-308/10153f3. Re-read original CommandList.cpp 12490-12579: copies
+execute on mOrigContext1, with DX11 reference-counted deferred lifetime, hazards and
+one-context order. Added retained physical buffer spans, exact transfer/fill/indirect
+ranges, conservative compute masks and ordered command positions to prepared packets.
+Operation/access budgets reserve the final publication barrier before admission.
+
+prepared-access-first.out and prepared-access-regression.out pass 65 headless checks,
+zero core/synchronization diagnostics. The latter passes production registry 13,
+tracker 838, ABI 9 and text. prepared-access-configuration.out passes root 10 / owned
+GPU 40 with the current resource executable; its unchanged CPU executable is not a
+new full interpreter check. prepared-access-build.out builds four DLLs as 3.2.7 with
+unchanged ABI ff5c853cc3759e7d. No test failure. Diff review/text checks accompany the
+local commit; no build output is committed.
+
+Continue registry rollback/imports and ordered host insertion with attachment/compute
+restoration and recording lifetime. Production still does not run prepared Core work.
+No candidate refresh, real-game activity, installed/system mutation or remote write.

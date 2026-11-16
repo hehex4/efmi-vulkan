@@ -37,6 +37,10 @@ and retain the packet with the executable recording. The production draw path ha
 enabled this primitive yet; original registry imports/rollback and ordered insertion
 remain required. See docs/prepared-resource-commands.md.
 
+D-309 adds retained ordered buffer access spans to each prepared packet. Host admission
+can compare actual allocation ranges before recording. Storage compute accesses remain
+conservative; the metadata does not replace queue/order or pass-boundary proof.
+
 > Rewritten 2026-11-10 from the code (docs/architecture-review-2.1.md, P4-1). What was here before, the
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.
