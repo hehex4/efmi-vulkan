@@ -1,5 +1,11 @@
 # EFMI Vulkan - Architecture
 
+D-324 (3.4.0) excludes historical package/material decoding from all production
+builds; it resides in sandbox/offline under an inspection-only compiler define.
+The old BoneMerge submission-batch implementation and its specialized shader are
+deleted. Original Core commands use the shared interpreter and ordered prepared
+execution contract. This cleanup does not complete production packet insertion.
+
 D-323 migrates 33 independent native acceptance entry scripts, the matched-descriptor
 wrapper and the standalone vertex-semantic entry to the original root configuration.
 Core is included only when configuration explicitly supplies it. Current registry

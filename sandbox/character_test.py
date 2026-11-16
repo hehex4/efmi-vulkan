@@ -1,4 +1,4 @@
-"""Whole-character replacement through the real hooks in headless Vulkan, and the package decoder."""
+"""Offline historical package inspection and fixtures for capture migration."""
 import json
 import os
 from pathlib import Path
@@ -6,7 +6,7 @@ import struct
 import subprocess
 import sys
 
-from harness import Checks, DIST, INJECT_DLL, inject_env, layer_env, test_dir
+from harness import Checks, DIST, test_dir
 from efmi_vk.hashes import crc32c
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from character_materials import envelope
@@ -91,135 +91,12 @@ def material_package(path, reject_late=False):
 
 
 def main():
-    checks = Checks("character replacement")
+    checks = Checks("historical package inspection")
     native = Path(test_dir("character-package-"))
     proc = subprocess.run([os.path.join(DIST, "efmi_vk_character_test.exe")], cwd=native, capture_output=True, text=True, timeout=30)
     (native / "stdout.txt").write_text(proc.stdout + proc.stderr)
     print(proc.stdout, end="")
     checks.equal(proc.returncode, 0, "native package decoding and declaration tests")
-    validation = os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
-    for entry in ("layer", "inject"):
-        for rp, material, reject_late, queue_case, submit_kind in (
-                (1, False, False, "single", 0), (2, False, False, "single", 0),
-                (1, True, False, "single", 0), (2, True, False, "single", 0), (1, True, True, "single", 0),
-                (1, True, False, "second-only", 0),
-                (1, True, False, "split", 0), (2, True, False, "split", 1), (1, True, False, "split", 2)):
-            if "--cold-only" in sys.argv and not (material and queue_case == "single" and rp == 1 and not reject_late):
-                continue
-            folder = Path(test_dir("character-"))
-            package = folder / "character.bin"
-            fixture_package(package)
-            if material:
-                material_package(package, reject_late)
-            inspect = subprocess.run([os.path.join(DIST, "efmi_vk_character_test.exe"), "--inspect", str(package)],
-                                     cwd=folder, capture_output=True, text=True, timeout=30)
-            label = f"{entry}/renderpass{rp}/materials={material}/late-refusal={reject_late}/queues={queue_case}/submit={submit_kind}"
-            checks.check(inspect.returncode == 0 and json.loads(inspect.stdout or "{}").get("required") == [1, 1, 3, 3, 0, 0],
-                         label + " fixture accepted; draw lists require the components they read")
-            env = layer_env(str(folder / "layer.log")) if entry == "layer" else inject_env(str(folder / "layer.log"))
-            # The scene forgets a character after 0.7 s without a draw; the game keeps one for 10 s (D-100).
-            env["EFMI_VK_M2_IDENTITY_EXPIRY_MS"] = "500"
-            cold_material = queue_case == "single" and rp == 1 and not reject_late
-            env.update(VK_LAYER_PATH=os.pathsep.join([DIST, validation]), VK_LAYER_VALIDATE_SYNC="1",
-                       VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0", XDG_CACHE_HOME=str(folder), TMPDIR=str(folder),
-                       TEMP=str(folder), TMP=str(folder), EFMI_VK_M2_PACKAGE=str(package), EFMI_VK_M2_ENABLED="1",
-                       EFMI_VK_M2_TEXTURE_PRELOAD="0" if cold_material else "1")
-            # BUG-075: without resizable BAR the host sees a window of the device's memory of a few hundred
-            # MiB, which the game needs too; the mesh is copied into device memory on the layer's upload
-            # queue then, read by both graphics queues of the split runs.
-            small_bar = queue_case == "split"
-            if small_bar:
-                env["EFMI_VK_TEST_SMALL_BAR"] = "1"
-            args = [os.path.join(DIST, "efmi_vk_variant_gpu.exe"), "--character"]
-            # Every full run exchanges the replacement code twice while the scene draws and has a
-            # module with another header stamp refused (docs/hot-swap.md).
-            module, bad_module = os.path.join(DIST, "efmi_vk_backend.dll"), os.path.join(DIST, "efmi_vk_backend_mismatch.dll")
-            if not reject_late:
-                checks.check(os.path.isfile(module) and os.path.isfile(bad_module), label + " replacement module and its mismatched copy are built")
-                args += ["--module", module, "--bad-module", bad_module]
-            if material:
-                args.append("--material")
-            if reject_late:
-                args.append("--character-reject-late")
-            if queue_case != "single":
-                args += ["--graphics-queues", "2"]
-                args += ["--queue-index", "1"] if queue_case == "second-only" else ["--split-material-queues"]
-            if submit_kind:
-                args.append("--submit2" if submit_kind == 1 else "--submit2-khr")
-            if entry == "inject":
-                args.extend(["--inject", INJECT_DLL])
-            if rp == 2:
-                args.append("--renderpass2")
-            proc = subprocess.run(args, cwd=folder, env=env, capture_output=True, text=True, timeout=120)
-            output = proc.stdout + proc.stderr
-            (folder / "stdout.txt").write_text(output)
-            checks.equal(proc.returncode, 0, label + " hooks and pixels")
-            checks.check("validation: errors=0 warnings=0" in output, label + " core/sync validation")
-            if proc.returncode:
-                print(output)
-                print(f"artifacts: {folder}")
-            final = folder / "character-final.json"
-            checks.check(final.exists(), label + " status saved")
-            if not final.exists():
-                continue
-            r = json.loads(final.read_text())["result"]["replacement"]
-            c = r["counters"]
-            if material:
-                textures = r.get("textures", {})
-                if cold_material:
-                    before = json.loads((folder / "character-ready.json").read_text())["result"]["replacement"]
-                    checks.equal(before.get("textures", {}).get("loads"), 0, label + " no image preloaded before first drawing")
-                    checks.check(textures.get("draw_waits") == 0 and textures.get("draw_waits_timed_out") == 0,
-                                 label + " first-use materials reach the checked pixels without blocking the recording thread")
-                checks.check(r["materials"] and r["images_ready"] == 2 and r["images_failed"] == 0 and
-                             textures.get("file_reads") == 2 and textures.get("submissions") == 2,
-                             label + " each DDS decoded and uploaded once by the layer")
-                checks.check(c["material_items"] > 0, label + " shader material changes emitted through real hooks")
-                # Uploads signal the device's timeline; every queue that renders waits for what was
-                # published before its work (D-094, D-095).
-                checks.check(textures.get("usable") and textures.get("published", 0) >= 2 and textures.get("waits", 0) >= 1 and
-                             r["material_graphics_queues"] == (1 if queue_case == "single" else 2),
-                             label + " the textures' publication reaches the rendering queue")
-            if reject_late:
-                checks.check(c["refused_material"] > 0 and c["replaced"] > 0 and c["hidden"] > 0,
-                             label + " late refusal counted while independent components still replace")
-                continue
-            checks.check(r["kind"] == "character" and r["configured"] and r["enabled"] and r["ready"], label + " character backend active")
-            checks.equal((r.get("mesh_memory"), r.get("mesh_in_device_memory")), ("copied" if small_bar else "mapped", True),
-                         label + " the mesh in device memory, copied there when the host's window is small")
-            checks.check(c["replaced"] >= 50 and c["items"] > c["replaced"] and c["hidden"] >= 25, label + " replaced draws, extra items and hidden draws counted")
-            checks.check(c["identifying"] >= 3, label + " a new character is drawn by the application first")
-            checks.check(c["restored_set3"] >= 10, label + " the application's set 3 was bound again after replacements")
-            refused = {k: v for k, v in c.items() if k.startswith(("refused_", "unreadable_", "import_", "exhausted", "identities_full")) and v}
-            checks.equal(refused, {}, label + " no refusal of any kind")
-            # A fragment shader without a profile takes the rules the DX11 register rule reads off its own
-            # module (D-076); none keeps the application's images. Two are derived: the variant with its
-            # image at binding 8, and the four-set pipeline's shader, which declares no image, so every
-            # slot is absent there as under DX11. Mesh-only runs have neither. The package's profile
-            # agrees with the rule.
-            checks.equal((c["material_derived"] > 0, c["material_inherited"] > 0, r["material_derived_profiles"], r.get("material_rule_mismatches")),
-                         (True, False, 2, 0) if material else (False, False, 0, 0),
-                         label + " unprofiled fragment shaders take their rules from their module; the profile agrees with the rule")
-            # A run on two queues brings the textures up in a phase of its own first, which exchanges once too.
-            earlier = r.get("module", {}).get("generation", -1)
-            swapped = folder / "character-swapped.json"
-            checks.check(swapped.exists(), label + " status after the exchanges saved")
-            after = json.loads(swapped.read_text())["result"]["replacement"] if swapped.exists() else {}
-            swap = after.get("module") or {}
-            refusal = folder / "character-module-bad.json"
-            checks.check(earlier == (1 if queue_case == "split" else 0) and r.get("module", {}).get("builtin") is (queue_case != "split") and
-                         after.get("counters", {}).get("replaced", 0) > 0 and after.get("ready"),
-                         label + " the scene's own exchanges come after its counted part; the module's backend replaces afterwards")
-            checks.equal((swap.get("generation"), swap.get("builtin"), swap.get("last_error"), str(swap.get("path", "")).replace("\\", "/").endswith("efmi_vk_backend.dll")),
-                         (earlier + 2, False, "", True), label + " the replacement code was exchanged twice and the module's is in use")
-            checks.check(refusal.exists() and json.loads(refusal.read_text()).get("ok") is False and
-                         ("replacement module %d in use" % (earlier + 2)) in (folder / "layer.log").read_text(),
-                         label + " mismatched module refused; both exchanges logged")
-            checks.check(r["identities"] == 2 and r["identities_replaced"] == 1,
-                         label + " one identity for the character, one for the neighbour that shares a mesh and is never replaced")
-            checks.check(r["sealed_batches"] >= 25, label + " submission sealing counted")
-            checks.check(f"entry={entry}" in (folder / "layer.log").read_text(), label + " intended layer entry")
-            checks.equal((folder / "pixels.rgba").stat().st_size, 64 * 64 * 4, label + " pixel artifact")
     return checks.finish()
 
 

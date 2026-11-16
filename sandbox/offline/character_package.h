@@ -1,8 +1,10 @@
-// A whole character as data: meshes, bone ranges, LOD remaps and what to draw per matched section.
-// Built offline by scripts/package_character.py from one scenario of the hosted frontend's plans.
-// Optional static materials; no keys or conditions, not an INI interpreter.
+// Historical capture-package decoder for offline inspection only.
+// The production loader has no package discovery, decoding or activation path.
 #pragma once
-#include "pipeline_recipe.h"
+#ifndef EFVK_OFFLINE_PACKAGE
+#error Historical packages are only supported by the offline inspection target.
+#endif
+#include "../../layer/src/pipeline_recipe.h"
 
 namespace efvk {
 

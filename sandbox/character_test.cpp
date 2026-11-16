@@ -1,10 +1,10 @@
 // Bounded decoding of a character package and the vertex declaration it asks for.
-// "--inspect <file>" runs the production decoder on a real package and prints what it holds.
+// "--inspect <file>" reads a historical offline package and prints what it holds.
 // "--derived <package> <fragment.spv> <slot:kind:set:binding>..." prepares that fragment module with
 // those rules as the backend does for a shader without a profile, and prints what each draw gets and
 // the DX11 registers the rule of D-076 gives the module's resources.
-#include "../layer/src/character_package.h"
-#include "../layer/src/character_materials.h"
+#include "offline/character_package.h"
+#include "offline/character_materials.h"
 #include "../frontend/xxmi/runtime.h"
 #include "../layer/src/shader_hooks.h"
 #include "../layer/src/texture_identity.h"

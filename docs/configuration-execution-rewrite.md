@@ -219,3 +219,10 @@ follow-up invocations (90/90): GS skip, HS/DS replacement, dynamic input/raster,
 ordered descriptor colors, exact/unknown/numeric semantics and classic frame analysis.
 Text 735 passes. Layer/four DLLs remain 3.3.9; no game or deployment. Legacy character/
 capture fixtures and full host resource/pass/recording integration remain open.
+
+D-324 removes historical package/material decoding from every production target
+and isolates it in sandbox/offline. Deleted the unused native BoneMerge batches,
+specialized shader and generator. The old live package test driver is retired;
+offline inspection remains explicitly separate. Four DLLs 3.4.0 pass the affected
+configuration/tracker/recipe/cache/snapshot/variant/ABI checks, offline decoder 148,
+fresh root 27 and interpreter 570. Production Core insertion remains incomplete.

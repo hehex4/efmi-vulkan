@@ -1,7 +1,7 @@
-// Static contracts shared by the live backend and offline package verification.
+// Historical material profiles for offline package verification only.
 #pragma once
 #include "character_package.h"
-#include "pipeline_variant.h"
+#include "../../layer/src/pipeline_variant.h"
 #include <set>
 
 namespace efvk {

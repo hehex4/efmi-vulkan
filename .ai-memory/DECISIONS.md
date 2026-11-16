@@ -13,6 +13,16 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-324: Keep obsolete package tools out of the loader (2026-11-16)
+
+Historical capture inspection may read old package files offline, but the layer,
+replacement module and release build must neither include nor link that decoder.
+Move it to sandbox/offline and require an inspection-only compiler define. Delete
+the unused specialized BoneMerge submission batches and shader rather than keep
+another Core execution route. Retire tests that demand this removed live loader;
+retain historical inspection under its accurate name. Existing original-root and
+native geometry/material checks remain the production acceptance evidence.
+
 ## D-321: Remove the superseded owned-draw execution contract (2026-11-16)
 
 Delete the unused begin_draw/ExecutionSite::Draw path rather than leave an API that

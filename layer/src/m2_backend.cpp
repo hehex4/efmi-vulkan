@@ -2,7 +2,6 @@
 #include "command_owner.h"
 #include "character_backend.h"
 #include "character_module.h"
-#include "character_package.h"
 #include "state.h"
 #include "json.h"
 #include <algorithm>

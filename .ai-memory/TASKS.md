@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-324 obsolete runtime code removal verified
+
+- Removed package decoding from production targets and deleted the unused specialized bone batch implementation/shader/generator. Historical decoder is compile-isolated in sandbox/offline. Retired the legacy package-loading test driver after its decoding passes but its removed-loader assertions fail. Four development DLLs are 3.4.0 / ABI fd2102f32b81fd00. Fresh root 27/interpreter 570, production registry 13, tracker 867, recipes 410, cache 81, snapshots 52, variants 63, offline decoder 148, ABI 9 and text 739 pass.
+- Continue ordered production host insertion, attachment/compute preservation and recording ownership, then native I-01/I-04/I-05/capture. Remaining old capture fixtures still need migration. No game authorization.
+
 ## D-323 native acceptance entry migration verified
 
 - Migrated 33 native entry scripts to the original root Include configuration; removed automatic installed Core arguments and stale custom-root Core includes. Relative-root module exchange follows the new entry. All 33 independent entries pass 190/190 selected checks; eight additional invocations pass 90/90, including matched descriptors and standalone semantic migration. Fixed sandbox CLI BUG-167 and stale counter/status expectations. Source/four DLLs stay 3.3.9; the sandbox is rebuilt and text 735 passes.

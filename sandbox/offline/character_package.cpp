@@ -1,3 +1,4 @@
+// Offline historical capture inspection; never linked by the loader.
 #include "character_package.h"
 
 #include <algorithm>

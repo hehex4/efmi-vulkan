@@ -3778,3 +3778,25 @@ Source/four DLLs stay 3.3.9 / ABI fd2102f32b81fd00; no production layer change i
 round. No game, candidate refresh, deployment, installed/system mutation or remote
 write. Continue legacy capture/character fixture retirement, complete host resource/
 pipeline admission, pass preservation and recording ownership, then I-01/I-04/I-05.
+
+## 2026-11-16: D-324 retire obsolete runtime package and bone batches
+
+Read original Include parsing and lazy CustomResource/CustomShader execution.
+Removed package decoder/material units from every production build and moved the
+historical reader into sandbox/offline under an inspection-only compiler define.
+Deleted the unused BoneMerge submission implementation, specialized shader and
+build generator. Source/four DLLs are 3.4.0 / ABI fd2102f32b81fd00.
+
+The first package-validation wrapper passes offline 148 then fails its obsolete
+live loader expectations (7/11); this is not a new runtime rendering defect. Its
+live driver and suite entry are retired. The reviewed build passes, and the scoped
+suite passes production registry 13, tracker 867, recipes 410, cache 81, snapshots
+52, variants 63, offline decoder 148, ABI 9 and text 739. Fresh original root 27
+and interpreter 570 pass after removing their unused decoder dependency. Evidence:
+build/offline-package-reviewed-build.out, offline-package-reviewed-regression.out,
+offline-package-runtime.out and offline-package-interpreter.out.
+
+Continue production original command insertion with complete resource facts,
+attachment/compute restoration and recording ownership, then native I-01/I-04/I-05
+and capture migration. No game, deployment, candidate refresh, installed/system
+mutation or remote action. Historical artifacts were not deleted.
