@@ -2,6 +2,7 @@
 #include "resource_memory.h"
 #include "native_images.h"
 #include "native_classic_targets.h"
+#include "native_image_phases.h"
 namespace efvk {
 namespace {
 using Resource=efmi::frontend::NativeResource;
@@ -120,7 +121,7 @@ void layout(CmdBuf* cb,const NativeTargetState::Saved& saved,VkImageLayout value
     cb->image_layouts.set(saved.view.image.id,saved.view.image.levels,saved.view.image.layers,range,value);
 }
 bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::assets::FilePlan& plan,
-                         VkImage image,const ImageInfo& info,std::string& why){
+                         const std::vector<bool>& read_phases,VkImage image,const ImageInfo& info,std::string& why){
     if(!image)return false;
     const auto target=native_memory(info);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
     auto conflict=[&](const NativeMemoryRange& input){
@@ -176,9 +177,17 @@ bool descriptor_conflict(Device* device,CmdBuf* cb,const DrawRec& draw,const efm
         if(!cell.second.resource){why="Native image restoration resource is unavailable";return true;}
         if(resource_conflict(*cell.second.resource))return true;
     }
-    // Include future assignments before emitting the first event, in either command order.
-    for(const auto& item:plan.items)if(item.operation==efmi::assets::FileOperation::NativeBind &&
-       !native_output_binding(item.native_target) && item.native_resource && resource_conflict(*item.native_resource))return true;
+    // Explicit future reads may use the same image in disjoint output phases.
+    // Its existing sampled layout must still pass descriptor preflight, and the
+    // pass split's barriers must restore that layout before the read. Different
+    // objects aliasing the allocation, saved fallbacks and pending restoration
+    // remain conflicts; a binding interval alone cannot prove those safe.
+    for(size_t i=0;i<plan.items.size();++i){const auto& item=plan.items[i];
+        if(item.operation!=efmi::assets::FileOperation::NativeBind || native_output_binding(item.native_target) || !item.native_resource)continue;
+        const auto& resource=*item.native_resource;
+        if(read_phases[i] && resource.image==uint64_t(image) && resource.identity==((uint64_t(info.id)<<2)|2))continue;
+        if(resource_conflict(resource))return true;
+    }
     for(const auto& binding:draw.vb)if(buffer_conflict(binding.buf))return true;
     return buffer_conflict(draw.ib) || buffer_conflict(draw.indirect) || buffer_conflict(draw.indirect_count);
 }
@@ -211,6 +220,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     auto targets=cb->target_contexts[cb->active_targets-1];const bool classic=!targets.dynamic;
     if(classic && !classic_context(targets,why))return false;
     if(!output_context(targets,why))return false;
+    const auto read_phases=native_image_read_phases(targets,plan);
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
     if(!device->d.CmdPipelineBarrier || (classic?(!cache || !device->d.CmdBeginRenderPass || !device->d.CmdEndRenderPass ||
@@ -271,10 +281,10 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         return refuse("Native output pipeline stencil contract is unavailable");
     // Existing outputs and restoration storage also survive output-only/null events.
     // A future descriptor must not overwrite their retained contents in either order.
-    for(const auto& active:targets.views)if(active.known && descriptor_conflict(device,cb,draw,plan,active.view.image,active.image,why))return false;
-    for(const auto& source:next.state->colors)if(descriptor_conflict(device,cb,draw,plan,source.original_image,source.original_storage,why))return false;
-    if(descriptor_conflict(device,cb,draw,plan,next.state->depth.original_image,next.state->depth.original_storage,why))return false;
-    for(const auto& saved:next.state->restore)if(descriptor_conflict(device,cb,draw,plan,saved.second.view.view.image,saved.second.view.image,why))return false;
+    for(const auto& active:targets.views)if(active.known && descriptor_conflict(device,cb,draw,plan,read_phases,active.view.image,active.image,why))return false;
+    for(const auto& source:next.state->colors)if(descriptor_conflict(device,cb,draw,plan,read_phases,source.original_image,source.original_storage,why))return false;
+    if(descriptor_conflict(device,cb,draw,plan,read_phases,next.state->depth.original_image,next.state->depth.original_storage,why))return false;
+    for(const auto& saved:next.state->restore)if(descriptor_conflict(device,cb,draw,plan,read_phases,saved.second.view.view.image,saved.second.view.image,why))return false;
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || !native_output_binding(item.native_target) || no_op[i])continue;
         const auto& resource=item.native_resource;const bool empty=!resource || !resource->bound;
@@ -343,7 +353,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(uint64_t(targets.area.offset.x)+targets.area.extent.width>width || uint64_t(targets.area.offset.y)+targets.area.extent.height>height)
             return refuse("Native output destination does not cover the render area");
         if(!image->second.mem || !image->second.mem_size)return refuse("Native output destination memory range is unavailable");
-        if(descriptor_conflict(device,cb,draw,plan,view->second.image,image->second,why))return false;
+        if(descriptor_conflict(device,cb,draw,plan,read_phases,view->second.image,image->second,why))return false;
         const auto backing=native_memory(image->second);const auto granularity=device->physical_properties.limits.bufferImageGranularity;
         auto image_alias=[&](VkImage other,const ImageInfo& metadata){
             return other && other!=view->second.image && native_memory_overlap(backing,native_memory(metadata),granularity);

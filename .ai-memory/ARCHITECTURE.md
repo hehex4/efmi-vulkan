@@ -160,6 +160,16 @@ use exact per-role formats, common all-format-aspect layout proof and completion
 original restoration and host End restore their preceding layouts. Missing roles arise only from
 defined pipeline formats. Explicit initialization keeps DSV state across zero-color plans.
 
+## Ordered image phases (D-290, 3.1.6)
+
+Native target preflight classifies future sampled bindings by actual Vulkan
+set/binding/element and output intervals. Only disjoint intervals on the exact
+same image can pass the former whole-plan conflict; every other storage and
+lifetime check remains. Descriptor preflight still proves an already readable
+layout. Target pass splits restore it with explicit dependencies before sampling.
+This does not add arbitrary phase-local transitions, DX11 automatic input nulling
+or cross-queue ordering. The planner is private; ABI remains 347c72b0cc7d0e40.
+
 ## What it is
 
 A DLL the launcher injects into the game's Vulkan process. It sits in front of the game's Vulkan calls,

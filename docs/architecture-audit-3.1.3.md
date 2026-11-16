@@ -2,7 +2,7 @@
 
 2026-11-15. The review input is `issues.md` against source 3.0.4. Changes below
 are local commits on main and engine-work. Current source is
-3.1.5, ABI `347c72b0cc7d0e40`. The latest separately checked no-probe candidate
+3.1.6, ABI `347c72b0cc7d0e40`. The latest separately checked no-probe candidate
 is 3.1.4; the 3.1.3 candidate below is historical. No real-game verification is included in this audit.
 
 | Finding | Implemented or verified | Remaining boundary |
@@ -103,3 +103,24 @@ steps pass, including actual overlap, both bone replays and module exchange.
 The first build hit the previously recorded LNK1163 error; the reviewed retry
 succeeded. No production cross-queue scheduler is claimed. The next implementation
 work is ordered image phases; no new release archive or real-game load occurred.
+
+## D-290 follow-up: ordered image phases in 3.1.6
+
+The former whole-plan union now admits the exact same image when its sampled
+binding intervals and output intervals are disjoint. Existing layout/ownership
+preflight and pass-split barriers remain mandatory; different-image memory aliases
+and retained fallback/restoration inputs keep their guards. The shared ABI is
+unchanged. Twelve new CPU cases pass (tracker 813). Actual GPU scenes distinguish
+new green writes from the old white source, test both orders/repeated/post phases,
+reject overlaps, and complete an injected-entry run and module exchange.
+
+The initial phase check is 51/53 because two fixture expectations were wrong:
+successive draws legitimately see old then new data, and post conditions must use
+the intended per-draw branch. Both corrected cases pass 12/12 on unchanged runtime
+binaries. The older application-image check is initially 74/76 because two
+one-shot captures selected the original warmup frame; ready-frame triggering
+passes the three ordinary graphics variants, 15/15, without changing pixels.
+The other touched-area steps pass; no successful step is repeated merely to hide
+an initial failure. Additional phase-local layout transitions and DX11
+automatic conflicting-input nulling remain separate work, as does I-01 scheduling.
+The last separately checked no-probe candidate remains 3.1.4; no game was loaded.

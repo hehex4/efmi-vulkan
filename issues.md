@@ -6,7 +6,7 @@ Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 20
 
 ## Implementation audit (2026-11-15; remediation in progress)
 
-Current audit: source 3.1.5; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+Current audit: source 3.1.6; see [the consolidated results](docs/architecture-audit-3.1.3.md).
 
 The findings below are review inputs, not evidence that every proposed remedy is
 sufficient. Source inspection confirms the central problems, with these corrections:
@@ -65,6 +65,13 @@ sufficient. Source inspection confirms the central problems, with these correcti
   combinations pass 53 and tracker checks pass 773. Same-storage read/write phase
   changes needing new transitions still require sequential access planning; the
   cross-queue boundary is unchanged. These are sandbox results only.
+  D-290 (3.1.6) adds ordered sampled/output binding intervals. Writing an image,
+  detaching it and then sampling it now works when existing pass-split barriers
+  restore its proven readable layout. Same-image identity is required; physical
+  aliases, live/fallback inputs and restoration accesses keep their guards.
+  Actual write/read pixels, reverse/repeated/post phases, overlap refusals and
+  module exchange pass. Additional phase-local transitions and automatic input
+  nulling remain open; no multi-queue claim is added.
 - **I-05: reproduced waits fixed in D-278 (3.0.6).** `d278-before.out` on 3.0.5 passes
   17/20: cold merged/texture draws perform three pipeline waits and two texture
   waits; own-mesh draws perform one pipeline wait. These scenes otherwise render

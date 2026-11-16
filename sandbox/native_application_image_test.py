@@ -10,7 +10,7 @@ import time
 from harness import Checks, Sandbox, test_dir
 from runtime_fixture import CORE
 from native_shader_test import compile_shader
-from native_shader_test import colored_pixels
+from native_shader_test import colored_pixels, wait_graphics_ready
 from runtime_test import sandbox_shader_hashes
 from native_compute_test import read_compute_result
 from efmi_vk.hashes import crc32c
@@ -100,7 +100,7 @@ def graphics_scene(checks,case):
     env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),
         EFMI_VK_M2_ENABLED="1",EFMI_VK_TEST_NOTICE="> application image",EFMI_VK_TEST_NOTICES_READBACK=str(pixels),
         EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC="1")
-    if case in ("graphics_reload","graphics_swap","graphics_swap_relative"):env["EFMI_VK_TEST_NOTICES_READBACK_TRIGGER"]=str(trigger)
+    env["EFMI_VK_TEST_NOTICES_READBACK_TRIGGER"]=str(trigger)
     if case=="graphics_swap_relative":
         base=Path(__file__).resolve().parents[1]/"dist"
         env["EFMI_VK_M2_MODS"]=os.path.relpath(mods,base)
@@ -108,7 +108,7 @@ def graphics_scene(checks,case):
     args=["--readable-swapchain"]
     if case=="graphics_push":args += ["--descriptors","push"]
     if case=="graphics_secondary":args += ["--threads","2"]
-    with Sandbox(seconds=6 if case in ("graphics_reload","graphics_swap","graphics_swap_relative") else 3,validation=True,env_extra=env,extra_args=args) as sb:
+    with Sandbox(seconds=6,validation=True,env_extra=env,extra_args=args) as sb:
         time.sleep(1)
         with ProbeClient(sb.pid) as probe:
             if case in ("graphics_swap","graphics_swap_relative"):
@@ -124,6 +124,11 @@ def graphics_scene(checks,case):
                 source.write_text(source.read_text().replace("return float4(color.r*255,0,color.g*63.75,1);", "return float4(0,color.r*255,0,1);"),encoding="ascii")
                 compile_shader(source,fixes,"%08x"%fragment,"ps")
                 keys.write_text("1 121\n",encoding="ascii");time.sleep(.2);keys.write_text("1\n",encoding="ascii");time.sleep(1);trigger.touch()
+            if case in ("graphics","graphics_push","graphics_secondary"):
+                _,ready=wait_graphics_ready(probe,lambda s:s.get("shader_fixes",{}).get("binds",0)>0 and
+                    s.get("shader_overrides",{}).get("executed",0)>0,3)
+                checks.check(ready,case+": replacement frames settle before the one-shot capture")
+                trigger.touch()
             status=probe.status()
         sb.proc.wait(timeout=30);checks.equal(sb.proc.returncode,0,case+": normal exit")
         (root/"layer.log").write_bytes(Path(sb.log_path).read_bytes())
