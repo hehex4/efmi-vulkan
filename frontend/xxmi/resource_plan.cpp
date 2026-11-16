@@ -118,7 +118,17 @@ bool FilePlanCompiler::compile(const DrawPlan& source,assets::FilePlan& output,s
             const auto& o=*item.owned;
             own.owned=std::make_shared<const assets::OwnedBuffer>(assets::OwnedBuffer{o.buffer,o.offset,o.size,o.stride,o.keep});
         }
+        if(item.prepared_work && item.operation!=PlanOperation::PreparedWork)
+            return refuse(L"Prepared work is attached to another operation");
+        if(item.prepared_state && item.operation!=PlanOperation::Caller && item.operation!=PlanOperation::Dispatch && item.operation!=PlanOperation::DrawIndexed)
+            return refuse(L"Prepared bindings are attached to a non-call operation");
+        own.prepared_state=item.prepared_state;
         switch(item.operation){
+        case PlanOperation::PreparedWork:
+            if(!item.prepared_work || item.resource || item.owned || item.prepared_state || !item.layout.empty())
+                return refuse(L"Invalid prepared GPU work item");
+            own.operation=assets::FileOperation::PreparedWork;own.prepared_work=item.prepared_work;
+            next.items.push_back(std::move(own));continue;
         case PlanOperation::NativeBind:
             own.operation=assets::FileOperation::NativeBind;own.native_target=item.native_target;
             own.native_resource=item.native_resource;

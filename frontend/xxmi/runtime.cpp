@@ -819,7 +819,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         s.this_target = &index_target;
         if (p.extension && !p.extension->before_draw(input, s, why)) throw std::runtime_error(utf8(why));
         phase("phase before_draw");
-        if(!matches.empty() || shader_lists){
+        if(!matches.empty() || shader_lists || p.adapter.planning_prepared()){
             // A library's shader groups (D-171), in the original's order around the matched lists: the vertex
             // stage's lists ahead of them (the Core's check of `ib` is a later group of the same stage), the
             // pixel stage's after them, all before the application's draw.
@@ -831,7 +831,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             // groups, the Core's `CheckTextureOverride = ib` and with it the matched sections).
             if (shaders[0]) { pre.push_back(&shaders[0]->command_list); post.push_back(&shaders[0]->post_command_list); }
             pre.insert(pre.end(), hooks.before.begin(), hooks.before.end());
-            stages.checked_first = post.size();
+            stages.check_index = texture_overrides;stages.checked_first = post.size();
             for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
             stages.checked_last = post.size();
             // The hull, domain, geometry and pixel stages, each a list of its own; the library's pixel groups are linked
@@ -846,7 +846,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             DrawPlan& plan = p.draw_plan;
             const auto began = std::chrono::steady_clock::now();
             // Without an acting ShaderOverride the matched sections run exactly as before route 2.
-            const bool executed = shader_lists ? p.adapter.execute_stages(pre,post,stages,s,plan,why) : p.adapter.execute_matches(pre,post,s,plan,why);
+            const bool executed = (shader_lists || !texture_overrides) ? p.adapter.execute_stages(pre,post,stages,s,plan,why) : p.adapter.execute_matches(pre,post,s,plan,why);
             const auto ran = std::chrono::steady_clock::now();
             const bool compiled = executed && p.files->compile(plan,result,why);
             p.stats.draw_execute_us += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(ran - began).count());

@@ -104,7 +104,7 @@ void GpuShaderRuntime::set_programs(const std::vector<gpu::HlslProgram>& program
     for(const auto& program:programs){unsigned i=0;while(i<6 && flags[i]!=program.stage)++i;
         require(i<6 && !next[i],"Original source shader stage is invalid or duplicated");next[i]=std::make_shared<gpu::HlslProgram>(program);}
     auto compute=next[5]?commands_.compile(*next[5]):gpu::Compute{};
-    for(unsigned i=0;i<5;++i)stages_[i]=std::move(next[i]);compute_=std::move(compute);
+    for(unsigned i=0;i<5;++i)stages_[i]=std::move(next[i]);compute_=std::move(compute);compute_known_=true;
 }
 bool GpuShaderRuntime::execute_original(CommandListState& state,std::wstring& why){
     try{require(state.call_info!=nullptr,"Original operation lacks caller data");const auto& call=*state.call_info;
@@ -132,11 +132,12 @@ bool GpuShaderRuntime::run(RunCustomShaderCommand& command,CommandListState& sta
         struct Restore {
             GpuResourceRuntime& resources;GpuResourceRuntime::OutputState outputs;
             gpu::Compute& current;gpu::Compute saved;
+            bool& known;bool saved_known;
             decltype(stages_)& stages;decltype(stages_) saved_stages;
             SourceGraphicsState& state;SourceGraphicsState saved_state;
-            ~Restore(){current=std::move(saved);stages=std::move(saved_stages);state=std::move(saved_state);resources.restore_outputs(std::move(outputs));}
-        } restore{resources_,resources_.save_outputs(),compute_,compute_,stages_,stages_,graphics_,graphics_};
-        if(entry.overrides[5])compute_=entry.compute;
+            ~Restore(){current=std::move(saved);known=saved_known;stages=std::move(saved_stages);state=std::move(saved_state);resources.restore_outputs(std::move(outputs));}
+        } restore{resources_,resources_.save_outputs(),compute_,compute_,compute_known_,compute_known_,stages_,stages_,graphics_,graphics_};
+        if(entry.overrides[5]){compute_=entry.compute;compute_known_=true;}
         for(unsigned i=0;i<5;++i)if(entry.overrides[i])stages_[i]=entry.stages[i];
         graphics_=source_graphics_normalize(source_graphics_override(shader,graphics_));
         ++shader_calls_;return adapter_->invoke_shader(shader,state,why);
@@ -162,7 +163,12 @@ gpu::Sampler GpuShaderRuntime::sampler(wchar_t stage,unsigned slot){
 bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::wstring& why){
     try{
         const bool indirect=command.type==DrawCommandType::DISPATCH_INDIRECT;
-        if(!indirect && command.type!=DrawCommandType::DISPATCH)return draw_graphics(command,state);
+        const bool prepared_plan=adapter_ && adapter_->planning_prepared();
+        if(!indirect && command.type!=DrawCommandType::DISPATCH){
+            require(!prepared_plan,"Prepared CustomShader graphics requires stage and pass admission");
+            return draw_graphics(command,state);
+        }
+        require(!prepared_plan || compute_known_,"Prepared CustomShader inherits an unknown application compute stage");
         gpu::Buffer arguments;uint32_t offset=0;std::array<uint32_t,3> groups{};
         if(indirect){const float value=command.args[0].evaluate(&state);
             require(std::isfinite(value) && double(value)>=0 && double(value)<=UINT32_MAX,"Indirect dispatch offset exceeds original unsigned range");offset=uint32_t(value);

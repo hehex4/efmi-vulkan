@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-320 prepared draw-plan boundary verified; continue production integration
+
+- Implemented explicit prepared-plan mode, immutable per-call bindings, ordered work markers, shared admission, and fresh original IB post matching. Final GPU 353 passes with clean validation after inherited-stage guards and the reproduced BUG-166 stale slot-query fix. Source/four DLLs 3.3.7; fresh root 27/interpreter 570, production 13, ordinary images/parameters 3,010, tracker 838, ABI 9 and text pass.
+- Next: retire remaining obsolete prequeued-draw contracts, then finish the production host resource/pipeline contract and in-place recording with state restoration. Continue native I-01/I-04/I-05/capture; no game authorization.
+
 ## D-319 original frame-limit rollback verified; continue plan integration
 
 - Done in source 3.3.6: shader frame/execution counters and explicit shader/resource resets journal before mutation. BUG-165 same-frame retry fails before the fix; GPU 303 passes after it, including ordinary execution and reset behavior with clean validation. Fresh root 27/interpreter 570, four DLLs, production 13, ordinary images/parameters 3,010, tracker 838, ABI 9 and text pass.

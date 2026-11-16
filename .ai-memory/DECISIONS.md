@@ -13,6 +13,19 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-320: Preserve original source calls inside prepared plans (2026-11-16)
+
+A host explicitly opens prepared-plan mode with a complete original application
+snapshot. Root source calls retain current bindings and cut preceding GPU work;
+CustomShader compute stays in the same registry transaction. End-of-post work is
+also retained. Call snapshots and all GPU segments share one admission, including
+empty-command scopes. Never route these payloads through immutable-file demand or
+the existing production executor without complete pipeline/pass/recording proofs.
+AfterDraw rechecks the current IB using original matching, permitting a changed
+tracked IB to select a different post list. Shader-only calls keep that scope.
+DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking
+and one-context order; the Vulkan host explicitly supplies these guarantees.
+
 ## D-319: Keep original frame limits transactional during preparation (2026-11-16)
 
 Save CustomShader frame/execution counters before speculative execution. Checkpoint

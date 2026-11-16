@@ -207,6 +207,8 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         if(!known->second.empty()){why=known->second;return false;}
     }
     for (const auto& item : plan.items) {
+        if(item.prepared_work || item.prepared_state)
+            return refuse("Prepared calls require ordered host admission and binding restoration");
         // DrawCommand returns before evaluating arguments when hunting hides this draw.
         if(hunting_skip && (item.operation==O::Caller || item.operation==O::DrawIndexed || item.operation==O::Dispatch))continue;
         const bool geometry=item.operation==O::BindVertex || item.operation==O::BindIndex;

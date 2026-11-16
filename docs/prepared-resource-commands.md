@@ -378,3 +378,47 @@ and 1490-1499 resets shader/resource counters. DX11 supplies reference-counted l
 with deferred destruction, hazard tracking and one-context order. Vulkan's speculative
 preparation needs this additional logical rollback. The regression reproduces a skipped
 same-frame retry (output 0 instead of 1), then checks cancelled and accepted resets.
+
+## Original draw-plan boundaries (D-320)
+
+begin_prepared_plan takes the same complete application snapshot as begin_prepared.
+Root source Draw/DrawIndexed/Dispatch and caller operations retain the registry's
+bindings at their original positions; CustomShader compute stays in the GPU engine.
+GPU work is cut before each call and after the post phase. FilePlan carries retained
+PreparedWork and PreparedDrawState owners instead of submitting an earlier batch.
+One explicit registry admission covers both commands and calls; cancelled call
+snapshots stay unadmitted, including scopes with no GPU commands. Later binds cannot
+mutate earlier snapshots. Immutable-file demand and the current production executor
+refuse these payloads until the host provides full admission and restoration.
+
+BeforeDraw and AfterDraw follow original HackerContext.cpp 3149-3172. DrawCommand::run
+flushes parameters before evaluating arguments (CommandList.cpp 1601 onward), and
+CheckTextureOverride resolves the current IB again for post commands. Prepared plans
+therefore rematch the current retained source IB; a different tracked IB can select
+another section's post list. Shader-only entry points do not add IB matching.
+DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking
+and one-context order. Vulkan must retain snapshots and restore attachment, compute
+and descriptor state around their recorded positions.
+
+This is the frontend sequence boundary, not production Core or real-game verification.
+The host still needs complete source facts, per-call resource/pipeline admission,
+pass splitting, compute restoration and recording/module ownership. Indirect and
+stream-output calls and automatic geometry remain outside this direct-call subset.
+The first fixture passes GPU 335 in prepared-plan-first.out with clean validation:
+ordered host copies observe 8/13/14/7, per-call bindings survive later unbinds, and
+changed-IB post matching selects the new source section. Review adds explicit-null
+versus unknown inherited compute-stage state and refuses CustomShader graphics
+before unimported stages can silently discard work. Original RunCustomShaderCommand
+only overrides named stages and restores them afterward (CommandList.cpp 2893-2950).
+The next fixture reproduces a stale entry-snapshot resource query (BUG-166).
+Prepared queries now use the current registry, like original GetResource. GPU 351
+passes with clean validation in prepared-plan-query-fixed.out, including skipped
+implicit calls, explicit caller/dispatch arguments, unknown-stage refusal, persistent
+scalars after failure, query updates and retained owners after interpreter retirement.
+The host captures at call positions are buffer copies, not production draw rendering.
+
+Final stage-order coverage passes GPU 353 in prepared-plan-final.out, including a
+changed IB post list between vertex/pixel stages and removal of all index matches
+without losing the later stage root. Root 27/interpreter 570, four-DLL build,
+production 13, ordinary images/parameters 3,010, tracker 838 and ABI 9 also pass.
+Source/development DLLs are 3.3.7; no candidate or real-game deployment occurred.

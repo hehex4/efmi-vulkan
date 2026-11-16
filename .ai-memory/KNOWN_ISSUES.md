@@ -1,5 +1,18 @@
 # EFMI Vulkan - Known issues
 
+## BUG-166: Prepared slot queries could read the entry snapshot (fixed 3.3.7)
+
+D-320 integration review found that NativeResourceQuery consulted the application's
+entry snapshot before the prepared registry. After original commands rebound IB,
+its property query could still report the earlier unbound source. The independent
+prepared-plan-query-before.out fixture fails its expected 12-byte current-IB query.
+The prepared registry now answers resource queries and matching directly; ordinary
+file/native planning keeps its application provider. Original GetResource obtains
+the current context's views/resources (CommandList.cpp 9691-9737). DX11 supplies
+reference-counted lifetime with deferred destruction, hazard tracking and one-context
+order. The new prepared-plan route has not been deployed. Final GPU 353, root 27,
+interpreter 570 and affected production checks pass; see D-320 in CURRENT_STATE.md.
+
 ## BUG-165: Cancelled execution could consume or reset original frame limits (fixed 3.3.6)
 
 GpuShaderRuntime advanced CustomShader's frame/execution count during preparation,

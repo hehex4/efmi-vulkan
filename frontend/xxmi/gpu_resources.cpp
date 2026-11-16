@@ -140,6 +140,9 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     adapter.prepared_scope([this]{return active_ && site_==ExecutionSite::Prepared;},[this]{execution_failed();},
         [this](CustomResourcePool* pool){remember(pool);},[this](PoolCopyOperation& op){remember(op);},
         [this](ResetPerFrameLimitsCommand& command){if(command.shader)remember(*command.shader);if(command.resource)remember(*command.resource);});
+    adapter.prepared_plan([this]{return active_ && site_==ExecutionSite::Prepared && prepared_plan_;},[this]{return cut_prepared();},[this]{
+        active();auto snapshot=std::make_shared<PreparedDrawState>();snapshot->bindings=slots_;snapshot->viewport=viewport_;snapshot->admission_=prepared_state_->admission;return snapshot;
+    });
     return {};
 }
 void GpuResourceRuntime::draw_commands(DrawExecutor executor){
@@ -161,7 +164,7 @@ std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::R
 // A failed scope that is suspended drops what it and the scopes pending before it recorded: their work
 // is one batch, and a later scope starts clean.
 void GpuResourceRuntime::suspend(){active();require(site_!=ExecutionSite::Prepared,"Prepared resource execution must finish or discard");active_=false;if(failed_){commands_.discard();failed_=false;}}
-void GpuResourceRuntime::discard(){commands_.discard();rollback_prepared();active_=false;failed_=false;}
+void GpuResourceRuntime::discard(){commands_.discard();rollback_prepared();active_=false;failed_=false;prepared_plan_=false;}
 void GpuResourceRuntime::active() const {require(active_,"GPU resource operation has no outside-render-pass execution scope");}
 ResourceCopyTarget& GpuResourceRuntime::effective(ResourceCopyTarget& t,CommandListState& state) {
     if(t.type!=Target::THIS_RESOURCE)return t;

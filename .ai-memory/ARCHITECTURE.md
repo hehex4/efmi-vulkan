@@ -1,5 +1,13 @@
 # EFMI Vulkan - Architecture
 
+D-320 (3.3.7) explicitly opts a complete original application snapshot into prepared
+draw planning. Root calls retain immutable registry bindings between GPU cuts;
+CustomShader compute remains in the same transaction. Calls and GPU segments share
+one admission, including command-empty scopes. Post matching rechecks current IB;
+resource queries read current prepared bindings. Unknown inherited compute and
+CustomShader graphics refuse. Production insertion remains gated by complete host
+resource/pass/state/recording proofs; the existing executor refuses these payloads.
+
 D-319 (3.3.6) journals original CustomShader frame/execution counters and explicit
 shader/resource per-frame resets across prepared segments. Cancellation restores
 the allowance, including CPU-only reset scopes; ordinary execution and scalar

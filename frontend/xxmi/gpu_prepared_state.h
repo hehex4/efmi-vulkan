@@ -63,6 +63,7 @@ struct GpuResourceRuntime::PreparedState {
             r.frame_no=frame_no;r.format=format;r.copies_this_frame=copies_this_frame;
         }
     };
+    std::shared_ptr<bool> admission=std::make_shared<bool>(false);
     std::map<CustomResource*,Declaration> declarations;
     std::map<CustomShader*,std::pair<unsigned,int>> shader_limits;
     ResourceMapUndo<decltype(resources_)> resources;
@@ -144,7 +145,10 @@ void GpuResourceRuntime::begin_prepared(){
     if(active_ || prepared_state_)throw std::runtime_error("Prepared registry requires a closed admitted scope");
     auto state=std::make_unique<PreparedState>(*this);
     commands_.begin_prepared();prepared_state_=std::move(state);
-    active_=true;failed_=recorded_=backbuffer_targeted_=false;site_=ExecutionSite::Prepared;
+    prepared_plan_=false;active_=true;failed_=recorded_=backbuffer_targeted_=false;site_=ExecutionSite::Prepared;
+}
+void GpuResourceRuntime::begin_prepared_plan(const ApplicationResourceState& state){
+    begin_prepared(state);prepared_plan_=true;
 }
 std::shared_ptr<const gpu::PreparedResourceCommands> GpuResourceRuntime::finish_prepared(){
     active();
@@ -159,6 +163,6 @@ std::shared_ptr<const gpu::PreparedResourceCommands> GpuResourceRuntime::cut_pre
 void GpuResourceRuntime::accept_prepared(){
     if(active_ || !prepared_state_ || commands_.preparing() || commands_.pending() || failed_)
         throw std::runtime_error("Prepared registry admission requires a successfully sealed scope");
-    commands_.accept_prepared();prepared_state_.reset();
+    commands_.accept_prepared();*prepared_state_->admission=true;prepared_state_.reset();
 }
 }

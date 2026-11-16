@@ -3,9 +3,11 @@
 #include "../xxmi/native_bindings.h"
 #include <cstdint>
 namespace efmi::core {struct PaletteSnapshot;}
+namespace efmi::gpu {class PreparedResourceCommands;}
+namespace efmi::frontend {struct PreparedDrawState;}
 
 namespace efmi::assets {
-enum class FileOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent, Caller, Dispatch, NativeBind };
+enum class FileOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent, Caller, Dispatch, NativeBind, PreparedWork };
 
 // Owned frontend data. The byte uploader does not infer stride/index format
 // from a filename. Neither this data nor its loader executes native Core calls.
@@ -45,6 +47,8 @@ struct FilePlanItem {
     std::shared_ptr<const OwnedBuffer> owned; // BindVertex of an owned buffer; resource is null then
     frontend::NativeBinding native_target;
     std::shared_ptr<const frontend::NativeResource> native_resource;
+    std::shared_ptr<const gpu::PreparedResourceCommands> prepared_work;
+    std::shared_ptr<const frontend::PreparedDrawState> prepared_state;
     uint32_t index_count=0,first_index=0,instance_count=1,first_instance=0;
     int32_t vertex_offset=0;
     bool indexed=true,automatic=false; // PlanItem's (D-142)

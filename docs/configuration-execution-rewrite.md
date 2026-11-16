@@ -184,3 +184,11 @@ same-frame retry failure is reproduced and fixed; CPU-only shader/resource reset
 also checkpoint before mutation. GPU 303, root 27, interpreter 570, production 13,
 ordinary image/parameter 3,010, tracker 838 and ABI 9 pass at 3.3.6 with clean
 validation. Ordered draw-plan insertion and the production host contract remain open.
+
+D-320 adds the explicit original prepared draw-plan boundary. Each root call retains
+current resource bindings between GPU segments, and final admission covers calls as
+well as commands. Post matching rechecks the current IB in shader-stage order.
+BUG-166 stale application-snapshot queries are reproduced and fixed. Final GPU 353,
+root 27, interpreter 570, production 13, ordinary image/parameter 3,010, tracker 838
+and ABI 9 pass with clean validation on four development DLLs 3.3.7. This is frontend
+sequence evidence; complete production admission/recording is still required.

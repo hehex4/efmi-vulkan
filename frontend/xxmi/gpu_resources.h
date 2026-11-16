@@ -25,6 +25,14 @@ struct GpuResourceBinding {
     UINT bind_flags() const {return image?image_description.texture.BindFlags:description.BindFlags;}
     void drop_view(){view=View::None;image_view.reset();}
 };
+struct PreparedDrawState {
+    std::map<std::tuple<wchar_t,ResourceCopyTargetType,unsigned>,GpuResourceBinding> bindings;
+    D3D11_VIEWPORT viewport{};
+    bool admitted() const {return admission_ && *admission_;}
+private:
+    friend class GpuResourceRuntime;
+    std::shared_ptr<const bool> admission_;
+};
 // D3D11 hazards operate on source subresources, not Vulkan byte intervals.
 bool source_bindings_overlap(const GpuResourceBinding&,const GpuResourceBinding&) noexcept;
 bool source_attachments_compatible(const GpuResourceBinding&,const GpuResourceBinding&);
@@ -99,6 +107,9 @@ public:
         bool omitted_slots_unbound=false;
     };
     void begin_prepared(const ApplicationResourceState&);
+    // Same transaction, but root source calls become ordered retained plan items.
+    // CustomShader compute still records into the surrounding GPU segments.
+    void begin_prepared_plan(const ApplicationResourceState&);
     // Cut without admitting any registry changes or releasing the undo journal.
     std::shared_ptr<const gpu::PreparedResourceCommands> cut_prepared();
     std::shared_ptr<const gpu::PreparedResourceCommands> finish_prepared();
@@ -155,6 +166,7 @@ private:
     friend class GpuShaderRuntime;
     struct PreparedState;
     std::unique_ptr<PreparedState> prepared_state_;
+    bool prepared_plan_=false;
     void remember(CustomResource&);
     void remember(CustomShader&);
     void remember(ResourceCopyOperation&);

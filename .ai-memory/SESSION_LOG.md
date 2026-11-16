@@ -3682,3 +3682,30 @@ ordinary image/parameter 3,010, tracker 838, ABI 9 and text pass in
 prepared-limits-regression.out. No game, deployment, candidate refresh, system or
 remote action. Continue original plan integration and complete host resource facts,
 pass/compute restoration and recording/module lifetime, then native I-01/I-04/I-05.
+
+## 2026-11-16: D-320 ordered original draw-plan boundary (3.3.7)
+
+Explicit prepared-plan mode retains current registry bindings at source calls and
+cuts GPU work before each call and after post commands. Call snapshots share the
+registry's admission token, including empty GPU scopes. Original AfterDraw rechecks
+the current IB and preserves shader-stage boundaries. GPU 335 first passes; review
+adds explicit-null/unknown inherited compute distinction and graphics refusal, then
+GPU 349 passes. Original RunCustomShader overrides only named stages and restores
+those stages; GetResource reads the current context. DX11 supplies reference-counted
+lifetime with deferred destruction, hazard tracking and one-context order.
+
+The next fixture fails its current-IB size query (prepared-plan-query-before.out,
+BUG-166). Prepared operands now bypass the stale application-entry provider and use
+the current registry. GPU 351 passes after the fix; final stage-order coverage gives
+GPU 353 in prepared-plan-final.out with zero core/synchronization errors or warnings.
+Host copies at actual call positions observe 8/13/14/7; these are ordering captures,
+not production draw rendering. Cancellation, explicit/implicit skip, source dispatch
+arguments, failure rollback and imported-resource retirement also pass.
+
+Fresh root 27/interpreter 570 pass in prepared-plan-runtime.out. Four DLLs build in
+prepared-plan-build.out; production 13, ordinary images/parameters 3,010, tracker 838,
+ABI 9 and text pass in prepared-plan-regression.out. Final test-only changes need no
+DLL rebuild. No game, candidate refresh, deployment, installed/system mutation or
+remote write. Retire the unused prequeued-draw contracts and finish the host mapping,
+pass/compute restoration and recording/module lifetime before enabling production
+Core, then native I-01/I-04/I-05/capture.

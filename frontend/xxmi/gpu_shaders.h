@@ -85,6 +85,7 @@ private:
     DrawPlanAdapter* adapter_=nullptr;
     std::map<CustomShader*,Entry> shaders_;
     gpu::Compute compute_;
+    bool compute_known_=false; // Null differs from an unimported application stage.
     std::array<std::shared_ptr<gpu::HlslProgram>,5> stages_;
     SourceGraphicsState graphics_=source_graphics_defaults();
     D3D11_RECT scissor_{};

@@ -7,15 +7,17 @@
 #include <cstdint>
 #include <functional>
 namespace efmi::core {struct PaletteSnapshot;}
+namespace efmi::gpu {class PreparedResourceCommands;}
 
 namespace efmi::frontend {
 struct SourceResourceMatch;
+struct PreparedDrawState;
 
 // Guard original pool indexing before its numeric casts or lookup. Call with
 // the owning generation's globals installed; the original engine owns mapping.
 void validate_pool_runtime(CustomResourcePool&);
 
-enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent, Caller, Dispatch, NativeBind };
+enum class PlanOperation { BindVertex, BindIndex, BindPixelResource, DrawIndexed, External, Translucent, Caller, Dispatch, NativeBind, PreparedWork };
 
 // Resource pointers borrow declarations from a retained frontend generation.
 // This CPU plan has no GPU readiness, resource lifetime or pipeline guarantee.
@@ -46,6 +48,8 @@ struct PlanItem {
     std::shared_ptr<const OwnedBuffer> owned;
     NativeBinding native_target;
     std::shared_ptr<const NativeResource> native_resource;
+    std::shared_ptr<const gpu::PreparedResourceCommands> prepared_work;
+    std::shared_ptr<const PreparedDrawState> prepared_state;
     std::shared_ptr<const core::PaletteSnapshot> palette; // Optional owned native Core draw data.
     // Translucent (D-113): a DrawIndexed of the current bindings that a library captures into a
     // translucency layer rather than drawing it in the pass, with this opacity and, when `resource`
@@ -66,6 +70,7 @@ struct PlanItem {
 struct DrawStages {
     std::vector<size_t> pre_starts, post_starts;
     size_t checked_first = 0, checked_last = 0;
+    bool check_index = true;
 };
 
 struct DrawPlan {
@@ -269,6 +274,12 @@ public:
     // replaced draws keep the plan path. Declaration references made while it is open are
     // mirrored into the plan's references. Install before adaptation.
     void owned_scope(std::function<bool()>);
+    // Explicit host opt-in: keep ordinary source draws as immutable plan calls,
+    // with ordered GPU cuts and a retained binding snapshot at each call.
+    void prepared_plan(std::function<bool()>,
+        std::function<std::shared_ptr<const gpu::PreparedResourceCommands>()>,
+        std::function<std::shared_ptr<const PreparedDrawState>()>);
+    bool planning_prepared() const;
     // Checkpoint original pool and per-frame limit mutations before speculative
     // execution. Scalar variable assignments keep their original behavior.
     void prepared_scope(std::function<bool()>,std::function<void()> failure,

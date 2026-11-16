@@ -242,7 +242,9 @@ public:
         return Answer::None;
     }
     bool answer(CommandListState* state,ResourceCopyTarget& target,float& result,std::wstring& reason,OperandGap& gap){
-        if (service->application) {
+        // Prepared resource commands mutate the authoritative registry. The
+        // application's entry snapshot cannot answer subsequent slot queries.
+        if (service->application && !(service->preparing && service->preparing())) {
             if (service->application(target,*state,result,reason)) return true;
             if (!reason.empty()) return false;
         }
@@ -984,6 +986,11 @@ struct DrawPlanAdapter::Runtime {
     void application_draw(CommandListState& state)
     {
         if(active->skip_original && !keep_original)return;
+        if(planning_prepared()){
+            if(!state.call_info)return;
+            PlanItem call;call.operation=PlanOperation::Caller;indexed(call,state);
+            active->skip_original=true;keep_original=false;return;
+        }
         if(!issue(true)){active->skip_original=true;keep_original=false;return;}
         if(facts && facts().native_calls && !state.input_layout_overrides.empty()){
             PlanItem call;call.operation=PlanOperation::Caller;indexed(call,state);
@@ -1003,6 +1010,15 @@ struct DrawPlanAdapter::Runtime {
     std::function<bool()> draw_gate;
     DrawPlanAdapter::OwnedBinding owned_binding;
     size_t shader_depth=0;
+    std::function<bool()> prepared_plan_gate;
+    std::function<std::shared_ptr<const gpu::PreparedResourceCommands>()> prepared_cut;
+    std::function<std::shared_ptr<const PreparedDrawState>()> prepared_capture;
+    bool planning_prepared() const {return prepared_plan_gate && prepared_plan_gate();}
+    void cut_plan(){
+        if(!planning_prepared())return;
+        if(auto packet=prepared_cut()){PlanItem work;work.operation=PlanOperation::PreparedWork;
+            work.prepared_work=std::move(packet);append(std::move(work));}
+    }
     std::unordered_set<CustomResource*> owned_contents;
     bool drawing() const {return draw_gate && draw_gate();}
     // The owned callbacks apply: the host's owned scope, or within a CustomShader in a draw's scope.
@@ -1197,7 +1213,7 @@ struct DrawPlanAdapter::Runtime {
             refuse(L"Resource matching requires an adapted single resource target");
         matches.clear();bound=false;
         ApplicationResource application; std::wstring application_why;
-        const bool native = application_query && application_query(resolved,state,application,application_why);
+        const bool native = !(queries->preparing && queries->preparing()) && application_query && application_query(resolved,state,application,application_why);
         if (!native && !application_why.empty()) refuse(application_why);
         if (native) {
             bound=application.source.bound; native_resource_matches(application.source,state,matches,application.index_region_hash);
@@ -1436,6 +1452,11 @@ struct DrawPlanAdapter::Runtime {
             if (!layout || item.layout.size() >= 256) refuse(L"Invalid layout operation list");
             item.layout.push_back(*layout);
         }
+        if(planning_prepared() && !shader_depth){
+            cut_plan();item.prepared_state=prepared_capture();
+            if(!item.prepared_state)refuse(L"Prepared draw has no retained binding snapshot");
+            append(std::move(item));return;
+        }
         if(palette_source && !(facts && facts().native_calls)){
             // The draw's bone data is the renderer's: without it the Mod's mesh cannot be posed.
             std::wstring reason;
@@ -1571,7 +1592,7 @@ struct DrawPlanAdapter::Runtime {
             }
             if(shader_command && !owned() && !drawing())refuse(L"CustomShader needs the host's owned GPU scope, which replaced draws do not open");
             // In a draw's scope everything the shader's lists run is owned work (D-087).
-            const bool nested=!owned() && drawing();
+            const bool nested=(!owned() && drawing()) || planning_prepared();
             struct Nesting {size_t& depth;bool on;~Nesting(){if(on)--depth;}} nesting{shader_depth,nested};
             if(nested)++shader_depth;
             if(!shader_command || !shader_command(*shader,*state,why) || nested_failed)
@@ -1580,7 +1601,7 @@ struct DrawPlanAdapter::Runtime {
         }
         if(as<DrawCommand>(original, kinds, K_DrawCommand)){
             if(state->call_info && state->call_info->hunting_skip)return;
-            if(draw_prepare && gpu()){std::wstring why;if(!draw_prepare(*state,why))refuse(why.empty()?L"Source draw preparation refused":why);}
+            if(draw_prepare && gpu() && !(planning_prepared() && !shader_depth)){std::wstring why;if(!draw_prepare(*state,why))refuse(why.empty()?L"Source draw preparation refused":why);}
             // Original DrawCommand flushes even for a zero-count draw, before
             // evaluating arguments or entering the draw/dispatch implementation.
             flush(*state);
@@ -1611,7 +1632,7 @@ struct DrawPlanAdapter::Runtime {
                 }
             }
         }
-        if(resource_command && gpu() && (as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation) ||
+        if(resource_command && gpu() && !(planning_prepared() && !shader_depth && (kinds & K_DrawCommand)) && (as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation) ||
            as<ClearViewCommand>(original, kinds, K_ClearViewCommand) || as<StoreCommand>(original, kinds, K_StoreCommand) ||
            as<DrawCommand>(original, kinds, K_DrawCommand) || as<SlotRangeCopyOperation>(original, kinds, K_SlotRangeCopyOperation))) {
             std::wstring why;
@@ -1630,7 +1651,7 @@ struct DrawPlanAdapter::Runtime {
             if (state->call_info && state->call_info->hunting_skip) return;
             PlanItem item; item.operation = PlanOperation::DrawIndexed;
             const auto* info = state->call_info;
-            if(facts && facts().native_calls){
+            if(planning_prepared() || (facts && facts().native_calls)){
                 if(draw->type==DrawCommandType::FROM_CALLER){
                     if(!info)return;item.operation=PlanOperation::Caller;indexed(item,*state);return;
                 }
@@ -1689,6 +1710,7 @@ struct DrawPlanAdapter::Runtime {
                 item.automatic = true; item.instance_count = info->InstanceCount; item.first_instance = info->FirstInstance;
                 break;
             default:
+                if(planning_prepared())refuse_draw(L"Prepared source call needs its indirect or stream-output adapter");
                 // dispatch (the game's last compute shader, which a render pass cannot run), drawauto (stream
                 // output) and the indirect draws (arguments in a GPU buffer): the layer does not issue them in a
                 // replaced draw. The command does nothing, the original's warning says so once, and the draw's
@@ -2165,6 +2187,14 @@ void DrawPlanAdapter::owned_scope(std::function<bool()> gate){
     if(runtime_->active || !runtime_->adapted.empty() || !gate || runtime_->owned_gate)refuse(L"Install one owned scope gate before adaptation");
     runtime_->owned_gate=gate;runtime_->queries->gate=std::move(gate);
 }
+void DrawPlanAdapter::prepared_plan(std::function<bool()> gate,
+    std::function<std::shared_ptr<const gpu::PreparedResourceCommands>()> cut,
+    std::function<std::shared_ptr<const PreparedDrawState>()> capture){
+    if(runtime_->active || !runtime_->adapted.empty() || runtime_->prepared_plan_gate || !gate || !cut || !capture)
+        refuse(L"Install one prepared draw-plan provider before adaptation");
+    runtime_->prepared_plan_gate=std::move(gate);runtime_->prepared_cut=std::move(cut);runtime_->prepared_capture=std::move(capture);
+}
+bool DrawPlanAdapter::planning_prepared() const {return runtime_->planning_prepared();}
 void DrawPlanAdapter::prepared_scope(std::function<bool()> gate,std::function<void()> failure,
     std::function<void(CustomResourcePool*)> pool,std::function<void(PoolCopyOperation&)> pool_copy,
     std::function<void(ResetPerFrameLimitsCommand&)> limits){
@@ -2349,7 +2379,7 @@ bool DrawPlanAdapter::execute_matches(const std::vector<CommandList*>& pre,const
 bool DrawPlanAdapter::execute_stages(const std::vector<CommandList*>& pre,const std::vector<CommandList*>& post,const DrawStages& stages,CommandListState& state,
                                      DrawPlan& output,std::wstring& reason)
 {
-    return execute_impl(pre,&post,state,output,reason,{},true,&stages);
+    return execute_impl(pre,&post,state,output,reason,{},stages.check_index,&stages);
 }
 bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const std::vector<CommandList*>* post,CommandListState& state,DrawPlan& output,std::wstring& reason,OriginalCall between,bool matched,
                                    const DrawStages* stages)
@@ -2443,7 +2473,24 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
             after.this_target=state.this_target;after.resource=state.resource;after.view=state.view;after.post=true;
             if(runtime_->fresh)runtime_->fresh(after);
             // A stage's post list runs whatever the index buffer; the matched sections' only where they are met again.
-            if(stages)run(*post,after,&stages->post_starts,checked?0:stages->checked_first,checked?0:stages->checked_last);
+            if(matched && runtime_->planning_prepared()){
+                // The original checks IB again in AfterDraw. Binding a different
+                // tracked IB can select different post lists, not just none.
+                ResourceCopyTarget target;target.type=ResourceCopyTargetType::INDEX_BUFFER;
+                bool bound=false;TextureOverrideMatches matches;
+                runtime_->texture_matches(target,after,bound,matches);
+                std::vector<CommandList*> rematched;
+                for(auto* match:matches)rematched.push_back(&match->post_command_list);
+                if(stages){
+                    std::vector<CommandList*> roots(post->begin(),post->begin()+stages->checked_first);
+                    roots.insert(roots.end(),rematched.begin(),rematched.end());
+                    roots.insert(roots.end(),post->begin()+stages->checked_last,post->end());
+                    auto starts=stages->post_starts;
+                    for(auto& start:starts)if(start>=stages->checked_last)
+                        start=start-(stages->checked_last-stages->checked_first)+rematched.size();
+                    run(roots,after,&starts);
+                }else run(rematched,after);
+            }else if(stages)run(*post,after,&stages->post_starts,checked?0:stages->checked_first,checked?0:stages->checked_last);
             else run(*post,after);
             nested();
             runtime_->flush(after);
@@ -2452,6 +2499,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         // What the lists leave bound after their last draw reaches no draw of the plan: the game binds its
         // own for its next draw, and nothing is issued for it.
         nested();
+        runtime_->cut_plan();
         if(runtime_->keep_original && !hunting_skip)candidate.skip_original=false;
         // The lists ran to their end (D-162): the Mod's variables are what the original leaves. Where the
         // host cannot draw the draw as the Mod's, the output stays and the reason goes back.
