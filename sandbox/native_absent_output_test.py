@@ -1,9 +1,8 @@
 """Proven absent outputs must not prevent otherwise supported native compute calls."""
 from pathlib import Path
 import json,sys,struct,time
-from harness import Checks,Sandbox,test_dir
+from harness import Checks,Sandbox,test_dir, configuration_root
 from native_compute_test import compile_shader,read_compute_result
-from runtime_fixture import CORE
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
 
@@ -19,7 +18,7 @@ def main():
    if case=='mixed':config+='vk_binding = cs-u0, 0, 0\ncs-u0 = ref cs-u0\n'
    config+='handling = skip\ndispatch = 1,1,1\ndispatch = 1,1,1\ndispatch = 1,1,1\n'
   (mods/'test.ini').write_text(config,encoding='ascii');output=root/'result.bin'
-  env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(root/'settings'),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
+  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(root/'settings'),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
   args=['--compute-shader',str(shader),'--compute-output',str(output),'--compute-uniform-alias','--api','1.3']
   if case!='mixed':args+=['--submit2','2' if case=='khr' else '1']
   if case=='push':args+=['--descriptors','push']

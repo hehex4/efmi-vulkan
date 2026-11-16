@@ -7,8 +7,7 @@ import struct
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_shader_test import compile_shader
 from native_shader_test import colored_pixels, wait_graphics_ready
 from runtime_test import sandbox_shader_hashes
@@ -30,7 +29,7 @@ def scene(checks, case):
     (mods/"test.ini").write_text("namespace = application_image\n[Constants]\nglobal $saved = 0\n[ResourceHeld]\n"
         "[ShaderOverrideCompute]\nhash = %08x\nvk_binding = cs-t0, 0, 2\n"%crc32c(shader.read_bytes())+body,encoding="ascii")
     output=root/"result.bin"
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_ENABLED="1",VK_LAYER_VALIDATE_SYNC="1")
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED="1",VK_LAYER_VALIDATE_SYNC="1")
     args=["--compute-shader",str(shader),"--compute-output",str(output),"--compute-image","--compute-repeat","2"]
     if case=="push":args += ["--descriptors","push"]
     if case=="secondary":args.append("--compute-secondary")
@@ -65,7 +64,7 @@ def layout_scene(checks,case):
     (mods/"test.ini").write_text("namespace = image_layout\n[Constants]\nglobal $loaded = 1\n[ResourceHeld]\n"
         "[ShaderOverrideFirst]\nhash = %08x\nvk_binding = cs-t0, 0, 2\nvk_binding = cs-t1, 0, 3\nResourceHeld = ref cs-t0\ncs-t1 = ref ResourceHeld\n"%crc32c(shader.read_bytes()),encoding="ascii")
     output=root/"result.bin"
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_ENABLED="1",VK_LAYER_VALIDATE_SYNC="1")
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED="1",VK_LAYER_VALIDATE_SYNC="1")
     args=["--compute-shader",str(shader),"--compute-output",str(output),"--compute-image-reference",str(later)]
     if case=="layout_push":args += ["--descriptors","push"]
     if case=="layout_secondary":args.append("--compute-secondary")
@@ -97,13 +96,13 @@ def graphics_scene(checks,case):
     compile_shader(source,fixes,"%08x"%fragment,"ps")
     pixels=root/"pixels.raw"
     keys=root/"keys.txt";keys.write_text("1\n",encoding="ascii");trigger=root/"capture.now"
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),
         EFMI_VK_M2_ENABLED="1",EFMI_VK_TEST_NOTICE="> application image",EFMI_VK_TEST_NOTICES_READBACK=str(pixels),
         EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC="1")
     env["EFMI_VK_TEST_NOTICES_READBACK_TRIGGER"]=str(trigger)
     if case=="graphics_swap_relative":
         base=Path(__file__).resolve().parents[1]/"dist"
-        env["EFMI_VK_M2_MODS"]=os.path.relpath(mods,base)
+        env["EFMI_VK_CONFIGURATION"]=os.path.relpath(root,base)
         env["EFMI_VK_M2_SETTINGS"]=os.path.relpath(settings,base)
     args=["--readable-swapchain"]
     if case=="graphics_push":args += ["--descriptors","push"]

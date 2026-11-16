@@ -13,8 +13,8 @@ from harness import Checks
 def own_mesh(checks, case):
     class Fixture(mesh.Sandbox):
         def __enter__(self):
-            mods = Path(self.env_extra['EFMI_VK_M2_MODS'])
-            root = mods.parent
+            root = Path(self.env_extra['EFMI_VK_CONFIGURATION'])
+            mods = root / 'Mods'
             ini = mods / 'mod.ini'
             text = ini.read_text()
             vertex, fragment = mesh.sandbox_shader_hashes()

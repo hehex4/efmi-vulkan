@@ -1,8 +1,7 @@
 """Actual color destinations in ordinary classic render passes."""
 from pathlib import Path
 import json,sys,time,shutil
-from harness import Checks,Sandbox,test_dir,DIST
-from runtime_fixture import CORE
+from harness import Checks,Sandbox,test_dir,DIST, configuration_root
 from runtime_test import sandbox_shader_hashes,band_pixels
 from efmi_vk.probe_client import ProbeClient
 
@@ -13,9 +12,9 @@ def scene(checks,case):
  body='if $saved == 0\nResourceSource = ref o0\n$saved = 1\n$source_draw = 1\nelse\n$source_draw = 0\nendif\nif $source_draw == 0\n'+command+'endif\n'
  (mods/'mod.ini').write_text('namespace = classic_outputs\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceSource]\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
- env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native classic outputs',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
+ env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native classic outputs',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
  if case=='analysis':
-  (root/'d3dx.ini').write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\nanalyse_options = dump_rt buf\n',encoding='ascii')
+  (root/'d3dx.ini').write_text('[Include]\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\nanalyse_options = dump_rt buf\n',encoding='ascii')
   keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii');env['EFMI_VK_TEST_KEYS']=str(keys)
  args=['--readable-swapchain','--api','1.3','--native-output',str(owned),'--native-output-classic','2' if case=='renderpass2' else '1']
  if case in ('owned_control','restore','restore_once'):args+=['--native-output-owned']

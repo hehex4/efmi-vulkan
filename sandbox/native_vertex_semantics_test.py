@@ -9,8 +9,7 @@ import sys
 import time
 from unittest.mock import patch
 
-from harness import Checks, DIST, ROOT, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, DIST, ROOT, Sandbox, test_dir, configuration_root
 from runtime_test import band_pixels, sandbox_shader_hashes
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
@@ -47,7 +46,7 @@ def scene(checks, case, emitter):
             '[ResourceIndex]\ntype = Buffer\nformat = R16_UINT\nfilename = index.buf\n')
     (mods / 'mod.ini').write_text(ini, encoding='ascii')
     screen, source, trigger = root / 'screen.raw', root / 'source.raw', root / 'readback.trigger'
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings),
                EFMI_VK_M2_ENABLED='1', EFMI_VK_SHADER_INPUTS=str(cache), EFMI_VK_TEST_NOTICE='> vertex identity',
                EFMI_VK_TEST_NOTICES_READBACK=str(screen), EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger),
                VK_LAYER_VALIDATE_SYNC='1')
@@ -61,7 +60,7 @@ def scene(checks, case, emitter):
             end = time.monotonic() + 2.5
             while time.monotonic() < end:
                 status = probe.status().get('replacement', {})
-                if status.get('counters', {}).get('own_mesh', 0) > 2:
+                if status.get('shader_overrides', {}).get('executed', 0) > 2:
                     break
                 time.sleep(.05)
             if case == 'swap':
@@ -83,11 +82,11 @@ def scene(checks, case, emitter):
     (root / 'layer.log').write_text(log, encoding='utf-8')
     (root / 'status.json').write_text(json.dumps(status, indent=2), encoding='ascii')
     expected = case not in ('unknown', 'numeric')
-    checks.equal('shader input semantics resolved for module' in log, case != 'unknown',
-                 case + ': only exact input identity enters the semantic evaluator')
+    checks.equal(bool(status.get('shader_overrides', {}).get('last_reason')), not expected,
+                 case + ': unsupported input identity or format reports an admission refusal')
     checks.equal(band_pixels(screen), 5516 if expected else 6418, case + ': original mesh hidden only after a proven replacement')
     checks.equal(band_pixels(source), 902, case + ': independent source color remains intact')
-    checks.equal(status.get('counters', {}).get('own_mesh', 0) > 0, expected, case + ': replacement actually recorded')
+    checks.equal(status.get('shader_overrides', {}).get('executed', 0) > 0, expected, case + ': replacement actually recorded')
     meta = json.loads(Path(str(screen) + '.json').read_text())
     data = screen.read_bytes(); width, height = meta['width'], meta['height']
     clear = data[4 * ((height - 2) * width + width - 2):][:3]

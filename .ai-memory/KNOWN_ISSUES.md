@@ -1,5 +1,23 @@
 # EFMI Vulkan - Known issues
 
+## BUG-167: Sandbox geometry shader filename was shadowed by a flag (fixed in D-323)
+
+The earlier boolean --geometry-shader branch consumed the option before the later
+filename branch, so native_graphics_stages_test.py passed a shader path as an unknown
+argument and exited with code 2 before rendering. native-entry-migration-resumed.out
+reproduces it. Original CommandList.cpp 2452-2490 selects the shader stage and filename
+separately; GS save/restore is independent of input-geometry state. DX11 reference-
+counted lifetime with deferred destruction, hazard tracking and context order are
+unchanged; this failure is only the sandbox parser, not the layer renderer.
+
+Rename the boolean to --geometry-shader-scene, preserve --geometry-shader PATH and
+update its four dynamic-input callers. Rebuild the sandbox; native GS replacement
+then passes 4/4. The fixture root also needs an explicit Include for its INI overrides.
+The follow-up GS skip and HS/DS replacements pass 11/11; renamed dynamic scenes and
+all 33 migrated entry scripts pass their selected cases (190 checks), with 90 further
+checks in native-entry-extra.out. Layer/four DLLs remain
+3.3.9; no real-game or deployed-file action.
+
 ## BUG-166: Prepared slot queries could read the entry snapshot (fixed 3.3.7)
 
 D-320 integration review found that NativeResourceQuery consulted the application's

@@ -5,8 +5,7 @@ import struct
 import subprocess
 import sys
 import time
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_shader_test import compile_shader
 from native_compute_test import read_compute_result, VALIDATOR
 from efmi_vk.hashes import crc32c
@@ -42,7 +41,7 @@ def scene(checks,case):
     if mode=='dispatch':body+='dispatch = 1, 1, 1\n'
     (mods/'test.ini').write_text('namespace = storage_image\n[Constants]\nglobal $loaded = 1\n[ResourceHeld]\n[ResourceOld]\n'
         '[ShaderOverrideFirst]\nhash = %08x\nvk_binding = cs-u0, 0, 2\nvk_binding = cs-u1, 0, 3\n'%crc32c(shader.read_bytes())+body,encoding='ascii')
-    output=root/'result.bin';env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
+    output=root/'result.bin';env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
     args=['--compute-shader',str(shader),'--compute-output',str(output),'--compute-image-reference',str(later),'--reference-storage']
     if formatless:args+=['--storage-formatless']
     if case=='formatless_core':args+=['--api','1.3']

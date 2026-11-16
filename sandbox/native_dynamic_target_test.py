@@ -4,8 +4,7 @@ import json
 import shutil
 import sys
 import time
-from harness import Checks, Sandbox, test_dir, DIST
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, DIST, configuration_root
 from native_shader_test import compile_shader, colored_pixels
 from runtime_test import sandbox_shader_hashes, band_pixels
 from efmi_vk.probe_client import ProbeClient
@@ -19,7 +18,7 @@ def scene(checks, case):
     if case=='unowned':body='ResourceSaved = ref o0\nhandling = skip\n'
     (mods/'mod.ini').write_text('namespace = native_target\n[Constants]\nglobal $matched = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body+'[TextureOverrideTarget]\nmatch_type = Texture2D\n$matched = 1\n',encoding='ascii')
     settings=root/'settings';settings.mkdir();pixels=root/'pixels.raw'
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output resources',EFMI_VK_TEST_NOTICES_READBACK=str(pixels))
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output resources',EFMI_VK_TEST_NOTICES_READBACK=str(pixels))
     with Sandbox(seconds=3,threads=2 if case=='secondary' else 0,validation=True,entry='inject' if case=='inject' else 'layer',env_extra=env,extra_args=['--readable-swapchain','--dynamic-rendering','1','--api','1.3']) as sb:
         time.sleep(1)
         with ProbeClient(sb.pid) as probe:status=probe.status().get('replacement',{})
@@ -43,7 +42,7 @@ def owned_scene(checks,case):
     shader=root/'sample.hlsl';shader.write_text('[[vk::binding(5,1)]] [[vk::combinedImageSampler]] Texture2D<float4> tex;\n[[vk::binding(5,1)]] [[vk::combinedImageSampler]] SamplerState samp;\nfloat4 main() : SV_Target0 { return tex.SampleLevel(samp,float2(0,0),0); }\n',encoding='ascii')
     compile_shader(shader,fixes,'%08x'%fragment,'ps')
     pixels=root/'pixels.raw';trigger=root/'capture.now'
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output resources',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output resources',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
     args=['--readable-swapchain','--native-target','--dynamic-rendering','2' if case=='owned_push' else '1','--api','1.3']
     if case=='owned_push':args+=['--descriptors','push']
     with Sandbox(seconds=20,threads=0,validation=True,env_extra=env,extra_args=args) as sb:

@@ -2250,7 +2250,7 @@ int wmain(int argc, wchar_t** argv)
             g.extended_raster = _wtoi(argv[++i]);
         else if (a == L"--primitive-restart" && i + 1 < argc)
             g.restart_mode = _wtoi(argv[++i]);
-        else if (a == L"--geometry-shader")
+        else if (a == L"--geometry-shader-scene")
             g.geometry_shader_scene = true;
         else if (a == L"--geometry-dynamic" && i + 1 < argc)
             g.dynamic_geometry = _wtoi(argv[++i]);

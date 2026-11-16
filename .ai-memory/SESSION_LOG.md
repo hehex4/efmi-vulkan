@@ -3750,3 +3750,31 @@ root Include entry instead of removed package/Core arguments.
 No game, deployment, candidate, installed/system mutation or remote action. Continue
 remaining native fixture migration and complete host resource/pipeline admission,
 attachment preservation and recording ownership, then I-01/I-04/I-05/capture.
+
+## 2026-11-16: D-323 native acceptance root migration
+
+Migrated 33 independent native scripts, the matched-descriptor wrapper and standalone
+vertex-semantic entry to the original root configuration. Removed implicit installed
+Core arguments/custom-root Includes; relative module exchange now resolves the root.
+Original IniHandler.cpp 1574-1595 resolves Include/include_recursive into one registry.
+DX11 reference-counted lifetime with deferred destruction, hazard tracking and context
+order still require the existing explicit Vulkan contracts; no alternate loader is added.
+
+The first own-mesh check is 11/12 only because it reads the removed own_mesh counter;
+independent moved-geometry/depth pixels pass. The target-size check later is 3/4 only
+because it reads folder_generation; the shared variable is 1 and diagnostics zero.
+Current public registry status replaces these and other root reload/semantic assertions;
+actual pixels/data are unchanged. GS startup separately fails with unknown argument:
+its filename option is shadowed by a boolean with the same spelling (BUG-167). Rename
+the boolean --geometry-shader-scene, update four callers, rebuild the sandbox, and add
+the graphics-stage fixture's missing explicit Include. GS then passes 4/4.
+
+Final selected cases across all 33 independent scripts pass 190/190 (individual latest
+entry-native_*.out and native-entry-migration-first/resumed/remaining/final.out). Eight
+additional invocations pass 90/90 in native-entry-extra.out, covering GS skip, HS/DS
+replacement, renamed dynamic scenes, F10, ordered descriptors, exact/unknown/numeric
+vertex semantics and classic frame analysis. Text 735 passes in native-entry-text.out.
+Source/four DLLs stay 3.3.9 / ABI fd2102f32b81fd00; no production layer change in this
+round. No game, candidate refresh, deployment, installed/system mutation or remote
+write. Continue legacy capture/character fixture retirement, complete host resource/
+pipeline admission, pass preservation and recording ownership, then I-01/I-04/I-05.

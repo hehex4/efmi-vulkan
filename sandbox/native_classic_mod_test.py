@@ -1,9 +1,8 @@
 """Actual Mod draws retain their geometry and shaders inside masked classic passes."""
 from pathlib import Path
 import sys,json,time,struct,shutil
-from harness import Checks,Sandbox,test_dir,DIST
+from harness import Checks,Sandbox,test_dir,DIST, configuration_root
 from efmi_vk.hashes import crc32c
-from runtime_fixture import CORE
 from runtime_test import sandbox_shader_hashes,band_pixels
 from native_shader_test import compile_pixel,compile_shader,colored_pixels
 from efmi_vk.probe_client import ProbeClient
@@ -59,11 +58,11 @@ def scene(checks,case,matched=False):
    (mods/'top.buf').write_bytes(struct.pack('<6f',-.10,-.35,.10,-.35,0,-.55))
    ini+='[ResourceTop]\ntype = Buffer\nstride = 8\nfilename = top.buf\n'
  (mods/'mod.ini').write_text(ini,encoding='ascii')
- env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic null',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
+ env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic null',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
  trigger=root/'readback.trigger';env['EFMI_VK_TEST_NOTICES_READBACK_TRIGGER']=str(trigger)
  if hunting:
   keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii');env['EFMI_VK_TEST_KEYS']=str(keys)
-  (root/'d3dx.ini').write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nmarking_mode = '+('original' if mode=='original' else 'pink')+'\nnext_pixelshader = no_modifiers VK_NUMPAD2\ndone_hunting = no_modifiers VK_ADD\n',encoding='ascii')
+  (root/'d3dx.ini').write_text('[Include]\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nmarking_mode = '+('original' if mode=='original' else 'pink')+'\nnext_pixelshader = no_modifiers VK_NUMPAD2\ndone_hunting = no_modifiers VK_ADD\n',encoding='ascii')
  args=['--readable-swapchain','--api','1.3','--native-output',str(source),'--native-output-classic','2' if mode=='rp2' else '1']
  if mrt:args+=['--native-output-mrt']
  if owned:args+=['--native-output-owned']
@@ -95,7 +94,8 @@ def scene(checks,case,matched=False):
  wanted=(6418 if mode in ('control','post') else 5516) if beside else 5516 if matched else 6418 if mode=='control' else 902 if mode=='post' else 5516 if mode=='once' else 0
  counts=[band_pixels(screen),band_pixels(source)]
  checks.equal(counts[0],6418 if beside else 5516,case+': original geometry is retained beside the Mod or hidden as requested')
- checks.check(replacement.get('counters',{}).get('own_mesh',0)>0,case+': Mod actually records its own mesh')
+ checks.check(replacement.get('kind')=='configuration' and replacement.get('configuration_generation',{}).get('ini',{}).get('draws',0)>0,
+              case+': shared original registry executes the draw lists')
  meta=json.loads(Path(str(screen)+'.json').read_text());width,height=meta['width'],meta['height'];pixels=screen.read_bytes()
  checks.equal(len(pixels),width*height*4,case+': complete screen readback')
  clear=pixels[4*((height-2)*width+width-2):][:3]

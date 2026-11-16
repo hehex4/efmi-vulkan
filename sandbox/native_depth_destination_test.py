@@ -1,8 +1,7 @@
 """Independent original and introduced DSV images establish actual output destinations."""
 from pathlib import Path
 import json,sys,time,struct,shutil
-from harness import Checks,Sandbox,test_dir,DIST
-from runtime_fixture import CORE
+from harness import Checks,Sandbox,test_dir,DIST, configuration_root
 from runtime_test import sandbox_shader_hashes,band_pixels
 from efmi_vk.probe_client import ProbeClient
 
@@ -17,7 +16,7 @@ def scene(checks,case):
  body='if $saved == 0\nResourceSource = ref oD\n$saved = 1\n$source_draw = 1\nelse\n$source_draw = 0\nendif\nif $source_draw == 0\n'+commands+'endif\n'
  (mods/'mod.ini').write_text('namespace = depth_targets\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\n[Present]\n$saved = 0\n[ResourceSource]\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
- env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native depth targets',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
+ env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native depth targets',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if mode=='khr' else '1','--native-output',str(owned),'--native-depth-destination','--native-output-depth-stencil' if combined else '--native-output-stencil' if stencil else '--native-output-depth']
  if depthonly:args+=['--native-output-no-color']
  if absent:args+=['--native-depth-absent']

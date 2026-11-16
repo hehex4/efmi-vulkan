@@ -5,9 +5,8 @@ import struct
 import shutil
 import sys
 import time
-from harness import Checks,Sandbox,test_dir,DIST
+from harness import Checks,Sandbox,test_dir,DIST, configuration_root
 from native_compute_test import compile_shader,read_compute_result
-from runtime_fixture import CORE
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
 
@@ -35,7 +34,7 @@ def scene(checks,case):
         return header+body+''.join('[Resource%s]\ntype = Buffer\nstride = %d\nfilename = input.buf\n%s'%(name,stride,flags) for name in ('A','B'))
     ini=mods/'test.ini';ini.write_text(content(),encoding='ascii')
     output=root/'compute.raw';keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii')
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(root/'settings'),
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(root/'settings'),
         EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
     args=['--compute-shader',str(shader),'--compute-output',str(output),'--compute-bindings']
     if case=='push':args+=['--descriptors','push']

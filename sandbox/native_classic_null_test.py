@@ -1,8 +1,7 @@
 """Classic null bindings require real unused attachment references and compatible selected shaders."""
 from pathlib import Path
 import sys,json,time,struct,shutil
-from harness import Checks,Sandbox,test_dir,DIST
-from runtime_fixture import CORE
+from harness import Checks,Sandbox,test_dir,DIST, configuration_root
 from runtime_test import sandbox_shader_hashes,band_pixels
 from native_shader_test import compile_pixel,compile_shader,colored_pixels
 from efmi_vk.probe_client import ProbeClient
@@ -30,12 +29,12 @@ def scene(checks,case):
  ini='namespace = classic_null\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%vertex+body
  if filtered:ini+='[ShaderOverrideFilter]\nhash = %08x\ndepth_filter = depth_'%fragment+mode+'\n'
  (mods/'mod.ini').write_text(ini,encoding='ascii')
- env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic null',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
+ env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic null',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
  if hunting or mode=='swap':
   trigger=root/'readback.trigger';env['EFMI_VK_TEST_NOTICES_READBACK_TRIGGER']=str(trigger)
  if hunting:
   keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii');env['EFMI_VK_TEST_KEYS']=str(keys)
-  (root/'d3dx.ini').write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nmarking_mode = '+('original' if mode=='original' else 'pink')+'\nnext_pixelshader = no_modifiers VK_NUMPAD2\ndone_hunting = no_modifiers VK_ADD\n',encoding='ascii')
+  (root/'d3dx.ini').write_text('[Include]\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nmarking_mode = '+('original' if mode=='original' else 'pink')+'\nnext_pixelshader = no_modifiers VK_NUMPAD2\ndone_hunting = no_modifiers VK_ADD\n',encoding='ascii')
  args=['--readable-swapchain','--api','1.3','--native-output',str(source),'--native-output-classic','2' if mode=='rp2' else '1']
  if mrt:args+=['--native-output-mrt']
  if owned:args+=['--native-output-owned']

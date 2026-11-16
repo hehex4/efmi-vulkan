@@ -6,8 +6,7 @@ GPU refresh/refusal counters prove the pass adapter runs with real allocations.
 """
 from pathlib import Path
 import json,sys,time,shutil
-from harness import Checks,Sandbox,test_dir,DIST
-from runtime_fixture import CORE
+from harness import Checks,Sandbox,test_dir,DIST, configuration_root
 from runtime_test import sandbox_shader_hashes,band_pixels
 from efmi_vk.probe_client import ProbeClient
 
@@ -17,7 +16,7 @@ def scene(checks,case):
  if case=='control':body=''
  (mods/'mod.ini').write_text('[ShaderOverrideUniform]\nhash = %08x\n'%fragment+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();screen=root/'screen.raw';owned=root/'owned.raw';trigger=root/'capture.trigger'
- env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',
+ env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',
           EFMI_VK_TEST_NOTICE='> persistent native uniform',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if case=='khr' else '1',
        '--native-output',str(owned),'--native-output-memory','2' if case=='disjoint' else '1','--native-uniform-persistent']

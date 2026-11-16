@@ -1,8 +1,7 @@
 """Actual destination rebinding preserves stored passes, layout restoration and runtime exchange."""
 from pathlib import Path
 import json,sys,time,shutil,struct
-from harness import Checks,Sandbox,test_dir,DIST
-from runtime_fixture import CORE
+from harness import Checks,Sandbox,test_dir,DIST, configuration_root
 from runtime_test import sandbox_shader_hashes,band_pixels
 from efmi_vk.probe_client import ProbeClient
 from native_shader_test import compile_shader,colored_pixels,wait_graphics_ready
@@ -63,7 +62,7 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
   shader=root/'uniform.hlsl';shader.write_text('[[vk::binding(0,0)]] cbuffer U { float4 offset; float4 color; };\nfloat4 main() : SV_Target0 { return color.z > .9 ? float4(0,1,0,1) : float4(1,0,1,1); }\n',encoding='ascii')
   compile_shader(shader,fixes,'%08x'%fragment,'ps')
  trigger=root/'capture.trigger';keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii')
- env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output destinations',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1',EFMI_VK_TEST_KEYS=str(keys))
+ env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output destinations',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1',EFMI_VK_TEST_KEYS=str(keys))
  env['EFMI_VK_TEST_NOTICES_READBACK_TRIGGER']=str(trigger)
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if case=='khr' else '1','--native-output',str(owned)]
  if case=='query':args+=['--native-output-query']
@@ -86,7 +85,7 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
     deadline=time.monotonic()+7
     while time.monotonic()<deadline:
      status=probe.status().get('replacement',{})
-     count=status.get('module' if case=='swap' else 'folder_generation',{}).get('generation' if case=='swap' else 'reloads',0)
+     count=status.get('module' if case=='swap' else 'configuration_generation',{}).get('generation' if case=='swap' else 'reloads',0)
      if count>0:break
      time.sleep(.05)
     checks.check(count>0,case+': requested generation exchange completed')

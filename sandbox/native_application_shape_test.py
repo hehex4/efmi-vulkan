@@ -4,8 +4,7 @@ import json
 import struct
 import sys
 import time
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_shader_test import compile_shader
 from native_compute_test import read_compute_result
 from efmi_vk.hashes import crc32c
@@ -42,7 +41,7 @@ def scene(checks,case):
         return sum((base+(layer+partial)*3+mip+partial)*(1+layer*3+mip) for layer in range(1 if mismatch and destination else count) for mip in range(mips))
     expected=total(1)+400*total(37,True) if mismatch else 101*total(1)+200*total(9)+100*total(37)
     output=root/'result.bin'
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
     args=['--compute-shader',str(shader),'--compute-output',str(output),'--compute-image-reference',str(later),
           '--texture-shape','3' if layers==12 else '2' if cube else '1']
     if case.endswith('_push'):args += ['--descriptors','push']

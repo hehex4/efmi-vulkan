@@ -4,8 +4,7 @@ import json
 import struct
 import sys
 import time
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_shader_test import compile_shader
 from native_compute_test import read_compute_result
 from efmi_vk.hashes import crc32c
@@ -53,7 +52,7 @@ def scene(checks,case):
         '[ShaderOverrideCompute]\nhash = %08x\nvk_binding = cs-t0, 0, 2\ncs-t0 = ResourceTexture\n'
         '[ResourceTexture]\nfilename = input.dds\n'%crc32c(shader.read_bytes()),encoding='ascii')
     output=root/'result.bin';keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii')
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
     args=['--compute-shader',str(shader),'--compute-output',str(output),'--compute-image','--compute-repeat','2',
           '--texture-shape','3' if layers==12 else '2' if cube else '1']
     if case.endswith('_push'):args += ['--descriptors','push']

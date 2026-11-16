@@ -4,8 +4,7 @@ import json
 import struct
 import sys
 import time
-from harness import Checks,Sandbox,test_dir
-from runtime_fixture import CORE
+from harness import Checks,Sandbox,test_dir, configuration_root
 from runtime_test import sandbox_shader_hashes
 from native_shader_test import compile_shader,colored_pixels
 from efmi_vk.probe_client import ProbeClient
@@ -26,7 +25,7 @@ def scene(checks,case):
         'float4 main() : SV_Target0 { return color.y > .9 ? float4(0,1,0,1) : float4(1,0,1,1); }\n',encoding='ascii')
     compile_shader(shader,fixes,'%08x'%fragment,'ps')
     pixels=root/'pixels.raw';trigger=root/'capture.trigger'
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',
         EFMI_VK_TEST_NOTICE='> native uniform',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
     secondary=case in ('secondary','file_secondary')
     args=['--readable-swapchain','--dynamic-rendering','2' if case=='push' else '1','--api','1.3','--rendering-split']+(['--descriptors','push'] if case=='push' else [])

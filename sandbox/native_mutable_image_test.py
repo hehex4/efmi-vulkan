@@ -5,8 +5,7 @@ import struct
 import sys
 import time
 import zlib
-from harness import Checks,Sandbox,test_dir
-from runtime_fixture import CORE
+from harness import Checks,Sandbox,test_dir, configuration_root
 from native_shader_test import compile_shader
 from native_compute_test import read_compute_result
 from native_image_shape_test import dds
@@ -50,7 +49,7 @@ def scene(checks,case):
         return header+slot+' = Resource'+a+'\ncs-u1 = Resource'+b+'\n'+''.join('[Resource'+name+']\nfilename = '+('input.png' if case=='wic' else 'input.dds')+'\n'+flags for name in ('A','B'))
     ini=mods/'test.ini';ini.write_text(content(),encoding='ascii')
     keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii');output=root/'result.bin'
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(root/'settings'),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
+    env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(root/'settings'),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
     args=['--compute-shader',str(shader),'--compute-output',str(output),'--compute-image-reference',str(later),'--reference-storage','--reference-rgba']
     if layers>1:args+=['--texture-shape','1','--reference-layers',str(layers)]
     if case=='cube_array':args+=['--reference-cube-arrays']

@@ -1,5 +1,11 @@
 # EFMI Vulkan - Architecture
 
+D-323 migrates 33 independent native acceptance entry scripts, the matched-descriptor
+wrapper and the standalone vertex-semantic entry to the original root configuration.
+Core is included only when configuration explicitly supplies it. Current registry
+status replaces removed package counters; independent pixels/data remain the oracle.
+Legacy character/capture fixture migration and full production Core insertion remain.
+
 D-322 (3.3.9) preflights/replays tracked compute pipeline and allocated descriptor
 bindings after private prepared work. Exact dynamic offsets and sparse higher sets
 are retained; destroyed pipeline layouts are recreated from complete retained

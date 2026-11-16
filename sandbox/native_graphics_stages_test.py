@@ -3,8 +3,7 @@ from pathlib import Path
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from runtime_test import band_pixels
 from native_shader_test import compile_shader, colored_pixels
 from efmi_vk.hashes import crc32c
@@ -46,7 +45,7 @@ def main():
             (mods / "mod.ini").write_text(ini, encoding="ascii")
             kind = {"gs": "geometry", "hs": "hull", "ds": "domain"}[stage]
             (root / "d3dx.ini").write_text(
-                "[Hunting]\nhunting = 1\nmarking_mode = %s\nmarking_actions = asm\n"
+                "[Include]\ninclude_recursive = Mods\n[Hunting]\nhunting = 1\nmarking_mode = %s\nmarking_actions = asm\n"
                 "next_%sshader = no_modifiers VK_NUMPAD8\nmark_%sshader = no_modifiers VK_NUMPAD9\n" %
                 ("pink" if case == "pink" else "original", kind, kind), encoding="ascii")
             settings = root / "settings"; fixes = settings / "ShaderFixes"; fixes.mkdir(parents=True)
@@ -54,7 +53,7 @@ def main():
             if case not in ("baseline", "skip", "pink"): shader.write_bytes(compile_stage(root, stage, 4, vertices=4 if case == "contract" else 3).read_bytes())
             readback, trigger, keys = root / "pixels.raw", root / "read.trigger", root / "keys.txt"
             keys.write_text("1\n", encoding="ascii")
-            env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
+            env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
                 EFMI_VK_TEST_KEYS=str(keys), EFMI_VK_TEST_NOTICE="> native graphics stage test", EFMI_VK_TEST_NOTICES_READBACK=str(readback),
                 EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
             args = ["--readable-swapchain"]

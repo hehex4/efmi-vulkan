@@ -2627,3 +2627,13 @@ Known undefined slots require no unbind for a valid application. Plans are prepa
 and recorded inside one interception; normal application pipeline/set lifetime rules
 still apply. This helper covers the tracked pipeline path, not shader-object execution,
 production pass splitting, queue ordering or full Core admission.
+
+## D-323: Native acceptance uses the original root entry (2026-11-16)
+
+Migrate the remaining independent native rendering/compute scripts through the
+existing configuration_root fixture helper. Remove removed package/Core arguments
+and implicit installed Core includes, not the actual native pixel/data assertions.
+Custom hunting/analysis roots retain their own original configuration. Relative
+paths name the root, including through module exchange. Character-package fixtures
+that still require the retired model remain separate migration/retirement work;
+do not add compatibility aliases to make those tests appear to pass.

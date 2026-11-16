@@ -204,3 +204,18 @@ state refusal. An independent application dispatch after private work produces 1
 including a destroyed original pipeline layout, with clean validation. Prepared 139,
 tracker 867, native compute 91, first-use 12, uniform aliases 15, production 13, ABI 9
 and text pass on four development DLLs 3.3.9. Full production insertion remains open.
+
+D-323 moves 33 more independent native acceptance scripts, the matched-descriptor
+wrapper and standalone vertex-semantic entry to the root configuration. Installed
+Core is no longer inserted by environment arguments or missing custom-root Includes.
+Relative-root module exchange passes. Retired package counters and folder status
+lookups are replaced with the current shared registry API while retaining independent
+GPU pixel/data assertions. The first own-mesh and target-size runs fail only those
+stale assertions. GS startup exposes an independent duplicate sandbox CLI option;
+--geometry-shader-scene now differs from --geometry-shader PATH (BUG-167).
+
+The rebuilt sandbox passes all 33 selected entry checks (190/190), plus eight affected
+follow-up invocations (90/90): GS skip, HS/DS replacement, dynamic input/raster, F10,
+ordered descriptor colors, exact/unknown/numeric semantics and classic frame analysis.
+Text 735 passes. Layer/four DLLs remain 3.3.9; no game or deployment. Legacy character/
+capture fixtures and full host resource/pass/recording integration remain open.

@@ -1,8 +1,7 @@
 """A target write becomes a later sampled input through ordered native commands."""
 from pathlib import Path
 import json,shutil,struct,sys,time
-from harness import Checks,Sandbox,test_dir,DIST
-from runtime_fixture import CORE
+from harness import Checks,Sandbox,test_dir,DIST, configuration_root
 from runtime_test import sandbox_shader_hashes
 from efmi_vk.probe_client import ProbeClient
 from native_shader_test import compile_shader,colored_pixels,wait_graphics_ready
@@ -76,7 +75,7 @@ else
 '''%(fragment,commands)
  (mods/'mod.ini').write_text(ini,encoding='ascii')
  screen=root/'screen.raw';owned=root/'owned.raw';trigger=root/'capture.trigger'
- env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),
+ env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),
           EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> ordered native image phases',
           EFMI_VK_TEST_NOTICES_READBACK=str(screen),EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger),
           VK_LAYER_VALIDATE_SYNC='1')
