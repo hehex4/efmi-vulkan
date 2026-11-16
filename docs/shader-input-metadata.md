@@ -295,3 +295,29 @@ The separate exact module survey still establishes 101/169 historical vertex
 identities. These are historical and sandbox results, not a new game load or
 real-character verification. Full queue scheduling and in-draw CustomShader input
 insertion remain open.
+
+
+## D-298: Multiple declarations of immutable blend bytes (3.1.9)
+
+The different-bone-layout restriction recorded in D-295 above is removed for
+exact semantic declarations. `bone_spans` interprets immutable bytes without
+changing a stream's default metadata; failure also preserves the caller's mask.
+Each generation caches up to 4,096 successful interpretations by stream and both
+offsets/widths. Draw lists retain their required span mask by value and include
+it in their identity. A later declaration cannot change an earlier list.
+
+Package checks cover 8/16/32-bit indices, UNORM/float weights, returning to an
+earlier layout, overlapping/out-of-stride fields, out-of-skeleton indices and
+unnormalized weights. The actual GPU scene interleaves three blend blocks in one
+file and renders each component through its own declaration and moving bones.
+The semantic suite passes 102/102, including actual backend exchange. Package
+checks pass 148 and tracker 829. The affected-area run passes all other areas;
+a cold merged-opacity counter needs 60 frames rather than 30 and passes 48/48
+on the focused rerun, with its original pixel/depth and >40 execution assertions.
+The recorded aggregate failure is not relabelled as a passing run.
+
+This remains sandbox evidence. Missing semantic identity still keeps the older
+limited blend contract, including its same-stream width restriction. Numeric
+conversion, inherited streams and declaration-order-dependent edits remain open.
+Existing owners and synchronization guards still provide the Vulkan lifetime
+and hazard proof; input metadata supplies neither. Candidate remains 3.1.8.

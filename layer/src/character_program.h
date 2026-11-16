@@ -244,5 +244,8 @@ private:
     std::map<uint32_t,std::shared_ptr<efmi::frontend::VertexProfile>> vertex_profiles_;
     uint64_t vertex_profile_bytes_=0;
     const efmi::frontend::VertexProfile* vertex_profile(const ShaderInfo*);
+    // Generation-local interpretations of immutable bytes: stream, offsets, widths.
+    // Draw lists retain the resulting mask by value, independent of later layouts.
+    std::map<std::tuple<uint32_t,uint32_t,uint32_t,uint32_t,uint32_t>,uint64_t> bone_layouts_;
 };
 }

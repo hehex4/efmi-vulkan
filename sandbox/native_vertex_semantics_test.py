@@ -103,10 +103,29 @@ def scene(checks, case, emitter):
     print('artifacts:', root)
 
 
-def merged(checks):
+def merged(checks, layouts=False, exchange=False):
     import native_classic_mod_character_test as character
     original = character.layer_env
+    original_fixture = character.fixture
     roots = []
+    def fixture(folder, *args, **kwargs):
+        result = original_fixture(folder, *args, **kwargs)
+        if layouts:
+            # Three declarations of one file must retain independent bone masks.
+            streams = [(folder / ('stream-%d.buf' % i)).read_bytes() for i in (4, 6, 8)]
+            assert len({len(s) for s in streams}) == 1 and len(streams[0]) % 16 == 0
+            combined = b''.join(s[at:at + 16] for at in range(0, len(streams[0]), 16) for s in streams)
+            (folder / 'shared-blend.buf').write_bytes(combined)
+            path = folder / 'mod.ini'
+            ini = path.read_text(encoding='ascii')
+            for offset, stream in enumerate((4, 6, 8)):
+                ini = ini.replace('vb2 = ResourceS%d\n' % stream,
+                                  'vb2 = ResourceSharedBlend\n'
+                                  'vb2->ElementOffset(BLENDWEIGHT, 0) = %d\n'
+                                  'vb2->ElementOffset(BLENDINDICES, 0) = %d\n' % (offset * 16, offset * 16 + 8))
+            ini += '\n[ResourceSharedBlend]\ntype = Buffer\nstride = 48\nfilename = shared-blend.buf\n'
+            path.write_text(ini, encoding='ascii')
+        return result
     def environment(path, *args, **kwargs):
         extra = kwargs['extra']; root = Path(extra['EFMI_VK_M2_MODS']).parent; roots.append(root)
         code = (root / 'vertex.spv').read_bytes()
@@ -117,18 +136,20 @@ def merged(checks):
                                    (2, 'BLENDWEIGHT', 0), (3, 'BLENDINDICES', 0)])]))
         extra['EFMI_VK_SHADER_INPUTS'] = str(cache)
         return original(path, *args, **kwargs)
-    with patch.object(character, 'layer_env', environment):
-        character.scene(checks, 'control', matched=True)
+    with patch.object(character, 'layer_env', environment), patch.object(character, 'fixture', fixture):
+        character.scene(checks, 'control', matched=True, module_exchange=exchange)
     checks.check(any('shader input semantics resolved for module' in (root / 'layer.log').read_text(errors='replace')
                      for root in roots), 'merged: actual skeleton draw uses exact semantic evidence')
 
 
 if __name__ == '__main__':
     checks = Checks('native shader input semantics')
-    emitter = build(Path(ROOT) / 'build/shader-input-test')
-    for case in sys.argv[1:] or ['offset', 'ordered', 'unknown', 'numeric', 'default', 'inject', 'swap', 'merged']:
-        if case == 'merged':
-            merged(checks)
+    cases = sys.argv[1:] or ['offset', 'ordered', 'unknown', 'numeric', 'default', 'inject', 'swap', 'merged',
+                            'merged-layouts', 'merged-layouts-swap']
+    emitter = build(Path(ROOT) / 'build/shader-input-test') if any(not case.startswith('merged') for case in cases) else None
+    for case in cases:
+        if case.startswith('merged'):
+            merged(checks, layouts=case != 'merged', exchange=case == 'merged-layouts-swap')
         else:
             scene(checks, case, emitter)
     raise SystemExit(checks.finish())

@@ -1,6 +1,16 @@
 # EFMI Vulkan - Tasks
 
 
+## D-298: Independent bone masks for exact semantic layouts (2026-11-16)
+
+- Runtime 3.1.9 / ABI 347c72b0cc7d0e40 fixes BUG-155: one immutable blend stream can supply multiple exact-semantic declarations. Each generation caches the validated mask by stream, index/weight offsets and widths; each draw list retains its own mask and layout identity. The default stream metadata is never overwritten by these interpretations. The cache is bounded to 4,096 layouts.
+- Original CommandList.cpp 178-316 applies ordered element edits per draw; HackerContext.cpp restores/releases the input layout after drawing. DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking and one-context order. This Vulkan change separates input interpretation from immutable buffer identity; existing resource owners, ordering guards and shader-input proof remain necessary.
+- d298-before.out reproduces the refusal at 9/10 with the old different-semantic-layout diagnostic. Final build passes package 148 and tracker 829; all four DLLs are 3.1.9. The new GPU semantics suite passes 102/102, including three layouts of one stream, moving bones and actual module exchange. An initial exchange fixture returned before exchanging; correcting the fixture produces 11/11 and checks the resulting generation.
+- d298-regression.out input-semantics passes reader/frontend/INI (543), own-mesh capture (63), cold packages (51), readiness (20), tracker/package and Vulkan validation (76). Its merged-opacity step initially passes 41/48: cold asynchronous variants execute 36-38 times within 30 frames, below the existing >40 oracle; all pixel/depth and validation checks pass. Keeping every oracle and increasing only merged replay to 60 frames gives 48/48 in d298-opacity-cold.out (110 executions per case). The failed aggregate is recorded separately from the passing targeted rerun. Module boundary passes 7/7.
+- Next: remove the analogous same-stream width restriction from the existing limited blend contract when no semantic cache is available. Unknown arbitrary semantics, numeric-class conversion, inherited application inputs, declaration-order edits, I-01/I-04 and in-draw CustomShader insertion remain open. The separately verified candidate stays at 3.1.8. No game load/deployment, launcher/system mutation or remote write; root dist is unchanged.
+
+- Retention follow-up: automatic approval review rejected deletion of this round's six temporary build subdirectories (tests, native-merged-opacity, native-own-capture, replay, shader-input-test, xxmi-host), returning only blocked by policy. The command did not execute; these artifacts remain. No deletion bypass was attempted.
+
 ## D-297 cleanup complete with one approval-review exception (2026-11-16)
 
 - Completed project cleanup: 106.580 GiB to 3.351 GiB; source, current candidate/dependencies and original game evidence are preserved and verified. The latest no-probe candidate is 3.1.8 (D-296, packaging commit 49a64d6).

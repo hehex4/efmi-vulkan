@@ -1,5 +1,9 @@
 # EFMI Vulkan - Known issues
 
+## BUG-155: A shared blend buffer refused a second semantic layout (fixed 3.1.9)
+
+D-295 attached a single adopted bone interpretation to each stream. A legal second declaration therefore refused with One blend stream under different semantic bone layouts (d298-before.out, 9/10). D-298 validates immutable bytes independently and retains per-layout masks without changing stream defaults. Package checks pass 148, tracker 829 and GPU semantics 102, including moving bones and actual exchange. The no-cache width restriction is still open; this does not implement arbitrary semantic inference or cross-queue ordering.
+
 ## Cleanup exception: automatic approval review (D-297, 2026-11-16)
 
 The main project cleanup completed and retained-file hashes pass. Ten obsolete
@@ -8,6 +12,8 @@ the additional cleanup and a narrower file-only deletion were rejected by
 automatic approval review. Only blocked by policy was returned; no specific
 reason was supplied. This is a tooling exception, not a runtime regression.
 Do not bypass the review or count these files as deleted.
+D-298 also received a blocked-by-policy rejection for six completed test/build
+fixture directories; they remain. The returned reason contained no further detail.
 
 ## BUG-154: Matched InputLayout edits could not use exact shader semantics (supported subset fixed 3.1.8)
 

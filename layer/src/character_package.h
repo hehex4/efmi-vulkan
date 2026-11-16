@@ -199,6 +199,10 @@ struct CharacterPackage {
     // blend-index edit applies): the same checks as decode, then its component mask. Once per stream.
     bool adopt_bones(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, std::string& reason, uint32_t index_bytes = 2,
                      uint32_t weight_bytes = 2);
+    // Interpret immutable stream bytes for one draw's declaration. Neither success nor failure
+    // changes the stream's default layout/mask; failure also preserves the caller's mask.
+    bool bone_spans(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, uint64_t& mask,
+                    std::string& reason, uint32_t index_bytes = 2, uint32_t weight_bytes = 2) const;
     // 3DMigoto keeps no host copy of a buffer it made from a file: LoadBufferFromFile frees the bytes
     // once CreateBuffer took them. The package does the same once validated: `files` names each
     // stream's file and where its bytes begin; the payload goes and the streams are read again from

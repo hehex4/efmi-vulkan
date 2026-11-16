@@ -335,6 +335,19 @@ bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint3
     if (stream >= streams.size()) { reason = "bone stream out of range"; return false; }
     CharacterStream s = streams[stream];
     if (s.kind != CharacterStream::Vertex || s.bone_index_offset != kCharacterNone) { reason = "bone stream already known or not a vertex stream"; return false; }
+    if (!bone_spans(stream, index_offset, weight_offset, s.spans, reason, index_bytes, weight_bytes)) return false;
+    s.bone_index_offset = index_offset; s.bone_weight_offset = weight_offset;
+    s.bone_index_bytes = index_bytes; s.bone_weight_bytes = weight_bytes;
+    streams[stream] = s;
+    return true;
+}
+
+bool CharacterPackage::bone_spans(uint32_t stream, uint32_t index_offset, uint32_t weight_offset, uint64_t& mask,
+                                  std::string& reason, uint32_t index_bytes, uint32_t weight_bytes) const
+{
+    if (stream >= streams.size()) { reason = "bone stream out of range"; return false; }
+    CharacterStream s = streams[stream];
+    if (s.kind != CharacterStream::Vertex) { reason = "bone stream is not a vertex stream"; return false; }
     if (index_bytes != 1 && index_bytes != 2 && index_bytes != 4) { reason = "bone index width unsupported"; return false; }
     if (weight_bytes != 2 && weight_bytes != 4) { reason = "bone weight width unsupported"; return false; }
     s.bone_index_offset = index_offset; s.bone_weight_offset = weight_offset; s.bone_index_bytes = index_bytes; s.bone_weight_bytes = weight_bytes;
@@ -349,8 +362,7 @@ bool CharacterPackage::adopt_bones(uint32_t stream, uint32_t index_offset, uint3
     CharacterStream read = s;
     read.offset = 0;
     if (!stream_bones(spans, bones, bytes.data(), read, reason)) return false;
-    s.spans = read.spans;
-    streams[stream] = s;
+    mask = read.spans;
     return true;
 }
 

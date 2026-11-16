@@ -81,7 +81,9 @@ def main(merged=False, forward=False):
         text = text.replace('$\\EFMITTL\\alpha = 0.7', '$\\EFMITTL\\alpha = ' + ('0.25' if case in ('low', 'restore_before', 'restore', 'post_restore', 'mixed') else '0.75'))
         (mod / 'mod.ini').write_text(text.encode('ascii', 'backslashreplace').decode(), encoding='ascii')
         replay.MODS = mods
-        run = replay.run(out / 'replay_gpu.exe', out, Path(DIST), 30, True,
+        # Cold asynchronous variants can use the first dozen frames preparing.
+        # Leave enough replay frames for the existing >40 shadow-execution oracle.
+        run = replay.run(out / 'replay_gpu.exe', out, Path(DIST), 60 if merged else 30, True,
                          Path('F:/vulkan/validation-1.4.321.0/bin'), name=prefix + case)
         checks.equal(run['returncode'], 0, case + ': normal completion')
         checks.check('validation errors=0 ' in run['output'], case + ': clean core/sync validation')

@@ -4,6 +4,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-298: Bone interpretation belongs to a draw declaration (2026-11-16)
+
+A file buffer is immutable within its package generation, but its vertex declaration is per draw. Cache validated bone spans by stream plus both offsets and element widths, keep masks by value in draw lists and include them in plan identity. Do not mutate a shared default mask when an exact semantic declaration changes. Preserve the bounded cache and all content/range/normalization checks. The original applies element overrides per draw; DX11 reference-counted lifetime with deferred destruction, hazard tracking and one-context order remain explicit separate Vulkan duties. This round covers exact semantic layouts; the legacy no-cache path remains a next step.
+
 ## D-297: Retire verified test artifacts and merged worktree copies (2026-11-16)
 
 - The user explicitly requested all unnecessary project files be removed after observing 106 GiB of accumulated output. Keep active source, deliverables and necessary original evidence; retire completed test copies, obsolete candidates, duplicate extraction and unused intermediates after recording concise results.

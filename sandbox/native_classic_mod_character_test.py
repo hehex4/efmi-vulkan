@@ -11,7 +11,7 @@ from runtime_fixture import CORE, fixture
 from efmi_vk.hashes import crc32c
 
 
-def scene(checks, case, matched=False, output_only=False, merged_outputs=False, cold=False):
+def scene(checks, case, matched=False, output_only=False, merged_outputs=False, cold=False, module_exchange=False):
     root = Path(test_dir('classic-mod-character-' + case + '-'))
     mods = root / 'Mods'
     folder = mods / 'fixture'
@@ -50,7 +50,7 @@ def scene(checks, case, matched=False, output_only=False, merged_outputs=False, 
         command='' if case=='control' else 'post oD = null\n' if case=='post' else 'ResourceDepth = ref oD\noD = null\npost oD = ref ResourceDepth\n' if case=='restore' else 'oD = null\n'
         if case=='hide':command='handling = skip\n'+command
         prop_ini=prop_ini.replace('ps-t1 = ResourceBorrowed\n',command+'ps-t1 = ResourceBorrowed\n',1)+'[ResourceDepth]\n'
-    if output_only or (merged_outputs and case=='swap'):
+    if output_only or module_exchange or (merged_outputs and case=='swap'):
         prop_ini=prop_ini.replace('ps-t1 = ResourceBorrowed\n','').replace('[ResourceBorrowed]\nfilename = ..\\fixture\\red.dds\n','')
     (props / 'prop.ini').write_text(prop_ini,encoding='ascii')
     (root / 'd3dx.ini').write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n'
@@ -67,25 +67,28 @@ def scene(checks, case, matched=False, output_only=False, merged_outputs=False, 
     if matched:extra['EFMI_VK_TEST_MOD_OUTPUT_DEPTH']='1'
     if output_only:extra['EFMI_VK_TEST_UNMATCHED_SHADE']='0' if case=='hide' else '1'
     if merged_outputs and case=='swap':extra['EFMI_VK_TEST_UNMATCHED_SHADE']='1'
+    if module_exchange:extra['EFMI_VK_TEST_UNMATCHED_SHADE']='1'
     env = (inject_env if case == 'rp2_inject' else layer_env)(str(root / 'layer.log'), extra=extra)
     env['VK_LAYER_PATH'] = extra['VK_LAYER_PATH']
     args = [str(Path(DIST) / 'efmi_vk_variant_gpu.exe'), '--character', '--material', '--lazy-packages']
     if case == 'rp2_inject':
         args += ['--renderpass2', '--inject', INJECT_DLL]
-    if case=='swap':args+=['--module',str(Path(DIST)/'efmi_vk_backend.dll')]
+    if case=='swap' or module_exchange:args+=['--module',str(Path(DIST)/'efmi_vk_backend.dll')]
     result = subprocess.run(args, env=env, cwd=folder, capture_output=True, text=True, errors='replace', timeout=120)
     output = result.stdout + result.stderr
     (root / 'stdout.txt').write_text(output.encode('ascii', 'backslashreplace').decode(), encoding='ascii')
     checks.equal(result.returncode, 0, case + ': independent scene pixels, changing bones and restoration')
     checks.check('validation: errors=0 warnings=0' in output, case + ': clean core and synchronization validation')
-    report = folder / 'character-final.json'
+    report = folder / ('character-swapped.json' if module_exchange else 'character-final.json')
     if matched and not report.exists():report=folder/'character-active.json'
     status = json.loads(report.read_text(encoding='utf-8')).get('result', {}).get('replacement', {}) if report.exists() else {}
+    if module_exchange:
+        checks.check(status.get('module', {}).get('generation', 0) > 0, case + ': backend exchange actually completed')
     packages = status.get('packages', [])
     merged = next((item for item in packages if item.get('components', 0) > 0), {})
     texture = next((item for item in packages if Path(item.get('path', '')).parent.name == 'props'), {})
     checks.check(merged.get('counters', {}).get('replaced', 0) > 0, case + ': merged bone variants actually execute')
-    if merged_outputs and case=='swap':
+    if module_exchange or (merged_outputs and case=='swap'):
         checks.equal(texture.get('counters',{}).get('textured',0),0,case+': original application images survive the module exchanges')
     elif output_only:
         checks.equal(texture.get('counters',{}).get('textured',0),0,case+': application images stay original without a private texture variant')

@@ -275,7 +275,7 @@ bool CharacterProgram::start(efmi::frontend::RuntimeConfig& options, std::shared
 {
     // Generation load only: no asset parser or file IO on the recording path.
     // Folder packages share this immutable index; F10 reads the current cache.
-    shader_inputs_.reset();vertex_profiles_.clear();vertex_profile_bytes_=0;
+    shader_inputs_.reset();vertex_profiles_.clear();vertex_profile_bytes_=0;bone_layouts_.clear();
     std::wstring configured(32768,L'\0');
     const DWORD length=GetEnvironmentVariableW(L"EFMI_VK_SHADER_INPUTS",configured.data(),DWORD(configured.size()));
     // Settings belong to the host generation, even when a replacement DLL is
@@ -1349,7 +1349,9 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 // first seen there is checked once, as decode checks a package's; one that fits neither
                 // keeps no bone mask.
                 if (!own_bones && bound.vb[2] == kCharacterOwned) throw std::runtime_error("An owned blend stream has no known bone indices");
-                if (!own_bones && index_bytes && bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset != kCharacterNone &&
+                bool resolved_bones = false;
+                uint64_t resolved_spans = 0;
+                if (!semantics && !own_bones && index_bytes && bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset != kCharacterNone &&
                     package.streams[bound.vb[2]].bone_index_bytes != index_bytes)
                     throw std::runtime_error("One blend stream under two blend-index widths");
                 if (!own_bones && index_bytes && bound.vb[2] != kCharacterNone &&
@@ -1379,11 +1381,17 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                         indices = stride - 8; weights = stride == 16 ? 0 : kCharacterNone; weight_bytes = 2;
                     }
                     std::string why;
-                    const auto& stream=package.streams[bound.vb[2]];
-                    if(semantics && stream.bone_index_offset!=kCharacterNone){
-                        if(stream.bone_index_offset!=indices || stream.bone_weight_offset!=weights ||
-                           stream.bone_index_bytes!=index_bytes || stream.bone_weight_bytes!=weight_bytes)
-                            throw std::runtime_error("One blend stream under different semantic bone layouts");
+                    if(semantics && indices!=kCharacterNone){
+                        const auto key=std::make_tuple(bound.vb[2],indices,weights,index_bytes,weight_bytes);
+                        auto found=bone_layouts_.find(key);
+                        if(found==bone_layouts_.end()){
+                            if(bone_layouts_.size()>=4096)throw std::runtime_error("Too many distinct semantic bone layouts in one generation");
+                            uint64_t mask=0;
+                            if(!package.bone_spans(bound.vb[2],indices,weights,mask,why,index_bytes,weight_bytes))
+                                throw std::runtime_error("Blend stream refused: "+why);
+                            found=bone_layouts_.emplace(key,mask).first;
+                        }
+                        resolved_bones=true;resolved_spans=found->second;
                     }else if (indices != kCharacterNone && !package.adopt_bones(bound.vb[2], indices, weights, why, index_bytes, weight_bytes))
                         throw std::runtime_error("Blend stream refused: " + why);
                 }
@@ -1427,7 +1435,8 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 }
                 for (uint32_t slot = 0; slot < 4 && !own_bones; ++slot) {
                     const uint32_t stream = bound.vb[slot];
-                    if (stream != kCharacterNone && stream != kCharacterOwned) required |= package.streams[stream].spans;
+                    if (slot==2 && resolved_bones) required |= resolved_spans;
+                    else if (stream != kCharacterNone && stream != kCharacterOwned) required |= package.streams[stream].spans;
                 }
                 // A translucent draw (D-113): captured into a layer at the pass end with its opacity and mask.
                 // In a shadow pass (D-185) it is drawn in place by the same opacity and mask.
@@ -1451,6 +1460,7 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 put(signature, uint32_t(bound.owned.size()));
                 for (const auto& o : bound.owned) { put(signature, o.slot); put(signature, o.buffer); put(signature, o.offset); put(signature, o.size); put(signature, o.stride); }
                 put(signature, uint32_t(bound.blend)); put(signature, uint8_t(bound.pipeline_blend));
+                put(signature, uint8_t(resolved_bones)); if(resolved_bones)put(signature,resolved_spans);
                 put(signature, uint32_t(bound.offsets.size()));
                 for (const auto& o : bound.offsets) { put(signature, o.binding); put(signature, o.from); put(signature, o.to); }
                 put(signature,uint8_t(bool(bound.input_layout)));

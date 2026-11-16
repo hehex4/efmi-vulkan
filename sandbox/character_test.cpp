@@ -317,6 +317,45 @@ static void material_tests(const std::vector<uint8_t>& mesh)
           "loading a legacy package clears previous material state");
 }
 
+static void bone_layout_tests()
+{
+    CharacterPackage p; p.bones = 4;
+    CharacterComponent a, b; a.first = 0; a.count = 2; b.first = 2; b.count = 2;
+    p.components = {a, b}; std::string why; p.make_spans(why);
+    CharacterStream stream; stream.stride = 64; stream.size = 128;
+    p.streams = {stream}; p.payload.resize(128);
+    for (size_t v = 0; v < 128; v += 64) {
+        poke(p.payload, v, uint16_t(65535)); poke(p.payload, v + 8, uint16_t(1));
+        poke(p.payload, v + 16, 1.0f); poke(p.payload, v + 32, uint32_t(3));
+        poke(p.payload, v + 48, uint16_t(65535)); p.payload[v + 56] = 2;
+    }
+    uint64_t mask = 99;
+    check(p.bone_spans(0, 8, 0, mask, why) && mask == 1, "16-bit layout selects only its weighted bone span");
+    check(p.bone_spans(0, 32, 16, mask, why, 4, 4) && mask == 2, "32-bit indices and float weights have an independent mask in the same stream");
+    check(p.bone_spans(0, 56, 48, mask, why, 1) && mask == 2, "8-bit interpretation of the same stream remains independent");
+    check(p.streams[0].bone_index_offset == kCharacterNone && p.streams[0].spans == 0,
+          "successful layout analysis never adopts a mutable stream default");
+    check(p.adopt_bones(0, 8, 0, why), "legacy adoption keeps its existing interface");
+    check(p.bone_spans(0, 32, 16, mask, why, 4, 4) && mask == 2 && p.streams[0].spans == 1 &&
+          p.streams[0].bone_index_offset == 8 && p.streams[0].bone_index_bytes == 2,
+          "a new declaration cannot overwrite an adopted default mask or width");
+    mask = 99;
+    check(!p.bone_spans(0, 8, 8, mask, why) && mask == 99, "overlapping layout refuses without publishing a mask");
+    check(!p.bone_spans(0, 60, 48, mask, why) && mask == 99, "out-of-stride layout preserves the caller's mask");
+    check(!p.bone_spans(0, 8, 0, mask, why, 3) && mask == 99, "unsupported index width preserves the caller's mask");
+    check(!p.bone_spans(0, 8, 0, mask, why, 2, 1) && mask == 99, "unsupported weight width preserves the caller's mask");
+    check(!p.bone_spans(1, 8, 0, mask, why) && mask == 99, "a missing stream cannot supply a layout mask");
+    auto bad = p; poke(bad.payload, 32 + 4, uint32_t(4));
+    check(!bad.bone_spans(0, 32, 16, mask, why, 4, 4) && mask == 99 && why == "bone index outside the skeleton",
+          "unweighted out-of-range indices still refuse per layout");
+    check(bad.bone_spans(0, 8, 0, mask, why) && mask == 1 && bad.streams[0].spans == 1,
+          "one invalid interpretation cannot poison another declaration of the same bytes");
+    bad = p; poke(bad.payload, 16, 0.5f); mask = 99;
+    check(!bad.bone_spans(0, 32, 16, mask, why, 4, 4) && mask == 99,
+          "unnormalized weights refuse without changing prior stream metadata");
+    check(p.bone_spans(0, 8, 0, mask, why) && mask == 1, "returning to the first declaration reproduces its original mask");
+}
+
 static void declaration_tests(const CharacterPackage& p)
 {
     VertexInputRecipe source, result;
@@ -1299,6 +1338,7 @@ int main(int argc, char** argv)
     { auto d = valid; poke(d, payload + m.remap_data, uint16_t(2000)); reject(d, "remap source outside the window refused"); }
     check(p.decode(valid, why), "valid package still accepted after the refusals");
     declaration_tests(p);
+    bone_layout_tests();
     memory_validation_tests(valid, m);
     payload_tests(valid, m);
     material_tests(valid);
