@@ -92,6 +92,17 @@ struct ImageDescription {
     VkImageUsageFlags usage=0;
     VkImageCreateFlags flags=0;
 };
+// Proven complete application allocation, not merely a descriptor's view range.
+// Layout is uniform across the entire image and restored after every packet.
+struct ApplicationImage {
+    VkImage image=VK_NULL_HANDLE;
+    ImageDescription description;
+    VkImageLayout layout=VK_IMAGE_LAYOUT_UNDEFINED;
+    bool uniform_layout=false;
+    VkDeviceMemory memory=VK_NULL_HANDLE;
+    VkDeviceSize memory_offset=0,memory_size=0;
+    std::shared_ptr<const void> owner;
+};
 class ImageResource {
 public:
     ImageResource()=default;
@@ -100,8 +111,11 @@ public:
     ~ImageResource();
     VkImage image() const {return image_;}
     bool is_external() const {return external_;}
+    bool retained_external() const {return bool(external_owner_);}
     VkDeviceMemory memory() const {return memory_;}
-    VkDeviceSize memory_size() const {return allocation_;}
+    VkDeviceSize memory_offset() const {return memory_offset_;}
+    VkDeviceSize memory_size() const {return external_owner_?external_size_:allocation_;}
+    VkImageLayout external_layout() const {return external_layout_;}
     const ImageDescription& description() const {return description_;}
     VkExtent3D extent(uint32_t mip=0) const;
     VkImageSubresourceRange full_range() const;
@@ -115,6 +129,8 @@ private:
     VkImage image_=VK_NULL_HANDLE;
     VkDeviceMemory memory_=VK_NULL_HANDLE;
     VkDeviceSize allocation_=0;
+    std::shared_ptr<const void> external_owner_;
+    VkDeviceSize memory_offset_=0,external_size_=0;
     // True after successful submission or explicit ordered packet admission.
     // Admission is logical state; the host must execute its predecessor first.
     bool initialized_=false;
@@ -251,8 +267,8 @@ public:
     ~ResourceCommands();
     ResourceCommands(const ResourceCommands&)=delete;
     ResourceCommands& operator=(const ResourceCommands&)=delete;
-    // Buffer and owned-image transfer/compute preparation. No application image
-    // imports, graphics, feedback or submission. Seal, then admit only after the
+    // Retained buffer/image transfer and compute preparation. No graphics,
+    // feedback or submission. Seal, then admit only after the
     // host proves order/layouts and retains the packet with its recording.
     // Discard invalidates unadmitted packets and leaves image state unchanged.
     void begin_prepared();
@@ -269,6 +285,8 @@ public:
     // A caller-owned image (a swap chain image) for this domain: one mip, one layer, single
     // sample. Its contents are taken from `layout`, and each submission returns it there.
     Image import_image(VkImage,ImageDescription,VkImageLayout layout);
+    // Retained application images are valid only in prepared execution.
+    Image import_image(const ApplicationImage&);
     // View creation does not initialize pixels or emit descriptors. Once a
     // submission using an image completes, its entire allocation is GENERAL.
     // Layout changes inside a pending batch are private and discarded with it.
@@ -355,6 +373,8 @@ private:
     uint64_t recorded_=0;
     std::shared_ptr<SubmissionRecycler> recycler_;
     Buffer image_copy_scratch_;
+    std::map<VkImage,std::weak_ptr<ImageResource>> imported_images_;
+    std::map<VkImage,VkImageLayout> observed_image_layouts_;
     VkQueue queue_=VK_NULL_HANDLE;
     Stats stats_;
 };

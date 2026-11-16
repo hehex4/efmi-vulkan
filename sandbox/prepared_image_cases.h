@@ -1,12 +1,15 @@
 // Record only after explicit admission, on this fixture's serialized queue.
-static void record_prepared_packets(Device& d,const std::vector<std::shared_ptr<const gpu::PreparedResourceCommands>>& packets){
+static void record_prepared_packets(Device& d,const std::vector<std::shared_ptr<const gpu::PreparedResourceCommands>>& packets,
+    const std::function<void(VkCommandBuffer)>& before={},const std::function<void(VkCommandBuffer)>& after={}){
     const auto& vk=d.resource.dispatch;VkCommandPool pool=VK_NULL_HANDLE;VkCommandBuffer cb=VK_NULL_HANDLE;VkFence fence=VK_NULL_HANDLE;
     VkCommandPoolCreateInfo pi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};pi.queueFamilyIndex=d.resource.queue_family;
     vkcheck(vk.CreateCommandPool(d.resource.device,&pi,nullptr,&pool),"Create prepared image pool");
     VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};ai.commandPool=pool;ai.commandBufferCount=1;
     vkcheck(vk.AllocateCommandBuffers(d.resource.device,&ai,&cb),"Allocate prepared image primary");
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};vkcheck(vk.BeginCommandBuffer(cb,&bi),"Begin prepared image primary");
+    if(before)before(cb);
     for(const auto& packet:packets)if(packet)packet->record(cb);
+    if(after)after(cb);
     vkcheck(vk.EndCommandBuffer(cb),"End prepared image primary");
     VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};vkcheck(vk.CreateFence(d.resource.device,&fi,nullptr,&fence),"Create prepared image fence");
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};si.commandBufferCount=1;si.pCommandBuffers=&cb;

@@ -53,8 +53,8 @@ public:
     // may submit and wait for GPU feedback inside it. A draw hook cannot opt in
     // by silently treating an active render pass as OutsideRenderPass.
     void begin(VkQueue,ExecutionSite);
-    // Buffer-only speculative execution. No pending batch, queue access or pool
-    // mutation is allowed. Finish seals commands but keeps the registry undo
+    // Speculative buffer/owned-image/pool execution without pending batches or
+    // queue access. Finish seals commands but keeps the registry undo
     // journal until host admission calls accept_prepared(), or discard rolls back.
     void begin_prepared();
     struct ApplicationBufferBinding {

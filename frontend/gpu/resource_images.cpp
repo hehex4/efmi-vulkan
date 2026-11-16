@@ -66,6 +66,74 @@ Image ResourceCommands::import_image(VkImage handle,ImageDescription desc,VkImag
     auto image=std::make_shared<ImageResource>();image->device_=device_;image->domain_=domain_;image->description_=desc;
     image->image_=handle;image->external_=true;image->external_layout_=layout;image->budget_=budgets_.resident;return image;
 }
+Image ResourceCommands::import_image(const ApplicationImage& input) {
+    if(!preparing_)throw std::runtime_error("Application images require a prepared command scope");
+    if(!input.image || !input.memory || !input.memory_size || input.memory_offset>UINT64_MAX-input.memory_size ||
+       !input.owner || !input.uniform_layout)throw std::runtime_error("Application image needs retained allocation and uniform layout proof");
+    const auto& desc=input.description;const auto& f=info(desc.format);
+    if(!device_.physical || !device_.GetImageFormatProperties || !(device_.queue_flags&VK_QUEUE_GRAPHICS_BIT) || device_.api_version<VK_API_VERSION_1_1)
+        throw std::runtime_error("Application images require a known graphics execution domain");
+    if(desc.type!=VK_IMAGE_TYPE_1D && desc.type!=VK_IMAGE_TYPE_2D && desc.type!=VK_IMAGE_TYPE_3D)
+        throw std::runtime_error("Application image dimension is invalid");
+    if(!desc.extent.width || !desc.extent.height || !desc.extent.depth || !desc.mips || !desc.layers ||
+       (desc.type==VK_IMAGE_TYPE_1D && desc.extent.height!=1) || (desc.type!=VK_IMAGE_TYPE_3D && desc.extent.depth!=1) ||
+       (desc.type==VK_IMAGE_TYPE_3D && desc.layers!=1) ||
+       (desc.flags&~(VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT|VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT)) ||
+       (desc.usage&~(view_usage|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT)) || !desc.usage)
+        throw std::runtime_error("Application image description requires another allocation adapter");
+    uint32_t mips=1;for(auto n=std::max({desc.extent.width,desc.extent.height,desc.extent.depth});n>1;n>>=1)++mips;
+    const auto samples=uint32_t(desc.samples);
+    if(desc.mips>mips || !samples || samples>64 || (samples&(samples-1)) ||
+       (samples!=1 && (desc.type!=VK_IMAGE_TYPE_2D || desc.mips!=1 || (desc.flags&VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT))) ||
+       ((desc.flags&VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) && (desc.type!=VK_IMAGE_TYPE_2D || desc.extent.width!=desc.extent.height || desc.layers<6)))
+        throw std::runtime_error("Application image mip/sample/cube declaration is invalid");
+    bool layout=false;
+    switch(input.layout){
+    case VK_IMAGE_LAYOUT_GENERAL:layout=true;break;
+    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:layout=bool(desc.usage&VK_IMAGE_USAGE_TRANSFER_SRC_BIT);break;
+    case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:layout=bool(desc.usage&VK_IMAGE_USAGE_TRANSFER_DST_BIT);break;
+    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:layout=bool(desc.usage&(VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT));break;
+    case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:layout=f.aspects==VK_IMAGE_ASPECT_COLOR_BIT && (desc.usage&VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);break;
+    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+    case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:layout=bool(f.aspects&VK_IMAGE_ASPECT_DEPTH_BIT) && (desc.usage&VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);break;
+    default:break;
+    }
+    if(!layout)throw std::runtime_error("Application image layout is unknown or incompatible with its usage");
+    VkImageFormatProperties limits{};
+    check(device_.GetImageFormatProperties(device_.physical,desc.format,desc.type,VK_IMAGE_TILING_OPTIMAL,desc.usage,desc.flags,&limits),
+        "Query imported image description support");
+    if(desc.extent.width>limits.maxExtent.width || desc.extent.height>limits.maxExtent.height || desc.extent.depth>limits.maxExtent.depth ||
+       desc.mips>limits.maxMipLevels || desc.layers>limits.maxArrayLayers || !(samples&limits.sampleCounts))
+        throw std::runtime_error("Application image exceeds supported dimensions");
+    VkImageMemoryRequirementsInfo2 request{VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2};request.image=input.image;
+    VkMemoryRequirements2 requirements{VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2};
+    device_.dispatch.GetImageMemoryRequirements2(device_.device,&request,&requirements);
+    if(input.memory_size<requirements.memoryRequirements.size || !requirements.memoryRequirements.alignment ||
+       input.memory_offset%requirements.memoryRequirements.alignment)
+        throw std::runtime_error("Application image memory span is too small or misaligned");
+    const auto observed=observed_image_layouts_.find(input.image);
+    if(observed!=observed_image_layouts_.end() && observed->second!=input.layout)
+        throw std::runtime_error("Application image aliases have contradictory layout observations");
+    const auto previous=imported_images_.find(input.image);
+    if(previous!=imported_images_.end())if(auto image=previous->second.lock()){
+        const auto& old=image->description_;
+        if(image->memory_!=input.memory || image->memory_offset_!=input.memory_offset || image->external_size_!=input.memory_size ||
+           old.type!=desc.type || old.format!=desc.format || !same_extent(old.extent,desc.extent) ||
+           old.mips!=desc.mips || old.layers!=desc.layers || old.samples!=desc.samples || old.usage!=desc.usage || old.flags!=desc.flags)
+            throw std::runtime_error("Retained application image changed its allocation contract");
+        observed_image_layouts_.emplace(input.image,input.layout);image->external_layout_=input.layout;
+        return image;
+    }
+    if(imported_images_.size()>=65536){
+        for(auto it=imported_images_.begin();it!=imported_images_.end();)if(it->second.expired())it=imported_images_.erase(it);else ++it;
+        if(imported_images_.size()>=65536)throw std::runtime_error("Application image identity budget exceeded");
+    }
+    auto image=std::make_shared<ImageResource>();image->device_=device_;image->domain_=domain_;image->description_=desc;
+    image->image_=input.image;image->external_=true;image->external_layout_=input.layout;image->memory_=input.memory;
+    image->memory_offset_=input.memory_offset;image->external_size_=input.memory_size;image->external_owner_=input.owner;
+    observed_image_layouts_.emplace(input.image,input.layout);
+    imported_images_[input.image]=image;return image;
+}
 Image ResourceCommands::create_image(ImageDescription desc) {
     if(!device_.physical || !device_.GetImageFormatProperties || !device_.GetFormatProperties ||
        !(device_.queue_flags&VK_QUEUE_GRAPHICS_BIT) || device_.api_version<VK_API_VERSION_1_1)
@@ -139,7 +207,10 @@ Image ResourceCommands::create_image(ImageDescription desc) {
 void ResourceCommands::validate(const Image& image) const {
     if(awaiting_admission_)throw std::runtime_error("Resource scope is awaiting prepared admission");
     if(!image || image->domain_!=domain_)throw std::runtime_error("Image belongs to another execution domain");
-    if(preparing_ && image->external_)throw std::runtime_error("Prepared application images require retained allocation and layout proofs");
+    if(preparing_ && image->external_ && !image->external_owner_)throw std::runtime_error("Prepared application images require retained allocation and layout proofs");
+    if(!preparing_ && image->external_owner_)throw std::runtime_error("Retained application images cannot enter deferred queue submissions");
+    if(preparing_ && image->external_owner_ && !observed_image_layouts_.count(image->image_))
+        throw std::runtime_error("Retained application image requires a fresh layout observation in this scope");
 }
 VkImageSubresourceRange ResourceCommands::range(const Image& image,VkImageSubresourceRange r) const {
     validate(image);const auto& desc=image->description_;
@@ -194,7 +265,8 @@ void ResourceCommands::transition(const Image& image,VkImageLayout layout) {
     validate(image);retain_pending();auto found=pending_->image_layouts_.find(image);
     const auto old=found!=pending_->image_layouts_.end()?found->second:image->external_?image->external_layout_:
         (image->initialized_?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED);
-    if(preparing_ && found==pending_->image_layouts_.end())prepared_image_states_.push_back({image,old,VK_IMAGE_LAYOUT_GENERAL});
+    if(preparing_ && found==pending_->image_layouts_.end())
+        prepared_image_states_.push_back({image,old,image->external_?image->external_layout_:VK_IMAGE_LAYOUT_GENERAL});
     // Insertion retains the owner before a command can refer to its image.
     pending_->image_layouts_[image]=layout;if(old==layout)return;
     VkImageMemoryBarrier b={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.image=image->image_;b.subresourceRange=image->full_range();
@@ -230,7 +302,8 @@ VkDeviceSize ResourceCommands::transfer_size(const Image& image,const VkBufferIm
 }
 void ResourceCommands::copy(const Buffer& source,const Image& destination,const VkBufferImageCopy& r) {
     const auto size=transfer_size(destination,r);validate(source,r.bufferOffset,size);
-    if(!(source->usage_&VK_BUFFER_USAGE_TRANSFER_SRC_BIT))throw std::runtime_error("Image upload buffer usage missing");
+    if(!(source->usage_&VK_BUFFER_USAGE_TRANSFER_SRC_BIT) || !(destination->description_.usage&VK_IMAGE_USAGE_TRANSFER_DST_BIT))
+        throw std::runtime_error("Image upload transfer usage missing");
     reserve_prepared(3,1,2,1);barrier();transition(destination,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);pending_->retained_.push_back(source);
     buffer_access(source,r.bufferOffset,size,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT);
     image_access(destination,{r.imageSubresource.aspectMask,r.imageSubresource.mipLevel,1,r.imageSubresource.baseArrayLayer,r.imageSubresource.layerCount},
@@ -240,7 +313,8 @@ void ResourceCommands::copy(const Buffer& source,const Image& destination,const 
 }
 void ResourceCommands::copy(const Image& source,const Buffer& destination,const VkBufferImageCopy& r) {
     const auto size=transfer_size(source,r);validate(destination,r.bufferOffset,size);
-    if(!(destination->usage_&VK_BUFFER_USAGE_TRANSFER_DST_BIT))throw std::runtime_error("Image download buffer usage missing");
+    if(!(destination->usage_&VK_BUFFER_USAGE_TRANSFER_DST_BIT) || !(source->description_.usage&VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+        throw std::runtime_error("Image download transfer usage missing");
     reserve_prepared(3,1,2,1);barrier();transition(source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);pending_->retained_.push_back(destination);
     image_access(source,{r.imageSubresource.aspectMask,r.imageSubresource.mipLevel,1,r.imageSubresource.baseArrayLayer,r.imageSubresource.layerCount},
         VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -250,6 +324,8 @@ void ResourceCommands::copy(const Image& source,const Buffer& destination,const 
 }
 void ResourceCommands::copy(const Image& source,const Image& destination,const VkImageCopy& r) {
     region(source,r.srcSubresource,r.srcOffset,r.extent);region(destination,r.dstSubresource,r.dstOffset,r.extent);
+    if(!(source->description_.usage&VK_IMAGE_USAGE_TRANSFER_SRC_BIT) || !(destination->description_.usage&VK_IMAGE_USAGE_TRANSFER_DST_BIT))
+        throw std::runtime_error("Image copy transfer usage missing");
     const auto& src=source->description_;const auto& dst=destination->description_;const auto& a=info(src.format);const auto& b=info(dst.format);
     if(src.type!=dst.type || src.samples!=dst.samples || r.srcSubresource.layerCount!=r.dstSubresource.layerCount ||
        r.srcSubresource.aspectMask!=r.dstSubresource.aspectMask || a.bytes!=b.bytes || !same_extent(a.block,b.block) ||
@@ -275,6 +351,7 @@ void ResourceCommands::copy(const Image& source,const Image& destination,const V
 void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const VkClearColorValue& value) {
     r=range(image,r);if(!info(image->description_.format).color_clear || r.aspectMask!=VK_IMAGE_ASPECT_COLOR_BIT)
         throw std::runtime_error("Image format does not support a color clear");
+    if(!(image->description_.usage&VK_IMAGE_USAGE_TRANSFER_DST_BIT))throw std::runtime_error("Image clear transfer usage missing");
     reserve_prepared(3,0,2,1);barrier();transition(image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     image_access(image,r,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     const auto clear=device_.dispatch.CmdClearColorImage;
@@ -282,6 +359,8 @@ void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const 
 }
 void ResourceCommands::copy_color_depth(const Image& source,const Image& destination,const VkImageCopy& r) {
     region(source,r.srcSubresource,r.srcOffset,r.extent);region(destination,r.dstSubresource,r.dstOffset,r.extent);
+    if(!(source->description_.usage&VK_IMAGE_USAGE_TRANSFER_SRC_BIT) || !(destination->description_.usage&VK_IMAGE_USAGE_TRANSFER_DST_BIT))
+        throw std::runtime_error("Color/depth copy transfer usage missing");
     const auto& a=source->description_;const auto& b=destination->description_;
     const bool to_depth=r.dstSubresource.aspectMask==VK_IMAGE_ASPECT_DEPTH_BIT;
     const auto depth=to_depth?b.format:a.format,color=to_depth?a.format:b.format;
@@ -305,6 +384,7 @@ void ResourceCommands::copy_color_depth(const Image& source,const Image& destina
 }
 void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const VkClearDepthStencilValue& value) {
     r=range(image,r);if(r.aspectMask&VK_IMAGE_ASPECT_COLOR_BIT)throw std::runtime_error("Depth/stencil clear requires a depth/stencil image");
+    if(!(image->description_.usage&VK_IMAGE_USAGE_TRANSFER_DST_BIT))throw std::runtime_error("Depth clear transfer usage missing");
     if((r.aspectMask&VK_IMAGE_ASPECT_DEPTH_BIT) && (!std::isfinite(value.depth) || value.depth<0 || value.depth>1))
         throw std::runtime_error("Depth clear value is outside the enabled range");
     // Vulkan validates the depth field even for a stencil-only range. Do not
@@ -317,6 +397,8 @@ void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const 
 }
 void ResourceCommands::resolve(const Image& source,const Image& destination,const VkImageResolve& r) {
     region(source,r.srcSubresource,r.srcOffset,r.extent);region(destination,r.dstSubresource,r.dstOffset,r.extent);
+    if(!(source->description_.usage&VK_IMAGE_USAGE_TRANSFER_SRC_BIT) || !(destination->description_.usage&VK_IMAGE_USAGE_TRANSFER_DST_BIT))
+        throw std::runtime_error("Image resolve transfer usage missing");
     const auto& src=source->description_;const auto& dst=destination->description_;
     if(src.format!=dst.format || src.type!=VK_IMAGE_TYPE_2D || dst.type!=VK_IMAGE_TYPE_2D ||
        src.samples==VK_SAMPLE_COUNT_1_BIT || dst.samples!=VK_SAMPLE_COUNT_1_BIT ||

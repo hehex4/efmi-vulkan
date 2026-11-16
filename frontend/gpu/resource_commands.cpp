@@ -77,12 +77,26 @@ void ResourceCommands::begin_prepared() {
     if(preparing_ || pending_ || awaiting_admission_)throw std::runtime_error("Prepared resource scope requires no pending work or admission");
     preparing_=true;prepared_compute_=false;prepared_.clear();prepared_accesses_.clear();
     prepared_image_accesses_.clear();prepared_image_states_.clear();
+    observed_image_layouts_.clear();
 }
 std::shared_ptr<const PreparedResourceCommands> ResourceCommands::finish_prepared() {
     if(!preparing_)throw std::runtime_error("No prepared resource scope is active");
     if(!pending_){preparing_=false;awaiting_admission_=true;return {};}
+    // Optimal image byte placement cannot be derived from texel coordinates.
+    // Distinct aliased image/buffer objects require an explicit alias scheduler.
+    auto overlap=[](VkDeviceSize a,VkDeviceSize n,VkDeviceSize b,VkDeviceSize m){return a<b+m && b<a+n;};
+    for(size_t i=0;i<prepared_image_states_.size();++i){const auto& image=prepared_image_states_[i].image;
+        for(size_t j=0;j<i;++j){const auto& other=prepared_image_states_[j].image;
+            if(image->memory()==other->memory() && overlap(image->memory_offset(),image->memory_size(),other->memory_offset(),other->memory_size()))
+                throw std::runtime_error("Prepared aliased images require explicit allocation phase proof");
+        }
+        for(const auto& access:prepared_accesses_)
+            if(access.overlaps(image->memory(),image->memory_offset(),image->memory_size()))
+                throw std::runtime_error("Prepared image/buffer allocation aliases require explicit phase proof");
+    }
     // Every operation reserved its final layout transitions and publication.
-    for(const auto& item:pending_->image_layouts_)transition(item.first,VK_IMAGE_LAYOUT_GENERAL);
+    for(const auto& item:pending_->image_layouts_)
+        transition(item.first,item.first->external_?item.first->external_layout_:VK_IMAGE_LAYOUT_GENERAL);
     barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
     auto result=std::make_shared<PreparedResourceCommands>();
     result->commands_=std::move(prepared_);result->owners_=std::move(pending_);
@@ -98,7 +112,7 @@ void ResourceCommands::accept_prepared() {
         for(const auto& state:sealed_->image_states_)state.image->initialized_=true;
         sealed_->admitted_=true;
     }
-    sealed_.reset();awaiting_admission_=false;
+    sealed_.reset();awaiting_admission_=false;observed_image_layouts_.clear();
 }
 Buffer ResourceCommands::import_buffer(VkBuffer handle,VkDeviceSize size,VkBufferUsageFlags usage,VkDeviceMemory memory,
     VkDeviceSize memory_offset,VkDeviceSize memory_size,std::shared_ptr<const void> owner) {
@@ -318,6 +332,6 @@ std::vector<uint8_t> ResourceCommands::read_stage(const Buffer& stage,VkDeviceSi
 }
 void ResourceCommands::discard(){
     prepared_.clear();prepared_accesses_.clear();prepared_image_accesses_.clear();prepared_image_states_.clear();
-    sealed_.reset();pending_.reset();preparing_=prepared_compute_=awaiting_admission_=false;
+    sealed_.reset();pending_.reset();observed_image_layouts_.clear();preparing_=prepared_compute_=awaiting_admission_=false;
 }
 }

@@ -48,9 +48,9 @@ split planning, compute-state restoration and recording ownership. Do not enable
 `OwnedRuntime::begin_draw` and submit its old pending primary ahead of the application
 as a substitute for this integration.
 
-That initial image restriction is superseded for owned images by D-314 below.
-Application images, graphics, feedback and automatic submission remain outside
-this prepared boundary.
+That initial image restriction is superseded for owned images by D-314 and retained
+application images by D-316 below. Graphics, feedback and automatic submission
+remain outside this prepared boundary.
 
 The headless fixture prepares one copy/compute sequence, checks that output stays
 unchanged before recording, then reuses the sequence after application fills of 11
@@ -251,3 +251,33 @@ Verification on 3.3.2: configuration GPU 208, prepared 85 and ordinary image/par
 interpreter 570, production registry 13, native compute 91, tracker 838 and ABI 9
 also pass. The parameter retry failure, invalid initial texture fixture and missing
 test-consumer artifact are recorded separately in CURRENT_STATE.md/SESSION_LOG.md.
+
+## Retained application images (D-316)
+
+The low-level command engine accepts complete optimal-image allocation descriptions,
+retained owners and a newly observed uniform layout for each prepared scope. It checks
+the actual image memory requirements, supported shape/usage and memory span. A view's
+layout alone cannot prove the whole-image transitions used here. Missing or undefined
+layouts refuse. Saved references must be observed again before any later packet uses
+them; this does not copy pixels or turn a previous observation into current evidence.
+
+Live imports of one VkImage share an allocation wrapper and cannot change its
+description or memory contract. Each packet captures immutable initial/final layout
+values and restores the observed application layout. Later observations do not modify
+earlier packets. Ordinary deferred submissions refuse retained application images.
+Transfers and clears require their actual usage bits; no application usage is added.
+Distinct images sharing physical storage, or image/buffer allocation overlap in a
+packet, refuse pending an explicit alias-phase adapter.
+
+Original CommandList.cpp 9691-9818 obtains referenced current SRV/RTV/DSV/UAV views
+and their resources. DX11 supplies reference-counted lifetime with deferred destruction,
+hazard tracking and one-context order. Vulkan retains the complete owner, exposes
+allocation/subresource accesses and preserves layouts at the actual insertion point.
+These are host proof inputs, not permission for an in-pass copy or concurrent queues.
+
+The fixture cancels without changing pixels, rejects incomplete/stale/contradictory
+observations and allocation aliasing, then consumes two separate application producers
+after the preparing engine is destroyed. The attachment-layout packet yields 14 and
+22, while an intervening GENERAL-layout copy sees 7. All allocation owners retire
+after the executable packets. Full original registry image snapshots and production
+ordered insertion remain separate follow-up work.

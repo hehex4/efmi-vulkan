@@ -13,6 +13,21 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-316: Retain application images with fresh whole-image layout proofs (2026-11-16)
+
+Prepared resource commands may import an optimal application image only with its
+complete allocation owner, actual memory requirements/span and a uniform layout
+observation for this scope. View-local or historical layouts cannot satisfy this
+contract. One live VkImage has one allocation identity. Sealed packets retain their
+own immutable layout contract and restore the observed application layout.
+
+Do not augment application usage or submit imports through the old deferred path.
+Reject distinct image/image or image/buffer allocation aliases until a phase adapter
+exists. Original GetResource references current views/resources; DX11 provides
+reference-counted lifetime with deferred destruction, hazard tracking and one-context
+order. The Vulkan owner/layout/access records replace only part of those facilities.
+Full original image snapshots and production ordered insertion remain required.
+
 ## D-315: Verify Present through the original root Include registry (2026-11-16)
 
 Use minimal project-owned root configurations for Present acceptance. No synthetic

@@ -3580,3 +3580,28 @@ Next: application image/source facts and full context import, ordered production
 insertion with attachment/compute restoration and recording lifetime, remaining capture
 fixtures, then native I-01/I-04/I-05/capture. Production Core is incomplete. No candidate
 refresh, game activity, installed/system mutation or remote write.
+
+## 2026-11-16: D-316 retained application image command packets
+
+Read original CommandList.cpp 9691-9818: current views and resources are referenced;
+DX11 provides reference-counted lifetime with deferred destruction, hazard tracking
+and one-context order. The low-level Vulkan importer now requires complete allocation
+owners, actual memory spans and a new uniform whole-image layout observation each
+scope. Saved imports cannot reuse old observations. Packets retain immutable layout
+contracts and restore the application's layout; actual usage bits are required and
+unproved physical image aliases refuse before admission.
+
+prepared-imported-images-first.out passes 110; reviewed transfer-usage checks give
+112 in prepared-imported-images-reviewed.out. Application producers yield 14 then 22,
+with a GENERAL-layout copy of 7 between them, after preparing-engine destruction.
+Cancellation preserves pixels and owners retire with packets. No test failed and
+core/synchronization validation is clean. Four DLLs build at 3.3.3 / ABI
+ff5c853cc3759e7d in prepared-imported-images-build.out. Configuration GPU 208 passes
+in prepared-imported-images-gpu.out; regression passes owned images/parameters 3,010,
+production registry 13, tracker 838, ABI 9 and text. Diff and memory accompany commit.
+
+Continue full original buffer/image source snapshots and ordered production packet
+insertion with attachment/compute restoration and recording lifetime, then remaining
+capture fixtures and native I-01/I-04/I-05/capture. This is low-level headless evidence;
+production Core remains incomplete. No candidate refresh, game activity, installed or
+system mutation, or remote write.
