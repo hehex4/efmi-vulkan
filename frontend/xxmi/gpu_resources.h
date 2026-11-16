@@ -181,6 +181,9 @@ private:
     DrawExecutor draw_executor_;
     uint64_t parameter_uploads_=0;
     bool parameters_initialized_=false;
+    // CPU IniParams assignments survive cancelled GPU work. Republish them at
+    // the next original flush boundary even if that list changes no component.
+    bool parameter_republish_=false;
     std::map<CustomResource*,GpuResourceBinding> resources_;
     // CustomResource::Substantiate runs once per resource: the declarations already substantiated (D-151).
     std::set<CustomResource*> substantiated_;

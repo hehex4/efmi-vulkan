@@ -1,5 +1,15 @@
 # EFMI Vulkan - Known issues
 
+## BUG-163: Cancelled parameter publication could lose its retry (fixed 3.3.2)
+
+Adding prepared images exposed an adapter flush optimization that only consulted
+the current command list's update_params flag. CPU IniParams assignments survive
+cancellation, so an unchanged assignment in the next list could leave the GPU stale.
+D-314 keeps a publication retry bit through cancellation and allocation failure;
+the adapter checks it at every original flush boundary. GPU tests reproduce the
+failure and verify both cancellation and exhausted staging capacity recovery.
+The previous released prepared path refused images; this fixes the new image path.
+
 ## BUG-162: CPU pool assignments bypassed prepared rollback (fixed 3.3.1)
 
 The original PoolVariableOperation remains a mutating pool command even when its

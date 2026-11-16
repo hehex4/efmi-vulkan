@@ -9,6 +9,7 @@ std::wstring widen(const char* text){std::string s(text);return {s.begin(),s.end
 }
 void GpuResourceRuntime::publish_parameters(){
     active();
+    parameter_republish_=true; // Also survives an allocation/emission failure.
     if(failed_)return; // the scope's work is dropped
     require(parameters_.image && G && G->iniParams.size()==parameters_.image_description.texture.Width,
             "GPU parameter allocation does not match this generation");
@@ -18,7 +19,7 @@ void GpuResourceRuntime::publish_parameters(){
     // write owns a staging copy immediately. Later CPU assignments cannot
     // change the values recorded at this original command-list boundary.
     commands_.write(parameters_.image,region,G->iniParams.data(),G->iniParams.size()*16);
-    ++parameter_uploads_;
+    ++parameter_uploads_;parameter_republish_=false;
 }
 bool GpuResourceRuntime::initialize_parameters(CommandListState&,std::wstring& why){
     try{
@@ -52,7 +53,7 @@ bool GpuResourceRuntime::flush_parameters(CommandListState& state,bool force,std
         require(parameters_initialized_,"GPU parameters used before initialization");
         // Empty reservation has no texture in the original device. Keep its
         // dirty flag, just as CommandListFlushState does without mIniTexture.
-        if(!parameters_.image || (!force && !state.update_params))return true;
+        if(!parameters_.image || (!force && !state.update_params && !parameter_republish_))return true;
         recorded_=true;publish_parameters();state.update_params=false;return true;
     }catch(const std::exception& e){execution_failed();why=widen(e.what());return false;}
 }

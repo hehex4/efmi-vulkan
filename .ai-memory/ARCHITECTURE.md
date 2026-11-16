@@ -1,5 +1,13 @@
 # EFMI Vulkan - Architecture
 
+D-314 (3.3.2) extends prepared packets to owned-image transfers, clears, resolves
+and compute descriptors, with retained allocation/subresource accesses and explicit
+initial/final layouts. Sealing requires a later accept/discard; only ordered host
+admission publishes logical layout state and permits recording. Named image caches
+roll back with the registry. Cancelled/failed IniParams uploads retry at the next
+original flush boundary even when CPU values no longer change. Application images
+without ownership/layout proof and production packet insertion remain unsupported.
+
 D-313 (3.3.1) adds original pool rollback to prepared execution, including lazy
 registrations, mutable lookup/index/expiry state, proxies and pool variables. A
 CPU-only pool assignment still passes through the transaction checkpoint. Original

@@ -1,4 +1,4 @@
-# Prepared buffer command execution
+# Prepared resource command execution
 
 D-308 adds a shared GPU execution primitive for the original-configuration rewrite.
 It is not yet connected to production draw interception. It does not close native
@@ -17,6 +17,13 @@ descriptors and pipelines. `finish_prepared` detaches immutable commands and the
 owners. No command-buffer recording, submission, fence wait or feedback occurs during
 preparation; driver allocation and shader preparation are still ordinary host work.
 Discard emits no partial GPU work. The default owned submission path remains intact.
+
+D-314 extends this boundary to owned images and adds explicit packet admission.
+After sealing, accept_prepared publishes logical image layout state and enables
+recording. Discard invalidates unadmitted packets. An admitted packet must execute
+before later packets that assume its final state; admission does not prove GPU
+completion or permit the host to drop a predecessor. Buffer-only callers use the
+same seal/admit protocol.
 
 An imported application buffer requires its actual handle, byte extent, usage,
 allocation range and complete lifetime owner. It is accepted only in prepared mode
@@ -40,6 +47,10 @@ the original GPU registry, logical registry rollback, ordered plan items, attach
 split planning, compute-state restoration and recording ownership. Do not enable
 `OwnedRuntime::begin_draw` and submit its old pending primary ahead of the application
 as a substitute for this integration.
+
+That initial image restriction is superseded for owned images by D-314 below.
+Application images, graphics, feedback and automatic submission remain outside
+this prepared boundary.
 
 The headless fixture prepares one copy/compute sequence, checks that output stays
 unchanged before recording, then reuses the sequence after application fills of 11
@@ -198,3 +209,45 @@ failure after a queued write. It exposed a CPU assignment fast path that checkpo
 too late; the corrected bridge saves state before mutation. A fresh independent repeat
 also passes with zero core/synchronization diagnostics. Root 27, interpreter 570,
 prepared primitives 65, production 13, tracker 838 and ABI 9 pass on 3.3.1.
+
+## Owned images and parameter publication (D-314)
+
+Prepared packets now retain owned image copies, buffer/image transfers, color and
+depth/stencil clears, multisample resolves and sampled/storage compute descriptors.
+Every packet exposes the required initial and final layout of each image, plus
+ordered subresource accesses. Transfers conservatively cover all texels in their
+specified mip/layers; transitions touch the full image range. Allocation handles and
+sizes stay valid through their retained owners. Storage image accesses are read/write.
+
+Layout changes remain private while preparing and sealing. Only explicit host
+admission publishes the logical GENERAL state for subsequent work. The host must
+execute admitted predecessors in that order and keep packets while their command
+buffers are executable or pending. Initial UNDEFINED transitions discard contents;
+replaying such a packet repeats that initialization contract. Admission is not a
+fence/completion proof. Cancelled packets cannot record. A sealed scope cannot be
+overwritten before accept/discard, including a scope that emitted no GPU commands.
+
+The original named-resource journal covers lazy images and image copy caches as well
+as buffers. IniParams continues using its original float4 Texture1D and original
+flush boundaries. CPU parameter assignments survive cancellation. Cancelled or failed
+uploads retain a publication retry bit, so the next boundary republishes even when
+the new list assigns the same value. This does not restore default bindings that the
+INI explicitly cleared. Uploaded bytes are frozen in retained staging storage.
+
+Original CommandListFlushState maps with WRITE_DISCARD, copies the entire parameter
+array, then clears update_params; resource copies use the same mOrigContext1. DX11
+supplies reference-counted lifetime with deferred destruction, hazard tracking and
+one-context order. The Vulkan adapter replaces these implicit facilities with staging
+owners, explicit transitions/accesses, retry state and ordered packet admission.
+
+Admission bounds images to 256, commands to 4,096 and combined access entries to
+16,384, reserving final GENERAL transitions and publication before each operation.
+Counts conservatively include potential newly seen images. Application image wrappers
+without allocation owners/layout proofs refuse. Graphics, GPU feedback, source-register
+mapping, production pass splitting and queue order remain host integration work.
+
+Verification on 3.3.2: configuration GPU 208, prepared 85 and ordinary image/parameter
+3,010 checks pass with zero core/synchronization diagnostics. Fresh root 27 and
+interpreter 570, production registry 13, native compute 91, tracker 838 and ABI 9
+also pass. The parameter retry failure, invalid initial texture fixture and missing
+test-consumer artifact are recorded separately in CURRENT_STATE.md/SESSION_LOG.md.

@@ -212,7 +212,7 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r,ResourceCopyTarget
     if(r.override_type==CustomResourceType::TEXTURE1D || r.override_type==CustomResourceType::TEXTURE2D ||
        r.override_type==CustomResourceType::TEXTURE3D || r.override_type==CustomResourceType::CUBE ||
        (!r.filename.empty() && r.override_type==CustomResourceType::INVALID)){
-        require(!prepared_state_,"Prepared image resources require layout transactions");return load_image(r);}
+        return load_image(r);}
     require(r.override_type==CustomResourceType::BUFFER || r.override_type==CustomResourceType::STRUCTURED_BUFFER ||
             r.override_type==CustomResourceType::RAW_BUFFER || r.override_type==CustomResourceType::INVALID,"GPU image declaration requires image commands");
     GpuResourceBinding b;std::vector<uint8_t> bytes;
@@ -322,7 +322,7 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         else if(t.type==Target::CONSTANT_BUFFER){b.stride=0;b.format=DXGI_FORMAT_UNKNOWN;}
         else if(t.type==Target::INDEX_BUFFER){b.stride=dxgi_format_size(b.format);b.visible_size=0;}
         else if(t.type==Target::VERTEX_BUFFER){b.format=DXGI_FORMAT_UNKNOWN;b.visible_size=0;}}
-    require(!prepared_state_ || !b.image,"Prepared image resources require layout transactions");
+    require(!prepared_state_ || !b.image || !b.image->is_external(),"Prepared application images require retained allocation and layout proofs");
     if(b && input.evaluation_mode==Mode::RESOURCE_REGION) {
         require(input.member_args[0].expression && input.member_args[1].expression,"GPU region requires offset and size");
         b.offset=uint_value(input.member_args[0].GetValue(&state));b.visible_size=uint_value(input.member_args[1].GetValue(&state));

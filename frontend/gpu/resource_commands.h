@@ -99,6 +99,9 @@ public:
     ImageResource& operator=(const ImageResource&)=delete;
     ~ImageResource();
     VkImage image() const {return image_;}
+    bool is_external() const {return external_;}
+    VkDeviceMemory memory() const {return memory_;}
+    VkDeviceSize memory_size() const {return allocation_;}
     const ImageDescription& description() const {return description_;}
     VkExtent3D extent(uint32_t mip=0) const;
     VkImageSubresourceRange full_range() const;
@@ -112,7 +115,8 @@ private:
     VkImage image_=VK_NULL_HANDLE;
     VkDeviceMemory memory_=VK_NULL_HANDLE;
     VkDeviceSize allocation_=0;
-    // True only after a successful submission. Discard never commits layouts.
+    // True after successful submission or explicit ordered packet admission.
+    // Admission is logical state; the host must execute its predecessor first.
     bool initialized_=false;
     // An imported image the caller owns: valid in this layout before and after every
     // submission that uses it, and never destroyed here.
@@ -197,6 +201,20 @@ struct PreparedBufferAccess {
     // Overflowing or empty caller spans are not valid overlap queries.
     bool overlaps(VkDeviceMemory,VkDeviceSize,VkDeviceSize) const noexcept;
 };
+struct PreparedImageAccess {
+    Image image;
+    VkImageSubresourceRange range{};
+    VkPipelineStageFlags stages=0;
+    VkAccessFlags access=0;
+    VkImageLayout layout=VK_IMAGE_LAYOUT_UNDEFINED;
+    size_t command=0;
+    // Transitions conservatively touch the full allocation's subresource range.
+    bool transition=false;
+};
+struct PreparedImageState {
+    Image image;
+    VkImageLayout initial=VK_IMAGE_LAYOUT_UNDEFINED,final=VK_IMAGE_LAYOUT_GENERAL;
+};
 class PreparedResourceCommands {
 public:
     void record(VkCommandBuffer) const;
@@ -205,14 +223,18 @@ public:
     uint32_t queue_family() const {return queue_family_;}
     size_t size() const {return commands_.size();}
     const std::vector<PreparedBufferAccess>& buffer_accesses() const {return accesses_;}
+    const std::vector<PreparedImageAccess>& image_accesses() const {return image_accesses_;}
+    const std::vector<PreparedImageState>& image_states() const {return image_states_;}
 private:
     friend class ResourceCommands;
     std::vector<std::function<void(VkCommandBuffer)>> commands_;
     std::vector<PreparedBufferAccess> accesses_;
+    std::vector<PreparedImageAccess> image_accesses_;
+    std::vector<PreparedImageState> image_states_;
     std::shared_ptr<ResourceSubmission> owners_;
     VkDevice device_=VK_NULL_HANDLE;
     uint32_t queue_family_=0;
-    bool compute_=false;
+    bool compute_=false,admitted_=false;
 };
 
 // The default outside-render-pass execution domain records private primary
@@ -229,12 +251,14 @@ public:
     ~ResourceCommands();
     ResourceCommands(const ResourceCommands&)=delete;
     ResourceCommands& operator=(const ResourceCommands&)=delete;
-    // Buffer transfer/compute preparation only. No image/graphics operations,
-    // feedback or submission; discard drops all prepared emission. The caller
-    // separately rolls back its logical resource registry after a failed plan.
+    // Buffer and owned-image transfer/compute preparation. No application image
+    // imports, graphics, feedback or submission. Seal, then admit only after the
+    // host proves order/layouts and retains the packet with its recording.
+    // Discard invalidates unadmitted packets and leaves image state unchanged.
     void begin_prepared();
     bool preparing() const {return preparing_;}
     std::shared_ptr<const PreparedResourceCommands> finish_prepared();
+    void accept_prepared();
     Buffer import_buffer(VkBuffer,VkDeviceSize,VkBufferUsageFlags,VkDeviceMemory,
                          VkDeviceSize memory_offset,VkDeviceSize memory_size,std::shared_ptr<const void>);
     Buffer create(VkDeviceSize,VkBufferUsageFlags,const void* initial=nullptr,size_t initial_size=0,bool zero=false);
@@ -308,8 +332,9 @@ private:
     VkCommandBuffer command();
     void retain_pending();
     void emit_prepared(std::function<void(VkCommandBuffer)>);
-    void reserve_prepared(size_t commands,size_t accesses);
+    void reserve_prepared(size_t commands,size_t accesses,size_t image_accesses=0,size_t images=0);
     void buffer_access(const Buffer&,VkDeviceSize,VkDeviceSize,VkPipelineStageFlags,VkAccessFlags);
+    void image_access(const Image&,VkImageSubresourceRange,VkPipelineStageFlags,VkAccessFlags,VkImageLayout,bool transition=false);
     template<class Operation> void emit(Operation&& operation) {
         if(!preparing_){operation(command());return;}
         emit_prepared(std::forward<Operation>(operation));
@@ -322,6 +347,10 @@ private:
     std::shared_ptr<ResourceSubmission> pending_;
     std::vector<std::function<void(VkCommandBuffer)>> prepared_;
     std::vector<PreparedBufferAccess> prepared_accesses_;
+    std::vector<PreparedImageAccess> prepared_image_accesses_;
+    std::vector<PreparedImageState> prepared_image_states_;
+    std::shared_ptr<PreparedResourceCommands> sealed_;
+    bool awaiting_admission_=false;
     bool preparing_=false,prepared_compute_=false;
     uint64_t recorded_=0;
     std::shared_ptr<SubmissionRecycler> recycler_;

@@ -1043,7 +1043,9 @@ struct DrawPlanAdapter::Runtime {
     }
 
     void flush(CommandListState& state,bool force=false){
-        if(!parameter_flush || !gpu() || (!force && !state.update_params))return;
+        // The GPU adapter also owns a retry bit after cancelled publication.
+        // Its callback decides whether this original flush boundary is dirty.
+        if(!parameter_flush || !gpu())return;
         std::wstring why;
         if(!parameter_flush(state,force,why))refuse(why.empty()?L"GPU parameter publication refused":why);
     }

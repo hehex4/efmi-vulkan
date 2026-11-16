@@ -148,3 +148,11 @@ ordinary scalar globals persist. GPU 169, root 27, interpreter 570 and prepared 
 pass on 3.3.1 with clean validation; production registry/tracker/ABI checks also pass.
 Pool algorithms remain the original source. Owned image/parameter transactions and
 production mapping/insertion remain open; this does not close native queue scheduling.
+
+D-314 adds owned image transfer/clear/resolve/compute packets with initial/final
+layout and subresource access metadata. Explicit admission publishes logical state;
+cancellation restores named image caches and retries IniParams publication at its
+original boundary. Source/development DLLs are 3.3.2. GPU configuration 208, prepared
+85, owned images/parameters 3,010, root 27 and interpreter 570 pass with clean Vulkan
+validation. Application image facts/ownership and ordered production insertion are
+still required; this does not enable real-game Core execution.

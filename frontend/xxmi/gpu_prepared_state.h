@@ -72,7 +72,10 @@ struct GpuResourceRuntime::PreparedState {
     Bindings slots;
     D3D11_VIEWPORT viewport;
     bool backbuffer_targeted;
-    explicit PreparedState(const GpuResourceRuntime& r):slots(r.slots_),viewport(r.viewport_),backbuffer_targeted(r.backbuffer_targeted_){}
+    uint64_t parameter_uploads;
+    bool parameter_republish;
+    explicit PreparedState(const GpuResourceRuntime& r):slots(r.slots_),viewport(r.viewport_),backbuffer_targeted(r.backbuffer_targeted_),
+        parameter_uploads(r.parameter_uploads_),parameter_republish(r.parameter_republish_){}
 };
 void GpuResourceRuntime::remember(CustomResource& r){
     if(!prepared_state_)return;
@@ -122,6 +125,8 @@ void GpuResourceRuntime::rollback_prepared() noexcept {
     undo.resources.restore(resources_);undo.copies.restore(copies_);
     undo.resource_pools.restore(resource_copy_pools_);undo.command_pools.restore(command_copy_pools_);undo.range_views.restore(range_views_);
     slots_=std::move(undo.slots);viewport_=undo.viewport;backbuffer_targeted_=undo.backbuffer_targeted;
+    parameter_republish_=parameter_republish_ || undo.parameter_republish || parameter_uploads_!=undo.parameter_uploads;
+    parameter_uploads_=undo.parameter_uploads;
     if(undo.pools)undo.pools->restore();
     prepared_state_.reset();
 }
@@ -139,6 +144,6 @@ std::shared_ptr<const gpu::PreparedResourceCommands> GpuResourceRuntime::finish_
 void GpuResourceRuntime::accept_prepared(){
     if(active_ || !prepared_state_ || commands_.preparing() || commands_.pending() || failed_)
         throw std::runtime_error("Prepared registry admission requires a successfully sealed scope");
-    prepared_state_.reset();
+    commands_.accept_prepared();prepared_state_.reset();
 }
 }

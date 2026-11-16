@@ -1479,6 +1479,8 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_operand_cases.h"
 #include "resource_reference_cases.h"
 #include "prepared_resource_cases.h"
+#include "prepared_image_cases.h"
+#include "prepared_parameter_cases.h"
 #include "prepared_registry_cases.h"
 #include "prepared_application_cases.h"
 #include "prepared_pool_cases.h"
@@ -1542,17 +1544,33 @@ int wmain(int argc,wchar_t** argv){
         }catch(const std::exception& e){fprintf(stderr,"load-configuration: %s\n",e.what());return 1;}
     }
     if(argc==3 && !wcscmp(argv[1],L"--prepared")){
-        try{{Device device;device.init();low_level(device);prepared_resource_cases(device,std::filesystem::absolute(argv[2]));}
+        try{{Device device;device.init();low_level(device);prepared_resource_cases(device,std::filesystem::absolute(argv[2]));
+            prepared_image_cases(device,std::filesystem::absolute(argv[2])/"images");}
             printf("prepared resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
             return errors || warnings?1:0;
         }catch(const std::exception& e){fprintf(stderr,"prepared resources: %s\n",e.what());return 1;}
+    }
+    if(argc==3 && !wcscmp(argv[1],L"--owned-images")){
+        try{{Device device;device.init(false,false,true,false,false,false,true,true,true);const auto root=std::filesystem::absolute(argv[2]);
+            image_commands(device);image_source_reference();image_ini_declarations(device,root/"declarations");
+            image_ini_clears(device,root/"clears");image_ini_depth_resolve(device,root/"depth-resolve");
+            image_ini_dds(device,root/"dds");image_ini_depth_dds(device,root/"depth-dds");image_ini_failures(device,root/"failures");
+            image_ini_pool_lifetime(device,root/"pool-lifetime");image_ini_integer_rtv(device,root/"integer-rtv");
+            image_depth_conversion(device,root/"depth-conversion");
+            parameter_boundaries(device,root/"boundaries");parameter_draws_and_dirty(device,root/"draws");
+            parameter_keys(device,root/"keys");parameter_registers_and_failures(device,root/"registers");
+            parameter_lifetime(device,root/"lifetime");parameter_draw_failure(device,root/"draw-failure");}
+            printf("owned images: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
+            return errors || warnings?1:0;
+        }catch(const std::exception& e){fprintf(stderr,"owned images: %s\n",e.what());return 1;}
     }
     if(argc==3 && !wcscmp(argv[1],L"--configuration")){
         try{{Device device;device.init(false,false,true,false,false,false,true,true,true);
             configuration_resource_cases(device,std::filesystem::absolute(argv[2]));
             prepared_registry_cases(device,std::filesystem::absolute(argv[2])/"prepared-registry");
             prepared_application_cases(device,std::filesystem::absolute(argv[2])/"prepared-application");
-            prepared_pool_cases(device,std::filesystem::absolute(argv[2])/"prepared-pools");}
+            prepared_pool_cases(device,std::filesystem::absolute(argv[2])/"prepared-pools");
+            prepared_parameter_cases(device,std::filesystem::absolute(argv[2])/"prepared-parameters");}
             printf("configuration resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
             return errors || warnings?1:0;
         }catch(const std::exception& e){fprintf(stderr,"configuration resources: %s\n",e.what());return 1;}

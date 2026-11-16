@@ -3528,3 +3528,32 @@ prepared-pools-build.out. The reviewed change is committed locally and main adva
 Next: owned image/parameter transactions and ordered host insertion, then remaining
 native queue/access/readiness/capture work. Production Core execution is incomplete.
 No candidate refresh, game action, installed/system mutation or remote write.
+
+## 2026-11-16: D-314 owned image/parameter preparation and explicit admission (3.3.2)
+
+Continued shared original execution. Read original CommandListFlushState and
+CopyResource paths: DX11 provides reference-counted lifetime with deferred destruction,
+hazard tracking and one-context order. Prepared owned image transfers, clear/resolve
+and compute now retain allocations and subresource accesses, expose initial/final
+layouts and require explicit accept/discard after sealing. Only ordered admission
+publishes logical layouts; accepted work cannot be abandoned before dependent packets.
+Named image caches roll back. CPU IniParams survive cancellation and failed uploads
+retry at original boundaries without restoring explicitly cleared bindings.
+
+The first parameter retry fails because an outer dirty shortcut prevents the GPU
+adapter from seeing its retry flag (BUG-163). After repair, the fixture finds source
+zero: its texture omitted array/msaa, also invalid under original zero-initialized
+SubstantiateTexture2D. Explicit declarations fix the fixture. Configuration GPU 208
+and prepared 85 pass in prepared-images-reviewed.out with zero core/synchronization
+diagnostics, including staging-pressure retry, image compute/copy, depth clear,
+multisample resolve, closure budget and owner retirement. The ordinary-image runner
+initially lacks parameters.spv; compiling/validating it gives 3,010 checks in
+prepared-images-owned.out and the scoped run_all area (prepared-images-area.out).
+Fresh root 27/interpreter 570 pass. Four DLLs build as 3.3.2 with unchanged ABI
+ff5c853cc3759e7d. Production 13, native compute 91, tracker 838, ABI 9 and text pass
+in prepared-images-regression.out. Diff and memory accompany the local commit.
+
+Next: migrate remaining package-based Present/capture fixtures, application image
+ownership/source facts and ordered host insertion with pass/compute restoration,
+then native queue/access/readiness/capture work. Production Core is incomplete.
+No candidate refresh, game activity, installed/system mutation or remote write.

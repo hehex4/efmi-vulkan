@@ -13,6 +13,18 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-314: Admit owned image state explicitly with ordered packets (2026-11-16)
+
+Keep image layout changes private until the host accepts a sealed packet. Publish
+logical final layouts only at acceptance; accepted predecessors must execute before
+later consumers, and acceptance is never completion proof. Retain allocation and
+subresource access metadata, including full-range transition hazards. Bound images,
+commands and accesses while reserving closure transitions before operations. Reject
+borrowed application images without ownership/layout proof. Parameter CPU assignments
+persist, but cancelled or failed uploads retry at original flush boundaries without
+restoring cleared bindings. Original DX11 reference-counted lifetime with deferred
+destruction, hazard tracking and context order remain explicit host obligations.
+
 ## D-313: Journal original pool state without replacing its algorithms (2026-11-16)
 
 Checkpoint pools before mutable queries as well as assignments, including proxy roots,

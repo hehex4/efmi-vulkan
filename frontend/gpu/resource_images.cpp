@@ -137,7 +137,9 @@ Image ResourceCommands::create_image(ImageDescription desc) {
     check(d.BindImageMemory(device_.device,image->image_,image->memory_,0),"Bind image memory");return image;
 }
 void ResourceCommands::validate(const Image& image) const {
+    if(awaiting_admission_)throw std::runtime_error("Resource scope is awaiting prepared admission");
     if(!image || image->domain_!=domain_)throw std::runtime_error("Image belongs to another execution domain");
+    if(preparing_ && image->external_)throw std::runtime_error("Prepared application images require retained allocation and layout proofs");
 }
 VkImageSubresourceRange ResourceCommands::range(const Image& image,VkImageSubresourceRange r) const {
     validate(image);const auto& desc=image->description_;
@@ -189,9 +191,10 @@ ImageView ResourceCommands::view(const Image& image,VkImageViewType type,VkForma
     check(device_.dispatch.CreateImageView(device_.device,&ci,nullptr,&result->view_),"Create resource image view");return result;
 }
 void ResourceCommands::transition(const Image& image,VkImageLayout layout) {
-    auto cb=command();auto found=pending_->image_layouts_.find(image);
+    validate(image);retain_pending();auto found=pending_->image_layouts_.find(image);
     const auto old=found!=pending_->image_layouts_.end()?found->second:image->external_?image->external_layout_:
         (image->initialized_?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED);
+    if(preparing_ && found==pending_->image_layouts_.end())prepared_image_states_.push_back({image,old,VK_IMAGE_LAYOUT_GENERAL});
     // Insertion retains the owner before a command can refer to its image.
     pending_->image_layouts_[image]=layout;if(old==layout)return;
     VkImageMemoryBarrier b={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.image=image->image_;b.subresourceRange=image->full_range();
@@ -201,9 +204,12 @@ void ResourceCommands::transition(const Image& image,VkImageLayout layout) {
     // Handing an imported image back (to presentation) needs no later access in this submission.
     b.dstAccessMask=layout==VK_IMAGE_LAYOUT_PRESENT_SRC_KHR?0:!transfer?VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT:
         (layout==VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL?VK_ACCESS_TRANSFER_READ_BIT:VK_ACCESS_TRANSFER_WRITE_BIT);
-    device_.dispatch.CmdPipelineBarrier(cb,old==VK_IMAGE_LAYOUT_UNDEFINED?VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-        layout==VK_IMAGE_LAYOUT_PRESENT_SRC_KHR?VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT:transfer?VK_PIPELINE_STAGE_TRANSFER_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-        0,0,nullptr,0,nullptr,1,&b);
+    const auto from=old==VK_IMAGE_LAYOUT_UNDEFINED?VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    const auto to=layout==VK_IMAGE_LAYOUT_PRESENT_SRC_KHR?VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT:
+        transfer?VK_PIPELINE_STAGE_TRANSFER_BIT:VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    image_access(image,b.subresourceRange,to,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT,layout,true);
+    const auto barrier=device_.dispatch.CmdPipelineBarrier;
+    emit([barrier,from,to,b](VkCommandBuffer command){barrier(command,from,to,0,0,nullptr,0,nullptr,1,&b);});
 }
 VkDeviceSize ResourceCommands::transfer_size(const Image& image,const VkBufferImageCopy& r) const {
     region(image,r.imageSubresource,r.imageOffset,r.imageExtent);const auto& f=info(image->description_.format);
@@ -225,14 +231,22 @@ VkDeviceSize ResourceCommands::transfer_size(const Image& image,const VkBufferIm
 void ResourceCommands::copy(const Buffer& source,const Image& destination,const VkBufferImageCopy& r) {
     const auto size=transfer_size(destination,r);validate(source,r.bufferOffset,size);
     if(!(source->usage_&VK_BUFFER_USAGE_TRANSFER_SRC_BIT))throw std::runtime_error("Image upload buffer usage missing");
-    barrier();transition(destination,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);pending_->retained_.push_back(source);
-    device_.dispatch.CmdCopyBufferToImage(command(),source->buffer_,destination->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&r);
+    reserve_prepared(3,1,2,1);barrier();transition(destination,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);pending_->retained_.push_back(source);
+    buffer_access(source,r.bufferOffset,size,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT);
+    image_access(destination,{r.imageSubresource.aspectMask,r.imageSubresource.mipLevel,1,r.imageSubresource.baseArrayLayer,r.imageSubresource.layerCount},
+        VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    const auto copy=device_.dispatch.CmdCopyBufferToImage;
+    emit([copy,source,destination,r](VkCommandBuffer command){copy(command,source->buffer_,destination->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&r);});
 }
 void ResourceCommands::copy(const Image& source,const Buffer& destination,const VkBufferImageCopy& r) {
     const auto size=transfer_size(source,r);validate(destination,r.bufferOffset,size);
     if(!(destination->usage_&VK_BUFFER_USAGE_TRANSFER_DST_BIT))throw std::runtime_error("Image download buffer usage missing");
-    barrier();transition(source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);pending_->retained_.push_back(destination);
-    device_.dispatch.CmdCopyImageToBuffer(command(),source->image_,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,destination->buffer_,1,&r);
+    reserve_prepared(3,1,2,1);barrier();transition(source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);pending_->retained_.push_back(destination);
+    image_access(source,{r.imageSubresource.aspectMask,r.imageSubresource.mipLevel,1,r.imageSubresource.baseArrayLayer,r.imageSubresource.layerCount},
+        VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    buffer_access(destination,r.bufferOffset,size,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT);
+    const auto copy=device_.dispatch.CmdCopyImageToBuffer;
+    emit([copy,source,destination,r](VkCommandBuffer command){copy(command,source->image_,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,destination->buffer_,1,&r);});
 }
 void ResourceCommands::copy(const Image& source,const Image& destination,const VkImageCopy& r) {
     region(source,r.srcSubresource,r.srcOffset,r.extent);region(destination,r.dstSubresource,r.dstOffset,r.extent);
@@ -248,15 +262,23 @@ void ResourceCommands::copy(const Image& source,const Image& destination,const V
            overlaps(uint32_t(r.srcOffset.y),uint32_t(r.dstOffset.y),r.extent.height) &&
            overlaps(uint32_t(r.srcOffset.z),uint32_t(r.dstOffset.z),r.extent.depth))throw std::runtime_error("Overlapping image copy");
     }
-    barrier();const auto sl=source==destination?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    reserve_prepared(4,0,4,2);barrier();const auto sl=source==destination?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     const auto dl=source==destination?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    transition(source,sl);transition(destination,dl);device_.dispatch.CmdCopyImage(command(),source->image_,sl,destination->image_,dl,1,&r);
+    transition(source,sl);transition(destination,dl);
+    image_access(source,{r.srcSubresource.aspectMask,r.srcSubresource.mipLevel,1,r.srcSubresource.baseArrayLayer,r.srcSubresource.layerCount},
+        VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT,sl);
+    image_access(destination,{r.dstSubresource.aspectMask,r.dstSubresource.mipLevel,1,r.dstSubresource.baseArrayLayer,r.dstSubresource.layerCount},
+        VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,dl);
+    const auto copy=device_.dispatch.CmdCopyImage;
+    emit([copy,source,destination,sl,dl,r](VkCommandBuffer command){copy(command,source->image_,sl,destination->image_,dl,1,&r);});
 }
 void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const VkClearColorValue& value) {
     r=range(image,r);if(!info(image->description_.format).color_clear || r.aspectMask!=VK_IMAGE_ASPECT_COLOR_BIT)
         throw std::runtime_error("Image format does not support a color clear");
-    barrier();transition(image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    device_.dispatch.CmdClearColorImage(command(),image->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&value,1,&r);
+    reserve_prepared(3,0,2,1);barrier();transition(image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    image_access(image,r,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    const auto clear=device_.dispatch.CmdClearColorImage;
+    emit([clear,image,r,value](VkCommandBuffer command){clear(command,image->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&value,1,&r);});
 }
 void ResourceCommands::copy_color_depth(const Image& source,const Image& destination,const VkImageCopy& r) {
     region(source,r.srcSubresource,r.srcOffset,r.extent);region(destination,r.dstSubresource,r.dstOffset,r.extent);
@@ -277,6 +299,7 @@ void ResourceCommands::copy_color_depth(const Image& source,const Image& destina
     to.imageSubresource=r.dstSubresource;to.imageOffset=r.dstOffset;to.imageExtent=r.extent;
     const auto bytes=transfer_size(source,from);
     if(bytes!=transfer_size(destination,to))throw std::runtime_error("Color/depth copy footprints differ");
+    reserve_prepared(6,2,4,2); // Both halves must fit before the first transfer.
     if(!image_copy_scratch_ || image_copy_scratch_->size()<bytes)image_copy_scratch_=create(bytes,0);
     copy(source,image_copy_scratch_,from);copy(image_copy_scratch_,destination,to);
 }
@@ -287,8 +310,10 @@ void ResourceCommands::clear(const Image& image,VkImageSubresourceRange r,const 
     // Vulkan validates the depth field even for a stencil-only range. Do not
     // forward an unused caller value that violates that unconditional rule.
     auto clear=value;if(!(r.aspectMask&VK_IMAGE_ASPECT_DEPTH_BIT))clear.depth=0;
-    barrier();transition(image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    device_.dispatch.CmdClearDepthStencilImage(command(),image->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&clear,1,&r);
+    reserve_prepared(3,0,2,1);barrier();transition(image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    image_access(image,r,VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    const auto clear_image=device_.dispatch.CmdClearDepthStencilImage;
+    emit([clear_image,image,r,clear](VkCommandBuffer command){clear_image(command,image->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,&clear,1,&r);});
 }
 void ResourceCommands::resolve(const Image& source,const Image& destination,const VkImageResolve& r) {
     region(source,r.srcSubresource,r.srcOffset,r.extent);region(destination,r.dstSubresource,r.dstOffset,r.extent);
@@ -299,8 +324,13 @@ void ResourceCommands::resolve(const Image& source,const Image& destination,cons
        r.srcSubresource.layerCount!=r.dstSubresource.layerCount)throw std::runtime_error("Invalid color multisample resolve");
     VkFormatProperties properties{};device_.GetFormatProperties(device_.physical,dst.format,&properties);
     if(!(properties.optimalTilingFeatures&VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT))throw std::runtime_error("Resolve format lacks color attachment support");
-    barrier();transition(source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);transition(destination,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    device_.dispatch.CmdResolveImage(command(),source->image_,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,destination->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&r);
+    reserve_prepared(4,0,4,2);barrier();transition(source,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);transition(destination,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    image_access(source,{r.srcSubresource.aspectMask,r.srcSubresource.mipLevel,1,r.srcSubresource.baseArrayLayer,r.srcSubresource.layerCount},
+        VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_READ_BIT,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    image_access(destination,{r.dstSubresource.aspectMask,r.dstSubresource.mipLevel,1,r.dstSubresource.baseArrayLayer,r.dstSubresource.layerCount},
+        VK_PIPELINE_STAGE_TRANSFER_BIT,VK_ACCESS_TRANSFER_WRITE_BIT,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    const auto resolve=device_.dispatch.CmdResolveImage;
+    emit([resolve,source,destination,r](VkCommandBuffer command){resolve(command,source->image_,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,destination->image_,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&r);});
 }
 void ResourceCommands::write(const Image& image,VkBufferImageCopy r,const void* bytes,size_t size) {
     if(r.bufferOffset)throw std::runtime_error("Host image upload requires zero buffer offset");
@@ -321,6 +351,7 @@ void ResourceCommands::write(const Image& image,VkBufferImageCopy r,const void* 
     auto stage=this->stage(required);write_stage(stage,bytes,size);copy(stage,image,r);
 }
 std::vector<uint8_t> ResourceCommands::readback(VkQueue queue,const Image& image,VkBufferImageCopy r) {
+    if(preparing_ || awaiting_admission_)throw std::runtime_error("Prepared image scopes cannot wait for readback");
     if(r.bufferOffset)throw std::runtime_error("Host image readback requires zero buffer offset");
     const auto size=transfer_size(image,r);auto stage=allocate(size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true);copy(image,stage,r);
     barrier(VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_READ_BIT);auto ticket=submit(queue);ticket->wait();return read_stage(stage,size);

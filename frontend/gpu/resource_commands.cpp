@@ -69,22 +69,36 @@ bool PreparedBufferAccess::overlaps(VkDeviceMemory memory,VkDeviceSize begin,VkD
     return own<begin+length && begin<own+size;
 }
 void PreparedResourceCommands::record(VkCommandBuffer command) const {
+    if(!admitted_)throw std::runtime_error("Prepared packet requires ordered host admission before recording");
     if(!command)throw std::runtime_error("Prepared commands need a recording command buffer");
     for(const auto& emit:commands_)emit(command);
 }
 void ResourceCommands::begin_prepared() {
-    if(preparing_ || pending_)throw std::runtime_error("Prepared resource scope requires no pending work");
+    if(preparing_ || pending_ || awaiting_admission_)throw std::runtime_error("Prepared resource scope requires no pending work or admission");
     preparing_=true;prepared_compute_=false;prepared_.clear();prepared_accesses_.clear();
+    prepared_image_accesses_.clear();prepared_image_states_.clear();
 }
 std::shared_ptr<const PreparedResourceCommands> ResourceCommands::finish_prepared() {
     if(!preparing_)throw std::runtime_error("No prepared resource scope is active");
-    if(!pending_){preparing_=false;return {};}
+    if(!pending_){preparing_=false;awaiting_admission_=true;return {};}
+    // Every operation reserved its final layout transitions and publication.
+    for(const auto& item:pending_->image_layouts_)transition(item.first,VK_IMAGE_LAYOUT_GENERAL);
     barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
     auto result=std::make_shared<PreparedResourceCommands>();
     result->commands_=std::move(prepared_);result->owners_=std::move(pending_);
     result->accesses_=std::move(prepared_accesses_);
+    result->image_accesses_=std::move(prepared_image_accesses_);
+    result->image_states_=std::move(prepared_image_states_);
     result->device_=device_.device;result->queue_family_=device_.queue_family;result->compute_=prepared_compute_;
-    preparing_=prepared_compute_=false;return result;
+    preparing_=prepared_compute_=false;awaiting_admission_=true;sealed_=result;return result;
+}
+void ResourceCommands::accept_prepared() {
+    if(preparing_ || pending_ || !awaiting_admission_)throw std::runtime_error("Prepared admission requires a sealed scope");
+    if(sealed_){
+        for(const auto& state:sealed_->image_states_)state.image->initialized_=true;
+        sealed_->admitted_=true;
+    }
+    sealed_.reset();awaiting_admission_=false;
 }
 Buffer ResourceCommands::import_buffer(VkBuffer handle,VkDeviceSize size,VkBufferUsageFlags usage,VkDeviceMemory memory,
     VkDeviceSize memory_offset,VkDeviceSize memory_size,std::shared_ptr<const void> owner) {
@@ -119,6 +133,7 @@ Buffer ResourceCommands::allocate(VkDeviceSize size,VkBufferUsageFlags usage,boo
     check(d.BindBufferMemory(device_.device,result->buffer_,result->memory_,0),"Bind resource memory");return result;
 }
 void ResourceCommands::validate(const Buffer& buffer,VkDeviceSize offset,VkDeviceSize size) const {
+    if(awaiting_admission_)throw std::runtime_error("Resource scope is awaiting prepared admission");
     if(!buffer || buffer->domain_!=domain_)throw std::runtime_error("Resource belongs to another execution domain");
     if(buffer->external_owner_ && !preparing_)throw std::runtime_error("Imported buffers cannot enter deferred queue submissions");
     if(!size || offset>=buffer->size_ || size>buffer->size_-offset)throw std::runtime_error("Resource range outside allocation");
@@ -139,7 +154,7 @@ Buffer ResourceCommands::create(VkDeviceSize size,VkBufferUsageFlags usage,const
     return result;
 }
 VkCommandBuffer ResourceCommands::command() {
-    if(preparing_)throw std::runtime_error("Prepared commands support only buffer transfer and compute emission");
+    if(preparing_ || awaiting_admission_)throw std::runtime_error("Prepared commands cannot enter private command recording");
     ++recorded_;
     if(pending_)return pending_->command_;
     auto p=std::make_shared<ResourceSubmission>();p->device_=device_;p->recycler_=recycler_;const auto& d=device_.dispatch;
@@ -166,16 +181,27 @@ void ResourceCommands::emit_prepared(std::function<void(VkCommandBuffer)> operat
     if(prepared_.size()>=4096)throw std::runtime_error("Prepared resource command budget exceeded");
     retain_pending();prepared_.push_back(std::move(operation));++recorded_;
 }
-void ResourceCommands::reserve_prepared(size_t commands,size_t accesses) {
+void ResourceCommands::reserve_prepared(size_t commands,size_t accesses,size_t image_accesses,size_t images) {
     if(!preparing_)return;
-    // Reserve one final publication barrier too. A refusal leaves the current
-    // packet intact and never emits half an operation's access description.
-    if(commands>4095 || prepared_.size()>4095-commands || accesses>16384 || prepared_accesses_.size()>16384-accesses)
+    // Conservative new-image count reserves final GENERAL transitions even if
+    // this operation later finds an already retained image. Never omit closure.
+    const size_t image_count=prepared_image_states_.size()+images;
+    const size_t closure=1+image_count;
+    if(image_count>256 || commands>4096-closure || prepared_.size()>4096-closure-commands ||
+       accesses>16384 || image_accesses>16384-accesses ||
+       prepared_accesses_.size()+prepared_image_accesses_.size()+image_count>16384-accesses-image_accesses)
         throw std::runtime_error("Prepared resource command/access budget exceeded");
     const auto grow=[](size_t capacity,size_t need,size_t maximum){return std::min(maximum,std::max(need,std::max(size_t(16),capacity*2)));};
-    if(prepared_.capacity()<prepared_.size()+commands+1)prepared_.reserve(grow(prepared_.capacity(),prepared_.size()+commands+1,4096));
+    if(prepared_.capacity()<prepared_.size()+commands+closure)prepared_.reserve(grow(prepared_.capacity(),prepared_.size()+commands+closure,4096));
     if(prepared_accesses_.capacity()<prepared_accesses_.size()+accesses)
         prepared_accesses_.reserve(grow(prepared_accesses_.capacity(),prepared_accesses_.size()+accesses,16384));
+    const size_t need=prepared_image_accesses_.size()+image_accesses+image_count;
+    if(prepared_image_accesses_.capacity()<need)prepared_image_accesses_.reserve(grow(prepared_image_accesses_.capacity(),need,16384));
+    if(prepared_image_states_.capacity()<image_count)prepared_image_states_.reserve(grow(prepared_image_states_.capacity(),image_count,256));
+}
+void ResourceCommands::image_access(const Image& image,VkImageSubresourceRange range,VkPipelineStageFlags stages,
+    VkAccessFlags access,VkImageLayout layout,bool transition) {
+    if(preparing_)prepared_image_accesses_.push_back({image,range,stages,access,layout,prepared_.size(),transition});
 }
 void ResourceCommands::buffer_access(const Buffer& buffer,VkDeviceSize offset,VkDeviceSize size,VkPipelineStageFlags stages,VkAccessFlags access) {
     if(preparing_)prepared_accesses_.push_back({buffer,offset,size,stages,access,prepared_.size()});
@@ -242,7 +268,7 @@ void ResourceCommands::write_stage(const Buffer& stage,const void* bytes,size_t 
     device_.dispatch.UnmapMemory(device_.device,stage->memory_);check(status,"Flush resource upload");
 }
 std::shared_ptr<ResourceSubmission> ResourceCommands::submit(VkQueue queue,const SubmitSync& sync) {
-    if(preparing_)throw std::runtime_error("Prepared resource commands cannot be submitted ahead of application work");
+    if(preparing_ || awaiting_admission_)throw std::runtime_error("Prepared resource commands cannot be submitted ahead of application work");
     if(!queue || (queue_ && queue_!=queue))throw std::runtime_error("Resource execution requires one serialized queue");
     if(sync.waits.size()!=sync.stages.size() || sync.waits.size()>64 || sync.signals.size()>64)throw std::runtime_error("Invalid resource submission semaphores");
     if(!pending_)return {};
@@ -290,5 +316,8 @@ std::vector<uint8_t> ResourceCommands::read_stage(const Buffer& stage,VkDeviceSi
     if(status==VK_SUCCESS)memcpy(result.data(),mapped,result.size());device_.dispatch.UnmapMemory(device_.device,stage->memory_);
     check(status,"Invalidate resource readback");return result;
 }
-void ResourceCommands::discard(){prepared_.clear();prepared_accesses_.clear();pending_.reset();preparing_=prepared_compute_=false;}
+void ResourceCommands::discard(){
+    prepared_.clear();prepared_accesses_.clear();prepared_image_accesses_.clear();prepared_image_states_.clear();
+    sealed_.reset();pending_.reset();preparing_=prepared_compute_=awaiting_admission_=false;
+}
 }

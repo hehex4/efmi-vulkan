@@ -47,6 +47,7 @@ RWStructuredBuffer<uint> Output : register(u0);
     gpu::ShaderDescriptor out;out.binding=storage;out.buffer=destination;out.size=bytes;
     shaders->dispatch(pipeline,{in,out},{uint32_t(bytes/4),1,1});
     auto prepared=work->finish_prepared();
+    work->accept_prepared();
     check(prepared && prepared->changes_compute_state() && prepared->device()==d.resource.device && prepared->queue_family()==d.resource.queue_family,
           "prepared work reports compute restoration and queue-family obligations");
     check(!work->pending() && !work->preparing(),"finish detaches all prepared owners without pending submission");
@@ -102,7 +103,7 @@ RWStructuredBuffer<uint> Output : register(u0);
     auto cancel_output=cancelled.import_buffer(output->buffer(),bytes,output->usage(),output->memory(),0,output->memory_size(),output);
     cancelled.fill(cancel_output,0,bytes,99);cancelled.discard();
     check(!cancelled.pending() && !cancelled.preparing() && words(output,26),"discard emits no partial commands or GPU mutation");
-    cancelled.begin_prepared();check(!cancelled.finish_prepared(),"empty prepared scope needs no recording owner");
+    cancelled.begin_prepared();check(!cancelled.finish_prepared(),"empty prepared scope needs no recording owner");cancelled.accept_prepared();
     cancelled.begin_prepared();
     reject([&]{for(size_t i=0;i<2050;++i)cancelled.fill(cancel_output,0,bytes,99);},"prepared emission has a bounded operation budget");
     cancelled.discard();check(words(output,26),"budget refusal and discard leave application output unchanged");
@@ -111,7 +112,7 @@ RWStructuredBuffer<uint> Output : register(u0);
     check(span.size()==1 && span[0].offset==32 && span[0].size==64 && span[0].access==VK_ACCESS_TRANSFER_WRITE_BIT &&
         !span[0].overlaps(output->memory(),0,32) && span[0].overlaps(output->memory(),31,2) && !span[0].overlaps(output->memory(),96,4),
         "fill access tracks its subrange rather than the entire buffer");
-    partial.reset();
+    partial.reset();cancelled.discard();
     cancelled.begin_prepared();
     reject([&]{for(size_t i=0;i<2050;++i)cancelled.fill(cancel_output,0,bytes,99);},"operation budget reserves publication capacity");
     auto bounded=cancelled.finish_prepared();

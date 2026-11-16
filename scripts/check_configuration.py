@@ -16,7 +16,7 @@ from probe_xxmi_host import ROOT, write_ascii
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-build", action="store_true")
-    parser.add_argument("--only", choices=("cpu", "gpu", "prepared", "all"), default="all")
+    parser.add_argument("--only", choices=("cpu", "gpu", "prepared", "owned-images", "all"), default="all")
     parser.add_argument("--installation", type=Path, help="Read-only root configuration load; settings stay in the project")
     args = parser.parse_args()
     if args.installation and args.only == "cpu":
@@ -48,6 +48,19 @@ def main() -> int:
         if result.returncode:
             return result.returncode
     if args.only != "cpu":
+        if args.only == "owned-images":
+            from check_panel_hlsl import DXC, SPIRV
+            spirv = gpu / "parameters.spv"
+            commands = [
+                [str(DXC), "-spirv", "-fspv-target-env=vulkan1.1", "-fvk-use-dx-layout", "-T", "cs_6_0", "-E", "main",
+                 "-Fo", str(spirv), str(ROOT / "sandbox/shaders/parameters.hlsl")],
+                [str(SPIRV / "spirv-val.exe"), "--target-env", "vulkan1.1", str(spirv)],
+            ]
+            for command in commands:
+                result = subprocess.run(command, capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+                if result.returncode:
+                    print(result.stdout + result.stderr, end="")
+                    return result.returncode
         sys.path.insert(0, str(ROOT / "sandbox"))
         from harness import inject_env
         env = inject_env(str(gpu / "unexpected-injection.log"))
@@ -56,7 +69,7 @@ def main() -> int:
             raise RuntimeError("Required validation layer is unavailable")
         env.update(VK_LAYER_PATH=str(validation), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
                    XDG_CACHE_HOME=str(gpu), TMPDIR=str(gpu), TEMP=str(gpu), TMP=str(gpu))
-        mode = "prepared" if args.only == "prepared" else "configuration"
+        mode = args.only if args.only in ("prepared", "owned-images") else "configuration"
         result = subprocess.run([str(gpu / "resource_gpu.exe"), "--" + mode, str(gpu / "fixture" / mode)],
                                 cwd=gpu, env=env, capture_output=True, encoding="utf-8", errors="replace", timeout=45)
         write_ascii(ROOT / ("build/" + mode + "-gpu.out"), result.stdout + result.stderr)
