@@ -1,6 +1,16 @@
 # EFMI Vulkan - Tasks
 
 
+## D-291 closes acquisition-history reuse; remaining production contracts (2026-11-16)
+
+- I-01 / BUG-153: a binary semaphore reused for swapchain acquisition retained its old queue-producer classification. The extracted prior forward-only adapter passes 825/829 checks in d291-before.out; the four failures are successful/suboptimal acquisition through the two existing API entries. This is a mocked driver/history baseline, not an observed GPU acquisition failure.
+- Original HackerDXGI.cpp 584-627 forwards Present/GetBuffer to DXGI, with post-present commands after the real Present. DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking and one-context order. Vulkan acquisition has its own signal scope, which does not inherit an earlier queue signal on a reused semaphore.
+- Source 3.1.7 / ABI 347c72b0cc7d0e40 expires history only after VK_SUCCESS or VK_SUBOPTIMAL_KHR from AcquireNextImageKHR/AcquireNextImage2KHR. Timeout/not-ready/error results preserve history; fence-only calls preserve other semaphores. Arguments/results are forwarded exactly, and no history lock crosses the driver. The existing counted dispatch slots are reused; this host hook change requires a new host even though shared ABI is unchanged.
+- d291-pair.out builds four matching artifacts and passes tracker 829/829. Sixteen new checks cover result classes, both APIs, fence-only calls, later queue reclassification and unlocked forwarding. d291-regression.out acquisition-history passes bone-region reuse, two-queue bone replay, graphics file/exchange 18, actual overlap 16 per entry plus 18 wrapper checks, 17 probe configurations, Vulkan validation 76 and text 700. The intentional binary 03238 canary remains distinct from unexpected diagnostics.
+- d291-release-build.out and d291-release-check.out build and check the unpublished no-probe candidate build/candidate-d291/EFMI-Vulkan-3.1.7.zip, SHA-256 20ed0a51ff1bfe7aa8659aa713f859f710441289af9a83afb43366d7ef854401. Archive/digest, all 22 installed character packages, both owned unpack layouts and core/synchronization validation pass. It supersedes candidate-d288 (3.1.4), including D-289 failed-submit history and D-290 ordered image phases. Sandbox package loading is not real-character rendering.
+- Full queue payload/value scheduling, additional phase-local image transitions/automatic input nulling and in-draw CustomShader/private-bone/arbitrary semantic inputs remain open. No real-game load/deployment, launcher/system change or remote operation occurred; root dist remains untouched.
+
+
 ## D-290 enables disjoint image phases; remaining queue and layout contracts (2026-11-16)
 
 - I-04 / BUG-152: source 3.1.5's whole-plan input union refuses a legal write, detach, then sample of the same retained image. The final d290-before.out baseline passes 9/12: the independent control writes/reads correctly, but the ordered same-image plan is refused. The fixture uses retained application-owned targets, not a swapchain allocation disguised as owned storage.

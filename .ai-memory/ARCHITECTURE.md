@@ -398,3 +398,12 @@ Ordinary one-subpass classic continuations retain all stored single-sample color
 Cached framebuffers revalidate and retain every view, not only the changed destination. Preserving the application's original image stays within its existing acquired/render-pass scope; it does not make a swapchain reference transferable or remove the allocation-owner requirement for new resource bindings. Null, resolve, segmented and broader queue scopes keep separate guards.
 
 Original classic layout restoration follows image identity across all original attachments. Moving an original into another vacated compatible slot does not replace its own implicit final-layout contract with the new slot's contract (BUG-111).
+
+## Acquisition signal scope (D-291, 3.1.7)
+
+The existing AcquireNextImageKHR/AcquireNextImage2KHR counted entries clear the
+acquired binary semaphore's queue-signal history only on success/suboptimal.
+Failures preserve it. Driver calls run outside the history lock. This corrects
+signal-source classification; it does not establish payload/value hazards or
+cross-queue order. Shared ABI remains 347c72b0cc7d0e40, but old hosts need replacement
+while closed because a backend exchange cannot install host acquisition hooks.

@@ -4,9 +4,9 @@ Date: 2026-11-15
 Reviewed source version: `3.0.4` (`D-276`, commit `69ea1cc`)
 Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 2026-11-12)
 
-## Implementation audit (2026-11-15; remediation in progress)
+## Implementation audit (2026-11-16; remediation in progress)
 
-Current audit: source 3.1.6; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+Current audit: source 3.1.7; see [the consolidated results](docs/architecture-audit-3.1.3.md).
 
 The findings below are review inputs, not evidence that every proposed remedy is
 sufficient. Source inspection confirms the central problems, with these corrections:
@@ -15,8 +15,8 @@ sufficient. Source inspection confirms the central problems, with these correcti
   measured two-graphics-queue device. Null no-ops and published immutable file
   descriptors already have exemptions, so the claimed 100% refusal is too broad.
   A per-queue completion timeline protects readback completion; it does not order
-  newly introduced accesses against other queues. `queue_signalled` is a bounded
-  set of semaphore handles, not a resource-hazard graph. Removing the guards alone
+  newly introduced accesses against other queues. The reviewed `queue_signalled` was a bounded
+  handle set; D-288/D-289 replace its lifetime bookkeeping, not a resource-hazard graph. Removing the guards alone
   would be incorrect. Validation must include actual overlapping submissions and
   semaphore stage coverage, not only alternating completed frames (`--two-queues`
   currently drains the previous queue). See the [Vulkan synchronization rules](https://docs.vulkan.org/spec/latest/chapters/synchronization.html).
@@ -36,6 +36,10 @@ sufficient. Source inspection confirms the central problems, with these correcti
   detached object records cannot be resurrected. The old whole-map capacity purge
   is removed now that lifetime hooks release entries. Tracker checks pass 801 and
   the submission-area GPU/module checks pass. Payload/value scheduling is still open.
+  D-291 (3.1.7) clears stale queue-producer history after successful/suboptimal
+  image acquisition through either existing entry. Failed acquisition preserves
+  it. Tracker 829, the affected-area regression and the refreshed 3.1.7 no-probe
+  candidate checks pass. This is a host fix despite unchanged shared ABI.
 - **I-02: accepted priority correction.** Freeze expansion of unobserved extension
   matrices. Existing compatibility code stays covered when touched. Historical
   captures establish observed behavior; they cannot prove future engine/device

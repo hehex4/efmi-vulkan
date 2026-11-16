@@ -1,21 +1,21 @@
 # Architecture audit and remediation
 
-2026-11-15. The review input is `issues.md` against source 3.0.4. Changes below
+Review input: 2026-11-15; updated 2026-11-16. The review input is `issues.md` against source 3.0.4. Changes below
 are local commits on main and engine-work. Current source is
-3.1.6, ABI `347c72b0cc7d0e40`. The latest separately checked no-probe candidate
-is 3.1.4; the 3.1.3 candidate below is historical. No real-game verification is included in this audit.
+3.1.7, ABI `347c72b0cc7d0e40`. The latest separately checked no-probe candidate
+is 3.1.7; earlier candidates below are historical. No real-game verification is included in this audit.
 
 | Finding | Implemented or verified | Remaining boundary |
 |---|---|---|
-| I-01, multiple queues | D-286 proves actual pending timeline work through both loader entries. A global completion chain creates a measured cycle. Readiness gates work in a small transfer experiment; binary forwarding needs the complete signal chain submitted first. | No production scheduler is installed. Existing guards remain. See `queue-ordering-proof.md`. |
+| I-01, multiple queues | D-286 proves pending overlap and a global-chain deadlock. D-288/D-289/D-291 correct semaphore object lifetime, failed-submission rollback and acquisition signal scope. | No production scheduler is installed; payload/value and resource access ordering remain open. Existing guards remain. See `queue-ordering-proof.md`. |
 | I-02, priorities and evidence | Unobserved extension expansion is paused. The historical capture contains 30,812,846 descriptor-template updates and 409 template creations, contrary to the review's zero-use premise. | Enabled timeline/external extensions do not establish actual semaphore types or allow assuming those types cannot occur. |
 | I-03, duplicated resource execution | D-280 gives application, merged, own-mesh and texture-only draws a shared native resource transaction. Explicit descriptor aliases, preflight, ordered emission and restoration share that path. | Geometry-specific capture and mesh preparation still have separate responsibilities. |
-| I-04, pairwise refusal and stale state | D-283 replaces descriptor/output pair whitelists with allocation-range checks and preserves live image state across classic/dynamic pass splits. Suspended requests, saved fallbacks and restoration accesses participate. | Same-storage read/write phase changes still need a sequential access planner; queue guards remain. |
+| I-04, pairwise refusal and stale state | D-283 replaces pair whitelists with storage-range checks and preserves split-pass state. D-290 admits the same image across disjoint sampled/output binding intervals, with readable-layout proof and existing split barriers. | Additional phase-local transitions and DX11 automatic conflicting-input nulling remain open; physical aliases, restoration accesses and queue guards retain their checks. |
 | I-05, synchronous recording waits | D-278/D-280 make matched pipeline/file readiness nonblocking. D-285 extends this to graphics shader twins and unmatched graphics file publication. Pending graphics work keeps the application's draw until a later ready bind. | Compute first-use waits remain for one-shot producers. Other preparation costs are not declared eliminated. Reused command buffers retain what was recorded. |
-| I-06, DX11 input compatibility | D-281 implements retained application texture references across pixel slots, including empty sources, source overwrite chains and GENERAL layouts. | In-draw CustomShader imports need correctly ordered execution, and arbitrary semantic layout edits lack source identity in the captured Vulkan shaders. |
+| I-06, DX11 input compatibility | D-281 implements retained application textures across pixel slots, including empty sources, overwrite chains and GENERAL layouts. | In-draw CustomShader imports and private merged-bone overrides need ordered representation adapters. Arbitrary layout semantics lack source identity in captured SPIR-V. |
 | I-07, private ABI coupling | D-279 puts native scope callbacks behind the module and retains private pipeline objects through opaque owners. A module with a different private object layout exchanges into the unchanged sandbox host. | Shared tracker/protocol layout changes correctly require a matching host. |
 | I-08, old execution paths | D-282 retires the selectable single-component M2 executor. D-284 removes full-mesh binary re-encoding/decoding during runtime validation. File framing and content validation remain shared. | File size alone does not justify unrelated rewrites. |
-| I-09, verification and artifacts | Four development artifacts and a separate no-probe candidate are built at 3.1.3. Focused sandbox checks and release layout checks are recorded below. | Root dist and real-game deployment remain older. Sandbox loads and historical captures do not close real-character verification. |
+| I-09, verification and artifacts | Four development artifacts and a separate no-probe candidate are built at 3.1.7. Focused regressions, 22-package loading and both owned unpack layouts pass. | Root dist and game deployment remain older. Sandbox loads and historical captures do not close real-character verification. |
 
 ## Input-layout evidence
 
@@ -124,3 +124,17 @@ The other touched-area steps pass; no successful step is repeated merely to hide
 an initial failure. Additional phase-local layout transitions and DX11
 automatic conflicting-input nulling remain separate work, as does I-01 scheduling.
 The last separately checked no-probe candidate remains 3.1.4; no game was loaded.
+
+## D-291 follow-up: acquisition scope and candidate 3.1.7
+
+Both existing image-acquisition entries now remove stale queue-producer history
+only after success/suboptimal. Sixteen deterministic mocked-driver checks bring
+the tracker to 829; the extracted prior behavior fails four accepted-acquisition
+cases. The affected-area regression passes, including actual pending overlap,
+bone reuse, module exchange and 76 Vulkan validation checks. Shared ABI is unchanged,
+but replacing only a backend cannot install these host hooks.
+
+The current unpublished archive is `build/candidate-d291/EFMI-Vulkan-3.1.7.zip`,
+SHA-256 `20ed0a51ff1bfe7aa8659aa713f859f710441289af9a83afb43366d7ef854401`. Its digest/no-probe checks, all 22 installed character packages,
+both owned unpack layouts and core/synchronization validation pass. It supersedes
+the 3.1.4 candidate with D-289/D-290/D-291 included. No game was loaded or deployed.

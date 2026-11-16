@@ -215,3 +215,12 @@ real-game exchange is implied; the earlier 3.1.3 host has a different ABI.
 pointer, requiring ABI 347c72b0cc7d0e40 and the matching host/module pair. Its
 concrete history implementation is outside ABI_ROOTS. The pair passes an actual
 sandbox module exchange; this is not a module-only upgrade for an older host.
+
+### D-291 acquisition history (3.1.7)
+
+AcquireNextImageKHR and AcquireNextImage2KHR replace the old binary queue-producer
+classification only after successful/suboptimal acquisition. Unsuccessful and
+fence-only calls preserve other history. The shared ABI remains 347c72b0cc7d0e40,
+but the acquisition correction is in the host: exchanging only a backend into
+an older host does not install it. Matching 3.1.7 sandbox artifacts, exchange and
+the no-probe candidate pass; no game deployment or cross-queue scheduling claim.

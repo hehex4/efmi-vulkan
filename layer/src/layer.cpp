@@ -12,6 +12,7 @@
 //            vulkan-1.dll to the hooks, which then call the original exports.
 #include "state.h"
 #include "semaphore_lifetime.h"
+#include "semaphore_acquire.h"
 #include "queue_signal_submission.h"
 #include "character_module.h"
 #include "m2_backend.h"
@@ -1502,7 +1503,8 @@ VKAPI_ATTR void VKAPI_CALL hk_DestroyDevice(VkDevice device, const VkAllocationC
 }
 
 // ---------------------------------------------------------------------------
-// Counted-only functions: one generic hook that counts and forwards
+// Counted entry points retain their shared dispatch slots. Acquisition also
+// maintains signal-source history through a host-only adapter.
 
 template <typename Fn, Fn DeviceDispatch::*Member, int Index> struct CountedHook;
 
@@ -1513,7 +1515,9 @@ struct CountedHook<R (VKAPI_PTR*)(First, Args...), Member, Index> {
         Device* dev = dev_of(first);
         count_call(Index);
         HookInside inside;
-        return (dev->d.*Member)(first, args...);
+        if constexpr(Index==HI_AcquireNextImageKHR || Index==HI_AcquireNextImage2KHR)
+            return acquire_application_image(dev,first,args...);
+        else return (dev->d.*Member)(first, args...);
     }
 };
 

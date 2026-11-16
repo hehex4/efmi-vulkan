@@ -102,3 +102,12 @@ tracker passes 801/801, including controlled overlapping host threads. Actual GP
 overlap, bone replay, module exchange and core/synchronization checks also pass.
 This is not a GPU out-of-memory reproduction, payload/value provenance or a
 production access scheduler; the original guards remain.
+
+### D-291 acquisition history (3.1.7)
+
+AcquireNextImageKHR and AcquireNextImage2KHR replace the old binary queue-producer
+classification only after successful/suboptimal acquisition. Unsuccessful and
+fence-only calls preserve other history. The shared ABI remains 347c72b0cc7d0e40,
+but the acquisition correction is in the host: exchanging only a backend into
+an older host does not install it. Matching 3.1.7 sandbox artifacts, exchange and
+the no-probe candidate pass; no game deployment or cross-queue scheduling claim.

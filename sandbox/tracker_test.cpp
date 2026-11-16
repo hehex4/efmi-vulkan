@@ -930,6 +930,7 @@ static void immutable_sampler_lifetime()
 #include "semaphore_lifetime_cases.h"
 #include "queue_signal_cases.h"
 #include "native_image_phase_cases.h"
+#include "semaphore_acquire_cases.h"
 #include "dynamic_analysis_cases.h"
 #include "native_output_cases.h"
 #include "native_mrt_output_cases.h"
@@ -976,6 +977,7 @@ int main()
     semaphore_lifetime_cases();
     queue_signal_cases();
     native_image_phase_cases();
+    semaphore_acquire_cases();
     dynamic_analysis_cases();
     native_output_cases();
     native_mrt_output_cases();
