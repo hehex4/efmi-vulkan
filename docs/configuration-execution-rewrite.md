@@ -125,3 +125,11 @@ can retry the same command. Root 10 / GPU 88 and fresh interpreter 553 pass alon
 production/IA/native-resource checks, with clean Vulkan validation. Source/development
 DLLs are 3.2.8. Pool and image transactions, application imports and ordered production
 insertion remain open; ordinary original pool execution is retained and verified.
+
+D-311 restores native shader filter queries through the shared registry. Bound state,
+original module hashes and explicit/default filters follow the original semantics,
+including during shader replacement or hunting. The five migrated native acceptance
+scripts use root Include configuration and explicit F10 keys. Configuration 27,
+interpreter 570, native compute 91 and empty-input 45 checks pass on 3.2.9. Original
+register declarations still need verified source facts; Core GPU integration remains
+unfinished and no game acceptance is claimed.

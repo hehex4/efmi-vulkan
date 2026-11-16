@@ -4,8 +4,7 @@ import struct
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_compute_test import compile_compute
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
@@ -25,13 +24,13 @@ def main():
         if case == "removed": ini.write_text("[Constants]\nglobal $loaded = 1\n", encoding="ascii")
         settings = root / "settings"; fixes = settings / "ShaderFixes"; fixes.mkdir(parents=True)
         shader = fixes / ("%08x-cs_replace.spv" % shader_hash); shader.write_bytes(replacement.read_bytes())
-        config = ("[Hunting]\nhunting = 1\nmarking_mode = original\nmarking_actions = asm\n"
+        config = ("[Include]\ninclude_recursive = Mods\n[Hunting]\nhunting = 1\nreload_config = F10\nmarking_mode = original\nmarking_actions = asm\n"
                   "next_computeshader = no_modifiers VK_NUMPAD8\nmark_computeshader = no_modifiers VK_NUMPAD9\n")
         override = "[ShaderOverrideCompute]\nhash = %08x\nfilter_index = 29\nif cs == 29\nhandling = skip\nendif\n" % shader_hash
         if case == "root_override": config += override
         (root / "d3dx.ini").write_text(config, encoding="ascii")
         keys, output = root / "keys.txt", root / "compute.raw"; keys.write_text("1\n", encoding="ascii")
-        env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
+        env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings),
                    EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys))
         with Sandbox(seconds=9, validation=True, env_extra=env,
                      extra_args=["--compute-shader", str(original), "--compute-output", str(output)]) as sb:
@@ -57,11 +56,14 @@ def main():
                     checks.equal(value(), 42, "reenable: removing the last Mod clears its override")
                 state = probe.status().get("replacement", {})
                 checks.check(state.get("hunting", {}).get("keys", False), case + ": installation hunting keys registered")
-                checks.equal(state.get("hunting", {}).get("visited", {}).get("compute"), 1, case + ": compute visited without a Mod")
                 if case == "reload":
                     checks.check(state.get("shader_fixes", {}).get("revision") != before.get("shader_fixes", {}).get("revision"), "reload: shader revision advanced")
                     checks.equal(state.get("hunting", {}).get("marking_mode"), "skip", "reload: installation settings reloaded")
                 key(104); time.sleep(.3); key(105); time.sleep(.3)
+                # Original hunting clears idle visited sets until the first key.
+                # Query after selection, while collection is active.
+                state = probe.status().get("replacement", {})
+                checks.equal(state.get("hunting", {}).get("visited", {}).get("compute"), 1, case + ": compute visited without a Mod")
                 checks.equal(value(), 0 if case in ("root_override", "reload") else 7, case + ": selected original or skipped GPU result")
                 checks.check((fixes / ("%08x-cs.spv" % shader_hash)).is_file(), case + ": key dumps original module")
             sb.proc.wait(timeout=30)

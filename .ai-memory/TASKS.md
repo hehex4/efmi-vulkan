@@ -7,6 +7,12 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-311 native shader queries restored; continue application imports
+
+- Done: original shader filter semantics through the single configuration, six-stage queries, compute skip conditions and source-declaration diagnostics; five native test entry points migrated. Source/four DLLs 3.2.9 / ABI ff5c853cc3759e7d. Configuration 27, interpreter 570, compute 91, empty inputs 45, registry 13, tracker 838 and ABI 9 pass. The idle hunting assertion now follows the original first-key behavior.
+- Native graphics/F10, binding and image checks also pass after correcting stale overlay/readiness assumptions: F10 18, bindings 28, DDS/reload 14, compute-image 4. The initial failed checks and precise corrections are recorded in CURRENT_STATE.md; no production rendering fix is attributed to those test changes.
+- Next: retained application-buffer imports with explicit source facts into the transactional registry, then pool/image/parameter transactions, ordered insertion and pass/compute restoration. Production Core remains incomplete; finish shared execution before native queue/access/readiness/capture completion. No real-game authorization.
+
 ## D-310 named-buffer registry transactions verified; complete application integration
 
 - Done: touched-entry undo journal for declarations, initialization/copy caches and bindings; sealed admission; same-frame retry; reference/null cancellation; contained refusal propagation; partial allocation failure and retry without permanent command disabling. Source/four DLLs 3.2.8 / ABI ff5c853cc3759e7d. Root 10, GPU 88, interpreter 553, primitive 65, production 13, IA 34, native resources 89, tracker 838 and ABI 9 pass. Two earlier runs used an invalid pool fixture; the corrected cases pass with clean Vulkan validation.

@@ -3433,3 +3433,38 @@ restoration and recording ownership before original Core execution is complete. 
 I-01/I-04/I-05 and capture work remain after the shared rewrite. No candidate refresh,
 game activity, installed/system mutation or remote write. Root's untracked .codex/
 content was observed and left alone.
+
+## 2026-11-16: D-311 - Shared native shader filter queries and configuration acceptance
+
+The single registry now answers native shader filter operands from the application's
+original stage hashes. Original CommandList.cpp 3225-3281 defines unbound negative
+zero, unmatched positive zero, matched default one and explicit filter_index. No
+character extension or replacement-file identity is involved. DX11 supplies
+reference-counted lifetime with deferred destruction, hazard tracking and one-context
+order; the Vulkan CPU lookup does not replace those guarantees. Unknown original
+register declarations retain the existing warned unavailable value.
+
+Migrated five native tests from deleted Mod/Core loader variables to root Include
+configuration and explicit F10 keys. The stale-entry baseline passes 4/8; migrated
+compute passes 25/25 but native inputs 22/26, exposing the missing query plus an idle
+hunting counter assumption. Original HackerDXGI.cpp clears visited sets until the
+first key; the test now samples after activation. The initial new CPU test incorrectly
+expected hard refusal for a declaration query; it now checks the existing warning
+and absence of a fabricated matching stride. Configuration 27 and fresh interpreter
+570 pass. Four DLLs build as 3.2.9 / ABI ff5c853cc3759e7d. Affected run_all passes compute
+91, empty inputs 45, registry 13, tracker 838, ABI 9 and text.
+
+Graphics initially passes 44/45: the failed F10 case has no capture file, because its
+overlay channel relied on incidental warnings. Explicit test notification and file
+checks give F10 18/18. Bindings pass 28/28. Images initially pass 11/13: DDS captured
+before asynchronous readiness and reload waited past the notice lifetime. Triggering
+after ready frames with an active original hunting overlay gives DDS/reload 14/14;
+compute images already pass 4/4. Vulkan validation is clean. These fixture fixes do
+not claim a new production rendering fix. Evidence is build/native-filter-*.out and
+the earlier build/native-configuration-*.out. Diff/text review accompanies the commit.
+
+Continue retained application imports and source facts, pool/image/parameter
+transactions, ordered host insertion, pass/compute restoration and recording owners.
+Production original Core execution remains incomplete. Native queue/access/readiness
+and capture work follows the shared rewrite. No candidate refresh, game load,
+installed/system mutation or remote write; existing untracked root .codex/ is untouched.

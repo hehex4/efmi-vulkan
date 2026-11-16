@@ -6,10 +6,9 @@ import sys
 import time
 import zlib
 
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from runtime_test import sandbox_shader_hashes
-from native_shader_test import colored_pixels, compile_shader
+from native_shader_test import colored_pixels, compile_shader, wait_graphics_ready
 from efmi_vk.probe_client import ProbeClient
 from efmi_vk.hashes import crc32c
 from native_compute_test import read_compute_result
@@ -45,28 +44,40 @@ def scene(checks, case):
                       "float4 main() : SV_Target0 { return tex.SampleLevel(samp, float2(0,0), 0); }\n", encoding="ascii")
     compile_shader(shader, fixes, "%08x" % fragment, "ps")
     pixels, keys = root / "pixels.raw", root / "keys.txt"; keys.write_text("1\n", encoding="ascii")
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings),
                EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys), EFMI_VK_TEST_NOTICE="> native image",
                EFMI_VK_TEST_NOTICES_READBACK=str(pixels))
     trigger = root / "capture.now"
-    if case == "reload": env["EFMI_VK_TEST_NOTICES_READBACK_TRIGGER"] = str(trigger)
+    env["EFMI_VK_TEST_NOTICES_READBACK_TRIGGER"] = str(trigger)
+    # Keep the original hunting overlay available beyond the short test notice.
+    (root / "d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\n[Hunting]\nhunting = 1\nreload_config = F10\n", encoding="ascii")
     args = ["--readable-swapchain"]
     if case == "null": args.append("--mutable-sampler")
     if case == "push": args += ["--descriptors", "push"]
     if case == "two_queues": args.append("--two-queues")
-    with Sandbox(seconds=6 if case == "reload" else 3, validation=True, env_extra=env, extra_args=args) as sb:
-        time.sleep(1)
+    with Sandbox(seconds=8, validation=True, env_extra=env, extra_args=args) as sb:
         with ProbeClient(sb.pid) as probe:
+            status, ready = wait_graphics_ready(probe, lambda s:
+                s.get("shader_fixes", {}).get("binds", 0) > 0 and
+                (s.get("shader_overrides", {}).get("executed", 0) > 0 or bool(s.get("shader_overrides", {}).get("last_reason"))))
+            checks.check(ready, case + ": shader and descriptor frames precede capture")
             if case == "reload":
-                checks.equal(probe.status().get("replacement", {}).get("textures", {}).get("ready"), 1, "reload: initial file texture published")
+                checks.equal(status.get("textures", {}).get("ready"), 1, "reload: initial file texture published")
+                before = status
                 dds(file, (0, 255, 0, 255));keys.write_text("1 121\n", encoding="ascii")
-                time.sleep(.2);keys.write_text("1\n", encoding="ascii");time.sleep(1)
-                trigger.touch()
-            status = probe.status().get("replacement", {})
+                time.sleep(.2);keys.write_text("1\n", encoding="ascii")
+                status, ready = wait_graphics_ready(probe, lambda s:
+                    s.get("configuration_generation", {}).get("reloads", 0) > 0 and
+                    s.get("textures", {}).get("loads", 0) > before.get("textures", {}).get("loads", 0) and
+                    s.get("textures", {}).get("ready", 0) > 0 and
+                    s.get("shader_overrides", {}).get("executed", 0) > before.get("shader_overrides", {}).get("executed", 0))
+                checks.check(ready, "reload: new texture publication precedes capture")
+            trigger.touch()
         sb.proc.wait(timeout=30)
         checks.equal(sb.proc.returncode, 0, case + ": normal exit")
         (root / "layer.log").write_bytes(Path(sb.log_path).read_bytes())
     calls = status.get("shader_overrides", {})
+    checks.check(pixels.is_file() and Path(str(pixels) + ".json").is_file(), case + ": overlay capture exists")
     if case in ("array", "format", "no_srv"):
         checks.check(colored_pixels(pixels, (255, 0, 255)) < 30 and bool(calls.get("last_reason")), case + ": incompatible image declaration is reported and leaves the original")
     else:
@@ -90,7 +101,7 @@ def compute(checks, case):
         "[ShaderOverrideCompute]\nhash = %08x\nvk_binding = cs-t0, 0, 2\ncs-t0 = ResourceTexture\n"
         "[ResourceTexture]\nfilename = input.dds\n" % crc32c(shader.read_bytes()), encoding="ascii")
     output = root / "result.bin"
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_ENABLED="1")
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_ENABLED="1")
     args = ["--compute-shader", str(shader), "--compute-output", str(output), "--compute-image", "--compute-repeat", "2"]
     if case == "compute_push": args += ["--descriptors", "push"]
     if case == "compute_secondary": args.append("--compute-secondary")

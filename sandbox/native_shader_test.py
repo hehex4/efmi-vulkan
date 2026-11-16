@@ -6,8 +6,7 @@ import struct
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from runtime_test import sandbox_shader_hashes, band_pixels
 from efmi_vk.probe_client import ProbeClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -76,8 +75,8 @@ def main():
         if case.startswith("depth_"):
             with (mods / "native" / "mod.ini").open("a", encoding="ascii") as ini:
                 ini.write("[ShaderOverrideDepth]\nhash = %08x\ndepth_filter = %s\n" % (fragment, case))
-        (root / "d3dx.ini").write_text("[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n"
-                                        "[Rendering]\nrecursive_include = 1\n", encoding="ascii")
+        (root / "d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\n"
+                                        "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 2\nreload_config = F10\n", encoding="ascii")
         settings = root / "settings"
         fixes = settings / "ShaderFixes"
         fixes.mkdir(parents=True)
@@ -103,7 +102,7 @@ def main():
         else: path.write_bytes(compile_pixel(root, "1, 0, 1"))
         readback = root / "pixels.raw"
         trigger = root / "capture.trigger"
-        extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
+        extra = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings),
                      EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_NOTICE="> native shader test",
                      EFMI_VK_TEST_NOTICES_READBACK=str(readback),
                      EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
@@ -142,8 +141,8 @@ def main():
         (mods / "native").mkdir(parents=True)
         if change != "empty":
             (mods / "native" / "mod.ini").write_text("namespace = native_test\n[Constants]\nglobal $loaded = 1\n", encoding="ascii")
-        (root / "d3dx.ini").write_text("[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n"
-                                        "[Rendering]\nrecursive_include = 1\n", encoding="ascii")
+        (root / "d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\n"
+                                        "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 2\nreload_config = F10\n", encoding="ascii")
         settings = root / "settings"
         fixes = settings / "ShaderFixes"
         fixes.mkdir(parents=True)
@@ -153,8 +152,9 @@ def main():
         trigger = root / "capture.trigger"
         keys = root / "keys.txt"
         keys.write_text("1\n", encoding="ascii")
-        extra = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
-                     EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys), EFMI_VK_TEST_NOTICES_READBACK=str(readback),
+        extra = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings),
+                     EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys), EFMI_VK_TEST_NOTICE="> native shader reload",
+                     EFMI_VK_TEST_NOTICES_READBACK=str(readback),
                      EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
         with Sandbox(seconds=40, entry="layer", validation=True, env_extra=extra,
                      extra_args=["--readable-swapchain"]) as sb:
@@ -175,7 +175,7 @@ def main():
                 time.sleep(0.5)
                 keys.write_text("1\n", encoding="ascii")
                 status, ready = wait_graphics_ready(probe, lambda s:
-                    s.get("folder_generation", {}).get("reloads", 0) >= 1 and
+                    s.get("configuration_generation", {}).get("reloads", 0) >= 1 and
                     (change in ("removed", "depth_filter") or
                      s.get("shader_fixes", {}).get("binds", 0) > before.get("binds", 0)), 20)
                 checks.check(ready, change + ": reloaded ready frames precede the capture")
@@ -184,6 +184,9 @@ def main():
                 deadline = time.monotonic() + 3
                 while not Path(str(readback) + ".json").is_file() and time.monotonic() < deadline:
                     time.sleep(.05)
+                checks.check(readback.is_file() and Path(str(readback) + ".json").is_file(),
+                             change + ": explicit test overlay produces the capture")
+                (root / "status.json").write_text(json.dumps(status, indent=2), encoding="ascii")
                 checks.check(before.get("loaded") == 1 and before.get("binds", 0) > 0, change + ": initial replacement active")
                 checks.equal(status.get("record", {}).get("variant_waits", -1), 0,
                              change + ": graphics shader reload never waits on the recording thread")
@@ -204,6 +207,7 @@ def main():
                 if change in ("invalid", "interface"): checks.check(bool(after.get("warnings")), change + ": bad shader reported while last good shader remains")
             sb.proc.terminate(); sb.proc.wait(timeout=30)
         checks.check("Validation Error" not in sb.output() and "VUID-" not in sb.output(), change + ": Vulkan validation clean")
+        (root / "layer.log").write_text(sb.log(), encoding="utf-8")
         print("artifacts:", root)
     return checks.finish()
 

@@ -1,5 +1,14 @@
 # EFMI Vulkan - Known issues
 
+## BUG-161: Single configuration lost native shader filter queries (fixed 3.2.9)
+
+Deleting the package extension also removed its native plan query provider. Shader
+files still replaced correctly, but `if cs == filter_index` read the unavailable
+fallback, preventing root and newly included override commands from running. D-311
+queries the original module hashes against the single registry for all six stages.
+The failing root/F10 checks now pass; unknown original register declarations remain
+explicitly unavailable. This does not supply original Core GPU insertion or queue proof.
+
 ## BUG-160: Root commands could not query or retain application IA (supported subset fixed 3.2.5)
 
 The generic root lacked vertex/index addresses, so actual application properties were

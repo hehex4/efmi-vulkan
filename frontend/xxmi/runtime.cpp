@@ -465,6 +465,29 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if(config.initial_shaders)p.source_shaders.install(*config.initial_shaders,p.context);
             p.adapter.shader_queries([&p](auto& operand,auto& state,auto& value,auto& why){return p.source_shaders.query(operand,state,value,why);});
         }else if(config.initial_shaders)throw std::runtime_error("Source shader facts require shader hook opt-in");
+        if(!config.shader_hooks)p.adapter.plan_shader_queries([&p](auto& operand,auto&,float& value,std::wstring& why){
+            if(!p.current_draw || !p.current_draw->native_calls)return false;
+            const auto& draw=*p.current_draw;
+            const auto& target=operand.shader_target;
+            if(target.evaluation_mode!=ShaderTargetEvaluationMode::SHADER){
+                why=L"Original shader declarations require verified source facts";return false;
+            }
+            const wchar_t* names=L"vhdgpc";
+            const auto* stage=target.shader_type?wcschr(names,target.shader_type):nullptr;
+            if(!stage){why=L"Invalid native shader query stage";return false;}
+            const unsigned index=unsigned(stage-names),bit=1u<<index;
+            // Original process_shader_filter distinguishes an unbound stage (-0),
+            // a bound shader without an override (+0) and a matching override.
+            // Native hashes identify the application's module, including while
+            // ShaderFixes or hunting selects a replacement pipeline.
+            if(!(draw.shader_stages&bit)){value=-0.0f;return true;}
+            value=0.0f;
+            if(draw.stage_hash_mask&bit){
+                const auto match=G->mShaderOverrideMap.find(uint64_t(draw.stage_hashes[index]));
+                if(match!=G->mShaderOverrideMap.end())value=match->second.filter_index==FLT_MAX?1.0f:match->second.filter_index;
+            }
+            return true;
+        });
         p.adapter.fresh_state([&p](CommandListState& s){p.host_draw_state(s);});
         p.adapter.host_values([&p](ParamOverrideType type,float& value){
             const auto& sample=p.state.sample;

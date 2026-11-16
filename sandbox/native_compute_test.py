@@ -5,8 +5,7 @@ import subprocess
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -96,13 +95,13 @@ def main():
         if case == "lists": ini += "[ShaderOverrideCompute]\nhash = %08x\nif $state == 3\nhandling = skip\nendif\npost $state = 3\n" % shader_hash
         if case == "depth": ini += "[ShaderOverrideCompute]\nhash = %08x\ndepth_filter = depth_active\n" % shader_hash
         (mods / "native/mod.ini").write_text(ini, encoding="ascii")
-        (root / "d3dx.ini").write_text("[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n"
-            "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nmarking_mode = " + ("skip" if case == "hunt_skip" else "pink" if case == "pink" else "original") +
+        (root / "d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\n"
+            "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nreload_config = F10\nmarking_mode = " + ("skip" if case == "hunt_skip" else "pink" if case == "pink" else "original") +
             "\nnext_computeshader = no_modifiers VK_NUMPAD8\nmark_computeshader = no_modifiers VK_NUMPAD9\nmarking_actions = asm\nanalyse_frame = no_modifiers VK_NUMPAD7\n", encoding="ascii")
         settings = root / "settings"; fixes = settings / "ShaderFixes"; fixes.mkdir(parents=True)
         path = fixes / ("%08x-cs_replace.spv" % shader_hash); path.write_bytes(replacement.read_bytes())
         output, keys = root / "compute.raw", root / "keys.txt"; keys.write_text("1\n", encoding="ascii")
-        env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
+        env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings),
                    EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys))
         args = ["--compute-shader", str(original), "--compute-output", str(output)]
         if case in ("indirect", "skip_indirect"): args += ["--compute-indirect"]

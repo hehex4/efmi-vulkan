@@ -5,9 +5,8 @@ import struct
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_compute_test import compile_shader, read_compute_result
-from runtime_fixture import CORE
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
 
@@ -41,7 +40,7 @@ def scene(checks, case):
         "vk_binding = cs-u0, 0, 0\nvk_binding = cs-u1, 0, 1\nvk_binding = cs-cb0, 0, 0\n" + body, encoding="ascii")
     settings = root / "settings"; settings.mkdir()
     output = root / "compute.raw"
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1")
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1")
     args = ["--compute-shader", str(shader), "--compute-output", str(output), "--compute-bindings", "--compute-repeat", "2"]
     if case == "late": args.append("--compute-late-data")
     if case == "two_queues": args.append("--two-queues")
