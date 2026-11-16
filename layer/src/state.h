@@ -519,6 +519,8 @@ struct CmdBuf {
         size_t first_draw = 0; // the first of `draws` recorded inside the instance
     } pass;
     SetBind comp_sets[kMaxSets];
+    // False until reset after an untracked bind, including a set beyond our capture bound.
+    bool compute_sets_complete = true;
 
     // What was recorded since the last begin / reset.
     std::vector<DrawRec> draws;

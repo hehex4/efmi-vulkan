@@ -197,3 +197,10 @@ D-321 removes the obsolete prequeued draw API, delayed Store feedback, bare owne
 vertex payload and remaining character-selection RuntimeDraw fields. Four DLLs are
 3.3.8; GPU 353, root 27/interpreter 570 and affected production/geometry/IA/resource/
 tracker/ABI/file checks pass. Complete production insertion remains pending.
+
+D-322 adds native compute-state restoration for prepared insertion: actual selected
+pipeline, allocated sets, dynamic offsets, compatible layout recreation and complete
+state refusal. An independent application dispatch after private work produces 132,
+including a destroyed original pipeline layout, with clean validation. Prepared 139,
+tracker 867, native compute 91, first-use 12, uniform aliases 15, production 13, ABI 9
+and text pass on four development DLLs 3.3.9. Full production insertion remains open.

@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-322 native compute restoration verified
+
+- Implemented native compute-state preflight/replay, retained layout recreation, dynamic-offset snapshots and explicit completeness refusal. Prepared GPU 139 and tracker 867 pass. Four DLLs are 3.3.9 / ABI fd2102f32b81fd00; production 13, native compute 91, first-use 12, uniform aliases 15, ABI 9 and text pass.
+- Continue remaining native fixture migration and complete production admission and ordered packet recording with pass/owner preservation. Production Core remains incomplete; no game authorization.
+
 ## D-321 legacy draw-contract removal verified
 
 - Removed the unused prequeued draw scope, delayed source Store result substitution, owned-vertex payload and character-specific RuntimeDraw fields. Source/four DLLs 3.3.8; GPU 353, fresh root 27/interpreter 570, production 13, geometry 122, IA 34, ordinary images/parameters 3,010, tracker 838, ABI 9, native files 42 and text pass.

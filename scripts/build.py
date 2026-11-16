@@ -127,7 +127,7 @@ MODULE_DLL = "efmi_vk_backend.dll"
 # one file, which share layer/src/character_backend_internal.h. A binary with the backend links them all.
 BACKEND_SOURCES = [
     "character_backend.cpp", "configuration_program.cpp", "configuration_present.cpp", "character_backend_folder.cpp",
-    "character_backend_index.cpp", "native_geometry.cpp",
+    "character_backend_index.cpp", "native_geometry.cpp", "native_compute_restore.cpp",
     "character_backend_status.cpp", "character_backend_twins.cpp", "character_backend_shaders.cpp", "shader_fixes.cpp", "native_resources.cpp", "native_execution.cpp", "native_descriptors.cpp", "native_images.cpp", "native_targets.cpp",
 ]
 MODULE_SOURCES = [

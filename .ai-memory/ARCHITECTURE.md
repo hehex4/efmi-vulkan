@@ -1,5 +1,13 @@
 # EFMI Vulkan - Architecture
 
+D-322 (3.3.9) preflights/replays tracked compute pipeline and allocated descriptor
+bindings after private prepared work. Exact dynamic offsets and sparse higher sets
+are retained; destroyed pipeline layouts are recreated from complete retained
+compatibility facts. Unknown or out-of-bound compute binds invalidate completeness
+until recording reset. Push descriptors and shader objects remain outside this
+helper. Current packets do not modify push constants. Full host admission, pass
+preservation and recording ownership still gate production Core insertion.
+
 D-321 (3.3.8) removes the obsolete prequeued draw scope, delayed Store feedback,
 bare owned-vertex payload and character-selection RuntimeDraw fields. Mutable draw
 resources use the ordered prepared snapshot contract; ordinary deferred Constants

@@ -2607,3 +2607,23 @@ A file buffer is immutable within its package generation, but its vertex declara
 - Step 2 (2.0.0): the layer on it: one folder generation with m2_mods (switch `m2_folder_generation`, default on), the INI Present once per presentation, the packages' plans under one lock (the original's one context), one settings file (`mods-folder.ini`, the Mods' own files adopted once), F10 exchanging every package at one presentation. Measured on vk03 (20 Mods): presentation work 221 to 146 us per frame, recording +2.4%, pictures identical.
 - Found on the way: a plan's `vbN->stride` is now answered from the draw's pipeline (RuntimeDraw::vertex_stride); a CPU generation without owned reads answers resource queries from the host's CPU answers (the dry run had refused every one); LIMIT-041.
 - Step 5 (2.0.1, ISSUE-011): the original keeps no host copy of a buffer made from a file (LoadBufferFromFile reads it, CreateBuffer takes it, the bytes are freed; the resource is substantiated at first use). A package releases its payload once validated and catalogued (`release_payload`): per stream its file, offset and the CRC32C of the validated bytes. The upload at activation (`read_payload`) and a stream a live plan adopts for bones (`read_stream`) read the files again and refuse bytes that are not the validated ones. The upload reads with up to four threads, each stream group into its own part of the mapped memory through a 1 MiB bounce buffer (one thread took 16 ms for a 23.7 MB character and skipped its draws one frame longer at startup than the held payload; four take 4.5 ms). Private memory, actual configuration with the installed Mods folder: 712 to 298 MiB.
+
+## D-322: Restore physical native compute bindings after prepared commands (2026-11-16)
+
+Original RunCustomShader saves/restores an overridden CS (CommandList.cpp 2893-2950).
+DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking
+and one-context order. Private Vulkan compute packets also disturb descriptor state.
+Capture the actual selected compute pipeline, all known defined allocated sets and
+their exact dynamic offsets; restore compatible sets in ascending slot order. Recreate
+an application-destroyed layout from retained complete layout metadata. Do not rewrite
+descriptors or push constants: current packets never issue CmdPushConstants, and
+pipeline/descriptor binds preserve push values. See the Vulkan descriptor-set chapter:
+https://docs.vulkan.org/spec/latest/chapters/descriptorsets.html
+
+An unknown bind or a compute set outside the tracked bound invalidates completeness
+until legal recording reset. Reject unsupported push/descriptor-buffer state, recycled
+handles, incomplete offset spans and mutually disturbing layouts before recording.
+Known undefined slots require no unbind for a valid application. Plans are prepared
+and recorded inside one interception; normal application pipeline/set lifetime rules
+still apply. This helper covers the tracked pipeline path, not shader-object execution,
+production pass splitting, queue ordering or full Core admission.

@@ -435,3 +435,30 @@ Unused package/component/LOD and skeleton-instance fields are removed from Runti
 Source/four DLLs are 3.3.8. GPU 353 and root 27/interpreter 570 pass; the affected
 production, geometry, IA, image/parameter, tracker, ABI, native-file and text checks
 pass in retire-prequeued-regression.out. Production host insertion is still pending.
+
+## Native compute restoration (D-322)
+
+NativeComputeRestore snapshots the actual selected pipeline and all defined allocated
+compute sets, including dynamic offset arrays and bindings above set zero. It can
+recreate an application-destroyed pipeline layout from the retained complete set/push
+compatibility contract. The tracker marks higher untracked sets and unknown binding
+operations incomplete until recording reset; admission refuses these and unsupported
+push descriptors instead of guessing null bindings. Unknown descriptor contents need
+not be copied: the same allocated set is rebound with normal Vulkan update semantics.
+
+Preparation and recording are within one interception, under normal application
+pipeline/set lifetimes. Private packets only bind compute pipeline/set state and
+never update push constants. Restoring compatible sets in ascending order preserves
+all defined state; no operation is issued for originally undefined bindings. The
+Vulkan specification states the relevant layout rules in its descriptor-set chapter:
+https://docs.vulkan.org/spec/latest/chapters/descriptorsets.html
+
+The independent application shader uses a dynamic input at set zero, an output at
+set two and a push constant. It dispatches, receives a private compute insertion,
+then dispatches again through the restore helper. Output 132 and clean validation
+pass in compute-restore-gpu-first.out (prepared 139). The reviewed fixture destroys the application pipeline layout after its first dispatch
+and restores through a compatible recreation; compute-restore-gpu-reviewed.out still
+passes prepared 139 cleanly. Tracker 867 and four development DLLs 3.3.9 build after
+correcting two mixed-type auto declarations in the test. Production 13, native compute
+91, first-use 12, uniform aliases 15, ABI 9 and text pass. This does not yet enable
+production Core work.

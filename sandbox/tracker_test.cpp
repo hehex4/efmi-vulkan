@@ -947,6 +947,7 @@ static void immutable_sampler_lifetime()
 #include "native_rendering_boundary_cases.h"
 #include "dynamic_geometry_cases.h"
 #include "native_geometry_cases.h"
+#include "native_compute_restore_cases.h"
 #include "translucent_scene_cases.h"
 
 int main()
@@ -954,6 +955,7 @@ int main()
     util_init(GetModuleHandleW(nullptr));
     descriptor_writes();
     descriptor_binding();
+    native_compute_restore_cases();
     descriptor_templates();
     pushed_descriptors();
     shaders_and_views();

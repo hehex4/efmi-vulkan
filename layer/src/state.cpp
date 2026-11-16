@@ -364,6 +364,7 @@ void CmdBuf::reset_recording()
     gfx_bound = VK_NULL_HANDLE; topology = UINT32_MAX; primitive_restart = UINT32_MAX; vertex_input.reset();
     comp_pipeline = VK_NULL_HANDLE;
     comp_bound = VK_NULL_HANDLE;
+    compute_sets_complete = true;
     ib = VK_NULL_HANDLE;
     ib_off = 0;
     index_size = 0;

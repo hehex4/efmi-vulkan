@@ -1480,6 +1480,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_reference_cases.h"
 #include "prepared_resource_cases.h"
 #include "prepared_image_cases.h"
+#include "prepared_compute_restore_cases.h"
 #include "prepared_imported_image_cases.h"
 #include "prepared_segment_cases.h"
 #include "prepared_parameter_cases.h"
@@ -1553,7 +1554,8 @@ int wmain(int argc,wchar_t** argv){
         try{{Device device;device.init();low_level(device);prepared_resource_cases(device,std::filesystem::absolute(argv[2]));
             prepared_image_cases(device,std::filesystem::absolute(argv[2])/"images");
             prepared_imported_image_cases(device,std::filesystem::absolute(argv[2])/"imported-images");
-            prepared_segment_cases(device,std::filesystem::absolute(argv[2])/"segments");}
+            prepared_segment_cases(device,std::filesystem::absolute(argv[2])/"segments");
+            prepared_compute_restore_cases(device,std::filesystem::absolute(argv[2])/"compute-restore");}
             printf("prepared resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
             return errors || warnings?1:0;
         }catch(const std::exception& e){fprintf(stderr,"prepared resources: %s\n",e.what());return 1;}

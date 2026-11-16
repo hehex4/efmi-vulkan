@@ -3725,3 +3725,28 @@ parameters 3,010, tracker 838, ABI 9, native files 42 and text pass in
 retire-prequeued-regression.out. No game, candidate, deployment, installed/system
 mutation or remote action. Continue native compute/pass restoration, complete host
 resource/pipeline admission and recording ownership, then I-01/I-04/I-05/capture.
+
+## 2026-11-16: D-322 native compute binding restoration (3.3.9)
+
+Original RunCustomShader saves/restores the overridden CS. DX11 supplies reference-
+counted lifetime with deferred destruction, hazard tracking and one-context order.
+Prepared Vulkan work also disturbs compute descriptor bindings. Native preflight now
+captures the selected pipeline and complete sparse allocated sets with exact dynamic
+offsets, and recreates destroyed layouts from retained compatibility facts. Unknown,
+unsupported, recycled, out-of-bound or mutually disturbing state refuses before any
+recording. This helper covers tracked pipeline execution, not shader objects/push
+descriptor replay or complete production Core insertion.
+
+The independent GPU continuation gives 132 before and after strengthening the fixture
+to destroy the original pipeline layout between dispatches. Prepared 139 passes with
+zero validation errors/warnings in compute-restore-gpu-reviewed.out. First tracker
+build fails on two mixed-handle auto declarations in the new test; splitting them
+fixes compilation. Reviewed tracker 867 passes in compute-restore-tracker.out. Four
+DLLs build at 3.3.9 / ABI fd2102f32b81fd00 in compute-restore-build.out. The scoped
+regression passes production 13, tracker 867, compute first-use 12, uniform aliases
+15, native compute 91, ABI 9 and text. The uniform-alias fixture now uses the original
+root Include entry instead of removed package/Core arguments.
+
+No game, deployment, candidate, installed/system mutation or remote action. Continue
+remaining native fixture migration and complete host resource/pipeline admission,
+attachment preservation and recording ownership, then I-01/I-04/I-05/capture.

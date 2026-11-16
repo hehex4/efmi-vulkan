@@ -1,9 +1,8 @@
 """Repeated native compute writes must be visible to an unchanged uniform-buffer alias."""
 from pathlib import Path
 import sys,struct
-from harness import Checks,Sandbox,test_dir
+from harness import Checks,Sandbox,test_dir,configuration_root
 from native_compute_test import compile_shader,read_compute_result
-from runtime_fixture import CORE
 from efmi_vk.hashes import crc32c
 def main():
  checks=Checks('native compute uniform alias');selected=set(sys.argv[1:])
@@ -15,7 +14,7 @@ def main():
   config='namespace = uniform_alias\n'
   if case!='original':config+='[ShaderOverrideCompute]\nhash = %08x\nhandling = skip\ndispatch = 1,1,1\ndispatch = 1,1,1\ndispatch = 1,1,1\n'%crc32c(shader.read_bytes())
   (mods/'test.ini').write_text(config,encoding='ascii');output=root/'result.bin'
-  env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(root/'settings'),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
+  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(root/'settings'),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
   args=['--compute-shader',str(shader),'--compute-output',str(output),'--compute-uniform-alias','--submit2','2' if case=='khr' else '1','--api','1.3']
   if case=='push':args+=['--descriptors','push']
   if case=='secondary':args+=['--compute-secondary']
