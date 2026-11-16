@@ -51,3 +51,12 @@ Ignored audit manifests are in `.worktrees/fix/build/cleanup-{plan,result,size,v
 and `cleanup-protected.json`. Historical paths in older memory entries describe
 evidence from their original rounds; retired artifacts need not remain on disk.
 No game was loaded, no launcher/system setting changed, and nothing was pushed.
+
+
+## Current deliverable after D-300
+
+The active candidate is build/candidate-current/EFMI-Vulkan-3.2.0.zip with its
+SHA sidecar and provenance record. The prior 3.1.8 archive is the candidate
+rollback. D-298 temporary-directory deletion was rejected by automatic approval
+review with only blocked by policy; those test copies remain and were not
+removed through another mechanism. Future cleanup must account for this exception.

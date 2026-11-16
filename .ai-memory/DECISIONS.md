@@ -4,6 +4,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-300: One current candidate plus one prior rollback (2026-11-16)
+
+The no-probe candidate moves to build/candidate-current instead of another per-round full candidate directory. Its versioned archive, SHA sidecar and build-result.json identify the runtime source and verification scope. Keep the prior verified 3.1.8 archive as rollback. Sandbox package loading remains separate from real-character verification; deployment and game loading are not authorized by candidate creation.
+
 ## D-299: Validate bone use against the effective vertex declaration (2026-11-16)
 
 Reuse CharacterPackage::vertex_input for the runtime bone proof, rather than separately reading the unmodified pipeline declaration. The legacy supported blend contract shares D-298's immutable per-layout mask cache, while exact semantic evidence continues to control arbitrary named edits. Ordered plain width overrides take their last value, as in the original; ambiguous legacy elements refuse. Offline adoption is unchanged. DX11 reference-counted lifetime with deferred destruction, hazard tracking and one-context order are still separate Vulkan responsibilities. No queue guard is removed.

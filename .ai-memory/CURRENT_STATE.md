@@ -5,6 +5,14 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## D-300: Verified no-probe 3.2.0 candidate (2026-11-16)
+
+- The current candidate is build/candidate-current/EFMI-Vulkan-3.2.0.zip, SHA-256 6dbefa52ed36dcb2d50efd3a54d0f6e45df84a6b15b2816fb88e6a0b1298f227. Runtime source is 0e16a7e (D-299), including D-298. ABI stays 347c72b0cc7d0e40. build-result.json records provenance; the archive and SHA sidecar are canonical deliverables.
+- d300-release-build.out builds the no-probe DLL with all 5,265 exact semantic identities. d300-release-check.out passes archive/content/digest checks, default cache loading, all 22 installed packages with none left out, both owned unpack layouts and core/synchronization validation. Independent ZIP CRC and packaged-cache equality checks also pass. These are sandbox package-load results, not rendering verification of 22 real characters.
+- Source, four development DLLs and candidate are now 3.2.0. Root dist remains 2.1.8; last historical real-game build remains 2.1.7. No game load/deployment, launcher/system mutation or remote write occurred. The 3.1.8 archive is retained as the prior candidate rollback. The earlier temporary-directory cleanup rejection is not bypassed.
+- Continue I-04 phase-local image layouts: the existing disjoint-interval proof still requires an initially readable layout. A detached target with COLOR_ATTACHMENT_OPTIMAL needs a readable layout for the sample phase and its original layout restored when the scope ends. Preflight and emitted transitions must agree across dynamic/classic passes and module exchange; do not merely remove the in-pass transition guard. I-01 production queue/resource scheduling, I-05 one-shot compute and broader I-06 inputs remain open.
+
+
 ## D-299: Effective blend declarations without a semantic cache (2026-11-16)
 
 - Runtime 3.2.0 / ABI 347c72b0cc7d0e40 fixes BUG-156 in the existing limited blend contract. Runtime bone validation now uses the same resolved vertex declaration as GPU fetch, including accepted offset changes. Every effective layout gets an independent cached mask even without a semantic index; offline adoption keeps its existing rules.
