@@ -379,7 +379,7 @@ def build_tracker_test(vcvars: str, include: str, out: str) -> str:
 def build_recipe_tests(vcvars: str, include: str, out: str, only: tuple = ()) -> dict:
     folder = os.path.join(ROOT, "sandbox")
     result = {}
-    for name, tracker in (("recipe_test", True), ("variant_gpu", False), ("cache_test", False), ("snapshot_test", False),
+    for name, tracker in (("recipe_test", True), ("native_prepared_gpu", True), ("variant_gpu", False), ("cache_test", False), ("snapshot_test", False),
                           ("mesh_test", False), ("character_test", False), ("queue_overlap", False)):
         if only and name not in only:
             continue
@@ -599,7 +599,7 @@ def main() -> int:
     ap.add_argument("--out", help="output directory (default: dist)")
     ap.add_argument("--shader-inputs", help="validated whole-corpus semantic cache to include in a release")
     ap.add_argument("--test", action="append", default=[],
-                    choices=["recipe_test", "variant_gpu", "cache_test", "snapshot_test", "mesh_test", "character_test", "queue_overlap"],
+                    choices=["recipe_test", "native_prepared_gpu", "variant_gpu", "cache_test", "snapshot_test", "mesh_test", "character_test", "queue_overlap"],
                     help="build only this test program (may be given several times); nothing else is built")
     args = ap.parse_args()
     targets = args.targets or ["layer", "sandbox"]
@@ -611,7 +611,7 @@ def main() -> int:
         print(str(e))
         return 1
     print("shared header stamp %s" % result["abi"])
-    for key in ("layer", "module", "sandbox", "tracker_test", "recipe_test", "variant_gpu", "character_test", "queue_overlap", "bone_test", "release", "release_archive"):
+    for key in ("layer", "module", "sandbox", "tracker_test", "recipe_test", "native_prepared_gpu", "variant_gpu", "character_test", "queue_overlap", "bone_test", "release", "release_archive"):
         if key in result:
             print("built %s" % result[key])
     if "release_sha256" in result:

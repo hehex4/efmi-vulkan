@@ -1,5 +1,13 @@
 # EFMI Vulkan - Architecture
 
+D-326 (3.4.2) extends NativeTargetPlan with work-only pass boundaries. A complete
+contiguous buffer packet sequence is preflighted against its device/family and
+retained output allocations. Before recording, compute restoration and compatible
+classic LOAD passes/framebuffers are prepared. Unadmitted packets cannot alter the
+recording; executable command-buffer owners retain packet allocations and layouts.
+Both dynamic and classic rendering preserve color/depth/stencil or empty outputs.
+Image packet layout handoff and production per-call integration remain required.
+
 D-325 (3.4.1) exposes a host-facing PreparedConfigurationDraw. It retains the
 matching original registry and GPU adapter through explicit admission or automatic
 rollback, preserving positioned pre/caller/post packets. The host must serialize

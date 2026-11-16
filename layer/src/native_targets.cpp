@@ -3,6 +3,8 @@
 #include "native_images.h"
 #include "native_classic_targets.h"
 #include "native_image_phases.h"
+#include "native_compute_restore.h"
+#include "../../frontend/gpu/resource_commands.h"
 namespace efvk {
 namespace {
 using Resource=efmi::frontend::NativeResource;
@@ -12,8 +14,9 @@ struct TargetOwner:CommandOwner {
     std::vector<std::shared_ptr<const Resource>> resources;
     std::vector<std::shared_ptr<NativeClassicTarget>> classic;
     std::vector<std::shared_ptr<const NativeBoundPipeline>> pipelines;
+    std::vector<std::shared_ptr<const NativeTargetPlan::Event>> work;
     bool sealed=false;
-    void reset_after_completion()override{resources.clear();classic.clear();pipelines.clear();used=false;sealed=false;}
+    void reset_after_completion()override{resources.clear();classic.clear();pipelines.clear();work.clear();used=false;sealed=false;}
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}
 };
 std::shared_ptr<TargetOwner> target_owner(CmdBuf* cb){
@@ -216,7 +219,9 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     // An initially absent slot can become bound earlier in this same ordered plan.
     for(const auto& item:plan.items)if(item.operation==Operation::NativeBind && native_output_binding(item.native_target) && !null_output(item))
         written|=1u<<slot(item.native_target);
-    for(size_t i=0;i<plan.items.size();++i){const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind)continue;
+    for(size_t i=0;i<plan.items.size();++i){const auto& item=plan.items[i];
+        if(item.operation==Operation::PreparedWork){needed=true;continue;}
+        if(item.operation!=Operation::NativeBind)continue;
         if(native_output_binding(item.native_target)){
             no_op[i]=null_output(item) && !(written&(1u<<slot(item.native_target))) && absent_output(cb,item.native_target);
             needed|=!no_op[i];
@@ -244,6 +249,25 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     const auto& proof=cb->image_layouts;
     std::shared_lock<std::shared_mutex> lock(device->res_mx,std::defer_lock);
     if(!resource_lock_held)lock.lock();
+    std::shared_ptr<NativeComputeRestore> compute_restore;
+    const void* sequence=nullptr;size_t segment=0;
+    for(const auto& item:plan.items)if(item.operation==Operation::PreparedWork){
+        const auto& work=item.prepared_work;
+        if(!work || !work->size() || !work->sequence() || work->device()!=device->handle || work->queue_family()!=device->material_family)
+            return refuse("Prepared pass work needs its retained device and queue-family contract");
+        if(!sequence)sequence=work->sequence();
+        if(sequence!=work->sequence() || work->segment()!=segment++)
+            return refuse("Prepared pass work must preserve one contiguous ordered sequence");
+        if(!work->image_accesses().empty() || !work->image_states().empty())
+            return refuse("Prepared image work needs explicit render-pass layout handoff");
+        if(work->changes_compute_state() && !compute_restore){
+            compute_restore=std::make_shared<NativeComputeRestore>();
+            if(!prepare_native_compute_restore(device,cb,*compute_restore,why,true))return false;
+        }
+    }
+    if(sequence)for(const auto& item:plan.items)
+        if(item.operation==Operation::Dispatch || (item.operation==Operation::NativeBind && item.native_target.stage=='c'))
+            return refuse("Prepared pass work cannot restore interleaved application compute binding changes");
     const auto pipeline=device->pipes.find(draw.pipeline);
     const auto recipe=pipeline==device->pipes.end()?nullptr:pipeline->second.recipe;
     const size_t count=targets.dynamic_colors.size();const size_t depth_index=2*count,stencil_index=depth_index+2*size_t(targets.has_depth);
@@ -299,7 +323,36 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     if(descriptor_conflict(device,cb,draw,plan,read_phases,next.state->depth.original_image,next.state->depth.original_storage,why))return false;
     for(const auto& saved:next.state->restore)if(descriptor_conflict(device,cb,draw,plan,read_phases,saved.second.view.view.image,saved.second.view.image,why))return false;
     for(size_t i=0;i<plan.items.size();++i){
-        const auto& item=plan.items[i];if(item.operation!=Operation::NativeBind || !native_output_binding(item.native_target) || no_op[i])continue;
+        const auto& item=plan.items[i];
+        if(item.operation==Operation::PreparedWork){
+            auto image_safe=[&](VkImage image,const ImageInfo& info,const NativeMemoryRange& input){
+                if(!image)return true;
+                if(info.mem){
+                    if(native_memory_overlap(input,native_memory(info),device->physical_properties.limits.bufferImageGranularity))
+                        return refuse("Prepared pass work overlaps retained attachment memory");
+                    return true;
+                }
+                for(const auto& swapchain:device->swapchains)for(auto handle:swapchain.second.images)if(handle==image)return true;
+                return refuse("Prepared pass work needs proven attachment allocation identity");
+            };
+            for(const auto& access:item.prepared_work->buffer_accesses()){
+                const auto& buffer=access.buffer;
+                if(!buffer || !buffer->memory() || !buffer->memory_size())return refuse("Prepared pass buffer allocation is incomplete");
+                NativeMemoryRange input{uint64_t(buffer->memory()),buffer->memory_offset(),buffer->memory_size(),true};
+                for(const auto& view:targets.views)if(view.known && !image_safe(view.view.image,view.image,input))return false;
+                for(const auto& color:next.state->colors)if(!image_safe(color.original_image,color.original_storage,input))return false;
+                if(!image_safe(next.state->depth.original_image,next.state->depth.original_storage,input))return false;
+                for(const auto& saved:next.state->restore)if(!image_safe(saved.second.view.view.image,saved.second.view.image,input))return false;
+                for(const auto& future:plan.items)if(future.operation==Operation::NativeBind && native_output_binding(future.native_target) &&
+                    future.native_resource && future.native_resource->bound &&
+                    native_memory_overlap(input,native_memory(*future.native_resource),device->physical_properties.limits.bufferImageGranularity))
+                    return refuse("Prepared pass work aliases a future output allocation");
+            }
+            auto event=std::make_shared<NativeTargetPlan::Event>();event->change=true;event->work=item.prepared_work;
+            if(event->work->changes_compute_state())event->compute=compute_restore;
+            continue_targets(targets);event->images=target_images(targets);event->targets=targets;next.events[i]=std::move(event);continue;
+        }
+        if(item.operation!=Operation::NativeBind || !native_output_binding(item.native_target) || no_op[i])continue;
         const auto& resource=item.native_resource;const bool empty=!resource || !resource->bound;
         const auto& binding=item.native_target;const bool depth=binding.kind==efmi::frontend::NativeBinding::DepthTarget;
         if(depth?binding.slot!=0:(binding.kind!=efmi::frontend::NativeBinding::ColorTarget || binding.slot>=count))
@@ -444,6 +497,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     owner->resources.reserve(owner->resources.size()+plan.items.size());cb->target_contexts.reserve(cb->target_contexts.size()+plan.items.size());
     owner->classic.reserve(owner->classic.size()+plan.items.size());
     owner->pipelines.reserve(owner->pipelines.size()+plan.items.size());
+    owner->work.reserve(owner->work.size()+plan.items.size());
     next.owner=owner;output=std::move(next);return true;
 }
 namespace {
@@ -470,10 +524,13 @@ void record_classic_target(Device* device,CmdBuf* cb,const NativeTargetPlan& pla
     for(const auto& view:next)if(!contains(previous,view.handle)){
         const auto& saved=classic_saved(state,view.handle);move(saved,attachment_source(cb,saved),work(view));
     }
-    auto& attachment=event->slot==depth_slot?state.depth:state.colors[event->slot];
-    attachment.active=event->target!=attachment.original?event->target:VK_NULL_HANDLE;
+    if(!event->work){
+        auto& attachment=event->slot==depth_slot?state.depth:state.colors[event->slot];
+        attachment.active=event->target!=attachment.original?event->target:VK_NULL_HANDLE;
+    }
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,count,barriers);
+    if(event->work){event->work->record(cb->handle);if(event->compute)event->compute->record(cb->handle);}
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());
     continue_images(cb,event->images);const auto& targets=cb->target_contexts.back();cb->native_graphics_ordered=true;
     state.private_pass=true;cb->pass.render_pass=event->classic->pass;cb->pass.framebuffer=event->classic->framebuffer;
@@ -490,22 +547,28 @@ void record_classic_target(Device* device,CmdBuf* cb,const NativeTargetPlan& pla
 void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan,size_t index)
 {
     const auto& event=plan.events[index];if(!event)return;
+    if(event->work && !event->work->admitted())throw std::runtime_error("Prepared pass work is not admitted");
     auto owner=std::static_pointer_cast<TargetOwner>(plan.owner);owner->used=true;owner->resources.push_back(event->resource);
+    if(event->work)owner->work.push_back(event);
     cb->native_target_state=plan.state;if(!event->change)return;
     if(event->classic){owner->classic.push_back(event->classic);if(event->pipeline)owner->pipelines.push_back(event->pipeline);record_classic_target(device,cb,plan,event);return;}
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
     end(cb->handle);
     VkImageMemoryBarrier barriers[2]{};uint32_t barrier_count=0;
-    auto& state=*plan.state;const bool depth=event->slot==depth_slot;
-    auto& attachment=depth?state.depth:state.colors[event->slot];
-    const auto attachment_layout=depth?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    if(attachment.active){const auto& saved=state.restore.at(attachment.active);const auto after=detached_layout(saved);barriers[barrier_count++]=transition(saved,attachment_layout,after);layout(cb,saved,after);}
-    const auto target=event->target;
-    attachment.active=target && target!=attachment.original?target:VK_NULL_HANDLE;
-    if(attachment.active){const auto& saved=state.restore.at(attachment.active);barriers[barrier_count++]=transition(saved,attachment_source(cb,saved),attachment_layout);layout(cb,saved,attachment_layout);}
+    auto& state=*plan.state;
+    if(!event->work){
+        const bool depth=event->slot==depth_slot;
+        auto& attachment=depth?state.depth:state.colors[event->slot];
+        const auto attachment_layout=depth?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        if(attachment.active){const auto& saved=state.restore.at(attachment.active);const auto after=detached_layout(saved);barriers[barrier_count++]=transition(saved,attachment_layout,after);layout(cb,saved,after);}
+        const auto target=event->target;
+        attachment.active=target && target!=attachment.original?target:VK_NULL_HANDLE;
+        if(attachment.active){const auto& saved=state.restore.at(attachment.active);barriers[barrier_count++]=transition(saved,attachment_source(cb,saved),attachment_layout);layout(cb,saved,attachment_layout);}
+    }
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,barrier_count,barriers);
+    if(event->work){event->work->record(cb->handle);if(event->compute)event->compute->record(cb->handle);}
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());
     continue_images(cb,event->images);const auto& targets=cb->target_contexts.back();
     cb->native_graphics_ordered=true;

@@ -235,3 +235,13 @@ and registry retire. Four DLLs 3.4.1, fresh root 27/interpreter 570 and affected
 production/Present/F10/tracker/ABI checks pass. Native pass preservation, complete
 source mapping, per-call admission and recording ownership still gate production
 Core insertion; the host API alone is not an enabled rendering path.
+
+D-326 supplies the native pass boundary for ordered buffer packets. Preflight proves
+sequence/device/family, attachment allocation disjointness and compute restoration,
+then allocates every compatible classic LOAD continuation. Recording emits the
+packet strictly between End and Begin, preserving outputs even when there is no
+color attachment. Unadmitted work emits nothing; recording owners retain accepted
+packets through legal completion/reset. Eight classic/dynamic GPU modes pass 31
+checks with zero validation errors/warnings, and tracker checks pass 1011. Image
+layout handoff, complete host source mapping and per-call admission still gate
+production Core insertion. This remains sandbox evidence, not game acceptance.

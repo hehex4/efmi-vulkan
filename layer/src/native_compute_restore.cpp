@@ -10,7 +10,7 @@ struct RestoreLayout {
     ~RestoreLayout(){if(handle)destroy(device,handle,nullptr);}
 };
 }
-bool prepare_native_compute_restore(Device* device,const CmdBuf* cb,NativeComputeRestore& output,std::string& why)
+bool prepare_native_compute_restore(Device* device,const CmdBuf* cb,NativeComputeRestore& output,std::string& why,bool resource_lock_held)
 {
     auto refuse=[&](const char* reason){why=reason;return false;};
     if(!device || !cb || device->passive || !g_cfg.track_resources || !cb->compute_sets_complete)
@@ -19,7 +19,8 @@ bool prepare_native_compute_restore(Device* device,const CmdBuf* cb,NativeComput
     NativeComputeRestore next;next.pipeline=cb->comp_bound;
     next.bind_pipeline=device->d.CmdBindPipeline;next.bind_sets=device->d.CmdBindDescriptorSets;
     if(!next.bind_pipeline || !next.bind_sets)return refuse("Compute restoration commands are unavailable");
-    std::shared_lock<std::shared_mutex> lock(device->res_mx);
+    std::shared_lock<std::shared_mutex> lock(device->res_mx,std::defer_lock);
+    if(!resource_lock_held)lock.lock();
     std::map<const PipelineLayoutInfo*,VkPipelineLayout> recreated;
     std::vector<std::pair<uint32_t,std::shared_ptr<const PipelineLayoutInfo>>> earlier;
     for(uint32_t slot=0;slot<kMaxSets;++slot){

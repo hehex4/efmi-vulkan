@@ -13,6 +13,21 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-326: Preserve outputs when inserting prepared work (2026-11-16)
+
+A work marker creates an End/work/LOAD Begin boundary without assigning a fake
+color destination. Preflight every retained buffer against current, original,
+restoration and future attachment allocations. Require one contiguous packet
+sequence on the actual device and family; retain the full work event on the
+command-buffer owner. Refuse unknown scopes and unadmitted work before the first
+End. Reuse the compute restoration proof, including retained layout recreation.
+Image packets need their own layout handoff; application compute binding changes
+between packets cannot be restored from a stale initial snapshot. Existing
+single-queue, legacy-synchronization and ordinary attachment guards remain.
+Vulkan render-pass scope rules: https://docs.vulkan.org/spec/latest/chapters/renderpass.html
+The GPU oracle accepts both adjacent UNORM integers permitted by the conversion
+rules: https://docs.vulkan.org/spec/latest/chapters/fundamentals.html
+
 ## D-325: Original draw planning has one cancellable host transaction (2026-11-16)
 
 OwnedRuntime prepares only its matching combined original configuration, retaining

@@ -4,6 +4,7 @@
 #include "../../frontend/assets/file_plan.h"
 namespace efvk {
 class PipelineVariant;
+struct NativeComputeRestore;
 inline bool native_output_binding(const efmi::frontend::NativeBinding& binding){
     return binding.kind==efmi::frontend::NativeBinding::ColorTarget || binding.kind==efmi::frontend::NativeBinding::DepthTarget;
 }
@@ -28,7 +29,20 @@ struct NativeTargetCache {
     std::shared_ptr<NativePipelineCache> pipeline_cache;
 };
 struct NativeTargetPlan {
-    struct Event {std::shared_ptr<NativeClassicTarget> classic;std::shared_ptr<const NativeBoundPipeline> pipeline;VkPipeline bound=VK_NULL_HANDLE;VkImageView target=VK_NULL_HANDLE;RenderTargets targets;std::shared_ptr<const efmi::frontend::NativeResource> resource;std::shared_ptr<NativeImageState> images;bool change=false;uint32_t slot=0;};
+    struct Event {
+        std::shared_ptr<NativeClassicTarget> classic;
+        std::shared_ptr<const NativeBoundPipeline> pipeline;
+        VkPipeline bound=VK_NULL_HANDLE;
+        VkImageView target=VK_NULL_HANDLE;
+        RenderTargets targets;
+        std::shared_ptr<const efmi::frontend::NativeResource> resource;
+        std::shared_ptr<NativeImageState> images;
+        // Work-only breaks retain every output, including depth-only/no-color passes.
+        std::shared_ptr<const efmi::gpu::PreparedResourceCommands> work;
+        std::shared_ptr<const NativeComputeRestore> compute;
+        bool change=false;
+        uint32_t slot=0;
+    };
     std::vector<std::shared_ptr<Event>> events;
     // A prior output split establishes this layout before the corresponding input bind.
     std::vector<VkImageLayout> read_layouts;

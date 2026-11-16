@@ -3824,3 +3824,30 @@ Continue native pass breaks preserving attachments, complete source mapping,
 per-call admission and recording ownership before enabling production insertion.
 Native I-01/I-04/I-05 and capture migration remain. No game, deployment, candidate
 refresh, installed/system mutation or remote action.
+
+## 2026-11-16: D-326 prepared buffer packets preserve native passes
+
+Read original CustomShader save/execute/restore in CommandList.cpp 2893-2950.
+DX11 supplies reference-counted lifetime/deferred destruction, hazards and context
+order. Added native whole-sequence/device/family and attachment-allocation preflight,
+compute restoration, work-only End/work/LOAD Begin events, and command-buffer owners.
+Depth-only and no-color passes need no fabricated color0 binding. Unadmitted work
+cannot end or change a pass. Image packets and interleaved application compute
+binding changes still refuse pending their own complete handoff.
+
+Tracker first passes 999. A proposed unknown-size negative fixture incorrectly
+rejects distinct memory identities and fails 6 checks; the overlap helper already
+rejects unknown extents in the same allocation. Correct positive/negative cases
+pass 1011. GPU fixture corrections cover enum narrowing, explicit enabled draw
+parameters, real compute queue capabilities, and the allowed adjacent UNORM values
+(the GPU stores 0.5 as 127). No production alias defect is claimed from that fixture.
+prepared-pass-gpu-final.out passes eight modes / 31 checks with zero core/sync
+validation errors or warnings: ordered fill7/compute+6 yields13, actual draws after
+both cuts preserve color/depth/stencil, and recordings outlive preparation. Shared
+headless setup also rebuilds the existing variant test. Four DLLs build at 3.4.2 /
+ABI fd2102f32b81fd00 in prepared-pass-dll-build.out. Scoped regression passes production registry 13, tracker 1011, GPU pass insertion 31, recipes 410/cache 81/snapshots 52/variants 63, classic attachments 173, classic outputs 73, depth-only 76, stencil 61, MRT 39, absent outputs 27, dynamic targets 30, ABI 9 and text 737 in prepared-pass-regression.out.
+
+Continue image layout handoff, complete application source mapping and per-call
+host admission/recording before production original Core insertion. Native queue,
+access/readiness and remaining capture work remain. No game, deployment, candidate
+refresh, installed/system mutation, historical artifact deletion or remote action.

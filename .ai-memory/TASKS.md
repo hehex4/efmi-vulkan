@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-326 pass insertion verified
+
+- Added work-only native pass boundaries, whole-sequence preflight, allocation alias guards, compute replay and command-buffer retention. Tracker 1011 and eight-mode GPU 31 pass with zero validation errors/warnings after correcting fixture setup/UNORM assumptions. Four development DLLs are 3.4.2 / ABI fd2102f32b81fd00. Scoped regression passes production registry 13, tracker 1011, GPU pass insertion 31, recipes 410/cache 81/snapshots 52/variants 63, classic attachments 173, classic outputs 73, depth-only 76, stencil 61, MRT 39, absent outputs 27, dynamic targets 30, ABI 9 and text 737 in prepared-pass-regression.out.
+- Continue private/application image layout handoff, complete source mapping and per-call pipeline/resource admission before production original Core insertion. Then native I-01/I-04/I-05 and remaining capture migration. No game authorization.
+
 ## D-325 host transaction verified
 
 - Added the host-facing cancellable original draw transaction and matching-registry guard. Complete original context, original execution, positioned sealing and explicit admission remain one serialized operation; cancellation retains the registry through rollback. GPU 376 passes cleanly with independent 7/12/7 observations after two fixture corrections. Four development DLLs are 3.4.1 / ABI fd2102f32b81fd00. Fresh root 27/interpreter 570, production registry 13, tracker 867, Present/F10 82, ABI 9 and text 733 pass.

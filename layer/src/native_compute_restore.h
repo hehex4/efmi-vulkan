@@ -34,5 +34,5 @@ struct NativeComputeRestore {
 // Prepare and record within the same intercepted call. Normal application pipeline/
 // set lifetime rules still apply. This does not authorize pass splitting or submission.
 // Failure leaves output untouched and records no Vulkan command.
-bool prepare_native_compute_restore(Device*,const CmdBuf*,NativeComputeRestore&,std::string&);
+bool prepare_native_compute_restore(Device*,const CmdBuf*,NativeComputeRestore&,std::string&,bool resource_lock_held=false);
 }

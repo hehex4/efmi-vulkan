@@ -234,6 +234,7 @@ struct PreparedImageState {
 class PreparedResourceCommands {
 public:
     void record(VkCommandBuffer) const;
+    bool admitted() const {return admitted_;}
     bool changes_compute_state() const {return compute_;}
     VkDevice device() const {return device_;}
     uint32_t queue_family() const {return queue_family_;}

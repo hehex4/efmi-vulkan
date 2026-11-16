@@ -948,6 +948,7 @@ static void immutable_sampler_lifetime()
 #include "dynamic_geometry_cases.h"
 #include "native_geometry_cases.h"
 #include "native_compute_restore_cases.h"
+#include "native_prepared_pass_cases.h"
 #include "translucent_scene_cases.h"
 
 int main()
@@ -989,6 +990,7 @@ int main()
     native_classic_null_cases(2);
     native_classic_null_cases(3);
     native_absent_output_cases();
+    for(bool classic:{false,true})for(unsigned mode=0;mode<4;++mode)native_prepared_pass_cases(classic,mode);
     native_descriptor_references();
     native_image_scope_lifetime();
     native_image_layout_conflicts();
