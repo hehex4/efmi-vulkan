@@ -118,3 +118,10 @@ D-309 adds ordered physical buffer access metadata and bounded admission, passin
 headless checks with clean validation. Source/development DLLs are 3.2.7. Original
 registry rollback/imports and host insertion remain open; this does not enable live
 Core execution or close the native queue scheduler.
+
+D-310 adds reversible named-buffer registry preparation. Cancelled initialization,
+copy caches, aliases and per-frame allowances restore; partial allocation failures
+can retry the same command. Root 10 / GPU 88 and fresh interpreter 553 pass alongside
+production/IA/native-resource checks, with clean Vulkan validation. Source/development
+DLLs are 3.2.8. Pool and image transactions, application imports and ordered production
+insertion remain open; ordinary original pool execution is retained and verified.

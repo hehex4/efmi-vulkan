@@ -41,6 +41,13 @@ D-309 adds retained ordered buffer access spans to each prepared packet. Host ad
 can compare actual allocation ranges before recording. Storage compute accesses remain
 conservative; the metadata does not replace queue/order or pass-boundary proof.
 
+D-310 adds a named-buffer registry transaction above preparation. Only touched
+declarations and copy-cache entries are journaled, with bounded slot state. Sealing
+waits for host admission; cancellation restores initialization, metadata and aliases,
+and scalar effects remain original CPU state. Pools, images/parameters and feedback
+remain outside this prepared subset. Ordinary original execution is unchanged; the
+production draw interceptor still needs imports and ordered host insertion.
+
 > Rewritten 2026-11-10 from the code (docs/architecture-review-2.1.md, P4-1). What was here before, the
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.

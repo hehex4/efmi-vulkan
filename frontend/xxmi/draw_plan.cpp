@@ -55,7 +55,8 @@ struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read,decla
     std::vector<std::pair<wchar_t,unsigned>> words;uint32_t words_second=0;bool words_over=false;
     DrawPlanAdapter::HostValue host;DrawPlanAdapter::RenderTargetSize rt;
     // inside: in a draw's scope, within a CustomShader (D-087); drawing: a draw's scope is open.
-    std::function<bool()> gate,inside,drawing;bool open() const {return !gate || gate() || (inside && inside());}
+    std::function<bool()> gate,inside,drawing,preparing;bool open() const {return !gate || gate() || (inside && inside());}
+    std::function<void()> preparation_failed;
     // What a replaced draw's state holds at a target (a slot, `this`): false for a target that is no slot of
     // the context, or outside an execution. Queries on a slot read what the lists bound there (D-161).
     std::function<bool(ResourceCopyTarget&,CommandListState&,SlotValue&,SlotId&)> held;
@@ -339,6 +340,17 @@ public:
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
     bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
 };
+class PreparedPoolQuery final : public CommandListEvaluatable {
+public:
+    std::shared_ptr<CommandListEvaluatable> source;std::shared_ptr<QueryService> service;
+    PreparedPoolQuery(std::shared_ptr<CommandListEvaluatable> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
+    float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
+        if(service->preparing && service->preparing())refuse(L"Prepared resource pools require a pool-state transaction");
+        return source->evaluate(state,device);
+    }
+    bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
+    bool optimise(HackerDevice*,std::shared_ptr<CommandListEvaluatable>*) override {return false;}
+};
 class RangeIndexGuard final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListEvaluatable> source;std::shared_ptr<QueryService> service;
@@ -481,6 +493,7 @@ bool cpu_expression(const std::shared_ptr<CommandListEvaluatable>& node, size_t 
     if(const auto* guard=dynamic_cast<ShaderSlotGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* query=dynamic_cast<NativeResourceQuery*>(node.get()))return cpu_target(query->source->texture_filter_target,depth+1);
     if(const auto* guard=dynamic_cast<PoolIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
+    if(const auto* guard=dynamic_cast<PreparedPoolQuery*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* guard=dynamic_cast<RangeIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* guard=dynamic_cast<SlotIndexGuard*>(node.get()))return cpu_expression(guard->source,depth+1);
     if(const auto* query=dynamic_cast<HostWindowQuery*>(node.get()))return dynamic_cast<CommandListOperand*>(query->source.get())!=nullptr;
@@ -570,8 +583,10 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
             node=std::make_shared<RenderTargetQuery>(std::move(operand),queries);return;
         }
         guard_target(operand->texture_filter_target,queries,depth+1);
+        const bool pooled=operand->texture_filter_target.custom_resource_pool!=nullptr;
         if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1))
             node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);
+        if(pooled)node=std::make_shared<PreparedPoolQuery>(std::move(node),queries);
     }
     else if(auto* op=dynamic_cast<CommandListOperator*>(node.get())){
         if(op->lhs)guard_expression(op->lhs,queries,depth+1);if(op->rhs)guard_expression(op->rhs,queries,depth+1);
@@ -743,6 +758,7 @@ struct DrawPlanAdapter::Runtime {
     // is one more skipped command); anything else is the command's own, which does nothing and is said once.
     void contained(const CommandListCommand* command,const std::wstring& line,const Refused& refused)
     {
+        if(queries->preparing && queries->preparing())queries->preparation_failed();
         if(refused.draw && !tolerant)whole(refused.reason);
         else skipped(command,line,refused.reason);
     }
@@ -1510,6 +1526,12 @@ struct DrawPlanAdapter::Runtime {
         } timer{timing_slot ? *timing_slot : command_timing[typeid(*original).name()]};
 #endif
         if (!active) refuse(L"Planner command invoked outside a transaction");
+        if(queries->preparing && queries->preparing()){
+            if((kinds&K_PoolCopyOperation) || (kinds&K_PoolVariableOperation))
+                refuse(L"Prepared resource pools require a pool-state transaction");
+            if(auto* check=as<CheckTextureOverrideCommand>(original,kinds,K_CheckTextureOverrideCommand);check && check->target.custom_resource_pool)
+                refuse(L"Prepared resource pools require a pool-state transaction");
+        }
         // The original stops a list at this depth with a warning (_RunCommandList), and its caller goes on.
         if (state->recursion >= MAX_COMMAND_LIST_RECURSION)
             refuse(L"Plan recursion budget exceeded");
@@ -1576,7 +1598,9 @@ struct DrawPlanAdapter::Runtime {
            as<DrawCommand>(original, kinds, K_DrawCommand) || as<SlotRangeCopyOperation>(original, kinds, K_SlotRangeCopyOperation))) {
             std::wstring why;
             if(!owned())owned_only(*original,*state);
-            if(owned_gate || draw_gate){mirror_reference(*original,*state);mark_owned(*original,*state);}
+            // Speculative GPU bindings belong to its registry journal. Publishing
+            // parallel file-plan references here would leak a cancelled alias.
+            if((owned_gate || draw_gate) && !(queries->preparing && queries->preparing())){mirror_reference(*original,*state);mark_owned(*original,*state);}
             if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
             return;
         }
@@ -2122,6 +2146,11 @@ void DrawPlanAdapter::draw_prepare(DrawPrepare callback){
 void DrawPlanAdapter::owned_scope(std::function<bool()> gate){
     if(runtime_->active || !runtime_->adapted.empty() || !gate || runtime_->owned_gate)refuse(L"Install one owned scope gate before adaptation");
     runtime_->owned_gate=gate;runtime_->queries->gate=std::move(gate);
+}
+void DrawPlanAdapter::prepared_scope(std::function<bool()> gate,std::function<void()> failure){
+    if(runtime_->active || !runtime_->adapted.empty() || !gate || !failure || runtime_->queries->preparing)refuse(L"Install one prepared scope gate before adaptation");
+    runtime_->queries->preparing=std::move(gate);
+    runtime_->queries->preparation_failed=std::move(failure);
 }
 void DrawPlanAdapter::draw_scope(std::function<bool()> gate){
     if(runtime_->active || !runtime_->adapted.empty() || !gate || runtime_->draw_gate)refuse(L"Install one draw scope gate before adaptation");

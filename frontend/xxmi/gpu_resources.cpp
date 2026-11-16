@@ -11,6 +11,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <typeinfo>
+#include "gpu_prepared_state.h"
 
 void FrontendBufferViewElements(UINT,UINT,DXGI_FORMAT,UINT,UINT&,UINT&);
 
@@ -111,7 +112,9 @@ void GpuResourceRuntime::select_view(GpuResourceBinding& b,GpuResourceBinding::V
     select_buffer_view(b,kind,raw,complete_info);
 }
 GpuResourceRuntime::GpuResourceRuntime(gpu::ResourceDevice d,gpu::ResourceBudgets budgets):commands_(d,std::move(budgets)){}
+GpuResourceRuntime::~GpuResourceRuntime()=default;
 void GpuResourceRuntime::backbuffer(gpu::Image image,DXGI_FORMAT format,UINT bind_flags){
+    require(!prepared_state_,"Host back buffer cannot change inside an unadmitted registry");
     if(!image){backbuffer_={};return;}
     const auto& vk=image->description();
     require(vk.type==VK_IMAGE_TYPE_2D && vk.mips==1 && vk.layers==1 && vk.samples==VK_SAMPLE_COUNT_1_BIT && vk.extent.depth==1,
@@ -132,27 +135,29 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     adapter.resource_matches([this](auto& target,auto& state,auto& value,auto& why){return match_source(target,state,value,why);});
     adapter.parameter_flush([this](auto& state,bool force,auto& why){return flush_parameters(state,force,why);});
     adapter.owned_bindings([this](auto& target,auto& state,auto& out,auto& why){return owned_vertex(target,state,out,why);});
+    adapter.prepared_scope([this]{return active_ && site_==ExecutionSite::Prepared;},[this]{execution_failed();});
     return {};
 }
 void GpuResourceRuntime::draw_commands(DrawExecutor executor){
     require(!installed_ && bool(executor),"Install GPU draw executor before generation adaptation");draw_executor_=std::move(executor);
 }
 void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
-    require(!active_ && ((queue && site==ExecutionSite::OutsideRenderPass) || (!queue && (site==ExecutionSite::Deferred || site==ExecutionSite::Draw))),
+    require(!active_ && !prepared_state_ && ((queue && site==ExecutionSite::OutsideRenderPass) || (!queue && (site==ExecutionSite::Deferred || site==ExecutionSite::Draw))),
             "GPU resource execution requires an explicit outside-render-pass scope");
     require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;active_=true;site_=site;recorded_=false;
     backbuffer_targeted_=false;failed_=false;
 }
 std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::ResourceCommands::SubmitSync& sync,VkQueue queue) {
     active();require(!failed_,"Cannot submit a failed GPU resource scope");
+    require(site_!=ExecutionSite::Prepared,"Prepared resource execution requires host admission, never submission");
     require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;
     require(queue_!=VK_NULL_HANDLE,"A deferred GPU resource scope needs its queue to submit");
     auto result=commands_.submit(queue_,sync);active_=false;return result;
 }
 // A failed scope that is suspended drops what it and the scopes pending before it recorded: their work
 // is one batch, and a later scope starts clean.
-void GpuResourceRuntime::suspend(){active();active_=false;if(failed_){commands_.discard();failed_=false;}}
-void GpuResourceRuntime::discard(){commands_.discard();active_=false;failed_=false;}
+void GpuResourceRuntime::suspend(){active();require(site_!=ExecutionSite::Prepared,"Prepared resource execution must finish or discard");active_=false;if(failed_){commands_.discard();failed_=false;}}
+void GpuResourceRuntime::discard(){commands_.discard();rollback_prepared();active_=false;failed_=false;}
 void GpuResourceRuntime::active() const {require(active_,"GPU resource operation has no outside-render-pass execution scope");}
 ResourceCopyTarget& GpuResourceRuntime::effective(ResourceCopyTarget& t,CommandListState& state) {
     if(t.type!=Target::THIS_RESOURCE)return t;
@@ -174,12 +179,15 @@ GpuResourceRuntime::Slot GpuResourceRuntime::slot(ResourceCopyTarget& t,CommandL
     const auto index=t.ResolveSlot(&state);require(index<limit,"GPU binding slot out of range");return {stage?t.shader_type:L'\0',t.type,index};
 }
 CustomResource* GpuResourceRuntime::declaration(ResourceCopyTarget& t,CommandListState& state,bool writing) {
+    require(!prepared_state_ || !t.custom_resource_pool,"Prepared resource pools require a pool-state transaction");
     if(t.custom_resource_pool)validate_pool_runtime(*t.custom_resource_pool);
     auto* r=t.GetCustomResource(&state,writing);
     if(r && r->pool)validate_pool_runtime(*r->pool);
+    require(!prepared_state_ || !r || !r->pool,"Prepared resource pools require a pool-state transaction");
     return r;
 }
 GpuResourceBinding GpuResourceRuntime::load(CustomResource& r,ResourceCopyTarget* destination,CommandListState* state) {
+    remember(r);
     require(substantiated_.size()<65536 || substantiated_.count(&r),"GPU resource declaration budget exceeded");
     const bool first=substantiated_.insert(&r).second;
     const auto found=resources_.find(&r);
@@ -201,7 +209,8 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r,ResourceCopyTarget
         return {};
     if(r.override_type==CustomResourceType::TEXTURE1D || r.override_type==CustomResourceType::TEXTURE2D ||
        r.override_type==CustomResourceType::TEXTURE3D || r.override_type==CustomResourceType::CUBE ||
-       (!r.filename.empty() && r.override_type==CustomResourceType::INVALID))return load_image(r);
+       (!r.filename.empty() && r.override_type==CustomResourceType::INVALID)){
+        require(!prepared_state_,"Prepared image resources require layout transactions");return load_image(r);}
     require(r.override_type==CustomResourceType::BUFFER || r.override_type==CustomResourceType::STRUCTURED_BUFFER ||
             r.override_type==CustomResourceType::RAW_BUFFER || r.override_type==CustomResourceType::INVALID,"GPU image declaration requires image commands");
     GpuResourceBinding b;std::vector<uint8_t> bytes;
@@ -252,6 +261,7 @@ std::shared_ptr<void> resource_owner(const GpuResourceBinding& binding){
 }
 }
 void GpuResourceRuntime::identify_resource(const GpuResourceBinding& binding,SourceResourceIdentity identity){
+    require(!prepared_state_,"Source identities are published outside a prepared registry transaction");
     require(bool(binding),"Resource identity requires a live owned allocation");
     require(identity.hash_known || !identity.hash,"Unknown original resource hash has an asserted value");
     require(identity.tracking==SourceResourceIdentity::Tracking::Tracked || (!identity.hash_known && !identity.region_hash),
@@ -285,7 +295,7 @@ bool GpuResourceRuntime::match_source(ResourceCopyTarget& target,CommandListStat
             else throw std::runtime_error("Original image dimension is unknown");
         }
         return true;
-    }catch(const std::exception& e){if(active_ && commands_.recorded()!=mark)failed_=true;reason=widen(e.what());return false;}
+    }catch(const std::exception& e){if(active_ && (prepared_state_ || commands_.recorded()!=mark))failed_=true;reason=widen(e.what());return false;}
 }
 GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListState& state,ResourceCopyTarget* destination) {
     auto& t=effective(input,state);GpuResourceBinding b;
@@ -310,6 +320,7 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         else if(t.type==Target::CONSTANT_BUFFER){b.stride=0;b.format=DXGI_FORMAT_UNKNOWN;}
         else if(t.type==Target::INDEX_BUFFER){b.stride=dxgi_format_size(b.format);b.visible_size=0;}
         else if(t.type==Target::VERTEX_BUFFER){b.format=DXGI_FORMAT_UNKNOWN;b.visible_size=0;}}
+    require(!prepared_state_ || !b.image,"Prepared image resources require layout transactions");
     if(b && input.evaluation_mode==Mode::RESOURCE_REGION) {
         require(input.member_args[0].expression && input.member_args[1].expression,"GPU region requires offset and size");
         b.offset=uint_value(input.member_args[0].GetValue(&state));b.visible_size=uint_value(input.member_args[1].GetValue(&state));
@@ -329,6 +340,7 @@ void GpuResourceRuntime::set(ResourceCopyTarget& input,CommandListState& state,c
     require(t.evaluation_mode==Mode::RESOURCE && !t.IsRange(),"GPU assignment needs a single resource target");
     if(b.image && backbuffer_ && b.image==backbuffer_.image && (t.type==Target::RENDER_TARGET || t.type==Target::UNORDERED_ACCESS_VIEW))backbuffer_targeted_=true;
     if(t.type==Target::CUSTOM_RESOURCE){auto* r=declaration(t,state,true);require(r!=nullptr,"GPU resource destination missing");
+        remember(*r);
         require(resources_.size()<65536 || resources_.count(r),"GPU resource declaration budget exceeded");
         auto& cached=resources_[r];
         // Original SetResource(null) retains the old resource/view as a cache.
@@ -357,6 +369,8 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
         uint32_t(ResourceCopyOptions::MONO)|uint32_t(ResourceCopyOptions::SET_VIEWPORT)|uint32_t(ResourceCopyOptions::RESOLVE_MSAA);
     require(!(uint32_t(op.options)&~allowed),"GPU copy option requires an additional adapter");
     auto& dst=effective(op.dst,state);
+    require(!prepared_state_ || (dst.type!=Target::POOL && !dst.custom_resource_pool && !op.src.custom_resource_pool),
+            "Prepared resource pools require a pool-state transaction");
     if(op.src.type==Target::EMPTY){set(dst,state,{});return;} // Explicit null ignores unless_null upstream.
     // A reference substantiates its source with the destination's bind flags; a copy does not (D-151).
     auto source=get(op.src,state,(op.options&ResourceCopyOptions::REFERENCE)?&op.dst:nullptr);
@@ -378,6 +392,7 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
     if(!source){if(!(op.options&ResourceCopyOptions::UNLESS_NULL))set(dst,state,{});return;}
     if(swap_chain(dst.type))backbuffer_targeted_=true;
     auto* custom=dst.type==Target::CUSTOM_RESOURCE?declaration(dst,state,true):nullptr;
+    if(custom)remember(*custom);else remember(op);
     const bool explicit_region=op.src.evaluation_mode==Mode::RESOURCE_REGION;
     const auto region_size=source.visible_size;
     if(custom && custom->max_copies_per_frame) {
@@ -513,6 +528,9 @@ void GpuResourceRuntime::clear(ClearViewCommand& op,CommandListState& state) {
     else {std::vector<uint32_t> data(count/4);for(size_t i=0;i<data.size();++i)data[i]=words[i%channels];commands_.write(b.buffer,b.offset,data.data(),count);}
 }
 void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& state) {
+    require(!prepared_state_ || (!op.src.custom_resource_pool && !op.dst.custom_resource_pool),
+            "Prepared resource pools require a pool-state transaction");
+    remember(op);
     const bool bind=op.dst.evaluation_mode==Mode::SLOT_RANGE;
     auto& slots=bind?op.dst:op.src;auto& other=bind?op.src:op.dst;
     require(slots.evaluation_mode==Mode::SLOT_RANGE && slots.range_start && slots.range_end,"GPU slot range bounds missing");
@@ -600,6 +618,7 @@ void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& sta
     if(op.options&ResourceCopyOptions::NO_VIEW_CACHE)for(auto& cached:views)cached={};
 }
 void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
+    require(!prepared_state_,"Prepared store requires host completion feedback");
     auto source=get(op.src,state);if(!source)return; // Original null keeps the previous variable value.
     require(!source.image,"Original store requires a buffer source");
     require(op.offset_expression!=nullptr,"GPU store offset missing");
@@ -636,6 +655,7 @@ void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
 bool GpuResourceRuntime::run(CommandListCommand& command,CommandListState& state,std::wstring& reason) {
     const uint64_t mark=commands_.recorded();
     auto dropped=[&](const std::wstring& why){
+        if(prepared_state_){failed_=true;return;} // Retry after rollback; never permanently disable an admission failure.
         if(!active_ || commands_.recorded()==mark)return;
         failed_=true;
         if(disabled_.size()<4096 && disabled_.insert(&command).second)
@@ -732,7 +752,7 @@ bool GpuResourceRuntime::query(ResourceCopyTarget& input,CommandListState& state
         default:throw std::runtime_error("GPU resource property requires source-semantic adaptation");
         }
         return true;
-    }catch(const std::exception& e){if(active_ && commands_.recorded()!=mark)failed_=true;reason=widen(e.what());return false;}
+    }catch(const std::exception& e){if(active_ && (prepared_state_ || commands_.recorded()!=mark))failed_=true;reason=widen(e.what());return false;}
 }
 bool GpuResourceRuntime::render_target(CommandListState&,bool& bound,float& width,float& height,std::wstring& reason) {
     try{active();bound=false;

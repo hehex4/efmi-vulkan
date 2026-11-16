@@ -38,8 +38,9 @@ public:
     // Draw: recording without a queue during a replaced draw's plan (P2, D-087); the host submits
     // the work before the application's submission. Store there gives the value its previous execution
     // read, once that submission completed (D-147).
-    enum class ExecutionSite { OutsideRenderPass, InsideRenderPass, Deferred, Draw };
+    enum class ExecutionSite { OutsideRenderPass, InsideRenderPass, Deferred, Draw, Prepared };
     GpuResourceRuntime(gpu::ResourceDevice,gpu::ResourceBudgets={});
+    ~GpuResourceRuntime();
     std::vector<std::wstring> install(DrawPlanAdapter&) override;
     bool initialize_parameters(CommandListState&,std::wstring&) override;
     using DrawExecutor=std::function<bool(DrawCommand&,CommandListState&,std::wstring&)>;
@@ -52,6 +53,12 @@ public:
     // may submit and wait for GPU feedback inside it. A draw hook cannot opt in
     // by silently treating an active render pass as OutsideRenderPass.
     void begin(VkQueue,ExecutionSite);
+    // Buffer-only speculative execution. No pending batch, queue access or pool
+    // mutation is allowed. Finish seals commands but keeps the registry undo
+    // journal until host admission calls accept_prepared(), or discard rolls back.
+    void begin_prepared();
+    std::shared_ptr<const gpu::PreparedResourceCommands> finish_prepared();
+    void accept_prepared();
     bool scope_active() const {return active_;}
     // Whether the active scope's recorded work is to be dropped: a command failed after it had recorded
     // part of its work, or the execution around the scope failed. finish() refuses such a scope;
@@ -62,7 +69,7 @@ public:
     VkQueue queue() const {return queue_;}
     // Another queue of the family once the host waited for every earlier submission (D-090).
     void rebind(VkQueue queue){
-        if(active_ || !queue)throw std::runtime_error("GPU resource scope rebinds only while closed");
+        if(active_ || prepared_state_ || !queue)throw std::runtime_error("GPU resource scope rebinds only while closed and admitted");
         queue_=queue;commands_.rebind(queue);
     }
     bool pending() const {return commands_.pending();}
@@ -101,6 +108,12 @@ public:
     OutputState save_outputs() const;
     void restore_outputs(OutputState&&) noexcept;
 private:
+    struct PreparedState;
+    std::unique_ptr<PreparedState> prepared_state_;
+    void remember(CustomResource&);
+    void remember(ResourceCopyOperation&);
+    void remember(SlotRangeCopyOperation&);
+    void rollback_prepared() noexcept;
     using Slot=std::tuple<wchar_t,ResourceCopyTargetType,unsigned>;
     GpuResourceBinding backbuffer_;
     bool backbuffer_targeted_=false;

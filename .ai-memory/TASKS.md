@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-310 named-buffer registry transactions verified; complete application integration
+
+- Done: touched-entry undo journal for declarations, initialization/copy caches and bindings; sealed admission; same-frame retry; reference/null cancellation; contained refusal propagation; partial allocation failure and retry without permanent command disabling. Source/four DLLs 3.2.8 / ABI ff5c853cc3759e7d. Root 10, GPU 88, interpreter 553, primitive 65, production 13, IA 34, native resources 89, tracker 838 and ABI 9 pass. Two earlier runs used an invalid pool fixture; the corrected cases pass with clean Vulkan validation.
+- Next: application buffer import with proven source metadata, original pool/image/parameter transactions, ordered host insertion with pass/compute restoration and recording lifetime. Production has not enabled prepared Core work. Migrate remaining old package-based acceptance inputs; then finish native queue/access/readiness/capture work. No game authorization.
+
 ## D-309 access metadata verified; continue original GPU registry integration
 
 - Done: retained ordered buffer access spans, physical alias overlap queries, conservative compute masks and atomic operation/access-budget admission. Source/four DLLs 3.2.7 / ABI ff5c853cc3759e7d. Prepared 65, root 10, owned GPU 40, production registry 13, tracker 838 and ABI 9 pass; core/synchronization validation is clean.

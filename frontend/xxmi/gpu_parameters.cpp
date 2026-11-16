@@ -22,6 +22,7 @@ void GpuResourceRuntime::publish_parameters(){
 }
 bool GpuResourceRuntime::initialize_parameters(CommandListState&,std::wstring& why){
     try{
+        require(!prepared_state_,"Configuration parameters initialize before prepared execution");
         require(installed_ && !parameters_initialized_ && G,"GPU parameters require a fresh installed generation");
         const auto count=G->iniParams.size();
         require(count<=D3D11_REQ_TEXTURE1D_U_DIMENSION,"GPU parameters exceed the original Texture1D width limit");

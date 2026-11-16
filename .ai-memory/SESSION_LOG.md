@@ -3403,3 +3403,33 @@ local commit; no build output is committed.
 Continue registry rollback/imports and ordered host insertion with attachment/compute
 restoration and recording lifetime. Production still does not run prepared Core work.
 No candidate refresh, real-game activity, installed/system mutation or remote write.
+
+## 2026-11-16: D-310 prepared original registry admission and rollback
+
+Continued after D-309/57ac465 was fast-forwarded into main. Re-read original
+CustomResource::Substantiate (CommandList.cpp 6407-6466) and copy state/execution
+(12490-12579). DX11 supplies reference-counted deferred lifetime, hazards and one
+context's order. Added a touched-entry undo journal for speculative named-buffer
+execution, preserving original scalar effects but rolling back initialization,
+resource metadata, copy allowances, copy caches and slot aliases. Sealing waits for
+host admission; an unadmitted scope cannot rebind its queue or start another execution.
+Prepared refusals propagate even when the interpreter contains the failed command;
+partially prepared instructions remain retryable. No speculative file-plan aliases.
+
+The first two runs (prepared-registry-first.out and prepared-registry-final.out) fail
+at the pool guard assertion: the test used a Resource section instead of the original
+Pool section. This was a fixture error, not evidence of a production pool failure.
+Correcting it and checking CPU resets/queries gives root 10 / GPU 82 in
+prepared-registry-reviewed.out. Final budget pressure leaves capacity for the source
+but not destination of a copy, proving cancellation and successful retry of the same
+instruction: prepared-registry-retry.out passes GPU 88 with zero core/synchronization
+diagnostics. Fresh interpreter 553 and primitive 65 also pass. Affected-area checks
+pass production 13, IA 34, native resources 89, tracker 838, ABI 9 and text. The four
+DLLs build as 3.2.8 / unchanged ABI ff5c853cc3759e7d. Diff review accompanies the commit.
+
+Production interception has not enabled this scope. It needs application imports,
+source contracts, pool/image/parameter transactions, ordered pass insertion, compute
+restoration and recording ownership before original Core execution is complete. Native
+I-01/I-04/I-05 and capture work remain after the shared rewrite. No candidate refresh,
+game activity, installed/system mutation or remote write. Root's untracked .codex/
+content was observed and left alone.

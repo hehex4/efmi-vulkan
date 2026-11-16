@@ -13,6 +13,17 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-310: Seal resource state separately from GPU admission (2026-11-16)
+
+Prepared original buffer execution journals touched resource/cache entries and bounded
+slot state. A sealed packet does not commit the registry: host admission accepts it,
+or discard restores initialization markers, metadata, copy allowances and references
+without allocating rollback storage. Original scalar effects persist; speculative
+aliases must not leak into the file-plan registry. Contained interpreter refusals also
+invalidate admission. Keep pool mutations/lookups, images/parameter uploads and feedback
+outside this subset until their corresponding transactions exist. Do not treat the
+journal as application binding import, a queue dependency or production Core completion.
+
 ## D-309: Expose prepared resource accesses before host admission (2026-11-16)
 
 Each prepared buffer operation exposes retained allocation identity, byte range,

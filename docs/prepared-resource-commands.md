@@ -85,3 +85,40 @@ next operation cannot leave a partial access description or prevent an otherwise
 complete packet from being finished. The focused fixture passes 65 checks with clean
 core/synchronization validation, including exact spans, physical aliases and budget
 boundaries. This is still a prepared-command primitive, not live Core integration.
+
+## Original registry preparation (D-310)
+
+GpuResourceRuntime can open a buffer-only prepared scope. The original command lists
+see their own speculative resource assignments in order. Sealing returns the immutable
+packet without publishing the logical registry; the host must admit it explicitly or
+discard it. A sealed scope cannot start another execution or rebind its queue. This
+frontend scope is not yet enabled by production draw interception.
+
+The undo journal records only touched declarations and copy-cache entries, including
+lazy initialization, inferred bind flags, out-of-band properties and per-frame copy
+allowances. It also retains the bounded current slot state. Discard restores existing
+aliases and removes uninitialized new allocations and copy caches, using preallocated
+map nodes. Original scalar assignments persist. Speculative aliases are not published
+into the parallel file-plan reference registry. Contained interpreter refusals also
+invalidate speculative admission; they cannot silently leave a successful partial
+packet or permanently disable a GPU command after a transient allocation failure.
+
+Original CommandList.cpp 6407-6466 substantiates a declaration once, and 12490-12579
+updates copy counters and performs copies on the same context. DX11 supplies
+reference-counted lifetime with deferred destruction, hazard tracking and one-context
+order. Vulkan preparation must restore these logical facts if the corresponding GPU
+work will never be recorded. Neither the journal nor acceptance supplies GPU completion.
+
+The supported registry subset contains ordinary named buffers. Images/parameter
+uploads, feedback and original pool mutations or lookups require their own transactions
+before admission. Prepared guards act before pool lookup/reset; ordinary execution
+continues using the original pool implementation. These limits are not a new character
+loading boundary and do not exclude configuration files. Application imports, packet
+insertion, pass splitting, compute restoration and recording lifetime remain required.
+
+The fixture cancels initial uploads and repeated copies, retries in the same frame,
+checks independent GPU bytes, retains old aliases across a cancelled clear/null,
+checks pool refusal before mutation and verifies ordinary pool execution afterward.
+It also exhausts allocation capacity halfway through a copy, discards the partial
+preparation and retries the same instruction successfully. Test evidence and the
+corrected pool-fixture failure are recorded in CURRENT_STATE.md and SESSION_LOG.md.

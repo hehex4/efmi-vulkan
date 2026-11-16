@@ -1479,6 +1479,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "resource_operand_cases.h"
 #include "resource_reference_cases.h"
 #include "prepared_resource_cases.h"
+#include "prepared_registry_cases.h"
 // The layer's side of the original as the judge (D-150, scripts/check_dx11_judge.py): an INI folder's
 // [Present] under the owned GPU runtime (resources and CustomShaders) `frames` times with a 256x256 back
 // buffer, then every variable as one JSON line.
@@ -1546,7 +1547,8 @@ int wmain(int argc,wchar_t** argv){
     }
     if(argc==3 && !wcscmp(argv[1],L"--configuration")){
         try{{Device device;device.init(false,false,true,false,false,false,true,true,true);
-            configuration_resource_cases(device,std::filesystem::absolute(argv[2]));}
+            configuration_resource_cases(device,std::filesystem::absolute(argv[2]));
+            prepared_registry_cases(device,std::filesystem::absolute(argv[2])/"prepared-registry");}
             printf("configuration resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
             return errors || warnings?1:0;
         }catch(const std::exception& e){fprintf(stderr,"configuration resources: %s\n",e.what());return 1;}
