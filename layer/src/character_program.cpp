@@ -1285,7 +1285,10 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                         // (by slot and semantic, keeping the semantic) given again later changes nothing more.
                         if (plain_match && std::any_of(item.layout.begin() + e + 1, item.layout.end(), [&](const auto& later) { return same(later, edit); }))
                             continue;
-                        if (!blend && plain_match && m.input_slot == 2 && m.semantic_name == "BLENDINDICES" && (r.format == 12 || r.format == 3) &&
+                        // Plain overrides of the same proven element apply in order,
+                        // as in the original. A later width replaces the earlier one.
+                        if (plain_match && m.input_slot == 2 && m.semantic_name == "BLENDINDICES" &&
+                            (m.semantic_index == 0 || m.semantic_index == UINT32_MAX) && (r.format == 12 || r.format == 3) &&
                             r.aligned_byte_offset == UINT32_MAX) { blend = &edit; continue; }
                         if (plain_match && !r.format && r.aligned_byte_offset != UINT32_MAX && m.input_slot < 4 && m.semantic_index != UINT32_MAX) {
                             const auto known = element_offsets_.find({m.input_slot, m.semantic_name, m.semantic_index});
@@ -1346,19 +1349,22 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                 // 16-bit weights where it reads R16G16B16A16_UNORM in that binding. Without such an
                 // element (offline, or a pipeline that does not read the stream) the packager's rule:
                 // indices in the last 8 bytes of an 8- or 16-byte element, weights before them. A stream
-                // first seen there is checked once, as decode checks a package's; one that fits neither
-                // keeps no bone mask.
+                // is checked per effective declaration. Offline adoption keeps its original rule.
                 if (!own_bones && bound.vb[2] == kCharacterOwned) throw std::runtime_error("An owned blend stream has no known bone indices");
                 bool resolved_bones = false;
                 uint64_t resolved_spans = 0;
-                if (!semantics && !own_bones && index_bytes && bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset != kCharacterNone &&
+                if (!vertex && !own_bones && index_bytes && bound.vb[2] != kCharacterNone && package.streams[bound.vb[2]].bone_index_offset != kCharacterNone &&
                     package.streams[bound.vb[2]].bone_index_bytes != index_bytes)
                     throw std::runtime_error("One blend stream under two blend-index widths");
                 if (!own_bones && index_bytes && bound.vb[2] != kCharacterNone &&
-                    (semantics || package.streams[bound.vb[2]].bone_index_offset == kCharacterNone)) {
+                    (vertex || package.streams[bound.vb[2]].bone_index_offset == kCharacterNone)) {
                     const uint32_t stride = package.streams[bound.vb[2]].stride;
                     uint32_t indices = kCharacterNone, weights = kCharacterNone, weight_bytes = 2;
-                    const auto* effective=bound.input_layout?&bound.input_layout->replacement:vertex;
+                    VertexInputRecipe declaration;
+                    std::string why;
+                    if(vertex && !package.vertex_input(bound,*vertex,declaration,why))
+                        throw std::runtime_error("Blend input declaration: "+why);
+                    const auto* effective=vertex?&declaration:nullptr;
                     if (effective) {
                         // BLENDINDICES is the pipeline's unsigned four-component element of binding 2, of
                         // any width (BUG-038: 32-bit in Typhoeus' clothes pipeline), BLENDWEIGHT its
@@ -1373,19 +1379,24 @@ bool CharacterProgram::plan(const efmi::frontend::RuntimeDraw& request, Characte
                                     if(!weight_bytes)throw std::runtime_error("Semantic blend weight format is unsupported");
                                     weights=a.offset;
                                 }
-                            }else if (blend_index_format(a.format)) indices = a.offset;
-                            else if (const uint32_t bytes = blend_weight_bytes(a.format)) { weights = a.offset; weight_bytes = bytes; }
+                            }else if (blend_index_format(a.format)) {
+                                if(indices!=kCharacterNone)throw std::runtime_error("Ambiguous blend index elements without semantic evidence");
+                                indices = a.offset;
+                                index_bytes=a.format==VK_FORMAT_R8G8B8A8_UINT?1:a.format==VK_FORMAT_R16G16B16A16_UINT?2:4;
+                            }else if (const uint32_t bytes = blend_weight_bytes(a.format)) {
+                                if(weights!=kCharacterNone)throw std::runtime_error("Ambiguous blend weight elements without semantic evidence");
+                                weights = a.offset; weight_bytes = bytes;
+                            }
                         }
                     }
                     if (indices == kCharacterNone && index_bytes == 2 && (stride == 8 || stride == 16)) {
                         indices = stride - 8; weights = stride == 16 ? 0 : kCharacterNone; weight_bytes = 2;
                     }
-                    std::string why;
-                    if(semantics && indices!=kCharacterNone){
+                    if(vertex && indices!=kCharacterNone){
                         const auto key=std::make_tuple(bound.vb[2],indices,weights,index_bytes,weight_bytes);
                         auto found=bone_layouts_.find(key);
                         if(found==bone_layouts_.end()){
-                            if(bone_layouts_.size()>=4096)throw std::runtime_error("Too many distinct semantic bone layouts in one generation");
+                            if(bone_layouts_.size()>=4096)throw std::runtime_error("Too many distinct bone layouts in one generation");
                             uint64_t mask=0;
                             if(!package.bone_spans(bound.vb[2],indices,weights,mask,why,index_bytes,weight_bytes))
                                 throw std::runtime_error("Blend stream refused: "+why);

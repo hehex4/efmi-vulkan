@@ -5,6 +5,16 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## D-299: Effective blend declarations without a semantic cache (2026-11-16)
+
+- Runtime 3.2.0 / ABI 347c72b0cc7d0e40 fixes BUG-156 in the existing limited blend contract. Runtime bone validation now uses the same resolved vertex declaration as GPU fetch, including accepted offset changes. Every effective layout gets an independent cached mask even without a semantic index; offline adoption keeps its existing rules.
+- Original CommandList.cpp 178-316 applies all matching edits in order; HackerContext.cpp 836-859 binds and restores the per-draw input layout. DX11 provides reference-counted lifetime with deferred destruction, hazard tracking and one-context order. Plain supported BLENDINDICES edits now take their last value in order. Unknown arbitrary semantics are not inferred; nonzero unsupported semantic indices and ambiguous no-cache index/weight elements refuse.
+- The 3.1.9 baseline d299-before.out passes 16/20, with both the same-stream width diagnostic and multiple-format-edit refusal. d299-focused.out passes 41/41: alternating R16/R32 on identical bytes, successive edits and return to R16, paired offsets with deliberately invalid weights at the old location, moving bones and actual backend exchange. Semantic identity is explicitly absent in these cases.
+- d299-build.out builds four matching 3.2.0 DLLs and passes package 148 / tracker 829. d299-regression.out input-semantics passes every step: GPU semantics 143, cache packaging 20 / reader 43, original frontend including vertex plans 20, INI 543, own-mesh captures 63, merged opacity 48, cold replacement 51, readiness 20 and Vulkan validation 76. Module boundary passes 7/7; text/diff checks pass. This is replacement logic, with no new shared field or host hook.
+- Next: build and verify a no-probe 3.2.0 candidate with the exact semantic cache; the separately verified archive is still 3.1.8 until that check passes. I-01 production queue/resource ordering, I-04 phase-local image transitions/automatic input nulling, I-05 one-shot compute waits and broader I-06 inputs remain open. A first unseen layout still performs the existing stream-content validation before caching its result; this is not a claim that all recording preparation is asynchronous.
+- No game load/deployment, launcher/system mutation or remote write. Root dist remains unchanged. The earlier cleanup rejection is not retried or bypassed; successful temporary artifacts remain where the review blocked deletion.
+
+
 ## D-298: Independent bone masks for exact semantic layouts (2026-11-16)
 
 - Runtime 3.1.9 / ABI 347c72b0cc7d0e40 fixes BUG-155: one immutable blend stream can supply multiple exact-semantic declarations. Each generation caches the validated mask by stream, index/weight offsets and widths; each draw list retains its own mask and layout identity. The default stream metadata is never overwritten by these interpretations. The cache is bounded to 4,096 layouts.

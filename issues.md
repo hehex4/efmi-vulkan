@@ -4,11 +4,11 @@ Date: 2026-11-15
 Reviewed source version: `3.0.4` (`D-276`, commit `69ea1cc`)
 Deployed `dist/` version: `2.1.8` (`D-184`, last real-game session `2.1.7` on 2026-11-12)
 
-D-294 supplies 5,265 exact shader input identities. D-295 integrates them into matched own/merged draws in 3.1.8, with 81 new GPU checks and affected-area regression passing. D-298 (3.1.9) supports several exact-semantic bone layouts in one buffer; 102 GPU semantic checks pass. Input conversion, declaration-order and application-input limits remain; see [the metadata evidence](docs/shader-input-metadata.md).
+D-294 supplies 5,265 exact shader input identities. D-295 integrates them into matched own/merged draws in 3.1.8, with 81 new GPU checks and affected-area regression passing. D-298/D-299 (3.2.0) support independent bone layouts for exact semantics and existing no-cache blend contracts; 143 GPU semantic checks and the affected-area regression pass. Input conversion, declaration-order and application-input limits remain; see [the metadata evidence](docs/shader-input-metadata.md).
 
 ## Implementation audit (2026-11-16; remediation in progress)
 
-Current audit: source 3.1.9; see [the consolidated results](docs/architecture-audit-3.1.3.md).
+Current audit: source 3.2.0; see [the consolidated results](docs/architecture-audit-3.1.3.md).
 
 The findings below are review inputs, not evidence that every proposed remedy is
 sufficient. Source inspection confirms the central problems, with these corrections:

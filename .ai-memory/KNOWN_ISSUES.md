@@ -1,5 +1,9 @@
 # EFMI Vulkan - Known issues
 
+## BUG-156: Legacy blend width and offset edits used a mutable or stale interpretation (fixed 3.2.0)
+
+The no-cache path fixed a stream's index width after its first draw, rejected successive different plain width overrides, and read original pipeline offsets when proving bone usage. d299-before.out on 3.1.9 passes 16/20 with the width and ordered-edit diagnostics. D-299 uses the effective declaration and per-layout mask cache and applies supported plain edits in order. The focused 41 checks and full affected-area regression pass (GPU semantics 143). Missing identity still does not support arbitrary semantic mapping, numeric conversion or unknown declaration-order realignment; offline plan adoption retains its prior width rule.
+
 ## BUG-155: A shared blend buffer refused a second semantic layout (fixed 3.1.9)
 
 D-295 attached a single adopted bone interpretation to each stream. A legal second declaration therefore refused with One blend stream under different semantic bone layouts (d298-before.out, 9/10). D-298 validates immutable bytes independently and retains per-layout masks without changing stream defaults. Package checks pass 148, tracker 829 and GPU semantics 102, including moving bones and actual exchange. The no-cache width restriction is still open; this does not implement arbitrary semantic inference or cross-queue ordering.

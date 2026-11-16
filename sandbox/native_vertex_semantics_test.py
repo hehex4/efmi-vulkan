@@ -103,7 +103,7 @@ def scene(checks, case, emitter):
     print('artifacts:', root)
 
 
-def merged(checks, layouts=False, exchange=False):
+def merged(checks, layouts=False, exchange=False, legacy=None):
     import native_classic_mod_character_test as character
     original = character.layer_env
     original_fixture = character.fixture
@@ -125,31 +125,68 @@ def merged(checks, layouts=False, exchange=False):
                                   'vb2->ElementOffset(BLENDINDICES, 0) = %d\n' % (offset * 16, offset * 16 + 8))
             ini += '\n[ResourceSharedBlend]\ntype = Buffer\nstride = 48\nfilename = shared-blend.buf\n'
             path.write_text(ini, encoding='ascii')
+        if legacy:
+            path = folder / 'mod.ini'
+            ini = path.read_text(encoding='ascii')
+            for stream in (4, 6, 8):
+                buf = folder / ('stream-%d.buf' % stream)
+                data = buf.read_bytes()
+                # The first index is the only weighted index; zero extension
+                # gives identical R16/R32 interpretations of this same file.
+                buf.write_bytes(b''.join((bytes(16) + data[at:at + 16]) if legacy == 'offsets'
+                                        else (data[at:at + 16] + bytes(8)) for at in range(0, len(data), 16)))
+                marker = 'filename = stream-%d.buf\nstride = 16' % stream
+                assert marker in ini
+                ini = ini.replace(marker, marker[:-2] + ('32' if legacy == 'offsets' else '24'))
+            edit = 'vb2->ElementFormat(BLENDINDICES, 0) = R16G16B16A16_UINT\n'
+            assert ini.count(edit) == 2
+            # Only the common attachment sets the format, alternating each
+            # attachment without changing pixels or requiring semantic identity.
+            ini = ini.replace(edit, '')
+            ini = ini.replace('[Constants]\n', '[Constants]\nglobal $wide = 0\n', 1)
+            switch = ('$wide = 1 - $wide\nif $wide == 0\n' + edit + 'else\n' +
+                      edit.replace('R16G16B16A16', 'R32G32B32A32') + 'endif\n')
+            if legacy == 'offsets':
+                # Existing paired-offset evidence names the source and final
+                # offsets. The default bytes are deliberately invalid weights.
+                switch = (edit + 'vb2->ElementOffset(BLENDWEIGHT, 0) = 0\n'
+                          'vb2->ElementOffset(BLENDINDICES, 0) = 8\n'
+                          'vb2->ElementOffset(BLENDWEIGHT, 0) = 16\n'
+                          'vb2->ElementOffset(BLENDINDICES, 0) = 24\n')
+            ini = ini.replace('[CommandListInitializeMergedSkeleton]', switch + '[CommandListInitializeMergedSkeleton]', 1)
+            if legacy == 'ordered':
+                first = ini.index('[CommandListDraw0]')
+                at = ini.index('drawindexed = 3,0,0\n', first) + len('drawindexed = 3,0,0\n')
+                ini = ini[:at] + edit.replace('R16G16B16A16', 'R32G32B32A32') + 'drawindexed = 3,0,0\n' + edit + 'drawindexed = 3,0,0\n' + ini[at:]
+            path.write_text(ini, encoding='ascii')
         return result
     def environment(path, *args, **kwargs):
         extra = kwargs['extra']; root = Path(extra['EFMI_VK_M2_MODS']).parent; roots.append(root)
         code = (root / 'vertex.spv').read_bytes()
         cache = root / 'shader-inputs.bin'
         # Names come from this synthetic fixture's declarations, not a runtime table.
-        cache.write_bytes(encode([(hashlib.sha256(code).digest(), len(code),
-                                  [(0, 'POSITION', 0), (1, 'TEXCOORD', 0),
-                                   (2, 'BLENDWEIGHT', 0), (3, 'BLENDINDICES', 0)])]))
+        if not legacy:
+            cache.write_bytes(encode([(hashlib.sha256(code).digest(), len(code),
+                                      [(0, 'POSITION', 0), (1, 'TEXCOORD', 0),
+                                       (2, 'BLENDWEIGHT', 0), (3, 'BLENDINDICES', 0)])]))
         extra['EFMI_VK_SHADER_INPUTS'] = str(cache)
         return original(path, *args, **kwargs)
     with patch.object(character, 'layer_env', environment), patch.object(character, 'fixture', fixture):
         character.scene(checks, 'control', matched=True, module_exchange=exchange)
-    checks.check(any('shader input semantics resolved for module' in (root / 'layer.log').read_text(errors='replace')
-                     for root in roots), 'merged: actual skeleton draw uses exact semantic evidence')
+    checks.equal(any('shader input semantics resolved for module' in (root / 'layer.log').read_text(errors='replace')
+                     for root in roots), not bool(legacy), 'merged: semantic evidence is used only when supplied')
 
 
 if __name__ == '__main__':
     checks = Checks('native shader input semantics')
     cases = sys.argv[1:] or ['offset', 'ordered', 'unknown', 'numeric', 'default', 'inject', 'swap', 'merged',
-                            'merged-layouts', 'merged-layouts-swap']
+                            'merged-layouts', 'merged-layouts-swap', 'merged-legacy-widths',
+                            'merged-legacy-ordered', 'merged-legacy-offsets', 'merged-legacy-swap']
     emitter = build(Path(ROOT) / 'build/shader-input-test') if any(not case.startswith('merged') for case in cases) else None
     for case in cases:
         if case.startswith('merged'):
-            merged(checks, layouts=case != 'merged', exchange=case == 'merged-layouts-swap')
+            merged(checks, layouts=case.startswith('merged-layouts'), exchange=case.endswith('-swap'),
+                   legacy=(case.rsplit('-', 1)[1]) if case.startswith('merged-legacy') else None)
         else:
             scene(checks, case, emitter)
     raise SystemExit(checks.finish())

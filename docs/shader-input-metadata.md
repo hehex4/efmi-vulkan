@@ -321,3 +321,30 @@ limited blend contract, including its same-stream width restriction. Numeric
 conversion, inherited streams and declaration-order-dependent edits remain open.
 Existing owners and synchronization guards still provide the Vulkan lifetime
 and hazard proof; input metadata supplies neither. Candidate remains 3.1.8.
+
+
+## D-299: Existing no-cache blend contracts use the effective declaration (3.2.0)
+
+The no-cache runtime restriction recorded under D-298 is now removed. Runtime
+bone validation calls the same `vertex_input` resolver used by GPU variants,
+so supported format and paired-offset changes select the same bytes for both
+validation and fetch. D-298's immutable per-layout masks apply to this path too.
+Plain supported BLENDINDICES width overrides follow their ordered last value.
+Multiple candidate index/weight elements without semantic identity refuse;
+this does not introduce arbitrary Location-to-semantic matching. Offline plans
+without a pipeline keep their former adoption rule.
+
+The 3.1.9 baseline passes 16/20 with the width and sequential-edit refusals.
+The final focused suite passes 41/41, including alternating R16/R32 interpretations,
+successive overrides returning to R16, paired-offset relocation with invalid
+weights at the old location, moving bones and actual module exchange. Every
+no-cache case checks that semantic evidence was not loaded. The full affected
+area passes: GPU semantics 143, reader 43, original INI 543, own captures 63,
+merged opacity 48, cold replacement 51, readiness 20 and Vulkan validation 76;
+package and tracker pass 148 and 829. Four development DLLs are 3.2.0 with
+unchanged ABI. The first unseen layout still validates existing stream contents;
+this does not remove every recording-time preparation cost.
+
+Exact asset coverage remains 101/169 historical vertex modules. Numeric class
+conversion, inherited inputs, semantic relinking and unknown declaration-order
+realignment remain separate work. No real game is loaded or verified.

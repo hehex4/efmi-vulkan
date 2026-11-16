@@ -4,6 +4,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-299: Validate bone use against the effective vertex declaration (2026-11-16)
+
+Reuse CharacterPackage::vertex_input for the runtime bone proof, rather than separately reading the unmodified pipeline declaration. The legacy supported blend contract shares D-298's immutable per-layout mask cache, while exact semantic evidence continues to control arbitrary named edits. Ordered plain width overrides take their last value, as in the original; ambiguous legacy elements refuse. Offline adoption is unchanged. DX11 reference-counted lifetime with deferred destruction, hazard tracking and one-context order are still separate Vulkan responsibilities. No queue guard is removed.
+
 ## D-298: Bone interpretation belongs to a draw declaration (2026-11-16)
 
 A file buffer is immutable within its package generation, but its vertex declaration is per draw. Cache validated bone spans by stream plus both offsets and element widths, keep masks by value in draw lists and include them in plan identity. Do not mutate a shared default mask when an exact semantic declaration changes. Preserve the bounded cache and all content/range/normalization checks. The original applies element overrides per draw; DX11 reference-counted lifetime with deferred destruction, hazard tracking and one-context order remain explicit separate Vulkan duties. This round covers exact semantic layouts; the legacy no-cache path remains a next step.
