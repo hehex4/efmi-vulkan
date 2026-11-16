@@ -1,6 +1,14 @@
 # EFMI Vulkan - Tasks
 
 
+## D-297 cleanup complete with one approval-review exception (2026-11-16)
+
+- Completed project cleanup: 106.580 GiB to 3.351 GiB; source, current candidate/dependencies and original game evidence are preserved and verified. The latest no-probe candidate is 3.1.8 (D-296, packaging commit 49a64d6).
+- Ten obsolete root dist test binaries remain (about 45 MiB): automatic approval review rejected deletion with blocked by policy. Do not bypass that review or claim these files were removed.
+- Apply docs/workspace-retention.md after each verified round. Successful test directories and copied Mods are temporary; keep concise results and only necessary active/failure evidence. Retired historical paths are not a reason to regenerate old bulky artifacts.
+- Remaining architecture work: I-01 cross-queue scheduling/provenance, I-04 extra image transitions/nulling, and broader I-06 input adaptation. No new real-game authorization. Build intermediates were intentionally removed; the existing build scripts regenerate them when needed.
+
+
 ## D-296 complete; project-wide cleanup requested (2026-11-16)
 
 - Done: the 3.1.8 no-probe candidate includes the verified semantic cache; packaging/reader checks and all 22 package loads plus both unpack layouts pass. Evidence and hashes are in CURRENT_STATE.md.

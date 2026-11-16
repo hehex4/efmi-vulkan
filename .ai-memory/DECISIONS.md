@@ -4,6 +4,13 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-297: Retire verified test artifacts and merged worktree copies (2026-11-16)
+
+- The user explicitly requested all unnecessary project files be removed after observing 106 GiB of accumulated output. Keep active source, deliverables and necessary original evidence; retire completed test copies, obsolete candidates, duplicate extraction and unused intermediates after recording concise results.
+- Validate merged/clean worktree state and resolved in-project deletion targets. Preserve current semantic dependencies and original game captures; verify retained hashes after broad cleanup. No global cleanup or installed-file mutation.
+- This round reduces measured project size to 3.351 GiB. Automatic approval review leaves about 45 MiB of old root dist test binaries undeleted; do not bypass the rejection. See docs/workspace-retention.md.
+
+
 ## D-296: Validate and ship optional exact shader metadata (2026-11-16)
 
 - Keep settings/shader-inputs.bin optional for archive compatibility. Validate its bounded canonical encoding and checksum before output replacement; do not package raw assets, shader bytecode or character-specific profiles.

@@ -1,5 +1,14 @@
 # EFMI Vulkan - Known issues
 
+## Cleanup exception: automatic approval review (D-297, 2026-11-16)
+
+The main project cleanup completed and retained-file hashes pass. Ten obsolete
+root dist test executables/mismatch DLL files (about 45 MiB) remain because both
+the additional cleanup and a narrower file-only deletion were rejected by
+automatic approval review. Only blocked by policy was returned; no specific
+reason was supplied. This is a tooling exception, not a runtime regression.
+Do not bypass the review or count these files as deleted.
+
 ## BUG-154: Matched InputLayout edits could not use exact shader semantics (supported subset fixed 3.1.8)
 
 - The 3.1.7 baseline d295-before.out passes 6/9: a declared POSITION offset in a replacement file is rejected by the legacy blend/offset-only adapter, leaving the original mesh. This is a sandbox compatibility failure, not a reported real-character result.

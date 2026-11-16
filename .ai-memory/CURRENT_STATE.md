@@ -5,6 +5,15 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## D-297: Project-wide artifact cleanup (2026-11-16)
+
+- User priority: remove unnecessary files throughout the project. Measured size falls from 106.580 GiB / 488,959 files to 3.351 GiB / 20,250 files, a net reduction of 103.229 GiB. See docs/workspace-retention.md for exact bytes, retained material and scope.
+- Three clean, fully merged obsolete Claude worktrees are removed (39.407 GiB); their Git commits remain. Another 3,146 generated-artifact targets / 425,878 files / 64.129 GiB are removed, including completed sandbox runs, repeated Mod copies, per-round baselines, old candidates, duplicate extraction and build intermediates. The release check generated some output after the initial size measurement.
+- Retained: current main/engine-work source, Git history, original game captures (2.149 GiB), active semantic assets/modules/cache, current development/runtime files and symbols, the verified 3.1.8 archive, configuration/source backups and one runtime rollback. The 16,553 retained source/capture/runtime/metadata files match their pre-cleanup SHA-256; metadata cache reproduction and candidate byte/digest/CRC checks pass after deletion.
+- Further deletion of ten root dist test executables/mismatch DLL files (about 45 MiB) was rejected by automatic approval review, including the narrower file-only attempt. The response only says blocked by policy. These files remain; the review was not bypassed.
+- Cleanup/retention is now a standing working rule: remove successful temporary test copies once evidence is summarized, keep active dependencies and necessary failure evidence, and do not retain a new full copy per round. Old artifact links in historical memory may no longer exist. Runtime remains 3.1.8 / ABI 347c72b0cc7d0e40; root runtime DLLs/settings and real-game files are unchanged.
+
+
 ## D-296: Semantic cache packaged and sandbox release verified (2026-11-16)
 
 - Source/runtime remains 3.1.8 / ABI 347c72b0cc7d0e40. No C++ or shared ABI changes. The no-probe candidate now includes settings/shader-inputs.bin: 5,265 identities / 909,088 bytes, SHA-256 ac322f7e4132d1670007e535360fc451d02f9d3704088546a858af279403bfe2.
