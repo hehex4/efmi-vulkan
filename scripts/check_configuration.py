@@ -16,7 +16,7 @@ from probe_xxmi_host import ROOT, write_ascii
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-build", action="store_true")
-    parser.add_argument("--only", choices=("cpu", "gpu", "all"), default="all")
+    parser.add_argument("--only", choices=("cpu", "gpu", "prepared", "all"), default="all")
     parser.add_argument("--installation", type=Path, help="Read-only root configuration load; settings stay in the project")
     args = parser.parse_args()
     if args.installation and args.only == "cpu":
@@ -28,7 +28,7 @@ def main() -> int:
         log = io.StringIO()
         try:
             with contextlib.redirect_stdout(log):
-                objects = build_runtime(runtime, test=args.only != "gpu")
+                objects = build_runtime(runtime, test=args.only in ("cpu", "all"))
                 if args.only != "cpu":
                     sources = [ROOT / "sandbox/resource_gpu.cpp", ROOT / "layer/src/merged_skeleton.cpp",
                                ROOT / "layer/src/pipeline_recipe.cpp"]
@@ -40,7 +40,7 @@ def main() -> int:
             raise
         finally:
             write_ascii(ROOT / "build/configuration-build.out", log.getvalue())
-    if args.only != "gpu":
+    if args.only in ("cpu", "all"):
         result = subprocess.run([str(runtime / "runtime_test.exe"), "--configuration", str(runtime / "fixture")],
                                 capture_output=True, encoding="utf-8", errors="replace", timeout=40)
         write_ascii(ROOT / "build/configuration-cpu.out", result.stdout + result.stderr)
@@ -56,9 +56,10 @@ def main() -> int:
             raise RuntimeError("Required validation layer is unavailable")
         env.update(VK_LAYER_PATH=str(validation), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
                    XDG_CACHE_HOME=str(gpu), TMPDIR=str(gpu), TEMP=str(gpu), TMP=str(gpu))
-        result = subprocess.run([str(gpu / "resource_gpu.exe"), "--configuration", str(gpu / "fixture/configuration")],
+        mode = "prepared" if args.only == "prepared" else "configuration"
+        result = subprocess.run([str(gpu / "resource_gpu.exe"), "--" + mode, str(gpu / "fixture" / mode)],
                                 cwd=gpu, env=env, capture_output=True, encoding="utf-8", errors="replace", timeout=45)
-        write_ascii(ROOT / "build/configuration-gpu.out", result.stdout + result.stderr)
+        write_ascii(ROOT / ("build/" + mode + "-gpu.out"), result.stdout + result.stderr)
         print(result.stdout + result.stderr, end="")
         if result.returncode:
             return result.returncode

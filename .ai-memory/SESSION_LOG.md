@@ -3357,3 +3357,29 @@ primary and submitting it before all application commands would read an earlier 
 of data produced before this draw in that same command buffer. Continue this shared
 execution work and native queue/access/readiness/capture work. No candidate update, game
 activity, installation/launcher/system change or remote write.
+
+## 2026-11-16: D-308 prepared buffer commands retain order and owners
+
+Continued directly after committing D-307 (2e03e60) and fast-forwarding main. Original
+CommandList.cpp 12540-12561 emits copies on the same context as surrounding draws; DX11
+supplies reference-counted deferred lifetime, hazards and one-context order. Implemented
+bounded immutable CPU preparation for transfer/compute commands, retained application
+buffer imports and physical-range alias checks. Preparation emits no command-buffer
+work; replay uses the host's actual insertion point and reports device/family/compute
+state obligations. Imported resources cannot enter an ordinary deferred submission;
+images, graphics, feedback and implicit submission remain unsupported in this mode.
+
+Initial headless check passes 44. Expanded prepared-commands-final.out passes 59 with
+zero core/synchronization errors or warnings, including all 64 words from two different
+application producers, engine/source-reference retirement, ordinary submission and
+compute, cancellation and operation-budget refusal. prepared-commands-configuration.out
+passes root 10 and owned GPU 40. The affected-area run passes production registry 13,
+tracker 838, ABI 9 and text; the freshly relinked runtime passes 553. No failed checks.
+Four development DLLs build as 3.2.6 with unchanged ABI ff5c853cc3759e7d. Source review
+and text/diff checks accompany this local commit; build artifacts remain untracked.
+
+The primitive is intentionally not enabled in production draw interception before
+access footprints, original GPU registry imports/rollback, ordered plan packets, pass
+splits, compute-state restoration and recording retention are connected. Those are the
+next implementation work; the native queue/access/readiness guards stay in place. No
+candidate update, game activity, installation/launcher/system mutation or remote write.

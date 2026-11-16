@@ -7,6 +7,12 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-308 prepared command primitive verified; connect original command execution
+
+- Done: bounded immutable buffer transfer/compute preparation, retained application imports with physical allocation identity, no early submission/readback, exact insertion-point replay and complete owner retirement. Source/four DLLs 3.2.6 / unchanged ABI ff5c853cc3759e7d. Headless 59, root 10, owned GPU 40, production registry 13, tracker 838, fresh interpreter 553 and ABI 9 pass; validation clean.
+- Next: add access footprints and original GPU registry application imports/rollback, emit prepared work at its actual ordered plan position, preserve attachments at render-pass splits and restore compute state. Retain each executed packet through command completion/module exchange. The new primitive is not production Core integration yet.
+- Preserve queue/layout guards until the matching proofs exist; finish native I-01/I-04/I-05 and capture work after the shared rewrite. No character/Core substitutes and no real-game authorization.
+
 ## D-307 application IA verified; prepare ordered GPU command insertion next
 
 - Implemented actual IA properties, retained current-original references, exact region matching after restore and explicit dynamic/persistent metadata. Source/four DLLs 3.2.5 / ABI ff5c853cc3759e7d. IA 34, geometry 122, tracker 838, native calls 60, native aliases 89, fresh interpreter 553 and ABI 9 pass. The first nine file cases pass; empty_swap exits before probe connection and passes 4/4 on isolated rerun, completing 42 assertions across both runs. Final restore pixels pass 6/6; the unexplained early normal exit is recorded.

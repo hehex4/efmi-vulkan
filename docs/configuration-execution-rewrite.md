@@ -106,3 +106,10 @@ need ordered import. Tracker 838, migrated native aliases 89, original interpret
 and ABI 9 pass, alongside geometry/call/file checks. The empty-config file test's early
 normal exit before probe connection is recorded; its isolated rerun passes. Source/four
 development DLLs are 3.2.5. These results still do not establish live Core execution.
+
+D-308 supplies the retained prepared buffer-command primitive needed for in-place
+execution. Headless producer/consumer, ordinary execution and lifetime checks pass 59;
+root/owned/registry/runtime checks also pass. Source/development DLLs are 3.2.6. It is
+not wired into production draw interception yet: access footprints, original registry
+imports/rollback, ordered packets, pass splitting and compute-state restoration remain.
+See prepared-resource-commands.md for the contract and verification scope.

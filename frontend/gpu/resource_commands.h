@@ -6,6 +6,8 @@
 #include <atomic>
 #include <mutex>
 #include <vector>
+#include <functional>
+#include <utility>
 
 namespace efmi::gpu {
 #define EFMI_RESOURCE_COMMAND_FUNCS(X) \
@@ -62,6 +64,9 @@ public:
     VkBuffer buffer() const {return buffer_;}
     VkDeviceSize size() const {return size_;}
     VkBufferUsageFlags usage() const {return usage_;}
+    VkDeviceMemory memory() const {return memory_;}
+    VkDeviceSize memory_offset() const {return memory_offset_;}
+    VkDeviceSize memory_size() const {return external_owner_?external_size_:allocation_;}
 private:
     friend class ResourceCommands;
     friend class ResourceSubmission;
@@ -70,6 +75,8 @@ private:
     std::shared_ptr<assets::AllocationBudget> budget_;
     VkBuffer buffer_=VK_NULL_HANDLE;
     VkDeviceMemory memory_=VK_NULL_HANDLE;
+    std::shared_ptr<const void> external_owner_;
+    VkDeviceSize memory_offset_=0,external_size_=0;
     // allocation_ is charged to the budget; a kept upload buffer is not (idle_ holds its size).
     VkDeviceSize size_=0,allocation_=0,idle_=0;
     VkBufferUsageFlags usage_=0;
@@ -175,8 +182,30 @@ private:
     std::map<Image,VkImageLayout,std::owner_less<Image>> image_layouts_;
 };
 
-// An explicit outside-render-pass execution domain. Records private primary
-// command buffers and never touches the application's render pass or bindings.
+// Immutable commands and allocation owners, prepared without emitting a Vulkan
+// command or submitting work. The host records them at a proven outside-pass
+// position on this device/family, restores compute state when indicated, and
+// retains this object for the complete executable/pending recording lifetime.
+// This is not a queue-order proof and does not make mutable contents snapshots.
+class PreparedResourceCommands {
+public:
+    void record(VkCommandBuffer) const;
+    bool changes_compute_state() const {return compute_;}
+    VkDevice device() const {return device_;}
+    uint32_t queue_family() const {return queue_family_;}
+    size_t size() const {return commands_.size();}
+private:
+    friend class ResourceCommands;
+    std::vector<std::function<void(VkCommandBuffer)>> commands_;
+    std::shared_ptr<ResourceSubmission> owners_;
+    VkDevice device_=VK_NULL_HANDLE;
+    uint32_t queue_family_=0;
+    bool compute_=false;
+};
+
+// The default outside-render-pass execution domain records private primary
+// command buffers. Prepared mode instead returns retained commands for an
+// explicit host insertion point; it cannot submit or wait on its own.
 // All operations and QueueSubmit calls are serialized by the caller on exactly
 // one queue. No application-owned resources or cross-queue use is implied.
 // Allocation/recording/readback are not suitable for an intercepted draw hook.
@@ -188,6 +217,14 @@ public:
     ~ResourceCommands();
     ResourceCommands(const ResourceCommands&)=delete;
     ResourceCommands& operator=(const ResourceCommands&)=delete;
+    // Buffer transfer/compute preparation only. No image/graphics operations,
+    // feedback or submission; discard drops all prepared emission. The caller
+    // separately rolls back its logical resource registry after a failed plan.
+    void begin_prepared();
+    bool preparing() const {return preparing_;}
+    std::shared_ptr<const PreparedResourceCommands> finish_prepared();
+    Buffer import_buffer(VkBuffer,VkDeviceSize,VkBufferUsageFlags,VkDeviceMemory,
+                         VkDeviceSize memory_offset,VkDeviceSize memory_size,std::shared_ptr<const void>);
     Buffer create(VkDeviceSize,VkBufferUsageFlags,const void* initial=nullptr,size_t initial_size=0,bool zero=false);
     void copy(const Buffer& source,VkDeviceSize source_offset,const Buffer& destination,VkDeviceSize destination_offset,VkDeviceSize size);
     void fill(const Buffer&,VkDeviceSize offset,VkDeviceSize size,uint32_t word);
@@ -257,12 +294,20 @@ private:
     void write_stage(const Buffer&,const void*,size_t);
     std::vector<uint8_t> read_stage(const Buffer&,VkDeviceSize);
     VkCommandBuffer command();
+    void retain_pending();
+    void emit_prepared(std::function<void(VkCommandBuffer)>);
+    template<class Operation> void emit(Operation&& operation) {
+        if(!preparing_){operation(command());return;}
+        emit_prepared(std::forward<Operation>(operation));
+    }
     void barrier(VkPipelineStageFlags destination=VK_PIPELINE_STAGE_TRANSFER_BIT,
                  VkAccessFlags access=VK_ACCESS_TRANSFER_READ_BIT|VK_ACCESS_TRANSFER_WRITE_BIT);
     ResourceDevice device_;
     ResourceBudgets budgets_;
     std::shared_ptr<const uint8_t> domain_=std::make_shared<const uint8_t>(0);
     std::shared_ptr<ResourceSubmission> pending_;
+    std::vector<std::function<void(VkCommandBuffer)>> prepared_;
+    bool preparing_=false,prepared_compute_=false;
     uint64_t recorded_=0;
     std::shared_ptr<SubmissionRecycler> recycler_;
     Buffer image_copy_scratch_;

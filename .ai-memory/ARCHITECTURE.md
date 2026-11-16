@@ -29,6 +29,14 @@ Restoring the same current original slot needs no new producer; foreign referenc
 remain refused until an ordered application-resource import exists. No package boundary
 or per-character activation participates in these queries or restores.
 
+D-308 adds PreparedResourceCommands to the private GPU engine. Preparation holds an
+immutable bounded transfer/compute sequence and its allocations, pipelines and
+descriptors; it records and submits nothing. Imported buffers are valid only in this
+mode. Host insertion must supply pass/queue/access proof, restore touched compute state
+and retain the packet with the executable recording. The production draw path has not
+enabled this primitive yet; original registry imports/rollback and ordered insertion
+remain required. See docs/prepared-resource-commands.md.
+
 > Rewritten 2026-11-10 from the code (docs/architecture-review-2.1.md, P4-1). What was here before, the
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.

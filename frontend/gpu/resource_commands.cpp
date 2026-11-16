@@ -13,8 +13,8 @@ void check(VkResult result,const char* operation) {
 constexpr VkDeviceSize kRecycledStaging=1ull<<20,kRecycledStagingTotal=32ull<<20;
 }
 BufferResource::~BufferResource() {
-    if(buffer_)device_.dispatch.DestroyBuffer(device_.device,buffer_,nullptr);
-    if(memory_)device_.dispatch.FreeMemory(device_.device,memory_,nullptr);
+    if(buffer_ && !external_owner_)device_.dispatch.DestroyBuffer(device_.device,buffer_,nullptr);
+    if(memory_ && !external_owner_)device_.dispatch.FreeMemory(device_.device,memory_,nullptr);
     if(allocation_)budget_->release(allocation_);
 }
 SubmissionRecycler::~SubmissionRecycler() {
@@ -62,6 +62,32 @@ ResourceCommands::ResourceCommands(ResourceDevice device,ResourceBudgets budgets
     recycler_=std::make_shared<SubmissionRecycler>();recycler_->device=device_;
 }
 ResourceCommands::~ResourceCommands()=default;
+void PreparedResourceCommands::record(VkCommandBuffer command) const {
+    if(!command)throw std::runtime_error("Prepared commands need a recording command buffer");
+    for(const auto& emit:commands_)emit(command);
+}
+void ResourceCommands::begin_prepared() {
+    if(preparing_ || pending_)throw std::runtime_error("Prepared resource scope requires no pending work");
+    preparing_=true;prepared_compute_=false;prepared_.clear();
+}
+std::shared_ptr<const PreparedResourceCommands> ResourceCommands::finish_prepared() {
+    if(!preparing_)throw std::runtime_error("No prepared resource scope is active");
+    if(!pending_){preparing_=false;return {};}
+    barrier(VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
+    auto result=std::make_shared<PreparedResourceCommands>();
+    result->commands_=std::move(prepared_);result->owners_=std::move(pending_);
+    result->device_=device_.device;result->queue_family_=device_.queue_family;result->compute_=prepared_compute_;
+    preparing_=prepared_compute_=false;return result;
+}
+Buffer ResourceCommands::import_buffer(VkBuffer handle,VkDeviceSize size,VkBufferUsageFlags usage,VkDeviceMemory memory,
+    VkDeviceSize memory_offset,VkDeviceSize memory_size,std::shared_ptr<const void> owner) {
+    if(!preparing_)throw std::runtime_error("Application buffers require a prepared command scope");
+    if(!handle || !memory || !size || size>memory_size || memory_offset>UINT64_MAX-memory_size || !owner)
+        throw std::runtime_error("Imported buffer needs a complete retained allocation range");
+    auto result=std::make_shared<BufferResource>();result->device_=device_;result->domain_=domain_;
+    result->buffer_=handle;result->size_=size;result->usage_=usage;result->memory_=memory;
+    result->memory_offset_=memory_offset;result->external_size_=memory_size;result->external_owner_=std::move(owner);return result;
+}
 Buffer ResourceCommands::allocate(VkDeviceSize size,VkBufferUsageFlags usage,bool staging) {
     if(!size || size>std::numeric_limits<size_t>::max())throw std::runtime_error("Resource buffer size invalid");
     auto result=std::make_shared<BufferResource>();result->device_=device_;result->domain_=domain_;
@@ -87,6 +113,7 @@ Buffer ResourceCommands::allocate(VkDeviceSize size,VkBufferUsageFlags usage,boo
 }
 void ResourceCommands::validate(const Buffer& buffer,VkDeviceSize offset,VkDeviceSize size) const {
     if(!buffer || buffer->domain_!=domain_)throw std::runtime_error("Resource belongs to another execution domain");
+    if(buffer->external_owner_ && !preparing_)throw std::runtime_error("Imported buffers cannot enter deferred queue submissions");
     if(!size || offset>=buffer->size_ || size>buffer->size_-offset)throw std::runtime_error("Resource range outside allocation");
 }
 Buffer ResourceCommands::create(VkDeviceSize size,VkBufferUsageFlags usage,const void* initial,size_t initial_size,bool zero) {
@@ -105,6 +132,7 @@ Buffer ResourceCommands::create(VkDeviceSize size,VkBufferUsageFlags usage,const
     return result;
 }
 VkCommandBuffer ResourceCommands::command() {
+    if(preparing_)throw std::runtime_error("Prepared commands support only buffer transfer and compute emission");
     ++recorded_;
     if(pending_)return pending_->command_;
     auto p=std::make_shared<ResourceSubmission>();p->device_=device_;p->recycler_=recycler_;const auto& d=device_.dispatch;
@@ -122,24 +150,39 @@ VkCommandBuffer ResourceCommands::command() {
     VkCommandBufferBeginInfo bi={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};bi.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check(d.BeginCommandBuffer(p->command_,&bi),"Begin resource command buffer");pending_=std::move(p);return pending_->command_;
 }
+void ResourceCommands::retain_pending() {
+    if(!preparing_){command();return;}
+    if(pending_)return;
+    pending_=std::make_shared<ResourceSubmission>();pending_->device_=device_;pending_->recycler_=recycler_;
+}
+void ResourceCommands::emit_prepared(std::function<void(VkCommandBuffer)> operation) {
+    if(prepared_.size()>=4096)throw std::runtime_error("Prepared resource command budget exceeded");
+    retain_pending();prepared_.push_back(std::move(operation));++recorded_;
+}
 void ResourceCommands::barrier(VkPipelineStageFlags destination,VkAccessFlags access) {
     VkMemoryBarrier b={VK_STRUCTURE_TYPE_MEMORY_BARRIER};b.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;b.dstAccessMask=access;
-    device_.dispatch.CmdPipelineBarrier(command(),VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,destination,0,1,&b,0,nullptr,0,nullptr);
+    const auto barrier=device_.dispatch.CmdPipelineBarrier;
+    emit([barrier,destination,b](VkCommandBuffer command){barrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,destination,0,1,&b,0,nullptr,0,nullptr);});
 }
 void ResourceCommands::copy(const Buffer& source,VkDeviceSize from,const Buffer& destination,VkDeviceSize to,VkDeviceSize size) {
     validate(source,from,size);validate(destination,to,size);
     if(!(source->usage_&VK_BUFFER_USAGE_TRANSFER_SRC_BIT) || !(destination->usage_&VK_BUFFER_USAGE_TRANSFER_DST_BIT))throw std::runtime_error("Resource copy usage missing");
-    if(source==destination && from<to+size && to<from+size)throw std::runtime_error("Overlapping resource copy");
-    barrier();VkBufferCopy region{from,to,size};device_.dispatch.CmdCopyBuffer(command(),source->buffer_,destination->buffer_,1,&region);
+    const auto source_begin=source->memory_offset_+from,destination_begin=destination->memory_offset_+to;
+    if(source->memory_==destination->memory_ && source_begin<destination_begin+size && destination_begin<source_begin+size)
+        throw std::runtime_error("Overlapping resource copy");
+    barrier();VkBufferCopy region{from,to,size};const auto copy=device_.dispatch.CmdCopyBuffer;
+    emit([copy,source,destination,region](VkCommandBuffer command){copy(command,source->buffer_,destination->buffer_,1,&region);});
     pending_->retained_.push_back(source);pending_->retained_.push_back(destination);
 }
 void ResourceCommands::fill(const Buffer& buffer,VkDeviceSize offset,VkDeviceSize size,uint32_t word) {
     validate(buffer,offset,size);
     if(offset%4 || size%4 || !(buffer->usage_&VK_BUFFER_USAGE_TRANSFER_DST_BIT))throw std::runtime_error("Resource fill requires an aligned transfer destination");
-    barrier();device_.dispatch.CmdFillBuffer(command(),buffer->buffer_,offset,size,word);pending_->retained_.push_back(buffer);
+    barrier();const auto fill=device_.dispatch.CmdFillBuffer;
+    emit([fill,buffer,offset,size,word](VkCommandBuffer command){fill(command,buffer->buffer_,offset,size,word);});
+    pending_->retained_.push_back(buffer);
 }
 Buffer ResourceCommands::stage(VkDeviceSize size) {
-    command();
+    retain_pending();
     if(size<=kRecycledStaging){
         // The smallest kept buffer that holds the bytes, if it is not more than twice as large.
         std::lock_guard<std::mutex> lock(recycler_->mutex);
@@ -175,6 +218,7 @@ void ResourceCommands::write_stage(const Buffer& stage,const void* bytes,size_t 
     device_.dispatch.UnmapMemory(device_.device,stage->memory_);check(status,"Flush resource upload");
 }
 std::shared_ptr<ResourceSubmission> ResourceCommands::submit(VkQueue queue,const SubmitSync& sync) {
+    if(preparing_)throw std::runtime_error("Prepared resource commands cannot be submitted ahead of application work");
     if(!queue || (queue_ && queue_!=queue))throw std::runtime_error("Resource execution requires one serialized queue");
     if(sync.waits.size()!=sync.stages.size() || sync.waits.size()>64 || sync.signals.size()>64)throw std::runtime_error("Invalid resource submission semaphores");
     if(!pending_)return {};
@@ -198,11 +242,13 @@ std::shared_ptr<ResourceSubmission> ResourceCommands::submit(VkQueue queue,const
     return p;
 }
 std::vector<uint8_t> ResourceCommands::readback(VkQueue queue,const Buffer& source,VkDeviceSize offset,VkDeviceSize size) {
+    if(preparing_)throw std::runtime_error("Prepared resource scopes cannot wait for readback");
     validate(source,offset,size);auto stage=allocate(size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true);copy(source,offset,stage,0,size);
     barrier(VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_READ_BIT);auto ticket=submit(queue);ticket->wait();
     return read_stage(stage,size);
 }
 ResourceCommands::Feedback ResourceCommands::feedback(const Buffer& source,VkDeviceSize offset,VkDeviceSize size) {
+    if(preparing_)throw std::runtime_error("Prepared resource feedback requires the host recording's completion proof");
     validate(source,offset,size);Feedback result;result.size=size;
     result.buffer=allocate(size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,true);copy(source,offset,result.buffer,0,size);
     barrier(VK_PIPELINE_STAGE_HOST_BIT,VK_ACCESS_HOST_READ_BIT);command();result.submission=pending_;
@@ -220,5 +266,5 @@ std::vector<uint8_t> ResourceCommands::read_stage(const Buffer& stage,VkDeviceSi
     if(status==VK_SUCCESS)memcpy(result.data(),mapped,result.size());device_.dispatch.UnmapMemory(device_.device,stage->memory_);
     check(status,"Invalidate resource readback");return result;
 }
-void ResourceCommands::discard(){pending_.reset();}
+void ResourceCommands::discard(){prepared_.clear();pending_.reset();preparing_=prepared_compute_=false;}
 }

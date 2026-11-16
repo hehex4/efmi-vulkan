@@ -566,15 +566,20 @@ void ShaderCommands::record(const Compute& pipeline,const std::vector<ShaderDesc
     // Zero dispatch still has already flushed INI parameters in the frontend,
     // but accesses no descriptors and records no GPU work.
     if(!groups[0] || !groups[1] || !groups[2])return;
+    if(commands.preparing_)for(const auto& value:descriptors)
+        require(!value.image,"Prepared compute images require application layout and access planning");
     auto invocation=this->descriptors(pipeline->impl_,descriptors);invocation->arguments=arguments;
     // Retain every descriptor owner before any recorded command refers to it.
-    const auto command=commands.command();commands.pending_->shader_owners_.push_back(invocation);
+    commands.retain_pending();commands.pending_->shader_owners_.push_back(invocation);
     for(const auto& value:descriptors)if(value.image)commands.transition(value.image->owner(),VK_IMAGE_LAYOUT_GENERAL);
     commands.barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|(arguments?VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT:0),
         VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_UNIFORM_READ_BIT|(arguments?VK_ACCESS_INDIRECT_COMMAND_READ_BIT:0));
-    d->CmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline->impl_->pipeline);
-    d->CmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline->impl_->layout,0,1,&invocation->set,0,nullptr);
-    if(arguments)d->CmdDispatchIndirect(command,arguments->buffer(),offset);
-    else d->CmdDispatch(command,groups[0],groups[1],groups[2]);
+    commands.emit([d,pipeline,invocation,arguments,offset,groups](VkCommandBuffer command){
+        d->CmdBindPipeline(command,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline->impl_->pipeline);
+        d->CmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_COMPUTE,pipeline->impl_->layout,0,1,&invocation->set,0,nullptr);
+        if(arguments)d->CmdDispatchIndirect(command,arguments->buffer(),offset);
+        else d->CmdDispatch(command,groups[0],groups[1],groups[2]);
+    });
+    if(commands.preparing_)commands.prepared_compute_=true;
 }
 }

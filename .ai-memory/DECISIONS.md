@@ -13,6 +13,16 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-308: Prepare buffer commands for their actual application insertion point (2026-11-16)
+
+Retain a bounded immutable CPU sequence of transfer/compute commands and all its
+owners. Do not record or submit it during preparation. Only the host can place it
+after the actual producer, outside a proven pass boundary, and retain it with the
+executable recording. Application buffers cannot enter the old deferred submission
+path. Expose device/family and compute-state obligations; keep image/graphics/feedback
+work refused until their corresponding state and completion adapters exist. The
+primitive preserves order when placed correctly; it does not prove cross-queue order.
+
 ## D-307: IA references preserve identity without inventing producer order (2026-11-16)
 
 Query the actual tracked binding and retain its full allocation lifetime. Follow the
