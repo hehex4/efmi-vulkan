@@ -192,3 +192,8 @@ BUG-166 stale application-snapshot queries are reproduced and fixed. Final GPU 3
 root 27, interpreter 570, production 13, ordinary image/parameter 3,010, tracker 838
 and ABI 9 pass with clean validation on four development DLLs 3.3.7. This is frontend
 sequence evidence; complete production admission/recording is still required.
+
+D-321 removes the obsolete prequeued draw API, delayed Store feedback, bare owned
+vertex payload and remaining character-selection RuntimeDraw fields. Four DLLs are
+3.3.8; GPU 353, root 27/interpreter 570 and affected production/geometry/IA/resource/
+tracker/ABI/file checks pass. Complete production insertion remains pending.

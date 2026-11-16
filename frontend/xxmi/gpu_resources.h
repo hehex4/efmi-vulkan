@@ -44,10 +44,7 @@ class GpuResourceRuntime final : public RuntimeExtension {
 public:
     // Deferred: recording without a queue yet, on a thread that must not touch it (a generation
     // loading in the background); finish() names the queue. Store refuses there.
-    // Draw: recording without a queue during a replaced draw's plan (P2, D-087); the host submits
-    // the work before the application's submission. Store there gives the value its previous execution
-    // read, once that submission completed (D-147).
-    enum class ExecutionSite { OutsideRenderPass, InsideRenderPass, Deferred, Draw, Prepared };
+    enum class ExecutionSite { OutsideRenderPass, InsideRenderPass, Deferred, Prepared };
     GpuResourceRuntime(gpu::ResourceDevice,gpu::ResourceBudgets={});
     ~GpuResourceRuntime();
     std::vector<std::wstring> install(DrawPlanAdapter&) override;
@@ -56,8 +53,7 @@ public:
     // A shader host may execute draws in this same explicit queue domain. The
     // original parameter flush runs before this callback, including count zero.
     void draw_commands(DrawExecutor);
-    // In a replaced draw's scope a refusal before any owned work recorded leaves the runtime usable.
-    void execution_failed() noexcept override {if(active_ && (site_!=ExecutionSite::Draw || recorded_))failed_=true;}
+    void execution_failed() noexcept override {if(active_)failed_=true;}
     // The host owns this queue's synchronization for the complete scope. Store
     // may submit and wait for GPU feedback inside it. A draw hook cannot opt in
     // by silently treating an active render pass as OutsideRenderPass.
@@ -194,7 +190,6 @@ private:
     bool backbuffer_targeted_=false;
     bool run(CommandListCommand&,CommandListState&,std::wstring&);
     bool query(ResourceCopyTarget&,CommandListState&,float&,std::wstring&);
-    bool owned_vertex(ResourceCopyTarget&,CommandListState&,PlanItem::OwnedBuffer&,std::wstring&);
     bool render_target(CommandListState&,bool& bound,float& width,float& height,std::wstring&);
     bool match_source(ResourceCopyTarget&,CommandListState&,SourceResourceMatch&,std::wstring&);
     ResourceCopyTarget& effective(ResourceCopyTarget&,CommandListState&);
@@ -256,8 +251,6 @@ private:
     D3D11_VIEWPORT viewport_{};
     ExecutionSite site_=ExecutionSite::OutsideRenderPass;
     // A store's reads in flight in replaced draws' scopes, with the value's offset in each (D-147).
-    std::unordered_map<const StoreCommand*,std::vector<std::pair<gpu::ResourceCommands::Feedback,UINT>>> feedback_;
-    bool recorded_=false; // owned work recorded in the current Draw scope
     // Commands that failed after recording part of their work: not run again in this generation.
     std::unordered_set<const CommandListCommand*> disabled_;
     bool active_=false,installed_=false,failed_=false;

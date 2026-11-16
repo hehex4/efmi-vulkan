@@ -22,7 +22,7 @@ struct RuntimeConfig {
     // recursion, ordering, namespaces, conditions and exclusions.
     std::filesystem::path mods_directory;
     // Opt in only when the host supplies original tracked shader facts and an
-    // executable pre/original/post call boundary. Existing character plans do not.
+    // executable pre/original/post call boundary.
     bool shader_hooks=false;
     std::shared_ptr<const SourceShaderState> initial_shaders;
     // The host answers texture queries of draws (RuntimeDraw::pixel_texture): texture-hash
@@ -113,20 +113,6 @@ struct RuntimeDraw {
     int32_t base = 0;
     uint64_t frame = 0;
     float seconds = 0;
-    // Supplied only after the renderer has resolved this single native identity
-    // and imported the component's source bones. No original-resource queries.
-    uint32_t component = UINT32_MAX, lod = UINT32_MAX;
-    uint64_t identity = 0;
-    // A folder generation (D-131): the Mod the identity resolved the draw to, by its index among the
-    // generation's character Mods; UINT32_MAX in a generation of one Mod.
-    uint32_t mod = UINT32_MAX;
-    // Optional source-API facts from a verified shader contract. A Vulkan
-    // binding number alone does not establish the original DX11 constant slot.
-    bool rolling_bone_source = false;
-    int32_t source_vs_config_slot = -1;
-    // 3 or 4: the bones in a constant buffer of 4096 vectors at vs-cb3 or vs-cb4, the Core's next bone sources after
-    // the rolling buffer (D-186); 0 none.
-    uint32_t constant_bone_source = 0;
     float frame_seconds = 0;
     // With RuntimeConfig::texture_identity: the application's texture at a DX11 pixel slot of this
     // draw, as the original's resource hash and description (`bound` false for an empty slot). False refuses.
@@ -147,14 +133,6 @@ struct RuntimeDraw {
     // (the Vulkan binding of that number), as the original's IAGetVertexBuffers gives it; 0 when none is
     // bound. False with the reason when it is not known (a dynamic stride).
     std::function<bool(unsigned slot, uint32_t& stride, std::string& reason)> vertex_stride;
-    // The renderer's instance entry of this single-instance draw (the 64 floats per instance the
-    // original Core reads from `Original_VS_CB`, its translation at floats 12 to 14), valid during the
-    // call; a Mod that runs the Core's spatial identification itself reads it (D-086). Null: none.
-    const uint8_t* instance_entry = nullptr;
-    size_t instance_entry_size = 0;
-    // A section whose lists compute the component (D-182): called with the component (the package's index) and the
-    // LOD the lists handed the Core at its call, when they are not this draw's `component` and `lod`. Null: none.
-    std::function<void(uint32_t component, uint32_t lod)> handed_component;
     // The draw's render targets as its pipeline's subpass names them (D-087): bit i for a color
     // attachment at location i, which the fragment shader's output i (DX11 oN) writes, bit 8 for a
     // depth attachment. `render_pass` tells the attachments of different render passes apart.

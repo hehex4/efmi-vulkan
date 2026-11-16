@@ -136,7 +136,6 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     adapter.render_target_size([this](auto& state,bool& bound,float& width,float& height,auto& why){return render_target(state,bound,width,height,why);});
     adapter.resource_matches([this](auto& target,auto& state,auto& value,auto& why){return match_source(target,state,value,why);});
     adapter.parameter_flush([this](auto& state,bool force,auto& why){return flush_parameters(state,force,why);});
-    adapter.owned_bindings([this](auto& target,auto& state,auto& out,auto& why){return owned_vertex(target,state,out,why);});
     adapter.prepared_scope([this]{return active_ && site_==ExecutionSite::Prepared;},[this]{execution_failed();},
         [this](CustomResourcePool* pool){remember(pool);},[this](PoolCopyOperation& op){remember(op);},
         [this](ResetPerFrameLimitsCommand& command){if(command.shader)remember(*command.shader);if(command.resource)remember(*command.resource);});
@@ -149,9 +148,9 @@ void GpuResourceRuntime::draw_commands(DrawExecutor executor){
     require(!installed_ && bool(executor),"Install GPU draw executor before generation adaptation");draw_executor_=std::move(executor);
 }
 void GpuResourceRuntime::begin(VkQueue queue,ExecutionSite site) {
-    require(!active_ && !prepared_state_ && ((queue && site==ExecutionSite::OutsideRenderPass) || (!queue && (site==ExecutionSite::Deferred || site==ExecutionSite::Draw))),
+    require(!active_ && !prepared_state_ && ((queue && site==ExecutionSite::OutsideRenderPass) || (!queue && site==ExecutionSite::Deferred)),
             "GPU resource execution requires an explicit outside-render-pass scope");
-    require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;active_=true;site_=site;recorded_=false;
+    require(!queue || !queue_ || queue_==queue,"GPU resource scope cannot change queues");if(queue)queue_=queue;active_=true;site_=site;
     backbuffer_targeted_=false;failed_=false;
 }
 std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::ResourceCommands::SubmitSync& sync,VkQueue queue) {
@@ -249,19 +248,6 @@ GpuResourceBinding GpuResourceRuntime::unloaded(CustomResource& r,const wchar_t*
     r.is_null=true;resources_[&r]={};return {};
 }
 GpuResourceBinding GpuResourceRuntime::resolve(ResourceCopyTarget& input,CommandListState& state){active();return get(input,state);}
-// The owned buffer a replaced draw binds as a vertex stream (D-087): what the resource holds now,
-// with the stride the original would bind it with.
-bool GpuResourceRuntime::owned_vertex(ResourceCopyTarget& target,CommandListState& state,PlanItem::OwnedBuffer& out,std::wstring& why){
-    try{
-        active();
-        auto b=get(target,state);
-        require(b.buffer && !b.image,"Only an owned buffer binds as a replaced draw's vertex stream");
-        require(b.buffer->usage()&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,"The owned buffer was not made for vertex input");
-        require(b.stride && b.offset<b.buffer->size() && b.buffer->size()-b.offset>=b.stride,"The owned vertex buffer has no whole vertex");
-        out.buffer=reinterpret_cast<uint64_t>(b.buffer->buffer());out.offset=b.offset;out.size=b.buffer->size()-b.offset;
-        out.stride=b.stride;out.keep=b.buffer;return true;
-    }catch(const std::exception& e){why=widen(e.what());return false;}
-}
 namespace {
 std::shared_ptr<void> resource_owner(const GpuResourceBinding& binding){
     return binding.image?std::static_pointer_cast<void>(binding.image):std::static_pointer_cast<void>(binding.buffer);
@@ -634,19 +620,6 @@ void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
     // structured buffers, and returns zero for an out-of-range read.
     if(op.CalculateCopyRegion(source.description,sizeof(float),offset,&from,&size,&value_offset) &&
        from<=source.description.ByteWidth && size<=source.description.ByteWidth-from){
-        if(site_==ExecutionSite::Draw){
-            // A replaced draw's scope cannot wait for the GPU (the game's thread records it): the value this
-            // store read at an earlier execution, once that submission completed, and a read for a later
-            // one. Before the first, the variable keeps its value, as the original's for a null source (D-147).
-            auto& reads=feedback_[&op];std::vector<uint8_t> bytes;
-            for(size_t i=reads.size();i-->0;){
-                if(!commands_.feedback_ready(reads[i].first,bytes))continue;
-                memcpy(&value,bytes.data()+reads[i].second,sizeof(value));op.SetOutputValue(&state,value);
-                reads.erase(reads.begin(),reads.begin()+ptrdiff_t(i)+1);break;
-            }
-            if(reads.size()<4)reads.push_back({commands_.feedback(source.buffer,from,size),value_offset});
-            return;
-        }
         require(queue_!=VK_NULL_HANDLE,"Original store needs immediate GPU feedback, which a scope without its queue cannot give");
         auto bytes=commands_.readback(queue_,source.buffer,from,size);memcpy(&value,bytes.data()+value_offset,sizeof(value));
     }
@@ -670,7 +643,6 @@ bool GpuResourceRuntime::run(CommandListCommand& command,CommandListState& state
     };
     try{active();
         if(failed_ || disabled_.count(&command))return true;
-        recorded_=true;
         if(auto* c=dynamic_cast<ResourceCopyOperation*>(&command))copy(*c,state);
         else if(auto* c=dynamic_cast<SlotRangeCopyOperation*>(&command))ranges(*c,state);
         else if(auto* c=dynamic_cast<ClearViewCommand*>(&command))clear(*c,state);

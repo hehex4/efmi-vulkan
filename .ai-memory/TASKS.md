@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-321 legacy draw-contract removal verified
+
+- Removed the unused prequeued draw scope, delayed source Store result substitution, owned-vertex payload and character-specific RuntimeDraw fields. Source/four DLLs 3.3.8; GPU 353, fresh root 27/interpreter 570, production 13, geometry 122, IA 34, ordinary images/parameters 3,010, tracker 838, ABI 9, native files 42 and text pass.
+- Continue complete production host admission/recording and native I-01/I-04/I-05/capture. No real-game authorization.
+
 ## D-320 prepared draw-plan boundary verified; continue production integration
 
 - Implemented explicit prepared-plan mode, immutable per-call bindings, ordered work markers, shared admission, and fresh original IB post matching. Final GPU 353 passes with clean validation after inherited-stage guards and the reproduced BUG-166 stale slot-query fix. Source/four DLLs 3.3.7; fresh root 27/interpreter 570, production 13, ordinary images/parameters 3,010, tracker 838, ABI 9 and text pass.

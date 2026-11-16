@@ -213,7 +213,7 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         if(hunting_skip && (item.operation==O::Caller || item.operation==O::DrawIndexed || item.operation==O::Dispatch))continue;
         const bool geometry=item.operation==O::BindVertex || item.operation==O::BindIndex;
         if ((!item.layout.empty() && item.operation!=O::DrawIndexed && item.operation!=O::Caller) || item.automatic ||
-            (item.resource && item.operation!=O::NativeBind && !geometry) || item.owned)
+            (item.resource && item.operation!=O::NativeBind && !geometry))
             return refuse("Native call plan contains an unsupported layout or resource operation");
         if(geometry){if(compute)return refuse("Native geometry cannot run in a compute scope");continue;}
         if (item.operation == O::Caller || item.operation == O::NativeBind) continue;

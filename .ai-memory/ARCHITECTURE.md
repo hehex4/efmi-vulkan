@@ -1,5 +1,10 @@
 # EFMI Vulkan - Architecture
 
+D-321 (3.3.8) removes the obsolete prequeued draw scope, delayed Store feedback,
+bare owned-vertex payload and character-selection RuntimeDraw fields. Mutable draw
+resources use the ordered prepared snapshot contract; ordinary deferred Constants
+and Present remain. Production host insertion still requires complete admission.
+
 D-320 (3.3.7) explicitly opts a complete original application snapshot into prepared
 draw planning. Root calls retain immutable registry bindings between GPU cuts;
 CustomShader compute remains in the same transaction. Calls and GPU segments share

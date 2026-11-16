@@ -27,10 +27,6 @@
 
 namespace efmi::frontend {
 
-// A buffer the owned GPU work of a replaced draw wrote (P2, D-087): a Vulkan handle on the
-// application's device, bound as it is. `keep` holds the allocation while a value or an item lives.
-struct OwnedPlanBuffer { uint64_t buffer = 0, offset = 0, size = 0; uint32_t stride = 0; std::shared_ptr<void> keep; };
-
 enum class SlotKind : uint8_t { Vertex, Index, ShaderResource, ConstantBuffer, RenderTarget, DepthTarget, UnorderedAccess, StreamOutput };
 
 // D3D11's slot counts, as the original's parser bounds them (ParseTargetPipelineSlot).
@@ -55,7 +51,6 @@ struct SlotValue {
     enum class Kind : uint8_t {
         Application, // the application's binding of slot `source` of the matched draw
         Resource,    // a resource of the Mod: `resource`, a file or what the generation declares
-        Owned,       // a buffer the draw's owned GPU work wrote: `owned`, of the declaration `resource`
         Native,      // an owned application descriptor captured by a native reference assignment
         Null,        // nothing
         Foreign      // a resource the plan does not hold: IniParams, the cursor, the back buffer, a
@@ -64,7 +59,6 @@ struct SlotValue {
     Kind kind = Kind::Null;
     SlotId source{};
     CustomResource* resource = nullptr;
-    std::shared_ptr<const OwnedPlanBuffer> owned;
     std::shared_ptr<const NativeResource> native;
     const CommandListCommand* by = nullptr; // the command that put it, for the notice
     bool null() const { return kind == Kind::Null; }
@@ -74,7 +68,6 @@ struct SlotValue {
         switch (kind) {
         case Kind::Application: return source == o.source;
         case Kind::Resource: return resource == o.resource;
-        case Kind::Owned: return owned == o.owned;
         case Kind::Native: return native == o.native;
         default: return true;
         }
@@ -377,7 +370,7 @@ inline ValueClass value_class(const SlotId& id, const SlotValue& value)
     case SlotValue::Kind::Application:
         if (value.source == id) return ValueClass::InPlace;
         return value.source.kind == id.kind && value.source.stage == id.stage ? ValueClass::MovedAlike : ValueClass::Other;
-    case SlotValue::Kind::Resource: case SlotValue::Kind::Owned: return ValueClass::ModResource;
+    case SlotValue::Kind::Resource: return ValueClass::ModResource;
     case SlotValue::Kind::Null: return ValueClass::Null;
     default: return ValueClass::Other;
     }

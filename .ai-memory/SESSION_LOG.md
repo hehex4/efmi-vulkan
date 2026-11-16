@@ -3709,3 +3709,19 @@ DLL rebuild. No game, candidate refresh, deployment, installed/system mutation o
 remote write. Retire the unused prequeued-draw contracts and finish the host mapping,
 pass/compute restoration and recording/module lifetime before enabling production
 Core, then native I-01/I-04/I-05/capture.
+
+## 2026-11-16: D-321 remove obsolete prequeued draw execution (3.3.8)
+
+Removed begin_draw/ExecutionSite::Draw, delayed Store results, split query gates,
+bare owned-vertex payloads and unused character/component/skeleton RuntimeDraw
+fields. Original Store copies a staging region and maps its current value; DX11
+supplies reference-counted lifetime with deferred destruction, hazard tracking and
+one-context order. Prepared binding snapshots are now the sole mutable draw contract.
+
+GPU 353 passes with clean validation in retire-prequeued-gpu-reviewed.out; root 27
+and interpreter 570 pass in retire-prequeued-runtime.out. Four DLLs build in
+retire-prequeued-build.out. Production 13, geometry 122, IA 34, ordinary images/
+parameters 3,010, tracker 838, ABI 9, native files 42 and text pass in
+retire-prequeued-regression.out. No game, candidate, deployment, installed/system
+mutation or remote action. Continue native compute/pass restoration, complete host
+resource/pipeline admission and recording ownership, then I-01/I-04/I-05/capture.

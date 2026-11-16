@@ -10,6 +10,13 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+## D-321: Retire the obsolete prequeued draw path (2026-11-16)
+
+- Source/four development DLLs are 3.3.8 / ABI ff5c853cc3759e7d. Removed OwnedRuntime::begin_draw, ExecutionSite::Draw, its delayed Store feedback queue, split owned/application query gates and bare owned-vertex plan payloads. Mutable GPU draw resources now have only the ordered prepared binding snapshot path. Ordinary Constants/Present deferred submission remains.
+- Removed unused RuntimeDraw character/package selection, component/LOD, skeleton source and instance-entry callback fields. The original shared root registry is still the only production loader. This cleanup does not claim complete production Core rendering.
+- Original copies use the current context; StoreCommand copies a staging region and maps it for the current value (CommandList.cpp 1893-1925). DX11 supplies reference-counted lifetime with deferred destruction, hazard tracking and one-context order. The old prequeued/delayed path is not a substitute. retire-prequeued-gpu.out and the final cleanup in retire-prequeued-gpu-reviewed.out pass GPU 353 with clean validation. Fresh root 27/interpreter 570 pass in retire-prequeued-runtime.out. Four development DLLs build in retire-prequeued-build.out. The affected suite passes production registry 13, geometry 122, IA 34, ordinary images/parameters 3,010, tracker 838, ABI 9, native files 42 and text in retire-prequeued-regression.out.
+- Continue host application-source mapping, per-call pipeline/resource admission, pass/compute state restoration and recording/module retention, then native I-01/I-04/I-05/capture. No game, deployment, candidate refresh, installed/system mutation or remote action.
+
 ## D-320: Original prepared draw-plan boundaries (2026-11-16)
 
 - Source/four development DLLs are 3.3.7 / ABI ff5c853cc3759e7d. Explicit begin_prepared_plan preserves GPU cuts around direct source calls and the implicit caller, retains each call's binding snapshot, and admits calls with the registry transaction. Post matching rechecks the current IB; shader-only entry points do not add index matches. Existing production execution rejects these payloads until complete host integration.

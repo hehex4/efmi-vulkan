@@ -54,7 +54,7 @@ bool GpuResourceRuntime::flush_parameters(CommandListState& state,bool force,std
         // Empty reservation has no texture in the original device. Keep its
         // dirty flag, just as CommandListFlushState does without mIniTexture.
         if(!parameters_.image || (!force && !state.update_params && !parameter_republish_))return true;
-        recorded_=true;publish_parameters();state.update_params=false;return true;
+        publish_parameters();state.update_params=false;return true;
     }catch(const std::exception& e){execution_failed();why=widen(e.what());return false;}
 }
 }

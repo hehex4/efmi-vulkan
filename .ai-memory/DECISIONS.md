@@ -13,6 +13,21 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-321: Remove the superseded owned-draw execution contract (2026-11-16)
+
+Delete the unused begin_draw/ExecutionSite::Draw path rather than leave an API that
+can submit draw work before the application's producer. Delete its delayed Store
+feedback substitute, separate draw-scope query routing and bare owned-vertex plan
+payload. Actual mutable resources travel through ordered prepared snapshots and
+retain the scope's admission. Ordinary owned queue/Constants/Present execution stays.
+Remove the unused RuntimeDraw fields for per-character package/component/LOD and
+native skeleton instance selection. Original resource commands and root Includes
+remain authoritative; no character activation fallback is restored.
+Original copies and Store staging reads use one context. DX11 supplies reference-
+counted lifetime with deferred destruction, hazards and context order. Prepared
+feedback remains explicitly unsupported until an equivalent current-value contract
+is available; a previous frame's read is not that contract.
+
 ## D-320: Preserve original source calls inside prepared plans (2026-11-16)
 
 A host explicitly opens prepared-plan mode with a complete original application

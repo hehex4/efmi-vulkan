@@ -11,7 +11,7 @@ bool valid(const FilePlanItem& item)
     // Prepared sequences require full host admission, not immutable-file demand.
     if(item.prepared_work || item.prepared_state)return false;
     if(item.layout.size()>256)return false;
-    if(item.operation==FileOperation::NativeBind)return !item.resource && !item.owned && item.layout.empty();
+    if(item.operation==FileOperation::NativeBind)return !item.resource && item.layout.empty();
     if(item.operation==FileOperation::Caller || item.operation==FileOperation::Dispatch)return !item.resource && item.layout.empty();
     if(item.operation==FileOperation::DrawIndexed)return !item.resource && item.index_count && item.instance_count;
     if(item.operation==FileOperation::Translucent)

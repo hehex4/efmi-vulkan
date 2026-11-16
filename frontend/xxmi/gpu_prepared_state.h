@@ -145,7 +145,7 @@ void GpuResourceRuntime::begin_prepared(){
     if(active_ || prepared_state_)throw std::runtime_error("Prepared registry requires a closed admitted scope");
     auto state=std::make_unique<PreparedState>(*this);
     commands_.begin_prepared();prepared_state_=std::move(state);
-    prepared_plan_=false;active_=true;failed_=recorded_=backbuffer_targeted_=false;site_=ExecutionSite::Prepared;
+    prepared_plan_=false;active_=true;failed_=backbuffer_targeted_=false;site_=ExecutionSite::Prepared;
 }
 void GpuResourceRuntime::begin_prepared_plan(const ApplicationResourceState& state){
     begin_prepared(state);prepared_plan_=true;

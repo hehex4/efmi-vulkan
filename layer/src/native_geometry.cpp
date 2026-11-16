@@ -208,7 +208,6 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
         const auto& item=plan.items[i];
         if(item.operation==Operation::BindVertex || item.operation==Operation::BindIndex){
             if(recipe.compute)return refuse("Geometry cannot be bound by a compute call");
-            if(item.owned)return refuse("Owned geometry needs its producer and publication proof");
             const bool vertex=item.operation==Operation::BindVertex;
             if(vertex && item.slot>=kMaxVb)return refuse("Geometry vertex slot is outside tracked inputs");
             const auto& resource=item.native_resource;

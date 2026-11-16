@@ -54,8 +54,7 @@ struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read,decla
     // which of them take the second answer in this evaluation (bit i for the i-th).
     std::vector<std::pair<wchar_t,unsigned>> words;uint32_t words_second=0;bool words_over=false;
     DrawPlanAdapter::HostValue host;DrawPlanAdapter::RenderTargetSize rt;
-    // inside: in a draw's scope, within a CustomShader (D-087); drawing: a draw's scope is open.
-    std::function<bool()> gate,inside,drawing,preparing;bool open() const {return !gate || gate() || (inside && inside());}
+    std::function<bool()> gate,preparing;bool open() const {return !gate || gate();}
     std::function<void()> preparation_failed;
     std::function<void(CustomResourcePool*)> prepare_pool;
     std::function<void(PoolCopyOperation&)> prepare_pool_copy;
@@ -88,17 +87,6 @@ struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read,decla
         return value;
     }
 };
-// What the owned work of a replaced draw may read or bind (D-087): the Mod's resources, IniParams,
-// null and the compute stage's slots. The application's bindings are not reachable from it.
-bool owned_side(const ResourceCopyTarget& t)
-{
-    switch(t.type){
-    case ResourceCopyTargetType::EMPTY: case ResourceCopyTargetType::CUSTOM_RESOURCE: case ResourceCopyTargetType::INI_PARAMS: return true;
-    case ResourceCopyTargetType::SHADER_RESOURCE: case ResourceCopyTargetType::CONSTANT_BUFFER: case ResourceCopyTargetType::UNORDERED_ACCESS_VIEW:
-        return t.shader_type==L'c';
-    default: return false;
-    }
-}
 class NativeShaderQuery final : public CommandListEvaluatable {
 public:
     std::shared_ptr<CommandListOperand> source;
@@ -215,7 +203,7 @@ public:
         const auto mode=target.evaluation_mode;
         switch(held.kind){
         case SlotValue::Kind::Null:result=nothing_bound(mode);return Answer::Given;
-        case SlotValue::Kind::Resource:case SlotValue::Kind::Owned:
+        case SlotValue::Kind::Resource:
             if(matcher)return Answer::Host;
             if(of_declaration(held.resource,mode,result))return Answer::Given;
             reason=L"a property of the Mod's resource bound at "+slot_name(slot)+L" that its declaration does not state";
@@ -253,13 +241,12 @@ public:
             if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE){result=-0.0f;return true;}
             if(target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY){result=0.0f;return true;}
         }
-        const bool drawing=service->drawing && service->drawing();
         // `->Format`, `->Width`, `->Height`, `->Mips`, `->Array` where the plan answers on the CPU (D-170): the
         // original's getters over the description of what the target holds. The declaration's own keys come
         // first and only for the declaration itself; at a slot a Mod's file reads its own format, whatever
         // format its declaration names (the judge's `properties` case). A target this does not take falls
         // through to the state's and the host's answers.
-        if(service->property && texture_property_mode(target.evaluation_mode) && (!service->open() || (drawing && !owned_side(target)) || !service->read)){
+        if(service->property && texture_property_mode(target.evaluation_mode) && (!service->open() || !service->read)){
             if(service->property(target,*state,result,reason))return true;
             if(!reason.empty())return false;
         }
@@ -273,31 +260,26 @@ public:
         const bool pixel=target.type==ResourceCopyTargetType::THIS_RESOURCE ||
             (target.type==ResourceCopyTargetType::SHADER_RESOURCE && target.shader_type==L'p');
         const bool texture_match=(pixel || service->general_matches) && target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE && service->texture;
-        if(!service->open() || (drawing && !owned_side(target))){
-            // Outside an owned scope (a replaced draw's plan), or the application's bindings in a draw's
-            // scope. First what the lists bound at the slot.
+        if(!service->open()){
+            // Outside a GPU scope, first read what the CPU plan bound at the slot.
             switch(from_state(state,target,texture_match && pixel,result,reason)){
             case Answer::Given:return true;
             case Answer::None:return false;
             default:break;
             }
-            // What the host answers on the CPU. A Mod resource in a draw's scope: what the owned work
-            // holds (D-087).
+            // Fall back to the host's CPU resource queries.
             if(service->plan_read && service->plan_read(target,*state,result,reason))return true;
-            if(!drawing || !owned_side(target) || !service->read){
-                // `ps-t0 == 905031` where nothing else answers: the original's FindTextureOverrides on the texture
-                // bound at that pixel slot, the filter_index of the section that matches it, from the host's
-                // texture matcher (a Mod finding which slot holds one of its textures, BUG-064).
-                if(texture_match && pixel){
-                    reason.clear();
-                    if(service->texture(target,*state,result,reason))return true;
-                    if(reason.empty())reason=L"Texture query refused";
-                    return false;
-                }
-                if(reason.empty())reason=L"nothing answers for the game's resource in a replaced draw's plan";
+            // `ps-t0 == 905031` where nothing else answers: the original's FindTextureOverrides on the texture
+            // bound at that pixel slot, the filter_index of the section that matches it, from the host's
+            // texture matcher (a Mod finding which slot holds one of its textures, BUG-064).
+            if(texture_match && pixel){
+                reason.clear();
+                if(service->texture(target,*state,result,reason))return true;
+                if(reason.empty())reason=L"Texture query refused";
                 return false;
             }
-            reason.clear();
+            if(reason.empty())reason=L"nothing answers for the game's resource in a replaced draw's plan";
+            return false;
         }
         const auto& read=texture_match?service->texture:service->read;
         if(!read){
@@ -717,7 +699,7 @@ struct DrawPlanAdapter::Runtime {
     std::unordered_map<ExplicitCommandListSection*,External> externals;
     std::unordered_map<ExplicitCommandListSection*,DrawPlanAdapter::NativeCommand> observers;
     // What a declaration holds, where the lists assigned it: a value of the draw state, with the execution
-    // an application's or owned value was taken in (0 for a value that lasts).
+    // an application value was taken in (0 for a value that lasts).
     struct Held {SlotValue value;uint64_t execution=0;};
     std::unordered_map<CustomResource*,Held> references;
     std::shared_ptr<QueryService> queries=std::make_shared<QueryService>();
@@ -756,7 +738,7 @@ struct DrawPlanAdapter::Runtime {
     // The execution's serial. "The application's binding of slot S" is that of the draw the lists run for:
     // a declaration that took one holds it for the lists of that draw. In a later draw it holds a resource
     // the plan does not know (the original holds the object, which the game may have bound anywhere, or
-    // released, since); so does a declaration that took what the draw's owned work wrote.
+    // released, since). Mutable GPU resources use prepared binding snapshots.
     uint64_t execution=0;
     std::function<PipelineFacts()> facts; // DrawPlanAdapter::pipeline
     std::function<bool(uint32_t&)> draw_index_hash;
@@ -821,7 +803,7 @@ struct DrawPlanAdapter::Runtime {
         DrawPlanAdapter::TextureIdentity identity;identity.properties_wanted=true;
         switch(value.kind){
         case SlotValue::Kind::Null:break;
-        case SlotValue::Kind::Resource:case SlotValue::Kind::Owned:
+        case SlotValue::Kind::Resource:
             if(!texture_query(0,DrawPlanAdapter::PixelBinding{false,value.resource},state,identity,why)){if(why.empty())why=L"Texture source identity is unknown";return false;}
             break;
         case SlotValue::Kind::Application:
@@ -846,7 +828,7 @@ struct DrawPlanAdapter::Runtime {
             // other slots and the independent resource half of a mixed element.
             if(resource->is_null)return value;
             value=found->second.value;
-            if(found->second.execution && found->second.execution!=execution){value.kind=SlotValue::Kind::Foreign;value.owned.reset();value.native.reset();}
+            if(found->second.execution && found->second.execution!=execution){value.kind=SlotValue::Kind::Foreign;value.native.reset();}
             return value;
         }
         // An empty original Resource declaration has no object until assigned; nor has a pool element its
@@ -886,7 +868,7 @@ struct DrawPlanAdapter::Runtime {
             }}
         }
         // A view of a region of the resource (`ref vs-cb0->Region(a, b)`) is another view than the plan binds.
-        if(source.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE && !value.null()){value.kind=SlotValue::Kind::Foreign;value.owned.reset();value.native.reset();}
+        if(source.evaluation_mode!=ResourceCopyTargetEvaluationMode::RESOURCE && !value.null()){value.kind=SlotValue::Kind::Foreign;value.native.reset();}
         if(value.kind==SlotValue::Kind::Application && capture_resource){
             NativeResource captured;std::wstring why;
             if(capture_resource(value.source,captured,why)){
@@ -904,7 +886,7 @@ struct DrawPlanAdapter::Runtime {
     {
         if(references.size()>=max_steps && !references.count(destination))refuse(L"Declaration reference budget exceeded");
         Held entry;
-        entry.execution=value.kind==SlotValue::Kind::Application || value.kind==SlotValue::Kind::Owned?execution:0;
+        entry.execution=value.kind==SlotValue::Kind::Application?execution:0;
         const bool written=value.kind==SlotValue::Kind::Resource && owned_contents.count(value.resource);
         if(!written)owned_contents.erase(destination);
         destination->is_null=value.null();
@@ -972,7 +954,6 @@ struct DrawPlanAdapter::Runtime {
             switch(value.kind){
             case SlotValue::Kind::Application:item.application_slot=int(value.source.slot);break;
             case SlotValue::Kind::Resource:item.resource=value.resource;break;
-            case SlotValue::Kind::Owned:item.owned=value.owned;break;
             default:break;
             }
             append(std::move(item));
@@ -1005,10 +986,6 @@ struct DrawPlanAdapter::Runtime {
     std::function<bool()> owned_gate;
     // The owned GPU callbacks apply unless a gate says the host has no owned scope open.
     bool owned() const {return !owned_gate || owned_gate();}
-    // A replaced draw's scope for owned GPU work (D-087), the CustomShader nesting within it, the
-    // host's owned vertex buffers and the Mod resources whose content owned work wrote.
-    std::function<bool()> draw_gate;
-    DrawPlanAdapter::OwnedBinding owned_binding;
     size_t shader_depth=0;
     std::function<bool()> prepared_plan_gate;
     std::function<std::shared_ptr<const gpu::PreparedResourceCommands>()> prepared_cut;
@@ -1020,9 +997,7 @@ struct DrawPlanAdapter::Runtime {
             work.prepared_work=std::move(packet);append(std::move(work));}
     }
     std::unordered_set<CustomResource*> owned_contents;
-    bool drawing() const {return draw_gate && draw_gate();}
-    // The owned callbacks apply: the host's owned scope, or within a CustomShader in a draw's scope.
-    bool gpu() const {return owned() || (shader_depth && drawing());}
+    bool gpu() const {return owned();}
     // A copy executed by owned work leaves the Mod resource it wrote with owned content.
     void mark_owned(CommandListCommand& command,CommandListState& state)
     {
@@ -1037,28 +1012,6 @@ struct DrawPlanAdapter::Runtime {
             references[destination]=std::move(own);owned_contents.insert(destination);
         }
     }
-    // Owned work in a draw's scope stays on the owned side (D-087).
-    void owned_only(CommandListCommand& command,CommandListState& state)
-    {
-        auto check=[&](const ResourceCopyTarget& t){
-            if(!owned_side(t))refuse(L"Owned work in a replaced draw reaches the application's resources: "+command.ini_line);
-            // A declaration holding the application's binding of a slot is the application's (D-152).
-            if(t.type==ResourceCopyTargetType::CUSTOM_RESOURCE && !t.custom_resource_pool &&
-               t.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE){
-                const auto kind=held(const_cast<ResourceCopyTarget&>(t).GetCustomResource(&state)).kind;
-                if(kind==SlotValue::Kind::Application || kind==SlotValue::Kind::Foreign)
-                    refuse(L"Owned work in a replaced draw reaches the application's resources: "+command.ini_line);
-            }
-        };
-        if(auto* copy=dynamic_cast<ResourceCopyOperation*>(&command)){check(copy->src);check(copy->dst);}
-        else if(auto* range=dynamic_cast<SlotRangeCopyOperation*>(&command)){check(range->src);check(range->dst);}
-        else if(auto* clear=dynamic_cast<ClearViewCommand*>(&command))check(clear->target);
-        else if(auto* store=dynamic_cast<StoreCommand*>(&command))check(store->src);
-        else if(auto* batch=dynamic_cast<ShaderResourceBatch*>(&command)){
-            for(const auto& operation:batch->operations)if(operation){check(operation->src);check(operation->dst);}
-        }
-    }
-
     void flush(CommandListState& state,bool force=false){
         // The GPU adapter also owns a retry bit after cancelled publication.
         // Its callback decides whether this original flush boundary is dirty.
@@ -1101,19 +1054,6 @@ struct DrawPlanAdapter::Runtime {
     }
     // `copy`, `copy_desc` and the MSAA resolve make a resource; everything else binds or holds the source's.
     static bool copies(ResourceCopyOptions options){return (int(options)&int(ResourceCopyOptions::COPY_MASK))!=0;}
-    // A copy in a draw's scope that the owned side can make (D-087): its source is the Mod's. One whose
-    // source is the application's binding (`ResourceX = copy ps-t0`) is the plan's: the declaration holds
-    // that binding for this draw.
-    bool owned_reach(ResourceCopyOperation& copy,CommandListState& state)
-    {
-        if(!owned_side(copy.src) || !owned_side(copy.dst))return false;
-        if(copy.src.type==ResourceCopyTargetType::CUSTOM_RESOURCE && !copy.src.custom_resource_pool &&
-           copy.src.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE){
-            const auto kind=held(copy.src.GetCustomResource(&state)).kind;
-            if(kind==SlotValue::Kind::Application || kind==SlotValue::Kind::Foreign)return false;
-        }
-        return true;
-    }
     // `ResourceX = copy ...` where no owned work makes the copy: what X then holds. A copy of the game's
     // resource holds, for the lists of this draw, what the game bound (nothing writes that between the
     // line and the draw). A copy of a file of the Mod, which nothing writes, shows what the file shows,
@@ -1172,20 +1112,14 @@ struct DrawPlanAdapter::Runtime {
         SlotId id;
         // A number D3D11 has no slot for, IniParams, the back buffer, the CPU: the original sets nothing.
         if(named(*dst,state,id)!=Named::Slot)return;
-        if(value.kind==SlotValue::Kind::Resource && owned_contents.count(value.resource)){
-            // What owned work wrote: at a vertex slot its buffer as the owned side holds it now (D-087);
-            // elsewhere, or without the draw's owned scope, content the plan cannot bind.
-            PlanItem::OwnedBuffer buffer;std::wstring why;
-            if(id.kind==SlotKind::Vertex && owned_binding && drawing() && owned_binding(op.src,state,buffer,why)){
-                value.kind=SlotValue::Kind::Owned;value.owned=std::make_shared<const PlanItem::OwnedBuffer>(std::move(buffer));
-            }else value.kind=SlotValue::Kind::Foreign;
-        }
+        // CPU file plans cannot consume mutable GPU content. Prepared calls
+        // retain their actual registry resources at each ordered draw instead.
+        if(value.kind==SlotValue::Kind::Resource && owned_contents.count(value.resource))value.kind=SlotValue::Kind::Foreign;
         const auto pipeline=facts?facts():PipelineFacts{};
         if(pipeline.native_calls && (id.kind==SlotKind::Vertex || id.kind==SlotKind::Index)){
             PlanItem item;item.operation=id.kind==SlotKind::Vertex?PlanOperation::BindVertex:PlanOperation::BindIndex;
             item.slot=id.slot;
             if(value.kind==SlotValue::Kind::Resource)item.resource=value.resource;
-            else if(value.kind==SlotValue::Kind::Owned)item.owned=value.owned;
             else if(value.kind==SlotValue::Kind::Native)item.native_resource=value.native;
             else if(value.kind==SlotValue::Kind::Application && value.source==id)item.application_slot=int(id.slot);
             else if(!value.null())refuse_draw(L"Native geometry binding needs a file, owned buffer or original slot");
@@ -1242,7 +1176,7 @@ struct DrawPlanAdapter::Runtime {
             std::wstring why;
             switch(value.kind){
             case SlotValue::Kind::Null:return;
-            case SlotValue::Kind::Resource:case SlotValue::Kind::Owned:
+            case SlotValue::Kind::Resource:
                 if(!texture_query(id.slot,PixelBinding{false,value.resource},state,identity,why))refuse(why.empty()?L"Texture source identity is unknown":why);
                 break;
             case SlotValue::Kind::Application:
@@ -1293,7 +1227,7 @@ struct DrawPlanAdapter::Runtime {
             switch(value.kind){
             case SlotValue::Kind::Null:return;
             // A Mod's own buffer has no handle info and meets nothing.
-            case SlotValue::Kind::Resource:case SlotValue::Kind::Owned:bound=true;return;
+            case SlotValue::Kind::Resource:bound=true;return;
             case SlotValue::Kind::Application:{
                 uint32_t hash=0;
                 // The matched draw's own index buffer, where it is still bound.
@@ -1317,7 +1251,7 @@ struct DrawPlanAdapter::Runtime {
         Held mirrored;
         if(copy->src.type==ResourceCopyTargetType::CUSTOM_RESOURCE){
             mirrored.value=held(copy->src.GetCustomResource(&state));
-            if(mirrored.value.kind==SlotValue::Kind::Application || mirrored.value.kind==SlotValue::Kind::Owned)mirrored.execution=execution;
+            if(mirrored.value.kind==SlotValue::Kind::Application)mirrored.execution=execution;
         }else if(copy->src.type!=ResourceCopyTargetType::EMPTY)return;
         auto* destination=dst.GetCustomResource(&state,true);if(!destination)return;
         if(references.size()>=max_steps && !references.count(destination))refuse(L"Declaration reference budget exceeded");
@@ -1371,7 +1305,7 @@ struct DrawPlanAdapter::Runtime {
         const bool identity=target.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE_IDENTITY;
         switch(value.kind){
         case SlotValue::Kind::Null:result=identity?0.0f:-0.0f;return;
-        case SlotValue::Kind::Resource:case SlotValue::Kind::Owned:
+        case SlotValue::Kind::Resource:
             result=identity?EncodeFloat30(uint32_t(HashPointer(value.resource))):0.0f;return;
         case SlotValue::Kind::Application:
             // The application's binding of a slot, taken in this draw (D-161): the slot's identity; as a
@@ -1590,9 +1524,8 @@ struct DrawPlanAdapter::Runtime {
                     LayerGap(L"A CustomShader does nothing without the owned GPU runtime: %ls",original->ini_line.c_str());
                 return;
             }
-            if(shader_command && !owned() && !drawing())refuse(L"CustomShader needs the host's owned GPU scope, which replaced draws do not open");
-            // In a draw's scope everything the shader's lists run is owned work (D-087).
-            const bool nested=(!owned() && drawing()) || planning_prepared();
+            if(shader_command && !owned())refuse(L"CustomShader needs the host's owned GPU scope, which replaced draws do not open");
+            const bool nested=planning_prepared();
             struct Nesting {size_t& depth;bool on;~Nesting(){if(on)--depth;}} nesting{shader_depth,nested};
             if(nested)++shader_depth;
             if(!shader_command || !shader_command(*shader,*state,why) || nested_failed)
@@ -1606,40 +1539,13 @@ struct DrawPlanAdapter::Runtime {
             // evaluating arguments or entering the draw/dispatch implementation.
             flush(*state);
         }
-        // A replaced draw's scope, outside CustomShaders: a copy into a Mod resource, or a reference to
-        // one with owned content, is owned work; the draw's own bindings and draws keep the plan (D-087).
-        if(resource_command && drawing() && !shader_depth && !owned()){
-            // store and clear of the Mod's own resources are owned work as its copies are (D-147).
-            if(as<StoreCommand>(original, kinds, K_StoreCommand) || as<ClearViewCommand>(original, kinds, K_ClearViewCommand)){
-                owned_only(*original,*state);
-                std::wstring why;
-                if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
-                return;
-            }
-            if(auto* copy=as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation); copy && (kinds & K_ResourceCopyOperationExact)){
-                auto* dst=resolved(copy->dst,*state);
-                bool owned_source=false;
-                if(copy->src.type==ResourceCopyTargetType::CUSTOM_RESOURCE && !copy->src.custom_resource_pool &&
-                   copy->src.evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE)
-                    owned_source=owned_contents.count(referenced(copy->src.GetCustomResource(state)))!=0;
-                if(dst && dst->type==ResourceCopyTargetType::CUSTOM_RESOURCE && !dst->custom_resource_pool &&
-                   dst->evaluation_mode==ResourceCopyTargetEvaluationMode::RESOURCE &&
-                   (copies(copy->options) || owned_source) && owned_reach(*copy,*state)){
-                    std::wstring why;
-                    if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
-                    mirror_reference(*original,*state);mark_owned(*original,*state);
-                    return;
-                }
-            }
-        }
         if(resource_command && gpu() && !(planning_prepared() && !shader_depth && (kinds & K_DrawCommand)) && (as<ResourceCopyOperation>(original, kinds, K_ResourceCopyOperation) ||
            as<ClearViewCommand>(original, kinds, K_ClearViewCommand) || as<StoreCommand>(original, kinds, K_StoreCommand) ||
            as<DrawCommand>(original, kinds, K_DrawCommand) || as<SlotRangeCopyOperation>(original, kinds, K_SlotRangeCopyOperation))) {
             std::wstring why;
-            if(!owned())owned_only(*original,*state);
             // Speculative GPU bindings belong to its registry journal. Publishing
             // parallel file-plan references here would leak a cancelled alias.
-            if((owned_gate || draw_gate) && !(queries->preparing && queries->preparing())){mirror_reference(*original,*state);mark_owned(*original,*state);}
+            if(owned_gate && !(queries->preparing && queries->preparing())){mirror_reference(*original,*state);mark_owned(*original,*state);}
             if(!resource_command(*original,*state,why))refuse(why.empty()?L"GPU resource command refused":why);
             return;
         }
@@ -2203,16 +2109,6 @@ void DrawPlanAdapter::prepared_scope(std::function<bool()> gate,std::function<vo
     runtime_->queries->preparation_failed=std::move(failure);
     runtime_->queries->prepare_pool=std::move(pool);runtime_->queries->prepare_pool_copy=std::move(pool_copy);
     runtime_->queries->prepare_limits=std::move(limits);
-}
-void DrawPlanAdapter::draw_scope(std::function<bool()> gate){
-    if(runtime_->active || !runtime_->adapted.empty() || !gate || runtime_->draw_gate)refuse(L"Install one draw scope gate before adaptation");
-    auto* runtime=runtime_.get();
-    runtime_->queries->drawing=gate;runtime_->queries->inside=[runtime]{return runtime->shader_depth && runtime->drawing();};
-    runtime_->draw_gate=std::move(gate);
-}
-void DrawPlanAdapter::owned_bindings(OwnedBinding binding){
-    if(runtime_->active || !runtime_->adapted.empty() || !binding || runtime_->owned_binding)refuse(L"Install one owned binding provider before adaptation");
-    runtime_->owned_binding=std::move(binding);
 }
 void DrawPlanAdapter::tolerate_refusals(bool on){runtime_->tolerant=on;}
 void DrawPlanAdapter::shader_commands(ShaderCommand callback){

@@ -46,7 +46,7 @@ integration still needs application binding import into
 the original GPU registry, logical registry rollback, ordered plan items, attachment
 split planning, compute-state restoration and recording ownership. Do not enable
 `OwnedRuntime::begin_draw` and submit its old pending primary ahead of the application
-as a substitute for this integration.
+as a substitute for this integration. D-321 removes that superseded API completely.
 
 That initial image restriction is superseded for owned images by D-314 and retained
 application images by D-316 below. Graphics, feedback and automatic submission
@@ -422,3 +422,16 @@ changed IB post list between vertex/pixel stages and removal of all index matche
 without losing the later stage root. Root 27/interpreter 570, four-DLL build,
 production 13, ordinary images/parameters 3,010, tracker 838 and ABI 9 also pass.
 Source/development DLLs are 3.3.7; no candidate or real-game deployment occurred.
+
+## Retired prequeued draw contract (D-321)
+
+The original separate Draw execution site, begin_draw, draw_scope/owned_bindings,
+bare OwnedPlanBuffer/FilePlan owned-vertex payload, and delayed Store feedback queue
+are deleted. Mutable resources at a draw now require the retained prepared snapshot
+contract. A queued copy before the entire application submission cannot replace an
+in-place command, and a previous execution's feedback cannot replace original Store's
+current staging copy/map. Ordinary queue work and configuration-load deferral remain.
+Unused package/component/LOD and skeleton-instance fields are removed from RuntimeDraw.
+Source/four DLLs are 3.3.8. GPU 353 and root 27/interpreter 570 pass; the affected
+production, geometry, IA, image/parameter, tracker, ABI, native-file and text checks
+pass in retire-prequeued-regression.out. Production host insertion is still pending.
