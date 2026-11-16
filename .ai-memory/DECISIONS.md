@@ -13,6 +13,17 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-319: Keep original frame limits transactional during preparation (2026-11-16)
+
+Save CustomShader frame/execution counters before speculative execution. Checkpoint
+ResetPerFrameLimitsCommand's resource and shader targets before calling the unchanged
+original operation, including CPU-only resets and empty GPU scopes. Restore these
+coupled execution limits on cancellation across all segments; publish on whole-scope
+admission. Ordinary scalar assignments remain persistent and ordinary execution keeps
+the original counter behavior. This follows original CommandList.cpp 1490-1499 and
+2851-2858 while accounting for Vulkan's preparation boundary; DX11 otherwise supplies
+reference-counted lifetime with deferred destruction, hazard tracking and context order.
+
 ## D-318: Cut ordered GPU segments without partial registry admission (2026-11-16)
 
 cut_prepared may close one GPU segment while the original resource transaction stays

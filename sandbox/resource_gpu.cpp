@@ -1485,6 +1485,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "prepared_parameter_cases.h"
 #include "prepared_registry_cases.h"
 #include "prepared_registry_segment_cases.h"
+#include "prepared_limit_cases.h"
 #include "prepared_application_cases.h"
 #include "prepared_application_image_cases.h"
 #include "prepared_pool_cases.h"
@@ -1577,6 +1578,7 @@ int wmain(int argc,wchar_t** argv){
             prepared_application_cases(device,std::filesystem::absolute(argv[2])/"prepared-application");
             prepared_application_image_cases(device,std::filesystem::absolute(argv[2])/"prepared-application-images");
             prepared_registry_segment_cases(device,std::filesystem::absolute(argv[2])/"prepared-registry-segments");
+            prepared_limit_cases(device,std::filesystem::absolute(argv[2])/"prepared-limits");
             prepared_pool_cases(device,std::filesystem::absolute(argv[2])/"prepared-pools");
             prepared_parameter_cases(device,std::filesystem::absolute(argv[2])/"prepared-parameters");}
             printf("configuration resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));

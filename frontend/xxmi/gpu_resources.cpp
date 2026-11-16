@@ -138,7 +138,8 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     adapter.parameter_flush([this](auto& state,bool force,auto& why){return flush_parameters(state,force,why);});
     adapter.owned_bindings([this](auto& target,auto& state,auto& out,auto& why){return owned_vertex(target,state,out,why);});
     adapter.prepared_scope([this]{return active_ && site_==ExecutionSite::Prepared;},[this]{execution_failed();},
-        [this](CustomResourcePool* pool){remember(pool);},[this](PoolCopyOperation& op){remember(op);});
+        [this](CustomResourcePool* pool){remember(pool);},[this](PoolCopyOperation& op){remember(op);},
+        [this](ResetPerFrameLimitsCommand& command){if(command.shader)remember(*command.shader);if(command.resource)remember(*command.resource);});
     return {};
 }
 void GpuResourceRuntime::draw_commands(DrawExecutor executor){

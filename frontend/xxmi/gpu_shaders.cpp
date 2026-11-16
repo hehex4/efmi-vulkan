@@ -123,6 +123,7 @@ bool GpuShaderRuntime::run(RunCustomShaderCommand& command,CommandListState& sta
         if(entry.failed)return true;
         // Keep original counters so reset_per_frame_limits uses the same state.
         if(shader.max_executions_per_frame){
+            resources_.remember(shader);
             if(shader.frame_no!=G->frame_no){shader.frame_no=G->frame_no;shader.executions_this_frame=1;}
             else{const auto previous=shader.executions_this_frame;if(previous<INT_MAX)++shader.executions_this_frame;
                 if(previous>=shader.max_executions_per_frame)return true;}

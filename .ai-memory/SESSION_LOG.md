@@ -3664,3 +3664,21 @@ restoration and recording/module ownership. Production Core remains incomplete;
 native I-01/I-04/I-05/capture and legacy fixture migration remain open. No candidate
 refresh, game activity, installed/system mutation or remote write. Diff and memory
 accompany the local commit.
+
+## 2026-11-16: D-319 original frame-limit rollback (3.3.6)
+
+Original RunCustomShaderCommand increments per-frame counters before execution;
+ResetPerFrameLimitsCommand clears shader/resource quotas. DX11 supplies reference-
+counted lifetime with deferred destruction, hazard tracking and one-context order.
+The cancelled prepared attempt consumed its frame's quota (BUG-165, output 0
+instead of 1 in prepared-limits-before.out). A shader-counter journal and explicit
+reset checkpoints now restore it, including the previously bypassed CPU fast path.
+Scalar variables persist and normal execution keeps the original limit behavior.
+
+GPU 303 passes in prepared-limits-reviewed.out with zero core/synchronization
+errors or warnings. Fresh root 27/interpreter 570 pass in prepared-limits-runtime.out;
+four development DLLs build in prepared-limits-build.out. Production registry 13,
+ordinary image/parameter 3,010, tracker 838, ABI 9 and text pass in
+prepared-limits-regression.out. No game, deployment, candidate refresh, system or
+remote action. Continue original plan integration and complete host resource facts,
+pass/compute restoration and recording/module lifetime, then native I-01/I-04/I-05.

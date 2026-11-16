@@ -1,5 +1,18 @@
 # EFMI Vulkan - Known issues
 
+## BUG-165: Cancelled execution could consume or reset original frame limits (fixed 3.3.6)
+
+GpuShaderRuntime advanced CustomShader's frame/execution count during preparation,
+without rolling it back on cancellation. The same-frame retry then skipped real GPU
+work: prepared-limits-before.out reproduces output 0 instead of 1. Source review also
+finds ResetPerFrameLimitsCommand on the CPU fast path, bypassing the resource journal.
+Original CommandList.cpp 2851-2858 updates shader limits around context execution;
+1490-1499 resets shader/resource counters. DX11 supplies reference-counted lifetime
+with deferred destruction, hazard tracking and one-context order. D-319 journals
+shader counters before mutation and checkpoints both reset targets before running
+the unchanged original reset. Ordinary scalar variables still persist. Verification
+and exact scope are recorded in CURRENT_STATE.md when complete.
+
 ## BUG-164: Cancelled image copies retained speculative pool allocations (fixed 3.3.4)
 
 D-314 journaled image bindings but omitted the separate named/instruction image

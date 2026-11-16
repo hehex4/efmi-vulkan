@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-319 original frame-limit rollback verified; continue plan integration
+
+- Done in source 3.3.6: shader frame/execution counters and explicit shader/resource resets journal before mutation. BUG-165 same-frame retry fails before the fix; GPU 303 passes after it, including ordinary execution and reset behavior with clean validation. Fresh root 27/interpreter 570, four DLLs, production 13, ordinary images/parameters 3,010, tracker 838, ABI 9 and text pass.
+- Next: original draw-plan integration with ordered segments and resource/IA snapshots, complete production source mapping, attachment preservation, compute restoration and recording/module lifetime; then native capture fixtures and I-01/I-04/I-05. Production Core remains incomplete; no game authorization.
+
 ## D-318 ordered segments verified; continue original plan integration
 
 - Done in source/four DLLs 3.3.5: ordered segment cuts under one registry admission, private image initialization/layouts, sequence identity/ordinal, aggregate budgets and cross-segment alias refusal. Prepared 135, GPU 282, production 13, ordinary images/parameters 3,010, tracker 838, ABI 9 and text pass with clean validation.

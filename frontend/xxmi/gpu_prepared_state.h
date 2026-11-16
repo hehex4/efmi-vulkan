@@ -64,6 +64,7 @@ struct GpuResourceRuntime::PreparedState {
         }
     };
     std::map<CustomResource*,Declaration> declarations;
+    std::map<CustomShader*,std::pair<unsigned,int>> shader_limits;
     ResourceMapUndo<decltype(resources_)> resources;
     ResourceMapUndo<decltype(copies_)> copies;
     ResourceMapUndo<decltype(resource_copy_pools_)> resource_pools;
@@ -87,6 +88,9 @@ void GpuResourceRuntime::remember(CustomResource& r){
         r.stride,r.offset,r.buf_size,r.source_stride,r.frame_no,r.format,r.copies_this_frame});
     undo.resources.remember(resources_,&r);undo.resource_pools.remember(resource_copy_pools_,&r);
     undo.resource_images.remember(resource_image_pools_,&r);
+}
+void GpuResourceRuntime::remember(CustomShader& shader){
+    if(prepared_state_)prepared_state_->shader_limits.try_emplace(&shader,shader.frame_no,shader.executions_this_frame);
 }
 void GpuResourceRuntime::remember(CustomResourcePool* pool){
     if(!prepared_state_ || !pool)return;
@@ -125,6 +129,7 @@ void GpuResourceRuntime::remember(SlotRangeCopyOperation& op){
 void GpuResourceRuntime::rollback_prepared() noexcept {
     if(!prepared_state_)return;auto& undo=*prepared_state_;
     for(const auto& value:undo.declarations){value.second.restore(*value.first);if(!value.second.substantiated)substantiated_.erase(value.first);}
+    for(const auto& value:undo.shader_limits){value.first->frame_no=value.second.first;value.first->executions_this_frame=value.second.second;}
     if(undo.pools)undo.pools->restore_metadata();
     undo.resources.restore(resources_);undo.copies.restore(copies_);
     undo.resource_pools.restore(resource_copy_pools_);undo.command_pools.restore(command_copy_pools_);undo.range_views.restore(range_views_);

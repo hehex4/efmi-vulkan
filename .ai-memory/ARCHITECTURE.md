@@ -1,5 +1,10 @@
 # EFMI Vulkan - Architecture
 
+D-319 (3.3.6) journals original CustomShader frame/execution counters and explicit
+shader/resource per-frame resets across prepared segments. Cancellation restores
+the allowance, including CPU-only reset scopes; ordinary execution and scalar
+assignments retain their original semantics. No production insertion is enabled.
+
 D-318 (3.3.5) cuts prepared commands into immutable ordered segments while keeping
 one original resource journal and one final admission. Private image state advances
 between segments; cancellation publishes no initialization and admits no earlier cut.

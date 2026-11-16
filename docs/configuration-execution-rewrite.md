@@ -178,3 +178,9 @@ physical alias checks span cuts. Application writes between segments produce 18/
 and original copy segments expose 7 then 13 at the respective host positions. Prepared
 135 and GPU 282 pass on 3.3.5 with clean validation, plus affected regressions. This
 provides segmentation, not production draw-plan insertion or pass/queue restoration.
+
+D-319 preserves original per-frame limits across cancelled GPU preparation. The
+same-frame retry failure is reproduced and fixed; CPU-only shader/resource resets
+also checkpoint before mutation. GPU 303, root 27, interpreter 570, production 13,
+ordinary image/parameter 3,010, tracker 838 and ABI 9 pass at 3.3.6 with clean
+validation. Ordered draw-plan insertion and the production host contract remain open.

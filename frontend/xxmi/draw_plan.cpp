@@ -59,6 +59,7 @@ struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read,decla
     std::function<void()> preparation_failed;
     std::function<void(CustomResourcePool*)> prepare_pool;
     std::function<void(PoolCopyOperation&)> prepare_pool_copy;
+    std::function<void(ResetPerFrameLimitsCommand&)> prepare_limits;
     void pool(CustomResourcePool* value){
         if(!value || !preparing || !preparing())return;
         if(!prepare_pool)refuse(L"Prepared resource pools require a pool-state transaction");
@@ -1537,6 +1538,10 @@ struct DrawPlanAdapter::Runtime {
 #endif
         if (!active) refuse(L"Planner command invoked outside a transaction");
         if(queries->preparing && queries->preparing()){
+            if(auto* reset=as<ResetPerFrameLimitsCommand>(original,kinds,K_ResetPerFrameLimitsCommand)){
+                if(!queries->prepare_limits)refuse(L"Prepared per-frame limit reset requires a counter transaction");
+                queries->prepare_limits(*reset);
+            }
             if(auto* copy=as<PoolCopyOperation>(original,kinds,K_PoolCopyOperation)){
                 if(!queries->prepare_pool_copy)refuse(L"Prepared resource pools require a pool-state transaction");
                 queries->prepare_pool_copy(*copy);
@@ -2161,11 +2166,13 @@ void DrawPlanAdapter::owned_scope(std::function<bool()> gate){
     runtime_->owned_gate=gate;runtime_->queries->gate=std::move(gate);
 }
 void DrawPlanAdapter::prepared_scope(std::function<bool()> gate,std::function<void()> failure,
-    std::function<void(CustomResourcePool*)> pool,std::function<void(PoolCopyOperation&)> pool_copy){
+    std::function<void(CustomResourcePool*)> pool,std::function<void(PoolCopyOperation&)> pool_copy,
+    std::function<void(ResetPerFrameLimitsCommand&)> limits){
     if(runtime_->active || !runtime_->adapted.empty() || !gate || !failure || runtime_->queries->preparing)refuse(L"Install one prepared scope gate before adaptation");
     runtime_->queries->preparing=std::move(gate);
     runtime_->queries->preparation_failed=std::move(failure);
     runtime_->queries->prepare_pool=std::move(pool);runtime_->queries->prepare_pool_copy=std::move(pool_copy);
+    runtime_->queries->prepare_limits=std::move(limits);
 }
 void DrawPlanAdapter::draw_scope(std::function<bool()> gate){
     if(runtime_->active || !runtime_->adapted.empty() || !gate || runtime_->draw_gate)refuse(L"Install one draw scope gate before adaptation");
@@ -2303,10 +2310,10 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
             constexpr uint32_t native = Runtime::K_IfCommand | Runtime::K_VariableAssignmentExact | Runtime::K_PoolVariableOperation |
                                         Runtime::K_AbortCommand | Runtime::K_PresetCommand | Runtime::K_ResetPerFrameLimitsCommand |
                                         Runtime::K_UpscalingFlipBBCommand;
-            // Pool assignments need the pre-mutation checkpoint even when their
-            // value/index are CPU-only. Other scalar commands keep the fast path.
+            // Pool assignments and execution-limit resets need the pre-mutation
+            // checkpoint even with CPU-only arguments. Scalars keep the fast path.
             if ((kinds & native) && cpu_arguments(*command) &&
-                (!(kinds & Runtime::K_PoolVariableOperation) || !runtime_->queries->preparing)) {
+                (!(kinds & (Runtime::K_PoolVariableOperation|Runtime::K_ResetPerFrameLimitsCommand)) || !runtime_->queries->preparing)) {
                 guard_arguments(*command, runtime_->queries); continue;
             }
         }

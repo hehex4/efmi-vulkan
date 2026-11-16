@@ -358,3 +358,23 @@ captures 7 before a later original copy changes the same allocation to 13. Cance
 private initialization, cross-segment aliases, aggregate limits and owner retirement
 pass: prepared 135 and configuration GPU 282, with clean core/synchronization validation.
 This remains a frontend execution primitive; production plan insertion is still open.
+
+## Original per-frame limit transactions (D-319)
+
+Prepared CustomShader execution checkpoints its original frame number and execution
+count before changing them. Cancellation must not spend the frame's actual GPU quota.
+ResetPerFrameLimitsCommand similarly checkpoints both its shader and resource target
+before invoking the unchanged original reset; it cannot use the CPU fast path while
+a prepared-scope provider is installed. Ordinary execution keeps original semantics.
+
+The checkpoint spans every cut segment and remains until whole-plan admission.
+Cancelled reset-only scopes restore previous limits even when they emitted no GPU
+commands. Accepted resets allow the next execution/copy in the same frame. Original
+scalar assignments inside a cancelled shader list still persist, consistently with
+the rest of the interpreter. Attempt counters are not GPU-completion evidence.
+
+Original CommandList.cpp 2851-2858 increments shader limits around context execution,
+and 1490-1499 resets shader/resource counters. DX11 supplies reference-counted lifetime
+with deferred destruction, hazard tracking and one-context order. Vulkan's speculative
+preparation needs this additional logical rollback. The regression reproduces a skipped
+same-frame retry (output 0 instead of 1), then checks cancelled and accepted resets.

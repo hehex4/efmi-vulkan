@@ -152,9 +152,11 @@ public:
     OutputState save_outputs() const;
     void restore_outputs(OutputState&&) noexcept;
 private:
+    friend class GpuShaderRuntime;
     struct PreparedState;
     std::unique_ptr<PreparedState> prepared_state_;
     void remember(CustomResource&);
+    void remember(CustomShader&);
     void remember(ResourceCopyOperation&);
     void remember(SlotRangeCopyOperation&);
     void remember(CustomResourcePool*);
