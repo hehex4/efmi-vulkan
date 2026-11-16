@@ -30,6 +30,8 @@ struct NativeResource {
     bool uploaded_readonly = false; // Published immutable file upload; every consumer must be read-only.
     bool uploaded_mutable = false; // Private pinned file allocation; compute and explicit hazards only.
     uint32_t buffer_stride = 0; // File-declared structure stride, independent of the bound view.
+    uint32_t index_size = 0, index_min = 0, index_max = 0;
+    bool index_bounds = false; // Immutable upload snapshot, never inferred from later GPU contents.
     uint64_t publication_semaphore = 0, publication_value = 0; // Completed upload, retained by keep.
     std::shared_ptr<const void> keep; // Complete view/resource/allocation chain, or absent when unretainable.
 };

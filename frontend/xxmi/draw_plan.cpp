@@ -1134,6 +1134,15 @@ struct DrawPlanAdapter::Runtime {
             }else value.kind=SlotValue::Kind::Foreign;
         }
         const auto pipeline=facts?facts():PipelineFacts{};
+        if(pipeline.native_calls && (id.kind==SlotKind::Vertex || id.kind==SlotKind::Index)){
+            PlanItem item;item.operation=id.kind==SlotKind::Vertex?PlanOperation::BindVertex:PlanOperation::BindIndex;
+            item.slot=id.slot;
+            if(value.kind==SlotValue::Kind::Resource)item.resource=value.resource;
+            else if(value.kind==SlotValue::Kind::Owned)item.owned=value.owned;
+            else if(value.kind==SlotValue::Kind::Application && value.source==id)item.application_slot=int(id.slot);
+            else if(!value.null())refuse_draw(L"Native geometry binding needs a file, owned buffer or original slot");
+            append(std::move(item));context.set(id,std::move(value));return;
+        }
         NativeBinding address;std::wstring address_reason;
         const bool addressed=native_address && native_address(id,address,address_reason);
         if(pipeline.native_calls || (pipeline.native_descriptors && addressed) ||

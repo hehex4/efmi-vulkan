@@ -7,6 +7,12 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-305 file geometry verified; continue generic declarations and live resources
+
+- Done: root-driven file VB/IB assignments, per-recording persistent IA state, exact named application rebinds, bounded retained uploads and publication waits. Source/four DLLs 3.2.3 / ABI 54ef0e38e8e5228f. Geometry GPU 52, calls 60, files 42, tracker 825 and original runtime 553 pass; the initial stale activation assertion is recorded separately.
+- Next: reconnect exact shader input metadata to general layout/stride variants and supply application IA facts. Then bridge actual application resources to original Core GPU commands with ordered in-draw execution. Owned geometry cannot be accepted from an allocation owner alone.
+- Migrate retired package-rendering fixtures/documentation, refresh release acceptance only when its current scope is correct, and continue native I-01 resource/queue scheduling, I-04 phases, I-05 readiness and capture. No game authorization.
+
 ## D-304 loading path removed; finish generic execution before native queue work
 
 - Done: production root configuration loading, global hash matching, single Present/F10 generation and module exchange; removed character package discovery/controllers/activation, native Core substitution and offline package-planning entries. Source/four development DLLs are 3.2.2 / ABI 964248fc551584a0. Verification and scope are in CURRENT_STATE.md.

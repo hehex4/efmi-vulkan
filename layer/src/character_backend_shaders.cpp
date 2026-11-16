@@ -550,7 +550,7 @@ void character_activate(CharacterBackend& b)
     // Matched Mod output queries need attachment contexts even without ShaderOverrides
     // or hunting. Publish tracking before the application's next render pass begins.
     if(b.enabled.load(std::memory_order_relaxed))b.device->track_image_layouts.store(true,std::memory_order_relaxed);
-    b.device->shader_draws.store((current && !current->hashes.empty()) || b.hunting.enabled() || b.hunting.analysing(),std::memory_order_relaxed);
+    b.device->shader_draws.store(program || b.hunting.enabled() || b.hunting.analysing(),std::memory_order_relaxed);
     b.device->native_binding_order.store(program && program->runtime() && !program->runtime()->native_bindings().empty(),std::memory_order_relaxed);
 }
 
@@ -612,7 +612,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
     if (run_lists) { std::shared_lock<std::shared_mutex> lock(b.index_mx); hooks = b.shader_hooks; }
     uint32_t index_hash = 0;
     bool matched_index = false;
-    if (hooks && hooks->program && r.kind == DK_INDEXED) {
+    if (hooks && hooks->program && r.kind == DK_INDEXED && !(cb->native_geometry && cb->native_geometry->index_overridden)) {
         std::shared_lock<std::shared_mutex> lock(b.device->res_mx);
         matched_index = index_region_hash(b.device, r, b.frames.load(std::memory_order_relaxed), index_hash);
     }
@@ -650,7 +650,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         std::string reason;
         bool ran = false;
         {
-            // The folder's generation is one program: one plan at a time with every package's (D-131).
+            // All included lists share one configuration and one interpreter state.
             std::lock_guard<std::mutex> lock(*hooks->folder->plan_mx);
             ran = matched_index ? hooks->program->runtime()->draw(request, plan, reason)
                                 : hooks->program->runtime()->shader_draw(request, plan, reason);
@@ -681,6 +681,15 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         } else if (plan.skip_original) {
             skip = true;
         }
+    }
+    if(!skip && cb->native_geometry){
+        // Even an empty or refused matched list leaves earlier IA assignments active.
+        efmi::assets::FilePlan plan;plan.skip_original=true;
+        efmi::assets::FilePlanItem call;call.operation=efmi::assets::FileOperation::Caller;plan.items.push_back(call);
+        std::string reason;
+        if(native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason,false))return true;
+        std::lock_guard<std::mutex> lock(b.shader_note_mx);b.shader_note=reason;
+        ++b.shader_draws_refused;return true;
     }
     if (skip) b.shader_draws_skipped.fetch_add(1, std::memory_order_relaxed);
     return skip;

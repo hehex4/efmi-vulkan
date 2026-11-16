@@ -946,6 +946,7 @@ static void immutable_sampler_lifetime()
 #include "native_uniform_persistence_cases.h"
 #include "native_rendering_boundary_cases.h"
 #include "dynamic_geometry_cases.h"
+#include "native_geometry_cases.h"
 #include "translucent_scene_cases.h"
 
 int main()
@@ -1001,6 +1002,7 @@ int main()
     native_rendering_boundary_cases();
     native_segment_transition_cases();
     dynamic_geometry_cases();
+    native_geometry_cases();
     secondary_publication_dependencies();
     image_layout_cases(check);
     image_layout_tracker_cases();

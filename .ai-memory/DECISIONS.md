@@ -13,6 +13,16 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-305: Preserve original IA assignment lifetime (2026-11-16)
+
+Original CommandList.cpp 10064-10072 binds IA resources into persistent context state.
+The Vulkan adapter therefore records ordered assignments and keeps immutable state
+between draws, clearing only explicitly rebound application slots. A command owner
+retains unique immutable uploads and waits their completed publication on each actual
+consumer queue. Every subsequent draw validates the effective state; no per-character
+activation, eager mesh loading or implicit per-draw restoration is introduced. Allocation
+ownership alone does not authorize owned GPU outputs or application resource ordering.
+
 ## D-304: Remove the package loader before rebuilding generic execution (2026-11-16)
 
 One ConfigurationProgram owns the original root and includes, with ordinary GPU

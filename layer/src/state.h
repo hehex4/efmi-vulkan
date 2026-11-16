@@ -8,6 +8,7 @@
 #include "pipeline_recipe.h"
 #include "pacing.h"
 #include "work.h"
+#include "native_geometry_state.h"
 
 #include <array>
 #include <atomic>
@@ -475,6 +476,7 @@ struct CmdBuf {
     bool native_images = false; // Persistent image and graphics-buffer descriptor requests.
     bool native_mutable = false; // This recording carries mutable file bindings and their compute hazards.
     bool native_uniforms = false; // Persistent graphics application references need later-pass ordering too.
+    std::shared_ptr<const NativeGeometryState> native_geometry;
     VkRenderingFlags native_rendering_flags = 0; // Segment boundaries cannot contain injected synchronization.
     bool native_graphics_ordered = false; // An actual dependency was recorded before the current pass.
     bool native_image_blocked = false;

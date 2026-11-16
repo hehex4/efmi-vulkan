@@ -1,4 +1,5 @@
 #include "native_execution.h"
+#include "native_geometry.h"
 #include "native_descriptors.h"
 #include "native_targets.h"
 #include "texture_residency.h"
@@ -52,7 +53,9 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
     {
         std::lock_guard<std::mutex> lock(cache.mutex);
         for(size_t i=0;i<input.items.size();++i){
-            if(input.items[i].operation!=efmi::assets::FileOperation::NativeBind)continue;
+            const auto operation=input.items[i].operation;
+            if(operation!=efmi::assets::FileOperation::NativeBind && operation!=efmi::assets::FileOperation::BindVertex &&
+               operation!=efmi::assets::FileOperation::BindIndex)continue;
             const auto& file=input.items[i].resource;if(!file)continue;
             if(!residency){why="Native file residency is unavailable";return false;}
             auto found=cache.files.find(file.get());
@@ -83,6 +86,10 @@ bool native_files(NativeCallCache& cache,TextureResidency* residency,const efmi:
             resource->buffer=uint64_t(buffer->buffer());resource->size=resource->range=buffer->size();
             resource->usage=buffer->usage();resource->buffer_stride=resource->stride=file.stride;
             resource->bind_flags=file.native_bind_flags;
+            if(item.operation==efmi::assets::FileOperation::BindIndex){
+                resource->index_size=file.index_type==VK_INDEX_TYPE_UINT16?2:file.index_type==VK_INDEX_TYPE_UINT32?4:0;
+                resource->index_bounds=buffer->index_extents(file.index_type,resource->index_min,resource->index_max);
+            }
         }else{
             const auto& image=*binding.owner;const auto& metadata=image.metadata();
             const bool storage=item.native_target.kind==efmi::frontend::NativeBinding::Access;
@@ -202,8 +209,10 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
     for (const auto& item : plan.items) {
         // DrawCommand returns before evaluating arguments when hunting hides this draw.
         if(hunting_skip && (item.operation==O::Caller || item.operation==O::DrawIndexed || item.operation==O::Dispatch))continue;
-        if (!item.layout.empty() || item.automatic || (item.resource && item.operation!=O::NativeBind) || item.owned)
+        const bool geometry=item.operation==O::BindVertex || item.operation==O::BindIndex;
+        if (!item.layout.empty() || item.automatic || (item.resource && item.operation!=O::NativeBind && !geometry) || item.owned)
             return refuse("Native call plan contains an unsupported layout or resource operation");
+        if(geometry){if(compute)return refuse("Native geometry cannot run in a compute scope");continue;}
         if (item.operation == O::Caller || item.operation == O::NativeBind) continue;
         if (item.operation == O::Dispatch) {
             if (!compute) return refuse("Native dispatch cannot run in the application's graphics pass");
@@ -212,7 +221,10 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
                 return refuse("Native dispatch dimensions exceed the device limits");
         } else if (item.operation == O::DrawIndexed) {
             if (compute) return refuse("Native graphics call has no graphics render-pass scope");
-            if (item.indexed) {
+            const bool geometry=cb->native_geometry || std::any_of(plan.items.begin(),plan.items.end(),[](const auto& value){
+                return value.operation==O::BindVertex || value.operation==O::BindIndex;
+            });
+            if (item.indexed && !geometry) {
                 const auto buffer = device->bufs.find(r.ib);
                 if (buffer == device->bufs.end() || !r.index_size || r.ib_off > buffer->second.size ||
                     uint64_t(item.first_index) + item.index_count > (buffer->second.size - r.ib_off) / r.index_size)
@@ -225,11 +237,17 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
     if(!hunting_skip || !compute){
         if(!prepare_native_transaction(cache,residency,device,cb,r,plan,transaction,why,nullptr,wait_files,pending))return false;
     }
+    NativeGeometryPlan geometry;
+    if(!hunting_skip && !prepare_native_geometry(device,cb,r,transaction.plan,geometry,why))return false;
+    if(hunting_skip && !compute && !prepare_native_geometry(device,cb,r,transaction.plan,geometry,why))return false;
     begin_native_transaction(device,cb,transaction);
     const size_t split = std::min(plan.pre_items,plan.items.size());
     auto record = [&](size_t index) {
         if (hunting_skip && compute) return;
         const auto& item=plan.items[index];
+        if(item.operation==O::BindVertex || item.operation==O::BindIndex){
+            record_native_geometry(device,cb,transaction.plan,geometry,index);return;
+        }
         if(item.operation==O::NativeBind){
             record_native_binding(device,cb,r,transaction,index);return;
         }

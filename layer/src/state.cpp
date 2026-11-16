@@ -332,7 +332,14 @@ void on_set_vertex_input(CmdBuf* cb,uint32_t bindings,const VkVertexInputBinding
 void on_bind_vertex_buffers(CmdBuf* cb,uint32_t first,uint32_t count,const VkBuffer* buffers,const VkDeviceSize* offsets,
                             const VkDeviceSize* sizes,const VkDeviceSize* strides)
 {
-    if(!cb || first>=kMaxVb)return;
+    if(!cb)return;
+    if(cb->native_geometry){
+        auto next=std::make_shared<NativeGeometryState>(*cb->native_geometry);
+        for(auto it=next->vertices.begin();it!=next->vertices.end();)
+            if(it->first>=first && uint64_t(it->first)-first<count)it=next->vertices.erase(it);else ++it;
+        cb->native_geometry=next->empty()?nullptr:std::move(next);
+    }
+    if(first>=kMaxVb)return;
     const auto n=std::min(count,kMaxVb-first);
     for(uint32_t i=0;i<n;++i){
         auto& binding=cb->vb[first+i];binding.buf=buffers?buffers[i]:VK_NULL_HANDLE;
@@ -347,6 +354,7 @@ void CmdBuf::reset_recording()
     image_layouts.reset();execution_scopes.reset();native_target_state.reset();native_pipeline.reset();native_target_blocked=false;
     native_image_state.reset(); native_images = false; native_mutable = false; native_image_blocked = false; native_image_reason.clear();
     native_uniforms = false; native_graphics_ordered = false; native_rendering_flags = 0;
+    native_geometry.reset();
     executed_owners.clear();
     begin_flags = 0;
     for (auto& owner : owners) if (owner) owner->reset_after_completion();

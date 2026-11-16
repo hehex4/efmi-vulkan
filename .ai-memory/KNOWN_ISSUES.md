@@ -1,5 +1,14 @@
 # EFMI Vulkan - Known issues
 
+## BUG-158: Root geometry assignments entered the descriptor adapter (file subset fixed 3.2.3)
+
+D-304 root execution sent vb/ib assignments to native descriptor addressing and refused
+ordinary file geometry. The unchanged baseline passes 3/6 pixel checks with the missing
+descriptor-address reason. D-305 adds a separate persistent IA command path, immutable
+upload range proofs and recording ownership; final GPU geometry checks pass 52/52.
+Layout/stride variants, owned producer ordering and application IA reference/range
+adaptation remain active work. This does not validate original Core rendering.
+
 ## BUG-157: A detached color target could not acquire a sampled layout (supported subset fixed 3.2.1)
 
 The 3.2.0 baseline passes 9/12: an independent target write works, but sampling it after detachment refuses because its original COLOR_ATTACHMENT_OPTIMAL layout is unreadable. D-301 proves an earlier split for the exact retained non-original color view/subresource, uses GENERAL while detached and restores its original layout at scope end even when inactive. Focused checks pass 37; the full image-phase suite passes 125 and affected-area/module regressions pass. The shared restoration flag changes the ABI to 7c4613bb6a168795 and requires matching host/backend artifacts. Other phases, original-output aliases and implicit conflicting-input nulling remain open; queue guards are unchanged.

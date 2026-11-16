@@ -79,3 +79,12 @@ semantics integration and ordered in-draw GPU work remain required. Existing cap
 replay and package-rendering acceptance fixtures need migration; their historical
 results do not validate this replacement. Finish these adapters before claiming
 compatibility completion or returning to the remaining native queue work.
+
+D-305 supplies generic immutable file VB/IB assignments and persistent IA state.
+Declarations are uploaded on use through the shared resource cache. Every recorded
+use retains its complete allocation/publication chain; application rebinds clear only
+named slots. Actual pixels, 16/32-bit indices, bounds, post restoration, F10, two queues
+and module exchange pass 52 checks, with 825 tracker and 553 original runtime checks.
+Native call/file regressions pass 60/42. Layout and stride variants, retained application
+IA inputs and owned GPU producer ordering remain incomplete. Source/development DLLs
+are 3.2.3; this is sandbox evidence only.

@@ -11,12 +11,13 @@ static void module_publication_cases()
     character_stop(staged);
     check(device.shader_draws && device.native_binding_order,"retiring or rejecting a backend cannot disable the active module's dispatch flags");
     auto active=std::make_shared<CharacterBackend>();active->device=&device;
-    auto hooks=std::make_shared<CharacterBackend::ShaderHooks>();hooks->hashes.push_back(123);active->shader_hooks=hooks;
+    ConfigurationProgram program;
+    auto hooks=std::make_shared<CharacterBackend::ShaderHooks>();hooks->program=&program;active->shader_hooks=hooks;
     device.shader_draws=false;device.native_binding_order=true;
     device.hunting_overlay=[](Device*,const char*){++module_publication_fixture::calls;};
     device.analysis_frame=[](Device*,const char*,uint32_t){++module_publication_fixture::calls;};
     const auto* module=builtin_character_module();module->activate(*active);
-    check(device.shader_draws && !device.native_binding_order,"installation publishes prepared native hooks before the first draw");
+    check(device.shader_draws && !device.native_binding_order,"installation dispatches a root program even without named shader hashes");
     check(!active->frame_calls && !module_publication_fixture::calls,"activation does not simulate Present or publish analysis and overlay callbacks");
     device.character_mode=true;device.character=active;device.character_module=module;device.native_binding_order=true;
     m2_stop(&device);

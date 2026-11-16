@@ -8,6 +8,13 @@ original Core application resource execution and ordered GPU work are still bein
 ported; see docs/configuration-execution-rewrite.md and CURRENT_STATE.md. Do not use
 the former package model as an implementation requirement.
 
+D-305 adds a generic file IA executor. NativeGeometryState is immutable recording
+state retained independently of backend generations. Application binds clear only
+their named slots; geometry command owners retain distinct uploads and their completed
+publication dependencies. Draws validate effective ranges before recording any plan.
+The current subset requires matching static strides; layouts and live Core resources
+remain migration work.
+
 > Rewritten 2026-11-10 from the code (docs/architecture-review-2.1.md, P4-1). What was here before, the
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.

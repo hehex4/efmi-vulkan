@@ -428,11 +428,19 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindPipeline(VkCommandBuffer cmd, VkPipelineBin
     if(bound)dev->d.CmdBindPipeline(cmd, point, bound);
 }
 
+static void clear_native_index(CmdBuf* cb)
+{
+    if(!cb->native_geometry)return;
+    auto next=std::make_shared<NativeGeometryState>(*cb->native_geometry);
+    next->index_overridden=false;next->index.reset();
+    cb->native_geometry=next->empty()?nullptr:std::move(next);
+}
 VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer(VkCommandBuffer cmd, VkBuffer buf, VkDeviceSize off, VkIndexType type)
 {
     count_call(HI_CmdBindIndexBuffer);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        clear_native_index(cb);
         cb->ib = buf;
         cb->ib_off = off;
         cb->index_size = index_size_of(type);
@@ -446,6 +454,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2(VkCommandBuffer cmd, VkBuffer 
     count_call(HI_CmdBindIndexBuffer2);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        clear_native_index(cb);
         cb->m2_extended_bind = true;
         cb->ib = buf;
         cb->ib_off = off;
@@ -460,6 +469,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdBindIndexBuffer2KHR(VkCommandBuffer cmd, VkBuff
     count_call(HI_CmdBindIndexBuffer2KHR);
     Device* dev = dev_of(cmd);
     if (CmdBuf* cb = cb_of(dev, cmd)) {
+        clear_native_index(cb);
         cb->m2_extended_bind = true;
         cb->ib = buf;
         cb->ib_off = off;
