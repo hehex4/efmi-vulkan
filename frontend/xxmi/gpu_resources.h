@@ -27,6 +27,7 @@ struct GpuResourceBinding {
 };
 // D3D11 hazards operate on source subresources, not Vulkan byte intervals.
 bool source_bindings_overlap(const GpuResourceBinding&,const GpuResourceBinding&) noexcept;
+bool source_attachments_compatible(const GpuResourceBinding&,const GpuResourceBinding&);
 // Original INI adapter for owned mutable resources. Stage slots are logical
 // source-API bindings; graphics/compute descriptor emission is a separate host
 // responsibility. They must not be mistaken for changed application bindings.
@@ -70,13 +71,34 @@ public:
         uint32_t stride=0;
         std::shared_ptr<const SourceResourceIdentity> identity;
     };
-    struct ApplicationBufferState {
-        std::vector<ApplicationBufferBinding> bindings;
-        // A complete buffer-only source context: every omitted slot is proven
-        // unbound, including image/output slots. Unknown context must refuse.
+    struct ApplicationImageSource {
+        uint64_t resource_id=0;
+        bool source_known=false;
+        ImageSourceDescription description;
+        gpu::ApplicationImage allocation;
+        std::shared_ptr<const SourceResourceIdentity> identity;
+    };
+    struct ApplicationImageBinding {
+        wchar_t stage=0;
+        ResourceCopyTargetType type=ResourceCopyTargetType::INVALID;
+        unsigned slot=0;
+        // Null means explicitly unbound; source facts are shared across views.
+        std::shared_ptr<const ApplicationImageSource> source;
+        bool view_known=false,volume_full_depth=false;
+        DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
+        VkImageViewType view_type=VK_IMAGE_VIEW_TYPE_2D;
+        VkImageSubresourceRange range{};
+        UINT flags=0; // Read-only depth views need their own original hazard rules.
+    };
+    struct ApplicationResourceState {
+        std::vector<ApplicationBufferBinding> buffers;
+        std::vector<ApplicationImageBinding> images;
+        // Fresh layout facts for saved named references that are no longer bound.
+        std::vector<std::shared_ptr<const ApplicationImageSource>> observations;
+        // Every omitted source slot is proven unbound. Unknown context refuses.
         bool omitted_slots_unbound=false;
     };
-    void begin_prepared(const ApplicationBufferState&);
+    void begin_prepared(const ApplicationResourceState&);
     std::shared_ptr<const gpu::PreparedResourceCommands> finish_prepared();
     void accept_prepared();
     bool scope_active() const {return active_;}
@@ -142,6 +164,15 @@ private:
     };
     std::map<uint64_t,ImportedBuffer> imported_buffers_;
     std::map<uint64_t,std::pair<uint64_t,std::weak_ptr<gpu::BufferResource>>> imported_handles_;
+    struct ImportedImage {
+        std::weak_ptr<gpu::ImageResource> image;
+        ImageSourceDescription description;
+    };
+    std::map<uint64_t,ImportedImage> imported_images_;
+    std::map<VkImage,std::pair<uint64_t,std::weak_ptr<gpu::ImageResource>>> imported_image_handles_;
+    std::map<std::array<uint64_t,9>,std::weak_ptr<gpu::ImageViewResource>> imported_image_views_;
+    GpuResourceBinding import_application_image(const ApplicationImageSource&);
+    void import_application_view(GpuResourceBinding&,const ApplicationImageBinding&);
     using Slot=std::tuple<wchar_t,ResourceCopyTargetType,unsigned>;
     GpuResourceBinding backbuffer_;
     bool backbuffer_targeted_=false;

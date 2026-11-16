@@ -52,7 +52,7 @@ endif
     auto second=app.create(bytes,VK_BUFFER_USAGE_TRANSFER_DST_BIT,nullptr,0,true);
     {auto ticket=app.submit(d.queue);ticket->wait();}
     auto snapshot=[&](const gpu::Buffer& buffer,uint64_t identity){
-        Runtime::ApplicationBufferState state;state.omitted_slots_unbound=true;
+        Runtime::ApplicationResourceState state;state.omitted_slots_unbound=true;
         Runtime::ApplicationBufferBinding binding;binding.stage=L'v';binding.type=Target::SHADER_RESOURCE;
         binding.source_known=true;binding.description={UINT(bytes),D3D11_USAGE_DEFAULT,D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS,
             0,D3D11_RESOURCE_MISC_BUFFER_STRUCTURED,4};
@@ -62,21 +62,21 @@ endif
         auto facts=std::make_shared<frontend::SourceResourceIdentity>();facts->tracking=frontend::SourceResourceIdentity::Tracking::Tracked;
         facts->hash_known=true;facts->hash=0xabcdef12;
         facts->region_hash=[](UINT,UINT,uint32_t& hash,std::wstring&){hash=0xabcdef12;return true;};binding.identity=facts;
-        state.bindings.push_back(binding);binding.stage=L'p';state.bindings.push_back(binding);return state;
+        state.buffers.push_back(binding);binding.stage=L'p';state.buffers.push_back(binding);return state;
     };
     auto initial=snapshot(source,101),later=snapshot(next,102);
     auto reject=[&](auto change,const char* name){auto invalid=initial;change(invalid);
         refuses([&]{resources.begin_prepared(invalid);},name);
         check(!resources.scope_active() && !resources.pending(),"Rejected snapshot leaves no partial GPU scope");};
     reject([](auto& s){s.omitted_slots_unbound=false;},"Unknown omitted application slots cannot become null bindings");
-    reject([](auto& s){s.bindings[0].source_known=false;},"Vulkan storage does not imply original source declarations");
-    reject([](auto& s){s.bindings[0].resource.keep.reset();},"Unretained application resources cannot enter the registry");
-    reject([](auto& s){s.bindings[0].resource.range+=4;},"Application view bounds are checked before publication");
-    reject([](auto& s){s.bindings[1]=s.bindings[0];},"Duplicate source slots refuse atomically");
-    reject([](auto& s){s.bindings[1].stage=L'c';s.bindings[1].type=Target::UNORDERED_ACCESS_VIEW;},
+    reject([](auto& s){s.buffers[0].source_known=false;},"Vulkan storage does not imply original source declarations");
+    reject([](auto& s){s.buffers[0].resource.keep.reset();},"Unretained application resources cannot enter the registry");
+    reject([](auto& s){s.buffers[0].resource.range+=4;},"Application view bounds are checked before publication");
+    reject([](auto& s){s.buffers[1]=s.buffers[0];},"Duplicate source slots refuse atomically");
+    reject([](auto& s){s.buffers[1].stage=L'c';s.buffers[1].type=Target::UNORDERED_ACCESS_VIEW;},
         "An application snapshot cannot bypass original input/output hazards");
-    reject([](auto& s){auto facts=std::make_shared<frontend::SourceResourceIdentity>(*s.bindings[1].identity);
-        facts->hash=9;s.bindings[1].identity=std::move(facts);},"Aliases cannot publish contradictory original source hashes");
+    reject([](auto& s){auto facts=std::make_shared<frontend::SourceResourceIdentity>(*s.buffers[1].identity);
+        facts->hash=9;s.buffers[1].identity=std::move(facts);},"Aliases cannot publish contradictory original source hashes");
     auto run=[&](const auto& state){resources.begin_prepared(state);
         check(ini->present({},10,0,why) && !resources.failed(),"Original copy and CustomShader execute on imported application bindings");};
     run(initial);
@@ -88,8 +88,8 @@ endif
     resources.discard();cancelled.reset();
     check(resources.binding(L'v',Target::SHADER_RESOURCE,0).buffer==imported.buffer &&
         !resources.binding(L'c',Target::UNORDERED_ACCESS_VIEW,0),"Cancellation restores the observed application slots");
-    reject([](auto& s){for(auto& b:s.bindings)b.resource.memory_offset+=4;},"A retained application identity cannot be recycled for another allocation range");
-    reject([](auto& s){for(auto& b:s.bindings)b.resource.identity=103;},"A retained application handle cannot bypass source hazards with a new identity");
+    reject([](auto& s){for(auto& b:s.buffers)b.resource.memory_offset+=4;},"A retained application identity cannot be recycled for another allocation range");
+    reject([](auto& s){for(auto& b:s.buffers)b.resource.identity=103;},"A retained application handle cannot bypass source hazards with a new identity");
     run(initial);auto output=resources.binding(L'c',Target::UNORDERED_ACCESS_VIEW,0).buffer;
     auto packet=resources.finish_prepared();resources.accept_prepared();
     check(packet && packet->changes_compute_state() && output,"Original CustomShader prepares compute state restoration obligations");

@@ -31,6 +31,7 @@ bool source_bindings_overlap(const GpuResourceBinding& a,const GpuResourceBindin
     return interval(ar.baseMipLevel,ar.levelCount,br.baseMipLevel,br.levelCount) &&
         interval(ar.baseArrayLayer,ar.layerCount,br.baseArrayLayer,br.layerCount);
 }
+bool source_attachments_compatible(const GpuResourceBinding& a,const GpuResourceBinding& b){return attachment_size(a,b);}
 void GpuResourceRuntime::assign_binding(Slot key,GpuResourceBinding value){
     if(deferred_bindings_){(*deferred_bindings_)[key]=std::move(value);return;}
     Bindings pending;pending.emplace(key,std::move(value));publish_bindings(std::move(pending));

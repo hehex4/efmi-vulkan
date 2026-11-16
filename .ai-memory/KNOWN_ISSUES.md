@@ -1,5 +1,18 @@
 # EFMI Vulkan - Known issues
 
+## BUG-164: Cancelled image copies retained speculative pool allocations (fixed 3.3.4)
+
+D-314 journaled image bindings but omitted the separate named/instruction image
+allocation pools. Cancelling an initial copy removed its registry binding while the
+pool still retained the unexecuted allocation; lazy original pool declarations could
+also leave cache entries keyed by retired declarations. The application-image fixture
+reproduces retained storage after both packet and registry cancellation. Original
+ResourcePool::emplace/destruction AddRef/Release their entries, and CopyResourceToResource
+selects either the declaration or instruction pool. DX11 supplies reference-counted
+lifetime with deferred destruction, hazard tracking and one-context order. D-317 adds
+both Vulkan image pools to the existing touched-entry undo journal and restores them
+before removing lazy original registrations. See current state for verification.
+
 ## BUG-163: Cancelled parameter publication could lose its retry (fixed 3.3.2)
 
 Adding prepared images exposed an adapter flush optimization that only consulted

@@ -3605,3 +3605,32 @@ insertion with attachment/compute restoration and recording lifetime, then remai
 capture fixtures and native I-01/I-04/I-05/capture. This is low-level headless evidence;
 production Core remains incomplete. No candidate refresh, game activity, installed or
 system mutation, or remote write.
+
+## 2026-11-16: D-317 complete original resource binding snapshots
+
+ApplicationResourceState combines buffers, explicitly known image views and separate
+fresh observations for saved image references. Weak allocation/view caches preserve
+source identity and original subresource/output hazard checks precede slot publication.
+Original GetResource retains current views/resources; ResourcePool::emplace/destruction
+AddRef/Release cached allocations. DX11 supplies reference-counted lifetime with
+deferred destruction, hazard tracking and one-context order. Production insertion
+and complete source mapping remain separate obligations.
+
+application-images-first.out passes 259 and reviewed format/cross-kind checks pass
+265. Review finds BUG-164: only image bindings, not the separate image allocation
+pools, rolled back. application-images-pool-before.out reproduces a cancelled named
+copy retaining storage. The journal now saves/restores named and instruction image
+pools before lazy original declarations retire. application-images-pool-fixed.out
+passes 267 with zero core/synchronization errors or warnings. Original references
+preserve array layer 1; whole copies read both layers; repeated application producers
+yield compute values 14 and 22; missing saved-image observations refuse and retry.
+Both cancelled allocation pools release their new images.
+
+Four DLLs build as 3.3.4 / ABI ff5c853cc3759e7d in application-images-final-build.out.
+Fresh root 27/interpreter 570 pass in application-images-runtime.out; production 13,
+ordinary images/parameters 3,010, tracker 838, ABI 9 and text pass in
+application-images-regression.out. Diff and memory accompany the local commit.
+Continue ordered packet segmentation and production source mapping/insertion,
+attachment preservation, compute restoration and recording lifetime, then remaining
+native capture fixtures and I-01/I-04/I-05. Production Core remains incomplete.
+No candidate refresh, game activity, installed/system mutation or remote write.

@@ -13,6 +13,23 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-317: Import one complete observed original resource binding state (2026-11-16)
+
+ApplicationResourceState combines buffers and explicitly known original image views.
+Image sources retain allocation/source descriptions, stable identity and hash facts;
+saved named references use independent fresh layout observations when no longer bound.
+Bounded weak allocation/view caches preserve alias identity and reject retained handle
+recycling. Validate original subresource hazards, attachment compatibility and pixel
+UAV/RTV register overlap before publishing any slots. Missing source/view facts refuse;
+read-only DSV and partial volume views require their own adapters.
+
+Original GetResource references current views/resources, while DX11 supplies
+reference-counted lifetime with deferred destruction, hazard tracking and one-context
+order. The production host still must provide exact source mapping, ordered packet
+positions, pass/compute restoration and recording lifetime. Do not substitute the
+former pre-submission Draw mode. BUG-164 also journals both image allocation pools:
+cancelled entries must release before lazy original declarations can retire.
+
 ## D-316: Retain application images with fresh whole-image layout proofs (2026-11-16)
 
 Prepared resource commands may import an optimal application image only with its

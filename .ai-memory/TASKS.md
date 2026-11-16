@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-317 source snapshots and image-pool rollback verified; continue insertion
+
+- Done in source/four DLLs 3.3.4: complete buffer/image source binding snapshots, saved-reference layout observations, weak image/view identity and original output hazards. GPU 267 passes with clean validation; BUG-164 image allocation-pool rollback is reproduced and fixed. Fresh root 27/interpreter 570, ordinary images/parameters 3,010, production 13, tracker 838, ABI 9 and text pass.
+- Next: ordered packet segments across caller draws, retaining one all-or-nothing registry admission; production source mapping, attachment preservation, compute restoration and recording lifetime. Then remaining native capture fixtures and I-01/I-04/I-05. Production Core remains incomplete; no game authorization.
+
 ## D-316 retained application image commands verified; complete source snapshots
 
 - Done: low-level application image ownership, fresh whole-image layout proofs, alias identity, immutable layout restoration and transfer-usage checks. Source/four DLLs 3.3.3 / ABI ff5c853cc3759e7d. Prepared 112, configuration GPU 208, ordinary images/parameters 3,010, production 13, tracker 838 and ABI 9 pass with clean validation.

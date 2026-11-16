@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <typeinfo>
 #include "gpu_prepared_state.h"
+#include "gpu_application_images.h"
 #include "gpu_application_bindings.h"
 
 void FrontendBufferViewElements(UINT,UINT,DXGI_FORMAT,UINT,UINT&,UINT&);
@@ -322,7 +323,8 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         else if(t.type==Target::CONSTANT_BUFFER){b.stride=0;b.format=DXGI_FORMAT_UNKNOWN;}
         else if(t.type==Target::INDEX_BUFFER){b.stride=dxgi_format_size(b.format);b.visible_size=0;}
         else if(t.type==Target::VERTEX_BUFFER){b.format=DXGI_FORMAT_UNKNOWN;b.visible_size=0;}}
-    require(!prepared_state_ || !b.image || !b.image->is_external(),"Prepared application images require retained allocation and layout proofs");
+    require(!prepared_state_ || !b.image || !b.image->is_external() || b.image->retained_external(),
+        "Prepared application images require retained allocation and layout proofs");
     if(b && input.evaluation_mode==Mode::RESOURCE_REGION) {
         require(input.member_args[0].expression && input.member_args[1].expression,"GPU region requires offset and size");
         b.offset=uint_value(input.member_args[0].GetValue(&state));b.visible_size=uint_value(input.member_args[1].GetValue(&state));

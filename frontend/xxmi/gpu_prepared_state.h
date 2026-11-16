@@ -68,6 +68,8 @@ struct GpuResourceRuntime::PreparedState {
     ResourceMapUndo<decltype(copies_)> copies;
     ResourceMapUndo<decltype(resource_copy_pools_)> resource_pools;
     ResourceMapUndo<decltype(command_copy_pools_)> command_pools;
+    ResourceMapUndo<decltype(resource_image_pools_)> resource_images;
+    ResourceMapUndo<decltype(command_image_pools_)> command_images;
     ResourceMapUndo<decltype(range_views_)> range_views;
     Bindings slots;
     D3D11_VIEWPORT viewport;
@@ -84,6 +86,7 @@ void GpuResourceRuntime::remember(CustomResource& r){
     undo.declarations.try_emplace(&r,PreparedState::Declaration{r.is_null,bool(substantiated_.count(&r)),r.bind_flags,r.misc_flags,
         r.stride,r.offset,r.buf_size,r.source_stride,r.frame_no,r.format,r.copies_this_frame});
     undo.resources.remember(resources_,&r);undo.resource_pools.remember(resource_copy_pools_,&r);
+    undo.resource_images.remember(resource_image_pools_,&r);
 }
 void GpuResourceRuntime::remember(CustomResourcePool* pool){
     if(!prepared_state_ || !pool)return;
@@ -114,6 +117,7 @@ void GpuResourceRuntime::remember(PoolCopyOperation& op){
 void GpuResourceRuntime::remember(ResourceCopyOperation& op){
     if(!prepared_state_)return;
     prepared_state_->copies.remember(copies_,&op);prepared_state_->command_pools.remember(command_copy_pools_,&op);
+    prepared_state_->command_images.remember(command_image_pools_,&op);
 }
 void GpuResourceRuntime::remember(SlotRangeCopyOperation& op){
     if(prepared_state_)prepared_state_->range_views.remember(range_views_,&op);
@@ -124,6 +128,7 @@ void GpuResourceRuntime::rollback_prepared() noexcept {
     if(undo.pools)undo.pools->restore_metadata();
     undo.resources.restore(resources_);undo.copies.restore(copies_);
     undo.resource_pools.restore(resource_copy_pools_);undo.command_pools.restore(command_copy_pools_);undo.range_views.restore(range_views_);
+    undo.resource_images.restore(resource_image_pools_);undo.command_images.restore(command_image_pools_);
     slots_=std::move(undo.slots);viewport_=undo.viewport;backbuffer_targeted_=undo.backbuffer_targeted;
     parameter_republish_=parameter_republish_ || undo.parameter_republish || parameter_uploads_!=undo.parameter_uploads;
     parameter_uploads_=undo.parameter_uploads;

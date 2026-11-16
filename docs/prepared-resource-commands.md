@@ -281,3 +281,45 @@ after the preparing engine is destroyed. The attachment-layout packet yields 14 
 22, while an intervening GENERAL-layout copy sees 7. All allocation owners retire
 after the executable packets. Full original registry image snapshots and production
 ordered insertion remain separate follow-up work.
+
+## Complete original resource binding snapshots (D-317)
+
+ApplicationResourceState replaces the buffer-only input. Its buffer and image lists
+describe one complete observed original binding state; every omitted slot must be
+proven null. Image sources separate stable resource identity, original allocation
+description and source hash facts from each explicitly known typed view. The Vulkan
+allocation must match the source shape, format family and bind usages. No register,
+structure layout, depth flag or source format is inferred from a Vulkan descriptor.
+
+The shared importer reuses weak allocation and view identities, rejecting retained
+handle/identity recycling and contradictory alias facts. Source hazards use mip/layer
+ranges, with depth/stencil sharing the original subresource. A snapshot refuses input/
+output overlap, duplicate outputs, incompatible attachments and pixel UAV registers
+overlapping the RTV range. It never silently repairs an invalid supplied context.
+Read-only DSV flags and partial volume views require separate explicit adapters.
+
+Saved named references may no longer occur in an application slot. The observations
+list supplies their fresh whole-image layout facts without rebinding a fake source
+slot. The low-level command engine still refuses actual GPU use if such an observation
+is missing. Cancellation restores the newly observed application bindings while
+rolling back speculative named references and owned allocations. Ordinary scalar
+assignments retain the original interpreter behavior.
+
+BUG-164 adds the separate named and instruction image allocation pools to the
+touched-entry journal. Rolling back only bindings was insufficient: those pools
+still retained cancelled allocations, including entries keyed by lazy original
+declarations. Restore the image pools before retiring those declarations. The original
+ResourcePool::emplace/destructor AddRef/Release cached resources; Vulkan needs explicit
+cache rollback in addition to packet ownership and deferred destruction.
+
+This is a frontend boundary for original ref/copy/CustomShader commands. The production
+host still must map complete source facts, preserve exact command positions, split
+attachments correctly, restore compute state and retain recordings. It does not enable
+the old pre-submission Draw mode or close cross-queue scheduling.
+
+Verification on 3.3.4: configuration GPU 267 passes with clean core/synchronization
+validation, including independent array-view compute values 14/22 and whole-image
+copies of both application-written layers. Missing saved-reference observations
+refuse and retry. Named/instruction copy allocations retire after cancellation.
+Fresh root 27/interpreter 570, ordinary image/parameter 3,010, production registry 13,
+tracker 838 and ABI 9 pass. The initial pool-retention failure remains recorded.

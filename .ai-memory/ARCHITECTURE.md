@@ -1,5 +1,13 @@
 # EFMI Vulkan - Architecture
 
+D-316 (3.3.3) adds retained optimal application images to prepared commands. Each
+scope requires a fresh uniform whole-image layout observation and complete actual
+allocation span/owner. Packet layout contracts stay immutable and restore the observed
+layout. Transfers require actual usage; unproved physical aliases refuse. D-317
+extends original registry snapshots to complete buffer/image bindings, independent
+saved-image observations, weak source/view identities and original subresource/output
+hazards. Production source mapping and ordered packet insertion remain required.
+
 D-314 (3.3.2) extends prepared packets to owned-image transfers, clears, resolves
 and compute descriptors, with retained allocation/subresource accesses and explicit
 initial/final layouts. Sealing requires a later accept/discard; only ordered host

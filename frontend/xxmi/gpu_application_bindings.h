@@ -1,16 +1,29 @@
 #pragma once
 
 namespace efmi::frontend {
-void GpuResourceRuntime::begin_prepared(const ApplicationBufferState& application){
+void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& application){
     auto require=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
-    require(application.omitted_slots_unbound,"Application buffer imports require a complete proven source context");
-    require(application.bindings.size()<=1024,"Application binding snapshot exceeds its budget");
+    require(application.omitted_slots_unbound,"Application imports require complete proven source bindings");
+    require(application.buffers.size()+application.images.size()<=1024 && application.observations.size()<=1024,
+        "Application binding snapshot exceeds its budget");
     begin_prepared();
     try{
         Bindings slots;
         decltype(source_identities_) identities;
         std::map<uint64_t,std::shared_ptr<const SourceResourceIdentity>> source_facts;
-        for(const auto& input:application.bindings){
+        auto identify=[&](uint64_t id,const std::shared_ptr<const SourceResourceIdentity>& facts,std::weak_ptr<void> owner){
+            require(bool(facts),"Application source tracking state is unknown");const auto& identity=*facts;
+            require(identity.hash_known || !identity.hash,"Unknown source hash has an asserted value");
+            require(identity.tracking==SourceResourceIdentity::Tracking::Tracked ||
+                (!identity.hash_known && !identity.region_hash),"Untracked source has asserted hash facts");
+            const auto found=source_facts.find(id);
+            if(found!=source_facts.end())require(found->second==facts ||
+                (found->second->tracking==identity.tracking && found->second->hash_known==identity.hash_known &&
+                 found->second->hash==identity.hash && !found->second->region_hash && !identity.region_hash),
+                "Application aliases have conflicting source identity facts");
+            else{source_facts.emplace(id,facts);identities.emplace(std::move(owner),identity);}
+        };
+        for(const auto& input:application.buffers){
             using T=ResourceCopyTargetType;
             const auto type=input.type;
             require(type==T::VERTEX_BUFFER || type==T::INDEX_BUFFER || type==T::CONSTANT_BUFFER ||
@@ -29,11 +42,8 @@ void GpuResourceRuntime::begin_prepared(const ApplicationBufferState& applicatio
                     "Published file resources require their separate dependency contract");
                 require(r.size && r.size<=UINT_MAX && desc.ByteWidth==r.size && r.offset<r.size && r.range &&
                     r.range<=r.size-r.offset,"Application source buffer window is invalid");
-                require(bool(input.identity),"Application source tracking state is unknown");
-                const auto& identity=*input.identity;
-                require(identity.hash_known || !identity.hash,"Unknown source hash has an asserted value");
-                require(identity.tracking==SourceResourceIdentity::Tracking::Tracked ||
-                    (!identity.hash_known && !identity.region_hash),"Untracked source has asserted hash facts");
+                const auto image=imported_images_.find(r.identity);
+                require(image==imported_images_.end() || image->second.image.expired(),"A retained source identity cannot change resource kind");
                 const bool structured=(desc.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED)!=0;
                 const bool raw=(desc.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS)!=0;
                 require(!(structured && raw) && (structured?(desc.StructureByteStride &&
@@ -85,25 +95,45 @@ void GpuResourceRuntime::begin_prepared(const ApplicationBufferState& applicatio
                     require((input.format==DXGI_FORMAT_R16_UINT || input.format==DXGI_FORMAT_R32_UINT) &&
                         r.offset%dxgi_format_size(input.format)==0,"Application index buffer format or offset is invalid");
                 }else require(input.format==DXGI_FORMAT_UNKNOWN,"Application vertex buffer has an unexpected view format");
-                const std::weak_ptr<void> owner=value.buffer;
-                // Aliases have one source identity. Reject contradictory facts
-                // within one snapshot instead of choosing whichever slot ran last.
-                const auto found=source_facts.find(r.identity);
-                if(found!=source_facts.end())require(found->second==input.identity ||
-                    (found->second->tracking==identity.tracking && found->second->hash_known==identity.hash_known &&
-                     found->second->hash==identity.hash && !found->second->region_hash && !identity.region_hash),
-                    "Application aliases have conflicting source identity facts");
-                else{source_facts.emplace(r.identity,input.identity);identities.emplace(owner,identity);}
+                identify(r.identity,input.identity,value.buffer);
             }
             slots.emplace(key,std::move(value));
         }
-        // A source context cannot already have a buffer simultaneously bound as
-        // an input and an output, or twice as an output. DX11 would null/reject it.
+        std::map<uint64_t,GpuResourceBinding> observed_images;
+        auto observe=[&](const std::shared_ptr<const ApplicationImageSource>& source){
+            require(bool(source),"An application image observation cannot be null");
+            auto value=import_application_image(*source);identify(source->resource_id,source->identity,value.image);
+            observed_images[source->resource_id]=value;return value;
+        };
+        for(const auto& source:application.observations)observe(source);
+        for(const auto& input:application.images){
+            using T=ResourceCopyTargetType;
+            require(input.type==T::SHADER_RESOURCE || input.type==T::UNORDERED_ACCESS_VIEW ||
+                input.type==T::RENDER_TARGET || input.type==T::DEPTH_STENCIL_TARGET,"Application image needs a source view slot");
+            ResourceCopyTarget target;target.type=input.type;target.shader_type=input.stage;target.slot=input.slot;
+            CommandListState state;const auto key=slot(target,state);
+            require(!slots.count(key),"Application snapshot contains a duplicate source slot");
+            GpuResourceBinding value;
+            if(input.source){value=observe(input.source);import_application_view(value,input);}
+            slots.emplace(key,std::move(value));
+        }
+        auto attachment=[](const auto& key){return std::get<1>(key)==ResourceCopyTargetType::RENDER_TARGET ||
+            std::get<1>(key)==ResourceCopyTargetType::DEPTH_STENCIL_TARGET;};
+        auto output=[&](const auto& key){return attachment(key) || std::get<1>(key)==ResourceCopyTargetType::UNORDERED_ACCESS_VIEW;};
+        auto pixel_uav=[](const auto& key){return std::get<0>(key)==L'p' && std::get<1>(key)==ResourceCopyTargetType::UNORDERED_ACCESS_VIEW;};
+        auto register_conflict=[&](const auto& a,const auto& b){return pixel_uav(a) &&
+            std::get<1>(b)==ResourceCopyTargetType::RENDER_TARGET && std::get<2>(a)<=std::get<2>(b);};
+        // Snapshot existing original API state; do not silently null conflicting
+        // inputs/outputs or accept a partial incompatible attachment set.
         for(auto a=slots.begin();a!=slots.end();++a)if(a->second)
-            for(auto b=std::next(a);b!=slots.end();++b)if(b->second &&
-                (std::get<1>(a->first)==ResourceCopyTargetType::UNORDERED_ACCESS_VIEW ||
-                 std::get<1>(b->first)==ResourceCopyTargetType::UNORDERED_ACCESS_VIEW))
-                require(!source_bindings_overlap(a->second,b->second),"Application snapshot violates original buffer binding hazards");
+            for(auto b=std::next(a);b!=slots.end();++b)if(b->second){
+                if(output(a->first) || output(b->first))require(!source_bindings_overlap(a->second,b->second),
+                    "Application snapshot violates original subresource binding hazards");
+                if(attachment(a->first) && attachment(b->first))require(source_attachments_compatible(a->second,b->second),
+                    "Application snapshot has incompatible original attachments");
+                require(!register_conflict(a->first,b->first) && !register_conflict(b->first,a->first),
+                    "Application pixel UAV overlaps the original render target register range");
+            }
         // Prepare every allocation before publication. Cancellation then restores
         // the newly observed application context, not an earlier draw's bindings.
         auto baseline=slots;

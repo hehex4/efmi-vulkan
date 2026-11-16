@@ -162,3 +162,12 @@ Present acceptance. Minimal root Includes and full F10 exchange pass 82/82 in bo
 entry modes, including independent pixels, allocation/descriptor reuse, cache restart,
 conditional chains and notice bursts. Runtime stays 3.3.2. The earlier failed legacy
 entry and migrated status-path assertions are retained as separate evidence.
+
+D-316 supplies retained application image commands with fresh whole-image layout
+proofs and immutable restoration, passing prepared 112 checks on 3.3.3. D-317 adds
+complete original buffer/image source snapshots and independent observations for
+saved references. GPU 267 checks pass on 3.3.4, including array views, full resource
+copies, current producer data, source hazards and rollback. Review reproduces and
+fixes omitted image allocation-pool rollback (BUG-164). Root 27/interpreter 570 and
+affected regressions pass. Ordered packet segmentation, production source mapping,
+pass/compute restoration and recording lifetime remain open before Core execution.
