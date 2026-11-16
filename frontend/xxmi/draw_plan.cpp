@@ -57,6 +57,13 @@ struct QueryService {DrawPlanAdapter::ResourceQuery read,texture,plan_read,decla
     // inside: in a draw's scope, within a CustomShader (D-087); drawing: a draw's scope is open.
     std::function<bool()> gate,inside,drawing,preparing;bool open() const {return !gate || gate() || (inside && inside());}
     std::function<void()> preparation_failed;
+    std::function<void(CustomResourcePool*)> prepare_pool;
+    std::function<void(PoolCopyOperation&)> prepare_pool_copy;
+    void pool(CustomResourcePool* value){
+        if(!value || !preparing || !preparing())return;
+        if(!prepare_pool)refuse(L"Prepared resource pools require a pool-state transaction");
+        prepare_pool(value);
+    }
     // What a replaced draw's state holds at a target (a slot, `this`): false for a target that is no slot of
     // the context, or outside an execution. Queries on a slot read what the lists bound there (D-161).
     std::function<bool(ResourceCopyTarget&,CommandListState&,SlotValue&,SlotId&)> held;
@@ -342,10 +349,11 @@ public:
 };
 class PreparedPoolQuery final : public CommandListEvaluatable {
 public:
-    std::shared_ptr<CommandListEvaluatable> source;std::shared_ptr<QueryService> service;
-    PreparedPoolQuery(std::shared_ptr<CommandListEvaluatable> value,std::shared_ptr<QueryService> owner):source(std::move(value)),service(std::move(owner)){}
+    std::shared_ptr<CommandListEvaluatable> source;std::shared_ptr<QueryService> service;CustomResourcePool* pool;
+    PreparedPoolQuery(std::shared_ptr<CommandListEvaluatable> value,std::shared_ptr<QueryService> owner,CustomResourcePool* target):
+        source(std::move(value)),service(std::move(owner)),pool(target){}
     float evaluate(CommandListState* state,HackerDevice* device=nullptr) override {
-        if(service->preparing && service->preparing())refuse(L"Prepared resource pools require a pool-state transaction");
+        service->pool(pool);
         return source->evaluate(state,device);
     }
     bool static_evaluate(float*,HackerDevice* =nullptr,bool=false) override {return false;}
@@ -583,10 +591,10 @@ void guard_expression(std::shared_ptr<CommandListEvaluatable>& node,const std::s
             node=std::make_shared<RenderTargetQuery>(std::move(operand),queries);return;
         }
         guard_target(operand->texture_filter_target,queries,depth+1);
-        const bool pooled=operand->texture_filter_target.custom_resource_pool!=nullptr;
+        auto* pool=operand->texture_filter_target.custom_resource_pool;
         if(operand->type==ParamOverrideType::TEXTURE && !cpu_expression(operand,depth+1))
             node=std::make_shared<NativeResourceQuery>(std::move(operand),queries);
-        if(pooled)node=std::make_shared<PreparedPoolQuery>(std::move(node),queries);
+        if(pool)node=std::make_shared<PreparedPoolQuery>(std::move(node),queries,pool);
     }
     else if(auto* op=dynamic_cast<CommandListOperator*>(node.get())){
         if(op->lhs)guard_expression(op->lhs,queries,depth+1);if(op->rhs)guard_expression(op->rhs,queries,depth+1);
@@ -1527,10 +1535,13 @@ struct DrawPlanAdapter::Runtime {
 #endif
         if (!active) refuse(L"Planner command invoked outside a transaction");
         if(queries->preparing && queries->preparing()){
-            if((kinds&K_PoolCopyOperation) || (kinds&K_PoolVariableOperation))
-                refuse(L"Prepared resource pools require a pool-state transaction");
+            if(auto* copy=as<PoolCopyOperation>(original,kinds,K_PoolCopyOperation)){
+                if(!queries->prepare_pool_copy)refuse(L"Prepared resource pools require a pool-state transaction");
+                queries->prepare_pool_copy(*copy);
+            }
+            if(auto* variable=as<PoolVariableOperation>(original,kinds,K_PoolVariableOperation))queries->pool(variable->dst.custom_resource_pool);
             if(auto* check=as<CheckTextureOverrideCommand>(original,kinds,K_CheckTextureOverrideCommand);check && check->target.custom_resource_pool)
-                refuse(L"Prepared resource pools require a pool-state transaction");
+                queries->pool(check->target.custom_resource_pool);
         }
         // The original stops a list at this depth with a warning (_RunCommandList), and its caller goes on.
         if (state->recursion >= MAX_COMMAND_LIST_RECURSION)
@@ -2147,10 +2158,12 @@ void DrawPlanAdapter::owned_scope(std::function<bool()> gate){
     if(runtime_->active || !runtime_->adapted.empty() || !gate || runtime_->owned_gate)refuse(L"Install one owned scope gate before adaptation");
     runtime_->owned_gate=gate;runtime_->queries->gate=std::move(gate);
 }
-void DrawPlanAdapter::prepared_scope(std::function<bool()> gate,std::function<void()> failure){
+void DrawPlanAdapter::prepared_scope(std::function<bool()> gate,std::function<void()> failure,
+    std::function<void(CustomResourcePool*)> pool,std::function<void(PoolCopyOperation&)> pool_copy){
     if(runtime_->active || !runtime_->adapted.empty() || !gate || !failure || runtime_->queries->preparing)refuse(L"Install one prepared scope gate before adaptation");
     runtime_->queries->preparing=std::move(gate);
     runtime_->queries->preparation_failed=std::move(failure);
+    runtime_->queries->prepare_pool=std::move(pool);runtime_->queries->prepare_pool_copy=std::move(pool_copy);
 }
 void DrawPlanAdapter::draw_scope(std::function<bool()> gate){
     if(runtime_->active || !runtime_->adapted.empty() || !gate || runtime_->draw_gate)refuse(L"Install one draw scope gate before adaptation");
@@ -2288,7 +2301,12 @@ void DrawPlanAdapter::adapt_tree(CommandList& root, size_t depth)
             constexpr uint32_t native = Runtime::K_IfCommand | Runtime::K_VariableAssignmentExact | Runtime::K_PoolVariableOperation |
                                         Runtime::K_AbortCommand | Runtime::K_PresetCommand | Runtime::K_ResetPerFrameLimitsCommand |
                                         Runtime::K_UpscalingFlipBBCommand;
-            if ((kinds & native) && cpu_arguments(*command)) { guard_arguments(*command, runtime_->queries); continue; }
+            // Pool assignments need the pre-mutation checkpoint even when their
+            // value/index are CPU-only. Other scalar commands keep the fast path.
+            if ((kinds & native) && cpu_arguments(*command) &&
+                (!(kinds & Runtime::K_PoolVariableOperation) || !runtime_->queries->preparing)) {
+                guard_arguments(*command, runtime_->queries); continue;
+            }
         }
         command = std::make_shared<BridgeCommand>(command, runtime_);
     }

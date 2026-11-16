@@ -13,10 +13,39 @@ from build import find_vcvars, find_vulkan_include, run_cl
 from probe_xxmi_host import DEPS, PINS, ROOT, digest, pinned_checkout, write_ascii
 
 
+RUNTIME_SOURCE = ROOT / "build/xxmi-source"
+
+
+def stage_runtime_source(pristine: Path) -> Path:
+    """Keep pinned algorithms unchanged; grant the rollback adapter field access."""
+    RUNTIME_SOURCE.mkdir(parents=True, exist_ok=True)
+    for source in pristine.iterdir():
+        if not source.is_file():
+            continue
+        data = source.read_bytes()
+        if source.name == "CommandList.h":
+            newline = b"\r\n" if b"\r\n" in data else b"\n"
+            marker = newline.join((b"class CustomResourcePool", b"{", b"public:"))
+            if data.count(marker) != 1:
+                raise RuntimeError("Pinned CustomResourcePool declaration changed")
+            replacement = newline.join((b"namespace efmi { namespace frontend { struct OriginalPoolState; } }",
+                                       b"class CustomResourcePool", b"{",
+                                       b"    friend struct efmi::frontend::OriginalPoolState;", b"public:"))
+            data = data.replace(marker, replacement)
+            marker = b"class PoolCopyOperation : public CommandListCommand {"
+            if data.count(marker) != 1:
+                raise RuntimeError("Pinned PoolCopyOperation declaration changed")
+            data = data.replace(marker, marker + newline + b"    friend struct efmi::frontend::OriginalPoolState;")
+        target = RUNTIME_SOURCE / source.name
+        if not target.exists() or target.read_bytes() != data:
+            target.write_bytes(data)
+    return RUNTIME_SOURCE
+
+
 def runtime_flags(out: Path) -> list[str]:
     upstream = DEPS / "XXMI-Libs-Package"
     port = DEPS / "wwmi-dx12/reshade_addon/migoto"
-    pristine = DEPS / "efmi-xxmi-host-prototype/pristine"
+    pristine = RUNTIME_SOURCE
     includes = [ROOT / "frontend/xxmi", Path(find_vulkan_include()), port, pristine, upstream,
                 DEPS / "dxc-1.9.2609/inc", DEPS / "SPIRV-Reflect-1.4.321.0", DEPS / "vkd3d-2.1/include",
                 DEPS / "SPIRV-Headers-1.4.321.0/include",
@@ -54,6 +83,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
             original = upstream / line
             if digest(original) != digest(pristine / original.name):
                 raise RuntimeError("Original source staging mismatch; run probe_xxmi_host.py")
+    pristine = stage_runtime_source(pristine)
     out = out.resolve()
     out.mkdir(parents=True, exist_ok=True)
     # Stage the unchanged declaration reader next to its token header so its

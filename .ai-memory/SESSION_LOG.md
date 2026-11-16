@@ -3503,3 +3503,28 @@ metadata/index/element rollback, image/parameter transactions, host source facts
 ordered packet insertion, attachment preservation, compute restoration and recording
 owners. Native I-01/I-04/I-05/capture remains after the shared rewrite. No candidate
 refresh, game load, installed/system mutation or remote write.
+
+## 2026-11-16: D-313 original resource pool transactions (3.3.1)
+
+Continued the user's original-configuration rewrite. Read original pool lookup,
+copy/reset/metadata and variable registration paths. DX11 supplies reference-counted
+lifetime with deferred destruction, hazard tracking and one-context order. Vulkan
+now journals pool CPU state before mutable lookups and assignments, including proxy
+roots, FIFO/expiry tables, cached elements, lazy registrations and persistent values.
+Cancellation restores state without allocation; original scalar assignments persist.
+Only a project-local staged header gains named friend declarations; pinned algorithms
+and external sources remain unchanged. The staging diff was inspected explicitly.
+
+The first GPU fixture failed cancellation. A no-build diagnostic isolated variable 77
+instead of admitted 9; FIFO and proxy state were correct. CPU-only pool assignments
+had bypassed the bridge checkpoint (BUG-162). Corrected preparation routing passes
+GPU 169 in prepared-pools-fixed.out and an independent repeat in
+prepared-pools-regression.out, with zero core/synchronization diagnostics. An earlier
+debug wrapper's empty output is inconclusive. Root 27/interpreter 570 pass in
+prepared-pools-runtime.out. Primitive 65, production 13, tracker 838, ABI 9 and text
+pass. Four development DLLs build as 3.3.1 / ABI ff5c853cc3759e7d in
+prepared-pools-build.out. The reviewed change is committed locally and main advanced.
+
+Next: owned image/parameter transactions and ordered host insertion, then remaining
+native queue/access/readiness/capture work. Production Core execution is incomplete.
+No candidate refresh, game action, installed/system mutation or remote write.

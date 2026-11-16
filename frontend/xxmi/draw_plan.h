@@ -271,7 +271,8 @@ public:
     void owned_scope(std::function<bool()>);
     // Speculative buffer execution cannot mutate original pool indexing or
     // element types until a separate pool-state transaction is available.
-    void prepared_scope(std::function<bool()>,std::function<void()> failure);
+    void prepared_scope(std::function<bool()>,std::function<void()> failure,
+        std::function<void(CustomResourcePool*)> pool={},std::function<void(PoolCopyOperation&)> pool_copy={});
     // The host's scope for GPU work inside a replaced draw (P2, D-087). While it returns true the
     // draw's own bindings and draws keep the plan path; CustomShaders, copies into the Mod's
     // resources and everything inside a CustomShader run as owned work, which never reads or binds

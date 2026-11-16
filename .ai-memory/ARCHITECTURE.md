@@ -1,5 +1,12 @@
 # EFMI Vulkan - Architecture
 
+D-313 (3.3.1) adds original pool rollback to prepared execution, including lazy
+registrations, mutable lookup/index/expiry state, proxies and pool variables. A
+CPU-only pool assignment still passes through the transaction checkpoint. Original
+algorithms and layouts are unchanged; the project-local staged header grants named
+friend access only. Owned image/parameter transactions and production host insertion
+remain required. No per-character loading or replacement algorithm is introduced.
+
 D-312 (3.3.0) adds a prepared application-buffer snapshot boundary to the original
 GPU registry. Complete source descriptions, view windows, hashes and omitted-null
 facts are explicit inputs; bounded weak caches preserve original alias identity.

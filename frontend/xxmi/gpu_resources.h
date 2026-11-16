@@ -133,6 +133,8 @@ private:
     void remember(CustomResource&);
     void remember(ResourceCopyOperation&);
     void remember(SlotRangeCopyOperation&);
+    void remember(CustomResourcePool*);
+    void remember(PoolCopyOperation&);
     void rollback_prepared() noexcept;
     struct ImportedBuffer {
         std::weak_ptr<gpu::BufferResource> buffer;

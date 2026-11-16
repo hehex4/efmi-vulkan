@@ -1,5 +1,15 @@
 # EFMI Vulkan - Known issues
 
+## BUG-162: CPU pool assignments bypassed prepared rollback (fixed 3.3.1)
+
+The original PoolVariableOperation remains a mutating pool command even when its
+arguments are CPU-only. The adapter's fast path left it unwrapped, so a later query
+saved its already-modified value. D-313 routes it through the pre-mutation checkpoint
+whenever a prepared scope provider is installed. The failing cancellation returned
+77 instead of the admitted 9; the corrected pool fixture and independent repeat pass.
+Standalone original CPU execution keeps its fast path. Image and parameter preparation
+and production host integration remain separate work.
+
 ## BUG-161: Single configuration lost native shader filter queries (fixed 3.2.9)
 
 Deleting the package extension also removed its native plan query provider. Shader

@@ -162,3 +162,39 @@ before replay and checks owner retirement. The combined configuration GPU suite
 passes 126 with zero core/synchronization errors or warnings; root 27, interpreter
 570 and prepared primitives 65 also pass. This is a headless frontend result, not
 production interception or real-game Core acceptance.
+
+## Original pool transactions (D-313)
+
+Pool lookup is mutable in the original engine: keyed indexing, expiration, type
+switching and lazy variable/resource creation can change state even during a query.
+Prepared execution checkpoints a pool before that first access, following any pool
+proxy to its source. The journal preserves index maps, cached elements, replacement
+and expiration clocks, template/element metadata, pool variable values and the pool
+copy instruction's failure memo. Ordinary scalar globals continue to persist.
+
+Lazy registrations belong to the transaction. Cancellation restores the admitted
+pool state and persistent-variable list, then removes newly registered resources
+and variables after their GPU cache entries have been retired. Saved metadata holds
+borrowed initialization pointers rather than owning copies of template data. All
+restoration uses existing nodes, swaps or erasure; no allocation is required after a
+failed preparation. Accepted work keeps the original engine's updated pool state.
+
+The original pool algorithms are compiled unchanged. The runtime build stages its
+pinned source under project-owned build/xxmi-source and adds only friend declarations
+for OriginalPoolState in CustomResourcePool and PoolCopyOperation. This grants named
+field access without guessing object offsets, exposing private members globally or
+changing the external dependency checkout. Every runtime translation unit uses the
+same staged header; the separate original CPU reference host retains its pristine
+header. Pinned dependency and pristine staging digests are still checked.
+
+Admission bounds the number of pools, cached elements and registration snapshots.
+The first touch copies a pool's index state; this is a correctness boundary, not a
+claim that production recording is allocation-free. Image/parameter transactions and
+host queue/pass/recording integration remain separate requirements.
+
+The fixture passes 169 combined configuration GPU assertions, including cancelled
+FIFO eviction, lazy persistent variables, expiry refresh, proxy/reset/metadata and
+failure after a queued write. It exposed a CPU assignment fast path that checkpointed
+too late; the corrected bridge saves state before mutation. A fresh independent repeat
+also passes with zero core/synchronization diagnostics. Root 27, interpreter 570,
+prepared primitives 65, production 13, tracker 838 and ABI 9 pass on 3.3.1.

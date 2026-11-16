@@ -13,6 +13,18 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-313: Journal original pool state without replacing its algorithms (2026-11-16)
+
+Checkpoint pools before mutable queries as well as assignments, including proxy roots,
+index/expiry state, cached elements, resource metadata, variables and lazy registrations.
+Restore before removing new registry nodes; scalar globals keep original CPU semantics.
+Bound snapshots and grant only a named adapter friendship in the project-local staged
+header. Do not change algorithms, object layout or the external pinned checkout. All
+runtime translation units share that header. DX11 reference-counted lifetime with
+deferred destruction, hazard tracking and one-context order still require explicit
+Vulkan owners and host insertion proofs; the pool journal establishes neither order
+nor production execution. See docs/prepared-resource-commands.md.
+
 ## D-312: Import complete source buffer facts into prepared execution (2026-11-16)
 
 ApplicationBufferState explicitly asserts a complete source context, with omitted

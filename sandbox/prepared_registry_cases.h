@@ -114,16 +114,16 @@ endif
         "Failure rolls back the earlier clear and leaves synchronous feedback untouched");
     begin(12);auto reference=resources.finish_prepared();check(!reference,"A pure reference needs no GPU packet");record(std::move(reference));
     check(read(slot(),{31,37,41,43}),"A subsequent reference-only scope admits the retained original allocation");
-    begin(13);check(resources.failed(),"Pool mutation stays refused until its independent transaction exists");resources.discard();
+    begin(13);check(!resources.failed(),"Pool mutation participates in prepared cancellation");resources.finish_prepared();resources.discard();
     resources.begin(d.queue,Site::OutsideRenderPass);check(ini->present({},13,0,why),"Ordinary original pool execution remains available");
     {auto ticket=resources.finish();if(ticket)ticket->wait();}
-    check(read(slot(),{31,37,41,43}),"Ordinary pool references preserve the admitted resource after a prepared refusal");
-    begin(14);check(resources.failed(),"A contained CPU pool reset also invalidates prepared admission");resources.discard();
-    resources.begin(d.queue,Site::OutsideRenderPass);check(ini->present({},14,0,why),"Ordinary pool lookup follows the rejected reset");
+    check(read(slot(),{31,37,41,43}),"Ordinary pool references preserve the admitted resource after prepared cancellation");
+    begin(14);check(!resources.failed(),"A CPU pool reset participates in prepared cancellation");resources.finish_prepared();resources.discard();
+    resources.begin(d.queue,Site::OutsideRenderPass);check(ini->present({},14,0,why),"Ordinary pool lookup follows the cancelled reset");
     {auto ticket=resources.finish();if(ticket)ticket->wait();}
-    check(read(slot(),{31,37,41,43}),"Rejected original CPU pool reset did not mutate any pool element");
-    begin(15);check(resources.failed() && ini->status().variables.at("$feedback")==-1,
-        "A prepared pool property query refuses before lookup or scalar assignment");resources.discard();
+    check(read(slot(),{31,37,41,43}),"Cancelled original CPU pool reset preserves admitted pool elements");
+    begin(15);check(!resources.failed() && ini->status().variables.at("$feedback")==16,
+        "A prepared pool property query executes through original lookup");resources.finish_prepared();resources.discard();
     resources.begin(d.queue,Site::OutsideRenderPass);check(ini->present({},15,0,why),"Ordinary pool property query remains available");
     {auto ticket=resources.finish();if(ticket)ticket->wait();}
     check(ini->status().variables.at("$feedback")==16,"Ordinary original query reads the preserved pool resource");

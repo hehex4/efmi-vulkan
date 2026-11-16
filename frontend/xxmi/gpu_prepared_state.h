@@ -1,5 +1,6 @@
 #pragma once
 #include "gpu_resources.h"
+#include "original_pool_state.h"
 
 namespace efmi::frontend {
 // Only entries touched by an operation are copied. Restoring transfers already
@@ -20,6 +21,35 @@ template<class Map> struct ResourceMapUndo {
     }
 };
 struct GpuResourceRuntime::PreparedState {
+    struct Pools {
+        CustomResources* resources=&customResources;
+        CommandListVariables* variables=&command_list_globals;
+        std::vector<CommandListVariable*>* persistent=&persistent_variables;
+        std::set<std::wstring> resource_names,variable_names;
+        std::vector<CommandListVariable*> saved_persistent;
+        std::map<CustomResourcePool*,OriginalPoolState> states;
+        std::map<CustomResource*,OriginalResourceMetadata> metadata;
+        std::map<CommandListVariable*,std::pair<float,VariableFlags>> values;
+        std::map<PoolCopyOperation*,CustomResourcePool*> copies;
+        size_t capacity=0;
+        Pools():saved_persistent(*persistent){
+            if(resources->size()>65536 || variables->size()>65536)throw std::runtime_error("Prepared pool registration budget exceeded");
+            for(const auto& item:*resources)resource_names.insert(item.first);
+            for(const auto& item:*variables)variable_names.insert(item.first);
+        }
+        void restore_metadata() noexcept {
+            for(auto& item:metadata)item.second.restore(*item.first);
+        }
+        void restore() noexcept {
+            for(auto& item:states)item.second.restore(*item.first);
+            for(const auto& item:values){item.first->fval=item.second.first;item.first->flags=item.second.second;}
+            for(const auto& item:copies)OriginalPoolState::failed(*item.first,item.second);
+            *persistent=std::move(saved_persistent);
+            for(auto it=resources->begin();it!=resources->end();)if(!resource_names.count(it->first))it=resources->erase(it);else ++it;
+            for(auto it=variables->begin();it!=variables->end();)if(!variable_names.count(it->first))it=variables->erase(it);else ++it;
+        }
+    };
+    std::unique_ptr<Pools> pools;
     struct Declaration {
         bool is_null,substantiated;
         D3D11_BIND_FLAG bind_flags;
@@ -46,11 +76,37 @@ struct GpuResourceRuntime::PreparedState {
 };
 void GpuResourceRuntime::remember(CustomResource& r){
     if(!prepared_state_)return;
-    if(r.pool)throw std::runtime_error("Prepared resource pools require a pool-state transaction");
+    if(r.pool)remember(r.pool);
     auto& undo=*prepared_state_;
     undo.declarations.try_emplace(&r,PreparedState::Declaration{r.is_null,bool(substantiated_.count(&r)),r.bind_flags,r.misc_flags,
         r.stride,r.offset,r.buf_size,r.source_stride,r.frame_no,r.format,r.copies_this_frame});
     undo.resources.remember(resources_,&r);undo.resource_pools.remember(resource_copy_pools_,&r);
+}
+void GpuResourceRuntime::remember(CustomResourcePool* pool){
+    if(!prepared_state_ || !pool)return;
+    auto& undo=*prepared_state_;
+    if(!undo.pools)undo.pools=std::make_unique<PreparedState::Pools>();
+    auto& saved=*undo.pools;
+    if(saved.states.count(pool))return;
+    const auto capacity=OriginalPoolState::capacity(*pool);
+    if(saved.states.size()>=256 || capacity>65536 || saved.capacity+capacity>262144)
+        throw std::runtime_error("Prepared pool snapshot budget exceeded");
+    saved.states.try_emplace(pool,*pool);saved.capacity+=capacity;
+    const auto resource_prefix=pool->name+L"_",variable_prefix=L"$"+pool->name+L"[";
+    for(auto& item:*saved.resources){auto& resource=item.second;
+        if(resource.pool==pool || &resource==pool->resource_template || item.first.compare(0,resource_prefix.size(),resource_prefix)==0){
+            saved.metadata.try_emplace(&resource,resource);remember(resource);
+        }
+    }
+    if(pool->variable_template){auto* value=pool->variable_template.get();saved.values.try_emplace(value,value->fval,value->flags);}
+    for(auto& item:*saved.variables)if(item.first.compare(0,variable_prefix.size(),variable_prefix)==0)
+        saved.values.try_emplace(&item.second,item.second.fval,item.second.flags);
+    remember(OriginalPoolState::source(*pool));
+}
+void GpuResourceRuntime::remember(PoolCopyOperation& op){
+    if(!prepared_state_)return;
+    remember(op.dst.custom_resource_pool);remember(op.src.custom_resource_pool);
+    if(prepared_state_->pools)prepared_state_->pools->copies.try_emplace(&op,OriginalPoolState::failed(op));
 }
 void GpuResourceRuntime::remember(ResourceCopyOperation& op){
     if(!prepared_state_)return;
@@ -62,9 +118,11 @@ void GpuResourceRuntime::remember(SlotRangeCopyOperation& op){
 void GpuResourceRuntime::rollback_prepared() noexcept {
     if(!prepared_state_)return;auto& undo=*prepared_state_;
     for(const auto& value:undo.declarations){value.second.restore(*value.first);if(!value.second.substantiated)substantiated_.erase(value.first);}
+    if(undo.pools)undo.pools->restore_metadata();
     undo.resources.restore(resources_);undo.copies.restore(copies_);
     undo.resource_pools.restore(resource_copy_pools_);undo.command_pools.restore(command_copy_pools_);undo.range_views.restore(range_views_);
     slots_=std::move(undo.slots);viewport_=undo.viewport;backbuffer_targeted_=undo.backbuffer_targeted;
+    if(undo.pools)undo.pools->restore();
     prepared_state_.reset();
 }
 void GpuResourceRuntime::begin_prepared(){

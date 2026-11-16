@@ -141,3 +141,10 @@ packets consume two different application producers at their actual insertion po
 and retain owners beyond interpreter destruction. Configuration GPU 126, root 27,
 interpreter 570 and prepared 65 pass on 3.3.0 with clean validation. Production host
 mapping, pool/image/parameter transactions and ordered pass insertion remain open.
+
+D-313 journals original pool lookup, FIFO/expiry, proxy/reset/metadata and lazy
+registration changes. Cancelled work restores admitted values and resources, while
+ordinary scalar globals persist. GPU 169, root 27, interpreter 570 and prepared 65
+pass on 3.3.1 with clean validation; production registry/tracker/ABI checks also pass.
+Pool algorithms remain the original source. Owned image/parameter transactions and
+production mapping/insertion remain open; this does not close native queue scheduling.

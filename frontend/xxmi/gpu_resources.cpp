@@ -136,7 +136,8 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
     adapter.resource_matches([this](auto& target,auto& state,auto& value,auto& why){return match_source(target,state,value,why);});
     adapter.parameter_flush([this](auto& state,bool force,auto& why){return flush_parameters(state,force,why);});
     adapter.owned_bindings([this](auto& target,auto& state,auto& out,auto& why){return owned_vertex(target,state,out,why);});
-    adapter.prepared_scope([this]{return active_ && site_==ExecutionSite::Prepared;},[this]{execution_failed();});
+    adapter.prepared_scope([this]{return active_ && site_==ExecutionSite::Prepared;},[this]{execution_failed();},
+        [this](CustomResourcePool* pool){remember(pool);},[this](PoolCopyOperation& op){remember(op);});
     return {};
 }
 void GpuResourceRuntime::draw_commands(DrawExecutor executor){
@@ -180,11 +181,11 @@ GpuResourceRuntime::Slot GpuResourceRuntime::slot(ResourceCopyTarget& t,CommandL
     const auto index=t.ResolveSlot(&state);require(index<limit,"GPU binding slot out of range");return {stage?t.shader_type:L'\0',t.type,index};
 }
 CustomResource* GpuResourceRuntime::declaration(ResourceCopyTarget& t,CommandListState& state,bool writing) {
-    require(!prepared_state_ || !t.custom_resource_pool,"Prepared resource pools require a pool-state transaction");
+    remember(t.custom_resource_pool);
     if(t.custom_resource_pool)validate_pool_runtime(*t.custom_resource_pool);
     auto* r=t.GetCustomResource(&state,writing);
     if(r && r->pool)validate_pool_runtime(*r->pool);
-    require(!prepared_state_ || !r || !r->pool,"Prepared resource pools require a pool-state transaction");
+    if(r)remember(r->pool);
     return r;
 }
 GpuResourceBinding GpuResourceRuntime::load(CustomResource& r,ResourceCopyTarget* destination,CommandListState* state) {
@@ -370,8 +371,7 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
         uint32_t(ResourceCopyOptions::MONO)|uint32_t(ResourceCopyOptions::SET_VIEWPORT)|uint32_t(ResourceCopyOptions::RESOLVE_MSAA);
     require(!(uint32_t(op.options)&~allowed),"GPU copy option requires an additional adapter");
     auto& dst=effective(op.dst,state);
-    require(!prepared_state_ || (dst.type!=Target::POOL && !dst.custom_resource_pool && !op.src.custom_resource_pool),
-            "Prepared resource pools require a pool-state transaction");
+    remember(dst.custom_resource_pool);remember(op.src.custom_resource_pool);
     if(op.src.type==Target::EMPTY){set(dst,state,{});return;} // Explicit null ignores unless_null upstream.
     // A reference substantiates its source with the destination's bind flags; a copy does not (D-151).
     auto source=get(op.src,state,(op.options&ResourceCopyOptions::REFERENCE)?&op.dst:nullptr);
@@ -529,8 +529,7 @@ void GpuResourceRuntime::clear(ClearViewCommand& op,CommandListState& state) {
     else {std::vector<uint32_t> data(count/4);for(size_t i=0;i<data.size();++i)data[i]=words[i%channels];commands_.write(b.buffer,b.offset,data.data(),count);}
 }
 void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& state) {
-    require(!prepared_state_ || (!op.src.custom_resource_pool && !op.dst.custom_resource_pool),
-            "Prepared resource pools require a pool-state transaction");
+    remember(op.src.custom_resource_pool);remember(op.dst.custom_resource_pool);
     remember(op);
     const bool bind=op.dst.evaluation_mode==Mode::SLOT_RANGE;
     auto& slots=bind?op.dst:op.src;auto& other=bind?op.src:op.dst;
